@@ -306,6 +306,33 @@ pub fn placement_flavour_from_toml(text: &str) -> Result<PlacementFlavour, Strin
     Ok(f)
 }
 
+/// One placed part as a flavour sees it, before it is turned into text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlacedRow {
+    /// Reference designator.
+    pub reference: String,
+    /// Component id; 0 for a fiducial.
+    pub component: u64,
+    /// X in the flavour's unit, from the flavour's origin.
+    pub x: f64,
+    /// Y in the flavour's unit, from the flavour's origin.
+    pub y: f64,
+    /// Angle after the flavour's bottom policy and range.
+    pub rotation: f64,
+    /// Angle as stored on the board, before offsets and policy.
+    pub stored_rotation: f64,
+    /// True on the bottom face.
+    pub bottom: bool,
+    /// Package name as the design states it.
+    pub package: String,
+    /// Component value.
+    pub value: String,
+    /// True for a through-hole part.
+    pub tht: bool,
+    /// False when a variant or a property leaves the part unfitted.
+    pub fitted: bool,
+}
+type Row = PlacedRow;
 struct Row {
     reference: String,
     x: f64,
@@ -424,6 +451,41 @@ fn clean(s: &str) -> String {
         .to_string()
 }
 
+/// The rows of a placement list as numbers, for a writer that adds its own columns.
+///
+/// # Rules
+/// - The same rows, order, origin, unit scaling, bottom X mirror and rotation policy
+///   that [`placement_flavoured`] writes; nothing is formatted.
+/// - Validates the design and the flavour first.
+///
+/// # Dependencies
+/// - crates/io/src/neoden_yy1.rs uses it for coordinates and rotation.
+///
+/// # Do not
+/// - Format a number here; the caller rounds for its own file.
+pub fn placed_rows(
+    p: &Project,
+    flavour: &PlacementFlavour,
+    options: &PlacementOptions,
+) -> Result<Vec<PlacedRow>, String> {
+    p.validate()?;
+    collect_rows(p, flavour, options)
+}
+
+/// Rows without the whole-design check, so tests can use back-side parts.
+pub(crate) fn placed_rows_unchecked(
+    p: &Project,
+    flavour: &PlacementFlavour,
+    options: &PlacementOptions,
+) -> Result<Vec<PlacedRow>, String> {
+    collect_rows(p, flavour, options)
+}
+
+fn collect_rows(
+    p: &Project,
+    fl: &PlacementFlavour,
+    options: &PlacementOptions,
+) -> Result<Vec<Row>, String> {
 /// Write the placement list or lists for a design in one flavour.
 ///
 /// # Rules
@@ -521,6 +583,8 @@ fn render(
         };
         rows.push(Row {
             reference: clean(&c.reference),
+            component: c.id,
+            stored_rotation: f.rotation,
             x: (x - origin.x) * scale,
             y: (f.position.y - origin.y) * scale,
             rotation: flavour_rotation(
@@ -548,6 +612,8 @@ fn render(
             };
             rows.push(Row {
                 reference: format!("FID{:02}", i + 1),
+                component: 0,
+                stored_rotation: 0.0,
                 x: (x - origin.x) * scale,
                 y: (fid.position.y - origin.y) * scale,
                 rotation: 0.0,
@@ -559,6 +625,40 @@ fn render(
             });
         }
     }
+    Ok(rows)
+}
+
+/// Write the placement list or lists for a design in one flavour.
+///
+/// # Rules
+/// - Validates the design and the flavour first; an unknown variant is an error.
+/// - Rows sort by reference in natural order, fiducials last.
+/// - With `split_by_side` the files are `<stem>-top.<ext>` and `<stem>-bottom.<ext>`,
+///   both written even when one is empty; otherwise the one file is `<stem>.<ext>`.
+/// - Lines end in `\n`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// # Do not
+/// - Change `placement_text` or reorder columns away from the flavour's order.
+pub fn placement_flavoured(
+    p: &Project,
+    flavour: &PlacementFlavour,
+    options: &PlacementOptions,
+) -> Result<PlacementOutput, String> {
+    p.validate()?;
+    render(p, flavour, options)
+}
+
+/// The export without the whole-design check, so tests can put parts on the
+/// bottom face of a design that cannot hold them yet.
+fn render(
+    p: &Project,
+    fl: &PlacementFlavour,
+    options: &PlacementOptions,
+) -> Result<PlacementOutput, String> {
+    let rows = collect_rows(p, fl, options)?;
     let line = |r: &Row| -> String {
         fl.columns
             .iter()

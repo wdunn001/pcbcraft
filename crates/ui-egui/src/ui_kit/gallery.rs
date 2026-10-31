@@ -502,7 +502,7 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
         TabItem::new("Manufacture", "Make fabrication files"),
     ];
     ui.allocate_ui(Vec2::new(520.0, 40.0), |ui| {
-        tab_bar::tab_bar(ui, "nav", &mut state.tab[0], &nav, TabSize::Nav);
+        tab_bar::tab_bar(ui, "nav", &mut state.tab[0], &nav, TabSize::Nav, None);
     });
     let aside = [
         TabItem {
@@ -515,7 +515,7 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
         },
     ];
     ui.allocate_ui(Vec2::new(320.0, 40.0), |ui| {
-        tab_bar::tab_bar(ui, "aside", &mut state.tab[1], &aside, TabSize::Aside);
+        tab_bar::tab_bar(ui, "aside", &mut state.tab[1], &aside, TabSize::Aside, None);
     });
     let sheet = [
         TabItem {
@@ -529,7 +529,7 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
         },
     ];
     ui.allocate_ui(Vec2::new(420.0, 36.0), |ui| {
-        tab_bar::tab_bar(ui, "sheet", &mut state.tab[2], &sheet, TabSize::Sheet);
+        tab_bar::tab_bar(ui, "sheet", &mut state.tab[2], &sheet, TabSize::Sheet, None);
     });
     if state.frames == 2 {
         let id = tab_bar::tab_id(ui, "aside", 0);

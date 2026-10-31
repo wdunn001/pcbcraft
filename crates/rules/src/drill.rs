@@ -114,6 +114,7 @@ pub(crate) fn drill_findings(project: &Project) -> Vec<Finding> {
                     a.label, b.label, -gap
                 ),
                 objects,
+                hint: None,
             });
         }
     }
@@ -231,6 +232,7 @@ mod tests {
             p.components.push(c);
         }
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 12,
             component: 2,
             position: Point::new(10.0, 10.0),
@@ -243,6 +245,7 @@ mod tests {
     }
     fn via(id: Id, x: f64, y: f64, drill: f64) -> Via {
         Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id,
             net: 1,
             position: Point::new(x, y),
@@ -251,6 +254,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         }
     }

@@ -12,9 +12,25 @@ mod browser;
 mod canvas;
 mod contrast;
 mod datums;
+mod datasheet_reader;
 mod draw_target;
 mod drill_table;
 mod editing;
+mod board3d;
+mod board_side;
+mod bom_export;
+mod bottom_sheet;
+pub mod brand;
+mod browser;
+mod canvas;
+mod wire_canvas;
+mod contrast;
+mod datasheet;
+mod datums;
+mod draw_target;
+mod drill_table;
+mod editing;
+mod finding_set;
 mod file_dialogs;
 mod board_side;
 mod bom_export;
@@ -35,6 +51,7 @@ mod hover_affordance;
 mod icons;
 mod impedance_panel;
 mod keymap;
+mod layer_visibility;
 mod layers_tree;
 mod library;
 mod library_builtin;
@@ -53,8 +70,55 @@ mod library_builtin;
 mod library_dock;
 mod library_online;
 mod library_quality;
+mod library_rank;
+mod library_workspace;
 mod minimap;
 mod modifier_ui;
+mod motion;
+mod number_entry;
+mod pages;
+mod palette;
+mod placement_machine_ui;
+mod plot_viewer;
+mod pour_panel;
+mod properties;
+mod reference_panel;
+mod route_drag;
+mod rules_fab;
+mod sheet_rows;
+mod showcase;
+mod sources;
+mod sourcing_panel;
+mod pages;
+mod palette;
+mod plot_viewer;
+mod pour_panel;
+mod project_settings;
+mod properties;
+mod reference_panel;
+mod route_drag;
+mod rules_fab;
+mod sheet_rows;
+mod showcase;
+mod sources;
+mod sourcing_panel;
+mod pages;
+mod palette;
+mod plot_viewer;
+mod pour_panel;
+mod properties;
+mod reference_panel;
+mod route_drag;
+mod setup_wizard;
+mod library_quality;
+mod minimap;
+mod modifier_ui;
+mod motion;
+mod number_entry;
+mod outline_arcs;
+mod sheet_rows;
+mod modifier_ui;
+mod model_transform;
 mod motion;
 mod number_entry;
 mod pages;
@@ -66,6 +130,7 @@ mod reference_panel;
 mod route_drag;
 mod rules_fab;
 mod sheet_rows;
+mod schematic_port;
 mod showcase;
 mod sources;
 mod sourcing_panel;
@@ -81,6 +146,7 @@ mod tour;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
+mod wall_clock;
 mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
@@ -409,7 +475,17 @@ fn tool_hint(tool: &Tool) -> String {
         }
         Tool::Wire(None) => t!("board.tool_hint.lmb_pick_the_first_pin", common = common),
         Tool::Wire(Some(_)) => {
-            t!("board.tool_hint.lmb_pick_the_second_pin", common = common)
+            "Click empty space for bends, another pin or wire to finish. Escape cancels.".to_string()
+                + &common
+        }
+        Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local) => {
+            "Click a wire or pin to place a net label.".to_string() + &common
+        }
+        Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power) => {
+            "Click a wire or pin to place a power label.".to_string() + &common
+        }
+        Tool::Bus => {
+            "Click two or more points for the bus path, then name it.".to_string() + &common
         }
         Tool::Route(None) => t!("board.tool_hint.route_drag", common = common),
         Tool::Route(Some(_)) => {
@@ -439,6 +515,7 @@ fn tool_hint(tool: &Tool) -> String {
             t!("board.tool_hint.lmb_click_two_points_to", common = common)
         }
         Tool::Via => t!("board.tool_hint.lmb_via", common = common),
+        Tool::Port => t!("schematic.port.tool_hint", common = common),
     }
 }
 
@@ -645,6 +722,7 @@ use serde_json::{Value, json};
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
     Files,
+    Library,
     Schematic,
     Pcb,
     Board3d,
@@ -700,6 +778,9 @@ struct Preferences {
     /// Library cards the person starred, by card key.
     #[serde(default)]
     library_favourites: Vec<String>,
+    /// When on, placing an open-library part also fetches its 3D model into the local cache.
+    #[serde(default)]
+    fetch_open_library_3d: bool,
     /// Region layout per workspace id; missing means the workspace default.
     #[serde(default)]
     layouts: std::collections::BTreeMap<String, workspace::RegionLayout>,
@@ -770,6 +851,9 @@ struct Preferences {
     /// Remapped tool modifiers and tool hotkeys; empty means classic defaults.
     #[serde(default)]
     modifiers: tool_modifiers::Bindings,
+    /// After the design setup wizard is finished or skipped, do not open it on every new design.
+    #[serde(default)]
+    setup_wizard_seen: bool,
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -806,6 +890,7 @@ impl Default for Preferences {
             aside_lower_tab: 0,
             left_tab: 0,
             library_favourites: Vec::new(),
+            fetch_open_library_3d: false,
             layouts: std::collections::BTreeMap::new(),
             language: default_language(),
             recent_files: Default::default(),
@@ -850,6 +935,7 @@ dark: true,
             active_keymap_profile: default_keymap_profile(),
             keymap_profiles: default_keymap_profiles(),
             modifiers: Default::default(),
+            setup_wizard_seen: false,
         }
     }
 }
@@ -989,6 +1075,8 @@ enum Tool {
     LibraryPlace(String, String, Box<pcbcraft_library::SymbolDefinition>),
     CustomPlace(String, Box<pcbcraft_library::SymbolDefinition>),
     Wire(Option<PinRef>),
+    SchematicLabel(wire_canvas::SchematicLabelKind),
+    Bus,
     Route(Option<(Id, String)>),
     Move,
     Cutout,
@@ -999,6 +1087,7 @@ enum Tool {
     DrawLayer,
     Measure,
     Via,
+    Port,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -1017,8 +1106,10 @@ enum DrawShape {
 /// so drawing and picking cannot disagree.
 ///
 /// # Rules
-/// - Order: shift to the centre, mirror x, turn clockwise by `turns` quarters,
-///   then scale. `turns` is always 0 to 3.
+/// - Order: shift to the centre, mirror x, lift y when `up` is set, turn
+///   clockwise by `turns` quarters, then scale. `turns` is always 0 to 3.
+/// - The board view sets `up`: world +y points up the screen, as in the
+///   manufacturing files and the 3D view. The schematic keeps y down.
 ///
 /// # Do not
 /// - Offset the centre by screen amounts; use [`Camera::pan_screen`].
@@ -1030,11 +1121,16 @@ struct Camera {
     mirror: bool,
     /// Quarter turns clockwise on screen.
     turns: u8,
+    /// World +y points up the screen (the board view). Off, y runs down.
+    up: bool,
 }
 impl Camera {
     /// A zoom-free offset taken through the mirror and the turns.
     fn turn(self, dx: f64, dy: f64) -> (f64, f64) {
-        let (mut x, mut y) = (if self.mirror { -dx } else { dx }, dy);
+        let (mut x, mut y) = (
+            if self.mirror { -dx } else { dx },
+            if self.up { -dy } else { dy },
+        );
         for _ in 0..(self.turns % 4) {
             (x, y) = (-y, x);
         }
@@ -1046,7 +1142,10 @@ impl Camera {
         for _ in 0..(self.turns % 4) {
             (x, y) = (y, -x);
         }
-        (if self.mirror { -x } else { x }, y)
+        (
+            if self.mirror { -x } else { x },
+            if self.up { -y } else { y },
+        )
     }
     fn screen(self, p: Point, rect: Rect) -> egui::Pos2 {
         let (x, y) = self.turn(p.x - self.center.x, p.y - self.center.y);
@@ -1065,6 +1164,19 @@ impl Camera {
         let z = self.zoom as f64;
         let (x, y) = self.unturn(d.x as f64 / z, d.y as f64 / z);
         self.center = self.center.offset(Point::new(-x, -y));
+    }
+    /// The on-screen angle (egui: clockwise, radians) of text whose baseline
+    /// runs along world angle `world` (radians, from +x toward +y). Mirrored
+    /// views keep the text readable instead of reversing it.
+    fn text_angle(self, world: f64) -> f32 {
+        let (dx, dy) = self.turn(world.cos(), world.sin());
+        let screen = dy.atan2(dx) as f32;
+        let flipped = screen + std::f32::consts::PI;
+        match (self.mirror, flipped > std::f32::consts::PI) {
+            (false, _) => screen,
+            (true, false) => flipped,
+            (true, true) => flipped - std::f32::consts::TAU,
+        }
     }
     /// Where world +x and +y point on screen, as unit vectors.
     fn axes(self) -> (Vec2, Vec2) {
@@ -1177,6 +1289,8 @@ pub struct App {
     stack_kind: String,
     stack_thickness: f64,
     stack_edit: Option<(String, String, f64)>,
+    /// The File > Project settings dialog.
+    project_settings: project_settings::State,
     /// Optional workspace tabs the user closed; the + menu reopens them.
     closed_tabs: Vec<Tab>,
     notes_thick: f64,
@@ -1184,6 +1298,10 @@ pub struct App {
     net_editor: Option<pcbcraft_doc::Id>,
     pin_pick: Option<String>,
     net_draft: Option<(pcbcraft_doc::Id, String)>,
+    wire_route: Vec<Point>,
+    wire_place_pending: Option<wire_canvas::WirePlacePending>,
+    bus_draft: Vec<Point>,
+    bus_name_prompt: Option<wire_canvas::BusNamePrompt>,
     palette: bool,
     part_search: String,
     part_sources: sources::PartSources,
@@ -1200,6 +1318,7 @@ pub struct App {
     sync_behind: Option<(u64, bool)>,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
+    setup_wizard: setup_wizard::State,
     /// Left edge of the central page, so tests can check text keeps its margin.
     page_left: f32,
     schematic: Camera,
@@ -1207,10 +1326,13 @@ pub struct App {
     active_page: Id,
     /// The net each page's Add power port picker holds.
     power_pick: std::collections::BTreeMap<Id, Id>,
+    /// Name the Port tool places on the next canvas click.
+    port_pick_name: String,
     pcb: Camera,
     plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
     route_drag: route_drag::State,
+    outline_ui: outline_arcs::OutlineUi,
     drag_offset: Point,
     cursor: Option<Point>,
     canvas_rect: Rect,
@@ -1257,12 +1379,34 @@ pub struct App {
     capture_sheet: bool,
     frames: u32,
     library: library::Browser,
+command_scroll: bool,
+    capture: Option<String>,
+    /// Reference of the part to select for a capture image.
+    capture_select: Option<String>,
+    /// Open the canvas right-click menu on the selected part in a capture.
+    capture_menu: bool,
+    /// Kind of row whose right-click menu opens by itself in a capture image.
+    capture_menu_tag: Option<String>,
+    /// Capture option: open the bottom sheet on its Findings tab.
+    capture_sheet: bool,
+    frames: u32,
+    library: library::Browser,
+    /// This design's autosave slot, while the desktop has a recovery folder.
+    autosave: Option<pcbcraft_engine::recovery::Autosaver>,
+    /// Snapshots a killed app left behind, newest first.
+    recovery_offer: Vec<pcbcraft_engine::recovery::Entry>,
+    /// True while the offer window is up for the designer to answer.
+    recovery_open: bool,
+    /// The folder this window autosaves into and offers snapshots from.
+    recovery_dir: Option<std::path::PathBuf>,
     pub(crate) compare_open: bool,
     pub(crate) compare_baseline_path: String,
     compare_report_open: bool,
     pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
     pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
     dock: library_dock::Dock,
+    /// The Library tab: open parts, the showing page, recorded supplier answers.
+    libws: library_workspace::State,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
     /// This design's autosave slot, while the desktop has a recovery folder.
@@ -1677,7 +1821,7 @@ impl App {
     }
     /// Capture option: start with the bottom sheet open. Ignored outside capture mode.
     pub fn with_capture_sheet(mut self, open: bool) -> Self {
-        self.capture_sheet = open;
+        self.capture_sheet |= open;
         self
     }
     /// Fill the Library tab's search box and open that tab, so a `--capture`
@@ -1701,6 +1845,7 @@ impl App {
                 self.preferences.left_tab = 0;
                 self.region().left_tab = "layers".to_owned();
             }
+            Some("machines") => self.region().left_tab = "machines".to_owned(),
             _ => {}
         }
         self
@@ -1751,6 +1896,9 @@ impl App {
         if light {
             preferences.dark = false;
         }
+// The browser has no recovery folder, so it keeps one slot in the
+        // page's own storage. Everywhere else the offer window asks first.
+        #[cfg(target_arch = "wasm32")]
         #[cfg(target_arch = "wasm32")]
         if let Some(text) = cc
             .storage
@@ -1766,7 +1914,7 @@ impl App {
         let show_home = capture.is_none();
         let mut app = Self::create(session, preferences, capture, tab);
         app.home_open = show_home && app.project.components.is_empty();
-        app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
+app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         // Install the fonts now, so the fallback font added next lands behind them.
         fonts::install(&cc.egui_ctx);
         cc.egui_ctx
@@ -1783,7 +1931,21 @@ impl App {
         Self::create_with_recovery(session, preferences, capture, tab, recovery_dir())
     }
 
+/// `create` with the recovery folder named, so a test can point the offer
+    /// at its own folder without touching the machine's.
     pub(crate) fn create_with_recovery(
+        session: SharedSession,
+        preferences: Preferences,
+        capture: Option<String>,
+        tab: Option<&str>,
+        recovery: Option<std::path::PathBuf>,
+    ) -> Self {
+        let (autosave, recovery_offer) = recovery_slots(recovery.as_deref());
+        let project = session
+            .lock()
+            .map(|s| s.project.clone())
+            .unwrap_or_default();
+        let width = project.board.width;
         session: SharedSession,
         preferences: Preferences,
         capture: Option<String>,
@@ -1808,11 +1970,11 @@ impl App {
             revision: u64::MAX,
             checks: json!({}),
             tab: match tab {
-                Some("pcb" | "layout") => Tab::Pcb,
+                Some("pcb" | "layout" | "checks") => Tab::Pcb,
                 Some("files") => Tab::Files,
+                Some("library") => Tab::Library,
                 Some("rules") => Tab::Rules,
                 Some("settings") => Tab::Settings,
-                Some("checks") => Tab::Checks,
                 Some("plots") => Tab::PlotFiles,
                 Some("3d") => Tab::Board3d,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
@@ -1907,12 +2069,17 @@ impl App {
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
             stack_edit: None,
+            project_settings: Default::default(),
             closed_tabs: Vec::new(),
             notes_thick: 1.6,
             notes_er: 4.4,
             net_editor: None,
             pin_pick: None,
             net_draft: None,
+            wire_route: Vec::new(),
+            wire_place_pending: None,
+            bus_draft: Vec::new(),
+            bus_name_prompt: None,
             palette: false,
             part_search: String::new(),
             part_sources: sources::PartSources::default(),
@@ -1921,18 +2088,22 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             dock: library_dock::Dock::default(),
+            libws: library_workspace::State::default(),
             sheet: bottom_sheet::SheetState::default(),
             needs_fit: true,
             stack: stack_view::StackView::plain(2, false),
             pinned_view: None,
             sync_behind: None,
             renumber_open: false,
+            setup_wizard: setup_wizard::State::default(),
             active_page: 0,
             power_pick: std::collections::BTreeMap::new(),
+            port_pick_name: String::new(),
             page_left: 0.0,
             schematic: Camera {
                 mirror: false,
                 turns: 0,
+                up: false,
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
@@ -1940,11 +2111,13 @@ impl App {
             pcb: Camera {
                 mirror: false,
                 turns: 0,
+                up: true,
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
             drag: None,
             route_drag: route_drag::State::default(),
+            outline_ui: outline_arcs::OutlineUi::default(),
             drag_offset: Point::default(),
             cursor: None,
             canvas_rect: Rect::NOTHING,
@@ -1976,7 +2149,8 @@ impl App {
             capture_select: None,
             capture_menu: false,
             capture_menu_tag: None,
-            capture_sheet: false,
+            // `--tab checks` is Layout with the Findings sheet expanded.
+            capture_sheet: tab == Some("checks"),
             frames: 0,
             binding_capture: None,
             profile_name_draft: String::new(),
@@ -1994,6 +2168,10 @@ impl App {
             compare_diff: None,
             compare_tint: std::collections::BTreeMap::new(),
             library,
+            autosave,
+            recovery_open: !recovery_offer.is_empty(),
+            recovery_offer,
+            recovery_dir: recovery,
             #[cfg(test)]
             icon_rects: BTreeMap::new(),
             autosave,
@@ -2002,7 +2180,82 @@ impl App {
             recovery_dir: recovery,
         }
     }
+    fn tour_modal_open(&self) -> bool {
+        self.about_open
+            || self.shortcuts_open
+            || self.command_open
+            || self.compare_open
+            || self.renumber_open
+            || self.edit.dialog.open
+            || self.edit.dialog.preview_open
+    }
+    fn tour_shell_view(&self) -> tour::state::ShellView<'_> {
+        tour::state::ShellView {
+            offer_tours: self.preferences.offer_tours,
+            modal_open: self.tour_modal_open(),
+            file_busy: self.pending_source.is_some(),
+            tab: self.tab,
+            workspace: tour::WorkspaceId::from_tab(self.tab),
+            progress: &self.preferences.tour_progress,
+            first_launch_done: self.preferences.tour_first_launch_done,
+            tab_changed_at: self.tour.tab_changed_at(),
+        }
+    }
+    fn tour_tick(&mut self) {
+        if let Some(ws) = tour::WorkspaceId::from_tab(self.tab) {
+            self.tour.note_workspace_visit(ws);
+        }
+        if self.tour.first_launch_handled() {
+            self.preferences.tour_first_launch_done = true;
+        }
+        let view = self.tour_shell_view();
+        self.tour
+            .sync_triggers(view, std::time::Instant::now());
+    }
+    fn tour_panel_hints(&mut self, ui: &mut egui::Ui) {
+        let ids: Vec<String> = self.tour.hint_tours().map(|m| m.id.clone()).collect();
+        if ids.is_empty() {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                for id in ids {
+                    self.tour_hint_button(ui, &id);
+                }
+            });
+        });
+    }
+    fn tour_hint_button(&mut self, ui: &mut egui::Ui, tour_id: &str) {
+        if self.tour.meta(tour_id).is_none() {
+            return;
+        }
+        if ui
+            .small_button("?")
+            .on_hover_text(t!("tour.panel_hint.tip"))
+            .clicked()
+        {
+            self.tour.start_from_menu(
+                &mut self.preferences.tour_progress,
+                tour_id,
+                tour::state::MenuAction::Start,
+            );
+        }
+    }
     fn refresh(&mut self) {
+// The autosave goes out with the same lock that takes the snapshot, so
+        // what lands in the recovery folder is a revision the window has seen.
+        let mut autosave = self.autosave.take();
+        let saved = self.saved_revision;
+        let mut autosave_error: Option<String> = None;
+        let snapshot = self.session.lock().ok().and_then(|s| {
+            if s.revision != self.revision {
+                if let Some(slot) = autosave.as_mut()
+                    && let Err(e) = slot.tick(&s, saved)
+                {
+                    autosave_error = Some(e);
+                }
+                Some((s.project.clone(), s.revision, s.checks()))
+            } else {
         let mut autosave = self.autosave.take();
         let saved = self.saved_revision;
         let mut autosave_error: Option<String> = None;
@@ -2221,6 +2474,9 @@ impl App {
             self.assistant_design_opened(name);
             self.needs_fit = true;
         }
+        if success && name == "new_design" && !self.preferences.setup_wizard_seen {
+            self.open_setup_wizard();
+        }
         success
     }
 
@@ -2243,6 +2499,9 @@ impl App {
         self.selected = id;
         self.edit.extra.clear();
         self.selected_unit = 1;
+        if id.is_some() {
+            self.outline_ui.clear_pick();
+        }
         self.load_properties();
     }
     fn load_properties(&mut self) {
@@ -2296,6 +2555,8 @@ impl App {
         if !page(tab) && !page(self.tab) {
             self.needs_fit = true;
         }
+        self.tour
+            .note_tab_change(std::time::Instant::now());
         self.tab = tab;
         self.tool = Tool::Select;
         self.drag = None;
@@ -2310,11 +2571,25 @@ impl App {
         self.layer_shown(&layers_tree::page_row_name(page, row))
     }
     fn layer_shown(&self, name: &str) -> bool {
-        !self
-            .preferences
-            .hidden_layers
-            .iter()
-            .any(|hidden| hidden == name)
+        !layer_visibility::hidden_contains_legacy(&self.preferences.hidden_layers, name)
+    }
+    pub(crate) fn board_sub_effective(
+        &self,
+        side_path: &str,
+        sub: layer_visibility::SubLayer,
+    ) -> bool {
+        layer_visibility::sub_effective(&self.preferences.hidden_layers, side_path, sub)
+    }
+    pub(crate) fn board_sub_effective_on_layer(
+        &self,
+        layer: pcbcraft_doc::Layer,
+        sub: layer_visibility::SubLayer,
+    ) -> bool {
+        let side = layer_visibility::side_path_for_layer(
+            self.project.copper_layer_count(),
+            layer,
+        );
+        self.board_sub_effective(&side, sub)
     }
     fn stackup_section(&mut self, ui: &mut egui::Ui) {
         ui.label(
@@ -2882,7 +3157,7 @@ impl App {
                 self.palette = true;
             }
             KeyAction::WireTool => {
-                self.tool = Tool::Wire(None);
+                self.arm_wire_tool();
             }
             KeyAction::RouteTool => {
                 self.tool = Tool::Route(None);
@@ -2912,6 +3187,7 @@ impl App {
                 }
             }
             KeyAction::ReturnToSelect => {
+                self.cancel_schematic_gestures();
                 self.tool = Tool::Select;
                 self.drag = None;
                 self.palette = false;
@@ -3183,7 +3459,6 @@ impl App {
     /// Left edge shared by the tab row, the tool strip and the page content.
     const PAGE_GUTTER: f32 = 28.0;
     /// The type scale: page title, section title, body, caption.
-    const SECTION: f32 = 18.0;
     const BODY: f32 = 14.0;
     const CAPTION: f32 = 12.0;
     fn header(&mut self, ui: &mut egui::Ui) {
@@ -3215,12 +3490,13 @@ impl App {
                 });
             });
     }
-    /// The tab row: Files, Schematic, Layout, 3D and Manufacture, left-aligned
+    /// The tab row: Files, Library, Schematic, Layout and Manufacture, left-aligned
     /// with the active tab underlined. Rules, Checks and Settings are reached
     /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
-        let shown: [(Tab, String); 4] = [
+        let shown: [(Tab, String); 5] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
+            (Tab::Library, t!("docks.workbench_tabs.library")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
             (Tab::Pcb, t!("docks.workbench_tabs.layout")),
             (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
@@ -3266,6 +3542,7 @@ impl App {
                     &mut index,
                     &items,
                     ui_kit::tab_bar::TabSize::Nav,
+                    Some(&TAB_ANCHORS),
                 );
                 if response.changed() {
                     current = index;
@@ -3334,7 +3611,46 @@ impl App {
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    home_btn,
+[300.0, 48.0],
+                                    egui::Button::new(
+                                        egui::RichText::new("Design setup wizard").size(14.0),
+                                    ),
+                                )
+                                .on_hover_text(
+                                    "Reopen the guided board setup for size, layers, and rules.",
+                                )
+                                .clicked()
+                            {
+                                self.open_setup_wizard();
+                                self.home_open = false;
+                            }
+                            ui.add_space(6.0);
+                            if ui
+                                .add_sized(
+                                    [300.0, 64.0],
+                                    egui::Button::new((
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.worked_example"
+                                        ))
+                                        .size(16.0)
+                                        .strong(),
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.a_small_battery_resistor_and"
+                                        ))
+                                        .small()
+                                        .color(self.muted()),
+                                    )),
+                                )
+                                .on_hover_text(t!("dialogs.start_home.begin_with_a_blank_page.tip"))
+                                .clicked()
+                            {
+                                self.tool_call("new_design", json!({}));
+                                self.select(None);
+                                self.home_open = false;
+                            }
+                            ui.add_space(6.0);
+                            if ui
+                                .add_sized(
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.worked_example"
@@ -3499,7 +3815,14 @@ impl App {
                 ui.close();
             }
             if ui
-.button(t!("menu.file.save_as"))
+.button(t!("menu.file.compare"))
+                .on_hover_text(t!("menu.file.compare.tip"))
+                .clicked()
+            {
+                self.compare_open = true;
+            }
+            if ui
+                .button(t!("menu.file.save_as"))
                 .on_hover_text(t!("menu.file.save_as.tip"))
                 .clicked()
             {
@@ -3507,6 +3830,20 @@ impl App {
                 ui.close();
             }
             if ui
+                .on_hover_text(t!("menu.file.compare.tip"))
+                .clicked()
+            {
+                self.compare_open = true;
+}
+            if ui
+                .button(t!("menu.file.compare"))
+                .on_hover_text(t!("menu.file.compare.tip"))
+                .clicked()
+            {
+                self.compare_open = true;
+            }
+            if ui
+                .button(t!("menu.file.save_as"))
                 .button(t!("menu.file.compare"))
                 .on_hover_text(t!("menu.file.compare.tip"))
                 .clicked()
@@ -3523,6 +3860,27 @@ impl App {
                 .clicked()
             {
                 self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
+            }
+            if ui
+                .button(t!("menu.file.project_settings"))
+                .on_hover_text(t!("menu.file.project_settings.tip"))
+            }
+            if ui
+                .button(t!("menu.file.save_as"))
+                .on_hover_text(t!("menu.file.save_as.tip"))
+                .clicked()
+            {
+                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
+            }
+            if ui
+                .button(t!("menu.file.project_settings"))
+                .on_hover_text(t!("menu.file.project_settings.tip"))
+                .clicked()
+            {
+                self.open_project_settings(project_settings::TAB_BOARD);
+            }
                 ui.close();
             }
             ui.separator();
@@ -3761,7 +4119,7 @@ impl App {
         .on_hover_text(t!("menu.view.tip"));
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button(t!("menu.help"), |ui| {
+        let help = ui.menu_button(t!("menu.help"), |ui| {
             if ui
                 .button(t!("menu.help.shortcuts"))
                 .on_hover_text(t!("menu.help.shortcuts.tip"))
@@ -3778,7 +4136,7 @@ impl App {
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
-            ui.menu_button(t!("menu.help.tours"), |ui| {
+            let tours = ui.menu_button(t!("menu.help.tours"), |ui| {
                 for tour in &self.tours.tour {
                     let list_key = tour.list_key();
                     let label = pcbcraft_text::lookup(&list_key, &[]);
@@ -3786,9 +4144,11 @@ impl App {
                     ui.button(label)
                         .on_hover_text(pcbcraft_text::lookup(&tip_key, &[]));
                 }
-            })
-            .response
-            .on_hover_text(t!("menu.help.tours.tip"));
+            });
+            tour::anchor::anchor(ui, "menu.help.tours", &tours.response);
+            tours
+                .response
+                .on_hover_text(t!("menu.help.tours.tip"));
             ui.separator();
             if ui
                 .button(t!("app.about"))
@@ -3803,7 +4163,7 @@ impl App {
                 .clicked()
             {
                 let url = format!(
-                    "https://github.com/tangency-labs/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
+                    "https://github.com/wdunn001/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
                     env!("CARGO_PKG_VERSION")
                 );
                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));
@@ -3814,10 +4174,17 @@ impl App {
                     .color(self.muted()),
             )
             .on_hover_text(t!("app.version.tip"));
-        })
-        .response
-        .on_hover_text(t!("menu.help.tip"));
+        });
+        tour::anchor::anchor(ui, "shell.menu.help", &help.response);
+        help.response.on_hover_text(t!("menu.help.tip"));
     }
+    /// Open the in-app datasheet reader on the Library tab.
+    pub(super) fn open_datasheet(&mut self, ctx: &egui::Context, url: String) {
+        self.change_tab(Tab::Libraries);
+        self.library.editor.mode = 1;
+        self.datasheet.open_source(ctx, url);
+    }
+
     /// The datasheet address when the field holds a plain web link.
     fn datasheet_url(field: Option<&str>) -> Option<String> {
         let url = field?.trim();
@@ -3826,23 +4193,6 @@ impl App {
             && url.len() <= 2048
             && !url.chars().any(char::is_whitespace))
         .then(|| url.to_owned())
-    }
-    /// How many check findings are errors, warnings and notes.
-    fn finding_counts(checks: &Value) -> (usize, usize, usize) {
-        let mut counts = (0, 0, 0);
-        for key in ["erc", "drc"] {
-            let Some(findings) = checks.get(key).and_then(Value::as_array) else {
-                continue;
-            };
-            for f in findings {
-                match f.get("severity").and_then(Value::as_str) {
-                    Some("error") => counts.0 += 1,
-                    Some("warning") => counts.1 += 1,
-                    _ => counts.2 += 1,
-                }
-            }
-        }
-        counts
     }
     /// True when the window is too narrow to put the library dock beside the
     /// drawing (WCAG 1.4.10 reflow at 320 points). The dock steps aside and the
@@ -3857,8 +4207,14 @@ impl App {
         if Self::narrow_window(ui.ctx()) {
             return;
         }
-        egui::Panel::left("left-aside")
-            .default_size(320.0)
+        // The Library tab gives its browser more room; the saved width is kept per panel id.
+        let (id, width) = if self.tab == Tab::Library {
+            ("left-aside-library", 380.0)
+        } else {
+            ("left-aside", 320.0)
+        };
+        egui::Panel::left(id)
+            .default_size(width)
             .min_size(240.0)
             .frame(egui::Frame::NONE.fill(ui.style().visuals.panel_fill))
             .show(ui, |ui| {
@@ -3896,6 +4252,12 @@ impl App {
             .iter()
             .position(|t| t.id == self.region().left_tab)
             .unwrap_or(0);
+        let ws = self.workspace().id();
+        let region_ids: Vec<String> = tabs
+            .iter()
+            .map(|t| tour::anchor::region_tab_id(ws, t.id))
+            .collect();
+        let region_refs: Vec<&str> = region_ids.iter().map(String::as_str).collect();
         let tokens = theme::tokens(ui.ctx());
         let response = egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(8, 0))
@@ -3906,6 +4268,7 @@ impl App {
                     &mut current,
                     &items,
                     ui_kit::tab_bar::TabSize::Aside,
+                    Some(&region_refs),
                 )
             })
             .inner;
@@ -3919,6 +4282,9 @@ impl App {
             && let Some(tab) = tabs.get(current)
         {
             self.region().left_tab = tab.id.to_owned();
+        }
+        if self.region().left_tab == "library" {
+            self.tour_panel_hints(ui);
         }
     }
     /// Body of the Layers tab: the parts list and the layer tree.
@@ -4267,6 +4633,7 @@ impl App {
                         let r = PinRef {
                             component: comp.id,
                             pin: pin.number.clone(),
+                            unit: None,
                         };
                         if pin.net == Some(net.id) {
                             members.push((label, r));
@@ -4739,6 +5106,15 @@ impl App {
         ui.add_space(10.0);
         ui.heading(t!("settings.settings_tab.settings"));
         self.stackup_section(ui);
+        if ui
+            .button("Open design setup wizard")
+            .on_hover_text(
+                "Walk through board size, layers, fabrication preset, and starter net classes.",
+            )
+            .clicked()
+        {
+            self.open_setup_wizard();
+        }
         ui.separator();
         ui.label(t!("settings.settings_tab.how_the_app_looks_and"));
         ui.add_space(10.0);
@@ -4813,6 +5189,11 @@ impl App {
             t!("settings.settings_tab.reduce_motion"),
         )
         .on_hover_text(t!("settings.settings_tab.reduce_motion.tip"));
+        ui.checkbox(
+            &mut self.preferences.offer_tours,
+            t!("settings.settings_tab.offer_tours"),
+        )
+        .on_hover_text(t!("settings.settings_tab.offer_tours.tip"));
         self.language_menu(ui);
         ui.label(
             egui::RichText::new(t!(
@@ -4844,11 +5225,6 @@ impl App {
                 .size(10.0)
                 .color(self.muted()),
         );
-        ui.checkbox(
-            &mut self.preferences.chamfer_corners,
-            t!("settings.settings_tab.chamfer_corners"),
-        )
-        .on_hover_text(t!("settings.settings_tab.chamfer_corners.tip"));
         route_drag::shove_checkbox(self, ui);
         modifier_ui::keys_section(self, ui);
         ui.add_space(16.0);
@@ -5552,6 +5928,30 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
+        if let Some(rules) = self.project.board.rules.as_ref() {
+            ui.label(
+                egui::RichText::new("Fabrication minimums")
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            if let Some(name) = rules.preset.as_deref() {
+                ui.label(format!("Preset: {name}"))
+                    .on_hover_text("Named fabrication preset applied to this board.");
+            }
+            if let Some(v) = rules.min_track {
+                ui.label(format!("Min track {v:.3} mm"))
+                    .on_hover_text("Smallest routed width the fab accepts.");
+            }
+            if let Some(v) = rules.min_space {
+                ui.label(format!("Min space {v:.3} mm"))
+                    .on_hover_text("Smallest copper gap the fab accepts.");
+            }
+            if let Some(v) = rules.min_drill {
+                ui.label(format!("Min drill {v:.3} mm"))
+                    .on_hover_text("Smallest drilled hole the fab accepts.");
+            }
+            ui.add_space(8.0);
+        }
         if let Some(pick) = &self.class_pick
             && !self.project.nets.iter().any(|n| n.name == *pick)
         {
@@ -6721,7 +7121,7 @@ impl App {
             return;
         }
         if Self::narrow_window(ui.ctx()) {
-            egui::Panel::bottom("inspector-narrow")
+            let panel = egui::Panel::bottom("inspector-narrow")
                 .default_size(260.0)
                 .frame(Self::dock_frame(ui.style()))
                 .show(ui, |ui| {
@@ -6729,10 +7129,14 @@ impl App {
                         .auto_shrink([false, false])
                         .show(ui, |ui| self.inspector_body(ui, 0.0));
                 });
+            if let Some(ws) = workspace::workspace_for(self.tab) {
+                let id = format!("{}.inspector", ws.id());
+                tour::anchor::anchor(ui, &id, &panel.response);
+            }
             return;
         }
         let tokens = theme::tokens(ui.ctx());
-        egui::Panel::right("inspector")
+        let panel = egui::Panel::right("inspector")
             .default_size(340.0)
             .min_size(280.0)
             .frame(
@@ -6743,6 +7147,10 @@ impl App {
             .show(ui, |ui| {
                 self.inspector_body(ui, 0.0);
             });
+        if let Some(ws) = workspace::workspace_for(self.tab) {
+            let id = format!("{}.inspector", ws.id());
+            tour::anchor::anchor(ui, &id, &panel.response);
+        }
     }
     /// The layers tree over the properties page, in the side dock or, in a
     /// narrow window, in the strip under the drawing. `top_h` is the height
@@ -6767,6 +7175,7 @@ impl App {
                 &mut index,
                 &items,
                 ui_kit::tab_bar::TabSize::Aside,
+                None,
             );
             if response.changed() {
                 self.preferences.aside_lower_tab = index as _;
@@ -6776,8 +7185,15 @@ impl App {
             let mut padded = egui::Frame::NONE
                 .inner_margin(theme::aside_margin())
                 .begin(ui);
+            self.tour_panel_hints(&mut padded.content_ui);
             assistant::pane::show(self, &mut padded.content_ui);
             padded.end(ui);
+            return;
+        }
+        if self.tab == Tab::Library {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| self.library_properties(ui));
             return;
         }
         egui::ScrollArea::vertical()
@@ -6795,10 +7211,27 @@ impl App {
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.draw_tool_options(ui));
                     }
+                    if matches!(self.tool, Tool::Port) {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.port_tool_options(ui));
+                    }
                     if let Some(page) = self.hovered_page_preview() {
                         self.page_properties(ui, page, true);
                     } else if self.selected.is_none() && self.tree.selected_key.is_some() {
                         self.tree_row_properties(ui);
+                    } else if self.selected.is_none()
+                        && self.project.board.outline.is_some()
+                        && (self.outline_ui.segment.is_some()
+                            || self
+                                .tree
+                                .selected_key
+                                .as_deref()
+                                .is_some_and(|k| k == "edge" || k.ends_with("/edge")))
+                    {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.outline_inspector(ui));
                     } else if let Some(id) = self
                         .selected
                         .filter(|id| datums::is_datum(&self.project, *id))
@@ -7044,8 +7477,7 @@ impl App {
     }
     fn footer(&mut self, ui: &mut egui::Ui) {
         // Notes count with the warnings: the bar says only "warnings" and "errors".
-        let (fix, warnings, notes) = Self::finding_counts(&self.checks);
-        let mind = warnings + notes;
+        let (fix, mind) = self.findings().counts().strip();
         let (base, zoom) = match self.tab {
             Tab::Schematic => (15.0, self.schematic.zoom),
             _ => (11.0, self.pcb.zoom),
@@ -7232,6 +7664,28 @@ impl App {
                                     ui.label(egui::RichText::new(line).small().color(self.muted()));
                                 }
                             }
+                            for (cmd, list_key) in self.tour.command_entries() {
+                                let label = pcbcraft_text::lookup(&list_key, &[]);
+                                if !query.is_empty()
+                                    && !fuzzy_match(&query, &label)
+                                    && !fuzzy_match(&query, &cmd)
+                                {
+                                    continue;
+                                }
+                                let row_text = t!("tour.command.row", label = label);
+                                if ui
+                                    .selectable_label(false, row_text)
+                                    .on_hover_text(t!("tour.command.row.tip"))
+                                    .clicked()
+                                {
+                                    let id = cmd.strip_prefix("tour:").unwrap_or(&cmd);
+                                    self.tour.start_from_menu(
+                                        &mut self.preferences.tour_progress,
+                                        id,
+                                        tour::state::MenuAction::Start,
+                                    );
+                                }
+                            }
                             for (row, spec) in matches.iter().enumerate() {
                                 let row_text = t!(
                                     "board.footer.id_description",
@@ -7257,6 +7711,10 @@ impl App {
                 });
         }
         let about_muted = self.muted();
+        brand::about_window(ui, &mut self.about_open, about_muted);
+        self.array_window(ui.ctx());
+        self.file_dialog_window(ui.ctx());
+self.project_settings_window(ui.ctx());
         brand::about_window(ui, &mut self.about_open, about_muted);
         self.array_window(ui.ctx());
         self.file_dialog_window(ui.ctx());
@@ -7401,6 +7859,17 @@ impl App {
         {
             self.capture_select = None;
             self.select(Some(via));
+        }
+        if self.frames == 3
+            && let Some(row) = self
+                .capture_select
+                .as_deref()
+                .and_then(|s| s.strip_prefix("row:"))
+                .map(str::to_owned)
+        {
+            // `--select row:title` (or symbols, power, drawing) opens that page row.
+            self.capture_select = None;
+            self.select_sheet_row(0, &row);
         }
         if self.frames == 3
             && let Some(row) = self
@@ -7683,6 +8152,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        self.tour_tick();
         icons::install(&ctx);
         a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.assistant_frame(&ctx);
@@ -7698,11 +8168,25 @@ impl App {
         if self.compare_open {
             self.compare_window(&ctx);
         }
+        self.datasheet_pane.ui(&ctx);
         self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
+self.recovery_window(ui);
         self.renumber_window(&ctx);
+return;
+        }
+        self.file_shortcuts(&ctx);
+        self.shortcuts(&ctx);
+        if self.compare_open {
+            self.compare_window(&ctx);
+        }
+        self.edit_events(&ctx);
+        self.header(ui);
+        self.footer(ui);
+        self.setup_wizard_window(&ctx);
         self.recovery_window(ui);
+        self.renumber_window(&ctx);
         if self.home_open {
             self.start_home(ui);
         } else {
@@ -7716,6 +8200,12 @@ impl App {
                     self.bottom_sheet(ui);
                     self.page_left = ui.max_rect().left();
                     if let Some(workspace) = workspace::workspace_for(self.tab) {
+                        let canvas_id = format!("canvas.{}", workspace.id());
+                        tour::anchor::anchor_rect(
+                            ui,
+                            &canvas_id,
+                            ui.available_rect_before_wrap(),
+                        );
                         workspace.center(self, ui);
                     } else {
                         match self.tab {
@@ -7739,6 +8229,15 @@ impl App {
                 });
         }
         a11y::paint_focus_ring(&ctx, self.accent());
+        let muted = self.muted();
+        let accent = self.accent();
+        tour::paint_offers(
+            ui,
+            &mut self.tour,
+            &mut self.preferences.tour_progress,
+            muted,
+            accent,
+        );
         self.capture(&ctx);
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
@@ -7753,6 +8252,29 @@ impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
         self.assistant_save();
+}
+}
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+        self.show(ui);
+    }
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.capture_inputs(raw_input);
+    }
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, "preferences", &self.preferences);
+        self.assistant_save();
+        // The desktop autosaves into the recovery folder (see `recovery`);
+        // only the browser still needs the page's own storage for it.
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(session) = self.session.lock()
+            && let Ok(text) = serde_json::to_string(&session.project)
+            && text.len() <= pcbcraft_io_limit()
+        {
+            storage.set_string("recovery", text);
+        }
+    }
+}
         #[cfg(target_arch = "wasm32")]
         if let Ok(session) = self.session.lock()
             && let Ok(text) = serde_json::to_string(&session.project)
@@ -7763,6 +8285,17 @@ impl eframe::App for App {
     }
 }
 
+/// Closing the window with everything saved leaves no recovery entry behind;
+/// closing with unsaved work leaves it for the next launch to offer.
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(session) = self.session.lock()
+            && let Ok(text) = serde_json::to_string(&session.project)
+            && text.len() <= pcbcraft_io_limit()
+        {
+            storage.set_string("recovery", text);
+        }
+    }
+}
 impl Drop for App {
     fn drop(&mut self) {
         let Some(slot) = self.autosave.take() else {
@@ -7775,7 +8308,9 @@ impl Drop for App {
         }
     }
 }
-
+/// The recovery folder this build reads and writes: the real one on a desktop,
+/// and in a test run only a folder a test pointed the override at, so a test
+/// never sees or writes the user's own snapshots.
 #[cfg(not(target_arch = "wasm32"))]
 fn recovery_dir() -> Option<std::path::PathBuf> {
     let pointed = pcbcraft_engine::recovery::override_dir();
@@ -7791,6 +8326,10 @@ fn recovery_dir() -> Option<std::path::PathBuf> {
     None
 }
 
+/// This design's autosave slot, and the snapshots a killed app left in the same
+/// folder, newest first. The offer is read before the slot takes its own lock,
+/// so this session's empty entry is never one of them.
+fn recovery_slots(
 fn recovery_slots(
     dir: Option<&std::path::Path>,
 ) -> (
@@ -8847,6 +9386,7 @@ mod tests {
                 Tool::Wire(Some(PinRef {
                     component: 1,
                     pin: "1".into(),
+                    unit: None,
                 })),
                 "second pin",
             ),

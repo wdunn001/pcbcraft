@@ -379,6 +379,7 @@ impl App {
             Tab::Libraries => "libraries",
             Tab::PlotFiles => "output files",
             Tab::Files => "files",
+            Tab::Library => "library",
             Tab::Settings => "settings",
         };
         let selection = self.selected.map(|id| {
@@ -718,7 +719,7 @@ impl App {
     }
 
     fn transcript_file(&self) -> Option<std::path::PathBuf> {
-        pcbcraft_assistant::transcript_path(Some(self.path.as_str()))
+        pcbcraft_assistant::transcript_path(&self.user_config(), Some(self.path.as_str()))
     }
 
     /// Write this design's conversation outside the design file. Does nothing for a design
@@ -763,9 +764,7 @@ impl App {
     /// design has no path yet) and say where it went.
     pub(crate) fn assistant_export(&mut self) {
         let name = self.project.name.clone();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
+let now = pcbcraft_clock::unix_secs();
         let markdown =
             pcbcraft_assistant::export_markdown(&self.assistant.transcript.items, &name, now);
         let folder = std::path::Path::new(&self.path)

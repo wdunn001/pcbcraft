@@ -144,7 +144,7 @@ fn a_newcomer_places_a_built_in_part_from_its_card() -> Result<(), String> {
     tap_id(
         &ctx,
         &mut app,
-        "button:LED, Built in \u{b7} GPL-#.#-or-later",
+        "button:LED, Built in \u{b7} MIT OR Apache-#.#",
     )?;
     assert!(
         matches!(&app.tool, Tool::Place(kind) if kind.contains("led")),

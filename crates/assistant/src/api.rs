@@ -5,12 +5,26 @@
 //! the [`StartContext::tools`] channel (the host gates it and runs it on the displayed session) and
 //! the result goes back to the model. The host supplies the HTTP function; nothing here touches the
 //! network by itself.
+//!
+//! Wire-format checklist (tools, tool results, stop reasons, headers): `docs/assistant-backends.md`.
 
 use crate::backend::{
     ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PromptPart, StartContext, ToolStatus,
 };
 use crate::prompt::SYSTEM_NOTE;
+use crate::backend::{
+    ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PromptPart, StartContext, ToolStatus,
+};
+use crate::prompt::SYSTEM_NOTE;
+use crate::retrieval::{self, MODEL_TOOL_NAME};
 use crate::stream::StreamParser;
+use crate::tool_names::{ToolNames, to_wire};
+use crate::turn::ToolRequest;
+use serde_json::{Value, json};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::Duration;
 use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
 use serde_json::{Value, json};
@@ -81,6 +95,8 @@ pub struct ApiConfig {
     pub key: Option<String>,
     /// Added after the standing system note (the design summary, later).
     pub system_note: String,
+    /// Optional knowledge retrieval MCP endpoint.
+    pub retrieval: Option<retrieval::Retrieval>,
 }
 
 enum Cmd {
@@ -128,11 +144,16 @@ impl ApiBackend {
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = cancel.clone();
         let tool_list = pcbcraft_mcp::tool_list();
-        let tool_names = ToolNames::from_list(&tool_list)?;
-        let tools = match cfg.protocol {
+        let mut tool_names = ToolNames::from_list(&tool_list)?;
+        let mut tools = match cfg.protocol {
             Protocol::OpenAi => openai_tools(&tool_list),
             Protocol::Anthropic => anthropic_tools(&tool_list),
         };
+        if cfg.retrieval.is_some() {
+            retrieval::append_model_tool(&mut tools, &cfg);
+            retrieval::register_tool_name(&mut tool_names);
+        }
+        let retrieval = cfg.retrieval.clone();
         let spawned = std::thread::Builder::new()
             .name("assistant-api".into())
             .spawn(move || {
@@ -142,6 +163,7 @@ impl ApiBackend {
                     tool_sink: ctx.tools,
                     tools,
                     tool_names,
+                    retrieval,
                     history: Vec::new(),
                     events: ev_tx,
                     cancel: stop,
@@ -203,6 +225,7 @@ struct Worker {
     tool_sink: Option<Sender<ToolRequest>>,
     tools: Vec<Value>,
     tool_names: ToolNames,
+    retrieval: Option<retrieval::Retrieval>,
     history: Vec<Value>,
     events: Sender<Event>,
     cancel: Arc<AtomicBool>,
@@ -351,6 +374,25 @@ impl Worker {
                     ("cancelled by the user".to_string(), true)
                 } else if let Err(e) = &c.arguments {
                     (format!("Not run: {e}"), true)
+                } else if mcp.as_deref() == Some(MODEL_TOOL_NAME) {
+                    if let Some(r) = &self.retrieval {
+                        let query = args
+                            .get("query")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(5) as u32;
+                        let outcome = r.search(&self.http, &query, limit);
+                        if !outcome.links.is_empty() {
+                            self.emit(Event::Sources(outcome.links));
+                        }
+                        (outcome.text, outcome.failed)
+                    } else {
+                        (
+                            "search_knowledge is not configured on this connection.".into(),
+                            true,
+                        )
+                    }
                 } else if let Some(mcp) = &mcp {
                     match self.call_tool(mcp, args) {
                         Ok(r) => tool_text(&r),
@@ -445,11 +487,16 @@ impl Worker {
     }
 
     fn system_text(&self) -> String {
-        if self.cfg.system_note.trim().is_empty() {
+        let mut note = if self.cfg.system_note.trim().is_empty() {
             SYSTEM_NOTE.to_string()
         } else {
             format!("{SYSTEM_NOTE}\n\n{}", self.cfg.system_note)
+        };
+        if self.retrieval.is_some() {
+            note.push_str("\n\n");
+            note.push_str(retrieval::system_note_offered());
         }
+        note
     }
 
     fn body(&self) -> Value {
@@ -525,7 +572,29 @@ impl Worker {
         std::thread::spawn(move || {
             let _ = tx.send(http(&req));
         });
+// streaming: follow-up
         let mut parser = StreamParser::new(self.cfg.protocol);
+        let mut streamed = false;
+        let mut http_result: Option<Result<(u16, Vec<u8>), String>> = None;
+        let response = loop {
+            if self.cancelled() {
+                return Err("cancelled by the user".into());
+            }
+            if let Some(text) = self.drain_stream(&stream_rx, &mut parser, &mut streamed) {
+                return text;
+            }
+        };
+        Ok((
+            response.status,
+            serde_json::from_slice(&response.body).unwrap_or(Value::Null),
+        ))
+            if self.cancelled() {
+                return Err("cancelled by the user".into());
+            }
+            if let Some(text) = self.drain_stream(&stream_rx, &mut parser, &mut streamed) {
+                return text;
+            }
+let mut parser = StreamParser::new(self.cfg.protocol);
         let mut streamed = false;
         let mut http_result: Option<Result<(u16, Vec<u8>), String>> = None;
         loop {
@@ -577,6 +646,10 @@ impl Worker {
                 }
             }
         }
+        Ok((
+            response.status,
+            serde_json::from_slice(&response.body).unwrap_or(Value::Null),
+        ))
     }
 
     fn drain_stream(
@@ -617,6 +690,7 @@ impl Worker {
             Err(e) => Some(Err(e)),
         }
     }
+    }
 }
 
 /// An error text with the key taken out, if it ever got in.
@@ -642,6 +716,7 @@ pub fn http_error(status: u16, body: &Value) -> String {
         401 | 403 => "the endpoint did not accept the key",
         404 => "the endpoint has nothing at that address",
         429 => "the endpoint is busy, try again soon",
+        500 | 502 | 503 | 504 => "the endpoint had an error, try again soon",
         _ => "",
     };
     format!(
@@ -1008,10 +1083,10 @@ fn get_json(
         timeout_s: 15,
         stream_out: None,
     };
-    let (status, bytes) = http(&req).map_err(|e| redact(&e, key))?;
-    let v: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    if status != 200 {
-        return Err(http_error(status, &v));
+    let response = http(&req).map_err(|e| redact(&e, key))?;
+    let v: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+    if response.status != 200 {
+        return Err(http_error(response.status, &v));
     }
     Ok(v)
 }
@@ -1095,10 +1170,10 @@ pub fn test_anthropic_endpoint(
         timeout_s: TEST_TIMEOUT_S,
         stream_out: None,
     };
-    let (status, bytes) = http(&req).map_err(|e| redact(&e, key))?;
-    let v: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    if status != 200 {
-        return Err(http_error(status, &v));
+    let response = http(&req).map_err(|e| redact(&e, key))?;
+    let v: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+    if response.status != 200 {
+        return Err(http_error(response.status, &v));
     }
     let said: String = v
         .get("content")

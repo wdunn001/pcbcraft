@@ -95,7 +95,7 @@ mod tests {
     use serde_json::json;
 
     fn minimal() -> Value {
-        match serde_json::to_value(Project::default()) {
+match serde_json::to_value(Project::default()) {
             Ok(value) => value,
             Err(_) => Value::Null,
         }
