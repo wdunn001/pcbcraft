@@ -5559,7 +5559,7 @@ pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
                     None => "starter pads".into(),
                 },
             };
-        let values: Vec<String> = keys.iter().map(|key| c.bom_value(key)).collect();
+let values: Vec<String> = keys.iter().map(|key| c.bom_value(key)).collect();
         let apart = if a.group {
             String::new()
         } else {

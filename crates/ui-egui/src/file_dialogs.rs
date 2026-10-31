@@ -1069,6 +1069,22 @@ impl App {
                 );
             }
             Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
+values.insert(bom_export::GROUP.into(), "false".into());
+                let summary = bom_export::summary(&self.project, &values);
+                remember(
+                    &mut self.preferences.recent_files.exports,
+                    Recent {
+                        format: "bom".into(),
+                        values,
+                        summary,
+                    },
+                );
+            }
+            Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
+            Some(scene) if scene.starts_with("files-") => self.files_capture_scene(scene),
+            _ => {}
+        }
+    }
             _ => {}
         }
     }
