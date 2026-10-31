@@ -838,6 +838,7 @@ pub mod tests {
 
     fn sample_component(id: Id, reference: &str) -> Component {
         Component {
+            sourcing: Default::default(),
             id,
             reference: reference.into(),
             value: reference.into(),
