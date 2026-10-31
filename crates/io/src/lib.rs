@@ -31,7 +31,10 @@ mod interface_profile;
 mod machine_profile;
 mod diff;
 mod drawn;
-mod fab_drawing;
+pub mod export_package;
+pub use export_package::{
+    PackageOutput, availability, build_package, bundled_packages, find_package,
+};
 mod fab_export;
 mod generate;
 mod gerber;
@@ -66,6 +69,7 @@ mod panel_export;
 mod schematic_sim;
 mod si_export;
 mod part_bodies;
+pub use part_bodies::part_boxes;
 mod plot_read;
 mod step_merge;
 mod raster;

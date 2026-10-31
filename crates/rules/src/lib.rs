@@ -9,7 +9,6 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-mod acute;
 mod compliance;
 mod courtyard;
 mod diffpair_impedance;
@@ -18,7 +17,10 @@ mod drill;
 mod silk;
 mod stub;
 
-pub use compliance::{compliance_check, ComplianceFinding};
+pub use compliance::{
+    check as compliance_check, load_list_snapshot, ComplianceFinding, EU_MARKET_RULE_SET,
+    RESPONSIBLE_SOURCING_RULE_SET,
+};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {

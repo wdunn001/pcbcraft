@@ -2046,7 +2046,8 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
             "the exchange document opens as XML"
         );
         assert!(
-            text.contains("<NET name=\"SIG\">") && text.contains("<PIN id=\"R1.1\"/>"),
+            text.contains("<LogicalNet name=\"SIG\">")
+                && text.contains("<PinRef componentRef=\"R1\" pin=\"1\"/>"),
             "the net lists the pins that share it"
         );
         assert_eq!(

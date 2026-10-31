@@ -1,6 +1,11 @@
 //! Canonical project data. No UI or protocol dependencies.
 mod component_kind;
 mod machine_profile;
+mod package_def;
+pub use package_def::{
+    MAX_PACKAGE_CONTENTS, MAX_PROJECT_PACKAGES, PACKAGE_CONTAINERS, PACKAGE_TOKENS, PackageContent,
+    PackageDef, PackageRun, check_template, validate_packages,
+};
 mod outline;
 pub use machine_profile::*;
 pub use outline::{
@@ -17,7 +22,15 @@ pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
     panel_layout, panel_layout_from_grid, panel_layout_with_settings,
 };
+mod compliance;
 mod fab;
+pub use compliance::{
+    Compliance, ComplianceDeclaration, ComplianceProjectSettings, ComplianceSource,
+    ComplianceSourceKind, ComplianceStatus, CountryOfOrigin, DeclaredSubstance, ManufacturerRecord,
+    MineralsReportOnFile, normalize_manufacturer_name,
+    date_le, valid_compliance_link, valid_compliance_text, valid_date, MAX_COMPLIANCE_LINK,
+    MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_SUBSTANCES,
+};
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
@@ -2624,6 +2637,10 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
     })
 }
 impl Project {
+    pub fn compliance_for_component(&self, component: Id) -> Option<&Compliance> {
+        self.compliance_by_component.get(&component)
+    }
+
     /// Creates one artifact per entry of each output job when the project has
     /// jobs but no artifacts. Generated fields stay unset so each starts stale.
     ///
@@ -3883,6 +3900,12 @@ pub struct Project {
     /// Regenerable fabrication outputs, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<Artifact>,
+    /// Export packages this project saves besides the bundled ones.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub packages: Vec<PackageDef>,
+    /// What each package export last wrote, by package id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub package_runs: Vec<PackageRun>,
     /// Manufacturing panel grid; disabled until the designer enables it.
     #[serde(default)]
     pub panel: PanelSettings,
@@ -3926,6 +3949,13 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
+    #[serde(default)]
+    pub compliance_settings: ComplianceProjectSettings,
+    /// Compliance records keyed by component id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub compliance_by_component: BTreeMap<Id, Compliance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manufacturers: Vec<ManufacturerRecord>,
     /// Named library folders that library commands resolve through: a path
     /// whose first segment matches a nickname is rewritten to the mapped
     /// folder, so the design opens on another machine without retyping it.
@@ -4086,6 +4116,8 @@ impl Default for Project {
             compliance_mutes: vec![],
             output_jobs: vec![],
             artifacts: vec![],
+            packages: vec![],
+            package_runs: vec![],
             panel: PanelSettings::default(),
             custom_checks: vec![],
             pin_matrix: BTreeMap::new(),
@@ -4102,6 +4134,9 @@ impl Default for Project {
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
+            compliance_settings: ComplianceProjectSettings::default(),
+            compliance_by_component: BTreeMap::new(),
+            manufacturers: vec![],
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -5626,6 +5661,10 @@ self.validate_manufacturers()?;
             if !j.valid() || !job_names.insert(&j.name) {
                 return Err("output jobs need a unique name and known export kinds".into());
             }
+        }
+        validate_packages(&self.packages)?;
+        if self.package_runs.len() > MAX_PROJECT_PACKAGES * 2 {
+            return Err("too many package run records".into());
         }
         if self.artifacts.len() > MAX_ITEMS {
             return Err("artifact limit reached (2048)".into());

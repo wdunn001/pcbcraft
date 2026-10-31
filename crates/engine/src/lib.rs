@@ -19,7 +19,7 @@ pub mod design_document;
 pub mod library;
 mod online;
 mod outline;
-mod part_records;
+mod packages;
 pub mod profiles;
 pub mod recents;
 pub mod scope;
@@ -2636,6 +2636,7 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
         .chain(authoring::commands())
         .chain(online::commands())
         .chain(images::commands())
+        .chain(packages::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
 .into_iter()
@@ -2896,9 +2897,8 @@ json!({"revision":self.revision,"project":self.project,"history":{"undo":self.un
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-let compliance = serde_json::to_value(pcbcraft_rules::compliance_check(&self.project))
-            .unwrap_or_else(|_| json!([]));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power label or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, and labels with no wires or pins, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        let compliance = pcbcraft_rules::compliance_check(&self.project);
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -2954,6 +2954,11 @@ let compliance = serde_json::to_value(pcbcraft_rules::compliance_check(&self.pro
     }
 }
 
+/// Deserialize command parameters from JSON into a typed struct.
+///
+/// # Rules
+/// - Unknown fields are rejected when the target type uses `deny_unknown_fields`.
+/// - serde errors become `Error::Invalid` with the serializer message.
 fn parse<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, Error> {
     serde_json::from_value(v.clone()).map_err(|e| Error::Invalid(e.to_string()))
 }
@@ -3310,6 +3315,15 @@ fn custom_findings(p: &Project) -> Vec<Value> {
     }
     out
 }
+/// Apply an imported netlist: create missing nets and assign pins without duplicating work.
+///
+/// # Rules
+/// - Refuses 0 nets, more than 256 nets, or more than 4096 pin rows total.
+/// - Each net lists 1 to 128 pins; references and pin names are 1 to 64 bytes.
+/// - A pin cannot appear under two different net names in one import.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Result<Value, Error> {
     if a.nets.is_empty() || a.nets.len() > 256 {
         return Err(Error::Invalid("netlist must hold 1 to 256 nets".into()));
@@ -3403,6 +3417,10 @@ fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Resul
     }
     Ok(json!({"nets": a.nets.len(), "created": created, "pins": assigned}))
 }
+/// Take the next object id from the session counter and advance it.
+///
+/// # Rules
+/// - Refuses id 0 and ids above `u32::MAX`.
 pub(crate) fn allocate(next: &mut Id) -> Result<Id, Error> {
     let id = *next;
     if id == 0 || id > u32::MAX as u64 {
@@ -3603,6 +3621,7 @@ fn translate_object(p: &mut Project, id: Id, dx: f64, dy: f64) -> Result<(), Err
     }
     Err(missing())
 }
+/// True when the board footprint with this id is locked against moves and edits.
 fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
     project.is_locked(id)
 }
@@ -3635,6 +3654,7 @@ struct RefreshFootprintParams {
 struct AssignTableParams {
     rows: Vec<AssignTableRow>,
 }
+/// One row of a footprint assignment table: a reference designator and library file path.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignTableRow {
@@ -3733,6 +3753,11 @@ fn pad_geometry_matches(
             _ => false,
         }
 }
+/// Build placed pads for a component from its library footprint or starter pin layout.
+///
+/// # Rules
+/// - Library footprints copy pad geometry and bind each pad to the matching pin net.
+/// - Starter parts get two 1.6 mm round pads on a fixed offset pattern.
 fn component_pads(c: &Component) -> Vec<Pad> {
     if let Some(library) = &c.library_footprint {
         library
@@ -3846,6 +3871,10 @@ fn command_triggers_board_sync(command: &str) -> bool {
     )
 }
 
+/// Add a library symbol as a new schematic component, allocating ids and a reference.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 fn place_definition(
     p: &mut Project,
     next: &mut Id,
@@ -3877,6 +3906,10 @@ fn place_definition(
     )?);
     Ok(json!({"id":id}))
 }
+/// Apply an optional rotation in degrees to a component just placed from `place_definition`.
+///
+/// # Rules
+/// - Rotation must be finite and is stored modulo 360.
 fn turn_placed(result: &Value, p: &mut Project, rotation: Option<f64>) -> Result<Value, Error> {
     if let Some(degrees) = rotation {
         if !degrees.is_finite() {
@@ -3891,6 +3924,10 @@ fn turn_placed(result: &Value, p: &mut Project, rotation: Option<f64>) -> Result
     }
     Ok(result.clone())
 }
+/// Bind a footprint file to one component by id and refresh its board pads.
+///
+/// # Rules
+/// - Refuses when pad numbers do not match the component pins exactly.
 fn assign_definition(
     p: &mut Project,
     id: Id,
@@ -4057,6 +4094,7 @@ struct ReplaceParams {
     #[serde(default)]
     dry_run: bool,
 }
+/// Default `project.replace` scope: search every supported text bucket.
 fn replace_all_scope() -> String {
     "all".into()
 }
@@ -4591,6 +4629,7 @@ struct DatumRenameParams {
     id: Id,
     name: String,
 }
+/// Refuse datum names that break format rules or collide with another datum.
 fn check_datum_name(p: &Project, name: &str, own: Option<Id>) -> Result<(), Error> {
     if !pcbcraft_doc::Datum::name_valid(name) {
         return Err(Error::Invalid(
@@ -4606,6 +4645,7 @@ fn check_datum_name(p: &Project, name: &str, own: Option<Id>) -> Result<(), Erro
     }
     Ok(())
 }
+/// Refuse datum positions outside the board rectangle or coordinate range.
 fn check_datum_position(p: &Project, position: Point) -> Result<(), Error> {
     if !position.valid() {
         return Err(Error::Invalid("datum position is out of range".into()));
@@ -4733,6 +4773,7 @@ fn resolve_library_path(p: &Project, path: &str) -> String {
     pcbcraft_io::resolve_library_path(p, path)
 }
 
+/// Default teardrop extension depth in millimetres when a command omits it.
 fn teardrop_depth() -> f64 {
     0.5
 }
@@ -4796,6 +4837,7 @@ struct ZoneCutoutParams {
     zone: Id,
     outline: Vec<Point>,
 }
+/// Axis-aligned rectangle in board millimetres where thermal stitching vias are placed.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StitchBounds {
@@ -5050,6 +5092,7 @@ struct PanelSetParams {
 struct PanelExportParams {
     directory: String,
 }
+/// Default panel rail width in millimetres when panel settings omit it.
 fn default_rail() -> f64 {
     3.0
 }
@@ -5143,6 +5186,10 @@ struct LayerShapeParams {
     layer: Id,
     index: usize,
 }
+/// Map a layer job kind string to `ArtKind` for laser or art exports.
+///
+/// # Rules
+/// - Accepts cut, perforation, silk, mask or other only.
 fn art_kind(name: &str) -> Result<pcbcraft_doc::ArtKind, Error> {
     match name {
         "cut" => Ok(pcbcraft_doc::ArtKind::Cut),
@@ -5155,6 +5202,10 @@ fn art_kind(name: &str) -> Result<pcbcraft_doc::ArtKind, Error> {
         )),
     }
 }
+/// Refuse layer figure coordinates outside the allowed millimetre range.
+///
+/// # Rules
+/// - Each axis must be finite and lie in -1000 to 2000 mm.
 fn art_range(x: f64, y: f64) -> Result<(), Error> {
     if x.is_finite()
         && y.is_finite()
@@ -5455,6 +5506,7 @@ struct VariantFootprintParams {
 struct VariantNameParams {
     name: String,
 }
+/// One board item patch in a bulk update: net, layer, width, drill or text fields.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UpdateItem {
@@ -5511,12 +5563,14 @@ struct NetlistImportParams {
 struct SessionImportParams {
     path: String,
 }
+/// One net entry in an import netlist: a name and the pins that belong to it.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetlistNet {
     name: String,
     pins: Vec<NetlistPin>,
 }
+/// One pin reference in an import netlist: a designator and pin number.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetlistPin {
@@ -5757,6 +5811,11 @@ let values: Vec<String> = keys
         "variant": variant.map(|v| v.name.clone()),
     }))
 }
+/// Set or clear one named custom field on a component.
+///
+/// # Rules
+/// - Key is 1 to 64 bytes; values are at most 256 bytes; at most 32 fields per part.
+/// - Returns true when the field exists after the call.
 fn set_component_field(
     component: &mut Component,
     key: &str,
@@ -6121,6 +6180,7 @@ struct TrackDragParams {
 fn drag_mode() -> route::Mode {
     route::Mode::Octilinear
 }
+/// Which end of a track a drag or endpoint command moves.
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum TrackEnd {
@@ -6402,6 +6462,10 @@ struct DimensionSetParams {
     offset: Option<f64>,
 }
 type DimensionPieces = (f64, [(&'static str, Vec<Point>, f64, String); 4]);
+/// Witness lines, dimension line and label geometry for a linear board dimension.
+///
+/// # Rules
+/// - Offset is perpendicular distance from the measured segment in millimetres.
 fn dimension_pieces(start: Point, end: Point, offset: f64) -> DimensionPieces {
     let dx = end.x - start.x;
     let dy = end.y - start.y;
@@ -6485,6 +6549,7 @@ fn expand_tokens(text: &str, component: &pcbcraft_doc::Component) -> String {
     }
     out
 }
+/// Default board text height in millimetres for `text.place`.
 fn text_size() -> f64 {
     1.0
 }
@@ -6659,6 +6724,7 @@ struct AlignParams {
     filter: Option<ComponentFilter>,
     mode: String,
 }
+/// Optional reference pattern, value and kind filters for find and align commands.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentFilter {
@@ -6709,6 +6775,7 @@ fn validate_filter(filter: &ComponentFilter) -> Result<(), Error> {
     }
     Ok(())
 }
+/// True when a component satisfies every set criterion in the filter.
 fn filter_matches(filter: &ComponentFilter, c: &Component) -> bool {
     filter
         .reference
@@ -6720,9 +6787,7 @@ fn filter_matches(filter: &ComponentFilter, c: &Component) -> bool {
             .as_deref()
             .is_none_or(|k| pcbcraft_doc::kind_matches(&c.kind, k))
 }
-/// Center of an align item's bounding box on the requested axis.
-/// True when any design object (component, net, wire, footprint, track, via,
-/// zone or cutout) carries this id, so exclusions cannot name thin air.
+/// True when any design object carries this id, so exclusions cannot name thin air.
 fn object_exists(p: &Project, id: Id) -> bool {
     p.components.iter().any(|c| c.id == id)
         || p.nets.iter().any(|n| n.id == id)
@@ -6735,6 +6800,7 @@ fn object_exists(p: &Project, id: Id) -> bool {
         || p.board.cutouts.iter().any(|c| c.id == id)
         || p.board.texts.iter().any(|t| t.id == id)
 }
+/// Center of an align item's bounding box on the requested axis.
 fn align_center(item: (Id, bool, f64, f64, f64, f64), axis_x: bool) -> f64 {
     if axis_x {
         (item.2 + item.4) / 2.0
@@ -6742,6 +6808,7 @@ fn align_center(item: (Id, bool, f64, f64, f64, f64), axis_x: bool) -> f64 {
         (item.3 + item.5) / 2.0
     }
 }
+/// Default centre-to-centre spacing in millimetres for thermal stitch vias.
 fn default_stitch_spacing() -> f64 {
     1.0
 }
@@ -6751,10 +6818,15 @@ struct Resize {
     width: f64,
     height: f64,
 }
+/// True when a fabrication minimum is a finite value in 0.001 to 100 mm.
 fn fab_mm_ok(v: f64) -> bool {
     v.is_finite() && (0.001..=100.0).contains(&v)
 }
 
+/// Copy an optional fabrication minimum into a rules field when the value is valid.
+///
+/// # Rules
+/// - Refuses values that fail `fab_mm_ok`.
 fn merge_fab_mm(dst: &mut Option<f64>, src: Option<f64>) -> Result<(), Error> {
     if let Some(v) = src {
         if !fab_mm_ok(v) {
@@ -8479,6 +8551,9 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
         return result;
     }
     if let Some(result) = images::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = packages::run(p, command, params, record_revision, mutating) {
         return result;
     }
     if let Some(result) = outline::run(p, next, command, params) {

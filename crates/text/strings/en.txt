@@ -115,6 +115,8 @@ menu.help.shortcuts = Shortcuts
 menu.help.shortcuts.tip = Show every keyboard shortcut and mouse gesture in one list.
 menu.help.commands = Commands
 menu.help.commands.tip = Search every command by name and run it, with its parameters explained.
+menu.help.tours = Tours
+menu.help.tours.tip = Walkthroughs that point at real controls; restart any of them here.
 
 pad_labels.number = Pads: number
 pad_labels.net = Pads: net
