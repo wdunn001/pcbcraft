@@ -14,6 +14,9 @@ fn chip_pad(number: &str, x: f64, y: f64) -> Pad {
     Pad {
         number: number.into(),
         offset: Point::new(x, y),
+        diameter: 1.0,
+        net: None,
+        castellated: None,
         geometry: Some(pcbcraft_library::FootprintPad {
             number: number.into(),
             pad_type: "smd".into(),
@@ -122,6 +125,7 @@ pub fn bench_project_600_parts() -> Project {
                 definition: definition.clone(),
             }),
             fields: vec![],
+            sourcing: Default::default(),
             sheet: 0,
         });
         p.board.footprints.push(Footprint {

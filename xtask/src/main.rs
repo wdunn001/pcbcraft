@@ -29,7 +29,7 @@ mod tooltips;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const USAGE: &str = "usage: cargo xtask <command>
 
@@ -376,7 +376,7 @@ fn layers() -> Result<(), String> {
     let metadata = workspace_metadata()?;
     let layer = |name: &str| -> Option<u8> {
         match name {
-            "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" => Some(0),
+            "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" | "pcbcraft-clock" => Some(0),
             "pcbcraft-doc" | "pcbcraft-library" | "pcbcraft-sim" => Some(1),
             "pcbcraft-rules" | "pcbcraft-io" => Some(2),
             "pcbcraft-engine" => Some(3),
@@ -549,7 +549,7 @@ fn screenshots(args: &[String]) -> Result<(), String> {
             .current_dir(&root)
             .spawn()
             .map_err(|e| format!("{}: {e}", bin.display()))?;
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let finished = loop {
             match child.try_wait().map_err(|e| e.to_string())? {
                 Some(status) => break Some(status),

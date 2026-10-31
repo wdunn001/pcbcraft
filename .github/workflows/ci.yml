@@ -11,6 +11,9 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   workflow_dispatch:
+  # Refresh status data every 6 hours (ticket #581).
+  schedule:
+    - cron: '23 */6 * * *'
 
 permissions: {}
 
@@ -71,6 +74,42 @@ jobs:
             echo "rust=false" >> "$GITHUB_OUTPUT"
           fi
 
+
+  status-data:
+    name: Status data
+    # Ticket #581: refresh issue status data from the API using ETag caching.
+    # Runs on every push to main and on schedule; skips on pull requests.
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: status-data
+          save-if: false
+      - name: Generate status data
+        run: cargo xtask status-data --refresh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit updated status data
+        run: |
+          git config user.name "PCBCraft CI"
+          git config user.email "ci@pcbcraft.dev"
+          git add site/src/data/status.json site/src/data/status-cache.json
+          if git diff --cached --quiet; then
+            echo "No status data changes to commit."
+          else
+            git commit -m "chore: refresh status data [skip ci]"
+            git push origin main
+          fi
   policy:
     name: Format and policy
     needs: changes

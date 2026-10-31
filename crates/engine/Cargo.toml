@@ -17,6 +17,7 @@ plugin-firmware-target = [
 
 [dependencies]
 pcbcraft-plugin-firmware-target = { workspace = true, optional = true }
+pcbcraft-clock.workspace = true
 pcbcraft-geom.workspace = true
 pcbcraft-library.workspace = true
 pcbcraft-doc.workspace = true
