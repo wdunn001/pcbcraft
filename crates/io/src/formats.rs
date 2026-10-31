@@ -471,6 +471,15 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Exchange,
         Run::Kind("dsn"),
     ),
+    #[cfg(feature = "plugin-firmware-target")]
+    output(
+        "firmware_target",
+        "Flight controller target",
+        "Board config header and manifest from the firmware pin map (plugin).",
+        &["h", "json"],
+        Group::Exchange,
+        Run::Engine("firmware.target.export"),
+    ),
     FormatSpec {
         id: "board_interchange",
         label: "Board interchange file",
