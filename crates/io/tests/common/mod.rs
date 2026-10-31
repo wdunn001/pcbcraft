@@ -116,6 +116,121 @@ top: Option<ViaCovering>,
         backdrill: None,
     })
 }
+
+/// The library pad of a through-hole part, drilled `drill` wide.
+pub fn thru_geometry(drill: f64) -> pcbcraft_library::FootprintPad {
+    pcbcraft_library::FootprintPad {
+        number: "1".into(),
+        pad_type: "thru_hole".into(),
+        shape: "circle".into(),
+        position: Point::default(),
+        rotation: 0.0,
+        size: Point::new(1.6, 1.6),
+        layers: vec!["*.Cu".into()],
+        drill: Some(pcbcraft_library::Drill {
+            size: Point::new(drill, drill),
+            offset: Point::default(),
+        }),
+        roundrect_ratio: None,
+        chamfer: None,
+        polygon: vec![],
+        raw_source: String::new(),
+    }
+}
+
+/// A through-hole part with one plated pad drilled `drill` wide.
+pub fn thru_part(id: Id, x: f64, y: f64, drill: f64) -> Footprint {
+    let geometry = thru_geometry(drill);
+    Footprint {
+        id,
+        component: id + 10,
+        position: Point::new(x, y),
+        rotation: 0.0,
+        locked: None,
+        side: None,
+        pads: vec![Pad {
+            number: "1".into(),
+            offset: Point::default(),
+            diameter: 1.6,
+            net: Some(1),
+            castellated: None,
+            geometry: Some(geometry),
+        }],
+    }
+}
+
+/// A mounting hole.
+pub fn hole(id: Id, x: f64, y: f64, diameter: f64) -> Hole {
+    Hole {
+        id,
+        position: Point::new(x, y),
+        diameter,
+        end: None,
+    }
+}
+
+/// The board the golden files were made from: four copper layers; through
+/// vias of four protections, a blind and a buried via, one mounting hole, one
+/// component pad hole and a recorded drill tolerance.
+pub fn golden_board() -> Result<Project, String> {
+    use ViaCovering::*;
+    let mut p = board(4);
+    p.board.vias = vec![
+        via(10, 10.0, 0.3, None, Some(Tented), None)?,
+        via(11, 12.0, 0.3, None, Some(Tented), Some(Open))?,
+        via(12, 14.0, 0.3, None, Some(FilledCapped), None)?,
+        via(13, 16.0, 0.2, None, None, None)?,
+        via(14, 18.0, 0.15, Some((0, 1)), Some(Tented), None)?,
+        via(15, 20.0, 0.15, Some((1, 2)), None, None)?,
+    ];
+    p.board.holes = vec![hole(40, 5.0, 5.0, 3.2)];
+    p.components = vec![Component {
+        id: 60,
+        reference: "J1".into(),
+        value: "header".into(),
+        kind: "connector".into(),
+        position: Point::default(),
+        rotation: 0.0,
+        pins: vec![Pin {
+            number: "1".into(),
+            name: "1".into(),
+            offset: Point::default(),
+            net: Some(1),
+            electrical_type: "passive".into(),
+            direction: None,
+            unit: 1,
+        }],
+        units: vec![],
+        library_symbol: None,
+        library_footprint: Some(LibraryFootprint {
+            library: "Test".into(),
+            definition: pcbcraft_library::FootprintDefinition {
+                name: "HEADER_ONE".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads: vec![thru_geometry(0.8)],
+                graphics: vec![],
+                model: None,
+                rules: None,
+                raw_source: String::new(),
+                unsupported: vec![],
+            },
+        }),
+        fields: vec![],
+        sourcing: Default::default(),
+        sheet: 0,
+    }];
+    p.board.footprints = vec![thru_part(50, 30.0, 20.0, 0.8)];
+    p.board.machining = Some(MachiningNotes {
+        drill_tolerance: Some(0.05),
+        ..Default::default()
+    });
+    p.validate()?;
+    Ok(p)
+}
+
+/// Compare `actual` with `tests/golden/<name>`. Set `PCBCRAFT_UPDATE_GOLDEN=1`
+/// to rewrite the file after a change has been read and accepted.
 pub fn golden(name: &str, actual: &str) -> T {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

@@ -102,7 +102,7 @@ pub fn zone_fill(project: &Project, zone: &CopperZone) -> Result<ZoneFill, Strin
         pieces: Vec::new(),
         min_width: settings
             .min_width
-            .unwrap_or_else(|| default_min_width(project)),
+            .unwrap_or_else(|| default_pour_min_width(project)),
         islands: 0,
         removed: 0,
         unconnected: false,
@@ -341,7 +341,7 @@ fn open(region: &[Piece], width: f64) -> Region {
 
 /// Narrowest copper the board already uses: the thinnest track or class
 /// minimum, never below a fab-friendly 0.05 mm, never above 1 mm.
-fn default_min_width(project: &Project) -> f64 {
+pub fn default_pour_min_width(project: &Project) -> f64 {
     let tracks = project
         .board
         .tracks
@@ -363,7 +363,7 @@ fn default_min_width(project: &Project) -> f64 {
 
 /// True when a keepout area forbids one kind of copper on a layer for a net.
 pub fn keepout_blocks(area: &RuleArea, kind: KeepoutKind, layer: Layer, net: Id) -> bool {
-    let Some(keepout) = area.keepout else {
+    let Some(keepout) = area.active_keepout() else {
         return false;
     };
     keepout.forbids(kind) && area.keepout_applies(layer, net)
@@ -416,7 +416,7 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
     let mut items = Vec::new();
     for footprint in &project.board.footprints {
         for (id, pad, rotation, at, piece) in pad_items(footprint) {
-            if !pad_reaches(project, footprint, &pad, layer) {
+            if !pad_exports_on_layer(project, footprint, &pad, layer) {
                 continue;
             }
             items.push(Item {
@@ -434,6 +434,19 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
         // layer neither clears an antipad nor joins the via.
         if !project.via_conducting_layers(via).contains(&layer) {
             continue;
+        }
+        if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer) {
+            let at = via.position;
+            if !plated_item_connected_on_layer(
+                project,
+                via.net,
+                at,
+                via.diameter / 2.0,
+                layer,
+                PlatedConnectKind::Via,
+            ) {
+                continue;
+            }
         }
         items.push(Item {
             id: via.id,
@@ -514,6 +527,119 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
         });
     }
     Ok(items)
+}
+
+const LAYER_CONNECT_EPS: f64 = 0.01;
+
+fn point_in_zone(point: Point, zone: &CopperZone) -> bool {
+    if !pcbcraft_geom::point_in_polygon(point, &zone.outline) {
+        return false;
+    }
+    !zone
+        .cutouts
+        .iter()
+        .any(|cut| cut.len() >= 3 && pcbcraft_geom::point_in_polygon(point, cut))
+}
+
+fn distance_point_segment(at: Point, start: Point, end: Point) -> f64 {
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    let len_sq = dx * dx + dy * dy;
+    if len_sq < 1e-18 {
+        return at.distance(start);
+    }
+    let t = ((at.x - start.x) * dx + (at.y - start.y) * dy) / len_sq;
+    let t = t.clamp(0.0, 1.0);
+    at.distance(Point::new(start.x + t * dx, start.y + t * dy))
+}
+
+/// Whether a plated pad or via is tied to copper on `layer`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlatedConnectKind {
+    Pad,
+    Via,
+}
+
+pub fn plated_item_connected_on_layer(
+    project: &Project,
+    net: Id,
+    at: Point,
+    contact_radius: f64,
+    layer: Layer,
+    kind: PlatedConnectKind,
+) -> bool {
+    let reach = contact_radius + LAYER_CONNECT_EPS;
+    for track in project
+        .board
+        .tracks
+        .iter()
+        .filter(|t| t.layer == layer && t.net == net)
+    {
+        if distance_point_segment(at, track.start, track.end) <= reach + track.width / 2.0 {
+            return true;
+        }
+    }
+    for zone in project
+        .board
+        .zones
+        .iter()
+        .filter(|z| z.layer == layer && z.net == net && z.filled)
+    {
+        let settings = zone.pour_settings();
+        let connect = match kind {
+            PlatedConnectKind::Pad => settings.pad_connect,
+            PlatedConnectKind::Via => settings.via_connect,
+        };
+        if connect == ZoneConnect::None {
+            continue;
+        }
+        if point_in_zone(at, zone) {
+            return true;
+        }
+    }
+    for via in project.board.vias.iter().filter(|v| v.net == net) {
+        if !project.via_span_layers(via).contains(&layer) {
+            continue;
+        }
+        if at.distance(via.position) <= reach + via.diameter / 2.0 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether a pad is plotted on `layer`, including unused inner pad removal.
+pub fn pad_exports_on_layer(
+    project: &Project,
+    footprint: &Footprint,
+    pad: &Pad,
+    layer: Layer,
+) -> bool {
+    if !pad_reaches(project, footprint, pad, layer) {
+        return false;
+    }
+    if !project.remove_unused_inner_pads_enabled() || project.copper_layer_is_end(layer) {
+        return true;
+    }
+    let through = pad.geometry.as_ref().is_some_and(|g| {
+        g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu")
+    });
+    if !through {
+        return true;
+    }
+    let net = pad.net.unwrap_or(0);
+    if net == 0 {
+        return false;
+    }
+    let at = footprint.pad_world_position(pad);
+    plated_item_connected_on_layer(
+        project,
+        net,
+        at,
+        pad.contact_radius(),
+        layer,
+        PlatedConnectKind::Pad,
+    )
 }
 
 /// Whether a pad has copper on `layer` of this board: a through-hole pad on
@@ -616,13 +742,48 @@ fn board_piece(project: &Project) -> Piece {
 
 /// A rule area rectangle as a piece.
 fn rectangle(region: crate::RuleRegion) -> Piece {
+    let corners = region.axis_corners();
     vec![vec![
-        Point::new(region.x, region.y),
-        Point::new(region.x + region.width, region.y),
-        Point::new(region.x + region.width, region.y + region.height),
-        Point::new(region.x, region.y + region.height),
-        Point::new(region.x, region.y),
+        corners[0], corners[1], corners[2], corners[3], corners[0],
     ]]
+}
+
+fn rule_area_keepout_piece(project: &Project, area: &RuleArea) -> Option<Piece> {
+    if area.active_keepout().is_none() {
+        return None;
+    }
+    let region = area.keepout_rect();
+    let corners = region.axis_corners();
+    let ring: Ring = if let Some(reference) = area.footprint_ref.as_deref() {
+        let component = project.component_by_reference(reference)?;
+        let footprint = project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == component.id)?;
+        corners
+            .iter()
+            .map(|corner| {
+                footprint
+                    .position
+                    .offset(corner.rotate(-footprint.rotation))
+            })
+            .collect()
+    } else {
+        corners.to_vec()
+    };
+    if ring.len() < 3 {
+        return None;
+    }
+    Some(vec![{
+        let mut closed = ring;
+        if closed.first() != closed.last() {
+            if let Some(first) = closed.first().copied() {
+                closed.push(first);
+            }
+        }
+        closed
+    }])
 }
 
 /// True when a zone's settings are all inside their bounds.
@@ -663,13 +824,15 @@ pub fn keepout_hits(project: &Project) -> Result<Vec<KeepoutHit>, String> {
     for layer in project.copper_layers() {
         let items = items(project, layer)?;
         for area in &project.board.rule_areas {
-            let Some(keepout) = area.keepout else {
+            let Some(keepout) = area.active_keepout() else {
                 continue;
             };
             if area.layer.is_some_and(|only| only != layer) {
                 continue;
             }
-            let rect = rectangle(area.keepout_rect());
+            let Some(rect) = rule_area_keepout_piece(project, area) else {
+                continue;
+            };
             for item in &items {
                 let kind = match item.kind {
                     Kind::Pad => KeepoutKind::Pads,

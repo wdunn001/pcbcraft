@@ -9,7 +9,7 @@ mod walk;
 
 use super::{PadRef, pad};
 use crate::Error;
-use pcbcraft_doc::{Id, Layer, Project};
+use pcbcraft_doc::{Id, Layer, Project, outline_extent};
 use pcbcraft_geom::Point;
 use pcbcraft_geom::hull::octagon;
 use pcbcraft_rules::{Obstacle, drc, obstacles};
@@ -95,6 +95,70 @@ pub(crate) fn resolve(
     }
 }
 
+/// Resolve both ends when routing starts on one copper layer and finishes on
+/// another. Each pad is checked against its own layer.
+pub(crate) fn resolve_between_layers(
+    p: &Project,
+    from: &Endpoint,
+    to: &Endpoint,
+    net: Option<Id>,
+    start_layer: Layer,
+    end_layer: Layer,
+) -> Result<(Point, Point, Id), Error> {
+    let mismatch =
+        || Error::Invalid("route requires distinct pads on the same net and a valid width".into());
+    let mut nets = vec![];
+    let start = match from {
+        Endpoint::Pad(r) => {
+            let (point, n) = pad(p, r, start_layer)?;
+            nets.push(n);
+            point
+        }
+        Endpoint::Point(point) => {
+            if !point.valid()
+                || point.x < 0.0
+                || point.y < 0.0
+                || point.x > p.board.width
+                || point.y > p.board.height
+            {
+                return Err(Error::Invalid("route point must lie on the board".into()));
+            }
+            *point
+        }
+    };
+    let end = match to {
+        Endpoint::Pad(r) => {
+            let (point, n) = pad(p, r, end_layer)?;
+            nets.push(n);
+            point
+        }
+        Endpoint::Point(point) => {
+            if !point.valid()
+                || point.x < 0.0
+                || point.y < 0.0
+                || point.x > p.board.width
+                || point.y > p.board.height
+            {
+                return Err(Error::Invalid("route point must lie on the board".into()));
+            }
+            *point
+        }
+    };
+    nets.extend(net);
+    let Some(first) = nets.first().copied() else {
+        return Err(Error::Invalid(
+            "routing between points needs a net; add \"net\" to the command".into(),
+        ));
+    };
+    if nets.iter().any(|n| *n != first) {
+        return Err(mismatch());
+    }
+    if !p.nets.iter().any(|n| n.id == first) {
+        return Err(Error::Invalid("unknown net".into()));
+    }
+    Ok((start, end, first))
+}
+
 /// Clearance a track of `net` must keep from `o`, as the checks demand it.
 pub(crate) fn required(p: &Project, layer: Layer, net: Id, o: &Obstacle) -> f64 {
     p.required_clearance_at(net, o.net, o.at, o.at, layer, layer)
@@ -103,14 +167,11 @@ pub(crate) fn required(p: &Project, layer: Layer, net: Id, o: &Obstacle) -> f64 
 
 /// Bounding box of the board: its outline when one is traced, else the rectangle.
 pub(crate) fn bounds(p: &Project) -> (Point, Point) {
-    match &p.board.outline {
-        Some(poly) if !poly.is_empty() => {
-            let min_x = poly.iter().map(|q| q.x).fold(f64::INFINITY, f64::min);
-            let min_y = poly.iter().map(|q| q.y).fold(f64::INFINITY, f64::min);
-            let max_x = poly.iter().map(|q| q.x).fold(f64::NEG_INFINITY, f64::max);
-            let max_y = poly.iter().map(|q| q.y).fold(f64::NEG_INFINITY, f64::max);
-            (Point::new(min_x, min_y), Point::new(max_x, max_y))
-        }
+    match p.board.outline.as_deref() {
+        Some(poly) if poly.len() >= 3 => outline_extent(poly, &p.board.outline_arcs).unwrap_or((
+            Point::new(0.0, 0.0),
+            Point::new(p.board.width, p.board.height),
+        )),
         _ => (
             Point::new(0.0, 0.0),
             Point::new(p.board.width, p.board.height),
