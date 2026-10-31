@@ -10,7 +10,7 @@
 //! Do not bind non-loopback addresses. Do not leave listeners running after the test.
 use super::*;
 use std::collections::HashSet;
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 
 fn free_loopback_port() -> Result<String, String> {
