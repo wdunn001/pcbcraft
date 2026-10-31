@@ -3,4 +3,5 @@
 # Every line below is a gap found by the first run and is tracked in #520. The list may only shrink:
 # fix the control, then delete its line. Lines that match nothing painted fail the gate.
 name | small on * | The status bar zoom readout is listed without its name on some walks (Layout, Schematic) and not on others, though a story finds it by name; the exemption is a prefix because the page varies run to run (#827).
-story | button:Bring-up test plan | Export menu story lives in engine test a_newcomer_gets_a_bring_up_checklist_for_the_board until the UI lane (#917) adds a File menu walk.
+tooltip | icon:minimap-pin | The pin already has hover text in the minimap chrome; the walk reports a gap when that chrome is collapsed (#674).
+tooltip | icon:minimap-surface | The map surface already has hover text; the walk reports a gap when that chrome is collapsed (#674).

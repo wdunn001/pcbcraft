@@ -429,6 +429,9 @@ pub fn panel_placement_text(p: &Project) -> Result<String, String> {
             let c = refs
                 .get(&f.component)
                 .ok_or("footprint references an unknown component")?;
+            if !c.in_placement() {
+                continue;
+            }
             let back = f.pads.iter().any(|pad| {
                 pad.geometry.as_ref().is_some_and(|g| {
                     g.pad_type == "smd"
