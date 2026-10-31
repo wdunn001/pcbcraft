@@ -10,7 +10,7 @@
 set -u
 
 APPDIR="$(dirname "$(readlink -f "$0")")"
-DESK_ID=io.github.tangency-labs.pcbcraft
+DESK_ID=io.github.tangency_labs.pcbcraft
 
 integrate() {
   case "${PCBCRAFT_NO_DESKTOP_INTEGRATION:-}" in

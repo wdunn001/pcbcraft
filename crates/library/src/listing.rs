@@ -18,10 +18,14 @@ use std::collections::BTreeMap;
 pub enum ListingSource {
     /// Recorded sample data.
     Fixture,
+    /// Built from an embedded series table; configure before place.
+    Generated,
     /// A part in the open project.
     Project,
     /// A part from an installed library.
     Installed,
+    /// A symbol or footprint from the open online library.
+    OpenLibrary,
     /// A part from an online distributor.
     Distributor,
 }
