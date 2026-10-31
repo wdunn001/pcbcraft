@@ -137,6 +137,11 @@
   key: true
   evidence: [command:part.attach_source]
 - area: libraries
+  name: Part sourcing fields
+  summary: Typed manufacturer, part number, description and supplier numbers on a part, edited in Properties and read by the bill of materials.
+  status: browser
+  evidence: [command:component.set_sourcing, command:component.set_supplier]
+- area: libraries
   name: Import library files
   summary: Read symbols and footprints from files on disk into the project library.
   status: desktop

@@ -127,10 +127,40 @@ fn run() -> Result<(), String> {
             if let Some(address) = option(&args, "--http") {
                 // The endpoint and token go to stderr (or a 0600 file); stdout stays unused.
                 let token_file = option(&args, "--token-file").map(Path::new);
-                let (listener, token) =
-                    pcbcraft_mcp::http::start_http(address, token_file, &mut std::io::stderr())?;
-                pcbcraft_mcp::http::serve_listener(&hub, &listener, &token);
+                let allow_remote = flag(&args, "--allow-remote");
+                let allow_origins: Vec<String> = args
+                    .windows(2)
+                    .filter(|pair| pair[0] == "--allow-origin")
+                    .map(|pair| pair[1].clone())
+                    .collect();
+                if allow_origins
+                    .iter()
+                    .any(|origin| origin == "*" || origin == "null")
+                {
+                    return Err(
+                        "--allow-origin needs an exact origin such as https://app.example".into(),
+                    );
+                }
+                if !allow_origins.is_empty() && !allow_remote {
+                    return Err("--allow-origin only applies together with --allow-remote".into());
+                }
+                let (listener, token) = pcbcraft_mcp::http::start_http_with(
+                    address,
+                    allow_remote,
+                    token_file,
+                    &mut std::io::stderr(),
+                )?;
+                let options = pcbcraft_mcp::http::HttpOptions {
+                    token,
+                    allow_remote,
+                    allow_origins,
+                };
+                let server = pcbcraft_mcp::http::Server::new(hub, options);
+                pcbcraft_mcp::http::serve_server(std::sync::Arc::new(server), &listener);
                 return Ok(());
+            }
+            if flag(&args, "--allow-remote") || flag(&args, "--token-file") {
+                return Err("--allow-remote and --token-file only apply with --http".into());
             }
             pcbcraft_mcp::serve(
                 &mut std::io::stdin().lock(),
@@ -242,7 +272,7 @@ new: pcbcraft-cli new --out design.pcbcraft [--name TITLE]\n\
 init: pcbcraft-cli init DIRECTORY [--name TITLE] [--force]\n\
 Diff: pcbcraft-cli diff FILE_A FILE_B [--format text|json] (exit 1 when designs differ)\n\
 Tool: pcbcraft-cli tool NAME --args JSON [--save FILE]\n\
-MCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991 | --http 127.0.0.1:PORT [--token-file FILE]]\n\
+MCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991 | --http 127.0.0.1:PORT [--token-file FILE] [--allow-remote [--allow-origin ORIGIN]...]]\n\
 Desktop: pcbcraft --sample --control 127.0.0.1:7991\n\
 See README.md and docs/mcp.md for schemas and examples."
         ),

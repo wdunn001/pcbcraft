@@ -39,6 +39,17 @@ pub fn record_recent_path(config: &UserConfig, path: &str) {
     list.truncate(MAX_RECENT);
     write(config, &list);
 }
+/// Take one design off the list, as the Files page does for Remove from list.
+/// The file itself is never touched.
+pub fn forget_recent_path(path: &str) {
+    let trimmed = path.trim();
+    let mut list = load_recent_paths();
+    let before = list.len();
+    list.retain(|seen| seen != trimmed);
+    if list.len() != before {
+        write(&list);
+    }
+}
 /// Forget every remembered design.
 pub fn clear_recent_paths(config: &UserConfig) {
     write(config, &[]);
@@ -96,11 +107,32 @@ mod tests {
             list,
             "blank names and no-op repeats change nothing"
         );
-        clear_recent_paths(config);
+clear_recent_paths(config);
         assert!(
             load_recent_paths(config).is_empty(),
             "clearing empties the list"
         );
+        forget_recent_path("/designs/board5.board.json");
+        let after_forget = load_recent_paths();
+        assert!(
+            !after_forget
+                .iter()
+                .any(|seen| seen == "/designs/board5.board.json"),
+            "forget removes one path"
+        );
+        assert_eq!(
+            after_forget.len(),
+            list.len() - 1,
+            "forget only drops the matching entry"
+        );
+        forget_recent_path("/designs/board5.board.json");
+        assert_eq!(
+            load_recent_paths(),
+            after_forget,
+            "forgetting again is a no-op"
+        );
+        clear_recent_paths();
+        assert!(load_recent_paths().is_empty(), "clearing empties the list");
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }

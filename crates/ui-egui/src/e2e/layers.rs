@@ -468,6 +468,59 @@ fn a_silkscreen_line_drawn_on_the_layout_is_kept_for_the_capture() -> Result<(),
     Ok(())
 }
 
+#[test]
+fn a_newcomer_draws_on_bottom_copper_of_a_four_layer_board() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.run("board.stackup_add_pair", json!({"after":"F.Cu"}));
+    app.refresh();
+    assert_eq!(
+        app.project.copper_layer_count(),
+        4,
+        "the board now has four copper layers: {}",
+        app.message
+    );
+    // Settings > Route on > Bottom.
+    app.route_layer = pcbcraft_doc::Layer::Back;
+    let net = app.project.nets[0].id;
+    app.run(
+        "track.add",
+        json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":app.route_layer}),
+    );
+    app.refresh();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let track = app
+        .project
+        .board
+        .tracks
+        .last()
+        .cloned()
+        .ok_or("the track should exist")?;
+    assert_eq!(
+        track.layer,
+        app.project.bottom_layer(),
+        "a track drawn on Bottom lands on the last copper layer: {}",
+        app.message
+    );
+    let rows = object_detail_rows(&app.project, track.id);
+    let shown = rows
+        .iter()
+        .find(|(name, _)| name == &t!("schematic.object_detail_rows.layer"))
+        .map(|(_, value)| value.clone())
+        .ok_or("Properties lists the track's layer")?;
+    assert_eq!(shown, "B.Cu", "Properties names the bottom layer");
+    let gerber = pcbcraft_io::gerber_copper(&app.project, app.project.bottom_layer())?;
+    assert!(
+        gerber.contains("Copper,L4,Bot") && gerber.contains("D01*"),
+        "the track is in the bottom Gerber file"
+    );
+    let inner = pcbcraft_io::gerber_copper(&app.project, pcbcraft_doc::Layer::Back)?;
+    assert!(
+        !inner.contains("D01*"),
+        "no inner Gerber file carries the bottom track"
+    );
+    Ok(())
+}
+
 /// Type `text` over what the focused field holds.
 fn type_over(ctx: &egui::Context, app: &mut App, text: &str) {
     frame(

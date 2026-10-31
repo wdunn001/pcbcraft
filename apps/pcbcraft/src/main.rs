@@ -153,7 +153,7 @@ fn egui_viewport(size: Option<&str>) -> eframe::egui::ViewportBuilder {
     let builder = eframe::egui::ViewportBuilder::default()
         .with_inner_size(size)
         .with_min_inner_size([1000.0, 680.0])
-        .with_app_id("io.github.tangency-labs.pcbcraft");
+        .with_app_id("io.github.tangency_labs.pcbcraft");
     match pcbcraft_ui_egui::brand::window_icon() {
         Some(icon) => builder.with_icon(std::sync::Arc::new(icon)),
         None => builder,
