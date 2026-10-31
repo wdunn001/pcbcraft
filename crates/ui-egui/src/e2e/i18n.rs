@@ -93,6 +93,13 @@ fn i18n_pseudo_locale_fits_every_screen_at_1280_and_320() -> Result<(), String> 
                 out
             };
             let clipped = clipped_text(&out);
+            if width < 400.0 {
+                // escaped_controls paints at the default 1440 test window. A
+                // 320 pass leaves widget memory that sometimes recenters the
+                // start page (10 vs 18). Flush that before counting.
+                let _ = frame(ctx, app, vec![], egui::Modifiers::NONE);
+                let _ = frame(ctx, app, vec![], egui::Modifiers::NONE);
+            }
             let escaped = escaped_controls(ctx, app, width);
             now.push((format!("clipped | {name} | {width:.0}"), clipped));
             now.push((format!("escaped | {name} | {width:.0}"), escaped));

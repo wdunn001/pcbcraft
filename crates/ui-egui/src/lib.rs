@@ -2954,7 +2954,7 @@ impl App {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        ui.vertical(|ui| {
+                        ui.vertical_centered(|ui| {
                             ui.add_space(36.0);
                             brand::mark(ui, 96.0);
                             ui.add_space(12.0);
@@ -2972,7 +2972,7 @@ impl App {
                                 .color(self.muted()),
                             );
                             ui.add_space(24.0);
-                            let home_btn = [240.0, 64.0];
+                            let home_btn = [300.0, 64.0];
                             if ui
                                 .add_sized(
                                     home_btn,
@@ -3104,7 +3104,7 @@ impl App {
                                     if ui
                                         .add(
                                             egui::Button::new(egui::RichText::new(&design).small())
-                                                .min_size(egui::vec2(240.0, 28.0)),
+                                                .min_size(egui::vec2(300.0, 28.0)),
                                         )
                                         .on_hover_text(t!(
                                             "dialogs.start_home.open_this_design_again_where.tip"
