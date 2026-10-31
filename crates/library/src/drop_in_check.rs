@@ -175,11 +175,11 @@ impl DropInPart {
     }
 }
 
-fn finding(code: &str, pass: bool, message: impl Into<String>) -> DropInFinding {
+fn finding(code: &str, pass: bool, message: String) -> DropInFinding {
     DropInFinding {
         code: code.into(),
         pass,
-        message: message.into(),
+        message,
     }
 }
 
@@ -386,6 +386,11 @@ fn compare_temp(inc: &DropInPart, cand: &DropInPart) -> DropInFinding {
             "temperature",
             false,
             "Temperature span is incomplete on at least one part".into(),
+        ),
+        ((None, None), (Some(_), Some(_))) | ((Some(_), Some(_)), (None, None)) => finding(
+            "temperature",
+            false,
+            "Temperature span is unknown on one part".into(),
         ),
         ((Some(i_min), Some(i_max)), (Some(c_min), Some(c_max))) => {
             let pass = c_min <= i_min + 1e-6 && c_max + 1e-6 >= i_max;
