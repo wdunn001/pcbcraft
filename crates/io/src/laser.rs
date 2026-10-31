@@ -838,6 +838,7 @@ pub mod tests {
 
     fn sample_component(id: Id, reference: &str) -> Component {
         Component {
+            sourcing: Default::default(),
             id,
             reference: reference.into(),
             value: reference.into(),
@@ -857,8 +858,12 @@ pub mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
         }
+    sourcing: Default::default(),
+    compliance: Default::default(),
     }
 
     pub fn laser_job_two_pad_one_track_project() -> Project {
@@ -876,6 +881,7 @@ pub mod tests {
         const NET: Id = 401;
         project.board.footprints = vec![
             Footprint {
+                preserved: pcbcraft_doc::PreservedSource::default(),
                 id: FP_A,
                 component: COMP_A,
                 position: Point::new(5.0, 7.5),
@@ -890,8 +896,11 @@ pub mod tests {
                     castellated: None,
                     geometry: None,
                 }],
-            },
+            
+                preserved: pcbcraft_doc::PreservedSource::default(),
+},
             Footprint {
+                preserved: pcbcraft_doc::PreservedSource::default(),
                 id: FP_B,
                 component: COMP_B,
                 position: Point::new(15.0, 7.5),
@@ -906,9 +915,12 @@ pub mod tests {
                     castellated: None,
                     geometry: None,
                 }],
-            },
+            
+                preserved: pcbcraft_doc::PreservedSource::default(),
+},
         ];
         project.board.tracks = vec![Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: TRACK,
             net: NET,
             start: Point::new(5.0, 7.5),
@@ -916,7 +928,9 @@ pub mod tests {
             width: 0.2,
             layer: Layer::Front,
             arc: None,
-        }];
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+}];
         project.components = vec![
             sample_component(COMP_A, "P1"),
             sample_component(COMP_B, "P2"),

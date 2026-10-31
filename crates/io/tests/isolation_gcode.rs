@@ -27,6 +27,7 @@ fn sample_two_pads_track() -> Project {
         ..Net::default()
     });
     p.components.push(Component {
+        sourcing: Default::default(),
         id: 201,
         reference: "U1".into(),
         value: "A".into(),
@@ -46,9 +47,14 @@ fn sample_two_pads_track() -> Project {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
+    sourcing: Default::default(),
+    compliance: Default::default(),
     });
     p.components.push(Component {
+        sourcing: Default::default(),
         id: 202,
         reference: "U2".into(),
         value: "B".into(),
@@ -68,9 +74,14 @@ fn sample_two_pads_track() -> Project {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
+    sourcing: Default::default(),
+    compliance: Default::default(),
     });
     let fp1 = Footprint {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 10,
         component: 201,
         position: Point::new(5.0, 10.0),
@@ -85,7 +96,9 @@ fn sample_two_pads_track() -> Project {
         }],
         locked: None,
         side: None,
-    };
+    
+        preserved: pcbcraft_doc::PreservedSource::default(),
+};
     let mut fp2 = fp1.clone();
     fp2.id = 11;
     fp2.component = 202;
@@ -94,6 +107,7 @@ fn sample_two_pads_track() -> Project {
     p.board.footprints.push(fp1);
     p.board.footprints.push(fp2);
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 20,
         net: 101,
         start: Point::new(6.0, 10.0),
@@ -101,8 +115,11 @@ fn sample_two_pads_track() -> Project {
         width: 0.4,
         layer: Layer::Front,
         arc: None,
-    });
+    
+        preserved: pcbcraft_doc::PreservedSource::default(),
+});
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 21,
         net: 101,
         start: Point::new(8.0, 12.0),
@@ -110,7 +127,9 @@ fn sample_two_pads_track() -> Project {
         width: 0.4,
         layer: Layer::Back,
         arc: None,
-    });
+    
+        preserved: pcbcraft_doc::PreservedSource::default(),
+});
     p
 }
 

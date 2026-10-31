@@ -1,6 +1,6 @@
 //! Panel grid settings and layout math shared by preview and fabrication export.
 
-use crate::{Board, Project};
+use crate::{Board, Project, outline_extent};
 use serde::{Deserialize, Serialize};
 
 /// How neighbouring copies are separated on the manufacturing panel.
@@ -124,17 +124,11 @@ pub struct PanelLayout {
 pub fn board_copy_size(board: &Board) -> Result<(f64, f64), String> {
     match board.outline.as_deref() {
         Some(outline) if outline.len() >= 3 => {
-            let min_x = outline.iter().map(|v| v.x).fold(f64::INFINITY, f64::min);
-            let max_x = outline
-                .iter()
-                .map(|v| v.x)
-                .fold(f64::NEG_INFINITY, f64::max);
-            let min_y = outline.iter().map(|v| v.y).fold(f64::INFINITY, f64::min);
-            let max_y = outline
-                .iter()
-                .map(|v| v.y)
-                .fold(f64::NEG_INFINITY, f64::max);
-            Ok((max_x - min_x, max_y - min_y))
+            if let Some((lo, hi)) = outline_extent(outline, &board.outline_arcs) {
+                Ok((hi.x - lo.x, hi.y - lo.y))
+            } else {
+                Ok((board.width, board.height))
+            }
         }
         _ => Ok((board.width, board.height)),
     }
