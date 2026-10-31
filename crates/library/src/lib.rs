@@ -1,6 +1,7 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod connector_partnumber;
 pub mod credentials;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod digikey;
@@ -11,6 +12,11 @@ pub mod cad_cache;
 pub mod datasheet;
 pub mod datasheet_annotations;
 pub mod connector_catalog;
+pub use connector_partnumber::{
+    BuildOptions, Constraint, FieldError, FieldKind, FieldSpec, FieldValue, ParsedPart,
+    PartNumber, SeriesLimits, SeriesSpec, build, first_slice_specs, load_embedded_series,
+    parse, parse_partial,
+};
 mod footprint_check;
 mod footprint_generate;
 pub mod model_transform;
