@@ -10,7 +10,10 @@ pub struct DatasheetCacheResult {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn fetch_datasheet_cache(url: &str) -> Result<DatasheetCacheResult, String> {
+pub fn fetch_datasheet_cache(
+    url: &str,
+    extra_headers: &[(String, String)],
+) -> Result<DatasheetCacheResult, String> {
     if url.is_empty() || url.len() > 4096 {
         return Err("datasheet URL invalid".into());
     }
@@ -57,7 +60,10 @@ pub fn fetch_datasheet_cache(url: &str) -> Result<DatasheetCacheResult, String> 
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn fetch_datasheet_cache(_url: &str) -> Result<DatasheetCacheResult, String> {
+pub fn fetch_datasheet_cache(
+    _url: &str,
+    _extra_headers: &[(String, String)],
+) -> Result<DatasheetCacheResult, String> {
     Err("datasheet download is not available on wasm builds".into())
 }
 

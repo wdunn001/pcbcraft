@@ -136,7 +136,7 @@ impl Project {
         for v in self.board.vias.iter().filter(|v| v.net == net) {
             let (a, b) = self.via_span(v);
             let span_layers: Vec<u8> = self
-                .via_span_layers(v)
+                .via_conducting_layers(v)
                 .into_iter()
                 .map(|l| l.index())
                 .collect();

@@ -432,7 +432,7 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
     for via in &project.board.vias {
         // A via is copper only on the layers of its span: outside it, the
         // layer neither clears an antipad nor joins the via.
-        if !project.via_span_layers(via).contains(&layer) {
+        if !project.via_conducting_layers(via).contains(&layer) {
             continue;
         }
         if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer) {

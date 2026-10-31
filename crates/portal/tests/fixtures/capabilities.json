@@ -1,0 +1,26 @@
+{
+  "api_version": 1,
+  "instance_id": "example-instance",
+  "title": "Example sharing portal",
+  "anonymous_browse": true,
+  "anonymous_download": true,
+  "auth": {
+    "email_link": true,
+    "passkey": true,
+    "oidc": false,
+    "api_tokens": true
+  },
+  "upload": {
+    "max_publication_bytes": 52428800,
+    "max_files_per_upload": 512,
+    "two_step": true
+  },
+  "search": {
+    "max_results": 50,
+    "fields": ["title", "tags", "kind", "publisher"]
+  },
+  "static_feed": {
+    "path": "/v1/feed/static",
+    "format": "pcbcraft-portal-static-feed"
+  }
+}

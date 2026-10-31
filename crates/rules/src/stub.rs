@@ -14,7 +14,7 @@
 //!   run; every other pad-ended arm is a stub. Three equal arms on three pads
 //!   therefore report one of them.
 //! - A limit of zero allows `ZERO_LIMIT_SLACK_MM` of rounding.
-//! - Via barrel stubs below the last used layer are out of scope (#318).
+//! - Via barrel stubs are checked in `backdrill_findings` below, only for vias with a back-drill setting; a via without one is not measured.
 //!
 //! Dependencies: `super::Copper`, `super::touching`, `super::inside` in
 //! `crates/rules/src/lib.rs`; `Track::length` in `crates/doc/src/lib.rs`.
@@ -275,6 +275,69 @@ fn layer_stubs(items: &[Copper], net: Id, layer: Layer, tracks: &[&Track]) -> Ve
         }
     }
     found
+}
+
+/// Slack when comparing a barrel stub with its limit, in millimetres.
+const STUB_SLACK_MM: f64 = 1e-9;
+
+/// Back-drill checks for via barrels: a remaining stub longer than the
+/// setting allows, and a back-drill that cuts something it must not.
+pub(crate) fn backdrill_findings(project: &Project) -> Vec<Finding> {
+    let mut result = vec![];
+    for via in &project.board.vias {
+        let Some(spec) = project.effective_backdrill(via) else {
+            continue;
+        };
+        let at = format!("Via at {:.2}, {:.2}", via.position.x, via.position.y);
+        if let Err(why) = project.validate_backdrill(via, &spec) {
+            result.push(Finding {
+                code: "backdrill_must_not_cut",
+                severity: project.rule_severity("backdrill_must_not_cut", "error"),
+                message: format!("{at} has a back-drill that does not fit it: {why}"),
+                objects: vec![via.id],
+            });
+            continue;
+        }
+        let gone = project.backdrilled_layers(via, &spec);
+        let used: Vec<Id> = project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.net == via.net && gone.contains(&t.layer))
+            .filter(|t| {
+                [t.start, t.end]
+                    .iter()
+                    .any(|e| e.distance(via.position) <= via.diameter / 2.0 + 1e-6)
+            })
+            .map(|t| t.id)
+            .collect();
+        if !used.is_empty() {
+            let mut objects = vec![via.id];
+            objects.extend(used);
+            result.push(Finding {
+                code: "backdrill_must_not_cut",
+                severity: project.rule_severity("backdrill_must_not_cut", "error"),
+                message: format!(
+                    "{at} is back-drilled through a layer that a track of its own net connects on"
+                ),
+                objects,
+            });
+        }
+        if let Some(stub) = project.backdrill_stub(via, &spec)
+            && stub > spec.max_stub + STUB_SLACK_MM
+        {
+            result.push(Finding {
+                code: "backdrill_stub_too_long",
+                severity: project.rule_severity("backdrill_stub_too_long", "warning"),
+                message: format!(
+                    "{at} leaves a {stub:.3} mm stub after back-drilling; the limit is {:.3} mm",
+                    spec.max_stub
+                ),
+                objects: vec![via.id],
+            });
+        }
+    }
+    result
 }
 
 #[cfg(test)]

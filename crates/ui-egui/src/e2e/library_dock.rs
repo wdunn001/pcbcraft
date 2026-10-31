@@ -1,7 +1,26 @@
 //! Stories for the filter chips, the kind switch and the cards of the Library
 //! tab in the left aside, plus the Properties tab beside the drawing.
 use super::super::*;
+use super::audit;
 use super::support::*;
+
+fn frame_sized(
+    ctx: &egui::Context,
+    app: &mut App,
+    size: egui::Vec2,
+    events: Vec<egui::Event>,
+) -> egui::FullOutput {
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, size)),
+            events,
+            ..Default::default()
+        },
+        |ui| app.show(ui),
+    );
+    output.textures_delta.clear();
+    output
+}
 
 fn library_open() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -14,17 +33,78 @@ fn library_open() -> (egui::Context, App) {
     (ctx, app)
 }
 
+fn library_view_strip(ctx: &egui::Context, app: &App) -> Result<Rect, String> {
+    let control = audit::controls(ctx, app)
+        .into_iter()
+        .find(|c| {
+            c.id
+                .as_deref()
+                .is_some_and(|id| id.starts_with("radiobutton:Show"))
+        })
+        .ok_or("library view switch is not on screen")?;
+    Ok(control.rect)
+}
+
+fn tap_library_view(ctx: &egui::Context, app: &mut App, slot: usize) -> Result<(), String> {
+    let rect = library_view_strip(ctx, app)?;
+    let third = rect.width() / 3.0;
+    let x = rect.min.x + third * (slot as f32 + 0.5);
+    tap_at(ctx, app, egui::pos2(x, rect.center().y))
+}
+
 #[test]
 fn a_newcomer_switches_the_library_between_symbols_footprints_and_both() -> Result<(), String> {
     let (ctx, mut app) = library_open();
-    for (id, view) in [
-        ("button:Footprints", library_dock::ViewKind::Footprints),
-        ("button:Both", library_dock::ViewKind::Both),
-        ("button:Symbols", library_dock::ViewKind::Symbols),
+    for (slot, view) in [
+        (1, library_dock::ViewKind::Footprints),
+        (2, library_dock::ViewKind::Both),
+        (0, library_dock::ViewKind::Symbols),
     ] {
-        tap_id(&ctx, &mut app, id)?;
-        assert_eq!(app.dock.view, view, "{id} sets what the cards show");
+        tap_library_view(&ctx, &mut app, slot)?;
+        assert_eq!(app.dock.view, view, "slot {slot} sets what the cards show");
     }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_uses_the_arrow_keys_on_the_filter() -> Result<(), String> {
+    let (ctx, mut app) = library_open();
+    let rect = library_view_strip(&ctx, &app)?;
+    tap_at(&ctx, &mut app, rect.center())?;
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::ArrowRight,
+            physical_key: Some(egui::Key::ArrowRight),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(
+        app.dock.view,
+        library_dock::ViewKind::Footprints,
+        "Right should move to Footprints"
+    );
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::Home,
+            physical_key: Some(egui::Key::Home),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(
+        app.dock.view,
+        library_dock::ViewKind::Symbols,
+        "Home should jump back to Symbols"
+    );
     Ok(())
 }
 
@@ -82,5 +162,31 @@ fn a_newcomer_reads_the_properties_tab_beside_the_drawing() -> Result<(), String
         paints_text(&ctx, &mut app, "Nothing selected")?,
         "with nothing chosen the Properties tab says so"
     );
+    Ok(())
+}
+
+#[test]
+fn the_library_view_switch_fits_a_narrow_aside() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.region().left_tab = "library".to_owned();
+    let ctx = egui::Context::default();
+    for width in [320.0_f32, 380.0] {
+        let output = frame_sized(
+            &ctx,
+            &mut app,
+            egui::Vec2::new(width, 640.0),
+            vec![],
+        );
+        let strip = library_view_strip(&ctx, &app)?;
+        assert!(
+            strip.max.x <= width + 1.0,
+            "view switch should not spill at {width} px, got {:.0}",
+            strip.max.x
+        );
+        let _ = output;
+    }
     Ok(())
 }

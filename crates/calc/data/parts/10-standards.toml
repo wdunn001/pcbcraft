@@ -1,0 +1,71 @@
+# Glossary part 10-standards
+schema = 1
+
+[[term]]
+id = "ipc2221"
+term = "IPC-2221"
+category = "standards"
+short = "Generic standard for PCB design and spacing guidance."
+long = "IPC-2221 tables relate conductor spacing to voltage and environment. It informs default clearance thinking."
+synonyms = ["IPC 2221"]
+related = ["clearance", "creepage"]
+units = ""
+in_pcbcraft = []
+search = "ipc 2221 spacing standard"
+calculator = "conductor_spacing_ipc2221"
+source = "IPC design standard"
+
+[[term]]
+id = "iec60664"
+term = "IEC 60664"
+category = "standards"
+short = "Insulation coordination standard for clearance and creepage."
+long = "IEC 60664 maps working voltage and pollution degree to minimum distances. Mains products rely on its tables."
+synonyms = ["IEC insulation"]
+related = ["creepage", "clearance"]
+units = "mm"
+in_pcbcraft = []
+search = "iec 60664 creepage clearance mains"
+calculator = "creepage_clearance_iec60664"
+source = "IEC safety standard"
+
+[[term]]
+id = "creepage"
+term = "Creepage distance"
+category = "standards"
+short = "Shortest path along surfaces between two conductors."
+long = "Creepage matters across slots and under parts on mains boards. Pollution degree and coating reduce required distance."
+synonyms = ["surface distance"]
+related = ["clearance", "iec60664"]
+units = "mm"
+in_pcbcraft = []
+search = "creepage surface distance mains"
+calculator = "creepage_clearance_iec60664"
+source = "Safety standard practice"
+
+[[term]]
+id = "rohs"
+term = "RoHS"
+category = "standards"
+short = "Restriction on hazardous substances in electrical products."
+long = "RoHS limits lead and several other materials. Assembly notes record compliance for supply chain audits."
+synonyms = ["lead free"]
+related = ["assembly", "bom"]
+units = ""
+in_pcbcraft = []
+search = "rohs lead free compliance"
+source = "Environmental regulation"
+
+[[term]]
+id = "reach"
+term = "REACH"
+category = "standards"
+short = "EU regulation on registration of chemical substances."
+long = "REACH complements RoHS for substance reporting. Bills of materials track substance declarations from vendors."
+synonyms = ["chemical compliance"]
+related = ["rohs", "bom"]
+units = ""
+in_pcbcraft = []
+search = "reach substance declaration"
+source = "Environmental regulation"
+
