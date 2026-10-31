@@ -85,6 +85,7 @@ struct EtagCache {
     /// ETag for the issues list (page 1).
     issues_etag: Option<String>,
     /// Per-issue updated_at timestamps for incremental updates.
+    #[serde(default)]
     issue_timestamps: BTreeMap<u64, String>,
     /// Timestamp of the last successful full refresh.
     last_full: Option<String>,

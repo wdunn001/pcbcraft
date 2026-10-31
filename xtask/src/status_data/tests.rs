@@ -462,20 +462,25 @@ fn the_golden_snapshot_itself_is_clean() {
 
 #[test]
 fn warm_cache_sends_if_none_match() {
-    // Create a temp cache file with an ETag
-    let tmp = std::env::temp_dir().join("pcbcraft_test_etag_cache");
+    // Create a temp directory with a cache file at the expected path
+    let tmp_dir = std::env::temp_dir().join("pcbcraft_test_etag_cache_dir");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    let _ = std::fs::create_dir_all(&tmp_dir);
+    let cache_path = tmp_dir.join("site/src/data/status-cache.json");
+    let _ = std::fs::create_dir_all(cache_path.parent().unwrap());
+    
     let cache_content = serde_json::json!({
         "issues_etag": "W/\"test-etag-123\"",
-        "last_generated_at": "2026-10-29T23:00:00Z"
+        "last_full": "2026-10-29T23:00:00Z"
     });
-    std::fs::write(&tmp, cache_content.to_string()).unwrap();
+    std::fs::write(&cache_path, cache_content.to_string()).unwrap();
 
     // Load the cache and verify the ETag is present
-    let cache = EtagCache::load(&tmp.parent().unwrap()).unwrap();
+    let cache = EtagCache::load(&tmp_dir).unwrap();
     assert_eq!(cache.issues_etag, Some("W/\"test-etag-123\"".to_string()));
 
     // Cleanup
-    let _ = std::fs::remove_file(&tmp);
+    let _ = std::fs::remove_dir_all(&tmp_dir);
 }
 
 #[test]
