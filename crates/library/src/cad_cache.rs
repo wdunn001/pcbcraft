@@ -101,10 +101,7 @@ fn check_hash(hash: &str) -> Result<(), SourceError> {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    pcbcraft_clock::unix_secs()
 }
 
 /// Platform cache folder for online library files, or `None` when the
@@ -491,7 +488,8 @@ fn stored_files(dir: &Path) -> Vec<StoredFile> {
 
 fn touch(path: &Path) {
     if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
-        let _ = f.set_modified(SystemTime::now());
+        let now = UNIX_EPOCH + std::time::Duration::from_secs(pcbcraft_clock::unix_secs());
+        let _ = f.set_modified(now);
     }
 }
 
