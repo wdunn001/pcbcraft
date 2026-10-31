@@ -8,7 +8,14 @@ mod online;
 mod outline;
 pub mod profiles;
 pub mod recents;
+pub mod scope;
+pub mod source_cache;
+pub mod wirelength;
+pub mod library;
+pub mod profiles;
+pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
+mod datasheet_annotations;
 mod route;
 mod selection_clip;
 mod snapmaker;
@@ -2141,7 +2148,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.package",
             "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
             schema(
-                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64}}),
+json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64},"previous":{"type":"string","minLength":1,"maxLength":4096}}),
                 &["path"],
             ),
         ),
@@ -2391,6 +2398,15 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
+.chain(snapmaker::commands())
+        .chain(authoring::commands())
+        .chain(online::commands())
+        .chain(images::commands())
+        .chain(outline::commands())
+        .chain(tuning::commands())
+        .chain(datasheet_annotations::commands())
+        .chain(via_protection::commands())
+        .collect()
         .collect()
 }
 
@@ -2431,6 +2447,11 @@ impl Session {
         params: Value,
         expected: Option<u64>,
     ) -> Result<Value, Error> {
+        if datasheet_annotations::is_profile_command(id) {
+            self.check_revision(expected)?;
+            let result = datasheet_annotations::run_profile(id, &params).map_err(Error::Invalid)?;
+            return Ok(json!({"revision": self.revision, "result": result}));
+        }
         if artifacts::command_is_read_only(id) {
             return self.query(id, params, expected);
         }
@@ -2866,6 +2887,22 @@ fn render_kind(
             skipped.extend(plots.skipped);
         }
         "raster" => out.extend(pcbcraft_io::raster_job_pngs(p)?),
+        "spice" => out.push((
+            "schematic.cir".into(),
+            pcbcraft_io::spice_netlist(p)?.into_bytes(),
+        )),
+        "si_net_results" => out.push((
+            "si-net-results.csv".into(),
+            pcbcraft_io::si_net_results_csv(p)?.into_bytes(),
+        )),
+        "impedance_table" => out.push((
+            "impedance-table.csv".into(),
+            pcbcraft_io::impedance_table_csv(p)?.into_bytes(),
+        )),
+        "touchstone" => out.push((
+            "touchstone.s2p".into(),
+            pcbcraft_io::touchstone_text(p)?.into_bytes(),
+        )),
         other => {
             return Err(Error::Invalid(format!("unknown export kind {other}")));
         }
@@ -7363,6 +7400,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = outline::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = datasheet_annotations::run_design(p, command, params) {
         return result;
     }
     match command {
@@ -27783,6 +27823,7 @@ mod tests {
         let c = s.project.component(r1).ok_or_else(missing)?;
         assert_eq!(c.field("Manufacturer"), Some("Example Components"));
         assert_eq!(c.field("MPN"), Some("SAMPLE-R-10K"));
+        assert_eq!(c.field("Datasheet"), Some("https://example.invalid/d.pdf"));
         assert_eq!(c.field("Sample Shop SKU"), Some("SS-1"));
         assert!(
             s.execute(
@@ -31554,6 +31595,40 @@ mod tests {
                 directory.join(name).exists(),
                 "{name} should have been written"
             );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_exports_the_per_net_signal_integrity_results() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-si-export-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"si","kinds":["si_net_results","impedance_table"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"si","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let results = std::fs::read_to_string(directory.join("si-net-results.csv"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        if !results.contains("NET,CLASS") || !results.contains("IMPEDANCE_OHM") {
+            return Err(Error::Invalid(
+                "si-net-results.csv should list nets with impedance columns".into(),
+            ));
+        }
+        let table = std::fs::read_to_string(directory.join("impedance-table.csv"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        if !table.contains("method:") {
+            return Err(Error::Invalid(
+                "impedance-table.csv should state its method".into(),
+            ));
         }
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())

@@ -6,6 +6,8 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
+mod datasheet;
 mod bitmap_trace;
 mod board_mesh;
 mod diff;
@@ -24,6 +26,8 @@ mod model_load;
 mod neoden_yy1;
 mod package;
 mod panel_export;
+mod schematic_sim;
+mod si_export;
 mod part_bodies;
 mod plot_read;
 mod raster;
@@ -65,6 +69,8 @@ pub use cam_drill::{
 };
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
 pub use diff::{DesignChange, DesignDiff, project_diff};
+#[cfg(not(target_arch = "wasm32"))]
+pub use datasheet::HttpDatasheetTransport;
 /// Functions for generating layer plots from drawn graphics.
 /// # Dependencies
 /// - crates/io/src/drawn.rs
@@ -166,6 +172,8 @@ pub use uv_print::{
     UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer,
     eufymake_e1_profile, uv_print_artwork, write_uv_print_job_files,
 };
+pub use schematic_sim::{SchematicNetlist, build_schematic_netlist, spice_netlist};
+pub use si_export::{impedance_table_csv, si_net_results_csv, touchstone_text};
 
 /// Maximum size in bytes for project files, 8 MiB.
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;

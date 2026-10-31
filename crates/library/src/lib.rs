@@ -1,6 +1,8 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod datasheet;
+pub mod datasheet_annotations;
 pub mod connector_catalog;
 mod footprint_check;
 mod footprint_generate;
@@ -17,6 +19,11 @@ pub mod sources;
 mod symbol_check;
 mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use datasheet::{
+    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
+    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
+    MAX_REDIRECTS, MAX_URL_BYTES,
+};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
