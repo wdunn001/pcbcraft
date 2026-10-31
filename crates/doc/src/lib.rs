@@ -26,7 +26,40 @@ pub const MAX_ITEMS: usize = 2048;
 mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
+use pcbcraft_library::PadShape;
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+
+pub type Id = u64;
+pub const MAX_ITEMS: usize = 2048;
+
+mod material;
+pub use material::{MATERIALS, Material, material};
+mod net_members;
+mod sourcing;
+mod compliance;
+mod compliance_list;
+mod via_protection;
+mod sourcing;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+pub use sourcing::{
+    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
+    SupplierPart, lifecycle_text,
+};
+pub use compliance::{
+    Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings,
+    CountryOfOrigin, DeclaredSubstance, Declaration, DeclarationSource, DeclarationSourceKind,
+    DeclarationStatus, ManufacturerRecord, PartRole, MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_MUTES,
+    MAX_COMPLIANCE_RULE_SETS, MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURERS,
+    MAX_SUBSTANCES, apply_listing_declarations, date_le, normalize_manufacturer_name,
+    part_role_text, valid_date,
+};
+pub use compliance_list::{
+    ComplianceListEntityEntry, ComplianceListSnapshot, ComplianceListSubstanceEntry,
+    COMPLIANCE_LIST_SCHEMA, MAX_COMPLIANCE_LIST_BYTES, MAX_COMPLIANCE_LIST_ENTRIES,
+};
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
@@ -59,6 +92,12 @@ pub struct SymbolUnitPlacement {
 }
 fn passive() -> String {
     "passive".into()
+}
+fn default_decoupling_max_mm() -> f64 {
+    3.0
+}
+fn is_default_decoupling_mm(v: &f64) -> bool {
+    v.is_finite() && (*v - 3.0).abs() < 1e-9
 }
 /// Pin electrical types recognised by ERC and schematic validation.
 pub const PIN_ELECTRICAL_TYPES: [&str; 12] = [
@@ -164,30 +203,17 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
-    /// When false the part is left out of the bill and grouped BOM exports.
-    #[serde(
-        default = "default_inclusion_yes",
-        skip_serializing_if = "inclusion_flag_is_default",
-        rename = "in_bom"
-    )]
-    pub include_in_bom: bool,
-    /// When false the part is left out of pick-and-place and machine placement exports.
-    #[serde(
-        default = "default_inclusion_yes",
-        skip_serializing_if = "inclusion_flag_is_default",
-        rename = "in_placement"
-    )]
-    pub include_in_placement: bool,
+/// Typed sourcing facts: manufacturer, part number, description, supplier numbers
+/// and quick compliance flags. Empty records are not saved. See `sourcing.rs`.
+    #[serde(default, skip_serializing_if = "Sourcing::is_empty")]
+    pub sourcing: Sourcing,
+    /// Typed compliance: country of origin, product role, dated declarations and substances.
+    #[serde(default, skip_serializing_if = "Compliance::is_empty")]
+    pub compliance: Compliance,
     /// The schematic sheet this component belongs to. Sheet 0 is the implicit
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
     pub sheet: Id,
-}
-fn default_inclusion_yes() -> bool {
-    true
-}
-fn inclusion_flag_is_default(v: &bool) -> bool {
-    *v
 }
 fn is_root_sheet(id: &Id) -> bool {
     *id == 0
@@ -269,22 +295,15 @@ pub struct ComponentField {
     pub key: String,
     pub value: String,
 }
-/// Legacy component property that keeps a part out of the bill of materials.
-/// Prefer `component.set_in_bom`; this field is still honoured on load.
+/// The component property that keeps a part out of the bill of materials.
+/// Set it to `yes` with `component.field`; clear it to put the part back.
 pub const BOM_EXCLUDE_FIELD: &str = "Exclude from BOM";
 impl Component {
-    /// True when the part is included in BOM exports (variants may still omit it).
+    /// True unless the part carries `BOM_EXCLUDE_FIELD` set to `yes`.
     pub fn in_bom(&self) -> bool {
-        if !self.include_in_bom {
-            return false;
-        }
         !self
             .field(BOM_EXCLUDE_FIELD)
             .is_some_and(|v| v.eq_ignore_ascii_case("yes"))
-    }
-    /// True when the part is included in placement exports (variants may still omit it).
-    pub fn in_placement(&self) -> bool {
-        self.include_in_placement
     }
     /// Value of a named component property, if the component carries it.
     pub fn field(&self, key: &str) -> Option<&str> {
@@ -1401,6 +1420,22 @@ pub struct Via {
     /// board default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covering: Option<ViaCovering>,
+    /// Which outer faces use the covering. Absent means both faces, which
+    /// matches boards saved before per-side protection existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covering_scope: Option<ViaCoveringScope>,
+}
+/// Which outer faces of a via use its covering type.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ViaCoveringScope {
+    /// The covering applies on both outer faces.
+    #[default]
+    Both,
+    /// The covering applies on the top face only; the bottom stays open.
+    Top,
+    /// The covering applies on the bottom face only; the top stays open.
+    Bottom,
 }
 /// How a via hole is protected, named after the seven types of the via
 /// protection standard (IPC-4761). The types that close the hole under the
@@ -1464,15 +1499,94 @@ impl ViaCovering {
             ViaCovering::FilledCapped => "filled_capped",
         }
     }
-    /// Whether the solder mask keeps an opening around the hole.
+    /// Whether the solder mask keeps an opening around the hole on every face.
     pub fn keeps_mask_opening(self) -> bool {
         self == ViaCovering::Open
+    }
+    /// Whether the solder mask keeps an opening on one outer face.
+    pub fn mask_open_on_face(self, scope: ViaCoveringScope, top: bool) -> bool {
+        if self == ViaCovering::Open {
+            return true;
+        }
+        match scope {
+            ViaCoveringScope::Both => false,
+            ViaCoveringScope::Top => !top,
+            ViaCoveringScope::Bottom => top,
+        }
+    }
+    /// Gerber `ViaDrill` protection field for this covering and face scope.
+    pub fn gerber_via_drill(self, scope: ViaCoveringScope) -> ViaGerberDrill {
+        match self {
+            ViaCovering::Open => ViaGerberDrill::None,
+            ViaCovering::Tented => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::Ib,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::Ia,
+            },
+            ViaCovering::TentedCovered => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::IIb,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IIa,
+            },
+            ViaCovering::Plugged => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::IIIb,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IIIa,
+            },
+            ViaCovering::PluggedCovered => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::IVb,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IVa,
+            },
+            ViaCovering::Filled => ViaGerberDrill::V,
+            ViaCovering::FilledCovered => ViaGerberDrill::VI,
+            ViaCovering::FilledCapped => ViaGerberDrill::VII,
+        }
+    }
+}
+/// Twelve Gerber `ViaDrill` protection values plus `None` for an open via.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ViaGerberDrill {
+    None,
+    Ia,
+    Ib,
+    IIa,
+    IIb,
+    IIIa,
+    IIIb,
+    IVa,
+    IVb,
+    V,
+    VI,
+    VII,
+}
+impl ViaGerberDrill {
+    pub fn token(self) -> &'static str {
+        match self {
+            ViaGerberDrill::None => "None",
+            ViaGerberDrill::Ia => "Ia",
+            ViaGerberDrill::Ib => "Ib",
+            ViaGerberDrill::IIa => "IIa",
+            ViaGerberDrill::IIb => "IIb",
+            ViaGerberDrill::IIIa => "IIIa",
+            ViaGerberDrill::IIIb => "IIIb",
+            ViaGerberDrill::IVa => "IVa",
+            ViaGerberDrill::IVb => "IVb",
+            ViaGerberDrill::V => "V",
+            ViaGerberDrill::VI => "VI",
+            ViaGerberDrill::VII => "VII",
+        }
     }
 }
 impl Via {
     /// The covering that applies to this via: its own, else the board default.
     pub fn effective_covering(&self, board: &Board) -> ViaCovering {
         self.covering.unwrap_or(board.via_covering_default)
+    }
+    /// Which outer faces use the covering on this via.
+    pub fn effective_covering_scope(&self) -> ViaCoveringScope {
+        self.covering_scope.unwrap_or(ViaCoveringScope::Both)
+    }
+    /// Gerber `ViaDrill` value for fabrication output.
+    pub fn gerber_via_drill(&self, board: &Board) -> ViaGerberDrill {
+        self.effective_covering(board)
+            .gerber_via_drill(self.effective_covering_scope())
     }
 }
 /// What a via is, derived from its span and the stackup.
@@ -1880,7 +1994,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 29] = [
+pub const OUTPUT_KINDS: [&str; 33] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1910,10 +2024,14 @@ pub const OUTPUT_KINDS: [&str; 29] = [
     "raster",
     "laser_job",
     "uv_print",
+    "spice",
+    "si_net_results",
+    "impedance_table",
+    "touchstone",
 ];
 /// How many export kinds one output job may hold. It is larger than the kind
 /// list so a single job can still ask for every file a board needs.
-pub const MAX_OUTPUT_KINDS: usize = 32;
+pub const MAX_OUTPUT_KINDS: usize = 36;
 /// A named fabrication output recipe: the export kinds a job writes when it
 /// runs.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -2109,6 +2227,10 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
         "hpgl" => ("package", "board.hpgl"),
         "stackup" => ("package", "board-stackup.txt"),
         "stats" => ("package", "board-stats.csv"),
+        "spice" => ("package", "schematic.cir"),
+        "si_net_results" => ("package", "si-net-results.csv"),
+        "impedance_table" => ("package", "impedance-table.csv"),
+        "touchstone" => ("package", "touchstone.s2p"),
         _ => return None,
     })
 }
@@ -2366,6 +2488,12 @@ pub const LAYER_FUNCTIONS: [&str; 10] = [
     "other",
     "none",
 ];
+/// Design roles an inner copper layer may carry: routing, ground plane or power plane.
+pub const COPPER_LAYER_PLANE_ROLES: [&str; 3] = ["signal", "ground", "power"];
+
+fn skip_copper_layer_roles(v: &[Option<String>]) -> bool {
+    v.is_empty() || v.iter().all(|r| r.is_none())
+}
 impl LayerRecord {
     fn valid(&self) -> bool {
         let in_set =
@@ -2804,6 +2932,9 @@ pub struct Board {
     /// Recorded per-layer fabrication notes in physical stack order (top to bottom).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
+    /// Design role per copper layer index (0 = top): signal, ground or power.
+    #[serde(default, skip_serializing_if = "skip_copper_layer_roles")]
+    pub copper_layer_roles: Vec<Option<String>>,
     /// Extra via spans (upper, lower copper layer index) the build allows
     /// beyond the generic ones, for example a buried span.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -3247,6 +3378,15 @@ pub struct Project {
     /// Extra bill-of-materials columns, in print order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bom_fields: Vec<BomField>,
+    /// Manufacturer names and aliases for compliance matching.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manufacturers: Vec<ManufacturerRecord>,
+    /// Compliance rule sets, role and target markets for this design.
+    #[serde(default, skip_serializing_if = "ComplianceProjectSettings::is_empty")]
+    pub compliance_settings: ComplianceProjectSettings,
+    /// Compliance findings the designer muted with a stored reason.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub compliance_mutes: Vec<ComplianceFindingMute>,
     /// Text files attached to the project, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<EmbeddedFile>,
@@ -3287,6 +3427,15 @@ pub struct Project {
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub meta: BTreeMap<String, String>,
+    /// Maximum pad-centre distance in millimetres from an IC power pin to a
+    /// decoupling capacitor on the same net when that IC has a board footprint.
+    /// Schematic-only designs ignore distance and only require a capacitor on
+    /// the net.
+    #[serde(
+        default = "default_decoupling_max_mm",
+        skip_serializing_if = "is_default_decoupling_mm"
+    )]
+    pub decoupling_max_mm: f64,
     /// Named numeric values commands may reference by name instead of
     /// retyping a number, keyed by name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -3437,6 +3586,9 @@ impl Default for Project {
             page_settings: vec![],
             ports: vec![],
             bom_fields: vec![],
+            manufacturers: vec![],
+            compliance_settings: Default::default(),
+            compliance_mutes: vec![],
             output_jobs: vec![],
             artifacts: vec![],
             panel: PanelSettings::default(),
@@ -3449,6 +3601,7 @@ impl Default for Project {
             locked_objects: vec![],
             reference_images: vec![],
             meta: Default::default(),
+            decoupling_max_mm: default_decoupling_max_mm(),
             parameters: Default::default(),
             bindings: vec![],
             rule_severity: Default::default(),
@@ -3552,8 +3705,8 @@ pub fn component_template(
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
-        include_in_bom: true,
-        include_in_placement: true,
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
         pins: names
             .iter()
@@ -4001,6 +4154,78 @@ impl Project {
             v.to_layer = v.to_layer.map(to);
         }
     }
+    /// True when `layer` is neither the top nor the bottom copper row.
+    pub fn is_inner_copper_layer(&self, layer: Layer) -> bool {
+        let count = self.copper_layer_count();
+        let i = layer.index();
+        i > 0 && i + 1 < count
+    }
+    /// Recorded plane role for a copper layer, if it is not plain signal routing.
+    pub fn copper_layer_plane_role(&self, layer: Layer) -> Option<&str> {
+        self.board
+            .copper_layer_roles
+            .get(layer.index() as usize)
+            .and_then(|r| r.as_deref())
+            .filter(|r| *r != "signal")
+    }
+    /// True when the layer is marked as a ground or power plane.
+    pub fn copper_layer_is_plane(&self, layer: Layer) -> bool {
+        matches!(
+            self.copper_layer_plane_role(layer),
+            Some("ground") | Some("power")
+        )
+    }
+    /// True when a filled pour sits on a layer marked ground or power.
+    pub fn zone_is_plane_pour(&self, zone: &CopperZone) -> bool {
+        zone.filled && self.copper_layer_is_plane(zone.layer)
+    }
+    fn trim_copper_layer_roles(&mut self) {
+        let count = self.copper_layer_count() as usize;
+        self.board.copper_layer_roles.truncate(count);
+        while self.board.copper_layer_roles.last().is_some_and(|r| r.is_none()) {
+            self.board.copper_layer_roles.pop();
+        }
+    }
+    /// Keep plane roles aligned when copper layer indices move.
+    pub fn remap_copper_layer_roles(&mut self, map: impl Fn(u8) -> u8) {
+        let count = self.copper_layer_count() as usize;
+        let mut next = vec![None; count];
+        for (i, role) in self.board.copper_layer_roles.iter().enumerate() {
+            if let Some(role) = role.clone() {
+                let ni = map(i as u8) as usize;
+                if ni < count {
+                    next[ni] = Some(role);
+                }
+            }
+        }
+        self.board.copper_layer_roles = next;
+        self.trim_copper_layer_roles();
+    }
+    /// Set or clear the design role of one inner copper layer.
+    pub fn set_copper_layer_plane_role(&mut self, layer: Layer, role: &str) -> Result<(), String> {
+        if !COPPER_LAYER_PLANE_ROLES.contains(&role) {
+            return Err("role must be signal, ground or power".into());
+        }
+        if !self.is_inner_copper_layer(layer) {
+            return Err("only inner copper layers carry a plane role".into());
+        }
+        let i = layer.index() as usize;
+        if i >= self.copper_layer_count() as usize {
+            return Err("layer is not on this board".into());
+        }
+        if self.board.copper_layer_roles.len() <= i {
+            self.board
+                .copper_layer_roles
+                .resize(i + 1, None);
+        }
+        self.board.copper_layer_roles[i] = if role == "signal" {
+            None
+        } else {
+            Some(role.into())
+        };
+        self.trim_copper_layer_roles();
+        Ok(())
+    }
     /// True when any board object sits on copper layer `index`.
     pub fn copper_layer_in_use(&self, index: u8) -> bool {
         let b = &self.board;
@@ -4442,6 +4667,10 @@ impl Project {
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
         self.validate_parameters()?;
+self.validate_manufacturers()?;
+        self.compliance_settings.validate()?;
+        self.validate_compliance_mutes()?;
+        self.decoupling.validate()?;
         if self
             .components
             .iter()
@@ -4521,6 +4750,12 @@ impl Project {
         }
         if !Self::UNITS.contains(&self.unit.as_str()) {
             return Err("project unit must be mm, mil or inch".into());
+        }
+        if !self.decoupling_max_mm.is_finite()
+            || self.decoupling_max_mm < 0.5
+            || self.decoupling_max_mm > 50.0
+        {
+            return Err("decoupling distance must be 0.5 to 50 mm".into());
         }
         if self.panel.enabled {
             self.panel.validate_fields()?;
@@ -5035,6 +5270,9 @@ impl Project {
             if c.fields.len() > 32 {
                 return Err("a component carries at most 32 fields".into());
             }
+c.sourcing.validate()?;
+c.compliance.validate()?;
+            let mut field_keys: BTreeSet<&str> = BTreeSet::new();
             let mut field_keys: BTreeSet<&str> = BTreeSet::new();
             for f in &c.fields {
                 if f.key.is_empty()
@@ -5278,6 +5516,21 @@ impl Project {
             return Err(format!(
                 "copper layer count must be 1 to {MAX_COPPER_LAYERS}"
             ));
+        }
+        if b.copper_layer_roles.len() > copper_count as usize {
+            return Err("copper layer roles exceed the copper layer count".into());
+        }
+        for (i, role) in b.copper_layer_roles.iter().enumerate() {
+            let Some(role) = role else {
+                continue;
+            };
+            if !COPPER_LAYER_PLANE_ROLES.contains(&role.as_str()) {
+                return Err("copper layer role must be signal, ground or power".into());
+            }
+            let layer = Layer::from_index(i as u8)?;
+            if !self.is_inner_copper_layer(layer) {
+                return Err("copper layer role applies only to inner layers".into());
+            }
         }
         for t in &b.tracks {
             if !self.copper_layer_valid(t.layer) {
@@ -5631,8 +5884,8 @@ pub fn library_component(
         pins,
         units,
         fields: vec![],
-        include_in_bom: true,
-        include_in_placement: true,
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
         library_symbol: Some(LibrarySymbol {
             library,
@@ -6699,27 +6952,9 @@ mod via_covering_tests {
             from_layer: None,
             to_layer: None,
             covering,
+            covering_scope: None,
         });
         p
-    }
-
-    #[test]
-    fn component_inclusion_flags_default_and_omit_true_on_save() -> Result<(), String> {
-        let json = r#"{"id":1,"reference":"R1","value":"10k","kind":"resistor","position":{"x":0.0,"y":0.0},"rotation":0.0,"pins":[]}"#;
-        let c: Component = serde_json::from_str(json).map_err(|e| e.to_string())?;
-        assert!(c.in_bom());
-        assert!(c.in_placement());
-        let saved = serde_json::to_string(&c).map_err(|e| e.to_string())?;
-        assert!(
-            !saved.contains("in_bom") && !saved.contains("in_placement"),
-            "included parts omit the flags"
-        );
-        let mut excluded = c.clone();
-        excluded.include_in_bom = false;
-        excluded.include_in_placement = false;
-        let saved = serde_json::to_string(&excluded).map_err(|e| e.to_string())?;
-        assert!(saved.contains("\"in_bom\":false") && saved.contains("\"in_placement\":false"));
-        Ok(())
     }
 
     #[test]

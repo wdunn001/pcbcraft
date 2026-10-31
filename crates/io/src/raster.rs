@@ -567,8 +567,10 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 9002,
             reference: "R99".into(),
@@ -600,8 +602,8 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
-            include_in_bom: true,
-            include_in_placement: true,
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         p.validate()?;
         Ok(p)
