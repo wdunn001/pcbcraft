@@ -3110,6 +3110,44 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
     }
 
     #[test]
+    fn hub_document_dirty_flag_clears_after_successful_save() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = directory.path().join("dirty.pcbcraft");
+        pcbcraft_io::save(&Session::default().project, &path)?;
+        assert_eq!(
+            hub.call_tool("open", &json!({"path": path.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let dirty = |listed: &Value| {
+            listed
+                .pointer("/structuredContent/documents/0/dirty")
+                .and_then(Value::as_bool)
+        };
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(dirty(&listed), Some(false), "{listed}");
+        assert_eq!(
+            hub.call_tool(
+                "execute",
+                &json!({"command":"net.create","params":{"name":"DIRTY"}}),
+            )
+            .get("isError"),
+            Some(&json!(false))
+        );
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(dirty(&listed), Some(true), "{listed}");
+        assert_eq!(
+            hub.call_tool("save", &json!({"path": path.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(dirty(&listed), Some(false), "{listed}");
+        Ok(())
+    }
+
+    #[test]
     fn library_list_does_not_change_the_revision() -> Result<(), String> {
         let session = shared(Session::default());
         let result = call_tool(&session, "library.list", &json!({"limit": 5}));

@@ -4,6 +4,7 @@ mod authoring;
 pub mod collab;
 mod dry_run;
 mod images;
+pub mod design_document;
 pub mod library;
 mod online;
 mod outline;
