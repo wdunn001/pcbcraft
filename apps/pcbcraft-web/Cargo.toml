@@ -14,8 +14,10 @@ eframe.workspace = true
 pcbcraft-engine.workspace = true
 pcbcraft-mcp.workspace = true
 pcbcraft-text.workspace = true
+pcbcraft-library.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "console", "Element"] }
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Request", "Response", "console", "Element", "Navigator", "Headers", "RequestInit", "RequestMode", "RequestCredentials"] }
