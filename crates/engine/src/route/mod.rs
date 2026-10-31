@@ -204,7 +204,7 @@ pub(crate) fn run(
         )),
         Failure::NoPath => Error::Invalid(format!(
             "no clear 45-degree path for net {name} on {}: pads, cutouts or fixed copper leave no room within {WALK_ITERATIONS} detours; move a part or route in two steps",
-            layer.name()
+            p.layer_name(layer)
         )),
     })?;
     let new_line = shove::Line {

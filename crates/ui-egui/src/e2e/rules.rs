@@ -283,3 +283,139 @@ fn a_newcomer_turns_a_built_in_check_up_to_error_and_down_to_warning() -> Result
     );
     Ok(())
 }
+
+/// How many clearance findings the checks report right now.
+fn clearance_findings(app: &App) -> usize {
+    app.checks
+        .get("drc")
+        .and_then(Value::as_array)
+        .map_or(0, |all| {
+            all.iter()
+                .filter(|f| f.get("code").and_then(Value::as_str) == Some("clearance"))
+                .count()
+        })
+}
+
+#[test]
+fn a_newcomer_picks_a_fab_preset_and_sees_the_numbers_change() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Choose a maker", 700.0)?,
+        "a fresh design offers a maker to pick"
+    );
+    app.project.board.rules = None;
+    authoring::tests::tap(&ctx, &mut app, "Choose a maker")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "JLCPCB 1-2L")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let rules = app
+        .project
+        .board
+        .rules
+        .clone()
+        .ok_or_else(|| format!("picking a maker fills the limits: {}", app.message))?;
+    assert_eq!(rules.preset.as_deref(), Some("JLCPCB 1-2L"));
+    assert!(rules.min_track.is_some(), "the minimums fill in");
+    assert!(
+        paints_text(&ctx, &mut app, "preset JLCPCB 1-2L")?,
+        "each number names the preset it came from"
+    );
+    for field in [
+        "Copper to cut edge",
+        "Copper to scored edge",
+        "Deepest hole ratio",
+        "Narrowest silkscreen line",
+        "Narrowest track",
+        "Pad hole to copper",
+        "Pad hole to hole",
+        "Pad ring",
+        "Plating allowance",
+        "Silkscreen to pad",
+        "Smallest copper gap",
+        "Smallest drill",
+        "Smallest silkscreen text",
+        "Smallest unplated hole",
+        "Solder mask bridge",
+        "Unplated hole to copper",
+        "Via hole to copper",
+        "Via hole to hole",
+        "Via ring",
+    ] {
+        tap_id(&ctx, &mut app, &format!("spinbutton:{field}"))?;
+    }
+    app.tool_call("undo", json!({}));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.project.board.rules.is_none(),
+        "one Undo clears every limit"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "preset JLCPCB 1-2L")?,
+        "the origin word goes with the numbers"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_keeps_two_classes_further_apart() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let (net_a, net_b) = {
+        let mut ids = app.project.nets.iter().map(|n| n.id);
+        (
+            ids.next().ok_or("the sample has a first connection")?,
+            ids.next().ok_or("the sample has a second connection")?,
+        )
+    };
+    app.tool_call(
+        "netclass.add",
+        json!({"name": "Signal", "clearance": 0.2, "width": 0.25, "nets": [net_a]}),
+    );
+    app.tool_call(
+        "netclass.add",
+        json!({"name": "Power", "clearance": 0.2, "width": 0.25, "nets": [net_b]}),
+    );
+    app.tool_call(
+        "track.add",
+        json!({"net": net_a, "start": {"x": 2.0, "y": 2.0}, "end": {"x": 10.0, "y": 2.0}, "width": 0.25}),
+    );
+    app.tool_call(
+        "track.add",
+        json!({"net": net_b, "start": {"x": 2.0, "y": 2.55}, "end": {"x": 10.0, "y": 2.55}, "width": 0.25}),
+    );
+    app.refresh();
+    let before = clearance_findings(&app);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Add gap", 700.0)?,
+        "the Rules page has a place to add a gap between classes"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Add gap")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.project.class_pairs.len(),
+        1,
+        "one click adds one gap: {}",
+        app.message
+    );
+    assert!(
+        clearance_findings(&app) > before,
+        "wires of the two classes closer than the new gap become a finding"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "class pair")?,
+        "the new gap says it is a class pair"
+    );
+    Ok(())
+}

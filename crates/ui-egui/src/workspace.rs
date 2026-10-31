@@ -230,10 +230,15 @@ impl Workspace for ManufactureWorkspace {
             _ => return,
         };
         ui.label(egui::RichText::new(words).color(app.muted()));
+        if tab == "outputs" {
+            app.bom_outputs_ui(ui);
+        }
     }
     fn center(&self, app: &mut App, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             App::margined(ui, |ui| {
+                app.drill_table_section(ui);
+                ui.add_space(12.0);
                 let theme = plot_viewer::Theme {
                     surface: app.surface(),
                     muted: app.muted(),

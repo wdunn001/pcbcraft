@@ -36,11 +36,20 @@ const MAX_FILE_OPS: usize = 50_000;
 const MAX_FILE_APERTURES: usize = 64;
 
 /// Millimetres to 4.6 fixed-point coordinate integers.
-fn coordinate(value: f64) -> i64 {
+pub(crate) fn coordinate(value: f64) -> i64 {
     (value * 1_000_000.0).round() as i64
 }
 fn decimal(value: f64) -> String {
     let text = format!("{value:.6}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    if text == "-0" || text.is_empty() {
+        "0".into()
+    } else {
+        text.into()
+    }
+}
+fn aperture_mm(value: f64) -> String {
+    let text = format!("{:.3}", value);
     let text = text.trim_end_matches('0').trim_end_matches('.');
     if text == "-0" || text.is_empty() {
         "0".into()
@@ -111,7 +120,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
         }
     };
     for t in p.board.tracks.iter().filter(|t| t.layer == layer) {
-        let code = define(Aperture::Standard(format!("C,{}", decimal(t.width))));
+        let code = define(Aperture::Standard(format!("C,{}", aperture_mm(t.width))));
         select(&mut body, code);
         let (a, b) = (to_gerber(t.start), to_gerber(t.end));
         body.push_str(&format!(
@@ -128,7 +137,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
                 .geometry
                 .as_ref()
                 .is_some_and(|g| g.pad_type == "thru_hole");
-            if layer == Layer::Back && !plated {
+            if !plated && !p.pad_on_copper(f, pad, layer) {
                 continue;
             }
             let Some(center) = f.pad_position(&pad.number) else {
@@ -139,9 +148,9 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             let axis_aligned = quarter < 1e-9 || 90.0 - quarter < 1e-9;
             let swapped = (rotation.rem_euclid(180.0) - 90.0).abs() < 1e-9;
             let aperture = match pad.geometry.as_ref().map(|g| (g.shape_kind(), g.size)) {
-                None => Aperture::Standard(format!("C,{}", decimal(pad.diameter))),
+                None => Aperture::Standard(format!("C,{}", aperture_mm(pad.diameter))),
                 Some((PadShape::Circle, size)) => {
-                    Aperture::Standard(format!("C,{}", decimal(size.x)))
+                    Aperture::Standard(format!("C,{}", aperture_mm(size.x)))
                 }
                 Some((kind @ (PadShape::Rect | PadShape::Oval), size)) if axis_aligned => {
                     let (w, h) = if swapped {
@@ -150,7 +159,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
                         (size.x, size.y)
                     };
                     let letter = if kind == PadShape::Rect { "R" } else { "O" };
-                    Aperture::Standard(format!("{letter},{}X{}", decimal(w), decimal(h)))
+                    Aperture::Standard(format!("{letter},{}X{}", aperture_mm(w), aperture_mm(h)))
                 }
                 Some((PadShape::Unsupported, _)) => {
                     return Err(format!(
@@ -181,10 +190,12 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     }
     let idx = layer.index();
     let index = idx + 1;
-    let side = match idx {
-        0 => "Top",
-        1 => "Bot",
-        _ => "Inr",
+    let side = if idx == 0 {
+        "Top"
+    } else if p.is_bottom(layer) {
+        "Bot"
+    } else {
+        "Inr"
     };
     Ok(format!(
         "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,Copper,L{index},{side}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
@@ -504,8 +515,12 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         }
     }
     for v in &p.board.vias {
+        // A via keeps its mask opening only on a face it leaves open.
+        if !crate::fab_export::via_mask_opening_on(v, &p.board, layer == Layer::Back) {
+            continue;
+        }
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
-        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad")?;
         sheet.flash(code, mirror(v.position, layer))?;
     }
     let (function, comment) = match layer {
@@ -871,6 +886,7 @@ mod tests {
     ) -> Component {
         let numbers: Vec<&str> = pads.iter().map(|p| p.number.as_str()).collect();
         Component {
+            sourcing: Default::default(),
             sheet: 0,
             id,
             reference: reference.into(),
@@ -993,6 +1009,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,
@@ -1011,6 +1028,7 @@ mod tests {
             width: 0.15,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.validate()?;
         Ok(project)

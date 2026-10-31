@@ -56,3 +56,4 @@ pcbcraft-datasheet = { workspace = true, features = ["fixtures"] }
 pcbcraft-text = { workspace = true, features = ["fixture"] }
 base64.workspace = true
 tempfile.workspace = true
+skrifa = "0.44"
