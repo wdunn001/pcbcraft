@@ -3,6 +3,8 @@
 //! Placement on the board is not done here; `board_mesh::with_models` applies
 //! the footprint matrix. Every limit returns a plain-sentence [`ModelError`]
 //! that the 3D View shows beside the part, so a bad file never panics.
+//! Open-library STEP bodies reach this reader only after optional fetch into
+//! the CAD cache (crates/library/src/open_import.rs).
 //!
 //! Formats: glTF and GLB, a bounded VRML subset
 //! (`vrml_read.rs`) and STEP solids (`step_read.rs`, millimetres).

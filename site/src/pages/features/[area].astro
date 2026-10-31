@@ -26,9 +26,20 @@ const others = areas.filter((a) => a.id !== area.id);
         <h1>{area.label}</h1>
         <p class="lede" data-slot="COPY #718">Placeholder introduction for {area.label.toLowerCase()}. Final copy lands with #718.</p>
       </div>
-      <ShotFrame id={`feature-${area.id}`} alt={`A capture of PCBCraft showing ${area.label.toLowerCase()}`} title={`PCBCraft · ${area.label.toLowerCase()}`} />
+      <ShotFrame id={`feature-${area.id}`} alt={`A capture of PCBCraft showing ${area.label.toLowerCase()}`} title={`PCBCraft · ${area.label.toLowerCase()}`} eager />
     </div>
   </section>
+  {
+    area.id === 'layout' && (
+      <section class="wrap closer" aria-labelledby="closer-h">
+        <h2 id="closer-h">Layers and findings</h2>
+        <div class="closer-grid">
+          <ShotFrame id="layers-tree" alt="The Layers tree" title="Layers" caption="Layers tree" />
+          <ShotFrame id="bottom-sheet" alt="The bottom sheet" title="Findings" caption="Bottom sheet" />
+        </div>
+      </section>
+    )
+  }
   <section class="wrap list" aria-labelledby="what">
     <h2 id="what">What is in this area</h2>
     <FeatureList items={items} />
@@ -43,6 +54,19 @@ const others = areas.filter((a) => a.id !== area.id);
 </MarketingLayout>
 
 <style>
+  .closer {
+    padding-bottom: 2rem;
+  }
+  .closer-grid {
+    display: grid;
+    gap: 1.5rem;
+    align-items: start;
+  }
+  @media (min-width: 56rem) {
+    .closer-grid {
+      grid-template-columns: minmax(0, 17rem) minmax(0, 1fr);
+    }
+  }
   .head {
     padding: 3rem 0 2rem;
   }
