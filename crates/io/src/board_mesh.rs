@@ -16,12 +16,17 @@
 //! and [`with_models`] swaps the parametric mesh for the loaded model's triangles.
 //!
 //! Limits are explicit: [`BoardMesh::warnings`] says what was skipped and why.
+#[path = "board_mesh_bench.rs"]
+mod board_mesh_bench;
+pub use board_mesh_bench::bench_project_600_parts;
 use crate::model_load::LoadedModel;
 use pcbcraft_doc::{ArtKind, ArtShape, Component, Footprint, Id, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::Model3D;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 /// Copper foil thickness in millimetres (one ounce).
 pub const COPPER_THICKNESS: f64 = 0.035;
@@ -96,6 +101,16 @@ pub struct ModelPlacement {
     pub loaded: bool,
 }
 
+/// Shared triangle list for instanced part bodies and loaded models.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BodyPrototype {
+    pub positions: Vec<[f64; 3]>,
+    pub indices: Vec<u32>,
+    /// Main package shell triangles before pin posts, for level-of-detail.
+    pub shell_triangles: u32,
+    pub color: Option<[f32; 3]>,
+}
+
 /// One named triangle list.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MeshPart {
@@ -110,6 +125,10 @@ pub struct MeshPart {
     pub model: Option<ModelPlacement>,
     /// Diffuse colour 0..1 from a loaded model file, when it has one.
     pub color: Option<[f32; 3]>,
+    /// Instanced body geometry in local millimetres; [`Self::instance`] places it.
+    pub prototype: Option<Arc<BodyPrototype>>,
+    /// Row-major 4x4 local-to-board matrix when [`Self::prototype`] is set.
+    pub instance: Option<[f64; 16]>,
     pub positions: Vec<[f64; 3]>,
     pub indices: Vec<u32>,
 }
@@ -123,14 +142,43 @@ impl MeshPart {
             height_source: None,
             model: None,
             color: None,
+            prototype: None,
+            instance: None,
             positions: vec![],
             indices: vec![],
         }
     }
+    /// World-space bounds, including instanced bodies.
+    pub fn world_bounds(&self) -> Option<([f64; 3], [f64; 3])> {
+        if let (Some(proto), Some(m)) = (&self.prototype, &self.instance) {
+            let first = apply_matrix(m, *proto.positions.first()?);
+            let mut min = first;
+            let mut max = first;
+            for p in &proto.positions {
+                let w = apply_matrix(m, *p);
+                min = [min[0].min(w[0]), min[1].min(w[1]), min[2].min(w[2])];
+                max = [max[0].max(w[0]), max[1].max(w[1]), max[2].max(w[2])];
+            }
+            return Some((min, max));
+        }
+        self.bounds()
+    }
     pub fn triangle_count(&self) -> usize {
+        if let Some(proto) = &self.prototype {
+            return proto.indices.len() / 3;
+        }
         self.indices.len() / 3
     }
+    pub fn stored_vertex_count(&self) -> usize {
+        if let Some(proto) = &self.prototype {
+            return proto.positions.len();
+        }
+        self.positions.len()
+    }
     pub fn bounds(&self) -> Option<([f64; 3], [f64; 3])> {
+        if self.prototype.is_some() && self.instance.is_some() {
+            return self.world_bounds();
+        }
         let first = *self.positions.first()?;
         let mut min = first;
         let mut max = first;
@@ -150,7 +198,7 @@ pub struct BoardMesh {
 }
 impl BoardMesh {
     pub fn vertex_count(&self) -> usize {
-        self.parts.iter().map(|p| p.positions.len()).sum()
+        self.parts.iter().map(MeshPart::stored_vertex_count).sum()
     }
     pub fn triangle_count(&self) -> usize {
         self.parts.iter().map(MeshPart::triangle_count).sum()
@@ -178,7 +226,7 @@ impl BoardMesh {
                 let mut v = json!({
                     "kind": part.kind.name(),
                     "name": part.name,
-                    "vertices": part.positions.len(),
+                    "vertices": part.stored_vertex_count(),
                     "triangles": part.triangle_count(),
                     "bounds": bounds_json(part.bounds()),
                 });
@@ -200,10 +248,22 @@ impl BoardMesh {
                         );
                     }
                     if geometry {
-                        let flat: Vec<f64> =
-                            part.positions.iter().flat_map(|p| rounded(*p)).collect();
-                        map.insert("positions".into(), json!(flat));
-                        map.insert("indices".into(), json!(part.indices));
+                        let (positions, indices) = if let (Some(proto), Some(m)) =
+                            (&part.prototype, &part.instance)
+                        {
+                            let positions: Vec<f64> = proto
+                                .positions
+                                .iter()
+                                .flat_map(|p| rounded(apply_matrix(m, *p)))
+                                .collect();
+                            (positions, proto.indices.clone())
+                        } else {
+                            let flat: Vec<f64> =
+                                part.positions.iter().flat_map(|p| rounded(*p)).collect();
+                            (flat, part.indices.clone())
+                        };
+                        map.insert("positions".into(), json!(positions));
+                        map.insert("indices".into(), json!(indices));
                     }
                 }
                 v
@@ -765,6 +825,83 @@ pub fn model_matrix(
     );
     mul(&footprint, &local)
 }
+fn parametric_body_key(body: &Body, bottom: bool) -> u64 {
+    let mut state = std::collections::hash_map::DefaultHasher::new();
+    body.family.hash(&mut state);
+    body.height.to_bits().hash(&mut state);
+    bottom.hash(&mut state);
+    for p in &body.ring {
+        p.x.to_bits().hash(&mut state);
+        p.y.to_bits().hash(&mut state);
+    }
+    body.pins.len().hash(&mut state);
+    for pin in &body.pins {
+        pin.len().hash(&mut state);
+    }
+    state.finish()
+}
+
+fn local_body_ring(body: &Body, bottom: bool) -> Vec<Point> {
+    let mut ring = body.ring.clone();
+    if bottom {
+        ring.reverse();
+        for p in &mut ring {
+            p.x = -p.x;
+        }
+    }
+    ring
+}
+
+/// Footprint pose for a parametric body prototype (local mm to board mm).
+pub fn footprint_body_matrix(fp: &Footprint, bottom: bool, thickness: f64) -> [f64; 16] {
+    let z = if bottom { 0.0 } else { thickness };
+    mul(
+        &translate(fp.position.x, fp.position.y, z),
+        &rot_z(-fp.rotation),
+    )
+}
+
+fn build_parametric_prototype(
+    body: &Body,
+    bottom: bool,
+    budget: &mut Budget,
+    warnings: &mut Warnings,
+) -> Result<BodyPrototype, String> {
+    let mut b = Builder {
+        part: MeshPart::new(PartKind::Body, "prototype".into()),
+        budget,
+    };
+    let (z0, z1) = if bottom {
+        (-body.height, 0.0)
+    } else {
+        (0.0, body.height)
+    };
+    let pin_z0 = if bottom { 0.0 } else { body.height };
+    let pin_z1 = pin_z0 + POST_HEIGHT;
+    if let Some(ring) = clean_ring(&local_body_ring(body, bottom)) {
+        b.prism(&ring, vec![], z0, z1, warnings)?;
+    }
+    let shell = u32::try_from(b.part.triangle_count()).unwrap_or(u32::MAX);
+    for pin in &body.pins {
+        let mut local = pin.clone();
+        if bottom {
+            local.reverse();
+            for p in &mut local {
+                p.x = -p.x;
+            }
+        }
+        if let Some(ring) = clean_ring(&local) {
+            b.prism(&ring, vec![], pin_z0, pin_z1, warnings)?;
+        }
+    }
+    Ok(BodyPrototype {
+        positions: b.part.positions,
+        indices: b.part.indices,
+        shell_triangles: shell,
+        color: None,
+    })
+}
+
 /// What a model lookup answered for one part.
 pub enum ModelLookup {
     /// The file is still being read; keep the box for now.
@@ -802,6 +939,7 @@ pub fn with_models(
     mut lookup: impl FnMut(&str) -> ModelLookup,
 ) -> Vec<(Id, ModelStatus)> {
     let mut notes = vec![];
+    let mut file_prototypes: HashMap<String, Arc<BodyPrototype>> = HashMap::new();
     for part in &mut mesh.parts {
         let (Some(id), Some(model)) = (part.component, part.model.as_mut()) else {
             continue;
@@ -813,12 +951,22 @@ pub fn with_models(
             ModelLookup::Loading => notes.push((id, ModelStatus::Loading)),
             ModelLookup::Failed(reason) => notes.push((id, ModelStatus::Failed(reason))),
             ModelLookup::Ready(m) => {
-                part.positions = m
-                    .positions
-                    .iter()
-                    .map(|p| apply_matrix(&model.matrix, *p))
-                    .collect();
-                part.indices = m.indices.clone();
+                let proto = file_prototypes
+                    .entry(model.path.clone())
+                    .or_insert_with(|| {
+                        Arc::new(BodyPrototype {
+                            positions: m.positions.clone(),
+                            indices: m.indices.clone(),
+                            shell_triangles: u32::try_from(m.indices.len() / 3)
+                                .unwrap_or(u32::MAX),
+                            color: m.color,
+                        })
+                    })
+                    .clone();
+                part.prototype = Some(proto);
+                part.instance = Some(model.matrix);
+                part.positions.clear();
+                part.indices.clear();
                 part.family = Some("model".into());
                 part.color = m.color;
                 model.loaded = true;
@@ -1165,6 +1313,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
     }
 
     if layers.bodies {
+        let mut parametric_prototypes: HashMap<u64, Arc<BodyPrototype>> = HashMap::new();
         for fp in &p.board.footprints {
             let component = p.component(fp.component);
             let Some(mut body) = crate::parametric_body::resolve(fp, component) else {
@@ -1184,24 +1333,37 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
             let name = component
                 .map(|c| c.reference.clone())
                 .unwrap_or_else(|| format!("footprint {}", fp.id));
-            let mut b = Builder {
-                part: MeshPart::new(PartKind::Body, name),
-                budget: &mut budget,
+            let bottom = fp.board_side() == Layer::Back;
+            let key = parametric_body_key(&body, bottom);
+            let proto = match parametric_prototypes.get(&key) {
+                Some(p) => p.clone(),
+                None => {
+                    let built = build_parametric_prototype(&body, bottom, &mut budget, &mut warnings)?;
+                    let arc = Arc::new(built);
+                    parametric_prototypes.insert(key, Arc::clone(&arc));
+                    arc
+                }
             };
-            b.part.component = Some(fp.component);
-            b.part.family = Some(body.family.to_string());
-            b.part.height_source = Some(height_source);
+            if proto.indices.is_empty() {
+                continue;
+            }
+            let mut part = MeshPart::new(PartKind::Body, name);
+            part.component = Some(fp.component);
+            part.family = Some(body.family.to_string());
+            part.height_source = Some(height_source);
+            part.prototype = Some(proto);
+            part.instance = Some(footprint_body_matrix(fp, bottom, thickness));
             if let Some(model) = component
                 .and_then(|c| c.library_footprint.as_ref())
                 .and_then(|l| l.definition.model.as_ref())
             {
-                b.part.model = Some(ModelPlacement {
+                part.model = Some(ModelPlacement {
                     path: model.path.clone(),
                     matrix: model_matrix(
                         model,
                         fp.position,
                         fp.rotation,
-                        fp.board_side() == Layer::Back,
+                        bottom,
                         thickness,
                     ),
                     loaded: false,
@@ -1434,9 +1596,11 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.8,
             drill: 0.4,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
         let slab = part(&mesh, PartKind::Board)?;
@@ -1517,6 +1681,7 @@ mod tests {
             locked: None,
             side: None,
             pads,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         }
     }
     /// A valid project with one component whose embedded footprint holds
@@ -1535,6 +1700,7 @@ mod tests {
             unsupported: vec![],
         };
         p.components.push(Component {
+            sourcing: Default::default(),
             id: 11,
             reference: "R1".into(),
             value: "10k".into(),
@@ -1730,6 +1896,8 @@ mod tests {
             width: 0.5,
             layer: Layer::Front,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p.board.tracks.push(Track {
             id: 3,
@@ -1739,6 +1907,8 @@ mod tests {
             width: 0.5,
             layer: Layer::Back,
             arc: Some(Point::new(10.0, 12.0)),
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let top = part(&mesh, PartKind::CopperTop)?;
@@ -1765,6 +1935,7 @@ mod tests {
             cutouts: vec![cut],
             filled: true,
             kind: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         p.board.zones.push(CopperZone {
@@ -1775,6 +1946,7 @@ mod tests {
             cutouts: vec![],
             filled: false,
             kind: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         let mesh = board_mesh(&p, MeshLayers::default())?;
@@ -1831,6 +2003,21 @@ mod tests {
         };
         assert!(budget.spend(1).is_ok());
         assert!(budget.spend(1).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn the_six_hundred_part_bench_fixture_places_six_hundred_bodies() -> Check {
+        let mesh = board_mesh(&bench_project_600_parts(), MeshLayers::default())?;
+        let bodies = mesh
+            .parts
+            .iter()
+            .filter(|p| p.kind == PartKind::Body)
+            .count();
+        assert_eq!(bodies, 600);
+        assert!(mesh.parts.iter().filter(|p| p.kind == PartKind::Body).all(
+            |p| p.prototype.is_some() && p.instance.is_some()
+        ));
         Ok(())
     }
 

@@ -226,7 +226,7 @@ impl Default for Dock {
 
 /// A row of the visible list.
 #[derive(Clone)]
-enum Card {
+pub(crate) enum Card {
     BuiltIn(&'static str, &'static str),
     Project(Box<SymbolDefinition>),
     Installed(Installed),
@@ -235,7 +235,7 @@ enum Card {
 
 impl Card {
     /// A stable name for favourites and caches.
-    fn key(&self) -> String {
+    pub(crate) fn key(&self) -> String {
         match self {
             Card::BuiltIn(kind, _) => format!("built-in/{kind}"),
             Card::Project(d) => format!("project/{}", d.name),
@@ -244,7 +244,7 @@ impl Card {
         }
     }
 
-    fn name(&self) -> String {
+    pub(crate) fn name(&self) -> String {
         match self {
             Card::BuiltIn(_, label) => (*label).to_owned(),
             Card::Project(d) => d.name.clone(),
@@ -262,6 +262,8 @@ enum CardAction {
     Favourite,
     Datasheet(String),
     Source,
+    /// Open the part's page in the Library tab.
+    OpenInLibrary,
 }
 
 /// Run `work` off the frame and hand back where its answer will arrive. In
@@ -552,7 +554,7 @@ impl App {
             .on_hover_text(t!("library.browser.browse_component_libraries.tip"))
             .clicked()
         {
-            self.change_tab(Tab::Settings);
+            self.change_tab(Tab::Library);
         }
     }
 
@@ -582,6 +584,7 @@ impl App {
             match self.tab {
                 Tab::Schematic => self.dock.view = ViewKind::Symbols,
                 Tab::Pcb => self.dock.view = ViewKind::Footprints,
+                Tab::Library => self.dock.view = ViewKind::Both,
                 _ => {}
             }
         }
@@ -1180,6 +1183,98 @@ impl App {
         Some(id)
     }
 
+    /// Draw the card's symbol large inside `rect`, as the card's own thumbnail
+    /// does. Returns false when there is nothing to draw yet (an online or
+    /// installed symbol still being read).
+    ///
+    /// # Rules
+    /// - Reads the same drawing cache the cards fill; it never starts a second read.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/library.rs (`paint_library_paths`)
+    pub(crate) fn dock_paint_symbol(&mut self, ui: &mut egui::Ui, rect: Rect, card: &Card) -> bool {
+        let facts = self.card_facts(ui, card);
+        let painter = ui.painter_at(rect);
+        let drawn = facts
+            .symbol
+            .as_ref()
+            .and_then(|k| self.dock.drawings.get(k))
+            .filter(|p| !p.is_empty())
+            .cloned();
+        if let Some(paths) = drawn {
+            let (center, extent) = library::library_paths_extent(&paths);
+            let camera = Camera {
+                center,
+                zoom: ((rect.width() - 24.0) / extent.x as f32)
+                    .min((rect.height() - 24.0) / extent.y as f32)
+                    .clamp(0.01, 60.0),
+                mirror: false,
+            };
+            library::paint_library_paths(&painter, rect, camera, &paths, self.accent());
+            return true;
+        }
+        if let Card::BuiltIn(kind, _) = card
+            && let Some(part) =
+                pcbcraft_doc::component_template(kind, 0, String::new(), Point::new(0.0, 0.0))
+        {
+            let camera = Camera {
+                center: Point::new(0.0, 0.0),
+                zoom: (rect.height() / 14.0).clamp(2.0, 12.0),
+                mirror: false,
+            };
+            for view in part.schematic_views() {
+                self.symbol(
+                    &painter.with_clip_rect(rect),
+                    rect,
+                    camera,
+                    &view,
+                    false,
+                    true,
+                );
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Draw the card's footprint picture inside `rect`. Returns false while
+    /// the footprint is unknown or still being looked up.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/library_dock.rs (`footprint_art`, which caches the picture)
+    pub(crate) fn dock_paint_footprint(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: Rect,
+        card: &Card,
+    ) -> bool {
+        match self.footprint_art(ui.ctx(), card) {
+            Some(texture) => {
+                let side = rect.width().min(rect.height());
+                let at = Rect::from_center_size(rect.center(), egui::Vec2::splat(side));
+                ui.painter_at(rect).image(
+                    texture,
+                    at,
+                    Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The words a card shows: name, what it is, where it is from and its
+    /// line of facts, for the Library tab's page of the same part.
+    pub(crate) fn dock_summary(
+        &mut self,
+        ui: &egui::Ui,
+        card: &Card,
+    ) -> (String, String, String, String) {
+        let f = self.card_facts(ui, card);
+        (f.name, f.what, f.source, f.meta)
+    }
+
     /// One part card: a thumbnail, the name, a two-line description, the
     /// source in the accent colour, a muted line of facts and, for a part
     /// not in the project, a badge and its licence. The whole card picks the
@@ -1265,6 +1360,7 @@ impl App {
                     .clamp(0.01, 40.0),
                 mirror: false,
                 turns: 0,
+                up: false,
             };
             library::paint_library_paths(&painter, picture, camera, paths, accent);
         } else if want_symbol
@@ -1277,6 +1373,7 @@ impl App {
                 zoom: 3.6,
                 mirror: false,
                 turns: 0,
+                up: false,
             };
             for view in part.schematic_views() {
                 self.symbol(
@@ -1348,6 +1445,7 @@ impl App {
                                 .clamp(0.01, 40.0),
                             mirror: false,
                             turns: 0,
+                            up: false,
                         };
                         library::paint_library_paths(&painter, spot, camera, &paths, accent);
                     } else {
@@ -1466,6 +1564,23 @@ impl App {
                 action = Some(CardAction::Favourite);
             }
         }
+        if hovered && self.tab != Tab::Library {
+            let spot = Rect::from_min_size(
+                egui::pos2(rect.right() - 12.0 - 26.0 - 28.0, rect.top() + 4.0),
+                egui::Vec2::splat(26.0),
+            );
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(spot));
+            if icons::icon_button(
+                &mut child,
+                "open",
+                &t!("library.dock.open_in_library.tip"),
+                false,
+            )
+            .clicked()
+            {
+                action = Some(CardAction::OpenInLibrary);
+            }
+        }
         if hovered && facts.outside && matches!(card, Card::Installed(_)) {
             let spot = Rect::from_min_size(
                 egui::pos2(rect.right() - 12.0 - 132.0, rect.bottom() - 30.0),
@@ -1508,6 +1623,17 @@ impl App {
                 );
             }
             let mut edit = Vec::new();
+            if self.tab != Tab::Library {
+                edit.push(
+                    Item::new(
+                        CardAction::OpenInLibrary,
+                        t!("library.dock.open_in_library"),
+                        t!("library.dock.open_in_library.tip"),
+                    )
+                    .icon(glyph::PROPERTIES)
+                    .into(),
+                );
+            }
             if matches!(card, Card::Installed(_)) {
                 edit.push(
                     Item::new(
@@ -1590,7 +1716,9 @@ impl App {
                 ghost.galley(pill.min + egui::vec2(8.0, 4.0), galley, Color32::WHITE);
             }
         }
-        if action.is_none() && response.double_clicked() {
+        if action.is_none() && response.double_clicked() && self.tab == Tab::Library {
+            self.library_open_part(ui.ctx(), card);
+        } else if action.is_none() && response.double_clicked() {
             let tab_target = if self.tab == Tab::Pcb {
                 "board"
             } else {
@@ -1607,6 +1735,10 @@ impl App {
 
     /// A click on a card: arm the placement tool, as before.
     fn dock_pick(&mut self, ui: &egui::Ui, card: &Card) {
+        if self.tab == Tab::Library {
+            self.library_open_part(ui.ctx(), card);
+            return;
+        }
         match card {
             Card::BuiltIn(kind, _) => {
                 self.change_tab(Tab::Schematic);
@@ -1669,6 +1801,7 @@ impl App {
             CardAction::Datasheet(url) => {
                 ctx.open_url(egui::OpenUrl::new_tab(url));
             }
+            CardAction::OpenInLibrary => self.library_open_part(ctx, card),
             CardAction::Source => {
                 let (source, licence) = match card {
                     Card::BuiltIn(..) => (
@@ -1708,6 +1841,51 @@ impl App {
                     licence = licence
                 );
             }
+        }
+    }
+
+    /// Place a card's part on the schematic, as its Place button does, from the Library tab.
+    pub(crate) fn dock_place_card(&mut self, ctx: &egui::Context, card: &Card) {
+        self.dock_act(ctx, card, CardAction::Place("schematic"));
+    }
+
+    /// Copy an installed card's symbol and footprint into the project's own library.
+    pub(crate) fn dock_import_card(&mut self, ctx: &egui::Context, card: &Card) {
+        self.dock_act(ctx, card, CardAction::Import);
+    }
+
+    /// The symbol read for an online part, when it has been read.
+    pub(crate) fn dock_online_symbol(&self, sku: &str) -> Option<SymbolDefinition> {
+        self.dock
+            .online
+            .get(sku)
+            .and_then(Option::as_ref)
+            .map(|(d, _)| d.clone())
+    }
+
+    /// The footprint of a card when it is known now: built in, the project's, one already
+    /// looked up for an installed package, or one read for an online part.
+    pub(crate) fn dock_card_footprint(&self, card: &Card) -> Option<FootprintDefinition> {
+        match card {
+            Card::BuiltIn(kind, _) => library_builtin::footprint(kind),
+            Card::Project(d) => self
+                .project
+                .library
+                .footprints
+                .iter()
+                .find(|f| f.name == d.footprint)
+                .cloned(),
+            Card::Installed(i) => self
+                .dock
+                .footprints
+                .get(i.package.trim())
+                .and_then(Clone::clone),
+            Card::Online(p, _) => self
+                .dock
+                .online
+                .get(&p.sku)
+                .and_then(Option::as_ref)
+                .and_then(|(_, f)| f.clone()),
         }
     }
 

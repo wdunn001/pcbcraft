@@ -32,7 +32,7 @@ pub(super) enum CanvasMenuKind {
     Object(Id),
 }
 
-fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Point)> {
+pub(crate) fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Point)> {
     if let Some(c) = project.component(id) {
         let p = c.position;
         let pad = 3.0;
@@ -77,7 +77,7 @@ fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Point)> {
 
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, the whole drawing sheet on the schematic tab.
-fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
+pub(crate) fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
     if !pcb {
         return sheet::sheet_bounds(project);
     }
@@ -115,6 +115,7 @@ pub(crate) fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
     Camera {
         mirror: false,
         turns: 0,
+        up: false,
         center: Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0),
         zoom,
     }
@@ -234,6 +235,7 @@ pub(crate) fn polygon_contains(points: &[Point], pos: Point) -> bool {
 #[derive(Clone, Copy)]
 enum CanvasIcon {
     Fit,
+    Map,
     Move,
     Rotate,
     ZoomIn,
@@ -253,6 +255,7 @@ impl App {
         let response = response.on_hover_text(tip);
         let name = match icon {
             CanvasIcon::Fit => "Fit",
+            CanvasIcon::Map => "Map",
             CanvasIcon::Move => "Move",
             CanvasIcon::Rotate => "Rotate",
             CanvasIcon::ZoomIn => "Zoom in",
@@ -285,6 +288,23 @@ impl App {
                     painter.line_segment([corner, at(sx * 7.0, sy * 3.0)], stroke);
                     painter.line_segment([corner, at(sx * 3.0, sy * 7.0)], stroke);
                 }
+            }
+            CanvasIcon::Map => {
+                // A folded map: three panels with the creases showing.
+                let top = [(-8.0, -5.0), (-3.0, -7.0), (3.0, -5.0), (8.0, -7.0)];
+                let bottom = [(-8.0, 7.0), (-3.0, 5.0), (3.0, 7.0), (8.0, 5.0)];
+                painter.add(egui::Shape::line(
+                    top.iter().map(|p| at(p.0, p.1)).collect(),
+                    stroke,
+                ));
+                painter.add(egui::Shape::line(
+                    bottom.iter().map(|p| at(p.0, p.1)).collect(),
+                    stroke,
+                ));
+                painter.line_segment([at(-8.0, -5.0), at(-8.0, 7.0)], stroke);
+                painter.line_segment([at(8.0, -7.0), at(8.0, 5.0)], stroke);
+                painter.line_segment([at(-3.0, -7.0), at(-3.0, 5.0)], stroke);
+                painter.line_segment([at(3.0, -5.0), at(3.0, 7.0)], stroke);
             }
             CanvasIcon::ZoomIn | CanvasIcon::ZoomOut => {
                 painter.circle_stroke(at(-1.5, -1.5), 5.5, stroke);
@@ -395,9 +415,7 @@ impl App {
             let top_left = Align2::CENTER_CENTER.anchor_size(center, galley.size()).min;
             painter.add(
                 egui::epaint::TextShape::new(top_left, galley, color).with_angle_and_anchor(
-                    ((-angle - rotation) * if camera.mirror { -1.0 } else { 1.0 }).to_radians()
-                        as f32
-                        + camera.turns as f32 * std::f32::consts::FRAC_PI_2,
+                    camera.text_angle((-angle - rotation).to_radians()),
                     Align2::CENTER_CENTER,
                 ),
             );
@@ -465,7 +483,7 @@ impl App {
         let resized = fitted_at.is_some_and(|last| last != size);
         if (self.needs_fit || resized) && rect.width() > 40.0 && rect.height() > 40.0 {
             let (lo, hi) = view_bounds(&self.project, self.tab == Tab::Pcb);
-            let (keep_mirror, keep_turns) = (camera.mirror, camera.turns);
+            let (keep_mirror, keep_turns, keep_up) = (camera.mirror, camera.turns, camera.up);
             let panel = if keep_turns % 2 == 1 {
                 (rect.height(), rect.width())
             } else {
@@ -474,6 +492,7 @@ impl App {
             camera = fit_camera(lo, hi, panel);
             camera.mirror = keep_mirror;
             camera.turns = keep_turns;
+            camera.up = keep_up;
             self.needs_fit = false;
             ui.ctx().data_mut(|d| d.insert_temp(fit_key, size));
         }
@@ -483,7 +502,7 @@ impl App {
             && let Some(id) = self.selected
             && let Some((lo, hi)) = selection_bounds(&self.project, id)
         {
-            let (keep_mirror, keep_turns) = (camera.mirror, camera.turns);
+            let (keep_mirror, keep_turns, keep_up) = (camera.mirror, camera.turns, camera.up);
             let panel = if keep_turns % 2 == 1 {
                 (rect.height(), rect.width())
             } else {
@@ -492,6 +511,7 @@ impl App {
             camera = fit_camera(lo, hi, panel);
             camera.mirror = keep_mirror;
             camera.turns = keep_turns;
+            camera.up = keep_up;
             self.needs_zoom_selection = false;
         }
         let held = crate::tool_modifiers::held_now(ui.ctx());
@@ -859,7 +879,7 @@ impl App {
             }
         }
         // Fit and zoom stay on the canvas; board/schematic tools live in the strip under the tabs.
-        egui::Area::new(egui::Id::new("fit-fab"))
+        let card = egui::Area::new(egui::Id::new("fit-fab"))
             .pivot(Align2::RIGHT_BOTTOM)
             .fixed_pos(rect.right_bottom() + Vec2::new(-16.0, -16.0))
             .constrain_to(rect)
@@ -924,9 +944,21 @@ impl App {
                             {
                                 self.needs_fit = true;
                             }
+                            if self
+                                .canvas_icon(
+                                    ui,
+                                    "canvas-map",
+                                    CanvasIcon::Map,
+                                    &t!("board.canvas.map.tip"),
+                                )
+                                .clicked()
+                            {
+                                self.minimap_toggle();
+                            }
                         });
                     });
             });
+        self.minimap_show(ui.ctx(), rect, card.response.rect);
         if matches!(self.tab, Tab::Schematic | Tab::Pcb)
             && let Some(id) = self.selected
         {
@@ -988,6 +1020,7 @@ impl App {
     /// Keep only what a focused tree row points at: one copper face or one
     /// drawn machine layer. Everything else falls back to plain board colour.
     fn apply_layer_focus(p: &mut Project, focus: &str) {
+        let bottom = p.bottom_layer();
         let board = &mut p.board;
         match focus.strip_prefix("copper:") {
             Some("front") => {
@@ -997,9 +1030,9 @@ impl App {
                 board.vias.clear();
             }
             Some("back") => {
-                board.tracks.retain(|t| t.layer == Layer::Back);
-                board.zones.retain(|z| z.layer == Layer::Back);
-                board.texts.retain(|t| t.layer == Layer::Back);
+                board.tracks.retain(|t| t.layer == bottom);
+                board.zones.retain(|z| z.layer == bottom);
+                board.texts.retain(|t| t.layer == bottom);
                 board.vias.clear();
             }
             _ => {}
@@ -1616,6 +1649,13 @@ impl App {
         let row_shown = |row: &str| self.page_row_shown(page, row);
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
         let mut sheet_frame = sheet::sheet_for(p, page);
+// The title block names the page being drawn, not always the first.
+        sheet_frame.page = 1 + p
+            .sheets
+            .iter()
+            .position(|s| s.id == page)
+            .map_or(0, |i| i + 1);
+        sheet_frame.title_shown &= row_shown("title");
         sheet_frame.title_shown &= row_shown("title");
         sheet::paint_sheet(
             painter,
@@ -1671,7 +1711,7 @@ impl App {
             );
         }
         if row_shown("power") {
-            sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"));
+sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
         }
         for w in p
             .drawn_wires
@@ -1885,9 +1925,23 @@ impl App {
                     } else {
                         pin.position
                     };
+                    // The name reads inside the body: right-aligned and left of the
+                    // stem end for a pin on the right, hung below it for a pin on top.
+                    let stem = at(pin.stem_end()) - at(pin.position);
+                    let (anchor, shift) = if stem.x.abs() >= stem.y.abs() {
+                        if stem.x < 0.0 {
+                            (Align2::RIGHT_BOTTOM, Vec2::new(-3.0, -3.0))
+                        } else {
+                            (Align2::LEFT_BOTTOM, Vec2::new(3.0, -3.0))
+                        }
+                    } else if stem.y > 0.0 {
+                        (Align2::LEFT_TOP, Vec2::new(3.0, 3.0))
+                    } else {
+                        (Align2::LEFT_BOTTOM, Vec2::new(3.0, -3.0))
+                    };
                     painter.text(
-                        at(label_at) + Vec2::new(3.0, -3.0),
-                        Align2::LEFT_BOTTOM,
+                        at(label_at) + shift,
+                        anchor,
                         &pin.name,
                         FontId::monospace(10.0),
                         sc.muted,
@@ -2258,9 +2312,15 @@ impl App {
                     Point::new(m.x.max(p.x), m.y.max(p.y))
                 });
             let label_x = (min.x + max.x) / 2.0;
-            let reference_at = camera.screen(f.position.offset(Point::new(label_x, min.y)), rect)
+            // The reference reads above the part and the value below it on screen.
+            let (top_y, bottom_y) = if camera.up {
+                (max.y, min.y)
+            } else {
+                (min.y, max.y)
+            };
+            let reference_at = camera.screen(f.position.offset(Point::new(label_x, top_y)), rect)
                 - Vec2::new(0.0, 12.0);
-            let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
+            let value_at = camera.screen(f.position.offset(Point::new(label_x, bottom_y)), rect)
                 + Vec2::new(0.0, 12.0);
             let silk_fade = stack.silk_alpha(on_bottom);
             let color = if let Some(kind) = self.compare_tint.get(&f.id).copied() {
@@ -2507,6 +2567,7 @@ mod library_render_tests {
                 let camera = Camera {
                     mirror: false,
                     turns: 0,
+                    up: false,
                     center: Point::default(),
                     zoom: 10.0,
                 };
@@ -2560,6 +2621,7 @@ mod library_render_tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "ZZ8".into(),
@@ -2574,6 +2636,7 @@ mod library_render_tests {
             fields: vec![],
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 2,
             component: 1,
             position: Point::new(5.0, 5.0),
@@ -2601,6 +2664,7 @@ mod library_render_tests {
                         Camera {
                             mirror: false,
                             turns: 0,
+                            up: false,
                             center: Point::default(),
                             zoom: 20.0,
                         },
