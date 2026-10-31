@@ -1,0 +1,18 @@
+{
+  "SearchResults": {
+    "Parts": [
+      {
+        "ManufacturerPartNumber": "CRCW060310K0FKEA",
+        "Manufacturer": "Vishay",
+        "Description": "RES SMD 10K OHM 1% 1/10W 0603",
+        "Availability": "45000 In Stock",
+        "DataSheetUrl": "https://example.invalid/datasheets/crcw0603.pdf",
+        "ProductDetailUrl": "https://www.mouser.com/ProductDetail/sample/456",
+        "PriceBreaks": [
+          {"Quantity": 1, "Price": "$0.12", "Currency": "USD"},
+          {"Quantity": 100, "Price": "$0.03", "Currency": "USD"}
+        ]
+      }
+    ]
+  }
+}
