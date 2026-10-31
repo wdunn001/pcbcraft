@@ -1,20 +1,13 @@
 //! Board outline for fabrication: true arcs in Gerber, DXF and SVG; flattened
 //! rings everywhere else.
-use pcbcraft_doc::{segment_arc, Project};
+use pcbcraft_doc::{Project, segment_arc};
 use pcbcraft_geom::{Arc, Point};
 use std::f64::consts::PI;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum EdgeSegment {
-    Line {
-        from: Point,
-        to: Point,
-    },
-    Arc {
-        from: Point,
-        to: Point,
-        arc: Arc,
-    },
+    Line { from: Point, to: Point },
+    Arc { from: Point, to: Point, arc: Arc },
 }
 
 impl EdgeSegment {
@@ -35,11 +28,7 @@ pub(crate) fn rectangle_points(p: &Project) -> Vec<Point> {
 }
 
 pub(crate) fn outline_vertices(p: &Project) -> Option<Vec<Point>> {
-    p.board
-        .outline
-        .as_ref()
-        .filter(|o| o.len() >= 3)
-        .cloned()
+    p.board.outline.as_ref().filter(|o| o.len() >= 3).cloned()
 }
 
 pub(crate) fn segments(p: &Project) -> Vec<EdgeSegment> {
@@ -105,11 +94,7 @@ pub(crate) fn gerber_body(scale: f64, p: &Project) -> Result<(String, usize), St
                         from.y * scale
                     ));
                 }
-                out.push_str(&format!(
-                    "X{:.6}Y{:.6}D01*\n",
-                    to.x * scale,
-                    to.y * scale
-                ));
+                out.push_str(&format!("X{:.6}Y{:.6}D01*\n", to.x * scale, to.y * scale));
                 ops += 1;
             }
             EdgeSegment::Arc { from, to, arc } => {
@@ -170,17 +155,12 @@ pub(crate) fn svg_path_d(p: &Project) -> String {
     d
 }
 
-pub(crate) fn write_dxf_edge(
-    w: &mut super::DxfWriter,
-    p: &Project,
-) -> Result<(), String> {
+pub(crate) fn write_dxf_edge(w: &mut super::DxfWriter, p: &Project) -> Result<(), String> {
     let segs = segments(p);
     if segs.is_empty() {
         return Ok(());
     }
-    let all_lines = segs
-        .iter()
-        .all(|s| matches!(s, EdgeSegment::Line { .. }));
+    let all_lines = segs.iter().all(|s| matches!(s, EdgeSegment::Line { .. }));
     if all_lines {
         let mut points: Vec<(f64, f64)> = Vec::with_capacity(segs.len());
         for s in &segs {
@@ -229,18 +209,10 @@ fn points_close(a: Point, b: Point) -> bool {
     (a.x - b.x).abs() <= DXF_EPS && (a.y - b.y).abs() <= DXF_EPS
 }
 
-fn dxf_arc_endpoints(
-    center: Point,
-    radius: f64,
-    start_deg: f64,
-    end_deg: f64,
-) -> (Point, Point) {
+fn dxf_arc_endpoints(center: Point, radius: f64, start_deg: f64, end_deg: f64) -> (Point, Point) {
     let at = |deg: f64| {
         let rad = deg.to_radians();
-        Point::new(
-            center.x + radius * rad.cos(),
-            center.y + radius * rad.sin(),
-        )
+        Point::new(center.x + radius * rad.cos(), center.y + radius * rad.sin())
     };
     (at(start_deg), at(end_deg))
 }
