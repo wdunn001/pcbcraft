@@ -1440,10 +1440,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
 impl App {
     /// How long ago a snapshot was written, in words.
     fn ago(saved_at: u64) -> String {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = pcbcraft_clock::unix_secs();
         let seconds = now.saturating_sub(saved_at);
         match seconds {
             0..=59 => "just now".into(),
