@@ -85,6 +85,7 @@ fn pour_app(wall: bool, blocked: bool) -> Result<(App, egui::Context, Id), Strin
                 rules: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                retained: vec![],
             },
         });
         p.components.push(part);

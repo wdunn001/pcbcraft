@@ -6567,6 +6567,7 @@ mod drill_tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         validate_footprint_support(&definition)?;
         Ok(())
@@ -6876,6 +6877,7 @@ mod drill_tests {
             extends: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         let text = serde_json::to_string(&def).map_err(|e| e.to_string())?;
         assert!(text.contains("Power bits"), "the set travels in the file");
@@ -7129,6 +7131,7 @@ mod drill_tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         validate_footprint_support(&definition)?;
         Ok(())
@@ -7147,6 +7150,7 @@ mod drill_tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         validate_footprint_support(&definition)?;
         let mut p = Project::default();

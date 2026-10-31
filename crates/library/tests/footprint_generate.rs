@@ -253,6 +253,7 @@ fn check_reports_overlapping_pads() -> Result<(), String> {
         rules: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     let findings = check_footprint(&overlap);
     if findings

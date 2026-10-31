@@ -725,6 +725,20 @@ library.project_library.remove.tip = Remove this definition from the project lib
 library.project_library.footprints = Footprints
 library.project_library.len_pads = {len} pads
 library.project_library.assign_to_selection = Assign to selection
+library.project_library.export = Export
+library.project_library.export.tip = Write this symbol to a library file on disk without changing the design.
+library.project_library.export_footprint.tip = Write this footprint to its own library file in the export folder without changing the design.
+library.project_library.export_selected = Export selected
+library.project_library.export_selected.tip = Write every selected symbol into one library file at the path above.
+library.project_library.export_selected_footprints.tip = Write every selected footprint as its own library file in the folder above.
+library.project_library.select_for_export.tip = Include this definition in an export selection.
+library.project_library.symbol_export_path = Symbol export file
+library.project_library.symbol_export_path.tip = Full path to a symbol library file that will hold every exported symbol.
+library.project_library.footprint_export_folder = Footprint export folder
+library.project_library.footprint_export_folder.tip = Folder that will receive one footprint library file per exported footprint.
+library.project_library.export_pick_at_least_one = Pick at least one definition to export.
+library.project_library.export_path_required = Type where the export should be written.
+library.project_library.export_done = Exported to {path}
 
 # authoring.rs library_workspaces
 library.library_workspaces.library = Library
