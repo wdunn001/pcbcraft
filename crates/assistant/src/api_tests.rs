@@ -2,8 +2,9 @@
 
 use crate::api::*;
 use crate::backend::{
-    ChatBackend, Event, HttpFn, HttpRequest, HttpStreamPart, PromptPart, StartContext, ToolStatus,
+ChatBackend, Event, HttpFn, HttpRequest, HttpStreamPart, PromptPart, StartContext, ToolStatus,
     deliver_streamed_body,
+};
 };
 use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
@@ -32,10 +33,13 @@ fn fake(reply: impl Fn(usize) -> (u16, Value) + Send + Sync + 'static) -> (HttpF
             l.iter().filter(|x| x.method == "POST").count()
         };
         if r.method == "GET" {
-            return Ok((200, b"{\"data\":[]}".to_vec()));
+            return Ok(HttpResponse::ok(b"{\"data\":[]}".to_vec()));
         }
         let (status, body) = reply(n);
-        Ok((status, body.to_string().into_bytes()))
+        Ok(HttpResponse::with_status(
+            status,
+            body.to_string().into_bytes(),
+        ))
     });
     (http, log)
 }
@@ -57,6 +61,7 @@ fn cfg(protocol: Protocol) -> ApiConfig {
         model: "m".into(),
         key: None,
         system_note: String::new(),
+        retrieval: None,
     }
 }
 
@@ -356,8 +361,7 @@ fn model_list_reads_the_data_ids() -> Result<(), String> {
     let http2: HttpFn = Arc::new(move |r: &HttpRequest| {
         assert_eq!(r.url, "http://h/v1/models");
         http(r)?;
-        Ok((
-            200,
+        Ok(HttpResponse::ok(
             br#"{"data":[{"id":"a"},{"id":"b"},{"nope":1}]}"#.to_vec(),
         ))
     });
@@ -374,8 +378,7 @@ fn test_anthropic_endpoint_returns_the_model_text_on_200_and_the_error_sentence_
 -> Result<(), String> {
     let ok: HttpFn = Arc::new(|r: &HttpRequest| {
         assert_eq!(r.url, "https://h/v1/messages");
-        Ok((
-            200,
+        Ok(HttpResponse::ok(
             br#"{"content":[{"type":"text","text":"Hi there"}]}"#.to_vec(),
         ))
     });
@@ -383,7 +386,12 @@ fn test_anthropic_endpoint_returns_the_model_text_on_200_and_the_error_sentence_
         test_anthropic_endpoint(&ok, "https://h", None, "m")?,
         "Hi there"
     );
-    let bad: HttpFn = Arc::new(|_| Ok((404, br#"{"error":{"message":"no such model"}}"#.to_vec())));
+    let bad: HttpFn = Arc::new(|_| {
+        Ok(HttpResponse::with_status(
+            404,
+            br#"{"error":{"message":"no such model"}}"#.to_vec(),
+        ))
+    });
     let err = test_anthropic_endpoint(&bad, "https://h", None, "m")
         .err()
         .ok_or("expected an error")?;
