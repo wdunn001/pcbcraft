@@ -126,14 +126,11 @@ lines. The tracker is the fork, `wdunn001/pcbcraft`.
 
 ## Seeing UI changes
 
-The screenshots job uploads `screenshots-head` (this change) and, on pull
-requests, `screenshots-base` (the target branch). A final job builds one
-side-by-side image, `ui-screenshots.png`, and links it from the run summary.
-Open the run, then the Summary page, and follow the link. Left column is the
-base, right column is the change. Views are listed in `VIEWS` in
-xtask/src/main.rs; add a row there when a new tab or dialog deserves a shot.
+CI does not capture the desktop UI. Screenshots are local only:
 
-Locally: `cargo xtask screenshots --out target/screenshots`.
+`cargo xtask screenshots --out target/screenshots`
+
+Views are listed in `VIEWS` in xtask/src/main.rs.
 
 ## Nightly (`nightly.yml`)
 
