@@ -21,11 +21,11 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-    PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, drill_chart_csv, dxf_board,
-    gencad_text, gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text,
-    netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
-    postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, vrml_board,
-    testpoints_csv
+    bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
+    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
+    fab_drawing_pdf, pdf_document, placement_text, plot_csv, postscript, report_text,
+    specctra_dsn, stackup_text, stats_text, step_board, svg, vrml_board, PlacementOptions,
+    bundled_placement_flavours, placement_flavoured
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -237,10 +237,7 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
         "bom" => Ok(GeneratedOutput::Text(bom_csv(p, &[], None)?)),
         "placement" => placement_artifact(p, artifact),
         "drill_map" => Ok(GeneratedOutput::Text(drill_chart_csv(p)?)),
-        "fab_drawing" => Ok(GeneratedOutput::Bytes(pdf_document(
-            p,
-            settings_view(&artifact.settings),
-        )?)),
+        "fab_drawing" => Ok(GeneratedOutput::Bytes(fab_drawing_pdf(p)?)),
         "assembly_drawing" => Ok(GeneratedOutput::Bytes(pdf_document(p, "schematic")?)),
         "raster_image" => Ok(GeneratedOutput::Text(svg(
             p,
