@@ -27,6 +27,7 @@ mod idf;
 mod laser;
 mod layers;
 mod library_render;
+mod interface_profile;
 mod machine_profile;
 mod diff;
 mod drawn;
@@ -167,6 +168,9 @@ pub use layers::{
     legend_shapes,
 };
 use library_render::*;
+pub use interface_profile::{
+    interface_profile_content_hash, interface_profile_from_toml, interface_profile_to_toml,
+};
 pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
@@ -8171,6 +8175,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -8180,6 +8185,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
@@ -9028,6 +9034,7 @@ mod tests {
                 electrical_type: p.electrical_type.clone(),
                 direction: Some(p.angle),
                 unit: p.unit,
+                appearances: vec![],
             })
             .collect();
         let pads = footprint
@@ -9140,6 +9147,7 @@ mod tests {
                 electrical_type: p.electrical_type.clone(),
                 direction: Some(p.angle),
                 unit: p.unit,
+                appearances: vec![],
             })
             .collect();
         c.library_symbol = Some(pcbcraft_doc::LibrarySymbol {
@@ -9744,6 +9752,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(180.0),
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -9753,6 +9762,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
@@ -9994,6 +10004,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 }],
                 units: vec![],
                 library_symbol: None,
@@ -10087,6 +10098,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -10096,6 +10108,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -10210,6 +10223,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -10219,6 +10233,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -10305,6 +10320,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -10314,6 +10330,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -10467,6 +10484,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -10476,6 +10494,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -10646,6 +10665,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -10686,6 +10706,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -10959,6 +10980,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     })
                     .collect(),
                 units: vec![],
@@ -11244,6 +11266,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     })
                     .collect(),
                 units: vec![],
@@ -11864,6 +11887,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -11873,6 +11897,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -12026,6 +12051,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -12035,6 +12061,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
@@ -12112,6 +12139,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     })
                     .to_vec(),
                 units: vec![],
@@ -12403,6 +12431,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -12412,6 +12441,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -12556,6 +12586,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -12565,6 +12596,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -12706,6 +12738,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -12715,6 +12748,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
@@ -12893,6 +12927,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -12902,6 +12937,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -12985,6 +13021,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(180.0),
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -12994,6 +13031,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
@@ -13029,6 +13067,7 @@ mod tests {
             pin: pcbcraft_doc::PinRef {
                 component: 3,
                 pin: "2".into(),
+                unit: None,
             },
         });
         project.validate()?;
@@ -13433,6 +13472,7 @@ mod tests {
                 electrical_type: definition.electrical_type.clone(),
                 direction: Some(definition.angle),
                 unit: definition.unit,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: Some(pcbcraft_doc::LibrarySymbol {
@@ -14704,6 +14744,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,

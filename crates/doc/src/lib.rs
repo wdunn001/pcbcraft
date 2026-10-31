@@ -160,6 +160,17 @@ pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
 };
 
+/// Schematic copy of one physical pin on a multi-unit symbol.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct PinAppearance {
+    /// Schematic unit that draws this copy (1 through 32).
+    pub unit: u32,
+    /// Pin anchor in the symbol local frame, in millimetres.
+    pub offset: Point,
+    /// Facing angle in degrees when the library supplies one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<f64>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pin {
     pub number: String,
@@ -172,6 +183,22 @@ pub struct Pin {
     pub direction: Option<f64>,
     #[serde(default = "first_unit")]
     pub unit: u32,
+    /// Extra schematic copies of this physical pin on other units.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub appearances: Vec<PinAppearance>,
+}
+impl Pin {
+    /// Local offset and facing for one schematic unit copy of this pin.
+    pub fn geometry_at(&self, unit: u32) -> Option<(Point, Option<f64>)> {
+        if self.unit == unit {
+            Some((self.offset, self.direction))
+        } else {
+            self.appearances
+                .iter()
+                .find(|a| a.unit == unit)
+                .map(|a| (a.offset, a.direction))
+        }
+    }
 }
 fn first_unit() -> u32 {
     1
@@ -433,7 +460,7 @@ impl Component {
                 let mut view = self.clone();
                 view.position = position;
                 view.rotation = rotation;
-                view.pins.retain(|p| p.unit == unit);
+                view.pins = self.pins_for_schematic_unit(unit);
                 view.units.clear();
                 if let Some(s) = &mut view.library_symbol {
                     s.unit = unit;
@@ -453,14 +480,44 @@ impl Component {
         }
         views
     }
+    fn pins_for_schematic_unit(&self, unit: u32) -> Vec<Pin> {
+        self.pins
+            .iter()
+            .filter_map(|p| {
+                if p.unit == unit {
+                    let mut copy = p.clone();
+                    copy.appearances.clear();
+                    Some(copy)
+                } else {
+                    p.geometry_at(unit).map(|(offset, direction)| Pin {
+                        number: p.number.clone(),
+                        name: p.name.clone(),
+                        offset,
+                        net: p.net,
+                        electrical_type: p.electrical_type.clone(),
+                        direction,
+                        unit,
+                        appearances: vec![],
+                    })
+                }
+            })
+            .collect()
+    }
+    /// World position of a physical pin, optionally on one schematic unit copy.
+    pub fn pin_world_position(&self, number: &str, unit: Option<u32>) -> Option<Point> {
+        let pin = self.pins.iter().find(|p| p.number == number)?;
+        let unit = unit.unwrap_or(pin.unit);
+        let (offset, _) = pin.geometry_at(unit)?;
+        self.unit_placement(unit)
+            .map(|(position, rotation)| position.offset(offset.rotate(-rotation)))
+    }
     /// Local drawing extents used for selection and labels, independent of the renderer.
     pub fn drawing_points(&self) -> Vec<Point> {
         let unit = self.library_symbol.as_ref().map(|s| s.unit).unwrap_or(1);
         let mut points: Vec<Point> = self
             .pins
             .iter()
-            .filter(|p| p.unit == unit)
-            .map(|p| p.offset)
+            .filter_map(|p| p.geometry_at(unit).map(|(offset, _)| offset))
             .collect();
         if let Some(library) = &self.library_symbol {
             for graphic in library
@@ -477,10 +534,7 @@ impl Component {
         points
     }
     pub fn pin_position(&self, number: &str) -> Option<Point> {
-        self.pins.iter().find(|p| p.number == number).and_then(|p| {
-            self.unit_placement(p.unit)
-                .map(|(position, rotation)| position.offset(p.offset.rotate(-rotation)))
-        })
+        self.pin_world_position(number, None)
     }
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -881,6 +935,9 @@ impl RuleArea {
 pub struct PinRef {
     pub component: Id,
     pub pin: String,
+    /// Schematic unit copy when the same physical pin repeats on several units.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<u32>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Wire {
@@ -4160,6 +4217,7 @@ pub fn component_template(
                 electrical_type: passive(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             })
             .collect(),
     })
@@ -4293,7 +4351,8 @@ impl Project {
             .find(|p| p.number == r.pin)
     }
     pub fn pin_position(&self, r: &PinRef) -> Option<Point> {
-        self.component(r.component)?.pin_position(&r.pin)
+        self.component(r.component)?
+            .pin_world_position(&r.pin, r.unit)
     }
     /// Presentation-only orthogonal path that leaves pins in their outward direction.
     /// Wire crossings never implicitly connect nets; logical connectivity is explicit.
@@ -4302,12 +4361,15 @@ impl Project {
         let b = self.pin_position(&w.to)?;
         let direction = |r: &PinRef| -> Option<Point> {
             let pin = self.pin(r)?;
-            let local = if let Some(angle) = pin.direction {
+            let comp = self.component(r.component)?;
+            let unit = r.unit.unwrap_or(pin.unit);
+            let (offset, facing) = pin.geometry_at(unit)?;
+            let local = if let Some(angle) = facing {
                 Point::new(-angle.to_radians().cos(), angle.to_radians().sin())
             } else {
-                pin.offset
+                offset
             };
-            Some(local.rotate(-self.component(r.component)?.unit_placement(pin.unit)?.1))
+            Some(local.rotate(-comp.unit_placement(unit)?.1))
         };
         let da = direction(&w.from)?;
         let db = direction(&w.to)?;
@@ -5813,25 +5875,21 @@ c.compliance.validate()?;
                 {
                     return Err("invalid or unsupported embedded library symbol".into());
                 }
-                let pins: Vec<_> = symbol
-                    .definition
-                    .pins
-                    .iter()
-                    .filter(|p| p.body_style <= 1)
-                    .collect();
-                if pins.len() != c.pins.len()
-                    || pins.iter().any(|p| {
-                        !c.pins.iter().any(|pin| {
-                            pin.number == p.number
-                                && pin.name == p.name
-                                && pin.offset == p.position
-                                && pin.direction == Some(p.angle)
-                                && pin.electrical_type == p.electrical_type
-                                && pin.unit == p.unit.max(1)
-                        })
-                    })
-                {
+                let collapsed = collapse_symbol_pins(&symbol.definition)?;
+                if collapsed.len() != c.pins.len() {
                     return Err("component pins do not match embedded symbol definition".into());
+                }
+                for (expected, actual) in collapsed.iter().zip(c.pins.iter()) {
+                    if expected.number != actual.number
+                        || expected.name != actual.name
+                        || expected.offset != actual.offset
+                        || expected.direction != actual.direction
+                        || expected.electrical_type != actual.electrical_type
+                        || expected.unit != actual.unit
+                        || expected.appearances != actual.appearances
+                    {
+                        return Err("component pins do not match embedded symbol definition".into());
+                    }
                 }
                 let expected = symbol_units(&symbol.definition)?;
                 let actual: BTreeSet<_> = std::iter::once(1)
@@ -5884,8 +5942,25 @@ c.compliance.validate()?;
                     || p.electrical_type.len() > 64
                     || !Self::pin_electrical_type_valid(&p.electrical_type)
                     || p.net.is_some_and(|n| !nets.contains(&n))
+                    || p.unit < 1
+                    || p.unit > 32
+                    || p.appearances.len() > 31
                 {
                     return Err("invalid pin or net reference".into());
+                }
+                let mut appearance_units = BTreeSet::new();
+                for app in &p.appearances {
+                    if app.unit < 1
+                        || app.unit > 32
+                        || app.unit == p.unit
+                        || !app.offset.valid()
+                        || app
+                            .direction
+                            .is_some_and(|angle| !angle.is_finite() || angle.abs() > 360_000.0)
+                        || !appearance_units.insert(app.unit)
+                    {
+                        return Err("invalid pin or net reference".into());
+                    }
                 }
             }
         }
@@ -6361,6 +6436,63 @@ pub fn symbol_units(def: &pcbcraft_library::SymbolDefinition) -> Result<BTreeSet
     }
     Ok(units)
 }
+
+/// Builds one schematic [`Pin`] row per distinct physical number, storing extra unit
+/// copies in [`Pin::appearances`].
+pub fn collapse_symbol_pins(
+    definition: &pcbcraft_library::SymbolDefinition,
+) -> Result<Vec<Pin>, String> {
+    let rows: Vec<_> = definition
+        .pins
+        .iter()
+        .filter(|p| p.body_style <= 1)
+        .collect();
+    if rows.is_empty() {
+        return Err("symbol placement requires at least one pin".into());
+    }
+    let mut pins: Vec<Pin> = Vec::new();
+    let mut index: BTreeMap<String, usize> = BTreeMap::new();
+    for sp in rows {
+        let unit = sp.unit.max(1);
+        if let Some(&idx) = index.get(&sp.number) {
+            let pin = pins
+                .get_mut(idx)
+                .ok_or_else(|| "internal pin index".to_string())?;
+            if pin.name != sp.name || pin.electrical_type != sp.electrical_type {
+                return Err(
+                    "symbol placement refuses duplicate pin numbers that disagree on name or electrical type".into(),
+                );
+            }
+            if pin.unit == unit || pin.appearances.iter().any(|a| a.unit == unit) {
+                return Err(
+                    "symbol placement refuses duplicate pin numbers on the same unit".into(),
+                );
+            }
+            pin.appearances.push(PinAppearance {
+                unit,
+                offset: sp.position,
+                direction: Some(sp.angle),
+            });
+        } else {
+            index.insert(sp.number.clone(), pins.len());
+            pins.push(Pin {
+                number: sp.number.clone(),
+                name: sp.name.clone(),
+                offset: sp.position,
+                net: None,
+                electrical_type: sp.electrical_type.clone(),
+                direction: Some(sp.angle),
+                unit,
+                appearances: vec![],
+            });
+        }
+    }
+    if pins.len() > 64 {
+        return Err("symbol placement supports at most 64 distinct physical pin numbers".into());
+    }
+    Ok(pins)
+}
+
 pub fn library_component(
     definition: pcbcraft_library::SymbolDefinition,
     library: String,
@@ -6377,23 +6509,9 @@ pub fn library_component(
         ));
     }
     let unit_ids = symbol_units(&definition)?;
-    let mut numbers = BTreeSet::new();
-    let pins: Vec<_> = definition
-        .pins
-        .iter()
-        .filter(|p| p.body_style <= 1)
-        .map(|p| Pin {
-            number: p.number.clone(),
-            name: p.name.clone(),
-            offset: p.position,
-            net: None,
-            electrical_type: p.electrical_type.clone(),
-            direction: Some(p.angle),
-            unit: p.unit.max(1),
-        })
-        .collect();
-    if pins.is_empty() || pins.len() > 64 || pins.iter().any(|p| !numbers.insert(&p.number)) {
-        return Err("symbol placement requires 1–64 unique physical pin numbers across units; repeated common pins are not supported yet".into());
+    let pins = collapse_symbol_pins(&definition)?;
+    if pins.is_empty() {
+        return Err("symbol placement requires at least one pin".into());
     }
     let extent = pins
         .iter()
@@ -6881,10 +6999,12 @@ mod drill_tests {
             from: PinRef {
                 component: 1,
                 pin: "5".into(),
+                unit: None,
             },
             to: PinRef {
                 component: 1,
                 pin: "1".into(),
+                unit: None,
             },
         };
         project.wires.push(wire.clone());
@@ -6904,6 +7024,187 @@ mod drill_tests {
         );
         Ok(())
     }
+
+    fn symbol_pin(
+        number: &str,
+        name: &str,
+        unit: u32,
+        x: f64,
+        y: f64,
+        angle: f64,
+        electrical_type: &str,
+    ) -> pcbcraft_library::SymbolPin {
+        pcbcraft_library::SymbolPin {
+            number: number.into(),
+            name: name.into(),
+            position: Point::new(x, y),
+            angle,
+            length: 2.54,
+            electrical_type: electrical_type.into(),
+            unit,
+            body_style: 1,
+            graphical_style: "line".into(),
+            visible: true,
+        }
+    }
+
+    fn dual_unit_common_supply_definition() -> pcbcraft_library::SymbolDefinition {
+        pcbcraft_library::SymbolDefinition {
+            name: "DualCommon".into(),
+            reference: "U".into(),
+            value: "DUAL".into(),
+            description: String::new(),
+            keywords: String::new(),
+            footprint: String::new(),
+            set: String::new(),
+            pins: vec![
+                symbol_pin("1", "A", 1, -5.0, 0.0, 180.0, "passive"),
+                symbol_pin("4", "V+", 1, 0.0, -5.0, 90.0, "power_in"),
+                symbol_pin("8", "V-", 1, 0.0, 5.0, 270.0, "power_in"),
+                symbol_pin("2", "B", 2, -5.0, 0.0, 180.0, "passive"),
+                symbol_pin("4", "V+", 2, 0.0, -5.0, 90.0, "power_in"),
+                symbol_pin("8", "V-", 2, 0.0, 5.0, 270.0, "power_in"),
+            ],
+            graphics: vec![],
+            extends: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        }
+    }
+
+    #[test]
+    fn library_component_accepts_common_power_pins_on_two_units() -> Result<(), String> {
+        let definition = dual_unit_common_supply_definition();
+        definition.validate().map_err(|e| e.to_string())?;
+        let c = library_component(
+            definition,
+            "test".into(),
+            1,
+            "U1".into(),
+            Point::default(),
+            None,
+        )?;
+        assert_eq!(c.pins.len(), 4, "one row per distinct physical number");
+        assert_eq!(c.pins.iter().filter(|p| p.number == "4").count(), 1);
+        let supply = c
+            .pins
+            .iter()
+            .find(|p| p.number == "4")
+            .ok_or("missing V+")?;
+        assert_eq!(supply.appearances.len(), 1);
+        assert_eq!(supply.appearances[0].unit, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn library_component_refuses_conflicting_duplicate_pin_numbers() -> Result<(), String> {
+        let mut definition = dual_unit_common_supply_definition();
+        definition
+            .pins
+            .push(symbol_pin("4", "WRONG", 2, 1.0, 1.0, 0.0, "passive"));
+        assert!(
+            library_component(
+                definition,
+                "test".into(),
+                2,
+                "U2".into(),
+                Point::default(),
+                None,
+            )
+            .is_err_and(|e| e.contains("disagree on name or electrical type"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_views_show_common_pin_on_each_listed_unit() -> Result<(), String> {
+        let definition = dual_unit_common_supply_definition();
+        let c = library_component(
+            definition,
+            "test".into(),
+            1,
+            "U1".into(),
+            Point::new(10.0, 10.0),
+            None,
+        )?;
+        let views = c.schematic_views();
+        assert_eq!(views.len(), 2);
+        for view in &views {
+            assert!(
+                view.pins.iter().any(|p| p.number == "4"),
+                "each unit view draws the shared supply pin"
+            );
+            assert!(
+                view.pins.iter().any(|p| p.number == "8"),
+                "each unit view draws the shared return pin"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn wire_path_honors_pin_ref_unit_for_common_pin() -> Result<(), String> {
+        let definition = dual_unit_common_supply_definition();
+        let mut c = library_component(
+            definition,
+            "test".into(),
+            1,
+            "U1".into(),
+            Point::new(20.0, 20.0),
+            None,
+        )?;
+        c.units
+            .iter_mut()
+            .find(|u| u.unit == 2)
+            .ok_or("missing unit 2")?
+            .position = Point::new(60.0, 20.0);
+        for pin in &mut c.pins {
+            if pin.number == "8" || pin.number == "1" {
+                pin.net = Some(3);
+            }
+        }
+        let mut project = Project::default();
+        project.components.push(c);
+        project.nets.push(Net {
+            id: 3,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        let wire = Wire {
+            id: 4,
+            net: 3,
+            from: PinRef {
+                component: 1,
+                pin: "8".into(),
+                unit: Some(2),
+            },
+            to: PinRef {
+                component: 1,
+                pin: "1".into(),
+                unit: None,
+            },
+        };
+        project.wires.push(wire.clone());
+        project.validate()?;
+        let primary = project
+            .component(1)
+            .ok_or("missing component")?
+            .pin_world_position("8", None)
+            .ok_or("missing primary V-")?;
+        let unit_two = project
+            .pin_position(&wire.from)
+            .ok_or("missing unit-two V-")?;
+        assert!(
+            (unit_two.x - primary.x).abs() > 1.0,
+            "the wire should leave the unit-two copy, not the primary"
+        );
+        assert!(
+            project.wire_path(&wire).is_some(),
+            "rubber-band geometry should resolve for a unit-specific endpoint"
+        );
+        Ok(())
+    }
+
     fn dip() -> Result<pcbcraft_library::FootprintDefinition, String> {
         pcbcraft_library::read_footprint(include_str!(
             "../../library/tests/fixtures/DIP-8_W7.62mm.kicad_mod"
