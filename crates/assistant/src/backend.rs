@@ -4,6 +4,13 @@
 use serde_json::Value;
 use std::sync::Arc;
 
+/// One hit from a knowledge search, for the transcript and the model.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceLink {
+    pub title: String,
+    pub source: String,
+}
+
 /// One part of a message to the agent.
 ///
 /// # Dependencies
@@ -91,6 +98,8 @@ pub enum Event {
     },
     /// The message is answered (`reason`: why it stopped, empty for a normal end).
     TurnEnded { reason: String },
+    /// Titles and links from a knowledge search on this turn.
+    Sources(Vec<SourceLink>),
     /// Something failed; the backend is still running unless [`Event::Exited`] follows.
     Error(String),
     /// It ended; its last error output.
@@ -153,8 +162,36 @@ pub struct HttpRequest {
     pub stream_out: Option<std::sync::mpsc::Sender<Result<HttpStreamPart, String>>>,
 }
 
-/// Sends an [`HttpRequest`]: the status and the body, or why it failed.
-pub type HttpFn = Arc<dyn Fn(&HttpRequest) -> Result<(u16, Vec<u8>), String> + Send + Sync>;
+/// An HTTP reply: status, lowercased header names, and body.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HttpResponse {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl HttpResponse {
+    /// A 200 reply with no extra headers.
+    pub fn ok(body: Vec<u8>) -> HttpResponse {
+        HttpResponse {
+            status: 200,
+            headers: Vec::new(),
+            body,
+        }
+    }
+
+    /// A reply with a status and body only.
+    pub fn with_status(status: u16, body: Vec<u8>) -> HttpResponse {
+        HttpResponse {
+            status,
+            headers: Vec::new(),
+            body,
+        }
+    }
+}
+
+/// Sends an [`HttpRequest`]: the reply, or why it failed.
+pub type HttpFn = Arc<dyn Fn(&HttpRequest) -> Result<HttpResponse, String> + Send + Sync>;
 
 /// Push a complete reply body to [`HttpRequest::stream_out`] in parts, then return an empty body.
 pub fn deliver_streamed_body(

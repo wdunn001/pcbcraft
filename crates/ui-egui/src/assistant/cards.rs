@@ -188,6 +188,12 @@ fn state_mark(ui: &mut egui::Ui, t: &Tokens, state: StepState) {
         StepState::Waiting => {
             p.circle_stroke(c, 7.0, egui::Stroke::new(1.0, t.muted));
         }
+        Item::Sources(links) => {
+            for (i, link) in links.iter().enumerate() {
+                ui.label(format!("Source {}: {}", i + 1, link.title));
+            }
+            None
+        }
     }
 }
 

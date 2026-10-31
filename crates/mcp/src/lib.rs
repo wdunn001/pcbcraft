@@ -1023,6 +1023,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bridge_tests;
 #[cfg(test)]
 mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1086,6 +1088,17 @@ mod tests {
             .as_array()
             .cloned()
             .ok_or_else(|| "tools is an array".to_string())
+    }
+    #[test]
+    fn every_listed_tool_name_is_unique() -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            if !seen.insert(name.to_string()) {
+                return Err(format!("tool {name} is listed twice"));
+            }
+        }
+        Ok(())
     }
     #[test]
     fn every_listed_tool_has_a_title_and_the_four_annotation_hints() -> Result<(), String> {
