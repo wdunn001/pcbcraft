@@ -1,6 +1,5 @@
 //! Headless tour replay in CI (#774) and Help > Tours listing (#769).
 
-<<<<<<< ours
 use super::super::tour::data::{self, Step, Tour};
 use super::super::tour::{anchor, layout, replay, playback::TourState};
 use super::super::Tab;
@@ -45,10 +44,6 @@ impl Profile {
         },
     ];
 }
-=======
-use super::super::authoring;
-use super::support::*;
->>>>>>> theirs
 
 #[test]
 fn a_newcomer_opens_Help_Tours_and_sees_every_tour_listed() -> Result<(), String> {
