@@ -1,48 +1,87 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod datasheet;
+//! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
+pub mod cad;
+pub mod cad_cache;
+pub mod datasheet;
+pub mod datasheet_annotations;
+pub mod connector_catalog;
+mod footprint_check;
+mod footprint_generate;
+pub mod model_transform;
+mod footprint_pad_outline;
+pub mod listing;
+pub mod listing_adapters;
+pub mod listing_search;
+pub mod online_import;
+pub mod open_library;
+pub mod part_validation;
+pub mod pin_pad_map;
+mod paths;
+mod reader;
+pub mod samtec;
+mod sexpr;
+pub mod credentials;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
-mod ipc7351;
-mod package_key;
-mod param_body;
-mod part_import;
-mod part_types;
-mod part_validation;
-mod part_verify;
 pub mod listing;
 pub mod listing_adapters;
 pub mod online_import;
 pub mod open_library;
 mod paths;
-mod pin_kind;
 mod reader;
+pub mod samtec;
 mod sexpr;
+pub mod credentials;
+pub mod http_client;
+pub mod rate_limit;
+pub mod source_log;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod element14;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+pub mod source_errors;
+pub mod source_hosts;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
-mod wrl;
+pub use footprint_check::{
+    FindingSeverity, FootprintFinding, check_footprint, courtyard_half_extents,
+};
+pub use part_validation::{
+    PartCatalogFields, PartValidationFinding, PartValidationResult, ReplacementCheckResult,
+    replacement_check, validate_catalog_fields, validate_part,
+};
+pub use pin_pad_map::{
+    PadRole, PinPadFinding, PinPadMap, PinPadRow, auto_fill, footprint_pad_labels, pad_label,
+    validate_pin_pad_map,
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use datasheet::{
+    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
+    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
+    MAX_REDIRECTS, MAX_URL_BYTES,
+};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
-pub use ipc7351::generate_footprint_from_key;
-pub use package_key::{PackageFamily, PackageKey, PITCH_TOLERANCE_MM, SPAN_TOLERANCE_MM};
-pub use param_body::ParamBody;
-pub use part_import::{
-    load_symbol_footprint_files, part_from_library_bundle, read_part_json, PartJson,
-};
-pub use part_types::{
-    DatasheetRef, FootprintSource, Model3dRef, MpnSource, Orderable, Part, PartFamily,
-    PartLimits, PinSpec, Requirement, TriangleMesh, Verification, VerificationChecks, MAX_PARTS,
-};
-pub use part_verify::{verify_part, VerifyContext};
-pub use pin_kind::{pin_kind_from_library_string, PinKind};
-pub use wrl::{read_wrl_file, read_wrl_mesh};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
-pub use sexpr::{Error, Limits};
+pub use sexpr::{Error, Limits, Node, parse as parse_sexpr, parse_limits as parse_sexpr_limits};
 pub use symbol_check::check_symbol;
+pub use model_transform::{
+    model_mirror_y, model_pin1_cycle, model_rotate_z_90, normalize_degrees,
+    refresh_model_raw_source,
+};
 pub use validation::custom_polygon_error;
 
 /// A schematic symbol definition parsed from the interchange format.
