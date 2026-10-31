@@ -18,6 +18,7 @@ net_p = "USB_D+"
 net_n = "USB_D-"
 gap = 0.2
 length_tolerance = 0.25
+impedance = { target = 90, tolerance = 0.1 }
 
 [[pair_rule]]
 net_a = "USB_D+"
@@ -31,3 +32,7 @@ source = "usb2_default_track"
 [[value_source]]
 field = "pair.gap"
 source = "usb2_coupling_gap"
+
+[[value_source]]
+field = "pair.impedance"
+source = "usb2_diff_impedance"

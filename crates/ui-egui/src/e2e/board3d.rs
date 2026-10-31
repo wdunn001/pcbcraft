@@ -202,6 +202,7 @@ fn open_3d_with_model(model_path: &str) -> Result<(egui::Context, App, Id), Stri
                 rules: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                retained: vec![],
             },
         });
         s.revision += 1;
@@ -285,6 +286,41 @@ fn a_newcomer_sees_why_a_model_did_not_load() -> Result<(), String> {
     assert!(
         paints_text(&ctx, &mut app, "could not be read")?,
         "the 3D tab says why in plain words"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_with_many_missing_models_still_sees_the_board() -> Result<(), String> {
+    let (ctx, mut app, _j1) = open_3d()?;
+    let before = app.view3d.rect.height();
+    for n in 0..150u64 {
+        app.view3d
+            .note_failed(10_000 + n, "The model file part.step was not found.");
+    }
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "150 part models not found")?,
+        "one line says how many models are missing"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Box kept.")?,
+        "the long list is not painted until it is asked for"
+    );
+    let after = app.view3d.rect.height();
+    assert!(
+        after > 200.0 && after + 1.0 >= before - 40.0,
+        "the board viewport stays tall: {before} before, {after} after"
+    );
+    app.view3d.notes_open = true;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        app.view3d.rect.height() > 120.0,
+        "an open list is bounded and leaves the board visible"
     );
     Ok(())
 }
