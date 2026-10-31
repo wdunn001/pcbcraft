@@ -773,6 +773,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         let pad = pcbcraft_doc::Pad {
             number: "1".into(),
@@ -819,6 +820,7 @@ mod tests {
             pads: vec![pad, pad2],
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),

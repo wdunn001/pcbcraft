@@ -1,0 +1,13 @@
+M48
+NonPlated,1,2,NPTH
+FMAT,2
+METRIC,TZ
+; #@! TA.DrillTolerance,0.050,0.050
+T1C3.200
+; #@! TD
+%
+G90
+G05
+T1
+X5.000Y5.000
+M30

@@ -1,6 +1,15 @@
 {
   "airwires": [],
   "drc": [],
-  "erc": [],
+  "erc": [
+    {
+      "code": "missing_decoupling",
+      "message": "U1 pin 8 (VCC) has no capacitor on VCC; add 100 nF next to the pin",
+      "objects": [
+        45
+      ],
+      "severity": "warning"
+    }
+  ],
   "revision": 1
 }

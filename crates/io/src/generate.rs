@@ -53,7 +53,9 @@ pub enum GeneratedOutput {
 /// output job entry, so old files keep exporting the same outputs.
 ///
 /// # Rules
-/// - Runs only when `artifacts` is empty and `output_jobs` is not.
+/// - Artifacts: runs only when `artifacts` is empty and `output_jobs` is not.
+/// - Sourcing: copies free-form `MPN`, `Manufacturer`, `Description` and supplier number
+///   fields into the typed record (`Project::adopt_free_form_sourcing`); originals stay.
 /// - Ids start above the highest id in use.
 ///
 /// # Dependencies
