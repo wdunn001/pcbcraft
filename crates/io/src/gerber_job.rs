@@ -343,6 +343,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         project
