@@ -832,7 +832,7 @@ struct PdfPage {
 }
 /// Any surface that can receive the shared view drawing: path outlines,
 /// circles and text, in millimetre design coordinates.
-trait DrawPage {
+pub(crate) trait DrawPage {
     fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String>;
     fn circle(
         &mut self,
@@ -1079,7 +1079,7 @@ fn pdf_project_graphic(page: &mut impl DrawPage, g: &pcbcraft_doc::Graphic) -> R
 }
 
 /// Render one view of the design onto the page.
-fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), String> {
+pub(crate) fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), String> {
     let front = [0.85, 0.25, 0.15];
     let back = [0.2, 0.45, 0.8];
     let copper_edge = [0.0, 0.0, 0.0];
@@ -1318,10 +1318,15 @@ pub(crate) fn pdf_bytes_from_ops(ops: String) -> Result<Vec<u8>, String> {
     let mut pdf: Vec<u8> = Vec::new();
     let mut offsets = [0u32; 5];
     pdf.extend_from_slice(b"%PDF-1.4\n");
+    let page_obj = format!(
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        PdfPage::n(page_w_pt),
+        PdfPage::n(page_h_pt)
+    );
     for (index, body) in [
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>".to_string(),
+        page_obj,
         format!(
             "<< /Length {} >>\nstream\n{}endstream",
             content.len(),
@@ -1333,10 +1338,7 @@ pub(crate) fn pdf_bytes_from_ops(ops: String) -> Result<Vec<u8>, String> {
     .enumerate()
     {
         offsets[index] = pdf.len() as u32;
-        pdf.extend_from_slice(
-            format!("{} 0 obj\n{}\nendobj\n", index + 1, body)
-                .as_bytes(),
-        );
+        pdf.extend_from_slice(format!("{} 0 obj\n{}\nendobj\n", index + 1, body).as_bytes());
     }
     let xref_at = pdf.len() as u32;
     pdf.extend_from_slice(b"xref\n0 5\n0000000000 65535 f \n");
@@ -1436,13 +1438,45 @@ pub fn postscript(p: &Project, view: &str) -> Result<String, String> {
     if view != "pcb" && view != "schematic" {
         return Err("view must be pcb or schematic".into());
     }
-    let (min, max) = preview_bounds(p, view);
+    let content_bounds = preview_bounds(p, view);
+    let frame_layout = uses_drawing_frame(p, view)
+        .then(|| drawing_frame_layout(p, 0, content_bounds.0, content_bounds.1));
     let mut page = PdfPage::new();
     page.pdf_font = false;
-    page.fit_to(792.0, 612.0, 36.0, min, max);
+    let (page_w, page_h, margin) = frame_layout
+        .as_ref()
+        .map_or((792.0, 612.0, 36.0), |layout| {
+            (layout.width_mm * PDF_K, layout.height_mm * PDF_K, 0.0)
+        });
+    if let Some(ref layout) = frame_layout {
+        page.fit_to(
+            page_w,
+            page_h,
+            margin,
+            Point::new(0.0, 0.0),
+            Point::new(layout.width_mm, layout.height_mm),
+        );
+    } else {
+        page.fit_to(792.0, 612.0, 36.0, content_bounds.0, content_bounds.1);
+    }
     page.color([1.0, 1.0, 1.0], false)?;
-    page.op("0 0 792 612 re f")?;
-    pdf_draw(&mut page, p, view)?;
+    page.op(&format!(
+        "0 0 {} {} re f",
+        PdfPage::n(page_w),
+        PdfPage::n(page_h)
+    ))?;
+    if let Some(ref layout) = frame_layout {
+        render_framed_view(
+            &mut page,
+            p,
+            view,
+            layout,
+            content_bounds.0,
+            content_bounds.1,
+        )?;
+    } else {
+        pdf_draw(&mut page, p, view)?;
+    }
     let title = if p.name.trim().is_empty() {
         "untitled board"
     } else {
@@ -1551,10 +1585,30 @@ pub fn hpgl_plot(p: &Project, view: &str) -> Result<String, String> {
     if view != "pcb" && view != "schematic" {
         return Err("view must be pcb or schematic".into());
     }
-    let (min, max) = preview_bounds(p, view);
+    let content_bounds = preview_bounds(p, view);
+    let frame_layout = uses_drawing_frame(p, view)
+        .then(|| drawing_frame_layout(p, 0, content_bounds.0, content_bounds.1));
     let mut page = Hpgl::new();
-    page.fit(min, max);
-    pdf_draw(&mut page, p, view)?;
+    if let Some(ref layout) = frame_layout {
+        page.fit(
+            Point::new(0.0, 0.0),
+            Point::new(layout.width_mm, layout.height_mm),
+        );
+    } else {
+        page.fit(content_bounds.0, content_bounds.1);
+    }
+    if let Some(ref layout) = frame_layout {
+        render_framed_view(
+            &mut page,
+            p,
+            view,
+            layout,
+            content_bounds.0,
+            content_bounds.1,
+        )?;
+    } else {
+        pdf_draw(&mut page, p, view)?;
+    }
     Ok(format!("IN;SP1;\n{}PU;\n", page.body))
 }
 
@@ -2666,7 +2720,7 @@ fn kicad_pad_shape_detail(g: &pcbcraft_library::FootprintPad) -> String {
         _ => String::new(),
     }
 }
-fn escape(s: &str) -> String {
+pub(crate) fn escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -5896,16 +5950,34 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     if view != "pcb" && view != "schematic" {
         return Err("view must be pcb or schematic".into());
     }
-    let (min, max) = preview_bounds(p, view);
-    let width = (max.x - min.x).max(1.0) + 16.0;
-    let height = (max.y - min.y).max(1.0) + 16.0;
-    let mut s = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1000\" height=\"680\" viewBox=\"{} {} {width} {height}\"><rect x=\"{}\" y=\"{}\" width=\"{width}\" height=\"{height}\" fill=\"#131c29\"/><g font-family=\"sans-serif\" font-size=\"1.5\" fill=\"#dbe7f2\">",
-        min.x - 8.0,
-        min.y - 8.0,
-        min.x - 8.0,
-        min.y - 8.0
+    let content_bounds = preview_bounds(p, view);
+    let (min, max) = content_bounds;
+    let frame_layout = (view == "schematic" && uses_drawing_frame(p, view))
+        .then(|| drawing_frame_layout(p, 0, min, max));
+    let (vb_x, vb_y, width, height) = frame_layout.as_ref().map_or(
+        (
+            min.x - 8.0,
+            min.y - 8.0,
+            (max.x - min.x).max(1.0) + 16.0,
+            (max.y - min.y).max(1.0) + 16.0,
+        ),
+        |layout| (0.0, 0.0, layout.width_mm, layout.height_mm),
     );
+    let mut s = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1000\" height=\"680\" viewBox=\"{vb_x} {vb_y} {width} {height}\">",
+    );
+    if let Some(ref layout) = frame_layout {
+        s.push_str(&drawing_frame_svg_fragment(p, 0, layout));
+        let (origin, scale) = content_plot_transform(layout, min, max);
+        s.push_str(&format!(
+            "<g transform=\"translate({} {}) scale({})\" font-family=\"sans-serif\" font-size=\"1.5\" fill=\"#101c17\">",
+            origin.x, origin.y, scale
+        ));
+    } else {
+        s.push_str(&format!(
+            "<rect x=\"{vb_x}\" y=\"{vb_y}\" width=\"{width}\" height=\"{height}\" fill=\"#131c29\"/><g font-family=\"sans-serif\" font-size=\"1.5\" fill=\"#dbe7f2\">",
+        ));
+    }
     if view == "pcb" {
         match &p.board.outline {
             Some(o) => {

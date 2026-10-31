@@ -5510,6 +5510,7 @@ impl Project {
         if self.panel.enabled {
             self.panel.validate_fields()?;
         }
+        self.drawing_frame.validate()?;
         if self.name.is_empty() || self.name.len() > 256 {
             return Err("project name must be 1–256 bytes".into());
         }
