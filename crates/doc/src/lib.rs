@@ -1855,7 +1855,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 29] = [
+pub const OUTPUT_KINDS: [&str; 33] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1885,10 +1885,14 @@ pub const OUTPUT_KINDS: [&str; 29] = [
     "raster",
     "laser_job",
     "uv_print",
+    "spice",
+    "si_net_results",
+    "impedance_table",
+    "touchstone",
 ];
 /// How many export kinds one output job may hold. It is larger than the kind
 /// list so a single job can still ask for every file a board needs.
-pub const MAX_OUTPUT_KINDS: usize = 32;
+pub const MAX_OUTPUT_KINDS: usize = 36;
 /// A named fabrication output recipe: the export kinds a job writes when it
 /// runs.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -2084,6 +2088,10 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
         "hpgl" => ("package", "board.hpgl"),
         "stackup" => ("package", "board-stackup.txt"),
         "stats" => ("package", "board-stats.csv"),
+        "spice" => ("package", "schematic.cir"),
+        "si_net_results" => ("package", "si-net-results.csv"),
+        "impedance_table" => ("package", "impedance-table.csv"),
+        "touchstone" => ("package", "touchstone.s2p"),
         _ => return None,
     })
 }
