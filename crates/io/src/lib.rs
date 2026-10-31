@@ -11,8 +11,22 @@ mod datasheet;
 mod bitmap_trace;
 mod board_mesh;
 mod diff;
+mod schematic_import;
 mod drawn;
 mod export_validate;
+mod fab_drawing;
+mod fab_export;
+mod generate;
+mod layer_file;
+mod gerber;
+mod gerber_job;
+mod idf;
+mod laser;
+mod layers;
+mod library_render;
+mod machine_profile;
+mod diff;
+mod drawn;
 mod fab_drawing;
 mod fab_export;
 mod generate;
@@ -23,8 +37,24 @@ mod laser;
 mod layers;
 mod library_render;
 mod machine_profile;
+mod import_cache;
+mod model_cache;
+mod model_compact;
 mod model_align;
 mod model_load;
+mod model_resolve;
+mod neoden_yy1;
+mod package;
+mod panel_export;
+mod schematic_sim;
+mod si_export;
+mod part_bodies;
+mod plot_read;
+mod step_merge;
+mod raster;
+mod step_read;
+mod model_load;
+mod model_resolve;
 mod neoden_yy1;
 mod package;
 mod panel_export;
@@ -40,6 +70,9 @@ mod vrml_read;
 /// Bitmap trace constants, options, and functions for converting images to polygon traces.
 /// # Dependencies
 /// - crates/io/src/bitmap_trace.rs
+pub use schematic_import::{
+    import_summary, read_schematic_interchange, read_schematic_interchange_path,
+};
 pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
@@ -59,8 +92,8 @@ pub use model_align::{
 };
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
-    ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
-    with_models,
+    ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh,
+    board_mesh_with_dir, model_matrix, with_models,
 };
 pub use cam::{
     CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
@@ -129,10 +162,13 @@ pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
 };
+pub use import_cache::{default_import_cache_dir, ImportCache};
+pub use model_cache::ModelCache;
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
 };
+pub use model_resolve::{resolve_library_path, resolve_model_path};
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
 /// # Dependencies
@@ -205,9 +241,10 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 /// - Call with paths to non-JSON files
 pub fn load(path: &Path) -> Result<Project, String> {
     let text = read_text(path)?;
-    let mut project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let mut project: Project = serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
+    layer_file::read_stackup_copper_names(&mut project, &root)?;
     migrate_loaded_project(&mut project)?;
-    project.migrate_component_kinds();
     project.validate()?;
     Ok(project)
 }
@@ -266,10 +303,10 @@ pub fn atomic_write(_path: &Path, _bytes: &[u8]) -> Result<(), String> {
 /// - Validates the project before saving
 /// - Uses atomic write to prevent corruption
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
-    let mut prepared = project.clone();
-    prepared.migrate_component_kinds();
-    prepared.validate()?;
-    let bytes = serde_json::to_vec_pretty(&prepared).map_err(|e| e.to_string())?;
+    project.validate()?;
+    let mut root = serde_json::to_value(project).map_err(|e| e.to_string())?;
+    layer_file::write_stackup_copper_names(&mut root, project);
+    let bytes = serde_json::to_vec_pretty(&root).map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err("project exceeds 8 MiB".into());
     }
@@ -8393,7 +8430,6 @@ mod tests {
             side: None,
             pads,
         });
-        project.migrate_component_kinds();
         project.validate()?;
         Ok(project)
     }
@@ -10216,6 +10252,7 @@ mod tests {
             via_drill: None,
             pair_width: None,
             pair_gap: None,
+            target_impedance: None,
             nets: vec![5],
             profile: None,
         });
@@ -10312,6 +10349,8 @@ mod tests {
                 height: 8.0,
             },
             profile: None,
+            forbid: None,
+            footprint_ref: None,
         });
         let dsn = specctra_dsn(&project)?;
         assert!(
@@ -12282,7 +12321,6 @@ mod tests {
         sourcing: Default::default(),
         compliance: Default::default(),
         });
-        project.migrate_component_kinds();
         project.validate()?;
         let png = preview_png(&project, "schematic")?;
         let image = image::load_from_memory(&png)
@@ -13948,6 +13986,146 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn a_project_saved_with_index_derived_bottom_name_opens_on_the_same_layer(
+    ) -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            project.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: name.into(),
+                kind: "copper".into(),
+                thickness,
+                ..Default::default()
+            });
+        }
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(5.0, 0.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::from_index(3).map_err(|e| e.to_string())?,
+            arc: None,
+        });
+        let raw = serde_json::to_string(&project).map_err(|e| e.to_string())?;
+        let loaded = {
+            let root: serde_json::Value =
+                serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+            let mut p: Project =
+                serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
+            layer_file::read_stackup_copper_names(&mut p, &root)?;
+            p
+        };
+        assert_eq!(loaded.board.tracks[0].layer.index(), 3);
+        Ok(())
+    }
+
+    fn four_layer_project_save_is_byte_stable_on_second_write() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            project.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: name.into(),
+                kind: "copper".into(),
+                thickness,
+                ..Default::default()
+            });
+        }
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(5.0, 0.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::from_index(3).map_err(|e| e.to_string())?,
+            arc: None,
+        });
+        project.validate()?;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("four.pcbcraft");
+        save(&project, &path)?;
+        let first = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let text = String::from_utf8(first.clone()).map_err(|e| e.to_string())?;
+        assert!(
+            text.contains("\"layer\": \"B.Cu\""),
+            "bottom copper is written with the stackup name"
+        );
+        assert!(
+            !text.contains("In3.Cu"),
+            "index-derived bottom names must not appear"
+        );
+        let loaded = load(&path)?;
+        let again = dir.path().join("four-again.pcbcraft");
+        save(&loaded, &again)?;
+        let second = std::fs::read(&again).map_err(|e| e.to_string())?;
+        assert_eq!(first, second, "a second save must be byte-identical");
+        Ok(())
+    }
+
+    fn six_layer_project_save_is_byte_stable_on_second_write() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        for i in 1..=6 {
+            project.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: format!("L{i}"),
+                kind: "copper".into(),
+                thickness: 0.035,
+                ..Default::default()
+            });
+        }
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(5.0, 0.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::from_index(5).map_err(|e| e.to_string())?,
+            arc: None,
+        });
+        project.validate()?;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("six.pcbcraft");
+        save(&project, &path)?;
+        let first = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let text = String::from_utf8(first.clone()).map_err(|e| e.to_string())?;
+        assert!(
+            text.contains("\"layer\": \"L6\""),
+            "bottom copper uses the recorded stackup name"
+        );
+        assert!(
+            !text.contains("In5.Cu"),
+            "index-derived bottom names must not appear"
+        );
+        let loaded = load(&path)?;
+        let again = dir.path().join("six-again.pcbcraft");
+        save(&loaded, &again)?;
+        let second = std::fs::read(&again).map_err(|e| e.to_string())?;
+        assert_eq!(first, second, "a second save must be byte-identical");
+        Ok(())
+    }
+
     fn an_arced_corner_round_trips_through_save_and_open() -> Result<(), String> {
         let mut project = Project::default();
         project.board.outline = Some(vec![
@@ -13987,5 +14165,135 @@ mod tests {
         let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
         assert!(back.board.outline_arcs.is_empty());
         back.validate()
+    }
+
+    fn schematic_fixture_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+    }
+
+    fn schematic_snapshot(project: &Project) -> serde_json::Value {
+        let mut components: Vec<String> = project
+            .components
+            .iter()
+            .map(|c| c.reference.clone())
+            .collect();
+        components.sort();
+        let mut nets: Vec<String> = project.nets.iter().map(|n| n.name.clone()).collect();
+        nets.sort();
+        serde_json::json!({
+            "name": project.name,
+            "components": components,
+            "nets": nets,
+            "junctions": project.labels.iter().filter(|l| l.kind == "junction").count(),
+            "no_connects": project.no_connects.len(),
+            "drawn_wires": project.drawn_wires.len(),
+            "sheets": project.sheets.len(),
+            "ports": project.ports.len(),
+            "bus_labels": project.labels.iter().filter(|l| l.kind == "bus").count(),
+        })
+    }
+
+    fn load_schematic_golden(name: &str) -> Result<serde_json::Value, String> {
+        let path = schematic_fixture_dir().join(name);
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&text).map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn schematic_import_flat_matches_golden_json() -> Result<(), String> {
+        let text =
+            std::fs::read_to_string(schematic_fixture_dir().join("schematic_import_flat.kicad_sch"))
+                .map_err(|e| e.to_string())?;
+        let project = read_schematic_interchange(&text)?;
+        let snapshot = schematic_snapshot(&project);
+        let golden = load_schematic_golden("schematic_import_flat.golden.json")?;
+        assert_eq!(snapshot["name"], golden["name"]);
+        assert_eq!(snapshot["components"], golden["components"]);
+        assert_eq!(snapshot["nets"], golden["nets"]);
+        assert_eq!(snapshot["junctions"], golden["junctions"]);
+        assert_eq!(snapshot["no_connects"], golden["no_connects"]);
+        assert_eq!(snapshot["drawn_wires"], golden["drawn_wires"]);
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_import_hierarchy_matches_golden_json() -> Result<(), String> {
+        let path = schematic_fixture_dir().join("schematic_import_hierarchy_root.kicad_sch");
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let (project, _) = read_schematic_interchange_path(&path, &text)?;
+        let snapshot = schematic_snapshot(&project);
+        let golden = load_schematic_golden("schematic_import_hierarchy.golden.json")?;
+        assert_eq!(snapshot["components"], golden["components"]);
+        assert_eq!(snapshot["nets"], golden["nets"]);
+        assert_eq!(snapshot["sheets"], golden["sheets"]);
+        assert_eq!(snapshot["ports"], golden["ports"]);
+        let net = project
+            .nets
+            .iter()
+            .find(|n| n.name == "IN1")
+            .ok_or("missing IN1 net")?;
+        let root_pin = project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .and_then(|c| c.pins.iter().find(|p| p.number == "1"))
+            .and_then(|p| p.net);
+        let child_pin = project
+            .components
+            .iter()
+            .find(|c| c.reference == "R2")
+            .and_then(|c| c.pins.iter().find(|p| p.number == "1"))
+            .and_then(|p| p.net);
+        if root_pin != Some(net.id) || child_pin != Some(net.id) {
+            return Err("cross-page net did not reach both pages".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_import_bus_derives_member_nets() -> Result<(), String> {
+        let text =
+            std::fs::read_to_string(schematic_fixture_dir().join("schematic_import_bus.kicad_sch"))
+                .map_err(|e| e.to_string())?;
+        let project = read_schematic_interchange(&text)?;
+        let golden = load_schematic_golden("schematic_import_bus.golden.json")?;
+        let mut nets: Vec<String> = project.nets.iter().map(|n| n.name.clone()).collect();
+        nets.sort();
+        assert_eq!(
+            serde_json::to_value(&nets).map_err(|e| e.to_string())?,
+            golden["member_nets"]
+        );
+        let bus_labels = golden["bus_labels"]
+            .as_u64()
+            .ok_or("golden bus_labels missing")? as usize;
+        assert_eq!(
+            project.labels.iter().filter(|l| l.kind == "bus").count(),
+            bus_labels
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_import_malformed_refuses_with_line_number() -> Result<(), String> {
+        let err = read_schematic_interchange("(kicad_sch (version 20250114)\n(broken")
+            .err()
+            .ok_or("malformed schematic should be refused")?;
+        if !err.contains("line") {
+            return Err(format!("malformed import should name a line number: {err}"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_import_legacy_cache_library_refused() -> Result<(), String> {
+        let text = std::fs::read_to_string(
+            schematic_fixture_dir().join("schematic_import_legacy.kicad_sch"),
+        )
+        .map_err(|e| format!("legacy fixture missing: {e}"))?;
+        let err = read_schematic_interchange(&text).err().ok_or("legacy schematic should be refused")?;
+        if !err.contains("embedded symbol definitions") {
+            return Err(format!("legacy file should be refused plainly: {err}"));
+        }
+        Ok(())
     }
 }

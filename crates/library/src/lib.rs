@@ -2,9 +2,28 @@
 pub mod cad;
 pub mod cad_cache;
 pub mod datasheet;
+//! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
+pub mod cad;
+pub mod cad_cache;
+pub mod datasheet;
 pub mod datasheet_annotations;
 pub mod connector_catalog;
-mod component_kind;
+mod footprint_check;
+mod footprint_generate;
+pub mod model_transform;
+mod footprint_pad_outline;
+pub mod listing;
+pub mod listing_adapters;
+pub mod listing_search;
+pub mod online_import;
+pub mod open_library;
+pub mod part_validation;
+pub mod pin_pad_map;
+mod paths;
+mod reader;
+pub mod samtec;
+mod sexpr;
+pub mod credentials;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
@@ -37,7 +56,16 @@ mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
-pub use component_kind::infer_component_kind;
+pub use footprint_check::{
+    FindingSeverity, FootprintFinding, check_footprint, courtyard_half_extents,
+};
+pub use part_validation::{
+    PartCatalogFields, PartValidationFinding, PartValidationResult, ReplacementCheckResult,
+    replacement_check, validate_catalog_fields, validate_part,
+};
+pub use pin_pad_map::{
+    PadRole, PinPadFinding, PinPadMap, PinPadRow, auto_fill, footprint_pad_labels, pad_label,
+    validate_pin_pad_map,
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use datasheet::{
     DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
@@ -48,8 +76,12 @@ pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_foo
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
-pub use sexpr::{Error, Limits};
+pub use sexpr::{Error, Limits, Node, parse as parse_sexpr, parse_limits as parse_sexpr_limits};
 pub use symbol_check::check_symbol;
+pub use model_transform::{
+    model_mirror_y, model_pin1_cycle, model_rotate_z_90, normalize_degrees,
+    refresh_model_raw_source,
+};
 pub use validation::custom_polygon_error;
 
 /// A schematic symbol definition parsed from the interchange format.
