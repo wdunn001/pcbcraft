@@ -25854,6 +25854,27 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     }
 
     #[test]
+    fn footprint_generate_dfn_from_command() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "library.footprint.generate",
+            json!({
+                "family": "dfn",
+                "name": "DFN_TEST",
+                "pitch": 0.5,
+                "pin_count": 8,
+                "body_x": 2.5,
+                "body_y": 2.5,
+                "terminal_width": 0.22
+            }),
+            None,
+        )?;
+        assert_eq!(s.project.library.footprints.len(), 1);
+        assert_eq!(s.project.library.footprints[0].pads.len(), 8);
+        Ok(())
+    }
+
+    #[test]
     fn footprint_check_overlap_fixture() -> Result<(), Error> {
         let mut s = Session::default();
         let definition = pcbcraft_library::FootprintDefinition {
