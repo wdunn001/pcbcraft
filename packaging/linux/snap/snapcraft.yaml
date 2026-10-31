@@ -22,7 +22,7 @@ contact: https://github.com/wdunn001/pcbcraft/issues
 website: https://github.com/wdunn001/pcbcraft
 source-code: https://github.com/wdunn001/pcbcraft
 issues: https://github.com/wdunn001/pcbcraft/issues
-icon: stage/share/icons/hicolor/512x512/apps/io.github.tangency_labs.pcbcraft.png
+icon: stage/share/icons/hicolor/512x512/apps/io.github.tangency-labs.pcbcraft.png
 base: core24
 grade: stable
 confinement: strict
