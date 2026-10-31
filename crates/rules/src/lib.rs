@@ -16,6 +16,7 @@ mod decoupling;
 mod drill;
 mod silk;
 mod stub;
+pub mod compliance;
 
 pub use compliance::{
     check as compliance_check, load_list_snapshot, ComplianceFinding, EU_MARKET_RULE_SET,

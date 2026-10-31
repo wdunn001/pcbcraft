@@ -5354,10 +5354,10 @@ impl Project {
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
         self.validate_parameters()?;
-self.validate_manufacturers()?;
-        self.compliance_settings.validate()?;
-        self.validate_compliance_mutes()?;
-        self.decoupling.validate()?;
+        validate_compliance_settings(&self.compliance)?;
+        for compliance in self.compliance.parts.values() {
+            validate_component_compliance(compliance)?;
+        }
         if self
             .components
             .iter()
