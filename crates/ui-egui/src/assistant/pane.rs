@@ -8,7 +8,7 @@
 use super::cards::{self, Pressed};
 use super::{Phase, text};
 use crate::App;
-use pcbcraft_assistant::Item;
+use pcbcraft_assistant::{Item, StepState};
 
 /// Draw the pane into `ui`.
 pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
@@ -16,7 +16,7 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
     egui::Frame::new()
         .inner_margin(egui::Margin::ZERO)
         .show(ui, |ui| {
-            header(app, ui, muted);
+            header(app, ui);
             if app.assistant.confirm_forget {
                 forget_bar(app, ui);
             }
@@ -27,21 +27,88 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
             let waiting = app.assistant.waiting();
             // Questions waiting for an answer sit below the conversation so they are never
             // scrolled out of sight.
-            let waiting_height = (waiting as f32 * 140.0).min(280.0);
+            let waiting_height = if waiting == 0 {
+                0.0
+            } else {
+                (ui.available_height() - 200.0).clamp(140.0, 600.0)
+            };
             let height = (ui.available_height() - 110.0 - waiting_height).max(40.0);
             let mut pressed = None;
             let history = app.session.lock().map_or(0, |s| s.history_len());
             let live = app.assistant.live_undo(history);
+            let phase = app.assistant.phase();
             egui::ScrollArea::vertical()
                 .max_height(height)
                 .stick_to_bottom(true)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    for (n, it) in app.assistant.transcript.items.iter().enumerate() {
+                    let items = &app.assistant.transcript.items;
+                    let view = cards::View {
+                        muted,
+                        undo_live: false,
+                        list_all: app.assistant.list_all,
+                    };
+                    let working = matches!(phase, Phase::Working | Phase::Waiting);
+                    let mut n = 0;
+                    while n < items.len() {
+                        let it = &items[n];
                         if matches!(it, Item::Approval { answer: None, .. }) {
+                            n += 1;
                             continue;
                         }
-                        if let Some(p) = cards::item(ui, it, muted, live == Some(n)) {
+                        if matches!(it, Item::Step { .. }) {
+                            // Consecutive steps are one run; a waiting approval does not break it.
+                            let mut run: Vec<&Item> = Vec::new();
+                            while n < items.len()
+                                && matches!(
+                                    items[n],
+                                    Item::Step { .. }
+                                        | Item::ToolCall { .. }
+                                        | Item::Approval { answer: None, .. }
+                                )
+                            {
+                                if matches!(items[n], Item::Step { .. }) {
+                                    run.push(&items[n]);
+                                }
+                                n += 1;
+                            }
+                            let first = match run.first() {
+                                Some(Item::Step { id, .. }) => *id,
+                                _ => 0,
+                            };
+                            let last_run = n >= items.len()
+                                || !items[n..].iter().any(|i| matches!(i, Item::Step { .. }));
+                            let live = working
+                                && last_run
+                                && run.iter().any(|i| {
+                                    matches!(
+                                        i,
+                                        Item::Step {
+                                            state: StepState::Waiting | StepState::Running,
+                                            ..
+                                        }
+                                    )
+                                });
+                            let open = app.assistant.open_runs.contains(&first);
+                            if let Some(p) = cards::run(ui, &run, live, open) {
+                                pressed = Some(p);
+                            }
+                            ui.add_space(8.0);
+                            continue;
+                        }
+                        if let Item::Suggestions(cards_list) = it {
+                            let fresh = n + 1 == items.len() && phase == Phase::Ready;
+                            if let Some(p) = cards::suggestions(ui, cards_list, fresh) {
+                                pressed = Some(p);
+                            }
+                            n += 1;
+                            continue;
+                        }
+                        let v = cards::View {
+                            undo_live: live == Some(n),
+                            ..view
+                        };
+                        if let Some(p) = cards::item(ui, it, &v) {
                             pressed = Some(p);
                         }
                         let quiet = matches!(
@@ -49,6 +116,7 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
                             Item::Note { .. } | Item::ToolCall { .. } | Item::Plan(_)
                         );
                         ui.add_space(if quiet { 2.0 } else { 8.0 });
+                        n += 1;
                     }
                     // Follow new rows, and the window growing or shrinking around them.
                     let marker = (app.assistant.transcript.items.len(), height as i32);
@@ -64,7 +132,15 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
                     .show(ui, |ui| {
                         for it in &app.assistant.transcript.items {
                             if matches!(it, Item::Approval { answer: None, .. })
-                                && let Some(p) = cards::item(ui, it, muted, false)
+                                && let Some(p) = cards::item(
+                                    ui,
+                                    it,
+                                    &cards::View {
+                                        muted,
+                                        undo_live: false,
+                                        list_all: app.assistant.list_all,
+                                    },
+                                )
                             {
                                 pressed = Some(p);
                             }
@@ -75,7 +151,15 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
                 Some(Pressed::Allow(id)) => app.assistant_answer(id, true, false),
                 Some(Pressed::AlwaysAllow(id)) => app.assistant_answer(id, true, true),
                 Some(Pressed::Deny(id)) => app.assistant_answer(id, false, false),
+                Some(Pressed::ApplyEach(id)) => app.assistant_answer_each(id),
                 Some(Pressed::Undo) => app.assistant_undo(),
+                Some(Pressed::ToggleRun(id)) => {
+                    if !app.assistant.open_runs.remove(&id) {
+                        app.assistant.open_runs.insert(id);
+                    }
+                }
+                Some(Pressed::ToggleList) => app.assistant.list_all = !app.assistant.list_all,
+                Some(Pressed::Pick(title)) => app.assistant_pick(title),
                 None => {}
             }
             composer(app, ui);
@@ -109,19 +193,38 @@ fn off_state(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(12.0);
 }
 
-fn header(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
+/// The state dot: painted, because no bundled font carries a dot glyph. Grey is off or stopped,
+/// amber starting, working or waiting, green ready, red after the endpoint failed. The word beside
+/// it and the tooltip say the same in text.
+fn state_dot(ui: &mut egui::Ui, phase: Phase, failed: bool, word: &str) {
+    let t = crate::theme::tokens(ui.ctx());
+    let colour = if failed {
+        t.red
+    } else {
+        match phase {
+            Phase::Off | Phase::Stopped => t.muted,
+            Phase::Starting | Phase::Working | Phase::Waiting => t.gold,
+            Phase::Ready => t.mask,
+        }
+    };
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(12.0, 16.0), egui::Sense::hover());
+    ui.painter().circle_filled(rect.center(), 4.0, colour);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, word));
+    response.on_hover_text(format!("{word}. {}", text::state_tip()));
+}
+
+fn header(app: &mut App, ui: &mut egui::Ui) {
     let phase = app.assistant.phase();
-    let (word, dot) = match phase {
-        Phase::Off => (text::state_off(), muted),
-        Phase::Starting => (text::state_starting(), egui::Color32::GRAY),
-        Phase::Ready => (text::state_ready(), egui::Color32::from_rgb(70, 180, 110)),
-        Phase::Working => (text::state_working(), egui::Color32::from_rgb(230, 170, 60)),
-        Phase::Waiting => (text::state_waiting(), egui::Color32::from_rgb(230, 170, 60)),
-        Phase::Stopped => (text::state_stopped(), egui::Color32::GRAY),
+    let word = match phase {
+        Phase::Off => text::state_off(),
+        Phase::Starting => text::state_starting(),
+        Phase::Ready => text::state_ready(),
+        Phase::Working => text::state_working(),
+        Phase::Waiting => text::state_waiting(),
+        Phase::Stopped => text::state_stopped(),
     };
     ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new("●").color(dot))
-            .on_hover_text(text::state_tip());
+        state_dot(ui, phase, app.assistant.failed, &word);
         ui.label(word).on_hover_text(text::state_tip());
         if app.preferences.assistant_connections.len() > 1 {
             let current = app
@@ -191,15 +294,24 @@ fn composer(app: &mut App, ui: &mut egui::Ui) {
             .on_hover_text(text::show_sent_tip());
     }
     let off = app.assistant.phase() == Phase::Off;
+    let next = matches!(
+        app.assistant.transcript.items.last(),
+        Some(Item::Suggestions(_))
+    );
+    let hint = if next {
+        text::input_hint_next()
+    } else {
+        text::input_hint()
+    };
     let edit = ui.add_enabled(
         !off,
         egui::TextEdit::multiline(&mut app.assistant.input)
             .desired_rows(2)
             .desired_width(f32::INFINITY)
-            .hint_text(text::input_hint()),
+            .hint_text(&hint),
     );
     use crate::a11y::Named;
-    edit.named(&text::input_hint()).on_hover_text(if off {
+    edit.named(&hint).on_hover_text(if off {
         text::disabled_tip()
     } else {
         text::input_tip()
