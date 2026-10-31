@@ -52,7 +52,20 @@ impl App {
     /// - Keep the temporary file open; it is only read once.
     /// - Reuse a fixed file name; two opens at once would overwrite each other.
     pub(crate) fn open_showcase(&mut self) -> bool {
-        let path = unique_showcase_path();
+let path = std::env::temp_dir().join(format!(
+            "pcbcraft-showcase-sensor-node-{}.pcbcraft",
+            std::process::id()
+        ));
+        if let Err(error) = std::fs::write(&path, SHOWCASE) {
+            self.message = error.to_string();
+            return false;
+        }
+        let Some(path) = path.to_str() else {
+            return false;
+        };
+        self.tool_call("open", json!({ "path": path }))
+    }
+}
         if let Err(error) = std::fs::write(&path, SHOWCASE) {
             self.message = error.to_string();
             return false;

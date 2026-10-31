@@ -35,6 +35,7 @@ run policy and docs standard.
 | --- | --- | --- |
 | Format and policy | `cargo xtask policy`, `cargo xtask fmt` | Crate dependency layers, workspace lints keep `unwrap_used`, `expect_used`, `panic`, `unimplemented`, `todo` and `unreachable` at deny (AGENTS.md), no source `allow` of them, rustfmt |
 | Clippy and docs | `cargo xtask clippy`, `cargo xtask docs` | Clippy with `-D warnings` on all targets, rustdoc with warnings denied |
+| Large-board bench | `cargo xtask bench` | The ten-thousand-pad board through the copper checks and a selection and pan frame, in release, with a time budget and a check that the copper broad phase stays a small multiple of the item count |
 | Documentation standard | `cargo xtask docs check` | Contract and dependency paths exist, trait implementation lists match the code, AGENTS.md is 60 lines or fewer, missing-docs warnings do not rise above xtask/doc-ratchet.toml |
 | Accessibility | `cargo xtask a11y` | Headless, no GPU. Every tab, dialog and menu through the AccessKit tree: names, duplicate names, 24 by 24 targets, keyboard reach, contrast, reduce motion. Table per screen in the job summary. See [accessibility.md](accessibility.md) |
 | WebAssembly | `cargo xtask wasm` | The shared UI and the browser entry point build for wasm32 |
@@ -151,6 +152,11 @@ replace the latest stable download links from tagged releases.
 Push a tag `vX.Y.Z` (or `vX.Y.Z-rc.1`) that matches the workspace version in
 Cargo.toml. The workflow builds, from clean state:
 
+- `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz` (FHS tree used by Flatpak and Snap repackage jobs)
+- Per Linux architecture (`x86_64`, `aarch64`):
+  - `pcbcraft-<tag>-linux-<arch>.AppImage` and `.AppImage.zsync`
+  - `pcbcraft-<tag>-linux-<arch>.deb` and `.rpm`
+  - `pcbcraft-<tag>-linux-<arch>.flatpak` and `.snap`
 - `pcbcraft-<tag>-linux-x86_64.AppImage` and `-linux-aarch64.AppImage` (+ `.zsync` update files)
 - `pcbcraft-<tag>-linux-x86_64.deb` and `-linux-aarch64.deb`
 - `pcbcraft-<tag>-linux-x86_64.rpm` and `-linux-aarch64.rpm`
@@ -160,23 +166,99 @@ Cargo.toml. The workflow builds, from clean state:
 - `pcbcraft-<tag>-macos-universal.tar.gz` and `.dmg` (Apple silicon and Intel)
 - `pcbcraft-<tag>-web.zip` (trunk build of apps/pcbcraft-web)
 - `pcbcraft-<tag>-source.tar.gz` and `-source-vendored.tar.gz` (complete corresponding source, GPL-3.0)
-- `SHA256SUMS`
+- `SHA256SUMS.txt` (one line per attached file)
+
+Tagged archives also get version-less copies (for example `pcbcraft-linux-x86_64.tar.gz`,
+`pcbcraft-linux-x86_64.AppImage`, `pcbcraft-linux-x86_64.deb`) so
+`releases/latest/download/<name>` links keep working. AppImage zsync metadata points at the
+version-less `.AppImage.zsync` on the latest release.
 
 Everything lands in a DRAFT GitHub Release. A maintainer reviews and publishes
 it by hand; nothing publishes automatically. Release notes list commit subjects
 since the previous tag.
 
 The nightly and release workflows share `build-dist.yml`, so a nightly run
+proves the release packaging works. Linux installers are built in
+`packaging/linux/package.sh` (called from the Linux matrix jobs in
+`build-dist.yml`). Flatpak and Snap repackage the FHS tarball via
+`packaging/linux/flatpak-bundle.sh` and `packaging/linux/snap-pack.sh`.
+Legacy flat Linux tarballs, Windows zip, macOS bundles, and the web zip still
+come from `.github/scripts/package.sh`.
+
+### Building Linux installers locally
+
+On Ubuntu 22.04 or similar, after a release build for the host triple:
+
+```bash
+export PCBCRAFT_DIST_TAG=v0.0.0-local
+export DIST="$PWD/dist"
+mkdir -p "$DIST"
+cargo build --locked --release -p pcbcraft -p pcbcraft-cli
+packaging/linux/package.sh --skip-build
+```
+
+Install `nfpm`, `desktop-file-utils`, `appstream`, and `zsync` for deb, rpm, and
+AppImage zsync output (the script prints a warning if zsync is missing). The
+first AppImage build downloads `appimagetool` into `target/` when it is not on
+`PATH`.
+
+Flatpak and Snap need extra host tooling and match what CI runs:
+
+- Flatpak: build the FHS tarball (`packaging/linux/package.sh --skip-build --formats tar`),
+  then `packaging/linux/flatpak-bundle.sh dist/pcbcraft-$PCBCRAFT_DIST_TAG-linux-$(uname -m).tar.gz`
+  (needs `flatpak`, `flatpak-builder`, and `librsvg2-common`).
+- Snap: same tarball, then `packaging/linux/snap-pack.sh` (needs `snapcraft`; CI uses
+  `--destructive-mode` on Ubuntu 24.04).
+
+CI does not upload to Flathub or the Snap Store; bundles are release artifacts only.
+Windows MSI packaging is tracked separately from this workflow.
 proves the release packaging works. Linux AppImage, .deb, .rpm and the FHS
 tarball come from `packaging/linux/package.sh`. Archives for every platform
 are assembled by `.github/scripts/package.sh`.
+
+### Signing (Windows and macOS)
+
+Release builds sign when repository secrets are present. Nightly runs and fork
+pull requests stay unsigned even if `sign` were enabled, because secrets are not
+exposed to untrusted workflows.
+
+| Secret | Purpose |
+| --- | --- |
+| `WINDOWS_CERTIFICATE` | Base64-encoded code signing PFX |
+| `WINDOWS_CERTIFICATE_PASSWORD` | PFX password |
+| `APPLE_CERTIFICATE` | Base64-encoded Developer ID Application PKCS#12 |
+| `APPLE_CERTIFICATE_PASSWORD` | PKCS#12 password |
+| `APPLE_CODESIGN_IDENTITY` | Optional full codesign identity string; otherwise the first Developer ID Application identity in the import keychain |
+| `APPLE_ID` | Apple ID for notarization (app-specific password flow) |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization |
+| `APPLE_TEAM_ID` | Team id for notarization |
+| `APPLE_NOTARY_KEY` | Base64-encoded App Store Connect API key (`.p8`) |
+| `APPLE_NOTARY_KEY_ID` | Key id when using the API key |
+| `APPLE_NOTARY_ISSUER_ID` | Issuer id when using the API key |
+
+Windows: `.github/scripts/sign-windows.ps1` signs `pcbcraft.exe` and
+`pcbcraft-cli.exe` before they are zipped, then runs `signtool verify /pa` in
+CI.
+
+macOS: `.github/scripts/sign-macos.sh` signs the CLI binary and app bundle with
+the hardened runtime, builds the dmg, signs the dmg, submits it to Apple, waits,
+and staples the ticket. Tarball binaries are signed but cannot be stapled; trust
+the dmg for Gatekeeper on first download.
+
+Local reproduction needs the same certificates and notarization credentials as
+CI. Without them, use unsigned nightly artifacts or build from source.
+
+Manual verification on clean machines:
+
+- Windows: `signtool verify /pa pcbcraft.exe`
+- macOS: `codesign --verify --deep --strict PCBCraft.app`, `xcrun stapler validate` on the dmg, `spctl --assess --type open` on the dmg
 
 ## Security posture
 
 - Every action is pinned to a commit SHA with the version in a comment. Dependabot opens weekly updates for actions and Cargo (egui, eframe and craft-ui are excluded and bumped by hand).
 - The workflow default is `permissions: {}`; each job asks for `contents: read`. The release draft job and the nightly pre-release publish job have `contents: write`.
 - Checkouts do not persist credentials. Untrusted values (tag names, inputs) reach shell steps through `env`, never inline.
-- No secrets are used.
+- Release signing reads repository secrets only in `release.yml` via `build-dist.yml`; values are passed through step `env`, never interpolated in `run:` scripts, and signing scripts keep `set +x`.
 
 ## Limits
 
@@ -194,6 +276,7 @@ The logo masters and every platform icon live in `assets/brand/`. Run `assets/br
 
 ## Open decisions for the maintainers
 
+- Package formats: AppImage, .deb, .msi or Flatpak are not produced yet.
 - Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries are unsigned until then, and macOS users must open the app via right-click.
 - Where the web bundle is hosted (Pages or another host) and whether tags publish it.
 - Whether to put Tests, Coverage, E2E, strings, localization or screenshots back on the gate later.
