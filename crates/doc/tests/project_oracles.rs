@@ -289,6 +289,7 @@ fn required_clearance_takes_the_strictest_rule() -> T {
         a: 1,
         b: 2,
         clearance: 0.6,
+        profile: None,
     });
     assert!((p.required_clearance(1, 2) - 0.6).abs() < 1e-12);
     p.board.rule_areas.push(RuleArea {
@@ -327,6 +328,7 @@ fn object_position_user_layer_and_ids() -> T {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
         sheet: 0,
         pins: vec![],
         units: vec![],

@@ -3016,6 +3016,7 @@ dependencies = [
  "image",
  "pcbcraft-clock",
  "pcbcraft-doc",
+ "pcbcraft-engine",
  "pcbcraft-geom",
  "pcbcraft-library",
  "pcbcraft-rules",

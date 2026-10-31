@@ -1,6 +1,6 @@
 //! Panel layout and separation oracle tests.
 use pcbcraft_doc::{
-    Board, PanelGrid, PanelSeparation, PanelSettings, Project, board_copy_size,
+    PanelGrid, PanelSeparation, PanelSettings, Project, board_copy_size,
     panel_layout_from_grid, panel_layout_with_settings, panel_score_lines, panel_tab_channel_width,
     panel_tab_segments,
 };
@@ -10,7 +10,7 @@ type T = Result<(), String>;
 
 #[test]
 fn board_copy_size_uses_outline_extents_when_present() -> T {
-    let mut board = Board::default();
+    let mut board = Project::default().board;
     board.width = 50.0;
     board.height = 40.0;
     board.outline = Some(vec![
@@ -30,7 +30,7 @@ fn board_copy_size_uses_outline_extents_when_present() -> T {
 
 #[test]
 fn panel_layout_from_grid_places_copy_origins_on_a_hand_grid() -> T {
-    let board = Board::default();
+    let board = Project::default().board;
     let grid = PanelGrid {
         columns: 2,
         rows: 1,
@@ -48,7 +48,7 @@ fn panel_layout_from_grid_places_copy_origins_on_a_hand_grid() -> T {
 
 #[test]
 fn panel_layout_with_settings_requires_valid_fields() -> T {
-    let board = Board::default();
+    let board = Project::default().board;
     let mut settings = PanelSettings::default();
     settings.enabled = true;
     settings.columns = 1;
@@ -64,7 +64,7 @@ fn panel_layout_with_settings_requires_valid_fields() -> T {
 
 #[test]
 fn panel_layout_from_grid_rejects_zero_columns() {
-    let board = Board::default();
+    let board = Project::default().board;
     let grid = PanelGrid {
         columns: 0,
         rows: 1,

@@ -53,6 +53,7 @@ fn project_parameter_helpers_round_trip_bindings() -> T {
         from_layer: None,
         to_layer: None,
         covering: None,
+        covering_bottom: None,
     });
     p.bindings.push(Binding {
         object: 10,
