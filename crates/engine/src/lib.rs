@@ -2867,6 +2867,17 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
         .collect()
 }
 
+fn vendor_handoff_commands() -> impl Iterator<Item = CommandSpec> {
+    #[cfg(feature = "vendor-handoff")]
+    {
+        vendor_handoff::commands()
+    }
+    #[cfg(not(feature = "vendor-handoff"))]
+    {
+        [].into_iter()
+    }
+}
+
 #[derive(Clone)]
 pub struct Session {
     pub project: Project,
