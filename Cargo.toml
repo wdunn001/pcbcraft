@@ -20,6 +20,7 @@ pcbcraft-assistant = { path = "crates/assistant" }
 pcbcraft-ui-egui = { path = "crates/ui-egui" }
 pcbcraft-library = { path = "crates/library" }
 pcbcraft-text = { path = "crates/text" }
+pcbcraft-datasheet = { path = "crates/datasheet" }
 pcbcraft-sim = { path = "crates/sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
