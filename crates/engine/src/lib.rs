@@ -35927,33 +35927,6 @@ mod tests {
             json!({"name": "LM358", "pin": pin("9", "NC", 5.08)}),
             None,
         )?;
-        eprintln!(
-            "dbg start={start} nums={:?}",
-            s.project.library.symbols[0]
-                .pins
-                .iter()
-                .map(|q| q.number.clone())
-                .collect::<Vec<_>>()
-        );
-        eprintln!("dbg added={added:?}");
-        eprintln!(
-            "dbg post nums={:?}",
-            s.project.library.symbols[0]
-                .pins
-                .iter()
-                .map(|q| (q.number.clone(), q.name.clone(), q.unit, q.body_style))
-                .collect::<Vec<_>>()
-        );
-        eprintln!(
-            "dbg symbols={} names={:?}",
-            s.project.library.symbols.len(),
-            s.project
-                .library
-                .symbols
-                .iter()
-                .map(|q| (q.name.clone(), q.pins.len()))
-                .collect::<Vec<_>>()
-        );
         assert_eq!(added["result"]["added"], json!(true));
         assert_eq!(added["result"]["pins"], json!(start + 1));
         assert_eq!(pin_name(&s, "9").as_deref(), Some("NC"));
