@@ -10,14 +10,6 @@ pub(crate) enum EdgeSegment {
     Arc { from: Point, to: Point, arc: Arc },
 }
 
-impl EdgeSegment {
-    fn from(&self) -> Point {
-        match self {
-            Self::Line { from, .. } | Self::Arc { from, .. } => *from,
-        }
-    }
-}
-
 pub(crate) fn rectangle_points(p: &Project) -> Vec<Point> {
     vec![
         Point::new(0.0, 0.0),
@@ -242,11 +234,13 @@ pub enum DxfOutlineSource {
     Chained,
 }
 
+type DxfOutlineImport = (DxfOutlineSource, Vec<Point>, Vec<Option<Point>>);
+
 /// Closed board outline from DXF entities on the Edge layer: a closed polyline
 /// or a single loop of lines and arcs.
 pub fn dxf_import_outline(
     entities: &[super::DxfEntity],
-) -> Result<Option<(DxfOutlineSource, Vec<Point>, Vec<Option<Point>>)>, String> {
+) -> Result<Option<DxfOutlineImport>, String> {
     let candidate = |e: &super::DxfEntity| {
         matches!(
             &e.shape,
