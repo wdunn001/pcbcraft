@@ -89,10 +89,8 @@ impl Default for Limits {
 /// # Dependencies
 /// - crates/library/src/sexpr.rs none outside this file
 ///
-/// # Do not
-/// - Expose this type publicly; it is an internal parser result.
 #[derive(Clone, Debug)]
-pub(crate) struct Node {
+pub struct Node {
     /// Atom text, or None for lists.
     pub atom: Option<String>,
     /// Child nodes for lists; empty for atoms.
@@ -176,7 +174,7 @@ impl Node {
 ///
 /// # Do not
 /// - Allow multiple top-level expressions; that is a KiCad format error.
-pub(crate) fn parse(text: &str) -> Result<Node, Error> {
+pub fn parse(text: &str) -> Result<Node, Error> {
     parse_limits(text, Limits::default())
 }
 
@@ -192,7 +190,7 @@ pub(crate) fn parse(text: &str) -> Result<Node, Error> {
 ///
 /// # Do not
 /// - Silently truncate input; always error on limit violations.
-pub(crate) fn parse_limits(text: &str, limits: Limits) -> Result<Node, Error> {
+pub fn parse_limits(text: &str, limits: Limits) -> Result<Node, Error> {
     if text.len() > limits.bytes {
         return Err(Error::Limit("source byte limit"));
     }
@@ -329,6 +327,16 @@ impl Parser<'_> {
     }
 }
 
+/// Line number (1-based) for a byte offset in interchange text.
+pub fn line_number_at_offset(text: &str, offset: usize) -> u32 {
+    let capped = offset.min(text.len());
+    (text.as_bytes()[..capped]
+        .iter()
+        .filter(|b| **b == b'\n')
+        .count() as u32)
+        .saturating_add(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -392,6 +400,30 @@ mod tests {
         assert_eq!(tree.value(1), "µΩ\"\n");
         for input in ["(\"unterminated)", "(\"escape\\", "(a) (b)", ")"] {
             assert!(parse(input).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn field_reads_named_kicad_properties() -> Result<(), Error> {
+        let fp = parse(
+            "(footprint \"R_0805\" (layer \"F.Cu\") (descr \"0805 resistor\") (tags \"R\"))",
+        )?;
+        if fp.field("layer") != "F.Cu" {
+            return Err(Error::Invalid("layer field mismatch".into()));
+        }
+        if fp.field("descr") != "0805 resistor" {
+            return Err(Error::Invalid("descr field mismatch".into()));
+        }
+        if fp.field("tags") != "R" {
+            return Err(Error::Invalid("tags field mismatch".into()));
+        }
+        if !fp.field("missing").is_empty() {
+            return Err(Error::Invalid("missing field must be empty".into()));
+        }
+        let prop = parse("(property \"Reference\" \"R\")")?;
+        if prop.field("Reference") != "R" {
+            return Err(Error::Invalid("Reference property mismatch".into()));
         }
         Ok(())
     }
