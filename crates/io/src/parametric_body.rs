@@ -8,6 +8,7 @@ use serde_json::Value;
 
 const EPS: f64 = 1e-9;
 const POST_HEIGHT: f64 = 6.0;
+const DECAL_MIN_AREA: f64 = 14.0;
 
 /// One extruded solid in footprint-local coordinates.
 #[derive(Clone, Debug)]
@@ -28,6 +29,10 @@ pub(crate) struct ParametricBody {
     pub pins: Vec<Solid>,
     pub pin1_chamfer: Option<Solid>,
     pub polarity: Option<Solid>,
+    /// Solids stacked on the main body top (domes, cans, connector keys).
+    pub extras: Vec<Solid>,
+    /// Value or MPN text embossed on the top face when the part is large enough.
+    pub decal: Option<String>,
 }
 
 impl ParametricBody {
@@ -41,6 +46,8 @@ impl ParametricBody {
             pins: vec![],
             pin1_chamfer: None,
             polarity: None,
+            extras: vec![],
+            decal: None,
         }
     }
 }
@@ -109,8 +116,18 @@ fn parse_family_token(s: &str) -> Option<&'static str> {
         "dip" => Some("dip"),
         "header" | "header_single" | "header_double" => Some("header"),
         "bga" => Some("bga"),
+        "lga" => Some("lga"),
         "axial" => Some("axial"),
-        "radial" => Some("radial"),
+        "radial" | "can" => Some("radial"),
+        "crystal" => Some("crystal"),
+        "connector" => Some("connector"),
+        "switch" => Some("switch"),
+        "testpoint" => Some("testpoint"),
+        "to92" => Some("to92"),
+        "to220" => Some("to220"),
+        "dpak" => Some("dpak"),
+        "terminal" => Some("terminal"),
+        "shield" => Some("shield"),
         _ => None,
     }
 }
@@ -128,6 +145,36 @@ fn family_from_footprint_name(name: &str) -> Option<&'static str> {
     }
     if lower.starts_with("led_") {
         return Some("chip");
+    }
+    if lower.contains("crystal") || lower.contains("xtal") {
+        return Some("crystal");
+    }
+    if lower.contains("usb") || lower.contains("battery") {
+        return Some("connector");
+    }
+    if lower.contains("tact") {
+        return Some("switch");
+    }
+    if lower.contains("test") && lower.contains("pad") {
+        return Some("testpoint");
+    }
+    if lower.contains("electrolytic") || lower.contains("ecap") || lower.starts_with("cp_") {
+        return Some("can");
+    }
+    if lower.contains("to-92") || lower.contains("to92") {
+        return Some("to92");
+    }
+    if lower.contains("to-220") || lower.contains("to220") || lower.contains("to-247") {
+        return Some("to220");
+    }
+    if lower.contains("dpak") || lower.contains("d-pak") || lower.contains("d2pak") {
+        return Some("dpak");
+    }
+    if lower.contains("terminal") || (lower.contains("block") && lower.contains("term")) {
+        return Some("terminal");
+    }
+    if lower.contains("shield") {
+        return Some("shield");
     }
     let key = package_key(name).key;
     if key.is_empty() {
@@ -161,9 +208,18 @@ fn default_height(family: &str, ring: &[Point]) -> f64 {
         "qfn" => 0.8,
         "dip" => 3.3,
         "header" => 2.5,
-        "bga" => 1.0,
+        "bga" | "lga" => 1.0,
         "axial" => 3.0,
-        "radial" => 6.0,
+        "radial" | "can" => 6.0,
+        "crystal" => 0.85,
+        "connector" => 3.0,
+        "switch" => 1.2,
+        "testpoint" => 0.15,
+        "to92" => 4.0,
+        "to220" => 4.5,
+        "dpak" => 2.2,
+        "terminal" => 8.0,
+        "shield" => 2.0,
         _ => 1.0,
     }
 }
@@ -174,7 +230,25 @@ fn finish_body(
     component: Option<&Component>,
 ) -> Option<ParametricBody> {
     let pads: Vec<PadBox> = fp.pads.iter().filter_map(pad_box).collect();
-    body.leads = leads_for_family(body.family, &pads, body.height);
+    let skip_leads = matches!(
+        body.family,
+        "crystal"
+            | "connector"
+            | "switch"
+            | "testpoint"
+            | "can"
+            | "to92"
+            | "to220"
+            | "dpak"
+            | "terminal"
+            | "shield"
+    );
+    if !skip_leads {
+        body.leads = leads_for_family(body.family, &pads, body.height);
+    }
+    if body.family == "bga" {
+        body.standoff = body.leads.iter().map(|l| l.z1).fold(0.0, f64::max);
+    }
     if body.family == "header" && body.pins.is_empty() {
         body.pins = pads
             .iter()
@@ -185,13 +259,31 @@ fn finish_body(
             })
             .collect();
     }
-    if let Some(pin1) = pin1_location(fp, &pads) {
+    let chamfer_family = !matches!(
+        body.family,
+        "crystal"
+            | "connector"
+            | "switch"
+            | "testpoint"
+            | "can"
+            | "to92"
+            | "to220"
+            | "dpak"
+            | "terminal"
+            | "shield"
+            | "bga"
+            | "lga"
+    );
+    if chamfer_family
+        && let Some(pin1) = pin1_location(fp, &pads)
+    {
         body.pin1_chamfer = pin1_chamfer_solid(&body.ring, pin1, body.height);
         body.ring = chamfer_ring_corner(&body.ring, pin1);
     }
     if body.family == "chip" && pads.len() == 2 {
         body.polarity = polarity_mark(&pads, component, body.height);
     }
+    attach_decal(component, &mut body);
     Some(body)
 }
 
@@ -288,6 +380,20 @@ fn leads_for_family(family: &str, pads: &[PadBox], body_height: f64) -> Vec<Soli
         "bga" => 0.05,
         _ => (body_height * 0.25).max(0.1),
     };
+    if family == "bga" {
+        return pads
+            .iter()
+            .filter(|p| !thermal_pad(p, pads))
+            .map(|p| {
+                let r = (p.width().min(p.height()) * 0.45).clamp(0.12, 0.45);
+                Solid {
+                    ring: circle_ring(p.centre, r),
+                    z0: 0.0,
+                    z1: (r * 0.55).max(0.08),
+                }
+            })
+            .collect();
+    }
     pads
         .iter()
         .filter(|p| !thermal_pad(p, pads))
@@ -422,6 +528,295 @@ fn chip_height(length: f64) -> f64 {
     }
 }
 
+fn footprint_name(component: Option<&Component>) -> String {
+    component
+        .and_then(|c| c.library_footprint.as_ref())
+        .map(|l| l.definition.name.to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+fn ring_area(ring: &[Point]) -> f64 {
+    let mut area = 0.0;
+    for w in ring.windows(2) {
+        area += w[0].x * w[1].y - w[1].x * w[0].y;
+    }
+    if ring.len() >= 3 {
+        let a = ring[ring.len() - 1];
+        let b = ring[0];
+        area += a.x * b.y - b.x * a.y;
+    }
+    area.abs() * 0.5
+}
+
+fn push_extra(body: &mut ParametricBody, ring: Vec<Point>, rise: f64) {
+    if rise > EPS {
+        body.extras.push(Solid {
+            ring,
+            z0: body.height,
+            z1: body.height + rise,
+        });
+    }
+}
+
+fn decal_text(component: Option<&Component>) -> Option<String> {
+    let c = component?;
+    let raw = c
+        .field("mpn")
+        .or_else(|| c.field("value"))
+        .unwrap_or(c.value.as_str())
+        .trim();
+    if raw.is_empty() || raw.len() > 24 {
+        return None;
+    }
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ' ') || ch == '-' {
+            out.push(ch.to_ascii_uppercase());
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+fn attach_decal(component: Option<&Component>, body: &mut ParametricBody) {
+    if ring_area(&body.ring) < DECAL_MIN_AREA {
+        return;
+    }
+    body.decal = decal_text(component);
+}
+
+fn crystal_body(pads: &[PadBox], lo: Point, hi: Point) -> ParametricBody {
+    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+    let w = (hi.x - lo.x).max(1.8);
+    let h = (hi.y - lo.y).max(1.4);
+    let mut body = ParametricBody::plain("crystal", rect_ring(cx, cy, w * 0.92, h * 0.92), 0.85);
+    push_extra(
+        &mut body,
+        circle_ring(Point::new(cx, cy), w.min(h) * 0.22),
+        0.35,
+    );
+    let _ = pads;
+    body
+}
+
+fn connector_receptacle_body(lo: Point, hi: Point) -> ParametricBody {
+    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+    let w = (hi.x - lo.x).max(4.0);
+    let h = (hi.y - lo.y).max(3.0);
+    let mut body = ParametricBody::plain(
+        "connector",
+        rect_ring(cx, cy, w * 0.88, h * 0.75),
+        3.0,
+    );
+    push_extra(
+        &mut body,
+        rect_ring(cx + w * 0.32, cy - h * 0.28, w * 0.12, h * 0.22),
+        body.height * 0.55,
+    );
+    body
+}
+
+fn tact_switch_body(pads: &[PadBox], lo: Point, hi: Point) -> ParametricBody {
+    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+    let w = (hi.x - lo.x).max(3.5);
+    let h = (hi.y - lo.y).max(2.8);
+    let mut body = ParametricBody::plain("switch", rect_ring(cx, cy, w * 0.82, h * 0.82), 1.2);
+    let dome_r = pads
+        .iter()
+        .map(|p| p.width().max(p.height()))
+        .fold(0.0_f64, f64::max)
+        * 0.35;
+    push_extra(
+        &mut body,
+        circle_ring(Point::new(cx, cy), dome_r.max(0.8)),
+        0.9,
+    );
+    body
+}
+
+fn test_point_body(pad: &PadBox) -> ParametricBody {
+    let r = (pad.width().max(pad.height()) * 0.55).max(0.45);
+    ParametricBody::plain("testpoint", circle_ring(pad.centre, r), 0.15)
+}
+
+fn electrolytic_can_body(pads: &[PadBox], lo: Point, hi: Point, height: f64) -> ParametricBody {
+    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+    let d = pads
+        .iter()
+        .map(|p| p.width().max(p.height()))
+        .fold(0.0_f64, f64::max)
+        .max(hi.x - lo.x + 1.0);
+    let mut body = ParametricBody::plain("can", circle_ring(Point::new(cx, cy), d / 2.0), height);
+    push_extra(
+        &mut body,
+        circle_ring(Point::new(cx - d * 0.12, cy - d * 0.12), d * 0.08),
+        0.05,
+    );
+    body
+}
+
+fn to92_body(pads: &[PadBox], lo: Point, hi: Point) -> ParametricBody {
+    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+    let w = (hi.x - lo.x + 1.6).max(3.5);
+    let h = (hi.y - lo.y + 2.0).max(4.0);
+    let mut body = ParametricBody::plain(
+        "to92",
+        circle_ring(Point::new(cx, cy - 0.4), w / 2.2),
+        4.0,
+    );
+    push_extra(
+        &mut body,
+        rect_ring(cx, cy + h * 0.15, w * 0.55, h * 0.35),
+        0.0,
+    );
+    let _ = pads;
+    body
+}
+
+fn to220_body(pads: &[PadBox], lo: Point, hi: Point) -> ParametricBody {
+    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+    let w = (hi.x - lo.x + 2.0).max(8.0);
+    let mut body = ParametricBody::plain("to220", rect_ring(cx, cy, w, 10.0), 4.5);
+    if let Some(p) = pads.iter().max_by(|a, b| {
+        (a.width() * a.height())
+            .total_cmp(&(b.width() * b.height()))
+    }) {
+        push_extra(
+            &mut body,
+            rect_ring(p.centre.x, p.centre.y, p.width() * 1.1, p.height() * 1.4),
+            0.0,
+        );
+    }
+    body
+}
+
+fn dpak_body(lo: Point, hi: Point) -> ParametricBody {
+    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+    let w = (hi.x - lo.x + 1.0).max(5.0);
+    ParametricBody::plain("dpak", rect_ring(cx, cy, w, 6.2), 2.2)
+}
+
+fn terminal_block_body(pads: &[PadBox], lo: Point, hi: Point, pitch: f64) -> ParametricBody {
+    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+    let w = (hi.x - lo.x + pitch).max(5.0);
+    let h = (hi.y - lo.y + 2.0).max(6.0);
+    let mut body = ParametricBody::plain("terminal", rect_ring(cx, cy, w, h), 8.0);
+    for p in pads {
+        body.pins.push(Solid {
+            ring: rect_ring(p.centre.x, p.centre.y - h * 0.35, p.width() * 0.9, 1.2),
+            z0: body.height * 0.2,
+            z1: body.height,
+        });
+    }
+    body
+}
+
+fn shield_can_body(lo: Point, hi: Point) -> ParametricBody {
+    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+    let w = (hi.x - lo.x + 1.0).max(6.0);
+    let h = (hi.y - lo.y + 1.0).max(6.0);
+    ParametricBody::plain("shield", rect_ring(cx, cy, w, h), 2.0)
+}
+
+fn body_from_name(
+    name: &str,
+    pads: &[PadBox],
+    lo: Point,
+    hi: Point,
+    n: usize,
+) -> Option<ParametricBody> {
+    if name.contains("crystal") || name.contains("xtal") {
+        return (n == 4).then(|| crystal_body(pads, lo, hi));
+    }
+    if name.contains("usb") {
+        return Some(connector_receptacle_body(lo, hi));
+    }
+    if name.contains("tact") || (name.contains("switch") && n <= 4) {
+        return (n == 2).then(|| tact_switch_body(pads, lo, hi));
+    }
+    if (name.contains("test") && name.contains("pad")) || name == "test_pad" {
+        return pads.first().map(test_point_body);
+    }
+    if name.contains("electrolytic") || name.contains("ecap") || name.starts_with("cp_") {
+        return (n == 2).then(|| electrolytic_can_body(pads, lo, hi, 8.0));
+    }
+    if name.contains("to-92") || name.contains("to92") {
+        return (n == 3).then(|| to92_body(pads, lo, hi));
+    }
+    if name.contains("to-220") || name.contains("to220") || name.contains("to-247") {
+        return (n >= 3).then(|| to220_body(pads, lo, hi));
+    }
+    if name.contains("dpak") || name.contains("d-pak") || name.contains("d2pak") {
+        return Some(dpak_body(lo, hi));
+    }
+    if name.contains("terminal") || (name.contains("block") && name.contains("term")) {
+        let pitch =
+            smallest_gap(&pads.iter().map(|p| p.centre.x).collect::<Vec<_>>()).unwrap_or(5.0);
+        return Some(terminal_block_body(pads, lo, hi, pitch));
+    }
+    if name.contains("shield") {
+        return Some(shield_can_body(lo, hi));
+    }
+    if name.contains("battery") {
+        return (n == 2).then(|| connector_receptacle_body(lo, hi));
+    }
+    None
+}
+
+fn body_from_pattern(
+    pads: &[PadBox],
+    xc: &[f64],
+    yc: &[f64],
+    n: usize,
+    lo: Point,
+    hi: Point,
+    through: bool,
+) -> Option<ParametricBody> {
+    if n == 1 {
+        return pads.first().map(test_point_body);
+    }
+    if !through && n == 4 && xc.len() == 2 && yc.len() == 2 {
+        let corner = pads
+            .iter()
+            .filter(|p| {
+                let near_x = (p.centre.x - lo.x).abs() < 0.2 || (p.centre.x - hi.x).abs() < 0.2;
+                let near_y = (p.centre.y - lo.y).abs() < 0.2 || (p.centre.y - hi.y).abs() < 0.2;
+                near_x && near_y
+            })
+            .count();
+        if corner == 4 {
+            return Some(crystal_body(pads, lo, hi));
+        }
+    }
+    if !through && n == 2 {
+        let (a, b) = (&pads[0], &pads[1]);
+        if a.width().max(a.height()) >= 1.2 && b.width().max(b.height()) >= 1.2 {
+            let span = a.centre.distance(b.centre);
+            if span >= 3.5 {
+                return Some(tact_switch_body(pads, lo, hi));
+            }
+        }
+    }
+    if through && n == 3 {
+        return Some(to92_body(pads, lo, hi));
+    }
+    if through && (3..=4).contains(&n) {
+        let large = pads.iter().filter(|p| p.width() * p.height() > 2.5).count();
+        if large >= 2 {
+            return Some(to220_body(pads, lo, hi));
+        }
+    }
+    if !through && (5..=8).contains(&n) {
+        let large = pads
+            .iter()
+            .filter(|p| p.width() * p.height() >= 2.0 * pads[0].width() * pads[0].height())
+            .count();
+        if large >= 1 {
+            return Some(dpak_body(lo, hi));
+        }
+    }
+    None
+}
+
 fn header_hint(component: Option<&Component>) -> bool {
     let Some(c) = component else {
         return false;
@@ -479,8 +874,15 @@ fn infer_from_pads(fp: &Footprint, component: Option<&Component>) -> Option<Para
     let xc = clusters(&mut xs, 0.1);
     let yc = clusters(&mut ys, 0.1);
 
+    let name = footprint_name(component);
+    if let Some(body) = body_from_name(&name, &pads, lo, hi, n) {
+        return Some(body);
+    }
+
     if through {
-        return through_body(component, &pads, &xc, &yc).or_else(generic);
+        return through_body(component, &pads, &xc, &yc)
+            .or_else(|| body_from_pattern(&pads, &xc, &yc, n, lo, hi, true))
+            .or_else(generic);
     }
     if n == 2 {
         let (a, b) = (&pads[0], &pads[1]);
@@ -531,7 +933,7 @@ fn infer_from_pads(fp: &Footprint, component: Option<&Component>) -> Option<Para
             })
             .count();
         let round = pads.iter().filter(|p| p.round).count() * 2 >= n;
-        if round && interior * 4 >= n {
+        if interior * 4 >= n {
             let pitch = smallest_gap(&xc)
                 .into_iter()
                 .chain(smallest_gap(&yc))
@@ -542,7 +944,7 @@ fn infer_from_pads(fp: &Footprint, component: Option<&Component>) -> Option<Para
                 1.0
             };
             return Some(ParametricBody::plain(
-                "bga",
+                if round { "bga" } else { "lga" },
                 rect_ring(
                     (lo_x + hi_x) / 2.0,
                     (lo_y + hi_y) / 2.0,
@@ -624,6 +1026,9 @@ fn infer_from_pads(fp: &Footprint, component: Option<&Component>) -> Option<Para
             ));
         }
     }
+    if let Some(body) = body_from_pattern(&pads, &xc, &yc, n, lo, hi, false) {
+        return Some(body);
+    }
     Some(generic())
 }
 
@@ -659,11 +1064,17 @@ fn through_body(
             ];
             return Some(ParametricBody::plain("axial", ring, diameter));
         }
+        let corners: Vec<Point> = pads.iter().flat_map(|p| [p.lo, p.hi]).collect();
+        let (lo, hi) = ring_bounds(&corners);
         let diameter = (2.0 * c).max(4.0);
+        let height = 6.0 + 0.7 * diameter;
+        if height >= 7.5 && c >= 4.5 {
+            return Some(electrolytic_can_body(pads, lo, hi, height));
+        }
         return Some(ParametricBody::plain(
             "radial",
             circle_ring(mid, diameter / 2.0),
-            6.0 + 0.7 * diameter,
+            height,
         ));
     }
     let single_row = xc.len() == 1 || yc.len() == 1;
@@ -741,6 +1152,8 @@ fn through_body(
             pins,
             pin1_chamfer: None,
             polarity: None,
+            extras: vec![],
+            decal: None,
         });
     }
     None
@@ -768,6 +1181,7 @@ pub(crate) fn local_bounds(body: &ParametricBody) -> (Point, Point, f64, f64) {
         .chain(&body.pins)
         .chain(&body.pin1_chamfer)
         .chain(&body.polarity)
+        .chain(&body.extras)
     {
         eat(&s.ring, s.z0, s.z1);
     }
@@ -796,6 +1210,7 @@ pub(crate) fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -
 mod tests {
     use super::*;
     use crate::board_mesh::{board_mesh, MeshLayers, PartKind};
+    use std::path::Path;
     use pcbcraft_doc::{Component, Footprint, Pad, Project};
     use pcbcraft_library::{
         FootprintDefinition, FootprintPad, LandPatternDensity, LandPatternParams,
@@ -985,6 +1400,32 @@ mod tests {
     }
 
     #[test]
+    fn showcase_board_footprints_skip_generic_parametric_bodies() -> Result<(), String> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/showcase.pcbcraft");
+        let project = crate::load(&path)?;
+        let layers = MeshLayers {
+            board: false,
+            copper: false,
+            mask: false,
+            silk: false,
+            bodies: true,
+            ..MeshLayers::default()
+        };
+        let mesh = board_mesh(&project, layers)?;
+        let generic: Vec<String> = mesh
+            .parts
+            .iter()
+            .filter(|part| part.kind == PartKind::Body && part.family.as_deref() == Some("generic"))
+            .map(|part| part.name.clone())
+            .collect();
+        assert!(
+            generic.is_empty(),
+            "showcase still uses generic boxes for {generic:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn package_families_come_from_pad_patterns() -> Result<(), String> {
         let chip = body_of(vec![
             pad_at("1", -0.9, 0.0, 1.025, 1.4, "roundrect"),
@@ -1031,6 +1472,22 @@ mod tests {
         )?;
         assert_eq!(header.family, "header");
         assert_eq!(header.pins.len(), 4);
+        let mut bga = vec![];
+        for i in 0..5 {
+            for j in 0..5 {
+                bga.push(pad_at(
+                    "1",
+                    -2.0 + i as f64,
+                    -2.0 + j as f64,
+                    0.5,
+                    0.5,
+                    "circle",
+                ));
+            }
+        }
+        let bga = body_of(bga)?;
+        assert_eq!(bga.family, "bga");
+        assert_eq!(bga.leads.len(), 25);
         Ok(())
     }
 
