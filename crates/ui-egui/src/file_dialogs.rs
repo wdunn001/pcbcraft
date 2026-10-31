@@ -23,7 +23,7 @@
 use crate::App;
 use crate::bom_export;
 use pcbcraft_doc::{BOM_EXCLUDE_FIELD, Id, Project};
-use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope};
+use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope, bom_flavour};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -123,7 +123,7 @@ pub(crate) struct DialogState {
 /// through File and Export to show the submenu.
 #[derive(Default)]
 pub(crate) struct CaptureScript {
-    /// The scene asked for: `file-export`, `export-dialog` or `export-flavour`.
+/// The scene asked for: `file-export`, `export-dialog` or `export-flavour`.
     pub show: Option<String>,
     /// Where the menu buttons were drawn last frame.
     pub rects: BTreeMap<&'static str, egui::Pos2>,
@@ -146,7 +146,19 @@ fn spec(id: &str) -> Option<&'static FormatSpec> {
 /// The option values a format starts with.
 fn defaults(project: &Project, f: &FormatSpec) -> BTreeMap<String, String> {
     if f.id == "bom" {
-        return bom_export::default_values(project, formats::default_bom_flavour());
+return bom_export::default_values(project, &formats::BOM_FLAVOURS[0]);
+    }
+    let mut out = BTreeMap::new();
+    for o in f.options {
+        let value = match o.kind {
+            OptionKind::Bool { default } => default.to_string(),
+            OptionKind::Choice { choices, default } => choices
+                .get(default)
+                .map(|(v, _)| (*v).to_owned())
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
+        out.insert(o.label.to_owned(), value);
     }
     let mut out = BTreeMap::new();
     for o in f.options {
@@ -617,7 +629,9 @@ impl App {
         }
         let o = bom_export::Options::from_values(
             &self.project,
+&bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]),
             &bom_export::default_values(&self.project, formats::default_bom_flavour()),
+            &[],
             &[],
         );
         let n = bom_export::table(&self.project, &o).map_or(0, |t| t.rows.len());
@@ -684,13 +698,28 @@ impl App {
         if !self.edit.dialog.preview_open {
             return;
         }
-        let values = bom_export::default_values(&self.project, formats::default_bom_flavour());
+let values = bom_export::default_values(&self.project, formats::default_bom_flavour());
         let o = bom_export::Options::from_values(&self.project, &values, &[]);
         let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
             headers: vec![],
             rows: vec![],
             header: true,
             missing: vec![],
+        });
+        let mut open = true;
+        let mut export = false;
+        let o = bom_export::Options::from_values(&self.project, &values, &[]);
+        let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
+            headers: vec![],
+            rows: vec![],
+let values = bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
+        let o = bom_export::Options::from_values(&self.project, &values, &[]);
+        let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
+            headers: vec![],
+            rows: vec![],
+            header: true,
+            missing: vec![],
+        });
         });
         let mut open = true;
         let mut export = false;
@@ -860,7 +889,7 @@ fn detail(
         ui.add_space(8.0);
         let o = bom_export::Options::from_values(project, &d.values, &d.only);
         match bom_export::table(project, &o) {
-            Ok(table) => {
+Ok(table) => {
                 bom_needs_ui(ui, &table, &o);
                 preview_grid_limited(ui, &table);
             }
@@ -887,8 +916,6 @@ fn detail(
     }
 }
 
-/// Say, before anything is written, which parts lack a field the flavour needs and
-/// which site limits the list exceeds.
 fn bom_needs_ui(ui: &mut egui::Ui, table: &bom_export::Table, o: &bom_export::Options) {
     for m in &table.missing {
         let shown: Vec<&str> = m.references.iter().take(12).map(String::as_str).collect();
@@ -921,6 +948,16 @@ fn preview_grid_limited(ui: &mut egui::Ui, table: &bom_export::Table) {
         rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
         header: table.header,
         missing: vec![],
+    };
+    ui.label(format!(
+fn preview_grid_limited(ui: &mut egui::Ui, table: &bom_export::Table) {
+    ui.label(egui::RichText::new("Preview").strong());
+    let shown = bom_export::Table {
+        headers: table.headers.clone(),
+        rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
+header: table.header,
+        missing: vec![],
+        rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
     };
     ui.label(format!(
         "First {} of {} rows",
@@ -985,7 +1022,7 @@ fn option_row(
         }
         OptionKind::Flavour => {
             let current = bom_export::flavour_of(&d.values);
-            ui.horizontal(|ui| {
+ui.horizontal_wrapped(|ui| {
                 ui.label(o.label);
                 egui::ComboBox::from_id_salt("bom_flavour")
                     .selected_text(&current.label)
@@ -1071,8 +1108,9 @@ fn option_row(
                         changed = true;
                     }
                 };
-                for column in &flavour.columns {
-                    toggle(ui, column.token.clone(), column.header.clone());
+for (token, header) in flavour.columns {
+                    toggle(ui, token.to_owned(), header.to_owned());
+                }
                 }
                 for field in &project.bom_fields {
                     let label = if field.label.is_empty() {
@@ -1091,15 +1129,6 @@ fn option_row(
     let _ = f;
 }
 
-/// The option values a fresh bill of the given flavour starts with.
-#[cfg(test)]
-pub(crate) fn bom_default_values(
-    project: &Project,
-    flavour: &pcbcraft_io::formats::BomFlavour,
-) -> BTreeMap<String, String> {
-    bom_export::default_values(project, flavour)
-}
-
 impl App {
     /// Capture option: stage a scene for the screenshot (`file-export`, `export-dialog`, `export-flavour`).
     pub fn with_capture_show(mut self, scene: Option<String>) -> Self {
@@ -1113,6 +1142,17 @@ impl App {
             Some("file-export") => {
                 let mut values =
                     bom_export::default_values(&self.project, formats::default_bom_flavour());
+    pub fn with_capture_show(mut self, scene: Option<String>) -> Self {
+        self.edit.dialog.script.show = scene;
+        self
+    }
+
+    /// Frame 3 of a `--show` capture: seed a Recent export or open the dialog.
+    pub(crate) fn capture_scene(&mut self) {
+        match self.edit.dialog.script.show.clone().as_deref() {
+            Some("file-export") => {
+                let mut values =
+bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
                 values.insert(bom_export::FILE_TYPE.into(), "tsv".into());
                 values.insert(bom_export::GROUP.into(), "false".into());
                 let summary = bom_export::summary(&self.project, &values);
@@ -1126,7 +1166,7 @@ impl App {
                 );
             }
             Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
-            Some("export-flavour") => {
+Some("export-flavour") => {
                 self.open_dialog(Mode::Export, Some("bom"), None, vec![]);
                 if let Some(flavour) = formats::bom_flavour("asm_proto_a") {
                     self.edit.dialog.values = bom_export::default_values(&self.project, flavour);
