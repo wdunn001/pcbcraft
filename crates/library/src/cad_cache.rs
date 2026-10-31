@@ -19,13 +19,10 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-<<<<<<< HEAD
 use std::sync::Mutex;
-=======
 #[cfg(target_arch = "wasm32")]
 use web_time::{SystemTime, UNIX_EPOCH};
 #[cfg(not(target_arch = "wasm32"))]
->>>>>>> df904ce8 (fix wasm32-unknown-unknown build with web-time dependency)
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Largest single file the cache stores: 8 MiB.
@@ -609,17 +606,11 @@ fn stored_files(dir: &Path) -> Vec<StoredFile> {
 }
 
 fn touch(path: &Path) {
-<<<<<<< HEAD
-    if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
-let now = UNIX_EPOCH + std::time::Duration::from_secs(pcbcraft_clock::unix_secs());
-        let _ = f.set_modified(now);
-=======
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
             let _ = f.set_modified(SystemTime::now());
         }
->>>>>>> df904ce8 (fix wasm32-unknown-unknown build with web-time dependency)
     }
 }
 
