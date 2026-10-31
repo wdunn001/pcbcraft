@@ -764,7 +764,7 @@ impl App {
     /// design has no path yet) and say where it went.
     pub(crate) fn assistant_export(&mut self) {
         let name = self.project.name.clone();
-        let now = pcbcraft_clock::unix_secs();
+let now = pcbcraft_clock::unix_secs();
         let markdown =
             pcbcraft_assistant::export_markdown(&self.assistant.transcript.items, &name, now);
         let folder = std::path::Path::new(&self.path)

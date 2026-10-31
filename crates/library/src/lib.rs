@@ -57,6 +57,19 @@ mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
+pub mod element14;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+pub mod source_errors;
+pub mod source_hosts;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
+pub mod sources;
+mod symbol_check;
+mod validation;
+mod wall_clock;
 pub use footprint_check::{
     FindingSeverity, FootprintFinding, check_footprint, courtyard_half_extents,
 };
@@ -67,6 +80,19 @@ pub use part_validation::{
 pub use pin_pad_map::{
     PadRole, PinPadFinding, PinPadMap, PinPadRow, auto_fill, footprint_pad_labels, pad_label,
     validate_pin_pad_map,
+};
+pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use datasheet::{
+    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
+    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
+    MAX_REDIRECTS, MAX_URL_BYTES,
+};
+pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+use pcbcraft_geom::Point;
+pub use reader::{read_footprint, read_specctra_session, read_symbols};
+use serde::{Deserialize, Serialize};
+pub use sexpr::{Error, Limits};
+pub use symbol_check::check_symbol;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use datasheet::{
     DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,

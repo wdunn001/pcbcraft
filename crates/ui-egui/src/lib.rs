@@ -142,6 +142,7 @@ mod tour;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
+mod wall_clock;
 mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};

@@ -39,8 +39,8 @@ const USAGE: &str = "usage: cargo xtask <command>
   fmt          rustfmt check
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
-  bench        timed large-board bench (release, ignored tests)
-  wasm         WebAssembly check of the shared UI and browser entry point
+bench        timed large-board bench (release, ignored tests)
+  wasm         WebAssembly check of the shared UI and browser entry point, wasm clippy, trunk build and browser smoke
   tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
   docs check   documentation standard: paths, trait implementation lists, AGENTS.md, missing-docs ratchet
@@ -287,13 +287,88 @@ fn e2e() -> Result<(), String> {
     ))
 }
 
-/// Checks the wasm packages for the wasm32 target.
+/// True when a program is on PATH.
+fn has_program(name: &str) -> bool {
+    Command::new(name)
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+/// Runs a program in a working directory with extra environment variables.
+fn run_env_in(
+    dir: &Path,
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> Result<(), String> {
+    println!("+ (cd {}) {program} {}", dir.display(), args.join(" "));
+    let mut command = Command::new(program);
+    command.current_dir(dir).args(args);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    if command
+        .status()
+        .map_err(|e| format!("{program} {}: {e}", args.join(" ")))?
+        .success()
+    {
+        Ok(())
+    } else {
+        Err(format!("{program} {} failed", args.join(" ")))
+    }
+}
+
+/// Checks the wasm packages for the wasm32 target, lints them, builds trunk, and smoke-tests the page.
 fn wasm() -> Result<(), String> {
     let mut args = vec!["check", "--locked", "--target", "wasm32-unknown-unknown"];
     for package in WASM_PACKAGES {
         args.extend(["-p", package]);
     }
-    cargo(&args)
+    cargo(&args)?;
+
+    let conf = root()?.join("clippy-wasm");
+    let mut clippy_args = vec![
+        "clippy",
+        "--locked",
+        "--target",
+        "wasm32-unknown-unknown",
+    ];
+    for package in WASM_PACKAGES {
+        clippy_args.extend(["-p", package, "--lib"]);
+    }
+    clippy_args.extend(["--", "-D", "warnings"]);
+    run_env(
+        "cargo",
+        &clippy_args,
+        &[("CLIPPY_CONF_DIR", conf.to_str().ok_or("clippy-wasm path")?)],
+    )?;
+
+    if !has_program("trunk") {
+        return Err("trunk is not installed: see apps/pcbcraft-web and docs/ci.md".into());
+    }
+    let web = root()?.join("apps/pcbcraft-web");
+    run_env_in(
+        &web,
+        "trunk",
+        &["build", "--release", "--public-url", "./"],
+        &[],
+    )?;
+
+    if !has_program("node") {
+        return Err("node is not installed".into());
+    }
+    if !web.join("node_modules/playwright").is_dir() {
+        run_env_in(&web, "npm", &["ci", "--no-audit", "--no-fund"], &[])?;
+        run_env_in(
+            &web,
+            "npx",
+            &["playwright", "install", "chromium"],
+            &[],
+        )?;
+    }
+    run_env_in(&web, "node", &["scripts/smoke-first-frame.mjs"], &[])?;
+    Ok(())
 }
 
 /// Builds rustdoc with warnings denied. The documentation standard check is `doc_check::run`.
