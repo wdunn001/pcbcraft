@@ -13,7 +13,8 @@ use super::*;
 use egui::{Pos2, Sense};
 #[cfg(test)]
 use pcbcraft_io::PartKind;
-use pcbcraft_io::{BoardMesh, MeshLayers, ModelStatus};
+use pcbcraft_io::{BoardMesh, MeshLayers, ModelStatus, board_mesh_with_dir};
+use std::path::Path;
 
 mod model_cache;
 mod raster;
@@ -102,6 +103,15 @@ struct FrameKey {
     mask: [u8; 3],
     silk: [u8; 3],
 }
+impl View3d {
+    /// Forget a cached companion CAD model so the next refresh reloads it.
+    pub(crate) fn invalidate_model_path(&mut self, path: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.models.invalidate_path(path);
+        let _ = path;
+    }
+}
+
 impl Default for View3d {
     fn default() -> Self {
         Self {
@@ -331,14 +341,21 @@ impl View3d {
     }
     /// Rebuild the mesh when the design changed or a model file finished
     /// loading. Model files are only asked for here, never waited on.
-    fn refresh(&mut self, project: &Project, revision: u64) {
+    fn refresh(&mut self, env: &Env<'_>) {
+        let project = env.project;
+        let revision = env.revision;
         let generation = self.models.generation();
         let same_design = self.mesh.as_ref().is_some_and(|(r, _)| *r == revision);
         if same_design && self.model_gen == generation {
+            if let Some(message) = env.message {
+                for line in self.models.drain_failure_messages() {
+                    *message = line;
+                }
+            }
             return;
         }
         let had_mesh = self.mesh.is_some();
-        match pcbcraft_io::board_mesh(project, MeshLayers::default()) {
+        match board_mesh_with_dir(project, MeshLayers::default(), env.design_dir) {
             Ok(mut mesh) => {
                 self.error = None;
                 self.model_gen = generation;
@@ -346,6 +363,11 @@ impl View3d {
                 self.notes = pcbcraft_io::with_models(&mut mesh, |p| models.lookup(p))
                     .into_iter()
                     .collect();
+                if let Some(message) = env.message {
+                    for line in self.models.drain_failure_messages() {
+                        *message = line;
+                    }
+                }
                 self.mesh = Some((revision, mesh));
                 if !same_design && !(self.keep_camera && had_mesh) {
                     self.fit();
@@ -415,6 +437,8 @@ pub(crate) struct Env<'a> {
     pub selected: Option<Id>,
     pub bg: Color32,
     pub muted: Color32,
+    pub design_dir: Option<&'a Path>,
+    pub message: Option<&'a mut String>,
 }
 
 /// A colour the project names in its notes (`mask_colour`, `silk_colour`): a
@@ -531,7 +555,7 @@ fn picture(
 /// Draw the tab. Returns a component the person picked, by click in the
 /// viewport or by choosing a row in the parts list.
 pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Option<Id> {
-    view.refresh(env.project, env.revision);
+    view.refresh(env);
     let mut picked = None;
     // Parts are listed in the Layers tree; here only a model that did not load
     // needs saying, with the reason, so a kept box is never a mystery.

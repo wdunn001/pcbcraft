@@ -51,6 +51,7 @@ mod library_online;
 mod library_quality;
 <<<<<<< ours
 <<<<<<< ours
+<<<<<<< ours
 mod minimap;
 =======
 mod library_workspace;
@@ -95,12 +96,16 @@ mod reference_panel;
 mod route_drag;
 mod library_quality;
 mod minimap;
+=======
+mod model_align;
+>>>>>>> theirs
 mod modifier_ui;
 mod motion;
 mod number_entry;
 mod outline_arcs;
 mod pages;
 mod palette;
+mod pin_matrix;
 mod plot_viewer;
 mod pour_panel;
 mod properties;
@@ -132,6 +137,7 @@ mod wall_clock;
 mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
+<<<<<<< ours
 use pcbcraft_doc::{Id, PanelSeparation, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
@@ -142,6 +148,12 @@ use std::collections::HashMap;
 use targets::TapButton;
 /// Window width in points under which side docks give way to the drawing.
 const NARROW_WINDOW: f32 = 640.0;
+=======
+use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
+use pcbcraft_geom::Point;
+use pcbcraft_mcp::SharedSession;
+use std::collections::BTreeMap;
+>>>>>>> theirs
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
@@ -784,9 +796,15 @@ struct Preferences {
     /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
     #[serde(default)]
     reduced_motion: bool,
+<<<<<<< ours
     /// Minimap look per tab (`layout`, `schematic`): pinned, width, opacity, position.
     #[serde(default)]
     minimap: std::collections::BTreeMap<String, minimap::MapPrefs>,
+=======
+    /// In-app tour progress; the browser build stores this in page storage.
+    #[serde(default)]
+    tour_progress: tour::state::TourProgress,
+>>>>>>> theirs
     /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
     #[serde(default = "default_ui_scale")]
     ui_scale: f32,
@@ -885,7 +903,11 @@ impl Default for Preferences {
 =======
 >>>>>>> theirs
             reduced_motion: motion::os_prefers_reduced_motion(),
+<<<<<<< ours
             minimap: Default::default(),
+=======
+            tour_progress: tour::state::TourProgress::default(),
+>>>>>>> theirs
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
             route_shove: false,
@@ -1182,6 +1204,11 @@ pub struct App {
     catalog: std::sync::Arc<pcbcraft_text::Catalog>,
     /// Embedded in-app tour definitions (#769).
     tours: tour::data::Doc,
+<<<<<<< ours
+=======
+    /// Active tour while steps are shown.
+    tour_playback: Option<tour::state::Playback>,
+>>>>>>> theirs
     recent_designs: Vec<String>,
     /// The Files workspace: page, selection, pictures of recent projects.
     files_home: files_home::State,
@@ -2064,6 +2091,14 @@ impl App {
 >>>>>>> theirs
         app
     }
+    /// The settings folder this window's session was given. Recents, library
+    /// sources and conversations are all read and written below it.
+    ///
+    /// # Do not
+    /// - Read the environment here; the entry point puts the folder in the session.
+    pub(crate) fn user_config(&self) -> pcbcraft_engine::user_config::UserConfig {
+        self.session.config().clone()
+    }
     fn create(
         session: SharedSession,
         preferences: Preferences,
@@ -2091,9 +2126,11 @@ impl App {
             .lock()
             .map(|s| s.project.clone())
             .unwrap_or_default();
+        let config = session.lock().map(|s| s.config.clone()).unwrap_or_default();
         let width = project.board.width;
         let height = project.board.height;
         let library = library::Browser {
+            config: config.clone(),
             editor: authoring::initial_editor(tab, &project),
             ..Default::default()
         };
@@ -2127,10 +2164,19 @@ impl App {
             catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
                 &preferences.language,
             )),
+<<<<<<< ours
             tours: tour::data::embedded_for_shell(),
+=======
+            tours: tour::data::embedded().unwrap_or_default(),
+            tour_playback: None,
+>>>>>>> theirs
             preferences,
+<<<<<<< ours
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             files_home: files_home::State::default(),
+=======
+            recent_designs: pcbcraft_engine::recents::load_recent_paths(&config),
+>>>>>>> theirs
             home_open: false,
             home_path_focus: false,
             tree: layers_tree::TreeView::default(),
@@ -2609,10 +2655,16 @@ impl App {
             self.assistant_save();
         }
         if success && (name == "save" || name == "open") {
+<<<<<<< ours
             pcbcraft_engine::recents::record_recent_path(&self.path);
             self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
             let opened = self.path.clone();
             self.files_note_opened(&opened);
+=======
+            let config = self.user_config();
+            pcbcraft_engine::recents::record_recent_path(&config, &self.path);
+            self.recent_designs = pcbcraft_engine::recents::load_recent_paths(&config);
+>>>>>>> theirs
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
@@ -4237,10 +4289,14 @@ impl App {
                 self.command_index = 0;
             }
 <<<<<<< ours
+<<<<<<< ours
             ui.menu_button(t!("menu.help.tours"), |ui| {
 <<<<<<< ours
 =======
             let tours = ui.menu_button(t!("menu.help.tours"), |ui| {
+>>>>>>> theirs
+=======
+            ui.menu_button(t!("menu.help.tours"), |ui| {
 >>>>>>> theirs
                 for tour in &self.tours.tour {
                     let list_key = tour.list_key();
@@ -4248,6 +4304,7 @@ impl App {
                     let tip_key = format!("{list_key}.tip");
                     ui.button(label)
                         .on_hover_text(pcbcraft_text::lookup(&tip_key, &[]));
+<<<<<<< ours
 =======
                 if self.browser {
                     ui.label(
@@ -4288,6 +4345,12 @@ impl App {
             tours
                 .response
                 .on_hover_text(t!("menu.help.tours.tip"));
+=======
+                }
+            })
+            .response
+            .on_hover_text(t!("menu.help.tours.tip"));
+>>>>>>> theirs
             ui.separator();
             if ui
                 .button(t!("app.about"))
@@ -8072,6 +8135,7 @@ impl App {
             }
             ui.add_space(12.0);
         }
+        self.pin_matrix_section(ui);
     }
     fn capture(&mut self, ctx: &egui::Context) {
         self.frames = self.frames.saturating_add(1);
@@ -8298,6 +8362,7 @@ impl App {
 >>>>>>> theirs
         }
         if matches!(self.tool, Tool::DrawLayer) {
+<<<<<<< ours
             use draw_target::Target;
             let on_user = matches!(self.current_target(), Target::User(_));
             let layer_tip = t!("board.draw_tool_options.new_figures_land_on_this.tip");
@@ -8307,6 +8372,45 @@ impl App {
             } else {
                 ui.label(t!("board.canvas_click.pick_or_make_a_layer"))
                     .on_hover_text(t!("tree.add_layer.tip"));
+=======
+            ui.label(
+                egui::RichText::new("DRAW ON LAYER")
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            let names: Vec<(Id, String)> = self
+                .project
+                .board
+                .user_layers
+                .iter()
+                .map(|l| (l.id, l.name.clone()))
+                .collect();
+            let current = self
+                .art_layer
+                .and_then(|id| names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone()))
+                .unwrap_or_else(|| "no layer yet".into());
+            egui::ComboBox::from_id_salt("art-layer-pick")
+                .selected_text(current)
+                .width(150.0)
+                .show_ui(ui, |ui| {
+                    for (id, name) in &names {
+                        ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
+                            .on_hover_text("New figures land on this layer.");
+                    }
+                });
+            if ui
+                .button("New layer")
+                .on_hover_text(
+                    "Make a new drawn layer and switch to it; give it a real name in the layers list.",
+                )
+                .clicked()
+            {
+                let name = format!("Art {}", names.len() + 1);
+                self.run("board.layer_add", json!({"name": name, "kind": "other"}));
+                if self.message.starts_with("board.layer_add") {
+                    self.art_layer = self.selected;
+                }
+>>>>>>> theirs
             }
             ui.horizontal(|ui| {
                 for (shape, label, tip) in [
@@ -8406,21 +8510,30 @@ impl App {
                 self.change_tab(Tab::Libraries);
             }
             ui.add_space(12.0);
+<<<<<<< ours
             ui.label(
                 egui::RichText::new(t!("library.files_tab.builds"))
                     .size(10.0)
                     .color(self.muted()),
             );
+=======
+            ui.label(egui::RichText::new("Builds").size(10.0).color(self.muted()));
+>>>>>>> theirs
             self.builds_tab(ui);
         });
     }
     fn board3d_tab(&mut self, ui: &mut egui::Ui) {
+        let design_dir = std::path::Path::new(&self.path)
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty());
         let env = board3d::Env {
             project: &self.project,
             revision: self.revision,
             selected: self.selected,
             bg: self.surface(),
             muted: self.muted(),
+            design_dir,
+            message: Some(&mut self.message),
         };
         if let Some(id) = board3d::show(&mut self.view3d, ui, &env) {
             self.select(Some(id));
@@ -8469,6 +8582,7 @@ impl App {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(self.surface()))
                 .show(ui, |ui| {
+<<<<<<< ours
                     self.bottom_sheet(ui);
                     self.page_left = ui.max_rect().left();
                     if let Some(workspace) = workspace::workspace_for(self.tab) {
@@ -8496,6 +8610,39 @@ impl App {
                                     .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
                             }
                             _ => {}
+=======
+                    self.workbench_tabs(ui);
+                    self.tool_strip(ui);
+                    match self.tab {
+                        Tab::Schematic | Tab::Pcb => self.canvas(ui),
+                        Tab::Files => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| self.files_tab(ui))
+                                .inner
+                        }
+                        Tab::Board3d => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| self.board3d_tab(ui))
+                                .inner
+                        }
+                        Tab::Libraries => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| self.library(ui))
+                                .inner
+                        }
+                        Tab::Rules => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
+                        }
+                        Tab::Checks => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| self.checks_view(ui))
+                                .inner
+                        }
+                        Tab::Settings => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+>>>>>>> theirs
                         }
                     }
                 });
@@ -11519,26 +11666,9 @@ mod tests {
     #[test]
     fn a_folder_added_from_anywhere_joins_the_list_and_removal_forgets_it_again()
     -> Result<(), String> {
-        let _turn = pcbcraft_engine::library::SOURCES_TEST_LOCK
-            .lock()
-            .map_err(|_| "source test lock unavailable")?;
-        let file =
-            std::env::temp_dir().join(format!("pcbcraft-source-e2e-{}.json", std::process::id()));
-        let _ = std::fs::remove_file(&file);
-        {
-            let mut slot = pcbcraft_engine::library::SOURCES_PATH_TEST
-                .lock()
-                .map_err(|_| "source path slot unavailable")?;
-            *slot = Some(file.clone());
-        }
-        let outcome = source_round_trip(&file);
-        {
-            let mut slot = pcbcraft_engine::library::SOURCES_PATH_TEST
-                .lock()
-                .map_err(|_| "source path slot unavailable")?;
-            *slot = None;
-        }
-        let _ = std::fs::remove_file(&file);
+        let (config, directory) = e2e::support::private_config("sources")?;
+        let outcome = source_round_trip(&config);
+        let _ = std::fs::remove_dir_all(&directory);
         outcome
     }
     /// Draw frames until `done` holds, sleeping between them so the library
@@ -11579,15 +11709,28 @@ mod tests {
     /// The visible loop a newcomer follows: type a folder, press Add folder,
     /// watch its collections appear, select one, press Remove source, and
     /// watch both the list and the remembered config forget it.
-    fn source_round_trip(file: &std::path::Path) -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    fn source_round_trip(config: &pcbcraft_engine::user_config::UserConfig) -> Result<(), String> {
+        let file = config.file("library-sources.json")?;
+        let shared = e2e::support::session_with(config);
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.change_tab(Tab::Libraries);
         app.refresh();
         let ctx = egui::Context::default();
+<<<<<<< ours
         frames_until(&ctx, &mut app, 400, |app| {
             app.library.catalog.is_some() && app.library.sources.is_some()
         });
+=======
+        // A worker thread answers; wait for it by the clock (up to 20 s)
+        // rather than by a frame count, so a loaded machine only slows this.
+        for _ in 0..4000 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            if app.library.catalog.is_some() && app.library.sources.is_some() {
+                break;
+            }
+        }
+>>>>>>> theirs
         assert!(
             app.library.catalog.is_some(),
             "the catalog arrives on its own"
@@ -11599,22 +11742,48 @@ mod tests {
         .to_string_lossy()
         .into_owned();
         app.library.new_source = shelf.clone();
+<<<<<<< ours
         let added = press_until(&ctx, &mut app, "Add folder", |app| {
             app.library.notice.contains("Added")
         })?;
+=======
+        authoring::tests::tap(&ctx, &mut app, "Add folder")?;
+        let mut added = false;
+        // A worker thread answers; wait for it by the clock (up to 20 s)
+        // rather than by a frame count, so a loaded machine only slows this.
+        for _ in 0..4000 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            if app.library.notice.contains("Added") {
+                added = true;
+                break;
+            }
+        }
+>>>>>>> theirs
         assert!(
             added,
             "adding the folder reports back: {}",
             app.library.notice
         );
         let saved =
-            std::fs::read_to_string(file).map_err(|e| format!("config not written: {e}"))?;
+            std::fs::read_to_string(&file).map_err(|e| format!("config not written: {e}"))?;
         assert!(
             saved.contains(&shelf),
             "the folder is remembered in the config file"
         );
+<<<<<<< ours
         let listed = frames_until(&ctx, &mut app, 400, |app| {
             app.library
+=======
+        let mut listed = false;
+        // A worker thread answers; wait for it by the clock (up to 20 s)
+        // rather than by a frame count, so a loaded machine only slows this.
+        for _ in 0..4000 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            listed = app
+                .library
+>>>>>>> theirs
                 .catalog
                 .as_ref()
                 .and_then(|catalog| catalog.get("symbol_libraries"))
@@ -11647,9 +11816,24 @@ mod tests {
             })
             .ok_or("the added collection vanished from the list")?;
         app.library.path = added_path;
+<<<<<<< ours
         let removed = press_until(&ctx, &mut app, "Remove source", |app| {
             app.library.notice.contains("Removed")
         })?;
+=======
+        authoring::tests::tap(&ctx, &mut app, "Remove source")?;
+        let mut removed = false;
+        // A worker thread answers; wait for it by the clock (up to 20 s)
+        // rather than by a frame count, so a loaded machine only slows this.
+        for _ in 0..4000 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            if app.library.notice.contains("Removed") {
+                removed = true;
+                break;
+            }
+        }
+>>>>>>> theirs
         assert!(removed, "removal reports back: {}", app.library.notice);
         let saved = std::fs::read_to_string(file).map_err(|_| "config vanished")?;
         assert!(
@@ -12047,17 +12231,8 @@ mod tests {
 
     #[test]
     fn the_start_screen_lists_designs_you_can_open_again() -> Result<(), String> {
-        let _turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
-            .lock()
-            .map_err(|_| "test lock unavailable")?;
-        let directory =
-            std::env::temp_dir().join(format!("pcbcraft-home-recents-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = Some(directory.join("recent-designs.json"));
-        pcbcraft_engine::recents::clear_recent_paths();
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let (config, directory) = e2e::support::private_config("home-recents")?;
+        let shared = e2e::support::session_with(&config);
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
         let file = directory
@@ -12081,10 +12256,6 @@ mod tests {
             !app.home_open,
             "clicking a recent design opens it and leaves the start screen"
         );
-        pcbcraft_engine::recents::clear_recent_paths();
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = None;
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
@@ -12332,19 +12503,10 @@ mod tests {
 
     #[test]
     fn designs_opened_on_this_computer_are_remembered_for_the_start_screen() -> Result<(), String> {
-        let _turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
-            .lock()
-            .map_err(|_| "test lock unavailable")?;
-        let directory =
-            std::env::temp_dir().join(format!("pcbcraft-ui-recents-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = Some(directory.join("recent-designs.json"));
-        pcbcraft_engine::recents::clear_recent_paths();
-        pcbcraft_engine::recents::record_recent_path("/designs/flashlight.board.json");
-        pcbcraft_engine::recents::record_recent_path("/designs/radio.board.json");
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let (config, directory) = e2e::support::private_config("ui-recents")?;
+        pcbcraft_engine::recents::record_recent_path(&config, "/designs/flashlight.board.json");
+        pcbcraft_engine::recents::record_recent_path(&config, "/designs/radio.board.json");
+        let shared = e2e::support::session_with(&config);
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
         assert_eq!(
@@ -12362,11 +12524,77 @@ mod tests {
             1,
             "the app keeps the recent list ready for the Start screen"
         );
-        pcbcraft_engine::recents::clear_recent_paths();
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = None;
         let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    /// Every files-on-disk side effect of a window goes below the folder its
+    /// session carries, and a session built by a test has none. This proves it
+    /// for the whole suite: the suite runs again in a child process whose
+    /// home, configuration and cache folders are empty sentinels, and any file
+    /// that shows up in one means some test reached the real folders.
+    #[test]
+    fn the_ui_suite_leaves_the_real_configuration_folder_untouched() -> Result<(), String> {
+        const INNER: &str = "PCBCRAFT_CONFIG_PROOF_INNER";
+        if std::env::var_os(INNER).is_some() {
+            return Ok(());
+        }
+        fn files_below(folder: &std::path::Path, found: &mut Vec<String>) {
+            let Ok(entries) = std::fs::read_dir(folder) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    files_below(&path, found);
+                } else {
+                    found.push(path.display().to_string());
+                }
+            }
+        }
+        let root = std::env::temp_dir().join(format!("pcbcraft-sentinel-{}", std::process::id()));
+        let sentinel = |name: &str| -> Result<std::path::PathBuf, String> {
+            let folder = root.join(name);
+            std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+            Ok(folder)
+        };
+        let (home, config, appdata, cache) = (
+            sentinel("home")?,
+            sentinel("config")?,
+            sentinel("appdata")?,
+            sentinel("cache")?,
+        );
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let run = std::process::Command::new(exe)
+            .args([
+                "--test-threads=32",
+                "--skip",
+                "the_ui_suite_leaves_the_real_configuration_folder_untouched",
+            ])
+            .env(INNER, "1")
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config)
+            .env("APPDATA", &appdata)
+            .env("XDG_CACHE_HOME", &cache)
+            .env("LOCALAPPDATA", &cache)
+            .output()
+            .map_err(|e| e.to_string())?;
+        let mut found = Vec::new();
+        for folder in [&home, &config, &appdata, &cache] {
+            files_below(folder, &mut found);
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        let log = String::from_utf8_lossy(&run.stdout);
+        let tail: Vec<&str> = log.lines().rev().take(40).collect();
+        assert!(
+            found.is_empty(),
+            "the suite wrote into the real configuration folders: {found:?}"
+        );
+        assert!(
+            run.status.success(),
+            "the suite failed in the sentinel run:\n{}",
+            tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+        );
         Ok(())
     }
 

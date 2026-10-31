@@ -205,8 +205,9 @@ fn a_newcomer_finds_every_export_format_in_export_as() -> Result<(), String> {
     }
     assert!(
         paints_text(&ctx, &mut app, "Packages")?
-            && paints_text(&ctx, &mut app, "No packages yet.")?,
-        "the Packages group is there, empty"
+            && paints_text(&ctx, &mut app, "Prototype fab (Gerber + drill)")?
+            && !paints_text(&ctx, &mut app, "No packages yet.")?,
+        "the Packages group lists the bundled packages"
     );
     Ok(())
 }
@@ -332,6 +333,26 @@ fn a_newcomer_saves_the_project_and_exports_a_bom() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_gets_a_bring_up_checklist_for_the_board() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    authoring::tests::tap(&ctx, &mut app, "Bring-up test plan")?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    let md = std::fs::read_to_string(dir.path().join("bring-up-plan.md")).map_err(|e| e.to_string())?;
+    assert!(
+        md.contains("Bring-up plan") && md.contains("Power rails"),
+        "the markdown checklist covers rails: {md}"
+    );
+    let csv = std::fs::read_to_string(dir.path().join("bring-up-plan.csv")).map_err(|e| e.to_string())?;
+    assert!(
+        csv.contains("SECTION") && csv.contains("rail"),
+        "the csv mirrors the plan: {csv}"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_sees_no_format_in_the_file_menu() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());
@@ -378,5 +399,40 @@ fn a_newcomer_picks_a_naming_style_and_sees_the_file_names() -> Result<(), Strin
         !dir.path().join(format!("{stem}-NPTH.XLN")).exists(),
         "one drill file means no separate non-plated file"
     );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_exports_a_fab_package_from_export() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    // The window sizes itself over a few frames; the Packages group is the last in the list.
+    let mut listed = false;
+    for _ in 0..12 {
+        listed = listed || paints_text(&ctx, &mut app, "Prototype fab (Gerber + drill)")?;
+    }
+    assert!(listed, "the fab package is listed under Packages");
+    authoring::tests::tap(&ctx, &mut app, "Prototype fab (Gerber + drill)")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let zip = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.ends_with("-fab-A.zip"))
+        .ok_or("no fab zip was written into the make folder")?;
+    let bytes = std::fs::read(dir.path().join(&zip)).map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.contains("manifest.json"),
+        "the zip carries its manifest"
+    );
+    assert!(
+        text.contains(".GTL") && text.contains(".TXT"),
+        "Protel-style layer and drill names"
+    );
+    assert!(!app.edit.dialog.open, "the dialog closes after the export");
     Ok(())
 }

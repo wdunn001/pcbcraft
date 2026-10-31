@@ -72,7 +72,25 @@ pub(crate) fn flavour_of(values: &BTreeMap<String, String>) -> &'static BomFlavo
 /// The option values a fresh bill starts with: the flavour's file type, every column of
 /// the flavour and of the project, grouping as the flavour says.
 pub(crate) fn default_values(project: &Project, flavour: &BomFlavour) -> BTreeMap<String, String> {
-    let mut columns: Vec<String> = flavour.columns.iter().map(|c| c.token.clone()).collect();
+    // Description and supplier columns only start ticked when some part has the data,
+    // so a bill with none keeps its familiar columns.
+    let has = |token: &str| match token {
+        "description" => project
+            .components
+            .iter()
+            .any(|c| !c.description().is_empty()),
+        "suppliers" => project
+            .components
+            .iter()
+            .any(|c| !c.sourcing.suppliers.is_empty()),
+        _ => true,
+    };
+    let mut columns: Vec<String> = flavour
+        .columns
+        .iter()
+        .filter(|c| has(&c.token))
+        .map(|c| c.token.clone())
+        .collect();
     columns.extend(
         project
             .bom_fields
