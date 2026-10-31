@@ -1,23 +1,7 @@
-//! Project-library editing commands: import, pin and pad edits, artwork, metadata,
-//! geometry, and placing library parts on the schematic.
-//!
-//! Context: `commands()` registers MCP ids; `run` dispatches each id to validation and
-//! mutation on `Project::library`. Geometry helpers below `run` are shared by several arms.
-//!
-//! # Rules
-//! - Library names are 1 to 128 bytes; pin and pad numbers are 1 to 32 bytes unless noted.
-//! - After each mutation the touched definition and `Project::library` are validated again.
-//!
-//! # Dependencies
-//! - crates/engine/src/lib.rs
-//! - crates/library/src/lib.rs
-//! - crates/geom/src/lib.rs
-
 use super::*;
 use pcbcraft_library::{
     FootprintDefinition, FootprintPad, Graphic, LandPatternDensity, LandPatternParams,
-    PartSubstitutes, SymbolDefinition, SymbolPin, UnitGraphic, compare_one_part,
-    MAX_PART_COMPARE_OTHERS, generate_footprint,
+    SymbolDefinition, SymbolPin, UnitGraphic, generate_footprint,
 };
 
 pub(super) fn commands() -> Vec<CommandSpec> {
@@ -27,8 +11,9 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.remove","Remove a project-library symbol; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.remove","Remove a project-library footprint; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.load","Load and validate a .pcbcraft-lib collection into the project as one undoable transaction",schema(json!({"path":{"type":"string"}}),&["path"])),
-        ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction; an optional notice is kept with the project library",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024},"notice":{"type":"string"}}),&["path"])),
-        ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction; an optional notice is kept with the project library",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024},"notice":{"type":"string"}}),&["path"])),
+        ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
+        ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
+        ("library.import_manufacturer_file","Import one symbol, footprint or STEP file the user downloaded from a manufacturer page into the project library with a not-redistributed notice; only Samtec is supported today and STEP files need the footprint name to attach the model path",schema(json!({"manufacturer":{"type":"string","enum":["samtec"]},"mpn":{"type":"string","minLength":1,"maxLength":64},"path":{"type":"string","minLength":1,"maxLength":1024},"footprint":{"type":"string","description":"project-library footprint name when path is a STEP file"}}),&["manufacturer","mpn","path"])),
         ("library.import_footprint_dir","Read every footprint library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_symbol_dir","Read every symbol library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor symbol folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_part","Copy a part's symbol and, when it has one, its footprint into the project library as one undoable step, keeping the licence notice; the symbol is linked to the footprint by name",schema(json!({"symbol":{"type":"object","description":"a symbol definition as library readers emit it"},"footprint":{"type":"object","description":"a footprint definition as library readers emit it"},"notice":{"type":"string","description":"licence or attribution line kept with the project library"}}),&["symbol"])),
@@ -36,7 +21,6 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
-        ("library.footprint.attach_starter_model","Attach a bundled starter 3D model to a project-library footprint when one matches its name or an explicit starter id, materializing the file into the user cache and recording the licence notice",schema(json!({"name":{"type":"string"},"id":{"type":"string","description":"starter model id; omit to match by footprint name"}}),&["name"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.embed_model","Store the converted compact model on a project-library footprint so the project renders without the original file; reads from the footprint path or an override on the desktop",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024}}),&["name"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
@@ -75,8 +59,6 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.graphic_scale","Resize one graphic on a project-library footprint about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the package",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the footprint origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.graphic_scale","Resize one graphic on a project-library symbol about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the symbol origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords, linked footprint or set name one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"},"set":{"type":"string","description":"name of the collection this part belongs to; empty clears it, and the parts list groups parts by set"}}),&["name"])),
-        ("library.part.set_substitute","Add, replace or remove one second source (maker and part number) or one alternate (another project-library symbol) on a project-library part as one undoable step; pass null for mpn to remove a second source, or set clear true with symbol naming the alternate to remove",schema(json!({"name":{"type":"string","description":"project-library symbol name of the primary part"},"kind":{"type":"string","enum":["second_source","alternate"]},"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"symbol":{"type":"string","maxLength":256,"description":"project-library symbol name of the alternate part"},"footprint":{"type":"string","maxLength":256},"note":{"type":"string","maxLength":256},"clear":{"type":"boolean","description":"when true with kind alternate, remove the alternate named by symbol"}}),&["name","kind"])),
-        ("library.part.compare","Read-only comparison of one baseline project-library part against up to two others: typed symbol fields with same flags, pin number diffs, and footprint pad diffs when both footprints exist",schema(json!({"baseline":{"type":"string","maxLength":128,"description":"project-library symbol name used as the reference row"},"others":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"string","maxLength":128}},"footprint_overrides":{"type":"object","additionalProperties":{"type":"string","maxLength":256},"description":"optional footprint name per other symbol, e.g. from an alternate record"}}),&["baseline","others"])),
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
         ("library.symbol.rename","Rename a project-library symbol in place as one undoable step, keeping every pin and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
         ("library.footprint.rename","Rename a project-library footprint in place as one undoable step, keeping every pad and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
@@ -120,32 +102,6 @@ struct PlacePartParams {
 struct SymbolParams {
     definition: SymbolDefinition,
     notice: Option<String>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PartCompareParams {
-    baseline: String,
-    others: Vec<String>,
-    #[serde(default)]
-    footprint_overrides: std::collections::BTreeMap<String, String>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SetPartSubstituteParams {
-    name: String,
-    kind: String,
-    #[serde(default)]
-    manufacturer: Option<String>,
-    #[serde(default)]
-    mpn: Option<Value>,
-    #[serde(default)]
-    symbol: Option<String>,
-    #[serde(default)]
-    footprint: Option<String>,
-    #[serde(default)]
-    note: Option<String>,
-    #[serde(default)]
-    clear: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -246,12 +202,6 @@ struct PathParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ImportFileParams {
-    path: String,
-    notice: Option<String>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AdoptParams {
     id: Id,
     name: String,
@@ -268,16 +218,6 @@ struct PadSetParams {
     name: String,
     pad: FootprintPad,
 }
-/// Input for `library.footprint.scale` and `library.symbol.scale`; scales every pad or
-/// pin, artwork, and footprint model anchor together about the origin.
-///
-/// # Rules
-/// - Name must be 1 to 128 bytes; factor must be finite, positive, and at most 1000.
-/// - Scaled coordinates must pass `Point::valid`.
-///
-/// # Dependencies
-/// - crates/geom/src/lib.rs
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ScaleParams {
@@ -285,15 +225,6 @@ struct ScaleParams {
     factor: f64,
 }
 
-/// Input for `library.footprint.recenter` and `library.symbol.recenter`; slides the whole
-/// definition by one offset in millimetres.
-///
-/// # Rules
-/// - Name must be 1 to 128 bytes; delta must be finite with each axis within 1000 mm.
-/// - Shifted coordinates must pass `Point::valid`.
-///
-/// # Dependencies
-/// - crates/geom/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecenterParams {
@@ -301,15 +232,6 @@ struct RecenterParams {
     delta: Point,
 }
 
-/// Input for `library.symbol.rotate`, `library.symbol.mirror`, `library.footprint.rotate`,
-/// and `library.footprint.mirror`; turns or flips the whole library definition.
-///
-/// # Rules
-/// - Name must be 1 to 128 bytes; rotation needs finite degrees within 100000 and no axis.
-/// - Mirror needs axis `"y"` and must not also send degrees.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GeometryParams {
@@ -320,15 +242,6 @@ struct GeometryParams {
     axis: Option<String>,
 }
 
-/// Input for `library.symbol.set_extends` and `library.symbol.clear_extends`; records or
-/// clears the parent symbol name on a project-library symbol.
-///
-/// # Rules
-/// - Symbol name must be 1 to 128 bytes; set_extends needs a parent name in the library.
-/// - A symbol cannot inherit from itself.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SymbolExtendsParams {
@@ -337,14 +250,6 @@ struct SymbolExtendsParams {
     extends: Option<String>,
 }
 
-/// Input for `library.symbol.rename` and `library.footprint.rename`; changes the library
-/// entry name in place while keeping pins or pads and graphics unchanged.
-///
-/// # Rules
-/// - Current and new names must each be 1 to 128 bytes; the new name must not collide.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RenameParams {
@@ -352,15 +257,6 @@ struct RenameParams {
     new_name: String,
 }
 
-/// Input for `library.symbol.set_properties` and `library.footprint.set_properties`; updates
-/// searchable metadata one field at a time.
-///
-/// # Rules
-/// - Name must be 1 to 128 bytes; at least one property field must be present.
-/// - Text fields are capped at 128 KiB; footprints accept description and keywords only.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetPropertyParams {
@@ -378,28 +274,12 @@ struct SetPropertyParams {
     #[serde(default)]
     set: Option<String>,
 }
-/// Input for `library.footprint.graphic_add`; appends one graphic primitive to a footprint.
-///
-/// # Rules
-/// - Footprint name must be 1 to 128 bytes; the graphic layer must pass `graphic_layer`.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicAddParams {
     name: String,
     graphic: Graphic,
 }
-/// Input for `library.footprint.graphic_set` and `library.symbol.graphic_set`; replaces one
-/// artwork entry by zero-based index.
-///
-/// # Rules
-/// - Name must be 1 to 128 bytes; index must address an existing graphic.
-/// - Replacement graphic layer must pass `graphic_layer`.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicSetParams {
@@ -407,30 +287,12 @@ struct GraphicSetParams {
     index: usize,
     graphic: Graphic,
 }
-/// Input for `library.footprint.graphic_remove` and `library.symbol.graphic_remove`; drops
-/// one artwork entry by zero-based index.
-///
-/// # Rules
-/// - Name must be 1 to 128 bytes; index must address an existing graphic.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicRemoveParams {
     name: String,
     index: usize,
 }
-/// Input for `library.footprint.graphic_move` and `library.symbol.graphic_move`; slides one
-/// graphic by a delta in millimetres.
-///
-/// # Rules
-/// - Name must be 1 to 128 bytes; delta must be finite with each axis within 1000 mm.
-/// - Shifted vertices must pass `Point::valid`.
-///
-/// # Dependencies
-/// - crates/geom/src/lib.rs
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicMoveParams {
@@ -438,15 +300,6 @@ struct GraphicMoveParams {
     index: usize,
     delta: Point,
 }
-/// Input for `library.footprint.graphic_rotate`, `library.symbol.graphic_rotate`,
-/// `library.footprint.graphic_mirror`, and `library.symbol.graphic_mirror`.
-///
-/// # Rules
-/// - Name must be 1 to 128 bytes; index must address an existing graphic.
-/// - Rotate needs finite degrees within 100000; mirror needs axis `"y"`.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicTurnParams {
@@ -457,15 +310,6 @@ struct GraphicTurnParams {
     #[serde(default)]
     axis: Option<String>,
 }
-/// Input for `library.footprint.graphic_scale` and `library.symbol.graphic_scale`; resizes
-/// one graphic about the origin.
-///
-/// # Rules
-/// - Name must be 1 to 128 bytes; factor must be finite, positive, and at most 1000.
-///
-/// # Dependencies
-/// - crates/geom/src/lib.rs
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicScaleParams {
@@ -473,14 +317,6 @@ struct GraphicScaleParams {
     index: usize,
     factor: f64,
 }
-/// Input for `library.footprint.graphic_clear`; removes footprint artwork on one layer or all layers.
-///
-/// # Rules
-/// - Footprint name must be 1 to 128 bytes; an optional layer must not be empty.
-/// - Refuses when no graphics would be removed.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicClearParams {
@@ -488,14 +324,6 @@ struct GraphicClearParams {
     #[serde(default)]
     layer: Option<String>,
 }
-/// Input for `library.symbol.graphic_add`; appends one graphic to a symbol unit and body style.
-///
-/// # Rules
-/// - Symbol name must be 1 to 128 bytes; unit and body_style default to 1 when omitted.
-/// - Graphic layer must pass `graphic_layer`.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SymbolGraphicAddParams {
@@ -506,14 +334,6 @@ struct SymbolGraphicAddParams {
     body_style: Option<u32>,
     graphic: Graphic,
 }
-/// Input for `library.symbol.graphic_clear`; removes all graphics on one symbol unit.
-///
-/// # Rules
-/// - Symbol name must be 1 to 128 bytes; unit defaults to 1 when omitted.
-/// - Refuses when the unit has no graphics to remove.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SymbolGraphicClearParams {
@@ -527,29 +347,12 @@ struct PinSetParams {
     name: String,
     pin: SymbolPin,
 }
-/// Input for `library.symbol.pin_remove`; drops one pin by number from a project-library symbol.
-///
-/// # Rules
-/// - Symbol name must be 1 to 128 bytes; pin number must be 1 to 32 bytes.
-/// - The symbol must keep at least one pin after removal.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PinRemoveParams {
     name: String,
     pin: String,
 }
-/// Input for `library.symbol.pin_move`; slides one pin by a delta without changing its metadata.
-///
-/// # Rules
-/// - Symbol and pin number bounds match pin_remove; delta must be finite within 1000 mm per axis.
-/// - Moved position must pass `Point::valid`.
-///
-/// # Dependencies
-/// - crates/geom/src/lib.rs
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PinMoveParams {
@@ -557,14 +360,6 @@ struct PinMoveParams {
     pin: String,
     delta: Point,
 }
-/// Input for `library.symbol.pin_rotate` and `library.symbol.pin_mirror`; turns or flips one pin.
-///
-/// # Rules
-/// - Symbol and pin number bounds match pin_remove; rotate needs finite degrees within 100000.
-/// - Mirror needs axis `"y"` and must not also send degrees.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PinTurnParams {
@@ -633,15 +428,6 @@ struct RulesParams {
     #[serde(default)]
     paste_margin: Option<f64>,
 }
-/// Input for `component.place_custom`; places a project-library symbol on the schematic.
-///
-/// # Rules
-/// - The symbol name must exist in `Project::library`.
-/// - Optional rotation is applied via `turn_placed` after placement.
-///
-/// # Dependencies
-/// - crates/engine/src/lib.rs
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Place {
@@ -652,26 +438,11 @@ struct Place {
     #[serde(default)]
     rotation: Option<f64>,
 }
-/// Input for `footprint.assign_custom`; binds a project-library footprint to one component.
-///
-/// # Rules
-/// - The footprint name must exist in `Project::library`.
-/// - Pad numbers must match the component pins exactly or the arm refuses.
-///
-/// # Dependencies
-/// - crates/engine/src/lib.rs
-/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Assign {
     id: Id,
     name: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AttachStarterModel {
-    name: String,
-    id: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -784,25 +555,11 @@ pub(super) fn run(
                 if before == p.library.symbols.len() {
                     return Err(missing());
                 }
-                p.library.part_substitutes.remove(&a.name);
-                for subs in p.library.part_substitutes.values_mut() {
-                    subs.alternates.retain(|alt| alt.symbol != a.name);
-                }
-                p.library
-                    .part_substitutes
-                    .retain(|_, subs| !subs.is_empty());
             } else {
                 let before = p.library.footprints.len();
                 p.library.footprints.retain(|s| s.name != a.name);
                 if before == p.library.footprints.len() {
                     return Err(missing());
-                }
-                for subs in p.library.part_substitutes.values_mut() {
-                    for alt in &mut subs.alternates {
-                        if alt.footprint == a.name {
-                            alt.footprint.clear();
-                        }
-                    }
                 }
             }
             Ok(json!({"name":a.name}))
@@ -819,49 +576,6 @@ pub(super) fn run(
             def.model = Some(model);
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name, "path": def.model.as_ref().map(|m| m.path.clone())}))
-        }
-        "library.footprint.attach_starter_model" => {
-            let a: AttachStarterModel = parse(params)?;
-            let starter = match a.id.as_deref() {
-                Some(id) => pcbcraft_library::starter_models::by_id(id)
-                    .ok_or_else(|| Error::Invalid("unknown starter model id".into()))?,
-                None => pcbcraft_library::starter_models::for_footprint(&a.name)
-                    .ok_or_else(|| {
-                        Error::Invalid(
-                            "no bundled starter model matches this footprint name".into(),
-                        )
-                    })?,
-            };
-            let cache = pcbcraft_library::cad_cache::default_cache_dir().ok_or_else(|| {
-                Error::Invalid("a user cache directory is required to store starter models".into())
-            })?;
-            let path = pcbcraft_io::materialize(starter, &cache)
-                .map_err(|e| Error::Invalid(e))?;
-            let path_text = path.to_string_lossy().into_owned();
-            let model = build_model(&ModelParams {
-                name: a.name.clone(),
-                path: path_text.clone(),
-                offset: None,
-                scale: None,
-                rotate: None,
-            })?;
-            let notice = starter.notice.to_string();
-            if !notice.is_empty() && !p.library.notices.contains(&notice) {
-                p.library.notices.push(notice);
-            }
-            let def = p
-                .library
-                .footprints
-                .iter_mut()
-                .find(|s| s.name == a.name)
-                .ok_or_else(missing)?;
-            def.model = Some(model);
-            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
-            Ok(json!({
-                "name": a.name,
-                "starter": starter.id,
-                "path": path_text,
-            }))
         }
         "library.footprint.clear_model" => {
             let a: Name = parse(params)?;
@@ -1025,73 +739,6 @@ pub(super) fn run(
             }
             p.library.footprints.sort_by(|a, b| a.name.cmp(&b.name));
             Ok(json!({"name": name}))
-        }
-        "library.part.compare" => {
-            let a: PartCompareParams = parse(params)?;
-            if a.baseline.is_empty() || a.baseline.len() > 128 {
-                return Err(Error::Invalid(
-                    "baseline must be 1 to 128 bytes".into(),
-                ));
-            }
-            if a.others.is_empty() || a.others.len() > MAX_PART_COMPARE_OTHERS {
-                return Err(Error::Invalid(format!(
-                    "others must list 1 to {MAX_PART_COMPARE_OTHERS} symbol names"
-                )));
-            }
-            for name in &a.others {
-                if name.is_empty() || name.len() > 128 {
-                    return Err(Error::Invalid(
-                        "each other name must be 1 to 128 bytes".into(),
-                    ));
-                }
-                if name == &a.baseline {
-                    return Err(Error::Invalid(
-                        "baseline and an other part must differ".into(),
-                    ));
-                }
-            }
-            let baseline_sym = p
-                .library
-                .symbols
-                .iter()
-                .find(|s| s.name == a.baseline)
-                .cloned()
-                .ok_or_else(|| {
-                    Error::Invalid(format!(
-                        "no project-library symbol named {}",
-                        a.baseline
-                    ))
-                })?;
-            let resolve_footprint = |name: &str| {
-                p.library
-                    .footprints
-                    .iter()
-                    .find(|f| f.name == name)
-                    .cloned()
-            };
-            let mut compared = Vec::with_capacity(a.others.len());
-            for other_name in &a.others {
-                let other_sym = p
-                    .library
-                    .symbols
-                    .iter()
-                    .find(|s| s.name == *other_name)
-                    .cloned()
-                    .ok_or_else(|| {
-                        Error::Invalid(format!(
-                            "no project-library symbol named {other_name}"
-                        ))
-                    })?;
-                let other_fp = a.footprint_overrides.get(other_name).map(String::as_str);
-                compared.push(compare_one_part(
-                    &baseline_sym,
-                    &other_sym,
-                    None,
-                    other_fp,
-                    &resolve_footprint,
-                ));
-            }
-            Ok(json!({"baseline": a.baseline, "compared": compared}))
         }
         "library.footprint.check" => {
             let a: FootprintCheckParams = parse(params)?;
@@ -1357,7 +1004,7 @@ pub(super) fn run(
             Ok(json!({"symbols":p.library.symbols.len(),"footprints":p.library.footprints.len()}))
         }
         "library.import_footprint_file" | "library.import_symbol_file" => {
-            let a: ImportFileParams = parse(params)?;
+            let a: PathParams = parse(params)?;
             let text =
                 pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
             let mut imported: Vec<String> = Vec::new();
@@ -1379,13 +1026,92 @@ pub(super) fn run(
                     import_symbol(p, def);
                 }
             }
-            if let Some(notice) = a.notice
-                && !p.library.notices.contains(&notice)
-            {
-                p.library.notices.push(notice);
-            }
             p.library.validate()?;
             Ok(json!({"names": imported}))
+        }
+        "library.import_manufacturer_file" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct ManufacturerImport {
+                manufacturer: String,
+                mpn: String,
+                path: String,
+                #[serde(default)]
+                footprint: Option<String>,
+            }
+            let a: ManufacturerImport = parse(params)?;
+            if a.manufacturer != "samtec" {
+                return Err(Error::Invalid(
+                    "only samtec manufacturer imports are supported".into(),
+                ));
+            }
+            if a.path.is_empty() || a.path.len() > 1024 {
+                return Err(Error::Invalid("path must be 1 to 1024 bytes".into()));
+            }
+            let path = std::path::Path::new(&a.path);
+            let kind = pcbcraft_library::samtec::file_kind(path)
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let provenance = pcbcraft_library::samtec::user_download_provenance(&a.mpn, kind, path)
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let notice = provenance.notice();
+            match kind {
+                pcbcraft_library::cad::CadKind::Footprint => {
+                    let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
+                    let def = pcbcraft_library::read_footprint(&text)
+                        .map_err(|e| Error::Invalid(e.to_string()))?;
+                    def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                    let name = def.name.clone();
+                    import_footprint(p, def);
+                    push_notice(p, &notice);
+                    p.library.validate()?;
+                    Ok(json!({"kind":"footprint","name":name,"notice":notice}))
+                }
+                pcbcraft_library::cad::CadKind::Symbol => {
+                    let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
+                    let defs = pcbcraft_library::read_symbols(&text)
+                        .map_err(|e| Error::Invalid(e.to_string()))?;
+                    if defs.is_empty() {
+                        return Err(Error::Invalid("the library file defines no symbols".into()));
+                    }
+                    let mut names = Vec::new();
+                    for def in defs {
+                        def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                        names.push(def.name.clone());
+                        import_symbol(p, def);
+                    }
+                    push_notice(p, &notice);
+                    p.library.validate()?;
+                    Ok(json!({"kind":"symbol","names":names,"notice":notice}))
+                }
+                pcbcraft_library::cad::CadKind::Model => {
+                    let footprint = a.footprint.ok_or_else(|| {
+                        Error::Invalid(
+                            "a STEP import needs the footprint name to attach the model".into(),
+                        )
+                    })?;
+                    if footprint.is_empty() || footprint.len() > 128 {
+                        return Err(Error::Invalid("footprint must be 1 to 128 bytes".into()));
+                    }
+                    let def = p
+                        .library
+                        .footprints
+                        .iter_mut()
+                        .find(|f| f.name == footprint)
+                        .ok_or_else(missing)?;
+                    let model = build_model(&ModelParams {
+                        name: footprint.clone(),
+                        path: a.path.clone(),
+                        offset: None,
+                        scale: None,
+                        rotate: None,
+                    })?;
+                    def.model = Some(model);
+                    def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                    push_notice(p, &notice);
+                    p.library.validate()?;
+                    Ok(json!({"kind":"model","footprint":footprint,"notice":notice}))
+                }
+            }
         }
         "library.import_footprint_dir" => {
             let a: DirParams = parse(params)?;
@@ -2578,84 +2304,6 @@ pub(super) fn run(
             p.library.validate()?;
             Ok(json!({"name": item}))
         }
-        "library.part.set_substitute" => {
-            let a: SetPartSubstituteParams = parse(params)?;
-            if a.name.is_empty() || a.name.len() > 128 {
-                return Err(Error::Invalid(
-                    "library names must be 1 to 128 bytes".into(),
-                ));
-            }
-            if !p.library.symbols.iter().any(|s| s.name == a.name) {
-                return Err(Error::Invalid(format!(
-                    "no project-library symbol named {}",
-                    a.name
-                )));
-            }
-            let symbol_exists =
-                |sym: &str| p.library.symbols.iter().any(|s| s.name == sym);
-            let footprint_exists =
-                |foot: &str| p.library.footprints.iter().any(|f| f.name == foot);
-            let record = p
-                .library
-                .part_substitutes
-                .entry(a.name.clone())
-                .or_insert_with(PartSubstitutes::default);
-            match a.kind.as_str() {
-                "second_source" => {
-                    let manufacturer = a.manufacturer.filter(|s| !s.is_empty()).ok_or_else(|| {
-                        Error::Invalid("second_source needs a manufacturer".into())
-                    })?;
-                    let mpn = match a.mpn {
-                        None => {
-                            return Err(Error::Invalid(
-                                "second_source needs mpn or null to remove".into(),
-                            ));
-                        }
-                        Some(Value::Null) => None,
-                        Some(Value::String(text)) => Some(text.as_str()),
-                        Some(_) => {
-                            return Err(Error::Invalid("mpn must be a string or null".into()));
-                        }
-                    };
-                    record
-                        .set_second_source(&manufacturer, mpn, a.note.as_deref())
-                        .map_err(Error::Invalid)?;
-                }
-                "alternate" => {
-                    let symbol = a.symbol.filter(|s| !s.is_empty()).ok_or_else(|| {
-                        Error::Invalid("alternate needs the substitute symbol name".into())
-                    })?;
-                    if a.clear {
-                        record.remove_alternate(&symbol).map_err(Error::Invalid)?;
-                    } else {
-                        if symbol == a.name {
-                            return Err(Error::Invalid(
-                                "a part cannot list itself as an alternate".into(),
-                            ));
-                        }
-                        record
-                            .set_alternate(
-                                &symbol,
-                                a.footprint.as_deref(),
-                                a.note.as_deref(),
-                                symbol_exists,
-                                footprint_exists,
-                            )
-                            .map_err(Error::Invalid)?;
-                    }
-                }
-                _ => {
-                    return Err(Error::Invalid(
-                        "kind must be second_source or alternate".into(),
-                    ));
-                }
-            }
-            if record.is_empty() {
-                p.library.part_substitutes.remove(&a.name);
-            }
-            p.library.validate()?;
-            Ok(json!({"name": a.name, "kind": a.kind}))
-        }
         "library.symbol.rename" | "library.footprint.rename" => {
             let a: RenameParams = parse(params)?;
             if a.name.is_empty() || a.name.len() > 128 {
@@ -2677,18 +2325,6 @@ pub(super) fn run(
                     )));
                 }
                 p.library.symbols[found].name = a.new_name.clone();
-                if let Some(subs) = p.library.part_substitutes.remove(&a.name) {
-                    p.library
-                        .part_substitutes
-                        .insert(a.new_name.clone(), subs);
-                }
-                for subs in p.library.part_substitutes.values_mut() {
-                    for alt in &mut subs.alternates {
-                        if alt.symbol == a.name {
-                            alt.symbol = a.new_name.clone();
-                        }
-                    }
-                }
             } else {
                 let Some(found) = p.library.footprints.iter().position(|i| i.name == a.name) else {
                     return Err(missing());
@@ -2700,13 +2336,6 @@ pub(super) fn run(
                     )));
                 }
                 p.library.footprints[found].name = a.new_name.clone();
-                for subs in p.library.part_substitutes.values_mut() {
-                    for alt in &mut subs.alternates {
-                        if alt.footprint == a.name {
-                            alt.footprint = a.new_name.clone();
-                        }
-                    }
-                }
             }
             p.library.validate()?;
             p.validate()?;
@@ -3089,7 +2718,6 @@ pub(super) fn run(
                     .ok_or_else(missing)?;
                 let footprint_id = allocate(next)?;
                 p.board.footprints.push(Footprint {
-                    preserved: pcbcraft_doc::PreservedSource::default(),
                     id: footprint_id,
                     component: id,
                     position: a.position,
@@ -3184,10 +2812,12 @@ fn parked_position(p: &Project) -> Point {
     Point::new(0.0, bottom + 20.0)
 }
 
-/// Upserts one footprint into `Project::library` by name and keeps the footprint list sorted.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
+fn push_notice(p: &mut Project, notice: &str) {
+    if !notice.is_empty() && !p.library.notices.contains(&notice.to_owned()) {
+        p.library.notices.push(notice.to_owned());
+    }
+}
+
 fn import_footprint(p: &mut Project, def: pcbcraft_library::FootprintDefinition) {
     if let Some(existing) = p.library.footprints.iter_mut().find(|f| f.name == def.name) {
         *existing = def;
@@ -3197,10 +2827,6 @@ fn import_footprint(p: &mut Project, def: pcbcraft_library::FootprintDefinition)
     p.library.footprints.sort_by(|a, b| a.name.cmp(&b.name));
 }
 
-/// Upserts one symbol into `Project::library` by name and keeps the symbol list sorted.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 fn import_symbol(p: &mut Project, def: pcbcraft_library::SymbolDefinition) {
     if let Some(existing) = p.library.symbols.iter_mut().find(|s| s.name == def.name) {
         *existing = def;
@@ -3210,13 +2836,6 @@ fn import_symbol(p: &mut Project, def: pcbcraft_library::SymbolDefinition) {
     p.library.symbols.sort_by(|a, b| a.name.cmp(&b.name));
 }
 
-/// Returns the layer name on a library graphic after checking it is 1 to 64 bytes.
-///
-/// # Rules
-/// - Empty or overlong layer strings return `Error::Invalid`.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 fn graphic_layer(graphic: &Graphic) -> Result<String, Error> {
     let layer = match graphic {
         Graphic::Line { layer, .. }
@@ -3232,11 +2851,6 @@ fn graphic_layer(graphic: &Graphic) -> Result<String, Error> {
     Ok(layer.clone())
 }
 
-/// Applies a point transform to every vertex of a graphic primitive.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
-/// - crates/geom/src/lib.rs
 fn shift_graphic(
     g: &mut Graphic,
     shift: &dyn Fn(Point) -> Result<Point, Error>,
@@ -3268,11 +2882,6 @@ fn shift_graphic(
     Ok(())
 }
 
-/// Scales graphic vertices and stroke or text dimensions using caller-supplied closures.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
-/// - crates/geom/src/lib.rs
 fn scale_graphic(
     g: &mut Graphic,
     scale: &dyn Fn(Point) -> Result<Point, Error>,
@@ -3329,13 +2938,6 @@ fn scale_graphic(
     Ok(())
 }
 
-/// Rotates a point about the origin by the given cosine and sine; refuses a result outside the board range.
-///
-/// # Rules
-/// - Returns `Error::Invalid` when the turned point fails `Point::valid`.
-///
-/// # Dependencies
-/// - crates/geom/src/lib.rs
 fn rot(p: Point, cos: f64, sin: f64) -> Result<Point, Error> {
     let out = Point::new(p.x * cos - p.y * sin, p.x * sin + p.y * cos);
     if out.valid() {
@@ -3347,10 +2949,6 @@ fn rot(p: Point, cos: f64, sin: f64) -> Result<Point, Error> {
     }
 }
 
-/// Adds the arcsine of the clamped second argument, in degrees, to a facing angle.
-///
-/// # Rules
-/// - Returns `Error::Invalid` when the sum is not finite.
 fn turn(angle: f64, sin: f64) -> Result<f64, Error> {
     let turned = angle + sin.clamp(-1.0, 1.0).asin().to_degrees();
     if turned.is_finite() {
@@ -3360,15 +2958,10 @@ fn turn(angle: f64, sin: f64) -> Result<f64, Error> {
     }
 }
 
-/// Mirrors a point across the vertical axis by negating x.
 fn flip_x(p: Point) -> Point {
     Point::new(-p.x, p.y)
 }
 
-/// Mirrors a facing angle for vertical flip and normalizes into (-180, 180] degrees.
-///
-/// # Rules
-/// - Returns `Error::Invalid` when the normalized angle is not finite.
 fn flip_angle(angle: f64) -> Result<f64, Error> {
     let mut turned = 180.0 - angle;
     while turned > 180.0 {
@@ -3384,10 +2977,6 @@ fn flip_angle(angle: f64) -> Result<f64, Error> {
     }
 }
 
-/// Rotates every vertex of a graphic about the origin; updates text angle via `turn`.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 fn rotate_graphic(g: &mut Graphic, cos: f64, sin: f64) -> Result<(), Error> {
     match g {
         Graphic::Line { start, end, .. } => {
@@ -3421,10 +3010,6 @@ fn rotate_graphic(g: &mut Graphic, cos: f64, sin: f64) -> Result<(), Error> {
     Ok(())
 }
 
-/// Mirrors a graphic about the vertical axis; reverses polyline order and updates text angle.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 fn mirror_graphic(g: &mut Graphic) -> Result<(), Error> {
     match g {
         Graphic::Line { start, end, .. } => {
@@ -3461,10 +3046,6 @@ fn mirror_graphic(g: &mut Graphic) -> Result<(), Error> {
     Ok(())
 }
 
-/// Rotates every pin and unit graphic on a symbol by degrees about the origin.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 fn rotate_symbol(symbol: &mut SymbolDefinition, degrees: f64) -> Result<(usize, usize), Error> {
     let rad = degrees.to_radians();
     let (cos, sin) = (rad.cos(), rad.sin());
@@ -3480,10 +3061,6 @@ fn rotate_symbol(symbol: &mut SymbolDefinition, degrees: f64) -> Result<(usize, 
     Ok((symbol.pins.len(), count))
 }
 
-/// Mirrors every pin and unit graphic on a symbol about the vertical axis.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 fn mirror_symbol(symbol: &mut SymbolDefinition) -> Result<(usize, usize), Error> {
     for pin in symbol.pins.iter_mut() {
         pin.position = flip_x(pin.position);
@@ -3497,10 +3074,6 @@ fn mirror_symbol(symbol: &mut SymbolDefinition) -> Result<(usize, usize), Error>
     Ok((symbol.pins.len(), count))
 }
 
-/// Rotates every pad, drill offset, and graphic on a footprint by degrees about the origin.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 fn rotate_footprint(
     footprint: &mut FootprintDefinition,
     degrees: f64,
@@ -3522,10 +3095,6 @@ fn rotate_footprint(
     Ok((footprint.pads.len(), count))
 }
 
-/// Mirrors every pad, drill offset, and graphic on a footprint about the vertical axis.
-///
-/// # Dependencies
-/// - crates/library/src/lib.rs
 fn mirror_footprint(footprint: &mut FootprintDefinition) -> Result<(usize, usize), Error> {
     for pad in footprint.pads.iter_mut() {
         pad.position = flip_x(pad.position);

@@ -1,3 +1,5 @@
+# Source: NeoDen YY1 maker manual and one machine CSV export.
+# Retrieved: 2026-10-29
 id = "neoden-yy1"
 name = "NeoDen YY1"
 kind = "pick_place"

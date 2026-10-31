@@ -48,6 +48,7 @@ mod hover_affordance;
 mod icons;
 mod impedance_panel;
 mod keymap;
+mod layer_visibility;
 mod layers_tree;
 mod library;
 mod library_builtin;
@@ -118,6 +119,7 @@ mod reference_panel;
 mod route_drag;
 mod rules_fab;
 mod sheet_rows;
+mod schematic_port;
 mod showcase;
 mod sources;
 mod sourcing_panel;
@@ -491,6 +493,7 @@ fn tool_hint(tool: &Tool) -> String {
             t!("board.tool_hint.lmb_click_two_points_to", common = common)
         }
         Tool::Via => t!("board.tool_hint.lmb_via", common = common),
+        Tool::Port => t!("schematic.port.tool_hint", common = common),
     }
 }
 
@@ -1056,6 +1059,7 @@ enum Tool {
     DrawLayer,
     Measure,
     Via,
+    Port,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -1287,6 +1291,8 @@ pub struct App {
     active_page: Id,
     /// The net each page's Add power port picker holds.
     power_pick: std::collections::BTreeMap<Id, Id>,
+    /// Name the Port tool places on the next canvas click.
+    port_pick_name: String,
     pcb: Camera,
     plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
@@ -2051,6 +2057,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             renumber_open: false,
             active_page: 0,
             power_pick: std::collections::BTreeMap::new(),
+            port_pick_name: String::new(),
             page_left: 0.0,
             schematic: Camera {
                 mirror: false,
@@ -2457,11 +2464,25 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         self.layer_shown(&layers_tree::page_row_name(page, row))
     }
     fn layer_shown(&self, name: &str) -> bool {
-        !self
-            .preferences
-            .hidden_layers
-            .iter()
-            .any(|hidden| hidden == name)
+        !layer_visibility::hidden_contains_legacy(&self.preferences.hidden_layers, name)
+    }
+    pub(crate) fn board_sub_effective(
+        &self,
+        side_path: &str,
+        sub: layer_visibility::SubLayer,
+    ) -> bool {
+        layer_visibility::sub_effective(&self.preferences.hidden_layers, side_path, sub)
+    }
+    pub(crate) fn board_sub_effective_on_layer(
+        &self,
+        layer: pcbcraft_doc::Layer,
+        sub: layer_visibility::SubLayer,
+    ) -> bool {
+        let side = layer_visibility::side_path_for_layer(
+            self.project.copper_layer_count(),
+            layer,
+        );
+        self.board_sub_effective(&side, sub)
     }
     fn stackup_section(&mut self, ui: &mut egui::Ui) {
         ui.label(
@@ -6939,6 +6960,11 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.draw_tool_options(ui));
+                    }
+                    if matches!(self.tool, Tool::Port) {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.port_tool_options(ui));
                     }
                     if let Some(page) = self.hovered_page_preview() {
                         self.page_properties(ui, page, true);
