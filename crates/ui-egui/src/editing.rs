@@ -1,5 +1,5 @@
 //! Everyday editing gestures on the canvas: picking several objects at once
-//! (drag box, shift-click), the pick filters, the measure tool, the text
+//! (drag box, shift-click), the measure tool, the text
 //! clipboard shortcuts and track cleanup. Everything here is reachable by
 //! direct manipulation and calls the typed engine commands underneath.
 
@@ -14,48 +14,6 @@ const MEASURE_SNAP: f64 = 10.0;
 /// How far each repeated paste steps away from the copied objects, in mm.
 const PASTE_STEP: f64 = 5.0;
 
-/// The four kinds of object the pick filter chips switch on and off.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Kind {
-    Part,
-    Copper,
-    Graphic,
-    Text,
-    Other,
-}
-
-/// Which kinds of object a click or a drag box may pick up.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) struct SelectionFilter {
-    pub parts: bool,
-    pub copper: bool,
-    pub graphics: bool,
-    pub text: bool,
-}
-
-impl Default for SelectionFilter {
-    fn default() -> Self {
-        Self {
-            parts: true,
-            copper: true,
-            graphics: true,
-            text: true,
-        }
-    }
-}
-
-impl SelectionFilter {
-    pub(super) fn allows(self, kind: Kind) -> bool {
-        match kind {
-            Kind::Part => self.parts,
-            Kind::Copper => self.copper,
-            Kind::Graphic => self.graphics,
-            Kind::Text => self.text,
-            Kind::Other => true,
-        }
-    }
-}
-
 /// Everything the editing gestures remember between frames.
 #[derive(Default)]
 pub(super) struct EditState {
@@ -63,7 +21,8 @@ pub(super) struct EditState {
     pub extra: Vec<Id>,
     /// The Import, Save as and Export dialog (see file_dialogs.rs).
     pub dialog: crate::file_dialogs::DialogState,
-    pub filter: SelectionFilter,
+pub filter: SelectionFilter,
+    pub dialog: crate::file_dialogs::DialogState,
     pub box_from: Option<Point>,
     pub box_to: Option<Point>,
     pub box_extend: bool,
@@ -141,34 +100,16 @@ impl App {
         ids
     }
 
-    pub(super) fn kind_of(&self, id: Id) -> Kind {
-        let board = &self.project.board;
-        if self.project.component(id).is_some() || self.project.footprint(id).is_some() {
-            Kind::Part
-        } else if board.tracks.iter().any(|t| t.id == id)
-            || board.vias.iter().any(|v| v.id == id)
-            || board.zones.iter().any(|z| z.id == id)
-        {
-            Kind::Copper
-        } else if self.project.graphics.iter().any(|g| g.id == id)
-            || board.cutouts.iter().any(|c| c.id == id)
-            || board.holes.iter().any(|h| h.id == id)
-        {
-            Kind::Graphic
-        } else if board.texts.iter().any(|t| t.id == id)
-            || self.project.labels.iter().any(|l| l.id == id)
-        {
-            Kind::Text
-        } else {
-            Kind::Other
-        }
-    }
-
+    /// True when the Layers tree has not locked the layer `id` sits on, so a
+    /// click or a drag box may pick it up.
+    ///
+    /// # Dependencies
+    /// - `crates/ui-egui/src/layers_tree.rs` `is_locked` decides what a lock covers.
     pub(super) fn id_allowed(&self, id: Id) -> bool {
-        self.edit.filter.allows(self.kind_of(id))
+        !crate::layers_tree::is_locked(&self.project, &self.tree.locked, id)
     }
 
-    /// The object under the pointer, skipping kinds the filter chips turned off.
+    /// The object under the pointer, skipping anything on a locked Layers tree row.
     pub(super) fn pick_filtered(&self, pos: Point, zoom: f32) -> Option<Id> {
         self.pick_object(pos, zoom)
             .filter(|id| self.id_allowed(*id))
@@ -234,7 +175,7 @@ impl App {
     }
 
     /// Every object on this tab whose box touches the world rectangle and
-    /// that the filter chips allow.
+    /// that no locked Layers tree row covers.
     pub(super) fn ids_in_rect(&self, a: Point, b: Point) -> Vec<Id> {
         let (lo, hi) = (
             Point::new(a.x.min(b.x), a.y.min(b.y)),
@@ -265,6 +206,12 @@ impl App {
         candidates
             .into_iter()
             .filter(|id| self.id_allowed(*id))
+            .filter(|id| !crate::layers_tree::is_locked(&self.project, &self.tree.locked, *id))
+            .filter(|id| !self.sheet_row_hidden(*id))
+            .filter(|id| {
+                self.tab != Tab::Schematic
+                    || self.project.on_schematic_page(self.schematic_page(), *id)
+            })
             .filter(|id| {
                 self.bounds_of(*id)
                     .is_some_and(|(l, h)| l.x <= hi.x && h.x >= lo.x && l.y <= hi.y && h.y >= lo.y)

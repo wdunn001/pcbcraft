@@ -1,3 +1,23 @@
+//! Path point generation for graphics display.
+//!
+//! Converts Graphic enum variants into `Vec<Point>` sequences suitable for
+//! rendering. Circles and arcs are tessellated to at most 129 points; lines,
+//! rectangles, and polylines pass through their original vertices.
+//!
+//! # Rules
+//! - Invalid graphics (validate() fails) produce empty paths
+//! - Circles are always closed (first == last point)
+//! - Arcs pass exactly through their given midpoint
+//! - Degenerate geometry falls back to minimal point sets
+//!
+//! # Dependencies
+//! - crates/library/src/lib.rs Graphic enum and its validate() method
+//! - crates/geom/src/lib.rs Point type
+//!
+//! # Do not
+//! - Change tessellation counts without updating doc and tests
+//! - Add text glyph generation here (handled by renderer)
+
 use crate::Graphic;
 use pcbcraft_geom::Point;
 use std::f64::consts::TAU;
