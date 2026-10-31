@@ -248,7 +248,7 @@ impl App {
     }
 
     /// The supplier list: one editable row each, then a row to add another.
-    fn supplier_rows(&mut self, ui: &mut egui::Ui, c: &pcbcraft_doc::Component) {
+pub(crate) fn supplier_rows(&mut self, ui: &mut egui::Ui, c: &pcbcraft_doc::Component) {
         let t = theme::tokens(ui.ctx());
         ui.add_space(4.0);
         ui.label(fonts::text(fonts::Role::Body, t!("props.sourcing.suppliers")).color(t.text))

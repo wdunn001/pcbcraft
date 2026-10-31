@@ -21,10 +21,11 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-    bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
-    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
-    pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
-    stats_text, step_board, svg, vrml_board,
+    PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, drill_chart_csv, dxf_board,
+    gencad_text, gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text,
+    netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
+    postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, vrml_board,
+    testpoints_csv
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -112,6 +113,42 @@ fn nibble(value: u8) -> char {
     }
 }
 
+/// The placement artifact: the classic file, or a bundled flavour when the
+/// artifact settings name one (`flavour`, optionally `variant`).
+///
+/// # Rules
+/// - No `flavour` setting keeps the output of `placement_text` exactly.
+/// - One file comes back as text; a split flavour comes back as named files.
+///
+/// # Dependencies
+/// - `crates/io/src/placement_flavour.rs`
+///
+/// # Do not
+/// - Read a flavour from anywhere but the bundled table here; user records go
+///   through `placement_flavoured` directly.
+fn placement_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let Some(id) = artifact.settings.get("flavour").and_then(|v| v.as_str()) else {
+        return Ok(GeneratedOutput::Text(placement_text(p)?));
+    };
+    let flavour = bundled_placement_flavours()?
+        .into_iter()
+        .find(|f| f.id == id)
+        .ok_or_else(|| format!("no placement flavour named {id}"))?;
+    let options = PlacementOptions {
+        variant: artifact
+            .settings
+            .get("variant")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        offsets: Vec::new(),
+    };
+    let mut files = placement_flavoured(p, &flavour, &options)?.files;
+    if files.len() == 1 {
+        return Ok(GeneratedOutput::Text(files.remove(0).1));
+    }
+    Ok(GeneratedOutput::Files(files.into_iter().collect()))
+}
+
 fn settings_view(settings: &serde_json::Value) -> &str {
     settings
         .get("view")
@@ -165,6 +202,7 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "board.step" => text_output(step_board(p)?),
         "pcb.dsn" => text_output(specctra_dsn(p)?),
         "test.brd" => text_output(ipc356_netlist(p)?),
+        "testpoints.csv" => text_output(testpoints_csv(p)?),
         "board.gencad" => text_output(gencad_text(p)?),
         "netlist.csv" => text_output(hyperlynx_csv(p)?),
         "plot-report.csv" => text_output(plot_csv(p)?),
@@ -197,7 +235,7 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
     }
     match artifact.kind.as_str() {
         "bom" => Ok(GeneratedOutput::Text(bom_csv(p, &[], None)?)),
-        "placement" => Ok(GeneratedOutput::Text(placement_text(p)?)),
+        "placement" => placement_artifact(p, artifact),
         "drill_map" => Ok(GeneratedOutput::Text(drill_chart_csv(p)?)),
         "fab_drawing" => Ok(GeneratedOutput::Bytes(pdf_document(
             p,
@@ -357,6 +395,61 @@ mod generate_tests {
             return Err("expected a file map".into());
         };
         assert_eq!(map, gerber_files(&project)?);
+        Ok(())
+    }
+
+    fn placement_artifact_with(settings: serde_json::Value) -> Artifact {
+        Artifact {
+            id: 2,
+            name: "placement".into(),
+            kind: "placement".into(),
+            layers: vec![],
+            settings,
+            machine: None,
+            path: "placement.txt".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        }
+    }
+
+    #[test]
+    fn placement_artifact_without_a_flavour_keeps_the_classic_file() -> Result<(), String> {
+        let project = Project::default();
+        let out = generate(&project, &placement_artifact_with(serde_json::json!({})))?;
+        assert_eq!(out, GeneratedOutput::Text(placement_text(&project)?));
+        Ok(())
+    }
+
+    #[test]
+    fn placement_artifact_with_a_flavour_writes_that_flavour() -> Result<(), String> {
+        let project = Project::default();
+        let one = generate(
+            &project,
+            &placement_artifact_with(serde_json::json!({"flavour": "cpl_mm"})),
+        )?;
+        assert_eq!(
+            one,
+            GeneratedOutput::Text("Designator,Mid X,Mid Y,Rotation,Layer\n".into())
+        );
+        let split = generate(
+            &project,
+            &placement_artifact_with(serde_json::json!({"flavour": "cpl_inch"})),
+        )?;
+        let GeneratedOutput::Files(map) = split else {
+            return Err("a split flavour returns files".into());
+        };
+        assert_eq!(
+            map.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["placement-bottom.csv", "placement-top.csv"]
+        );
+        assert!(
+            generate(
+                &project,
+                &placement_artifact_with(serde_json::json!({"flavour": "nope"})),
+            )
+            .is_err()
+        );
         Ok(())
     }
 }

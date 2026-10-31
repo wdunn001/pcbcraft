@@ -2628,6 +2628,7 @@ mod library_render_tests {
             fields: vec![],
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 2,
             component: 1,
             position: Point::new(5.0, 5.0),

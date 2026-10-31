@@ -22,7 +22,7 @@ pub(super) struct Browser {
     pub(super) quality: super::library_quality::Quality,
 }
 impl Browser {
-    fn request(&mut self, ctx: &egui::Context, name: &str, args: Value) {
+    pub(super) fn request(&mut self, ctx: &egui::Context, name: &str, args: Value) {
         if self.pending.is_some() {
             return;
         }
@@ -59,7 +59,7 @@ impl Browser {
         self.preview = None;
         self.request(ctx,"library.search",json!({"path":self.path,"kind":if self.kind {"footprint"} else {"symbol"},"query":self.query,"limit":100}));
     }
-    fn poll(&mut self) {
+    pub(super) fn poll(&mut self) {
         let response = self.pending.as_ref().and_then(|rx| rx.try_recv().ok());
         if let Some((name, result)) = response {
             self.pending = None;
