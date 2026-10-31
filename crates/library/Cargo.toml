@@ -6,36 +6,14 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-pcbcraft-clock.workspace = true
 pcbcraft-geom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-web-time = "1"
-
-[features]
-default = []
-datasheet-sidecar = ["dep:hayro", "dep:hayro-syntax", "dep:hayro-interpret"]
-
-[dependencies.hayro]
-version = "0.8"
-optional = true
-
-[dependencies.hayro-syntax]
-version = "0.8"
-optional = true
-
-[dependencies.hayro-interpret]
-version = "0.8"
-optional = true
+toml.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-
-[features]
-default = []
-# Live distributor HTTP; off by default so only recorded answers run in normal builds.
-distributor-network = []
 
 [lints]
 workspace = true

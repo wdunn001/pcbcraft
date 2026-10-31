@@ -23047,6 +23047,78 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn library_footprint_model_auto_align_recovers_pad_shift() -> Result<(), Error> {
+        let mut s = Session::default();
+        let pitch = 3.0;
+        let half = pitch / 2.0;
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "AlignChip".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![
+                pcbcraft_library::FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(-half, 0.0),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(0.5, 0.5),
+                    layers: vec!["F.Cu".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+                pcbcraft_library::FootprintPad {
+                    number: "2".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(half, 0.0),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(0.5, 0.5),
+                    layers: vec!["F.Cu".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+            ],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_model",
+            json!({"name":"AlignChip","path":"chip.wrl"}),
+            None,
+        )?;
+        let mesh = pcbcraft_io::shift_mesh(&pcbcraft_io::test_chip_mesh(pitch), 0.3, -0.15, 0.0);
+        let flat: Vec<f64> = mesh.positions.iter().flat_map(|p| p.iter().copied()).collect();
+        let out = s.execute(
+            "library.footprint.model_auto_align",
+            json!({
+                "name":"AlignChip",
+                "positions": flat,
+                "indices": mesh.indices,
+                "apply": true,
+            }),
+            None,
+        )?;
+        let residual = out["result"]["residual_mm"].as_f64().ok_or_else(missing)?;
+        assert!(residual < 0.05, "residual {residual}");
+        assert_eq!(out["result"]["coarse"].as_bool(), Some(false));
+        Ok(())
+    }
+    #[test]
     fn specctra_session_files_import_net_assignments() -> Result<(), Error> {
         let mut s = Session::default();
         for (reference, x) in [("R1", 10.0), ("R2", 20.0)] {
@@ -29452,6 +29524,52 @@ mod tests {
             "pad spacing cannot honour a 5 mm coupling gap"
         );
         assert_eq!(s.project.board.tracks, tracks_before);
+        Ok(())
+    }
+
+    #[test]
+    fn tune_skew_brings_pair_inside_tolerance_and_undo_restores() -> Result<(), Error> {
+        let gap = 0.3;
+        let width = 0.2;
+        let mut s = Session::default();
+        let (fp_j1, fp_j2, net_p, net_n) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":gap,"length_tolerance":0.5}),
+            None,
+        )?;
+        s.execute(
+            "track.route_pair",
+            json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            }),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net_p,"start":{"x":50.0,"y":20.0},"end":{"x":55.0,"y":20.0},"width":width}),
+            None,
+        )?;
+        assert!(
+            drc_codes(&mut s)?.contains(&"diffpair_skew".to_string()),
+            "extra positive-side copper should exceed the tolerance"
+        );
+        let tracks_before = s.project.board.tracks.clone();
+        s.execute("track.tune_skew", json!({"name":"USB"}), None)?;
+        assert!(
+            !drc_codes(&mut s)?.contains(&"diffpair_skew".to_string()),
+            "tuning should bring skew inside tolerance"
+        );
+        s.undo()?;
+        assert_eq!(s.project.board.tracks, tracks_before);
+        assert!(
+            drc_codes(&mut s)?.contains(&"diffpair_skew".to_string()),
+            "undo should restore the pre-tune skew finding"
+        );
         Ok(())
     }
 

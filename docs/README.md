@@ -20,6 +20,7 @@
 | [library-tab.md](library-tab.md) | The Library tab: part pages, vendor prices, 3D model alignment, compare |
 | [validation.md](validation.md) | How the first subset was verified |
 | [kicad-libraries.md](kicad-libraries.md) | Library formats, limits, fixture licenses |
+| [samtec-library.md](samtec-library.md) | Samtec connector catalog and first-slice series |
 | [agents/](agents/) | Researcher, enricher, worker, reviewer briefs |
 
 Repo root: [README.md](../README.md), [ROADMAP.md](../ROADMAP.md),
