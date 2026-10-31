@@ -182,6 +182,12 @@ pub struct SymbolUnitPlacement {
 fn passive() -> String {
     "passive".into()
 }
+fn default_decoupling_max_mm() -> f64 {
+    3.0
+}
+fn is_default_decoupling_mm(v: &f64) -> bool {
+    v.is_finite() && (*v - 3.0).abs() < 1e-9
+}
 /// Pin electrical types recognised by ERC and schematic validation.
 pub const PIN_ELECTRICAL_TYPES: [&str; 12] = [
     "bidirectional",
@@ -3444,6 +3450,15 @@ pub struct Project {
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub meta: BTreeMap<String, String>,
+    /// Maximum pad-centre distance in millimetres from an IC power pin to a
+    /// decoupling capacitor on the same net when that IC has a board footprint.
+    /// Schematic-only designs ignore distance and only require a capacitor on
+    /// the net.
+    #[serde(
+        default = "default_decoupling_max_mm",
+        skip_serializing_if = "is_default_decoupling_mm"
+    )]
+    pub decoupling_max_mm: f64,
     /// Named numeric values commands may reference by name instead of
     /// retyping a number, keyed by name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -3618,6 +3633,7 @@ impl Default for Project {
             locked_objects: vec![],
             reference_images: vec![],
             meta: Default::default(),
+            decoupling_max_mm: default_decoupling_max_mm(),
             parameters: Default::default(),
             bindings: vec![],
             rule_severity: Default::default(),
@@ -4768,6 +4784,12 @@ self.validate_manufacturers()?;
         }
         if !Self::UNITS.contains(&self.unit.as_str()) {
             return Err("project unit must be mm, mil or inch".into());
+        }
+        if !self.decoupling_max_mm.is_finite()
+            || self.decoupling_max_mm < 0.5
+            || self.decoupling_max_mm > 50.0
+        {
+            return Err("decoupling distance must be 0.5 to 50 mm".into());
         }
         if self.panel.enabled {
             self.panel.validate_fields()?;
