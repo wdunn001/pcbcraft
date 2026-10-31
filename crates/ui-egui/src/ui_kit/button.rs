@@ -96,11 +96,11 @@ pub struct Look<'a> {
     pub label: &'a str,
 }
 
-fn brighten(c: Color32) -> Color32 {
+pub(crate) fn brighten(c: Color32) -> Color32 {
     c.lerp_to_gamma(Color32::WHITE, 0.10)
 }
 
-fn darken(c: Color32) -> Color32 {
+pub(crate) fn darken(c: Color32) -> Color32 {
     c.lerp_to_gamma(Color32::BLACK, 0.08)
 }
 

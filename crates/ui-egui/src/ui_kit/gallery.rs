@@ -233,11 +233,9 @@ pub fn type_scale(ui: &mut egui::Ui, state: &GalleryState) {
     ];
     for (name, role, sample) in rows {
         ui.horizontal(|ui| {
-            ui.allocate_ui_with_layout(
-                Vec2::new(200.0, 28.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| ui.label(fonts::caption(name).color(t.muted)),
-            );
+            cell(ui, 200.0, 28.0, |ui| {
+                ui.label(fonts::caption(name).color(t.muted));
+            });
             ui.label(fonts::text(role, sample));
         });
         ui.add_space(4.0);
@@ -245,6 +243,18 @@ pub fn type_scale(ui: &mut egui::Ui, state: &GalleryState) {
     ui.add_space(8.0);
     ui.label(fonts::section_caption("General").color(t.muted));
     ui.label(fonts::caption("Section caption: 11, 600, uppercase").color(t.muted));
+}
+
+/// A fixed-size, vertically centred cell, so columns line up whatever is inside.
+fn cell(ui: &mut egui::Ui, width: f32, height: f32, f: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(
+        Vec2::new(width, height),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.set_min_size(Vec2::new(width, height));
+            f(ui);
+        },
+    );
 }
 
 const STATES: [(&str, State); 5] = [
@@ -257,33 +267,25 @@ const STATES: [(&str, State); 5] = [
 
 fn state_header(ui: &mut egui::Ui, t: &Tokens) {
     ui.horizontal(|ui| {
-        ui.allocate_space(Vec2::new(96.0, 20.0));
+        cell(ui, 96.0, 20.0, |_| {});
         for (name, _) in STATES {
-            ui.allocate_ui_with_layout(
-                Vec2::new(144.0, 20.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| ui.label(fonts::section_caption(name).color(t.muted)),
-            );
+            cell(ui, 144.0, 20.0, |ui| {
+                ui.label(fonts::section_caption(name).color(t.muted));
+            });
         }
     });
 }
 
 fn state_row(ui: &mut egui::Ui, t: &Tokens, name: &str, look: Look<'_>) {
     ui.horizontal(|ui| {
-        ui.allocate_ui_with_layout(
-            Vec2::new(96.0, 36.0),
-            egui::Layout::left_to_right(egui::Align::Center),
-            |ui| ui.label(fonts::caption(name).color(t.muted)),
-        );
+        cell(ui, 96.0, 36.0, |ui| {
+            ui.label(fonts::caption(name).color(t.muted));
+        });
         for (_, state) in STATES {
-            ui.allocate_ui_with_layout(
-                Vec2::new(144.0, 36.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.add_space(4.0);
-                    button::static_button(ui, look, state);
-                },
-            );
+            cell(ui, 144.0, 36.0, |ui| {
+                ui.add_space(4.0);
+                button::static_button(ui, look, state);
+            });
         }
     });
 }

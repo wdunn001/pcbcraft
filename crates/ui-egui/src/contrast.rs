@@ -42,6 +42,7 @@ pub(crate) fn contrast_ratio(a: Color32, b: Color32) -> f64 {
 mod tests {
     use super::*;
     use crate::palette::{ThemeColours, palette, visuals};
+    use crate::theme::{Tokens, composite};
 
     /// One foreground against one background with the minimum it must reach.
     struct Pair {
@@ -395,5 +396,109 @@ mod tests {
             names.contains(&"front-copper-on-board".to_string()),
             "{names:?}"
         );
+    }
+
+    /// Every role pair of the design tokens for one theme, with its minimum.
+    ///
+    /// Why: the design's colour roles are checked pair by pair, so a changed token
+    /// that breaks reading fails here, not in front of a user.
+    fn token_pairs(t: &Tokens) -> Vec<Pair> {
+        use crate::ui_kit::button::{brighten, darken};
+        let mut pairs = Vec::new();
+        let mut add = |name: &'static str, fg: Color32, bg: Color32, min: f64| {
+            pairs.push(Pair { name, fg, bg, min });
+        };
+        for bg in [t.ground, t.panel, t.raised, t.hover] {
+            add("text-on-surface", t.text, bg, TEXT);
+            add("muted-on-surface", t.muted, bg, TEXT);
+            add("copper-on-surface", t.copper, bg, TEXT);
+            add("mask-on-surface", t.mask, bg, TEXT);
+            add("gold-on-surface", t.gold, bg, TEXT);
+            add("cyan-on-surface", t.cyan, bg, TEXT);
+            add("red-on-surface", t.red, bg, TEXT);
+        }
+        add("onacc-on-copper", t.onacc, t.copper, TEXT);
+        add("onacc-on-copper-hover", t.onacc, brighten(t.copper), TEXT);
+        add("onacc-on-copper-active", t.onacc, darken(t.copper), TEXT);
+        for bg in [t.panel, t.ground] {
+            add(
+                "copper-on-copper-tint",
+                t.copper,
+                composite(t.copper_tint, bg),
+                TEXT,
+            );
+            add(
+                "gold-on-gold-tint",
+                t.gold,
+                composite(t.gold_tint, bg),
+                TEXT,
+            );
+            add("red-on-red-tint", t.red, composite(t.red_tint, bg), TEXT);
+            add(
+                "mask-on-mask-tint",
+                t.mask,
+                composite(t.mask_tint, bg),
+                TEXT,
+            );
+            add(
+                "text-on-copper-tint",
+                t.text,
+                composite(t.copper_tint, bg),
+                TEXT,
+            );
+        }
+        for bg in [t.ground, t.panel, t.raised] {
+            add("edge-on-surface", t.edge, bg, NON_TEXT);
+        }
+        add("copper-bar-on-panel", t.copper, t.panel, NON_TEXT);
+        add("focus-ring-on-panel", t.text, t.panel, NON_TEXT);
+        add("focus-ring-on-ground", t.text, t.ground, NON_TEXT);
+        pairs
+    }
+
+    /// The pairs of `t` that fall below their minimum, as readable lines.
+    fn token_failures(label: &str, t: &Tokens) -> Vec<String> {
+        token_pairs(t)
+            .into_iter()
+            .filter_map(|p| {
+                let ratio = contrast_ratio(p.fg, p.bg);
+                (ratio < p.min)
+                    .then(|| format!("{label}/{}: {ratio:.2}:1, needs {:.1}:1", p.name, p.min))
+            })
+            .collect()
+    }
+
+    /// Both shipped themes pass every token pair.
+    #[test]
+    fn every_design_token_pair_meets_contrast_in_both_themes() {
+        let mut failures = token_failures("dark", &Tokens::DARK);
+        failures.extend(token_failures("light", &Tokens::LIGHT));
+        assert!(
+            failures.is_empty(),
+            "token pairs below the minimum:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    /// A deliberately bad token turns the gate red, in either text or non-text pairs.
+    #[test]
+    fn a_deliberately_bad_token_is_caught() {
+        let mut bad = Tokens::DARK;
+        bad.muted = Color32::from_rgb(60, 80, 72);
+        let lines = token_failures("bad", &bad);
+        assert!(
+            lines.iter().any(|l| l.contains("muted-on-surface")),
+            "{lines:?}"
+        );
+        let mut bad_edge = Tokens::LIGHT;
+        bad_edge.edge = bad_edge.panel;
+        let lines = token_failures("bad", &bad_edge);
+        assert!(
+            lines.iter().any(|l| l.contains("edge-on-surface")),
+            "{lines:?}"
+        );
+        let mut bad_tint = Tokens::DARK;
+        bad_tint.copper = Color32::from_rgb(90, 60, 40);
+        assert!(!token_failures("bad", &bad_tint).is_empty());
     }
 }
