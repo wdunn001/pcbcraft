@@ -294,6 +294,9 @@ pub struct Component {
     pub library_symbol: Option<LibrarySymbol>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library_footprint: Option<LibraryFootprint>,
+    /// Project-library part this component references, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part: Option<Id>,
     /// Free-form component properties, such as a datasheet link, a manufacturer
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -3787,6 +3790,8 @@ pub struct ProjectLibrary {
     pub notices: Vec<String>,
     pub symbols: Vec<pcbcraft_library::SymbolDefinition>,
     pub footprints: Vec<pcbcraft_library::FootprintDefinition>,
+    #[serde(default)]
+    pub parts: Vec<pcbcraft_library::Part>,
 }
 impl ProjectLibrary {
     pub fn validate(&self) -> Result<(), String> {
@@ -3795,6 +3800,9 @@ impl ProjectLibrary {
         }
         if self.symbols.len() > 256 || self.footprints.len() > 256 {
             return Err("project library supports at most 256 symbols and 256 footprints".into());
+        }
+        if self.parts.len() > pcbcraft_library::MAX_PARTS {
+            return Err("project library supports at most 256 parts".into());
         }
         let mut names = BTreeSet::new();
         for s in &self.symbols {
@@ -3808,6 +3816,17 @@ impl ProjectLibrary {
             f.validate().map_err(|e| e.to_string())?;
             if !names.insert(&f.name) {
                 return Err("duplicate library footprint name".into());
+            }
+        }
+        names.clear();
+        let mut ids = BTreeSet::new();
+        for part in &self.parts {
+            part.validate().map_err(|e| e.to_string())?;
+            if !ids.insert(part.id) {
+                return Err("duplicate library part id".into());
+            }
+            if !names.insert(&part.mpn) {
+                return Err("duplicate library part MPN".into());
             }
         }
         Ok(())
@@ -4977,6 +4996,7 @@ impl Project {
             .chain(self.board.user_layers.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
             .chain(self.artifacts.iter().map(|x| x.id))
+            .chain(self.library.parts.iter().map(|x| x.id))
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
@@ -5607,6 +5627,11 @@ c.compliance.validate()?;
                     || !field_keys.insert(f.key.as_str())
                 {
                     return Err("invalid component field".into());
+                }
+            }
+            if let Some(part_id) = c.part {
+                if !self.library.parts.iter().any(|p| p.id == part_id) {
+                    return Err("component references an unknown part".into());
                 }
             }
             if let Some(symbol) = &c.library_symbol {
@@ -7341,6 +7366,18 @@ mod art_tests {
         );
         p.board.holes[0].end = Some(Point::new(70.0, 5.0));
         assert!(p.validate().is_err(), "a slot spans at most 50 mm");
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_project_json_loads_with_empty_parts_vector() -> Result<(), String> {
+        let lib: ProjectLibrary = serde_json::from_value(serde_json::json!({
+            "notices": [],
+            "symbols": [],
+            "footprints": []
+        }))
+        .map_err(|e| e.to_string())?;
+        assert!(lib.parts.is_empty());
         Ok(())
     }
 }
