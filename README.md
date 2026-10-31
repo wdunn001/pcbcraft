@@ -4,7 +4,7 @@ One native window for schematic, board layout, libraries and checks. Every edit
 goes through a typed engine command. The desktop, the CLI and MCP call the same
 commands.
 
-GPL-3.0-or-later. UI toolkit: pinned `craft-ui` from `storytold/craft-libs`.
+GPL-3.0-or-later. UI toolkit: pinned `craft-ui` from `wdunn001/craft-libs`.
 
 This is a working foundation: a schematic, assigned footprints, basic routing,
 checks, and fabrication output. It is not a finished production suite. Open

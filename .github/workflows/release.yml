@@ -63,10 +63,12 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/build-dist.yml
+    secrets: inherit
     with:
       version: ${{ needs.verify.outputs.tag }}
       ref: refs/tags/${{ needs.verify.outputs.tag }}
       retention-days: 7
+      sign: true
 
   source:
     name: Source archives
@@ -128,7 +130,7 @@ jobs:
           for f in "pcbcraft-$TAG-"*; do
             case "$f" in
               *-source.tar.gz | *-source-vendored.tar.gz) ;;
-              *.tar.gz | *.zip | *.dmg | *.msi)
+*.tar.gz | *.zip | *.dmg | *.msi | *.AppImage | *.AppImage.zsync | *.deb | *.rpm | *.flatpak | *.snap)
                 cp -- "$f" "pcbcraft-${f#"pcbcraft-$TAG-"}" ;;
             esac
           done
@@ -155,8 +157,9 @@ jobs:
             echo
             git log --no-merges --reverse --format='- %s (%h)' "$range"
             echo
-            echo "Binaries are not code-signed yet. Verify downloads against SHA256SUMS.txt."
+echo "Binaries are not code-signed yet. Verify downloads against SHA256SUMS.txt."
             echo "Windows MSI and exe builds are unsigned; SmartScreen may warn on first launch until Authenticode signing."
+            echo "When signing secrets are configured, Windows and macOS builds are signed in CI. Verify downloads against SHA256SUMS.txt."
             echo "The source archives are the complete corresponding source under GPL-3.0-or-later."
           } > notes.md
           cat notes.md
