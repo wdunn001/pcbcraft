@@ -10339,6 +10339,7 @@ mod tests {
             }),
             library_footprint: None,
             fields: vec![],
+            sourcing: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 2,
