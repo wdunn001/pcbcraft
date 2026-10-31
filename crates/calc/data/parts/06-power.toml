@@ -1,0 +1,84 @@
+# Glossary part 06-power
+schema = 1
+
+[[term]]
+id = "ldo"
+term = "Low dropout regulator"
+category = "power"
+short = "Linear regulator that needs only a small headroom above output."
+long = "LDOs are quiet but dissipate excess input voltage as heat. Thermal pads and copper area set safe current."
+synonyms = ["LDO"]
+related = ["power_rail", "thermal"]
+units = ""
+in_pcbcraft = []
+search = "ldo linear regulator dropout"
+calculator = "ldo_thermal"
+source = "Power design practice"
+
+[[term]]
+id = "buck"
+term = "Buck converter"
+category = "power"
+short = "Switching regulator that steps voltage down efficiently."
+long = "Bucks need careful loop layout around the switch node. Inductor selection and ripple current set component stress."
+synonyms = ["step down"]
+related = ["power_rail", "inductor"]
+units = ""
+in_pcbcraft = []
+search = "buck switch mode step down"
+source = "Power design practice"
+
+[[term]]
+id = "power_plane"
+term = "Power plane"
+category = "power"
+short = "Solid copper tied to a supply net across a layer."
+long = "Planes spread current and lower inductance. Splits create slots that force return paths to wander."
+synonyms = ["Vcc plane"]
+related = ["plane", "decoupling"]
+units = ""
+in_pcbcraft = ["zone.place"]
+search = "power plane vcc split"
+source = "Power integrity practice"
+
+[[term]]
+id = "thermal"
+term = "Thermal management"
+category = "power"
+short = "Moving heat from hot parts into the board and air."
+long = "Copper area, vias and heat sinks keep junction temperatures safe. Regulators and power switches need the most attention."
+synonyms = ["heat sinking"]
+related = ["ldo", "via"]
+units = "C"
+in_pcbcraft = []
+search = "thermal heat sink junction temperature"
+calculator = "ldo_thermal"
+source = "Thermal design practice"
+
+[[term]]
+id = "sequencing"
+term = "Power sequencing"
+category = "power"
+short = "Order in which rails rise and fall during power on and off."
+long = "Sequencing protects loads with multiple supplies. Enable pins and supervisors enforce delays between rails."
+synonyms = ["rail order"]
+related = ["power_rail", "reset"]
+units = ""
+in_pcbcraft = []
+search = "sequencing enable order rail"
+source = "Power design practice"
+
+[[term]]
+id = "battery_life"
+term = "Battery life estimate"
+category = "power"
+short = "Runtime from stored energy divided by average load current."
+long = "Sleep intervals dominate IoT life. Measure active and sleep current separately then weight by duty cycle."
+synonyms = ["runtime"]
+related = ["quiescent_current"]
+units = "h"
+in_pcbcraft = []
+search = "battery life runtime sleep current"
+calculator = "battery_life"
+source = "Power design practice"
+
