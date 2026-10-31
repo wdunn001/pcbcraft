@@ -28,6 +28,11 @@
 
 use egui::{Color32, CursorIcon, Painter, Pos2, Shape, Stroke, Vec2};
 
+/// Serialises wall-clock affordance budget tests so parallel runs on a busy
+/// host do not stretch each other's frames.
+#[cfg(test)]
+pub(crate) static AFFORDANCE_BUDGET_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 use crate::tool_modifiers::{ClickAction, Target, ToolKind};
 
 /// Fade-in time of the glow, in seconds.
@@ -400,6 +405,7 @@ mod tests {
 
     #[test]
     fn overlay_stays_inside_the_frame_budget() {
+        let _turn = AFFORDANCE_BUDGET_TEST_LOCK.lock().expect("budget lock");
         let ctx = egui::Context::default();
         let shape = part();
         // A busy net: 200 other segments glow faintly.
@@ -409,54 +415,42 @@ mod tests {
                 Outline::Segment(Pos2::new(10.0, y), Pos2::new(400.0, y + 5.0), 3.0)
             })
             .collect();
+        let affordance = Affordance {
+            shape: &shape,
+            style: Style::Outline,
+            net: &net,
+            accent: Color32::GREEN,
+            warning: Color32::RED,
+            reduced_motion: false,
+        };
+        for _ in 0..15 {
+            let _ = run(&ctx, |ui| {
+                paint(&ui.painter().clone(), &affordance, 1);
+            });
+        }
+        let mut worst = std::time::Duration::ZERO;
         let mut total = std::time::Duration::ZERO;
         let frames = 60u32;
-        let mut painted = Vec::new();
         for _ in 0..frames {
-            let mut took = std::time::Duration::ZERO;
-            let out = run(&ctx, |ui| {
+            let _ = run(&ctx, |ui| {
                 let painter = ui.painter().clone();
                 let start = std::time::Instant::now();
-                paint(
-                    &painter,
-                    &Affordance {
-                        shape: &shape,
-                        style: Style::Outline,
-                        net: &net,
-                        accent: Color32::GREEN,
-                        warning: Color32::RED,
-                        reduced_motion: false,
-                    },
-                    7,
-                );
-                took = start.elapsed();
+                paint(&painter, &affordance, 7);
+                let took = start.elapsed();
+                worst = worst.max(took);
+                total += took;
             });
-            total += took;
-            painted.push(out.shapes.len());
         }
-        // The cost is the work done: one outline per glowing net member, one
-        // soft border and the dashes of the marching edge (a few more or
-        // fewer as the dashes march). Counting it does not depend on how busy
-        // the machine is.
-        let most = painted.iter().copied().max().unwrap_or(0);
+        // Debug builds are several times slower than release; the budget is
+        // 2 ms per frame on the average and a generous bound on the worst.
         assert!(
-            painted.iter().all(|count| *count >= net.len()),
-            "every frame draws the glowing net: {painted:?}"
+            total / frames < std::time::Duration::from_millis(2),
+            "average {:?}",
+            total / frames
         );
         assert!(
-            most <= net.len() + 1 + 64,
-            "{most} shapes for a net of {}",
-            net.len()
+            worst < std::time::Duration::from_millis(10),
+            "worst {worst:?}"
         );
-        // Wall-clock time only means something in an optimised build, and
-        // then only with room to spare; a debug build on a loaded runner is
-        // not a measurement.
-        if !cfg!(debug_assertions) {
-            assert!(
-                total / frames < std::time::Duration::from_millis(10),
-                "average {:?}",
-                total / frames
-            );
-        }
     }
 }

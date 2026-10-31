@@ -58,7 +58,14 @@ fn to_line(item: &Item) -> Option<Value> {
             "text": format!("{title}: {}", answer.as_deref().unwrap_or("not answered")),
             "error": false,
         }),
-        Item::Queued { .. } => return None,
+Item::Queued { .. } => return None,
+        Item::Sources(links) => json!({
+            "k": "sources",
+            "links": links.iter().map(|l| json!({"title": l.title, "source": l.source})).collect::<Vec<_>>(),
+        }),
+        Item::Step { title, result, .. } => {
+            json!({"k": "note", "text": format!("{title}: {result}"), "error": false})
+        }
     })
 }
 
@@ -129,6 +136,19 @@ pub fn load(path: &std::path::Path) -> (Vec<Item>, usize) {
                     .filter_map(|s| Some((s[0].as_str()?.to_string(), s[1].as_str()?.to_string())))
                     .collect(),
             ),
+            Some("sources") => Item::Sources(
+                v["links"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|l| {
+                        Some(crate::backend::SourceLink {
+                            title: l["title"].as_str()?.to_string(),
+                            source: l["source"].as_str().unwrap_or("").to_string(),
+                        })
+                    })
+                    .collect(),
+            ),
             _ => {
                 skipped += 1;
                 continue;
@@ -182,7 +202,7 @@ pub fn export_markdown(items: &[Item], design: &str, unix_seconds: u64) -> Strin
                         out.push_str(&format!("\n## Assistant\n\n{text}\n"))
                     }
                     Item::Note { text, .. } => out.push_str(&format!("\n_{text}_\n")),
-                    Item::Approval { .. } | Item::UndoStep { .. } => {
+                    Item::Approval { .. } | Item::UndoStep { .. } | Item::Step { .. } => {
                         if let Some(v) = to_line(other) {
                             out.push_str(&format!("\n_{}_\n", v["text"].as_str().unwrap_or("")));
                         }
@@ -215,6 +235,7 @@ mod tests {
                 id: 1,
                 title: "Add resistor R1".into(),
                 detail: "adds R1".into(),
+                summary: None,
                 answer: Some(true),
             },
             Item::UndoStep {
