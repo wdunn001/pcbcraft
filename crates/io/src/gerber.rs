@@ -15,6 +15,9 @@
 //! from `gerber_files`: y stays down from the top-left corner, and a bottom
 //! side file mirrors x about the board origin.
 use crate::board_mesh::{graphic_layer, map_ring, pad_sides, thin_polyline};
+use pcbcraft_doc::fill::{
+    pad_exports_on_layer, plated_item_connected_on_layer, PlatedConnectKind,
+};
 use pcbcraft_doc::{Footprint, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::PadShape;
@@ -36,11 +39,20 @@ const MAX_FILE_OPS: usize = 50_000;
 const MAX_FILE_APERTURES: usize = 64;
 
 /// Millimetres to 4.6 fixed-point coordinate integers.
-fn coordinate(value: f64) -> i64 {
+pub(crate) fn coordinate(value: f64) -> i64 {
     (value * 1_000_000.0).round() as i64
 }
 fn decimal(value: f64) -> String {
     let text = format!("{value:.6}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    if text == "-0" || text.is_empty() {
+        "0".into()
+    } else {
+        text.into()
+    }
+}
+fn aperture_mm(value: f64) -> String {
+    let text = format!("{:.3}", value);
     let text = text.trim_end_matches('0').trim_end_matches('.');
     if text == "-0" || text.is_empty() {
         "0".into()
@@ -111,7 +123,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
         }
     };
     for t in p.board.tracks.iter().filter(|t| t.layer == layer) {
-        let code = define(Aperture::Standard(format!("C,{}", decimal(t.width))));
+        let code = define(Aperture::Standard(format!("C,{}", aperture_mm(t.width))));
         select(&mut body, code);
         let (a, b) = (to_gerber(t.start), to_gerber(t.end));
         body.push_str(&format!(
@@ -124,11 +136,21 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     }
     for f in &p.board.footprints {
         for pad in &f.pads {
+            if pad
+                .geometry
+                .as_ref()
+.is_some_and(|g| g.pad_type == "unplated")
+            {
+                continue;
+            }
             let plated = pad
                 .geometry
                 .as_ref()
                 .is_some_and(|g| g.pad_type == "thru_hole");
-            if layer == Layer::Back && !plated {
+            if !plated && !p.pad_on_copper(f, pad, layer) {
+                continue;
+            }
+            if !pad_exports_on_layer(p, f, pad, layer) {
                 continue;
             }
             let Some(center) = f.pad_position(&pad.number) else {
@@ -139,9 +161,9 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             let axis_aligned = quarter < 1e-9 || 90.0 - quarter < 1e-9;
             let swapped = (rotation.rem_euclid(180.0) - 90.0).abs() < 1e-9;
             let aperture = match pad.geometry.as_ref().map(|g| (g.shape_kind(), g.size)) {
-                None => Aperture::Standard(format!("C,{}", decimal(pad.diameter))),
+                None => Aperture::Standard(format!("C,{}", aperture_mm(pad.diameter))),
                 Some((PadShape::Circle, size)) => {
-                    Aperture::Standard(format!("C,{}", decimal(size.x)))
+                    Aperture::Standard(format!("C,{}", aperture_mm(size.x)))
                 }
                 Some((kind @ (PadShape::Rect | PadShape::Oval), size)) if axis_aligned => {
                     let (w, h) = if swapped {
@@ -150,7 +172,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
                         (size.x, size.y)
                     };
                     let letter = if kind == PadShape::Rect { "R" } else { "O" };
-                    Aperture::Standard(format!("{letter},{}X{}", decimal(w), decimal(h)))
+                    Aperture::Standard(format!("{letter},{}X{}", aperture_mm(w), aperture_mm(h)))
                 }
                 Some((PadShape::Unsupported, _)) => {
                     return Err(format!(
@@ -179,12 +201,39 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             body.push_str(&format!("X{}Y{}D03*\n", coordinate(at.x), coordinate(at.y)));
         }
     }
+    for v in &p.board.vias {
+        if !p.via_span_layers(v).contains(&layer) {
+            continue;
+        }
+        if p.remove_unused_inner_pads_enabled() && !p.copper_layer_is_end(layer) {
+            if !plated_item_connected_on_layer(
+                p,
+                v.net,
+                v.position,
+                v.diameter / 2.0,
+                layer,
+                PlatedConnectKind::Via,
+            ) {
+                continue;
+            }
+        }
+        let code = define(Aperture::Standard(format!("C,{}", decimal(v.diameter))));
+        select(&mut body, code);
+        let at = to_gerber(v.position);
+        body.push_str(&format!("X{}Y{}D03*\n", coordinate(at.x), coordinate(at.y)));
+    }
     let idx = layer.index();
     let index = idx + 1;
-    let side = match idx {
-        0 => "Top",
-        1 => "Bot",
-        _ => "Inr",
+let last = p.copper_layer_count().saturating_sub(1);
+    let side = if idx == 0 {
+        "Top"
+    } else if p.is_bottom(layer) {
+        "Bot"
+    } else if idx >= last {
+        "Bot"
+    } else {
+        "Inr"
+    };
     };
     Ok(format!(
         "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,Copper,L{index},{side}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
@@ -396,7 +445,7 @@ fn footprint_margin(p: &Project, f: &Footprint, mask: bool) -> Option<f64> {
 }
 
 /// Whether a pad carries copper on the requested side.
-fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
+pub(crate) fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
     let (front, back, _) = pad_sides(fp, pad);
     match layer {
         Layer::Back => back,
@@ -408,7 +457,7 @@ fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
 
 /// Whether a pad is surface mounted, and so takes paste. Pads with a drill and
 /// legacy pads that carry only a diameter are through-hole and are skipped.
-fn pad_is_smd(pad: &Pad) -> bool {
+pub(crate) fn pad_is_smd(pad: &Pad) -> bool {
     match &pad.geometry {
         None => false,
         Some(g) => {
@@ -504,8 +553,14 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         }
     }
     for v in &p.board.vias {
+let top = layer == Layer::Front;
+        // A via keeps its mask opening only on a face it leaves open.
+        if !crate::fab_export::via_mask_opening_on(v, &p.board, top) {
+            continue;
+        }
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
-        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        let code = sheet.define(Opening::Circle(microns(diameter)), "SMDPad,CuDef")?;
+        sheet.flash(code, mirror(v.position, layer))?;
         sheet.flash(code, mirror(v.position, layer))?;
     }
     let (function, comment) = match layer {
@@ -522,8 +577,23 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
 /// `DEFAULT_PASTE_MARGIN` when unset. A negative margin shrinks the opening, as
 /// the library rule documents. Through-hole pads get no paste.
 pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
+    gerber_paste_layer(p, layer, true, false)
+}
+
+/// Paste layer for a laser-cut stencil order: board coordinates without mirroring
+/// the bottom side, and fiducials on that side as their own apertures.
+pub fn gerber_paste_stencil(p: &Project, layer: Layer) -> Result<String, String> {
+    gerber_paste_layer(p, layer, false, true)
+}
+
+fn gerber_paste_layer(
+    p: &Project,
+    layer: Layer,
+    mirror_bottom: bool,
+    include_fiducials: bool,
+) -> Result<String, String> {
     p.validate()?;
-    let mirror_x = layer == Layer::Back;
+    let mirror_x = mirror_bottom && layer == Layer::Back;
     let mut sheet = Sheet::new(file_scale(p));
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, false).unwrap_or(DEFAULT_PASTE_MARGIN);
@@ -536,7 +606,24 @@ pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
             };
             let opening = pad_opening(f, pad, margin, mirror_x)?;
             let code = sheet.define(opening, "SMDPad,CuDef")?;
-            sheet.flash(code, mirror(at, layer))?;
+            let at = if mirror_bottom {
+                mirror(at, layer)
+            } else {
+                at
+            };
+            sheet.flash(code, at)?;
+        }
+    }
+    if include_fiducials {
+        for fid in p.board.fiducials.iter().filter(|f| f.layer == layer) {
+            let diameter = fid.diameter.max(0.001);
+            let code = sheet.define(Opening::Circle(microns(diameter)), "FiducialMark")?;
+            let at = if mirror_bottom {
+                mirror(fid.position, layer)
+            } else {
+                fid.position
+            };
+            sheet.flash(code, at)?;
         }
     }
     let (function, comment) = match layer {
@@ -784,6 +871,17 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn coordinate_scales_rounds_and_keeps_sign() {
+        assert_eq!(coordinate(10.0), 10_000_000);
+        assert_eq!(coordinate(-5.25), -5_250_000);
+        assert_eq!(coordinate(0.000_000_4), 0);
+        assert_eq!(coordinate(0.000_000_6), 1);
+        assert_eq!(coordinate(-0.000_000_6), -1);
+        assert_eq!(coordinate(-0.0), 0);
+        assert_eq!(coordinate(1_234.567_891_4), 1_234_567_891);
+    }
+
     use super::*;
     use pcbcraft_doc::{Component, LibraryFootprint, Net, Pin, Via};
     use pcbcraft_library::{
@@ -857,6 +955,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: vec![],
             })
             .collect()
     }
@@ -871,7 +970,10 @@ mod tests {
     ) -> Component {
         let numbers: Vec<&str> = pads.iter().map(|p| p.number.as_str()).collect();
         Component {
+            sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id,
             reference: reference.into(),
             value: "1k".into(),
@@ -891,12 +993,18 @@ mod tests {
                     graphics,
                     model: None,
                     rules,
+                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         }
+    sourcing: Default::default(),
+    compliance: Default::default(),
     }
 
     /// Project with a front SMD part, a through-hole part, a via, front and back
@@ -963,6 +1071,7 @@ mod tests {
             None,
         );
         project.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 2,
             component: 1,
             position: front.position,
@@ -972,6 +1081,7 @@ mod tests {
             pads: front_pads.iter().map(placed).collect(),
         });
         project.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             component: 3,
             position: through.position,
@@ -985,6 +1095,7 @@ mod tests {
         project.components.push(front);
         project.components.push(through);
         project.board.vias.push(Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 5,
             net: 8,
             position: Point::new(30.0, 10.0),
@@ -993,6 +1104,8 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
+            covering_bottom: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,
@@ -1244,6 +1357,7 @@ mod tests {
         let placed = placed(&pad);
         assert!(pad_is_smd(&placed), "a pad without a drill takes paste");
         let footprint = Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 1,
             component: 1,
             position: Point::new(0.0, 0.0),
