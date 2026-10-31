@@ -26,8 +26,8 @@ mod package;
 mod panel_export;
 mod part_bodies;
 mod plot_read;
-mod step_merge;
 mod raster;
+mod step_merge;
 mod step_read;
 mod uv_print;
 mod vrml_read;
@@ -1478,6 +1478,7 @@ struct StepDoc {
     next: u32,
 }
 
+/// Contract: crates/io/src/step_merge.rs
 impl step_merge::StepWriter for StepDoc {
     fn next_id(&self) -> u32 {
         self.next
@@ -1672,7 +1673,9 @@ fn thin_ring(points: &[Point]) -> Vec<Point> {
 /// Result of a STEP export that may include vendor model bodies.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StepExport {
+    /// The STEP exchange text, with every placed model body merged in.
     pub text: String,
+    /// One line per part whose vendor model was skipped, with the reason.
     pub notes: Vec<String>,
 }
 
@@ -1752,8 +1755,7 @@ pub fn step_board_with_models(
     doc.add("PRODUCT('BOARD','pcbcraft board','',('Mechanical Design'))")?;
     doc.add("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#1,.NOT_KNOWN.)")?;
     doc.add("PRODUCT_CONTEXT('',#1,'mechanical')")?;
-    let board_product_definition =
-        doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
+    let board_product_definition = doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
     doc.add("PRODUCT_DEFINITION_SHAPE('','',#4)")?;
     let shape = doc.add("SHAPE_REPRESENTATION('board',(#14,#15),#7)")?;
     doc.add("(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#16))GLOBAL_UNIT_ASSIGNED_CONTEXT((#8,#9,#10))REPRESENTATION_CONTEXT('','',''))")?;
@@ -1785,72 +1787,68 @@ pub fn step_board_with_models(
         p.components.iter().map(|c| (c.id, c)).collect();
     for body in part_bodies::part_boxes(p) {
         let mut placed_vendor = false;
-        if let Some(fp) = p
-            .board
-            .footprints
-            .iter()
-            .find(|f| refs.get(&f.component).is_some_and(|c| c.reference == body.name))
+        if let Some(fp) = p.board.footprints.iter().find(|f| {
+            refs.get(&f.component)
+                .is_some_and(|c| c.reference == body.name)
+        }) && let Some(model) = refs
+            .get(&fp.component)
+            .and_then(|c| c.library_footprint.as_ref())
+            .and_then(|l| l.definition.model.as_ref())
+            .filter(|m| step_path_is_exchange(&m.path))
         {
-            if let Some(model) = refs
-                .get(&fp.component)
-                .and_then(|c| c.library_footprint.as_ref())
-                .and_then(|l| l.definition.model.as_ref())
-                .filter(|m| step_path_is_exchange(&m.path))
-            {
-                if let Some(bytes) = loader(&model.path) {
-                    if bytes.len() > step_merge::MAX_EXCHANGE_BYTES {
-                        notes.push(format!(
-                            "{}: the model file is over the size limit for a board export",
-                            body.name
-                        ));
-                    } else {
-                        let text = String::from_utf8_lossy(&bytes).into_owned();
-                        match step_merge::parse_exchange(&text) {
-                            Ok(exchange) => {
-                                let mut model = model.clone();
-                                model.offset = [0.0; 3];
-                                let matrix = model_matrix(
-                                    &model,
-                                    fp.position,
-                                    fp.rotation,
-                                    part_bodies::is_bottom_side(fp),
-                                    depth,
-                                );
-                                match step_merge::append_body(&mut doc, exchange, &body.name) {
-                                    Ok(links) => {
-                                        if step_merge::write_occurrence(
-                                            &mut doc,
-                                            board_product_definition,
-                                            &links,
-                                            &matrix,
-                                            &body.name,
-                                            axis,
-                                            reference,
-                                        )
-                                        .is_ok()
-                                        {
-                                            placed_vendor = true;
-                                        } else {
-                                            notes.push(format!(
-                                                "{}: the model could not be placed on the board",
-                                                body.name
-                                            ));
-                                        }
-                                    }
-                                    Err(reason) => {
-                                        notes.push(format!("{}: {reason}", body.name));
+            if let Some(bytes) = loader(&model.path) {
+                if bytes.len() > step_merge::MAX_EXCHANGE_BYTES {
+                    notes.push(format!(
+                        "{}: the model file is over the size limit for a board export",
+                        body.name
+                    ));
+                } else {
+                    let text = String::from_utf8_lossy(&bytes).into_owned();
+                    match step_merge::parse_exchange(&text) {
+                        Ok(exchange) => {
+                            let mut model = model.clone();
+                            model.offset = [0.0; 3];
+                            let matrix = model_matrix(
+                                &model,
+                                fp.position,
+                                fp.rotation,
+                                part_bodies::is_bottom_side(fp),
+                                depth,
+                            );
+                            match step_merge::append_body(&mut doc, exchange, &body.name) {
+                                Ok(links) => {
+                                    if step_merge::write_occurrence(
+                                        &mut doc,
+                                        board_product_definition,
+                                        &links,
+                                        &matrix,
+                                        &body.name,
+                                        axis,
+                                        reference,
+                                    )
+                                    .is_ok()
+                                    {
+                                        placed_vendor = true;
+                                    } else {
+                                        notes.push(format!(
+                                            "{}: the model could not be placed on the board",
+                                            body.name
+                                        ));
                                     }
                                 }
+                                Err(reason) => {
+                                    notes.push(format!("{}: {reason}", body.name));
+                                }
                             }
-                            Err(reason) => notes.push(format!("{}: {reason}", body.name)),
                         }
+                        Err(reason) => notes.push(format!("{}: {reason}", body.name)),
                     }
-                } else {
-                    notes.push(format!(
-                        "{}: no model file was found at {}",
-                        body.name, model.path
-                    ));
                 }
+            } else {
+                notes.push(format!(
+                    "{}: no model file was found at {}",
+                    body.name, model.path
+                ));
             }
         }
         if placed_vendor {
@@ -8026,10 +8024,10 @@ mod tests {
     #[test]
     fn step_board_places_a_model_with_the_footprint_matrix() -> Result<(), String> {
         let mut project = two_part_project(false, 90.0)?;
-        if let Some(lib) = project.components[1].library_footprint.as_mut() {
-            if let Some(model) = lib.definition.model.as_mut() {
-                model.path = "offset_box.step".into();
-            }
+        if let Some(lib) = project.components[1].library_footprint.as_mut()
+            && let Some(model) = lib.definition.model.as_mut()
+        {
+            model.path = "offset_box.step".into();
         }
         let bytes = fixture_bytes("offset_box.step")?;
         let export = step_board_with_models(&project, &|path| {
@@ -8977,10 +8975,7 @@ mod tests {
                 && front.contains("%FSLAX46Y46*%")
         );
         assert!(front.contains("%ADD10C,0.001*%\n"), "zone fill aperture");
-        assert!(
-            front.contains("%ADD12C,0.6*%\n"),
-            "via copper aperture"
-        );
+        assert!(front.contains("%ADD12C,0.6*%\n"), "via copper aperture");
         assert!(
             front.contains("%ADD11C,1.6*%\n"),
             "through-hole pad aperture"

@@ -19608,7 +19608,8 @@ mod tests {
             .ok_or_else(missing)?;
         let mirrored_x = -centre.x;
         assert!(
-            gerber["pcb-B.Cu.gbr"].contains(&format!("X{}Y", (mirrored_x * 1_000_000.0).round() as i64)),
+            gerber["pcb-B.Cu.gbr"]
+                .contains(&format!("X{}Y", (mirrored_x * 1_000_000.0).round() as i64)),
             "bottom copper carries the mirrored pad flash"
         );
         assert!(
@@ -31468,11 +31469,7 @@ mod tests {
             .as_u64()
             .ok_or_else(|| Error::Invalid("missing id".into()))?;
         s.execute("board.sync", json!({}), None)?;
-        s.execute(
-            "footprint.assign_custom",
-            json!({"id":id,"name":"M"}),
-            None,
-        )?;
+        s.execute("footprint.assign_custom", json!({"id":id,"name":"M"}), None)?;
         let directory =
             std::env::temp_dir().join(format!("pcbcraft-step-note-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&directory);
