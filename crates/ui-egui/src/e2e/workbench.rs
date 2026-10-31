@@ -51,6 +51,20 @@ fn fresh() -> App {
     app
 }
 
+fn fresh_with_datasheet_fixture() -> App {
+    use std::sync::Arc;
+    let mut app = fresh();
+    let path = crate::datasheet_reader::fixture_pdf_path();
+    app.datasheet.test_loader = Some(Arc::new(move |source| {
+        if source.contains("example.com") {
+            std::fs::read(&path).map_err(|e| e.to_string())
+        } else {
+            pcbcraft_datasheet::load_bytes(source).map_err(|e| e.to_string())
+        }
+    }));
+    app
+}
+
 fn settled(ctx: &egui::Context, app: &mut App) -> egui::FullOutput {
     for _ in 0..4 {
         frame_plain(ctx, app, vec![]);
@@ -64,8 +78,14 @@ fn finding_counts_split_by_loudness() {
         "erc": [{"severity":"error"},{"severity":"warning"}],
         "drc": [{"severity":"error"},{"severity":"info"},{}]
     });
-    assert_eq!(App::finding_counts(&checks), (2, 1, 2));
-    assert_eq!(App::finding_counts(&json!({})), (0, 0, 0));
+    let counts = finding_set::FindingSet::build(&checks, &[]).counts();
+    assert_eq!((counts.errors, counts.warnings, counts.notes), (2, 1, 2));
+    assert_eq!(
+        finding_set::FindingSet::build(&json!({}), &[])
+            .counts()
+            .total(),
+        0
+    );
 }
 
 #[test]
@@ -186,7 +206,7 @@ fn datasheet_addresses_must_be_plain_web_links() {
 
 #[test]
 fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
-    let mut app = fresh();
+    let mut app = fresh_with_datasheet_fixture();
     app.tool_call("sample_design", json!({}));
     let resistor = app
         .project
@@ -203,11 +223,10 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
         "a chosen part offers its datasheet: {}",
         app.message
     );
-    let opens = |app: &mut App, ctx: &egui::Context| -> Result<bool, String> {
+    let opens_reader = |app: &mut App, ctx: &egui::Context| -> Result<bool, String> {
         let out = frame(ctx, app, vec![], egui::Modifiers::NONE);
         let at = centre_of(&out, "View datasheet", f32::MAX)
             .ok_or("the datasheet action stays visible")?;
-        let mut any = false;
         for pressed in [None, Some(true), Some(false)] {
             let event = match pressed {
                 None => egui::Event::PointerMoved(at),
@@ -218,17 +237,12 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
                     modifiers: egui::Modifiers::NONE,
                 },
             };
-            let out = frame(ctx, app, vec![event], egui::Modifiers::NONE);
-            any |= out
-                .platform_output
-                .commands
-                .iter()
-                .any(|c| matches!(c, egui::OutputCommand::OpenUrl(_)));
+            let _ = frame(ctx, app, vec![event], egui::Modifiers::NONE);
         }
-        Ok(any)
+        Ok(app.datasheet.open)
     };
     assert!(
-        !opens(&mut app, &ctx)?,
+        !opens_reader(&mut app, &ctx)?,
         "without a web link in the Datasheet field the action is disabled"
     );
     app.tool_call(
@@ -243,10 +257,61 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
         "the datasheet action stays visible"
     );
     assert!(
-        opens(&mut app, &ctx)?,
-        "with a web link in the Datasheet field the button opens it"
+        opens_reader(&mut app, &ctx)?,
+        "with a web link in the Datasheet field the reader opens"
     );
-    Ok(())
+    for _ in 0..24 {
+        let out = frame(ctx, &mut app, vec![], egui::Modifiers::NONE);
+        if out
+            .shapes
+            .iter()
+            .any(|s| matches!(s, egui::Shape::Text(t) if t.galley.text().contains("of 1")))
+        {
+            return Ok(());
+        }
+    }
+    Err("page 1 should appear in the reader pane".into())
+}
+
+#[test]
+fn a_newcomer_opens_a_part_and_reads_its_datasheet() -> Result<(), String> {
+    let mut app = fresh_with_datasheet_fixture();
+    app.tool_call("sample_design", json!({}));
+    let resistor = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference.starts_with('R'))
+        .map(|c| c.id)
+        .ok_or("the practice design carries a resistor")?;
+    app.tool_call(
+        "component.field",
+        json!({"id": resistor, "key": "Datasheet", "value": "https://example.com/r.pdf"}),
+    );
+    app.select(Some(resistor));
+    let ctx = egui::Context::default();
+    settled(&ctx, &mut app);
+    scrolled_to(&ctx, &mut app, "View datasheet")?;
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = centre_of(&out, "View datasheet", f32::MAX).ok_or("datasheet action visible")?;
+    let click = egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let _ = frame(&ctx, &mut app, vec![click], egui::Modifiers::NONE);
+    for _ in 0..32 {
+        let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        if out
+            .shapes
+            .iter()
+            .any(|s| matches!(s, egui::Shape::Text(t) if t.galley.text().contains("of 1")))
+        {
+            return Ok(());
+        }
+    }
+    Err("View datasheet should show page 1 in the Library reader".into())
 }
 
 #[test]
@@ -460,6 +525,59 @@ fn a_newcomer_turns_the_3d_view_from_the_layout_toolbar() -> Result<(), String> 
     assert!(
         app.view3d.yaw.abs() < 1e-9,
         "Side looks along the long edge"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sets_up_a_four_layer_board_with_the_wizard() -> Result<(), String> {
+    let mut app = fresh();
+    app.home_open = true;
+    app.preferences.setup_wizard_seen = false;
+    let ctx = egui::Context::default();
+    settled(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "New design")?;
+    settled(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Design setup")?,
+        "a new design opens the setup wizard"
+    );
+    for _ in 0..5 {
+        authoring::tests::tap(&ctx, &mut app, "Next")?;
+        settled(&ctx, &mut app);
+    }
+    authoring::tests::tap(&ctx, &mut app, "Finish")?;
+    settled(&ctx, &mut app);
+    assert_eq!(
+        app.project.copper_layer_count(),
+        4,
+        "the wizard leaves four copper layers: {}",
+        app.message
+    );
+    assert!(
+        app.project.net_classes.iter().any(|c| c.name == "Power")
+            && app.project.net_classes.iter().any(|c| c.name == "Signal"),
+        "Power and Signal classes exist"
+    );
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
+    settled(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Min track 0.127 mm")?,
+        "the preset minimums show on the Rules tab"
+    );
+    let layers_before = app.project.board.layer_records.len();
+    let classes_before = app.project.net_classes.len();
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    assert!(
+        app.project.board.layer_records.len() < layers_before
+            && app.project.net_classes.len() < classes_before,
+        "one undo reverts the whole wizard step: {}",
+        app.message
+    );
+    assert!(
+        app.project.board.rules.is_none(),
+        "fabrication rules are cleared by undo"
     );
     Ok(())
 }
