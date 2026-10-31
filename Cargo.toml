@@ -9,6 +9,7 @@ rust-version = "1.95"
 license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
+pcbcraft-clock = { path = "crates/clock" }
 pcbcraft-geom = { path = "crates/geom" }
 pcbcraft-doc = { path = "crates/doc" }
 pcbcraft-rules = { path = "crates/rules" }
@@ -19,7 +20,10 @@ pcbcraft-mcp = { path = "crates/mcp" }
 pcbcraft-assistant = { path = "crates/assistant" }
 pcbcraft-ui-egui = { path = "crates/ui-egui" }
 pcbcraft-library = { path = "crates/library" }
+pcbcraft-plugin-sdk = { path = "crates/plugin-sdk" }
+pcbcraft-plugin-firmware-target = { path = "crates/plugin-firmware-target" }
 pcbcraft-text = { path = "crates/text" }
+pcbcraft-datasheet = { path = "crates/datasheet" }
 pcbcraft-sim = { path = "crates/sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -30,7 +34,8 @@ i_overlay = "=9.1.0"
 egui = "0.36"
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
 eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "x11", "wayland", "persistence", "accesskit"] }
-craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "1aa81a773aa9198a0e4c0daeda954d622475af38" }
+craft-cloud = { git = "https://github.com/wdunn001/craft-libs", rev = "0e9d4a61affd665b2e00d5e107cfe4a88ad15df5" }
+craft-ui = { git = "https://github.com/wdunn001/craft-libs", rev = "0e9d4a61affd665b2e00d5e107cfe4a88ad15df5" }
 image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
 png = "0.18.1"
 base64 = "0.22"
@@ -42,6 +47,7 @@ truck-stepio = "0.3"
 truck-meshalgo = { version = "0.4", default-features = false, features = ["tessellation"] }
 gltf = { version = "1", default-features = false, features = ["utils"] }
 tempfile = "3"
+rayon = "1.10"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
