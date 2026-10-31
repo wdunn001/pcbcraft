@@ -1,0 +1,11 @@
+(kicad_sch (version 20171130) (generator "legacy")
+  (uuid 44444444-4444-4444-4444-444444444401)
+  (paper "A4")
+  (symbol
+    (lib_id "Device:R")
+    (at 50 50 0)
+    (uuid 44444444-4444-4444-4444-444444444411)
+    (property "Reference" "R1" (at 52 50 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "R" (at 50 52 0) (effects (font (size 1.27 1.27))))
+  )
+)

@@ -76,6 +76,7 @@ fn sample_two_pads_track() -> Project {
     compliance: Default::default(),
     });
     let fp1 = Footprint {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 10,
         component: 201,
         position: Point::new(5.0, 10.0),
@@ -99,6 +100,7 @@ fn sample_two_pads_track() -> Project {
     p.board.footprints.push(fp1);
     p.board.footprints.push(fp2);
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 20,
         net: 101,
         start: Point::new(6.0, 10.0),
@@ -108,6 +110,7 @@ fn sample_two_pads_track() -> Project {
         arc: None,
     });
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 21,
         net: 101,
         start: Point::new(8.0, 12.0),
@@ -259,6 +262,7 @@ fn snapmaker_drill_three_tool_sizes_yields_three_files_each_with_header_and_boun
         ..Default::default()
     });
     p.board.vias.push(Via {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 1,
         net: 100,
         position: Point::new(10.0, 10.0),
@@ -267,6 +271,7 @@ fn snapmaker_drill_three_tool_sizes_yields_three_files_each_with_header_and_boun
         from_layer: None,
         to_layer: None,
         covering: None,
+        covering_bottom: None,
     });
     p.board.holes.push(Hole {
         id: 2,

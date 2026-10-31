@@ -25,8 +25,9 @@
   <url type="homepage">https://github.com/tangency-labs/pcbcraft</url>
   <url type="bugtracker">https://github.com/tangency-labs/pcbcraft/issues</url>
   <categories>
-    <category>Electronics</category>
+    <category>Science</category>
     <category>Engineering</category>
+    <category>Electronics</category>
   </categories>
   <keywords>
     <keyword>pcb</keyword>

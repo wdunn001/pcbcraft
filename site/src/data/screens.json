@@ -46,6 +46,8 @@
     "feature-view3d": "view3d",
     "feature-outputs": "home-outputs",
     "feature-machines": "home-outputs",
+    "feature-assistant": "hero-layout",
+    "feature-access": "home-schematic",
     "feature-browser": "hero-layout"
   }
 }
