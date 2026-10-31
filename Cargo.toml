@@ -15,6 +15,7 @@ pcbcraft-doc = { path = "crates/doc" }
 pcbcraft-rules = { path = "crates/rules" }
 pcbcraft-io = { path = "crates/io" }
 pcbcraft-engine = { path = "crates/engine" }
+pcbcraft-calc = { path = "crates/calc" }
 pcbcraft-mcp = { path = "crates/mcp" }
 pcbcraft-assistant = { path = "crates/assistant" }
 pcbcraft-ui-egui = { path = "crates/ui-egui" }
