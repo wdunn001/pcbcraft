@@ -58,6 +58,7 @@ mod tests {
                     headers: vec![],
                     body: None,
                     timeout_s: 1,
+                    stream_out: None,
                 });
             }
             assert_eq!(can_send(true, false, true), Err(Blocked::NoConnection));
