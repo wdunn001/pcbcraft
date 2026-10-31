@@ -65,6 +65,12 @@ pub fn fabrication_point(p: &Project, board: Point) -> Point {
     Point::new(x, y)
 }
 
+/// Same transform as [`fabrication_point`], as a coordinate pair.
+pub fn fabrication_xy(p: &Project, x: f64, y: f64) -> (f64, f64) {
+    let f = fabrication_point(p, Point::new(x, y));
+    (f.x, f.y)
+}
+
 fn footprint_rules(f: &Footprint, project: &Project) -> pcbcraft_library::FootprintRules {
     project
         .component(f.component)
