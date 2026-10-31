@@ -10,6 +10,7 @@
 | SolidCraft agent chat test script backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/script.rs` |
 | SolidCraft agent chat API backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/api.rs` |
 | SolidCraft agent chat gate | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/gate.rs` |
+| SolidCraft agent chat ACP | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/acp/` |
 | SolidCraft agent chat connections and presets | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/connections.rs` |
 | SolidCraft agent chat settings page | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted in shape into `crates/ui-egui/src/assistant/settings.rs` |
 | SolidCraft Linux packaging | https://github.com/bherbruck/solidcraft | packaging/linux and packaging/env.sh at 2026-03; MIT OR Apache-2.0 | Adapted AppImage, deb, and rpm scripts, nfpm config, AppRun, and postinst for PCBCraft |

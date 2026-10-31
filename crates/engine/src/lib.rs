@@ -18,6 +18,7 @@ pub use dry_run::{ChangeSummary, DryRun};
 mod datasheet_annotations;
 mod route;
 mod selection_clip;
+mod sim;
 mod snapmaker;
 mod summary;
 mod tuning;
@@ -989,7 +990,7 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "hole.slot",
+"hole.slot",
             "Route an unplated slot as a capsule drill between two centres: width is the drill diameter, centre spacing from 0.01 mm to 50 mm, and overall length runs centre to centre plus that width",
             schema(
                 json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
@@ -997,6 +998,49 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "board.hole_place",
+            "Drill an unplated through hole at a position: mounting or clearance drills carry no copper and belong to no net",
+            schema(
+                json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.05,"maximum":25,"description":"drill diameter, millimetres"}}),
+                &["position", "diameter"],
+            ),
+        ),
+        (
+            "Route an unplated slot as a capsule drill between two centres: width is the drill diameter, centre spacing from 0.01 mm to 50 mm, and overall length runs centre to centre plus that width",
+            schema(
+                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
+                &["start", "end", "width"],
+            ),
+        ),
+        (
+"hole.slot",
+"board.hole_place",
+"Drill an unplated through hole at a position: mounting or clearance drills carry no copper and belong to no net",
+schema(
+    json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.05,"maximum":25,"description":"drill diameter, millimetres"}}),
+    &["position", "diameter"],
+),
+),
+(
+"Route an unplated slot as a capsule drill between two centres: width is the drill diameter, centre spacing from 0.01 mm to 50 mm, and overall length runs centre to centre plus that width",
+schema(
+    json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
+    &["start", "end", "width"],
+),
+),
+(
+"board.fiducial_place",
+"Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
+schema(
+    json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.2,"maximum":10,"description":"disc diameter, millimetres"},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup, default top"}}),
+    &["position", "diameter"],
+),
+),
+(
+"board.fiducial_move",
+"Move a fiducial mark to a new position",
+schema(
+    json!({"id":id_schema(),"position":point_schema()}),
             "board.fiducial_place",
             "Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
             schema(
@@ -1836,7 +1880,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, acute_angle, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, acute_angle, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
         ),
@@ -1852,6 +1896,14 @@ pub fn commands() -> Vec<CommandSpec> {
             "erc.matrix_reset",
             "Restore the default pin-type connection matrix, clearing every override",
             schema(json!({}), &[]),
+        ),
+        (
+            "rules.decoupling_max_mm",
+            "Set the maximum board distance in millimetres from an IC power pin pad to a decoupling capacitor on the same net",
+            schema(
+                json!({"max_mm":{"type":"number","minimum":0.5,"maximum":50,"description":"pad-centre limit in millimetres; schematic-only designs ignore distance"}}),
+                &["max_mm"],
+            ),
         ),
         (
             "rules.exclude",
@@ -2398,12 +2450,19 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
-.chain(snapmaker::commands())
+.into_iter()
+        .map(|(id, description, input_schema)| CommandSpec {
+            id,
+            description,
+            input_schema,
+        })
+        .chain(snapmaker::commands())
         .chain(authoring::commands())
         .chain(online::commands())
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
+        .chain(sim::commands())
         .chain(datasheet_annotations::commands())
         .chain(via_protection::commands())
         .collect()
@@ -2630,9 +2689,9 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        let compliance = serde_json::to_value(pcbcraft_rules::compliance_check(&self.project))
+let compliance = serde_json::to_value(pcbcraft_rules::compliance_check(&self.project))
             .unwrap_or_else(|_| json!([]));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power label or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, and labels with no wires or pins, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -4570,6 +4629,11 @@ struct RuleSeverityParams {
     code: String,
     #[serde(default)]
     severity: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleDecouplingMaxMmParams {
+    max_mm: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -7295,6 +7359,7 @@ fn run(
 fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Error> {
     match command {
         "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
+        "sim.dc" => sim::run_read(p, params),
         c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
         _ => Err(Error::Invalid(format!(
             "unknown read-only command: {command}"
@@ -7395,7 +7460,7 @@ fn run_command(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    if command == "cam.isolation" || snapmaker::handles(command) {
+if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(command) || sim::dc::handles(command) {
         return run_read_only(p, command, params);
     }
     if let Some(result) = authoring::run(p, next, command, params) {
@@ -13855,7 +13920,9 @@ fn run_command(
                     .collect::<Vec<_>>(),
                 "board_area": p.board.outline.as_ref().map_or_else(
                     || p.board.width * p.board.height,
-                    |o| pcbcraft_doc::outline_area(o),
+                    |_| pcbcraft_doc::outline_area(
+                        &p.board.edge_ring(pcbcraft_doc::VALIDATION_CHORD_ERROR),
+                    ),
                 ),
                 "finish": p.board.finish,
                 "unit": p.unit.as_str()
@@ -14706,6 +14773,16 @@ fn run_command(
                 }
             };
             Ok(json!({"code": a.code, "set": set}))
+        }
+        "rules.decoupling_max_mm" => {
+            let a: RuleDecouplingMaxMmParams = parse(params)?;
+            if !a.max_mm.is_finite() || a.max_mm < 0.5 || a.max_mm > 50.0 {
+                return Err(Error::Invalid(
+                    "decoupling distance must be 0.5 to 50 mm".into(),
+                ));
+            }
+            p.decoupling_max_mm = a.max_mm;
+            Ok(json!({"decoupling_max_mm": a.max_mm}))
         }
         "rules.exclude" => {
             let a: RuleExcludeParams = parse(params)?;
@@ -25262,6 +25339,38 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             .to_string();
         assert!(scope.contains("courtyards that overlap"));
         assert!(scope.contains("drawn silk"));
+        assert!(scope.contains("decoupling capacitors"));
+        assert!(scope.contains("open-drain pull-ups"));
+    }
+    #[test]
+    fn decoupling_distance_is_set_saved_and_refused_when_out_of_range() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(
+            (s.project.decoupling_max_mm - 3.0).abs() < 1e-9,
+            "projects start with a 3 mm decoupling limit"
+        );
+        s.execute("rules.decoupling_max_mm", json!({"max_mm": 5.0}), None)?;
+        assert!((s.project.decoupling_max_mm - 5.0).abs() < 1e-9);
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: pcbcraft_doc::Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert!((loaded.decoupling_max_mm - 5.0).abs() < 1e-9);
+        let before = s.inspect();
+        for params in [
+            json!({"max_mm": 0.0}),
+            json!({"max_mm": 50.1}),
+            json!({"max_mm": "wide"}),
+            json!({"max_mm": 5.0, "extra": 1}),
+        ] {
+            assert!(
+                s.execute("rules.decoupling_max_mm", params, None).is_err(),
+                "bad decoupling distance leaves the project unchanged"
+            );
+        }
+        assert_eq!(s.inspect(), before);
+        assert!((s.project.decoupling_max_mm - 5.0).abs() < 1e-9);
+        Ok(())
     }
     #[test]
     fn net_classes_absorb_every_net_matching_a_wildcard_pattern() -> Result<(), Error> {
