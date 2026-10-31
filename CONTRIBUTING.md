@@ -425,7 +425,7 @@ These come from the rule files in `.cursor/rules/` (listed in AGENTS.md) and app
 - **Validation.** Finite, bounded coordinates and dimensions; bounded counts; stable IDs; reference integrity. An invalid command or batch leaves the document, revision and history untouched.
 - **No panics.** No `unsafe`; no production `unwrap`, `expect`, `panic`, `todo`, `unimplemented` or `unreachable`. Tests may use `?` with `Result<(), String>`; the e2e tests do. The CI pipeline branch lints these at deny and forbids source `allow` of them.
 - **Crate layering.** geom (L0) under doc and library (L1) under rules and io (L2) under engine (L3) under mcp and ui-egui (L4) under the apps. Lower crates never depend on egui, eframe, wgpu or MCP. `cargo xtask ci` checks the layers.
-- **Adapted GPL code.** Source from other GPL-compatible projects may be inspected and adapted. Record the exact source, revision and license in ATTRIBUTION.md. Translating to Rust does not remove attribution or copyleft. Check each file's license. Do not copy trademarks or proprietary assets from shared Craft dependencies; pin craft-libs revisions.
+- **Adapted code.** PCBCraft is MIT OR Apache-2.0, so only code under a compatible permissive license (MIT, Apache-2.0, BSD, ISC, Unlicense and the like) may be adapted. Never copy or translate GPL, LGPL or AGPL code; read it for ideas at most. Record the exact source, revision and license in ATTRIBUTION.md. Translating to Rust does not remove attribution. Check each file's license. Do not copy trademarks or proprietary assets from shared Craft dependencies; pin craft-libs revisions.
 - **Honest limits.** Do not present initial checks as complete ERC/DRC, or a basic route as a shove router. Track parity by workflows and fixtures, not by percentages.
 - **Names.** Never name other EDA tools in code, docs, UI strings, issues or pull requests. Describe formats and behaviours instead ("the board interchange format", "the plot layer format").
 - **UI.** Every control gets a tooltip. Panels keep real margins and padding. Labels are short plain words. UI strings go in `crates/text/strings/en.txt`. Status dots, arrows and ticks are painted shapes or icons, never text characters. UI changes are inspected rendered, not only in tests. The design is in [docs/design-system.md](docs/design-system.md) and [docs/page-layouts.md](docs/page-layouts.md); read them before UI work and update them when you change a documented rule.
@@ -502,3 +502,16 @@ These are proposals, not current rules. Follow sections 1 to 9 until an item mov
 - **Lessons loop.** Append each reviewer fail and each worker limitation to a lessons file per issue. When a review fails a branch for a reason that has failed another branch, open a `kind:chore` issue to encode the check in `cargo xtask`.
 
 Changes to this file go through the same pipeline: file an issue tagged `kind:docs` `area:docs`, claim it, and push a `docs-<slug>` branch.
+
+## Licence
+
+PCBCraft is licensed under the MIT License or the Apache License, Version 2.0, at your option
+(LICENSE-MIT, LICENSE-APACHE). Contributions are accepted under the same terms, inbound = outbound,
+which matches the Rust ecosystem convention.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
+PCBCraft by you, as defined in the Apache-2.0 license, shall be dual licensed as MIT OR Apache-2.0,
+without any additional terms or conditions.
+
+Documentation and screenshots stay under CC BY-SA 4.0, and the PCBCraft name and logo stay reserved.
+

@@ -17,11 +17,10 @@ use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct ComplianceFinding {
-    pub code: String,
-    pub state: String,
+    pub rule_id: String,
+    pub state: ComplianceState,
     pub severity: String,
     pub message: String,
-    pub rule: String,
     pub evidence: String,
     pub citation: String,
     pub objects: Vec<u64>,

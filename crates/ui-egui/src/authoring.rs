@@ -1988,6 +1988,13 @@ impl App {
                 if let Some(i) = remove {
                     def.graphics.remove(i);
                 }
+                ui.separator();
+                crate::model_transform::footprint_model_transform_panel(
+                    ui,
+                    self,
+                    &def.name,
+                    def,
+                );
             }
                 }
             });
