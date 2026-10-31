@@ -71,7 +71,7 @@ pub fn check_stats() -> (usize, usize) {
 
 /// Count of design-rule findings that are not plain missing connections.
 pub fn bad_count(g: &Gen) -> usize {
-    let started = std::time::Instant::now();
+    let started = pcbcraft_clock::instant_now();
     let n = pcbcraft_rules::drc(&g.s.project)
         .iter()
         .filter(|f| f.code != "unrouted" && f.code != "via_in_pad_not_capped")
@@ -453,6 +453,14 @@ pub fn build(g: &mut Gen) -> Res<()> {
             json!({"name": name, "kind": kind, "thickness": t}),
         )?;
     }
+    g.cmd(
+        "board.set_copper_layer_role",
+        json!({"layer": "In1.Cu", "role": "ground"}),
+    )?;
+    g.cmd(
+        "board.set_copper_layer_role",
+        json!({"layer": "In2.Cu", "role": "power"}),
+    )?;
     g.cmd("board.set_finish", json!({"finish": "ENIG"}))?;
     g.cmd("board.rules.set", json!({"clearance": 0.15}))?;
     for (reference, x, y, rot) in layout::PLACEMENT {
@@ -483,7 +491,7 @@ pub fn build(g: &mut Gen) -> Res<()> {
         return Ok(());
     }
     super::finish::fittings(g)?;
-    let started = std::time::Instant::now();
+    let started = pcbcraft_clock::instant_now();
     let refused = super::routes::all(g)?;
     println!(
         "planned routes done {:?} refused {refused} checks {:?}",

@@ -327,20 +327,10 @@ fn push_board_text(
 }
 
 pub(crate) fn profile_edge(p: &Project) -> Vec<Point> {
-    match &p.board.outline {
-        Some(o) => o.iter().map(|pt| fabrication_point(p, *pt)).collect(),
-        None => {
-            let w = p.board.width;
-            let h = p.board.height;
-            vec![
-                fabrication_point(p, Point::new(0.0, 0.0)),
-                fabrication_point(p, Point::new(w, 0.0)),
-                fabrication_point(p, Point::new(w, h)),
-                fabrication_point(p, Point::new(0.0, h)),
-                fabrication_point(p, Point::new(0.0, 0.0)),
-            ]
-        }
-    }
+    crate::board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR)
+        .into_iter()
+        .map(|pt| fabrication_point(p, pt))
+        .collect()
 }
 
 fn push_drill_hole(shapes: &mut Vec<Shape>, pos: Point, diameter: f64, mark: f64, p: &Project) {
@@ -762,6 +752,7 @@ mod tests {
             cutouts: vec![],
             filled: true,
             kind: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         project.board.vias.push(Via {
@@ -770,9 +761,11 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         let pad = pcbcraft_doc::Pad {
@@ -818,6 +811,7 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad, pad2],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
@@ -865,6 +859,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.validate()?;
         let shape_front = copper_shape_counts(&project, true)?;

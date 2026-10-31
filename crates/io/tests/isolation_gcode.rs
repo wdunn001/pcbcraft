@@ -47,7 +47,11 @@ fn sample_two_pads_track() -> Project {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
+    sourcing: Default::default(),
+    compliance: Default::default(),
     });
     p.components.push(Component {
         sourcing: Default::default(),
@@ -70,9 +74,14 @@ fn sample_two_pads_track() -> Project {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
+    sourcing: Default::default(),
+    compliance: Default::default(),
     });
     let fp1 = Footprint {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 10,
         component: 201,
         position: Point::new(5.0, 10.0),
@@ -96,6 +105,7 @@ fn sample_two_pads_track() -> Project {
     p.board.footprints.push(fp1);
     p.board.footprints.push(fp2);
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 20,
         net: 101,
         start: Point::new(6.0, 10.0),
@@ -105,6 +115,7 @@ fn sample_two_pads_track() -> Project {
         arc: None,
     });
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 21,
         net: 101,
         start: Point::new(8.0, 12.0),

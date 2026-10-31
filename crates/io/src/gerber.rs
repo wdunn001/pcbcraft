@@ -515,12 +515,14 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         }
     }
     for v in &p.board.vias {
+let top = layer == Layer::Front;
         // A via keeps its mask opening only on a face it leaves open.
-        if !crate::fab_export::via_mask_opening_on(v, &p.board, layer == Layer::Back) {
+        if !crate::fab_export::via_mask_opening_on(v, &p.board, top) {
             continue;
         }
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
-        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad")?;
+        let code = sheet.define(Opening::Circle(microns(diameter)), "SMDPad,CuDef")?;
+        sheet.flash(code, mirror(v.position, layer))?;
         sheet.flash(code, mirror(v.position, layer))?;
     }
     let (function, comment) = match layer {
@@ -912,7 +914,11 @@ mod tests {
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         }
+    sourcing: Default::default(),
+    compliance: Default::default(),
     }
 
     /// Project with a front SMD part, a through-hole part, a via, front and back
@@ -979,6 +985,7 @@ mod tests {
             None,
         );
         project.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 2,
             component: 1,
             position: front.position,
@@ -988,6 +995,7 @@ mod tests {
             pads: front_pads.iter().map(placed).collect(),
         });
         project.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             component: 3,
             position: through.position,
@@ -1001,6 +1009,7 @@ mod tests {
         project.components.push(front);
         project.components.push(through);
         project.board.vias.push(Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 5,
             net: 8,
             position: Point::new(30.0, 10.0),
@@ -1009,6 +1018,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
@@ -1261,6 +1271,7 @@ mod tests {
         let placed = placed(&pad);
         assert!(pad_is_smd(&placed), "a pad without a drill takes paste");
         let footprint = Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 1,
             component: 1,
             position: Point::new(0.0, 0.0),
