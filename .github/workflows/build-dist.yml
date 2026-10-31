@@ -4,9 +4,13 @@
 #
 # Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
 # repackage jobs. No Snap Store or Flathub upload in CI.
+# Release builds for every platform. Called by nightly.yml and release.yml so
+# nightly runs exercise the exact packaging that a tagged release uses.
+# No build cache here: release artifacts are built from a clean state.
 #
-# docs-agent (D451): when Linux installers land, extend docs/ci.md Releases section with
-# AppImage (+ .zsync), .deb, and .rpm per arch; point packaging/linux/package.sh for repro.
+# Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
+# repackage jobs. No Snap Store or Flathub upload in CI.
+#
 name: Build distributables
 
 on:
@@ -72,11 +76,28 @@ jobs:
         env:
           NFPM_VERSION: 2.47.0
         run: |
-          sudo apt-get install -y --no-install-recommends desktop-file-utils appstream zsync rpm \
-            librsvg2-bin
+          sudo apt-get install -y --no-install-recommends desktop-file-utils appstream zsync rpm
           curl -fsSL -o "$RUNNER_TEMP/nfpm.deb" \
             "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_${{ matrix.deb }}.deb"
           sudo dpkg -i "$RUNNER_TEMP/nfpm.deb"
+      - name: Validate Linux desktop entry and metainfo
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          APP_ID: io.github.tangency_labs.pcbcraft
+        run: |
+          set -euo pipefail
+          desktop="assets/platforms/linux/$APP_ID.desktop"
+          metainfo="assets/platforms/linux/$APP_ID.metainfo.xml.in"
+          for field in GenericName Comment Keywords TryExec StartupNotify StartupWMClass Categories; do
+            grep -q "^${field}=" "$desktop" || { echo "missing $field in $desktop" >&2; exit 1; }
+          done
+          grep -q 'Science;Engineering;Electronics;' "$desktop" || { echo "wrong Categories in $desktop" >&2; exit 1; }
+          for field in id name summary description developer url categories keywords; do
+            grep -q "<${field}" "$metainfo" || { echo "missing <$field> in $metainfo" >&2; exit 1; }
+          done
+          grep -q '<category>Science</category>' "$metainfo" || { echo "missing Science category in $metainfo" >&2; exit 1; }
+          echo "desktop entry and metainfo validated"
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
@@ -115,6 +136,20 @@ jobs:
             "$appimage" --appimage-updateinformation | grep -F 'gh-releases-zsync|'
             test -s "$appimage.zsync"
           done
+      - name: Package smoke test (install .deb, start CLI)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          deb_file="dist/pcbcraft-${VERSION}-${PLATFORM}.deb"
+          test -s "$deb_file" || { echo "missing .deb $deb_file" >&2; exit 1; }
+          sudo apt-get install -y --no-install-recommends "./$deb_file"
+          pcbcraft-cli help
+          echo "package smoke test passed"
       - name: Package
         shell: bash
         env:

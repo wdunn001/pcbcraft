@@ -27,13 +27,15 @@ mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
 mod via_protection;
-mod sourcing;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
-pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
+mod sourcing;
+mod via_protection;
+pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub use sourcing::{
     MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
     SupplierPart, lifecycle_text,
 };
+pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
@@ -4750,9 +4752,9 @@ impl Project {
                 .iter()
                 .map(|f| f.pads.len())
                 .sum::<usize>()
-            > 4096
+            > MAX_COPPER_ITEMS
         {
-            return Err("copper item limit reached (4096)".into());
+            return Err(format!("copper item limit reached ({MAX_COPPER_ITEMS})"));
         }
         let nets: BTreeSet<_> = self.nets.iter().map(|n| n.id).collect();
         let mut names = BTreeSet::new();
@@ -5795,6 +5797,10 @@ pub fn library_component(
 /// Maximum pads considered by placement support checks; matches
 /// `FootprintDefinition::validate` in `pcbcraft-library`.
 pub const MAX_SUPPORTED_FOOTPRINT_PADS: usize = 20_000;
+/// The most copper items (tracks plus placed pads) one design may hold. A
+/// large board is 10 000 pads; the checks were quadratic per edit before the
+/// copper broad phase, which is what made that size unreachable.
+pub const MAX_COPPER_ITEMS: usize = 20_000;
 
 pub fn validate_footprint_support(
     definition: &pcbcraft_library::FootprintDefinition,

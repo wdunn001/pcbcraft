@@ -3080,6 +3080,7 @@ dependencies = [
  "pcbcraft-mcp",
  "pcbcraft-rules",
  "pcbcraft-text",
+ "rayon",
  "serde",
  "serde_json",
  "skrifa",
