@@ -4,8 +4,8 @@ mod machine_profile;
 mod outline;
 pub use machine_profile::*;
 pub use outline::{
-    MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_sagitta, flatten_outline, outline_extent,
-    segment_arc, validate_outline_arcs,
+    MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_chord_worst_error, arc_polyline, arc_sagitta,
+    flatten_outline, outline_extent, segment_arc, validate_outline_arcs,
 };
 mod panel;
 pub use component_kind::{

@@ -1,6 +1,7 @@
 //! Native project persistence and original, limited KiCad PCB / preview writers.
 use pcbcraft_doc::Project;
 use pcbcraft_geom::Point;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
@@ -19,6 +20,7 @@ mod fab_export;
 mod generate;
 mod layer_file;
 mod gerber;
+mod gerber_arc;
 mod gerber_job;
 mod idf;
 mod laser;
@@ -139,6 +141,9 @@ pub use gerber::{gerber_copper, gerber_silk};
 /// Gerber job file generation and zipping.
 /// # Dependencies
 /// - crates/io/src/gerber_job.rs
+pub use gerber_arc::{
+    GerberArcOptions, GerberArcReport, DEFAULT_MAX_DEVIATION_MM, validate_gerber_arc,
+};
 pub use gerber_job::{gerber_job, gerber_zip};
 /// Re-export of the RGBA image type from the image crate for use by callers.
 pub use image::RgbaImage;
@@ -531,6 +536,159 @@ pub fn archive_project(bytes: &[u8]) -> Result<Project, String> {
         .validate()
         .map_err(|e| format!("archived design is invalid: {e}"))?;
     Ok(project)
+}
+
+/// Portable reusable block: one template schematic page and the library it needs.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DesignBlock {
+    pub format: String,
+    pub version: u32,
+    pub sheet: pcbcraft_doc::Sheet,
+    pub components: Vec<pcbcraft_doc::Component>,
+    pub nets: Vec<pcbcraft_doc::Net>,
+    pub ports: Vec<pcbcraft_doc::Port>,
+    pub wires: Vec<pcbcraft_doc::Wire>,
+    pub drawn_wires: Vec<pcbcraft_doc::DrawnWire>,
+    pub labels: Vec<pcbcraft_doc::Label>,
+    pub library: pcbcraft_doc::ProjectLibrary,
+}
+
+fn sheet_object_ids(project: &Project, sheet: pcbcraft_doc::Id) -> BTreeSet<pcbcraft_doc::Id> {
+    let mut nets = BTreeSet::new();
+    for c in project.components.iter().filter(|c| c.sheet == sheet) {
+        for pin in &c.pins {
+            if let Some(net) = pin.net {
+                nets.insert(net);
+            }
+        }
+    }
+    for p in project.ports.iter().filter(|p| p.sheet == sheet) {
+        nets.insert(p.net);
+    }
+    nets
+}
+
+/// Write one template page and its dependencies into a stored ZIP archive.
+pub fn design_block_zip(project: &Project, sheet: pcbcraft_doc::Id) -> Result<Vec<u8>, String> {
+    let Some(sheet_row) = project.sheets.iter().find(|s| s.id == sheet).cloned() else {
+        return Err("sheet does not exist".into());
+    };
+    if !project.components.iter().any(|c| c.sheet == sheet) {
+        return Err("sheet has no components".into());
+    }
+    let net_ids = sheet_object_ids(project, sheet);
+    let block = DesignBlock {
+        format: "pcbcraft-block".into(),
+        version: 1,
+        sheet: sheet_row,
+        components: project
+            .components
+            .iter()
+            .filter(|c| c.sheet == sheet && c.instance.is_none())
+            .cloned()
+            .collect(),
+        nets: project
+            .nets
+            .iter()
+            .filter(|n| net_ids.contains(&n.id) && n.instance.is_none())
+            .cloned()
+            .collect(),
+        ports: project
+            .ports
+            .iter()
+            .filter(|p| p.sheet == sheet)
+            .cloned()
+            .collect(),
+        wires: project
+            .wires
+            .iter()
+            .filter(|w| {
+                project
+                    .component(w.from.component)
+                    .is_some_and(|c| c.sheet == sheet)
+                    && project
+                        .component(w.to.component)
+                        .is_some_and(|c| c.sheet == sheet)
+            })
+            .cloned()
+            .collect(),
+        drawn_wires: project
+            .drawn_wires
+            .iter()
+            .filter(|w| project.schematic_drawn_wire_page(w) == sheet)
+            .cloned()
+            .collect(),
+        labels: project
+            .labels
+            .iter()
+            .filter(|l| project.schematic_label_page(l) == sheet)
+            .cloned()
+            .collect(),
+        library: project.library.clone(),
+    };
+    if block.components.is_empty() {
+        return Err("sheet has no template components".into());
+    }
+    let body = serde_json::to_string_pretty(&block).map_err(|e| e.to_string())?;
+    zip_bytes(&[("block.json".into(), body.into_bytes())])
+}
+
+/// Read a design block archive written by `design_block_zip`.
+pub fn design_block_read(bytes: &[u8]) -> Result<DesignBlock, String> {
+    let eocd = bytes
+        .windows(22)
+        .rposition(|w| w.starts_with(b"PK\x05\x06"))
+        .ok_or_else(|| "not a design block archive: no archive directory".to_string())?;
+    let read_u16 = |at: usize| -> u16 { u16::from_le_bytes([bytes[at], bytes[at + 1]]) };
+    let read_u32 = |at: usize| -> u32 {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    };
+    let entries = read_u16(eocd + 10) as usize;
+    let mut at = read_u32(eocd + 16) as usize;
+    let mut block: Option<&[u8]> = None;
+    for _ in 0..entries {
+        if !bytes[at..].starts_with(b"PK\x01\x02") || at + 46 > bytes.len() {
+            return Err("corrupt archive directory entry".into());
+        }
+        let size = read_u32(at + 20) as usize;
+        let name_len = read_u16(at + 28) as usize;
+        let extra_len = read_u16(at + 30) as usize;
+        let comment_len = read_u16(at + 32) as usize;
+        let local_at = read_u32(at + 42) as usize;
+        if name_len == 0 || at + 46 + name_len > bytes.len() {
+            return Err("corrupt archive directory entry".into());
+        }
+        let name = &bytes[at + 46..at + 46 + name_len];
+        if name == b"block.json" {
+            if local_at + 30 > bytes.len() || !bytes[local_at..].starts_with(b"PK\x03\x04") {
+                return Err("corrupt archive entry header".into());
+            }
+            let local_name = read_u16(local_at + 26) as usize;
+            let local_extra = read_u16(local_at + 28) as usize;
+            if local_at + 30 + local_name > bytes.len()
+                || &bytes[local_at + 30..local_at + 30 + local_name] != name
+            {
+                return Err("archive entry headers disagree about the name".into());
+            }
+            let data_at = local_at + 30 + local_name + local_extra;
+            if data_at + size > bytes.len() {
+                return Err("archive entry runs past the end of the file".into());
+            }
+            block = Some(&bytes[data_at..data_at + size]);
+        }
+        at += 46 + name_len + extra_len + comment_len;
+    }
+    let block = block.ok_or_else(|| "archive holds no block.json".to_string())?;
+    let text = std::str::from_utf8(block).map_err(|_| "block.json is not UTF-8".to_string())?;
+    let parsed: DesignBlock =
+        serde_json::from_str(text).map_err(|e| format!("block.json is invalid: {e}"))?;
+    if parsed.format != "pcbcraft-block" || parsed.version != 1 {
+        return Err("unsupported design block format".into());
+    }
+    if parsed.sheet.name.is_empty() || parsed.components.is_empty() {
+        return Err("design block is empty".into());
+    }
+    Ok(parsed)
 }
 
 /// A small vector PDF writer: the drawing is collected as path and text
@@ -2648,7 +2806,18 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 /// job file records given by the caller. Directory exports and packages pin
 /// that date so two runs over the same design produce the same bytes.
 pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
+    let opts = GerberArcOptions::default_for(p, &serde_json::Value::Null);
+    gerber_files_with_options(p, creation, opts).map(|(files, _report)| files)
+}
+
+/// Gerber fabrication bundle with arc policy and a sidecar arc report.
+pub fn gerber_files_with_options(
+    p: &Project,
+    creation: &str,
+    opts: GerberArcOptions,
+) -> Result<(BTreeMap<String, String>, GerberArcReport), String> {
     p.validate()?;
+    let mut report = GerberArcReport::default();
     const MAX_OPS: usize = 100_000;
     const MAX_APERTURES: usize = 64;
     // An inch project gets imperial fabrication files; coordinates are still
@@ -2729,6 +2898,41 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                     y * self.scale
                 ));
             }
+            Ok(())
+        }
+        fn arc_stroke(
+            &mut self,
+            code: u32,
+            sx: f64,
+            sy: f64,
+            ex: f64,
+            ey: f64,
+            cx: f64,
+            cy: f64,
+            clockwise: bool,
+        ) -> Result<(), String> {
+            validate_gerber_arc(
+                Point::new(sx, sy),
+                Point::new(ex, ey),
+                Point::new(cx, cy),
+                clockwise,
+            )?;
+            self.ops += 1;
+            if self.ops > MAX_OPS {
+                return Err("gerber export exceeds the object limit".into());
+            }
+            self.body.push_str(&format!("D{code}D02*\n"));
+            self.body.push_str("G75*\n");
+            self.body.push_str(&format!(
+                "X{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\nG01*\n",
+                sx * self.scale,
+                sy * self.scale,
+                ex * self.scale,
+                ey * self.scale,
+                (cx - sx) * self.scale,
+                (cy - sy) * self.scale,
+                if clockwise { 2 } else { 3 }
+            ));
             Ok(())
         }
         fn fill(&mut self, code: u32, points: &[(f64, f64)]) -> Result<(), String> {
@@ -2834,10 +3038,6 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         let w = (t.width * 1_000.0).round() as u64;
         let code = file.code(Ap::Track(w.max(1)))?;
         if let Some(arc) = t.curve() {
-            file.ops += 1;
-            if file.ops > MAX_OPS {
-                return Err("gerber export exceeds the object limit".into());
-            }
             let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
             let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
             let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
@@ -2846,16 +3046,18 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             } else {
                 arc.sweep < 0.0
             };
-            file.body.push_str(&format!(
-                "D{code}D02*\nX{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\n",
-                sx,
-                sy,
-                ex,
-                ey,
-                cx - sx,
-                cy - sy,
-                if clockwise { 2 } else { 3 }
-            ));
+            if opts.arcs {
+                file.arc_stroke(code, sx, sy, ex, ey, cx, cy, clockwise)?;
+                report.record_written();
+            } else {
+                let worst = gerber_arc::flatten_arc_worst(&arc, opts.max_deviation);
+                report.record_flattened(worst);
+                let points: Vec<(f64, f64)> = pcbcraft_doc::arc_polyline(&arc, opts.max_deviation)
+                    .into_iter()
+                    .map(|pt| mirror(pt.x, pt.y, is_back))
+                    .collect();
+                file.stroke(code, &points, false)?;
+            }
         } else {
             file.stroke(
                 code,
@@ -2940,19 +3142,80 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     }
     let mut outline = LayerFile::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
-    outline.stroke(edge_code, &board_edge_points(p), true)?;
-    for c in &p.board.cutouts {
-        outline.ops += 1;
-        if outline.ops > MAX_OPS {
-            return Err("gerber export exceeds the object limit".into());
+    if let Some(points) = &p.board.outline {
+        if opts.arcs {
+            for i in 0..points.len() {
+                let a = points[i];
+                let b = points[(i + 1) % points.len()];
+                if let Some(arc) =
+                    pcbcraft_doc::segment_arc(points, &p.board.outline_arcs, i)
+                {
+                    let clockwise = arc.sweep < 0.0;
+                    outline.arc_stroke(
+                        edge_code,
+                        a.x,
+                        a.y,
+                        b.x,
+                        b.y,
+                        arc.center.x,
+                        arc.center.y,
+                        clockwise,
+                    )?;
+                    report.record_written();
+                } else {
+                    outline.stroke(edge_code, &[(a.x, a.y), (b.x, b.y)], false)?;
+                }
+            }
+        } else {
+            for i in 0..points.len() {
+                if let Some(arc) =
+                    pcbcraft_doc::segment_arc(points, &p.board.outline_arcs, i)
+                {
+                    let worst = gerber_arc::flatten_arc_worst(&arc, opts.max_deviation);
+                    report.record_flattened(worst);
+                }
+            }
+            let flat: Vec<(f64, f64)> = pcbcraft_doc::flatten_outline(
+                points,
+                &p.board.outline_arcs,
+                opts.max_deviation,
+            )
+            .into_iter()
+            .map(|pt| (pt.x, pt.y))
+            .collect();
+            outline.stroke(edge_code, &flat, true)?;
         }
-        outline.arcs.push_str(&format!(
-            "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
-            (c.center.x - c.radius) * scale,
-            c.center.y * scale,
-            c.radius * scale,
-            0.0
-        ));
+    } else {
+        outline.stroke(edge_code, &board_edge_points(p), true)?;
+    }
+    for c in &p.board.cutouts {
+        if opts.arcs {
+            outline.ops += 1;
+            if outline.ops > MAX_OPS {
+                return Err("gerber export exceeds the object limit".into());
+            }
+            outline.arcs.push_str(&format!(
+                "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
+                (c.center.x - c.radius) * scale,
+                c.center.y * scale,
+                c.radius * scale,
+                0.0
+            ));
+            report.record_written();
+        } else {
+            let n = 32;
+            let ring: Vec<(f64, f64)> = (0..=n)
+                .map(|i| {
+                    let a = std::f64::consts::TAU * i as f64 / n as f64;
+                    (
+                        c.center.x + c.radius * a.cos(),
+                        c.center.y + c.radius * a.sin(),
+                    )
+                })
+                .collect();
+            outline.stroke(edge_code, &ring, false)?;
+            report.record_flattened(c.radius * (1.0 - (std::f64::consts::PI / n as f64).cos()));
+        }
     }
     let hits = project_drill_hits(p)?;
     let origin = p.board.drill_origin;
@@ -3026,6 +3289,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     // last and never drifts from the package it travels in.
     let job = gerber_job::gerber_job_at(p, &files, creation)?;
     files.insert("pcb-job.gbrjob".into(), job);
+    files.insert("gerber-arc-report.txt".into(), report.to_text());
     let mut names: Vec<String> = files.keys().cloned().collect();
     names.push("README-fabrication.txt".into());
     names.sort();
@@ -3033,7 +3297,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         "README-fabrication.txt".into(),
         fab_export::fab_readme_text(p, &names)?,
     );
-    Ok(files)
+    Ok((files, report))
 }
 
 /// Gerber drill-map layer with one marker per tool and a legend table.
@@ -5227,6 +5491,7 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 ));
             }
         }
+        let arc_opts = GerberArcOptions::default_for(p, &serde_json::Value::Null);
         for t in &p.board.tracks {
             let color = if t.layer == pcbcraft_doc::Layer::Front {
                 "#f58d79"
@@ -5234,7 +5499,7 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 "#74a7ec"
             };
             let d = match t.curve() {
-                Some(arc) => format!(
+                Some(arc) if arc_opts.arcs => format!(
                     "M {} {} A {:.6} {:.6} 0 {} {} {} {}",
                     t.start.x,
                     t.start.y,
@@ -5245,6 +5510,13 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                     t.end.x,
                     t.end.y
                 ),
+                Some(arc) => {
+                    let line: Vec<String> = pcbcraft_doc::arc_polyline(&arc, arc_opts.max_deviation)
+                        .into_iter()
+                        .map(|pt| format!("L {} {}", pt.x, pt.y))
+                        .collect();
+                    format!("M {} {} {}", t.start.x, t.start.y, line.join(" "))
+                }
                 None => format!("M {} {} L {} {}", t.start.x, t.start.y, t.end.x, t.end.y),
             };
             s.push_str(&format!("<path d=\"{d}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"{}\" stroke-linecap=\"round\"/>",t.width));
@@ -7250,6 +7522,40 @@ mod tests {
 
     use super::*;
     #[test]
+    fn design_block_round_trip_preserves_template_sheet() -> Result<(), String> {
+        let mut project = Project::default();
+        let sheet = 3;
+        project.sheets.push(pcbcraft_doc::Sheet {
+            id: sheet,
+            name: "filter".into(),
+            parent: Some(0),
+            entry: None,
+        });
+        project.components.push(pcbcraft_doc::Component {
+            id: 10,
+            reference: "R1".into(),
+            value: "1k".into(),
+            kind: "resistor".into(),
+            position: Point::new(5.0, 5.0),
+            rotation: 0.0,
+            pins: vec![],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+            sheet,
+            instance: None,
+            prototype: None,
+        });
+        let zip = design_block_zip(&project, sheet)?;
+        let block = design_block_read(&zip)?;
+        assert_eq!(block.sheet.name, "filter");
+        assert_eq!(block.components.len(), 1);
+        assert_eq!(block.components[0].reference, "R1");
+        Ok(())
+    }
+
+    #[test]
     fn archive_round_trips_a_project_and_its_attached_files() -> Result<(), String> {
         let mut project = Project {
             library_table: Vec::new(),
@@ -7512,6 +7818,8 @@ mod tests {
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 600,
             reference: "R1".into(),
             value: "10k".into(),
@@ -8400,6 +8708,8 @@ mod tests {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -9073,6 +9383,8 @@ mod tests {
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -9318,6 +9630,8 @@ mod tests {
         for id in 1..=2u64 {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: format!("J{id}"),
                 value: "slot".into(),
@@ -9410,6 +9724,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -9530,6 +9846,8 @@ mod tests {
         for (id, reference) in [(1, "R1"), (2, "D1")] {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "2V".into(),
@@ -9622,6 +9940,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -9699,7 +10019,9 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "PWR".into(),
-            ..Default::default()
+            target_length: None,
+            length_tolerance: None,
+            instance: None,
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -9779,6 +10101,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -9855,7 +10179,9 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "P&&R".into(),
-            ..Default::default()
+            target_length: None,
+            length_tolerance: None,
+            instance: None,
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -9954,6 +10280,8 @@ mod tests {
         };
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R5".into(),
             value: "1k".into(),
@@ -9991,6 +10319,8 @@ mod tests {
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 2,
             reference: "U1".into(),
             value: "1k".into(),
@@ -10245,7 +10575,6 @@ mod tests {
             max_width: None,
             target_length: None,
             length_tolerance: None,
-            max_length: None,
             max_stub: None,
             via_diameter: None,
             via_drill: None,
@@ -10258,6 +10587,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -10411,6 +10742,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -10674,6 +11007,96 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn gerber_arc_policy_flattens_curved_tracks_when_arcs_are_off() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "A".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(15.0, 12.0)),
+        });
+        project.validate()?;
+        let opts = GerberArcOptions {
+            arcs: false,
+            max_deviation: 0.01,
+        };
+        let (files, report) =
+            gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
+        let copper = &files["pcb-F.Cu.gbr"];
+        assert!(
+            !copper.contains("G02*") && !copper.contains("G03*"),
+            "flattened copper uses straight draws only"
+        );
+        assert_eq!(report.arcs_written, 0);
+        assert_eq!(report.arcs_flattened, 1);
+        assert!(report.worst_deviation_mm <= 0.01);
+        Ok(())
+    }
+
+    #[test]
+    fn gerber_arc_policy_report_counts_written_arcs() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "A".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(15.0, 12.0)),
+        });
+        project.validate()?;
+        let opts = GerberArcOptions::default_for(&project, &serde_json::Value::Null);
+        let (files, report) =
+            gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
+        let copper = &files["pcb-F.Cu.gbr"];
+        assert!(copper.contains("G75*") && copper.contains("G02*"));
+        assert_eq!(report.arcs_written, 1);
+        assert_eq!(report.arcs_flattened, 0);
+        assert!(files["gerber-arc-report.txt"].contains("arcs written: 1"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_exports_a_curved_board_and_reads_a_report_of_arcs_written() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "A".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(15.0, 12.0)),
+        });
+        project.validate()?;
+        let opts = GerberArcOptions::default_for(&project, &serde_json::Value::Null);
+        let (files, report) =
+            gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
+        assert!(files["gerber-arc-report.txt"].contains("arcs written: 1"));
+        assert_eq!(report.arcs_written, 1);
+        Ok(())
+    }
+
+    #[test]
     fn curved_tracks_export_as_true_arcs_in_every_format() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
@@ -10934,6 +11357,8 @@ mod tests {
         ] {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: value.into(),
@@ -11032,6 +11457,8 @@ mod tests {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "10k".into(),
@@ -11115,6 +11542,8 @@ mod tests {
         for (id, reference) in [(1, "R1"), (2, "R2")] {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "10k".into(),
@@ -11279,6 +11708,8 @@ mod tests {
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -11429,6 +11860,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -11506,7 +11939,9 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "PWR".into(),
-            ..Default::default()
+            target_length: None,
+            length_tolerance: None,
+            instance: None,
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -11574,6 +12009,8 @@ mod tests {
         };
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -11758,6 +12195,8 @@ mod tests {
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -11847,6 +12286,8 @@ mod tests {
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 3,
             reference: "R9".into(),
             value: "1 k".into(),
@@ -12293,6 +12734,8 @@ mod tests {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "U1".into(),
             value: "CLKPART".into(),
@@ -12578,7 +13021,9 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 7,
             name: "probe".into(),
-            ..Default::default()
+            target_length: None,
+            length_tolerance: None,
+            instance: None,
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 8,
@@ -13486,6 +13931,8 @@ mod tests {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "C1".into(),
             value: "cap".into(),

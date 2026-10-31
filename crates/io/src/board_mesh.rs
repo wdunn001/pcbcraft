@@ -1755,8 +1755,10 @@ covering_scope: None,
             include_in_bom: true,
             include_in_placement: true,
             sheet: 0,
-        sourcing: Default::default(),
-        compliance: Default::default(),
+instance: None,
+            prototype: None,
+            sourcing: Default::default(),
+            compliance: Default::default(),
         });
         p.board.footprints.push(footprint(pads));
         p

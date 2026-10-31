@@ -181,12 +181,12 @@ fn push_zone(shapes: &mut Vec<Shape>, zone: &CopperZone, p: &Project) {
 
 fn push_track(shapes: &mut Vec<Shape>, track: &Track, p: &Project) {
     if let Some(arc) = track.curve() {
-        let steps = 32;
-        let mut points = Vec::with_capacity(steps + 1);
-        for i in 0..=steps {
-            let t = i as f64 / steps as f64;
-            points.push(fabrication_point(p, arc.point_at(t)));
-        }
+        let centerline =
+            pcbcraft_doc::arc_polyline(&arc, crate::DEFAULT_MAX_DEVIATION_MM);
+        let mut points: Vec<Point> = centerline
+            .into_iter()
+            .map(|pt| fabrication_point(p, pt))
+            .collect();
         shapes.push(Shape::Stroke(
             points,
             track.width,
@@ -816,6 +816,8 @@ covering_scope: None,
         project.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),

@@ -890,6 +890,8 @@ mod tests {
         Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id,
             reference: reference.into(),
             value: "1k".into(),
