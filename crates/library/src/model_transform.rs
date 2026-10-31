@@ -61,7 +61,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_writes_kicad_model_clause() {
+    fn refresh_writes_model_clause() {
         let mut m = sample();
         refresh_model_raw_source(&mut m);
         assert!(m.raw_source.contains("(offset (xyz 1 2 3))"));
