@@ -756,7 +756,7 @@ fn board_outline_ring(p: &Project) -> Vec<Point> {
     ring
 }
 
-fn offset_ring(points: &[Point], distance: f64) -> Vec<Point> {
+pub(crate) fn offset_ring(points: &[Point], distance: f64) -> Vec<Point> {
     let n = points.len();
     if n < 2 {
         return points.to_vec();

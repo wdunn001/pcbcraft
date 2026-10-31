@@ -407,7 +407,7 @@ fn footprint_margin(p: &Project, f: &Footprint, mask: bool) -> Option<f64> {
 }
 
 /// Whether a pad carries copper on the requested side.
-fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
+pub(crate) fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
     let (front, back, _) = pad_sides(fp, pad);
     match layer {
         Layer::Back => back,
@@ -419,7 +419,7 @@ fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
 
 /// Whether a pad is surface mounted, and so takes paste. Pads with a drill and
 /// legacy pads that carry only a diameter are through-hole and are skipped.
-fn pad_is_smd(pad: &Pad) -> bool {
+pub(crate) fn pad_is_smd(pad: &Pad) -> bool {
     match &pad.geometry {
         None => false,
         Some(g) => {
