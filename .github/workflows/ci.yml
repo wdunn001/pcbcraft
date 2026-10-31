@@ -3,14 +3,21 @@
 name: CI
 
 on:
+push:
+    branches: [main]
   # Branches get CI only through their pull request. Pushes run for main
   # (every commit keeps its result); release tags have their own workflow.
-  push:
-    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  workflow_dispatch:
+  # Refresh status data every 6 hours (ticket #581).
+  schedule:
+    - cron: '23 */6 * * *'
 
 permissions: {}
 
@@ -32,8 +39,15 @@ env:
 jobs:
   changes:
     name: Changes
-    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
-    runs-on: ubuntu-24.04
+# Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    # In the upstream repository, branch pushes other than main are covered by
+    # their pull request. Forks run on every push so stacked branches get
+    # results without waiting for workflow approval upstream.
+    if: >-
+      github.event_name != 'push'
+      || github.ref == 'refs/heads/main'
+      || github.repository != 'tangency-labs/pcbcraft'
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     outputs:
@@ -71,6 +85,42 @@ jobs:
             echo "rust=false" >> "$GITHUB_OUTPUT"
           fi
 
+
+  status-data:
+    name: Status data
+    # Ticket #581: refresh issue status data from the API using ETag caching.
+    # Runs on every push to main and on schedule; skips on pull requests.
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: status-data
+          save-if: false
+      - name: Generate status data
+        run: cargo xtask status-data --refresh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit updated status data
+        run: |
+          git config user.name "PCBCraft CI"
+          git config user.email "ci@pcbcraft.dev"
+          git add site/src/data/status.json site/src/data/status-cache.json
+          if git diff --cached --quiet; then
+            echo "No status data changes to commit."
+          else
+            git commit -m "chore: refresh status data [skip ci]"
+            git push origin main
+          fi
   policy:
     name: Format and policy
     needs: changes
@@ -97,7 +147,7 @@ jobs:
     name: Clippy and docs
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft-laptop"]') || 'ubuntu-24.04' }}
+runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft","pcbcraft-laptop"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -145,12 +195,52 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask docs check
 
-  a11y:
-    name: Accessibility
-    needs: changes
-    # Draft pull requests run only the cheap jobs; see docs/ci.md.
+- uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: a11y
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask a11y
     if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft-laptop"]') || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+    env:
+      NEXTEST_PROFILE: ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
+          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask test
+      - name: Datasheet spike fixture tests
+        working-directory: examples/datasheet-spike
+        run: |
+          cargo test --release
+          cargo clippy -- -D warnings
+      - run: cargo xtask board3d-bench
+      - name: Upload test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-report
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
     permissions:
       contents: read
     steps:
@@ -175,7 +265,7 @@ jobs:
   wasm:
     name: WebAssembly
     needs: changes
-    # Draft pull requests run only the cheap jobs; see docs/ci.md.
+# Draft pull requests run only the cheap jobs; see docs/ci.md.
     if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
     runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
@@ -197,9 +287,8 @@ jobs:
   msrv:
     name: Minimum Rust version
     needs: changes
-    # Main and manual runs only: pull requests share a small pool of hosted runners.
-    if: needs.changes.outputs.rust == 'true' && github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
+if: needs.changes.outputs.rust == 'true' && github.event_name != 'pull_request'
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -229,10 +318,27 @@ jobs:
   deny:
     name: Licenses and advisories
     needs: changes
-    # Draft pull requests run only the cheap jobs; see docs/ci.md.
+# Draft pull requests run only the cheap jobs; see docs/ci.md.
     if: ${{ !github.event.pull_request.draft }}
     # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: msrv
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask msrv
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -251,6 +357,17 @@ jobs:
           save-if: false
       - run: cargo xtask deny
 
+- uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-deny
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: xtask
+          save-if: false
+      - run: cargo xtask deny
   build:
     name: Build (${{ matrix.os }})
     needs: changes

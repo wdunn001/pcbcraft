@@ -860,6 +860,8 @@ pub mod tests {
             fields: vec![],
             sheet: 0,
         }
+    sourcing: Default::default(),
+    compliance: Default::default(),
     }
 
     pub fn laser_job_two_pad_one_track_project() -> Project {
@@ -877,6 +879,7 @@ pub mod tests {
         const NET: Id = 401;
         project.board.footprints = vec![
             Footprint {
+                preserved: pcbcraft_doc::PreservedSource::default(),
                 id: FP_A,
                 component: COMP_A,
                 position: Point::new(5.0, 7.5),
@@ -893,6 +896,7 @@ pub mod tests {
                 }],
             },
             Footprint {
+                preserved: pcbcraft_doc::PreservedSource::default(),
                 id: FP_B,
                 component: COMP_B,
                 position: Point::new(15.0, 7.5),
@@ -910,6 +914,7 @@ pub mod tests {
             },
         ];
         project.board.tracks = vec![Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: TRACK,
             net: NET,
             start: Point::new(5.0, 7.5),
