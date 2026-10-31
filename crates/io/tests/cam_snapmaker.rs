@@ -3,9 +3,10 @@ use pcbcraft_doc::{Component, Footprint, Hole, Layer, Net, Pad, Pin, Project, Tr
 use pcbcraft_geom::Point;
 use pcbcraft_io::{
     CamProfile, CutDirection, DrillDialect, DrillMillTool, DrillOptions, DrillOrder,
-    IsolationOptions, OutlineCompensation, OutlineOptions, Side, Spindle, Tabs, Tool, ToolChange,
-    builtin_machine_profile, drill_gcode, isolation_gcode, outline_gcode, snapmaker_cnc_profile,
-    snapmaker_files, snapmaker_finalize, snapmaker_settings, spindle_percent,
+    IsolationOptions, OutlineCompensation, OutlineOptions, RubRegion, Side, Spindle, Tabs, Tool,
+    ToolChange, builtin_machine_profile, drill_gcode, isolation_gcode, outline_gcode,
+    snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize, snapmaker_settings,
+    spindle_percent,
 };
 
 const A350T: &str = "snapmaker-2-a350t-200w-cnc";
@@ -37,12 +38,17 @@ fn sample_two_pads_track() -> Project {
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: vec![],
         }],
         units: vec![],
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
+    sourcing: Default::default(),
+    compliance: Default::default(),
     });
     p.components.push(Component {
         sourcing: Default::default(),
@@ -60,12 +66,17 @@ fn sample_two_pads_track() -> Project {
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: vec![],
         }],
         units: vec![],
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
+    sourcing: Default::default(),
+    compliance: Default::default(),
     });
     let fp1 = Footprint {
         preserved: pcbcraft_doc::PreservedSource::default(),
@@ -121,10 +132,10 @@ fn arc_word(line: &str) -> bool {
     )
 }
 
-/// Compares text with a stored fixture; `UPDATE_GOLDEN=1` rewrites the fixture.
+/// Compares text with a stored fixture; `PCBCRAFT_BLESS=1` rewrites the fixture.
 fn golden(name: &str, text: &str) -> Result<(), String> {
     let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var("UPDATE_GOLDEN").is_ok() {
+    if pcbcraft_testkit::blessing() {
         std::fs::write(&path, text).map_err(|e| e.to_string())?;
     }
     let want = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
@@ -188,6 +199,48 @@ fn drill_tool(number: u8, d: f64) -> DrillMillTool {
         cut_feed_mm_min: 300.0,
         plunge_feed_mm_min: 100.0,
     }
+}
+
+#[test]
+fn snapmaker_isolation_with_rubout_writes_second_tool_file() -> Result<(), String> {
+    let s = settings(A350T)?;
+    let mut opts = IsolationOptions {
+        side: Side::Top,
+        tool: iso_tool(Spindle::Percent(spindle_percent(Spindle::Rpm(18000), &s)?)),
+        overlap_pct: 50,
+        rubout: None,
+        mirror_axis: pcbcraft_io::CamMirrorAxis::Y,
+        alignment_holes: false,
+    };
+    opts.rubout = Some(RubRegion {
+        rect: None,
+        tool: Tool {
+            diameter_mm: 1.0,
+            feed_mm_min: 400.0,
+            plunge_mm_min: 80.0,
+            depth_mm: 0.08,
+            passes: 1,
+            spindle: Spindle::Percent(spindle_percent(Spindle::Rpm(18000), &s)?),
+        },
+        stepover_pct: 50,
+        angle_deg: 0.0,
+    });
+    let out = isolation_gcode(&sample_two_pads_track(), &opts, &snapmaker_cnc_profile(&s))?;
+    assert_eq!(out.files.len(), 2);
+    let names: Vec<&str> = out.files.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(names.iter().any(|n| *n == "isolation-top.nc"));
+    assert!(names.iter().any(|n| *n == "rubout-1-top.nc"));
+    let files = snapmaker_files(out.files, &s)?;
+    assert_eq!(files.len(), 2);
+    let rub = files
+        .iter()
+        .find(|(n, _)| n == "rubout-1-top.nc")
+        .map(|(_, t)| t.as_str())
+        .ok_or("missing rubout file")?;
+    assert!(rub.starts_with(";Header Start\n;header_type: cnc\n"));
+    assert!(rub.contains("M3 P"));
+    assert!(!rub.lines().any(arc_word));
+    Ok(())
 }
 
 #[test]
@@ -263,6 +316,7 @@ fn snapmaker_drill_three_tool_sizes_yields_three_files_each_with_header_and_boun
         from_layer: None,
         to_layer: None,
         covering: None,
+covering_scope: None,
         covering_bottom: None,
     });
     p.board.holes.push(Hole {

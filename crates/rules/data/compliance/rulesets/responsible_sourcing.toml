@@ -1,0 +1,43 @@
+schema = 1
+id = "responsible_sourcing"
+title = "Responsible sourcing"
+description = "Conflict minerals templates, PFAS reporting prompts, and Proposition 65 substance reminders."
+as_of = "2026-03-28"
+
+[[rules]]
+id = "minerals_report_on_file"
+kind = "manufacturer_minerals_report"
+template = "cmrt"
+severity_hit = "warning"
+severity_unverified = "warning"
+message_unverified = "No CMRT (or equivalent minerals reporting template) is on file for this manufacturer."
+citation = "Dodd-Frank Act Section 1502; EU Regulation 2017/821; RMI CMRT."
+
+[[rules]]
+id = "emrt_for_battery_supply"
+kind = "manufacturer_minerals_report"
+template = "emrt"
+role = "battery"
+severity_hit = "warning"
+severity_unverified = "warning"
+message_unverified = "Battery parts reference a manufacturer without an EMRT on file for cobalt or mica due diligence."
+citation = "RMI EMRT; EU battery due diligence expectations (fixture rule)."
+
+[[rules]]
+id = "pfas_fluoropolymer_declaration"
+kind = "scoped_declaration"
+role = "fluoropolymer"
+regime = "us.tsca.pfas"
+severity_hit = "info"
+severity_unverified = "info"
+message_unverified = "PFAS reporting status is unknown for this fluoropolymer part."
+message_reference = "Reporting expectations are stated as of the bundled rule file date."
+citation = "US TSCA Section 8(a)(7) PFAS reporting (fixture prompt)."
+
+[[rules]]
+id = "prop65_listed_substance"
+kind = "listed_substance"
+list = "prop65_chemicals_fixture"
+severity_hit = "info"
+message_hit = "A declared substance appears on the bundled Proposition 65 list; decide whether a consumer warning is needed."
+citation = "California Proposition 65 (Safe Drinking Water and Toxic Enforcement Act)."

@@ -1,5 +1,6 @@
 //! Panel fabrication export: duplicated board artwork, mechanical holes and placement.
 
+use crate::gerber::coordinate;
 use pcbcraft_doc::{
     Board, CopperZone, Cutout, Fiducial, Footprint, Hole, Layer, PanelLayout, PanelSeparation,
     PanelSettings, Project, Track, Via, panel_layout,
@@ -365,11 +366,11 @@ fn vcut_layer(layout: &PanelLayout, inch: bool) -> String {
             + col as f64 * layout.pitch_x
             + layout.pitch_x / 2.0;
         body.push_str(&format!(
-            "G01*\nX{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}D01*\n",
-            x * scale,
-            0.0,
-            x * scale,
-            layout.panel_height * scale
+            "G01*\nX{}Y{}D02*\nX{}Y{}D01*\n",
+            coordinate(x * scale),
+            0,
+            coordinate(x * scale),
+            coordinate(layout.panel_height * scale)
         ));
     }
     for row in 0..layout.rows.saturating_sub(1) {
@@ -378,15 +379,15 @@ fn vcut_layer(layout: &PanelLayout, inch: bool) -> String {
             + row as f64 * layout.pitch_y
             + layout.pitch_y / 2.0;
         body.push_str(&format!(
-            "G01*\nX{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}D01*\n",
-            0.0,
-            y * scale,
-            layout.panel_width * scale,
-            y * scale
+            "G01*\nX{}Y{}D02*\nX{}Y{}D01*\n",
+            0,
+            coordinate(y * scale),
+            coordinate(layout.panel_width * scale),
+            coordinate(y * scale)
         ));
     }
     format!(
-        "G04 panel V-cut *\n%TF.FileFunction,Vcut*%\n%FSLANX36Y36*%\n%{mo}*%\n%LPD*%\n{body}M02*\n"
+        "G04 panel V-cut *\n%TF.FileFunction,Vcut*%\n%FSLAX46Y46*%\n%{mo}*%\n%LPD*%\n{body}M02*\n"
     )
 }
 
@@ -429,6 +430,9 @@ pub fn panel_placement_text(p: &Project) -> Result<String, String> {
             let c = refs
                 .get(&f.component)
                 .ok_or("footprint references an unknown component")?;
+            if !c.in_placement() {
+                continue;
+            }
             let back = f.pads.iter().any(|pad| {
                 pad.geometry.as_ref().is_some_and(|g| {
                     g.pad_type == "smd"
@@ -469,4 +473,31 @@ pub fn panel_placement_text(p: &Project) -> Result<String, String> {
         p.name,
         rows.join("\n")
     ))
+}
+
+#[cfg(test)]
+mod vcut_tests {
+    use super::*;
+
+    #[test]
+    fn vcut_layer_writes_integer_coordinates_under_a_4_6_format() {
+        let layout = PanelLayout {
+            columns: 2,
+            rows: 1,
+            rail: 5.0,
+            board_width: 20.0,
+            board_height: 10.0,
+            pitch_x: 2.0,
+            pitch_y: 2.0,
+            panel_width: 50.0,
+            panel_height: 20.0,
+            copies: Vec::new(),
+        };
+        let text = vcut_layer(&layout, false);
+        assert!(text.contains("%FSLAX46Y46*%"));
+        assert!(
+            text.contains("X26000000Y0D02*\nX26000000Y20000000D01*\n"),
+            "{text}"
+        );
+    }
 }

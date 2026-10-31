@@ -105,7 +105,7 @@ pub fn import_part(
                 offset: [0.0; 3],
                 scale: [1.0; 3],
                 rotate: [0.0; 3],
-                embedded: String::new(),
+                cad_part: None,
                 raw_source: String::new(),
             }),
             (_, None) => None,
@@ -204,6 +204,7 @@ pub fn generic_symbol_for(
         extends: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        retained: Vec::new(),
     };
     symbol
         .validate()

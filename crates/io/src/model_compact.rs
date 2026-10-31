@@ -1,4 +1,4 @@
-//! Compact on-disk and in-project encoding of a loaded model (millimetres, Z up).
+//! Compact on-disk encoding of a loaded model (millimetres, Z up).
 use crate::model_load::{LoadedModel, ModelError};
 use sha2::{Digest, Sha256};
 
@@ -7,12 +7,6 @@ pub const COMPACT_VERSION: u32 = 1;
 
 fn bad(why: &str) -> ModelError {
     ModelError(why.to_string())
-}
-
-fn fixed_bytes<const N: usize>(slice: &[u8]) -> Result<[u8; N], ModelError> {
-    slice
-        .try_into()
-        .map_err(|_| bad("the stored model file is truncated"))
 }
 
 fn decode_hex_digest(text: &str) -> Result<[u8; 32], ModelError> {
@@ -38,6 +32,27 @@ fn from_hex(b: u8) -> Option<u8> {
     }
 }
 
+fn le_u32(chunk: &[u8]) -> Result<u32, ModelError> {
+    let arr: [u8; 4] = chunk
+        .try_into()
+        .map_err(|_| bad("the stored model file is truncated"))?;
+    Ok(u32::from_le_bytes(arr))
+}
+
+fn le_f64(chunk: &[u8]) -> Result<f64, ModelError> {
+    let arr: [u8; 8] = chunk
+        .try_into()
+        .map_err(|_| bad("the stored model file is truncated"))?;
+    Ok(f64::from_le_bytes(arr))
+}
+
+fn le_f32(chunk: &[u8]) -> Result<f32, ModelError> {
+    let arr: [u8; 4] = chunk
+        .try_into()
+        .map_err(|_| bad("the stored model file is truncated"))?;
+    Ok(f32::from_le_bytes(arr))
+}
+
 /// SHA-256 hex digest of the source file bytes.
 pub fn source_digest(bytes: &[u8]) -> String {
     let mut h = Sha256::new();
@@ -60,7 +75,7 @@ pub fn cache_entry_name(digest: &str, loader_version: u32, step_tolerance_mm: f6
     )
 }
 
-/// Encode a loaded model for the disk cache or project embedding.
+/// Encode a loaded model for the disk cache.
 pub fn encode_compact(
     model: &LoadedModel,
     loader_version: u32,
@@ -119,23 +134,22 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     if magic != MAGIC {
         return Err(bad("the stored model file is not a PCBM cache entry"));
     }
-    let version = u32::from_le_bytes(fixed_bytes(take(4, bytes)?)?);
+    let version = le_u32(take(4, bytes)?)?;
     if version != COMPACT_VERSION {
         return Err(bad("the stored model file uses an unsupported version"));
     }
-    let _loader = u32::from_le_bytes(fixed_bytes(take(4, bytes)?)?);
-    let _tol = f64::from_le_bytes(fixed_bytes(take(8, bytes)?)?);
+    let _loader = le_u32(take(4, bytes)?)?;
+    let _tol = le_f64(take(8, bytes)?)?;
     let _digest = take(32, bytes)?;
-    let n_pos = u32::from_le_bytes(fixed_bytes(take(4, bytes)?)?) as usize;
-    let n_idx = u32::from_le_bytes(fixed_bytes(take(4, bytes)?)?) as usize;
-    let has_color = take(1, bytes)?
+    let n_pos = le_u32(take(4, bytes)?)? as usize;
+    let n_idx = le_u32(take(4, bytes)?)? as usize;
+    let has_color = *take(1, bytes)?
         .first()
-        .copied()
         .ok_or_else(|| bad("the stored model file is truncated"))?;
     let color = if has_color != 0 {
         let mut c = [0f32; 3];
         for slot in &mut c {
-            *slot = f32::from_le_bytes(fixed_bytes(take(4, bytes)?)?);
+            *slot = le_f32(take(4, bytes)?)?;
         }
         Some(c)
     } else {
@@ -145,13 +159,13 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     for _ in 0..n_pos {
         let mut p = [0f64; 3];
         for v in &mut p {
-            *v = f64::from_le_bytes(fixed_bytes(take(8, bytes)?)?);
+            *v = le_f64(take(8, bytes)?)?;
         }
         positions.push(p);
     }
     let mut indices = Vec::with_capacity(n_idx);
     for _ in 0..n_idx {
-        indices.push(u32::from_le_bytes(fixed_bytes(take(4, bytes)?)?));
+        indices.push(le_u32(take(4, bytes)?)?);
     }
     if off != bytes.len() {
         return Err(bad("the stored model file has trailing bytes"));
@@ -161,31 +175,6 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
         indices,
         color,
     })
-}
-
-/// Base64 form stored on a footprint for travel with the project file.
-pub fn encode_compact_base64(
-    model: &LoadedModel,
-    loader_version: u32,
-    step_tolerance_mm: f64,
-    source_digest: &str,
-) -> Result<String, ModelError> {
-    use base64::Engine;
-    Ok(base64::engine::general_purpose::STANDARD.encode(encode_compact(
-        model,
-        loader_version,
-        step_tolerance_mm,
-        source_digest,
-    )?))
-}
-
-/// Read a footprint-embedded model.
-pub fn decode_compact_base64(text: &str) -> Result<LoadedModel, ModelError> {
-    use base64::Engine;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(text.trim())
-        .map_err(|_| bad("the embedded model is not valid base64"))?;
-    decode_compact(&bytes)
 }
 
 #[cfg(test)]
@@ -203,8 +192,6 @@ mod tests {
         let bytes = encode_compact(&model, 1, 0.05, &digest).map_err(|e| e.0)?;
         let back = decode_compact(&bytes).map_err(|e| e.0)?;
         assert_eq!(back, model);
-        let b64 = encode_compact_base64(&model, 1, 0.05, &digest).map_err(|e| e.0)?;
-        assert_eq!(decode_compact_base64(&b64).map_err(|e| e.0)?, model);
         Ok(())
     }
 }

@@ -13,7 +13,7 @@ fn main() -> eframe::Result {
     };
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-"PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE\n--search WORDS\n--place-first-online\n--left library|layers\n--context-menu\n--show file-export|export-dialog\n--menu tree-layer|tree-part|tree-net|library-card|finding|page-tab\n--sheet\n--target silk|edge\n--view3d top|front|side|bottom\n--assistant run|run-done|run-open|review|applied|next"
+"PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE\n--search WORDS\n--place-first-online\n--left library|layers\n--context-menu\n--show file-export|export-dialog|export-flavour|settings-board|settings-rules|settings-classes|settings-electrical|settings-machines|settings-title\n--menu tree-layer|tree-part|tree-net|library-card|finding|page-tab\n--sheet\n--target silk|edge\n--view3d top|front|side|bottom\n--assistant run|run-done|run-open|review|applied|next"
         );
         return Ok(());
     }
@@ -28,6 +28,7 @@ fn main() -> eframe::Result {
     } else {
         pcbcraft_engine::Session::default()
     };
+    session.config = pcbcraft_engine::user_config::UserConfig::from_environment();
     if args.iter().any(|a| a == "--sample") {
         // The demo board shows the default 45 degree corners.
         let cut = serde_json::json!({"points":[[3.0,0.0],[57.0,0.0],[60.0,3.0],[60.0,37.0],[57.0,40.0],[3.0,40.0],[0.0,37.0],[0.0,3.0]]});

@@ -70,6 +70,8 @@ pub enum Item {
         changes: u32,
         undone: bool,
     },
+    /// Titles and links from a knowledge search on this turn.
+    Sources(Vec<crate::backend::SourceLink>),
 }
 
 #[derive(Default)]
@@ -206,6 +208,7 @@ impl Transcript {
                 });
             }
             Event::Error(text) => self.push(Item::Note { text, error: true }),
+            Event::Sources(links) => self.push(Item::Sources(links)),
             _ => {}
         }
     }

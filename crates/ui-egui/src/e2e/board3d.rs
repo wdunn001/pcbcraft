@@ -197,12 +197,14 @@ fn open_3d_with_model(model_path: &str) -> Result<(egui::Context, App, Id), Stri
                     offset: [0.0; 3],
                     scale: [1.0; 3],
                     rotate: [0.0; 3],
-                    embedded: String::new(),
+                    cad_part: None,
                     raw_source: String::new(),
                 }),
                 rules: None,
+                box_body: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                retained: vec![],
             },
         });
         s.revision += 1;

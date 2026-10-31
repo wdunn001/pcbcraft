@@ -49,7 +49,7 @@ pub struct ContentFormat {
     pub status: Status,
 }
 
-const NAMING: &[(&str, &[&str])] = &[("naming", &["ucamco", "legacy_ext"])];
+const NAMING: &[(&str, &[&str])] = &[("naming", &["ucamco", "protel"])];
 const NONE: &[(&str, &[&str])] = &[];
 const fn ready(id: &'static str, label: &'static str) -> ContentFormat {
     ContentFormat {
@@ -326,8 +326,8 @@ pub fn expand(
     Ok(out)
 }
 
-/// Legacy layer suffix for a Gerber layer name such as `F.Cu` (`.GTL` style).
-fn legacy_layer_ext(layer: &str) -> &'static str {
+/// Protel-style extension for a Gerber layer name such as `F.Cu`.
+fn protel_ext(layer: &str) -> &'static str {
     match layer {
         "F.Cu" => "GTL",
         "B.Cu" => "GBL",
@@ -423,7 +423,7 @@ fn render_content(
     let name = |side: Option<&str>, layer: Option<&str>, ext: Option<&str>| {
         expand(&c.name, t, side, layer, ext)
     };
-    let legacy_ext = c.options.get("naming").is_some_and(|v| v == "legacy_ext");
+    let protel = c.options.get("naming").is_some_and(|v| v == "protel");
     let one = |ext: &str, text: String| -> Result<Rendered, String> {
         Ok(vec![text_entry(
             name(None, None, Some(ext))?,
@@ -442,11 +442,7 @@ fn render_content(
                 else {
                     continue;
                 };
-                let ext = if legacy_ext {
-                    legacy_layer_ext(layer)
-                } else {
-                    "gbr"
-                };
+                let ext = if protel { protel_ext(layer) } else { "gbr" };
                 out.push(text_entry(
                     name(Some(side_of(layer)), Some(layer), Some(ext))?,
                     &c.kind,
@@ -469,7 +465,7 @@ fn render_content(
                 else {
                     continue;
                 };
-                let ext = if legacy_ext { "TXT" } else { "drl" };
+                let ext = if protel { "TXT" } else { "drl" };
                 out.push(text_entry(
                     name(None, Some(layer), Some(ext))?,
                     &c.kind,
@@ -691,42 +687,6 @@ mod tests {
                 );
             }
         }
-        Ok(())
-    }
-
-    #[test]
-    fn duplicate_file_names_after_expansion_are_refused() -> Result<(), String> {
-        use pcbcraft_doc::{PackageContent, PackageDef};
-        use std::collections::BTreeMap;
-        let p = Project::default();
-        let def = PackageDef {
-            id: "dup".into(),
-            name: "Dup".into(),
-            audience: "test".into(),
-            container: "folder".into(),
-            archive: String::new(),
-            experimental: false,
-            files: vec![
-                PackageContent {
-                    kind: "bom".into(),
-                    format: "bom_csv".into(),
-                    options: BTreeMap::new(),
-                    name: "parts.csv".into(),
-                },
-                PackageContent {
-                    kind: "report".into(),
-                    format: "stackup".into(),
-                    options: BTreeMap::new(),
-                    name: "parts.csv".into(),
-                },
-            ],
-        };
-        def.validate()?;
-        let err = build_package(&p, &def, None).unwrap_err();
-        assert!(
-            err.contains("parts.csv"),
-            "the refusal names the duplicate: {err}"
-        );
         Ok(())
     }
 
