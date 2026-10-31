@@ -351,7 +351,15 @@ fn classify_from_x2(file_function: &str) -> PlotLayerKind {
         PlotLayerKind::BackCopper
     } else if ff.contains("profile") || ff.contains("outline") {
         PlotLayerKind::Edge
-    } else if ff.contains("soldermask") {
+    } else if ff.contains("soldermask")
+        || ff.contains("peelablemask")
+        || ff.contains("carbonmask")
+        || ff.contains("goldmask")
+        || ff.contains("heatsinkmask")
+        || ff.contains("silvermask")
+        || ff.contains("tinmask")
+        || ff.contains("viafill")
+    {
         PlotLayerKind::Mask
     } else if ff.contains("paste") {
         PlotLayerKind::Paste

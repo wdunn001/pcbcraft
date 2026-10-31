@@ -193,7 +193,17 @@ impl ResponseCache {
 fn fetch_key(source: &str, mpn: &str) -> String {
         format!("{source}\u{1f}fetch\u{1f}{}", mpn.trim().to_lowercase())
     }
-    fn store(&mut self, key: String, stored_at: u64, results: Vec<PartResult>) {
+}
+        if self.entries.len() >= MAX_CACHE_ENTRIES
+            && let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.stored_at)
+                .map(|(k, _)| k.clone())
+        {
+            self.entries.remove(&oldest);
+        }
+fn store(&mut self, key: String, stored_at: u64, results: Vec<PartResult>) {
         if self.entries.len() >= MAX_CACHE_ENTRIES
             && let Some(oldest) = self
                 .entries

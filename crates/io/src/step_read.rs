@@ -46,6 +46,7 @@ fn convert(text: &str) -> Result<LoadedModel, ModelError> {
     if out.indices.is_empty() {
         return Err(fail("The STEP file holds no solid the reader can use."));
     }
+    out.finish_materials()?;
     Ok(out)
 }
 

@@ -1,15 +1,23 @@
-//! Software renderer for the 3D tab: a depth-buffered triangle rasteriser with
-//! three-point lighting and 2x2 supersampling, returning an image for egui.
+//! Software renderer for the 3D tab: a depth-buffered, deferred triangle
+//! rasteriser with a studio look, returning an image for egui.
 //!
 //! Context: `board3d.rs` owns the camera and the mesh and calls [`render`] only
 //! when the picture would change (see `Frame` there). The mesh comes from
 //! `pcbcraft_io::board_mesh`; this file never edits it.
-//! Local rules: flat shading per triangle with a real depth buffer, so coplanar
-//! faces shade the same and nothing depends on triangle order; the lights are
-//! fixed to the camera (key upper left, fill right, rim behind, a soft head light) so the board
-//! reads the same from every angle. The mask sheet is green with openings over
-//! the pads; where it lies directly over copper (tracks, pours) it is drawn a
-//! little lighter, the way copper shows through real mask.
+//! Local rules: pass one writes a depth buffer and a triangle id per sample, so
+//! overdraw costs nothing to shade; pass two shades each visible sample in
+//! linear light, averages the samples of a pixel, then applies exposure, the
+//! ACES filmic curve and the sRGB transfer. Flat shading per triangle with a
+//! real depth buffer, so coplanar faces shade the same and nothing depends on
+//! triangle order. The lights follow the camera (a warm key from the upper
+//! right, a cool rim from behind, a soft fill and a faint bounce from below) so
+//! the board reads the same from every angle; shiny materials reflect a small
+//! procedural studio built from the same lights, which is what makes gold pads
+//! and tinned leads glint. Exposed pads: the mask sheet has openings over the
+//! pads, so copper shows there as plating (gold or tin); where mask lies
+//! directly over copper (tracks, pours) it is drawn a little lighter and
+//! warmer, the way copper shows through real mask. Silkscreen is clipped where
+//! the mask is open: ink over an exposed pad is skipped.
 //!
 //! # Dependencies
 //! - crates/io/src/board_mesh.rs (`BoardMesh`, `PartKind`)
@@ -24,12 +32,17 @@ use scene::{box_corners, box_indices, prepare, Drawable, Scene};
 mod scene;
 
 /// What to draw and how, besides the camera.
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Look {
     /// Copper looks like gold plating when true, tin when false.
     pub gold: bool,
     pub selected: Option<pcbcraft_doc::Id>,
     /// Samples per axis; 1 while the camera moves, 2 when it rests.
     pub ss: usize,
+    /// Solder mask colour, sRGB 0..255.
+    pub mask: [u8; 3],
+    /// Silkscreen ink colour, sRGB 0..255.
+    pub silk: [u8; 3],
 }
 
 const BG_TOP: [f32; 3] = [44.0, 48.0, 56.0];
@@ -45,8 +58,141 @@ const PICKED: [f32; 3] = [255.0, 190.0, 40.0];
 #[cfg(not(target_arch = "wasm32"))]
 const BAND_ROWS: usize = 48;
 
-fn norm(v: V) -> V {
-    unit(v)
+type F3 = [f32; 3];
+
+const BG: F3 = [0.0030, 0.0037, 0.0048]; // #0a0c0f in linear light
+const FR4_SRGB: [u8; 3] = [186, 158, 102];
+const PACKAGE_SRGB: [u8; 3] = [24, 25, 28];
+const GOLD_SRGB: [u8; 3] = [217, 164, 65];
+const TIN_SRGB: [u8; 3] = [201, 205, 211];
+const PICKED_SRGB: [u8; 3] = [255, 170, 30];
+const EXPOSURE: f32 = 1.15;
+
+fn lin(c: u8) -> f32 {
+    let c = f32::from(c) / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+fn lin3(c: [u8; 3]) -> F3 {
+    [lin(c[0]), lin(c[1]), lin(c[2])]
+}
+fn lin3f(c: [f32; 3]) -> F3 {
+    lin3([
+        (c[0] * 255.0).clamp(0.0, 255.0) as u8,
+        (c[1] * 255.0).clamp(0.0, 255.0) as u8,
+        (c[2] * 255.0).clamp(0.0, 255.0) as u8,
+    ])
+}
+fn mul3(a: F3, b: F3) -> F3 {
+    [a[0] * b[0], a[1] * b[1], a[2] * b[2]]
+}
+fn scale3(a: F3, k: f32) -> F3 {
+    [a[0] * k, a[1] * k, a[2] * k]
+}
+fn add3(a: F3, b: F3) -> F3 {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+fn mix3(a: F3, b: F3, t: f32) -> F3 {
+    [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+    ]
+}
+fn d3(a: F3, b: F3) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+fn v3(a: V) -> F3 {
+    [a[0] as f32, a[1] as f32, a[2] as f32]
+}
+fn norm3(a: F3) -> F3 {
+    let n = d3(a, a).sqrt().max(1e-12);
+    [a[0] / n, a[1] / n, a[2] / n]
+}
+
+/// ACES filmic curve (Narkowicz fit) on one channel, then the sRGB transfer.
+fn display_exact(x: f32) -> f32 {
+    let x = x * EXPOSURE;
+    let t = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
+    let t = t.clamp(0.0, 1.0);
+    if t <= 0.003_130_8 {
+        t * 12.92
+    } else {
+        1.055 * t.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+const LUT_TOP: f32 = 8.0;
+const LUT_SIZE: usize = 4096;
+
+/// [`display_exact`] through a table: a power per channel per pixel is the
+/// slowest thing a still frame does otherwise.
+fn display(x: f32) -> f32 {
+    static LUT: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
+    let lut = LUT.get_or_init(|| {
+        (0..=LUT_SIZE)
+            .map(|i| display_exact(i as f32 / LUT_SIZE as f32 * LUT_TOP))
+            .collect()
+    });
+    let at = (x.max(0.0) / LUT_TOP * LUT_SIZE as f32).min(LUT_SIZE as f32 - 1.0);
+    let i = at as usize;
+    let f = at - i as f32;
+    lut[i] + (lut[i + 1] - lut[i]) * f
+}
+
+/// The rig, in the view world: three directional lights and a bounce.
+struct Rig {
+    key: F3,
+    fill: F3,
+    rim: F3,
+    bounce: F3,
+    up: F3,
+    eye: F3,
+}
+const KEY_COLOUR: F3 = [1.0, 0.86, 0.70];
+const FILL_COLOUR: F3 = [0.82, 0.93, 0.80];
+const RIM_COLOUR: F3 = [0.66, 0.78, 1.0];
+const BOUNCE_COLOUR: F3 = [0.55, 0.50, 0.20];
+const KEY_POWER: f32 = 0.95;
+const FILL_POWER: f32 = 0.32;
+const RIM_POWER: f32 = 0.55;
+const BOUNCE_POWER: f32 = 0.10;
+
+impl Rig {
+    /// Light arriving on a surface with unit normal `n`, per channel.
+    fn irradiance(&self, n: F3) -> F3 {
+        let up = 0.5 + 0.5 * d3(n, self.up);
+        // A dim studio: cool sky above, a warm dark floor below.
+        let mut e = mix3([0.025, 0.022, 0.020], [0.085, 0.100, 0.125], up);
+        e = add3(e, scale3(KEY_COLOUR, KEY_POWER * d3(n, self.key).max(0.0)));
+        e = add3(
+            e,
+            scale3(FILL_COLOUR, FILL_POWER * d3(n, self.fill).max(0.0)),
+        );
+        e = add3(e, scale3(RIM_COLOUR, RIM_POWER * d3(n, self.rim).max(0.0)));
+        add3(
+            e,
+            scale3(BOUNCE_COLOUR, BOUNCE_POWER * d3(n, self.bounce).max(0.0)),
+        )
+    }
+    /// What a mirror-like surface sees along `r`: a small studio room made of
+    /// the same lights, blurred by `k` (a high `k` is a sharp mirror).
+    fn environment(&self, r: F3, k: f32) -> F3 {
+        let sky = 0.5 + 0.5 * d3(r, self.up);
+        let mut e = mix3([0.020, 0.018, 0.016], [0.10, 0.12, 0.15], sky);
+        // The big soft box in front of the board, where the viewer stands.
+        let front = (d3(r, self.eye) - 1.0) * 2.2;
+        e = add3(e, scale3([0.36, 0.38, 0.40], front.exp()));
+        let lobe = |dir: F3, colour: F3, power: f32, k: f32| {
+            scale3(colour, power * ((d3(r, dir) - 1.0) * k).exp())
+        };
+        e = add3(e, lobe(self.key, KEY_COLOUR, 2.4, k));
+        e = add3(e, lobe(self.fill, FILL_COLOUR, 0.8, k));
+        add3(e, lobe(self.rim, RIM_COLOUR, 2.0, k))
+    }
 }
 
 fn comb(a: V, x: f64, b: V, y: f64, c: V, z: f64) -> V {
@@ -143,23 +289,114 @@ pub(super) fn render(
     raster_scene_band(&scene, &ctx, &mut depth, &mut color, &mut copper, 0, sh.saturating_sub(1));
 
     let mut out = Vec::with_capacity(w * h);
-    let n = (ss * ss) as u32;
+    let mut flat: Option<(u32, u8, egui::Color32)> = None;
+    let inv = 1.0 / (ss * ss) as f32;
+    let (fw, fh) = (w as f32, h as f32);
     for y in 0..h {
         for x in 0..w {
-            let mut sum = [0u32; 3];
-            for dy in 0..ss {
-                for dx in 0..ss {
-                    let p = color[(y * ss + dy) * sw + x * ss + dx];
-                    sum[0] += p[0] as u32;
-                    sum[1] += p[1] as u32;
-                    sum[2] += p[2] as u32;
+            let mut sum = [0.0f32; 3];
+            // Inside a face every sample of the pixel is the same triangle: shade once.
+            let first = (y * ss) * sw + x * ss;
+            let uniform = ss > 1
+                && (0..ss).all(|dy| {
+                    (0..ss).all(|dx| {
+                        let at = (y * ss + dy) * sw + x * ss + dx;
+                        ids[at] == ids[first] && flags[at] == flags[first]
+                    })
+                });
+            // A flat, shadow-free run of one triangle repeats its last pixel.
+            let id0 = ids[first];
+            if (uniform || ss == 1)
+                && id0 != 0
+                && let Some((pid, pfl, px)) = flat
+                && pid == id0
+                && pfl == flags[first]
+                && shadow[y * w + x] == 0
+            {
+                out.push(px);
+                continue;
+            }
+            let (rows, cols, weight) = if uniform {
+                (1, 1, (ss * ss) as f32)
+            } else {
+                (ss, ss, 1.0)
+            };
+            for dy in 0..rows {
+                let sy = y * ss + dy;
+                let ndc_y = -((sy as f32 + 0.5) / sh as f32 * 2.0 - 1.0) * tan;
+                for dx in 0..cols {
+                    let sx = x * ss + dx;
+                    let at = sy * sw + sx;
+                    let id = ids[at] as usize;
+                    let c = if id == 0 {
+                        backdrop(x as f32 / fw, y as f32 / fh)
+                    } else {
+                        if slot[id - 1] == 0 {
+                            let (pi, nf) = table[id - 1];
+                            lit.push(make_tri(mesh, pi as usize, nf, look, &mats, &rig));
+                            slot[id - 1] = lit.len() as u32;
+                        }
+                        let t = &lit[slot[id - 1] as usize - 1];
+                        let mut c = if flags[at] & F_COVERED != 0 {
+                            t.covered
+                        } else {
+                            t.diffuse
+                        };
+                        if t.ground {
+                            c = scale3(c, 1.0 - f32::from(shadow[y * w + x]) / 255.0);
+                        }
+                        if t.shiny {
+                            let ndc_x = ((sx as f32 + 0.5) / sw as f32 * 2.0 - 1.0)
+                                * tan
+                                * (sw as f32 / sh as f32);
+                            let ray = norm3([
+                                fwd[0] + right[0] * ndc_x + up[0] * ndc_y,
+                                fwd[1] + right[1] * ndc_x + up[1] * ndc_y,
+                                fwd[2] + right[2] * ndc_x + up[2] * ndc_y,
+                            ]);
+                            let v = [-ray[0], -ray[1], -ray[2]];
+                            let nv = d3(t.n, v).max(0.0);
+                            let r = [
+                                2.0 * nv * t.n[0] - v[0],
+                                2.0 * nv * t.n[1] - v[1],
+                                2.0 * nv * t.n[2] - v[2],
+                            ];
+                            let k = 6.0 + (1.0 - t.rough).powi(3) * 400.0;
+                            let env = rig.environment(r, k);
+                            let fres = (1.0 - nv).powi(5);
+                            let gloss = (1.0 - t.rough).max(0.04);
+                            let f = [
+                                t.f0[0] + (gloss - t.f0[0]).max(0.0) * fres,
+                                t.f0[1] + (gloss - t.f0[1]).max(0.0) * fres,
+                                t.f0[2] + (gloss - t.f0[2]).max(0.0) * fres,
+                            ];
+                            c = add3(c, mul3(f, env));
+                        }
+                        c
+                    };
+                    sum = add3(sum, scale3(c, weight));
                 }
             }
-            out.push(egui::Color32::from_rgb(
-                (sum[0] / n) as u8,
-                (sum[1] / n) as u8,
-                (sum[2] / n) as u8,
-            ));
+            // Ordered dither so the near-black backdrop does not band.
+            let dither = (((x * 7 + y * 13) % 16) as f32 / 16.0 - 0.5) / 255.0;
+            let px = [
+                display(sum[0] * inv) + dither,
+                display(sum[1] * inv) + dither,
+                display(sum[2] * inv) + dither,
+            ];
+            let colour = egui::Color32::from_rgb(
+                (px[0].clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
+                (px[1].clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
+                (px[2].clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
+            );
+            flat = None;
+            if (uniform || ss == 1) && id0 != 0 && shadow[y * w + x] == 0 {
+                let at = slot[id0 as usize - 1] as usize;
+                if at > 0 && !lit[at - 1].shiny {
+                    flat = Some((id0, flags[first], colour));
+                }
+            }
+            out.push(colour);
         }
     }
     egui::ColorImage::new([w, h], out)

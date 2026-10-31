@@ -8,10 +8,18 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[lib]
+name = "pcbcraft_web"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pcbcraft-web"
+path = "src/main.rs"
+
 [dependencies]
 pcbcraft-ui-egui.workspace = true
-eframe.workspace = true
 pcbcraft-engine.workspace = true
+pcbcraft-library.workspace = true
 pcbcraft-mcp.workspace = true
 pcbcraft-text.workspace = true
 pcbcraft-library.workspace = true

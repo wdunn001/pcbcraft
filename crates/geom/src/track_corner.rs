@@ -1,208 +1,164 @@
-//! Geometry for filleting the corner between two straight track legs.
-//!
-//! Pure millimetre math shared by rounding commands and export flattening.
-//! See issue #911 and the `track.round_corners` command (#912).
+//! Fillet geometry for two straight track legs meeting at one corner.
+use crate::{Arc, Point, arc_through};
 
-use crate::{Arc, Point, arc_through, positive};
-
-/// Default corner radius as a multiple of track width when no radius is given.
-pub const DEFAULT_CORNER_RADIUS_WIDTH_FACTOR: f64 = 3.0;
-
-/// Tangent points and arc midpoint after replacing a sharp corner with a circular arc.
+/// Tangent points and an arc midpoint for one rounded corner.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TrackCornerFillet {
-    /// Where the first straight leg ends before the arc.
+pub struct TrackFillet {
     pub tangent_a: Point,
-    /// Where the second straight leg begins after the arc.
     pub tangent_b: Point,
-    /// Midpoint on the circular arc, in the same form track geometry stores.
     pub arc_mid: Point,
-    /// Radius of the fillet arc, in millimetres.
     pub radius: f64,
 }
 
-/// Resolve a corner radius in millimetres from an explicit request, a net-class
-/// default, or three times the track width.
-///
-/// A non-positive `requested_mm` means "use class default, then width factor".
-pub fn effective_corner_radius(
-    requested_mm: f64,
-    track_width_mm: f64,
-    class_default_mm: Option<f64>,
-) -> Option<f64> {
-    if requested_mm.is_finite() && requested_mm > 0.0 {
-        return Some(requested_mm);
-    }
-    if let Some(r) = class_default_mm.filter(|r| r.is_finite() && *r > 0.0) {
-        return Some(r);
-    }
-    if positive(track_width_mm) {
-        Some(track_width_mm * DEFAULT_CORNER_RADIUS_WIDTH_FACTOR)
-    } else {
-        None
-    }
-}
-
 fn unit(from: Point, to: Point) -> Option<Point> {
-    let dx = to.x - from.x;
-    let dy = to.y - from.y;
-    let len = dx.hypot(dy);
-    if !len.is_finite() || len < 1e-9 {
+    let d = from.distance(to);
+    if d < 1e-12 {
         return None;
     }
-    Some(Point::new(dx / len, dy / len))
+    Some(Point::new((to.x - from.x) / d, (to.y - from.y) / d))
 }
 
-/// Replace the corner at `joint` between legs `leg_a` and `leg_b` with a circular
-/// arc of `radius` millimetres.
+/// Replace a sharp corner with a circular arc of the requested radius.
 ///
-/// `leg_a` and `leg_b` lie on the two straight segments; `joint` is their common
-/// endpoint. Tangent length is capped at half the shorter leg so neighbouring
-/// corners cannot collide; the returned [`TrackCornerFillet::radius`] reflects
-/// any reduction.
-pub fn track_corner_fillet(
-    leg_a: Point,
-    joint: Point,
-    leg_b: Point,
+/// `corner` is where the legs meet. `away_a` and `away_b` lie further along
+/// each leg. `leg_a` and `leg_b` are the leg lengths before any edit. The
+/// tangent length is capped at half the shorter leg; the radius shrinks to
+/// match when needed.
+pub fn track_fillet(
+    corner: Point,
+    away_a: Point,
+    away_b: Point,
+    leg_a: f64,
+    leg_b: f64,
     radius: f64,
-) -> Option<TrackCornerFillet> {
-    if !positive(radius) {
+) -> Option<TrackFillet> {
+    if !(radius.is_finite() && radius > 0.0 && leg_a.is_finite() && leg_b.is_finite()) {
         return None;
     }
-    let dir_a = unit(joint, leg_a)?;
-    let dir_b = unit(joint, leg_b)?;
-    let cos_turn = (dir_a.x * dir_b.x + dir_a.y * dir_b.y).clamp(-1.0, 1.0);
-    let angle = cos_turn.acos();
-    if !angle.is_finite() || angle < 1e-6 || angle > std::f64::consts::PI - 1e-6 {
+    let v1 = unit(corner, away_a)?;
+    let v2 = unit(corner, away_b)?;
+    let dot = (v1.x * v2.x + v1.y * v2.y).clamp(-1.0, 1.0);
+    let angle = dot.acos();
+    if angle < 1e-6 || angle > std::f64::consts::PI - 1e-6 {
         return None;
     }
     let half = angle / 2.0;
     let tan_half = half.tan();
-    if !tan_half.is_finite() || tan_half.abs() < 1e-12 {
+    let sin_half = half.sin();
+    if tan_half.abs() < 1e-12 || sin_half.abs() < 1e-12 {
+        return None;
+    }
+    let cap = leg_a.min(leg_b) * 0.5;
+    if cap < 1e-9 {
         return None;
     }
     let mut t = radius / tan_half;
-    let len_a = joint.distance(leg_a);
-    let len_b = joint.distance(leg_b);
-    let max_t = len_a.min(len_b) * 0.5;
-    let effective_radius = if t > max_t {
-        t = max_t;
-        t * tan_half
-    } else {
-        radius
-    };
-    if !positive(effective_radius) || t < 1e-9 {
+    let mut r = radius;
+    if t > cap {
+        t = cap;
+        r = t * tan_half;
+    }
+    if t < 1e-9 || r < 1e-9 {
         return None;
     }
-    let tangent_a = joint.offset(Point::new(dir_a.x * t, dir_a.y * t));
-    let tangent_b = joint.offset(Point::new(dir_b.x * t, dir_b.y * t));
-    let bis_x = dir_a.x + dir_b.x;
-    let bis_y = dir_a.y + dir_b.y;
-    let bis_len = bis_x.hypot(bis_y);
-    if bis_len < 1e-9 {
+    let p1 = Point::new(corner.x + v1.x * t, corner.y + v1.y * t);
+    let p2 = Point::new(corner.x + v2.x * t, corner.y + v2.y * t);
+    if !p1.valid() || !p2.valid() || p1.distance(p2) < 1e-6 {
         return None;
     }
-    let sin_half = half.sin();
-    if sin_half.abs() < 1e-12 {
+    let bis_len = (v1.x + v2.x).hypot(v1.y + v2.y);
+    if bis_len < 1e-12 {
         return None;
     }
-    let center_dist = effective_radius / sin_half;
-    let center = joint.offset(Point::new(
-        bis_x / bis_len * center_dist,
-        bis_y / bis_len * center_dist,
-    ));
-    let to_a_x = tangent_a.x - center.x;
-    let to_a_y = tangent_a.y - center.y;
-    let to_b_x = tangent_b.x - center.x;
-    let to_b_y = tangent_b.y - center.y;
-    let cross = to_a_x * to_b_y - to_a_y * to_b_x;
-    let dot = to_a_x * to_b_x + to_a_y * to_b_y;
-    let sweep = cross.atan2(dot);
-    if !sweep.is_finite() || sweep.abs() < 1e-9 {
-        return None;
-    }
-    let mid_angle = (to_a_y.atan2(to_a_x) + sweep * 0.5);
-    let arc_mid = Point::new(
-        center.x + effective_radius * mid_angle.cos(),
-        center.y + effective_radius * mid_angle.sin(),
+    let bis = Point::new((v1.x + v2.x) / bis_len, (v1.y + v2.y) / bis_len);
+    let center = Point::new(
+        corner.x + bis.x * (r / sin_half),
+        corner.y + bis.y * (r / sin_half),
     );
-    arc_through(tangent_a, arc_mid, tangent_b)?;
-    Some(TrackCornerFillet {
-        tangent_a,
-        tangent_b,
+    let a0 = (p1.y - center.y).atan2(p1.x - center.x);
+    let a1 = (p2.y - center.y).atan2(p2.x - center.x);
+    let sweep = {
+        let mut ccw = a1 - a0;
+        while ccw <= 0.0 {
+            ccw += 2.0 * std::f64::consts::PI;
+        }
+        while ccw > 2.0 * std::f64::consts::PI {
+            ccw -= 2.0 * std::f64::consts::PI;
+        }
+        if ccw > std::f64::consts::PI {
+            ccw -= 2.0 * std::f64::consts::PI;
+        }
+        ccw
+    };
+    let mid_angle = a0 + sweep / 2.0;
+    let arc_mid = Point::new(
+        center.x + r * mid_angle.cos(),
+        center.y + r * mid_angle.sin(),
+    );
+    arc_through(p1, arc_mid, p2)?;
+    Some(TrackFillet {
+        tangent_a: p1,
+        tangent_b: p2,
         arc_mid,
-        radius: effective_radius,
+        radius: r,
     })
 }
 
-const MAX_ARC_CHORDS: usize = 64;
-
-/// Sample points along `arc` so no chord deviates more than `max_error` millimetres.
-pub fn flatten_arc(arc: &Arc, max_error: f64) -> Vec<Point> {
+/// Sample points along an arc for chord-style output, including both ends.
+pub fn arc_chord_points(arc: &Arc, max_error: f64, max_chords: usize) -> Vec<Point> {
     let e = max_error.max(1e-6);
-    let n = arc_chord_count(arc, e);
-    let mut points = Vec::with_capacity(n + 1);
-    for k in 0..=n {
-        points.push(arc.point_at(k as f64 / n as f64));
-    }
-    points
-}
-
-/// Chords needed so no chord on `arc` strays more than `max_error` from the true arc.
-pub fn arc_chord_count(arc: &Arc, max_error: f64) -> usize {
-    let e = max_error.max(1e-6);
-    if e >= arc.radius {
-        return 1;
-    }
-    let step = 2.0 * (1.0 - e / arc.radius).acos();
-    if !step.is_finite() || step <= 0.0 {
-        return MAX_ARC_CHORDS;
-    }
-    ((arc.sweep.abs() / step).ceil() as usize)
-        .clamp(1, MAX_ARC_CHORDS)
+    let n = if e >= arc.radius {
+        1
+    } else {
+        let step = 2.0 * (1.0 - e / arc.radius).acos();
+        if !step.is_finite() || step <= 0.0 {
+            max_chords
+        } else {
+            ((arc.sweep.abs() / step).ceil() as usize).clamp(1, max_chords)
+        }
+    };
+    (0..=n)
+        .map(|k| arc.point_at(k as f64 / n as f64))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f64::consts::{FRAC_PI_2, PI};
 
     #[test]
-    fn effective_radius_prefers_explicit_then_class_then_width_factor() {
-        assert_eq!(
-            effective_corner_radius(1.2, 0.25, Some(0.9)),
-            Some(1.2)
-        );
-        assert_eq!(
-            effective_corner_radius(0.0, 0.25, Some(0.9)),
-            Some(0.9)
-        );
-        assert_eq!(
-            effective_corner_radius(-1.0, 0.25, None),
-            Some(0.75)
-        );
+    fn a_right_angle_corner_is_a_quarter_circle_of_radius_r() -> Result<(), &'static str> {
+        let corner = Point::new(10.0, 10.0);
+        let away_a = Point::new(0.0, 10.0);
+        let away_b = Point::new(10.0, 20.0);
+        let Some(fillet) = track_fillet(corner, away_a, away_b, 10.0, 10.0, 2.0) else {
+            return Err("fillet");
+        };
+        assert!((fillet.tangent_a.x - 8.0).abs() < 1e-9);
+        assert!((fillet.tangent_a.y - 10.0).abs() < 1e-9);
+        assert!((fillet.tangent_b.x - 10.0).abs() < 1e-9);
+        assert!((fillet.tangent_b.y - 12.0).abs() < 1e-9);
+        let Some(arc) = arc_through(fillet.tangent_a, fillet.arc_mid, fillet.tangent_b) else {
+            return Err("arc");
+        };
+        assert!((arc.radius - 2.0).abs() < 1e-9);
+        assert!((arc.sweep.abs() - FRAC_PI_2).abs() < 1e-9);
+        assert!((arc.length() - PI / 2.0).abs() < 1e-6);
+        Ok(())
     }
 
     #[test]
-    fn right_angle_fillet_is_a_quarter_circle() {
-        let joint = Point::new(0.0, 0.0);
-        let leg_a = Point::new(-4.0, 0.0);
-        let leg_b = Point::new(0.0, 4.0);
-        let fillet = track_corner_fillet(leg_a, joint, leg_b, 1.0).expect("fillet");
-        assert!((fillet.radius - 1.0).abs() < 1e-9);
-        assert!((fillet.tangent_a.x + 1.0).abs() < 1e-9);
-        assert!((fillet.tangent_b.y - 1.0).abs() < 1e-9);
-        let arc = arc_through(fillet.tangent_a, fillet.arc_mid, fillet.tangent_b).expect("arc");
-        assert!((arc.radius - 1.0).abs() < 1e-9);
-        assert!((arc.length() - std::f64::consts::FRAC_PI_2).abs() < 1e-6);
-    }
-
-    #[test]
-    fn short_legs_cap_the_fillet_radius() {
-        let joint = Point::new(0.0, 0.0);
-        let leg_a = Point::new(-0.4, 0.0);
-        let leg_b = Point::new(0.0, 0.4);
-        let fillet = track_corner_fillet(leg_a, joint, leg_b, 1.0).expect("fillet");
-        assert!(fillet.radius < 1.0);
-        assert!((fillet.tangent_a.x + 0.2).abs() < 1e-9);
+    fn short_legs_cap_the_radius() -> Result<(), &'static str> {
+        let corner = Point::new(10.0, 10.0);
+        let away_a = Point::new(9.0, 10.0);
+        let away_b = Point::new(10.0, 11.0);
+        let Some(fillet) = track_fillet(corner, away_a, away_b, 1.0, 1.0, 2.0) else {
+            return Err("fillet");
+        };
+        assert!((fillet.radius - 0.5).abs() < 1e-9, "radius {}", fillet.radius);
+        assert!((fillet.tangent_a.x - 9.5).abs() < 1e-9);
+        assert!((fillet.tangent_b.y - 10.5).abs() < 1e-9);
+        Ok(())
     }
 }
