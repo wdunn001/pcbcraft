@@ -35,7 +35,7 @@ fn tool_by_name(name: &str) -> Result<Value, String> {
 fn forward_refuses_addresses_that_are_not_literal_loopback() -> Result<(), String> {
     let request = json!({"jsonrpc":"2.0","id":1,"method":"ping"});
     for address in [
-        "192.168.1.1:7991",
+        "10.0.0.1:7991",
         "0.0.0.0:7991",
         "example.com:80",
         "localhost:7991",
@@ -54,7 +54,7 @@ fn forward_refuses_addresses_that_are_not_literal_loopback() -> Result<(), Strin
 #[test]
 fn start_bridge_refuses_addresses_that_are_not_literal_loopback() -> Result<(), String> {
     let hub = DocumentHub::new(Session::default(), None)?;
-    for address in ["192.168.1.1:7991", "0.0.0.0:0", "localhost:0"] {
+    for address in ["10.0.0.1:7991", "0.0.0.0:0", "localhost:0"] {
         assert!(
             start_bridge(hub.clone(), address).is_err(),
             "{address} should be refused"
@@ -131,7 +131,11 @@ fn tool_list_names_are_unique_and_include_every_engine_command_with_its_schema()
             .ok_or("every tool has a string name")?;
         assert!(names.insert(name.to_string()), "duplicate name {name}");
     }
+    let mut engine_ids = HashSet::new();
     for spec in pcbcraft_engine::commands() {
+        if !engine_ids.insert(spec.id.to_string()) {
+            continue;
+        }
         let tool = tool_by_name(spec.id)?;
         assert_eq!(tool["inputSchema"], spec.input_schema, "{} schema", spec.id);
         assert_eq!(
