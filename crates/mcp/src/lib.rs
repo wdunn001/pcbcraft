@@ -154,7 +154,7 @@ enum ToolKind {
 }
 
 fn tool_kind(name: &str) -> ToolKind {
-    const READ_ONLY: [&str; 16] = [
+    const READ_ONLY: [&str; 17] = [
         "inspect_design",
         "design.summary",
         "list_commands",
