@@ -19,6 +19,8 @@ pub struct Reply {
     pub status: u16,
     pub body: String,
     pub delay_ms: u64,
+    /// When set, the HTTP header uses this length but only `body` bytes are sent (cut-off reply).
+    pub declared_len: Option<usize>,
 }
 
 impl Reply {
@@ -28,6 +30,7 @@ impl Reply {
             status,
             body: v.to_string(),
             delay_ms: 0,
+            declared_len: None,
         }
     }
     /// A 200 chat completion with plain text.
@@ -55,6 +58,33 @@ impl Reply {
     pub fn after(mut self, ms: u64) -> Reply {
         self.delay_ms = ms;
         self
+    }
+    /// A 200 Anthropic message with plain text.
+    pub fn anthropic_text(t: &str) -> Reply {
+        Reply::json(
+            200,
+            json!({"content": [{"type": "text", "text": t}], "stop_reason": "end_turn"}),
+        )
+    }
+    /// A 200 Anthropic message asking for `n` tool uses of `name` with empty input.
+    pub fn anthropic_calls(name: &str, n: usize) -> Reply {
+        let blocks: Vec<Value> = (0..n)
+            .map(|i| json!({"type": "tool_use", "id": format!("c{i}"), "name": name, "input": {}}))
+            .collect();
+        Reply::json(200, json!({"content": blocks, "stop_reason": "tool_use"}))
+    }
+    /// A reply whose headers promise `full_len` bytes but the connection sends only `send_len`.
+    ///
+    /// # Do not
+    /// Use this for a body that is meant to parse as complete JSON when fully sent.
+    pub fn cut(full_body: &str, send_len: usize) -> Reply {
+        let send = full_body.len().min(send_len);
+        Reply {
+            status: 200,
+            body: full_body[..send].to_string(),
+            delay_ms: 0,
+            declared_len: Some(full_body.len()),
+        }
     }
 }
 
@@ -136,19 +166,22 @@ impl FakeServer {
 
 fn answer(mut c: TcpStream, r: Reply, stream: bool) {
     std::thread::sleep(Duration::from_millis(r.delay_ms));
-    let (ctype, body) = if stream && r.status == 200 {
+let (ctype, body) = if stream && r.status == 200 {
         ("text/event-stream", openai_completion_to_sse(&r.body))
     } else {
         ("application/json", r.body.clone())
     };
-    let out = format!(
-        "HTTP/1.1 {} X\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        r.status,
-        ctype,
-        body.len(),
-        body
+    let length = r.declared_len.unwrap_or_else(|| body.len());
+    let head = format!(
+        "HTTP/1.1 {} X\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        r.status, ctype, length
     );
-    let _ = c.write_all(out.as_bytes());
+    let _ = c.write_all(head.as_bytes());
+    let _ = c.write_all(body.as_bytes());
+}
+    );
+    let _ = c.write_all(head.as_bytes());
+    let _ = c.write_all(r.body.as_bytes());
 }
 
 fn openai_completion_to_sse(json_body: &str) -> String {
@@ -244,4 +277,54 @@ pub fn first_tool_name() -> Result<String, String> {
         .as_str()
         .map(str::to_string)
         .ok_or_else(|| "no tools".to_string())
+}
+
+/// The wire name of the `execute` tool (places components through the engine).
+pub fn execute_wire_name() -> String {
+    pcbcraft_assistant::to_wire("execute")
+}
+
+/// Check one recorded POST for legal tool ids and wire-safe tool names.
+///
+/// Context: the backend must send OpenAI `tool_call_id` and Anthropic `tool_use_id` on every tool
+/// result, and tool names on the wire must not contain dots.
+/// Local rules: plain `Err` sentences, no panics.
+pub fn assert_request_shape(seen: &Seen) -> Result<(), String> {
+    if seen.method != "POST" {
+        return Ok(());
+    }
+    let body = &seen.body;
+    if let Some(tools) = body.get("tools").and_then(Value::as_array) {
+        for t in tools {
+            let name = t
+                .get("name")
+                .or_else(|| t.pointer("/function/name"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if name.contains('.') {
+                return Err(format!("tool name on the wire had a dot: {name}"));
+            }
+        }
+    }
+    let Some(msgs) = body.get("messages").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    for m in msgs {
+        if m.get("role").and_then(Value::as_str) == Some("tool")
+            && m.get("tool_call_id").and_then(Value::as_str).is_none()
+        {
+            return Err("a tool message had no tool_call_id".into());
+        }
+        let content = m.get("content");
+        if let Some(Value::Array(blocks)) = content {
+            for b in blocks {
+                if b.get("type").and_then(Value::as_str) == Some("tool_result")
+                    && b.get("tool_use_id").and_then(Value::as_str).is_none()
+                {
+                    return Err("a tool_result block had no tool_use_id".into());
+                }
+            }
+        }
+    }
+    Ok(())
 }

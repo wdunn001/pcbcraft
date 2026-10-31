@@ -644,6 +644,7 @@ pub fn http_error(status: u16, body: &Value) -> String {
         401 | 403 => "the endpoint did not accept the key",
         404 => "the endpoint has nothing at that address",
         429 => "the endpoint is busy, try again soon",
+        500 | 502 | 503 | 504 => "the endpoint had an error, try again soon",
         _ => "",
     };
     format!(
