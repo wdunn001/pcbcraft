@@ -298,7 +298,6 @@ fn from_fetch(err: FetchError, what: &str) -> SourceError {
 fn now_secs() -> u64 {
     pcbcraft_clock::unix_secs()
 }
-
 /// The official open libraries as a CAD source and a part source.
 ///
 /// # Rules
@@ -334,7 +333,7 @@ impl OpenLibrarySource {
             fetcher,
             cache,
             config,
-            clock: Box::new(now_secs),
+            clock: Box::new(crate::wall_clock::unix_secs_now),
             commits: Mutex::new(BTreeMap::new()),
         }
     }

@@ -407,7 +407,7 @@ fn footprint_margin(p: &Project, f: &Footprint, mask: bool) -> Option<f64> {
 }
 
 /// Whether a pad carries copper on the requested side.
-fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
+pub(crate) fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
     let (front, back, _) = pad_sides(fp, pad);
     match layer {
         Layer::Back => back,
@@ -419,7 +419,7 @@ fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
 
 /// Whether a pad is surface mounted, and so takes paste. Pads with a drill and
 /// legacy pads that carry only a diameter are through-hole and are skipped.
-fn pad_is_smd(pad: &Pad) -> bool {
+pub(crate) fn pad_is_smd(pad: &Pad) -> bool {
     match &pad.geometry {
         None => false,
         Some(g) => {
@@ -515,12 +515,14 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         }
     }
     for v in &p.board.vias {
+let top = layer == Layer::Front;
         // A via keeps its mask opening only on a face it leaves open.
-        if !crate::fab_export::via_mask_opening_on(v, &p.board, layer == Layer::Back) {
+        if !crate::fab_export::via_mask_opening_on(v, &p.board, top) {
             continue;
         }
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
-        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad")?;
+        let code = sheet.define(Opening::Circle(microns(diameter)), "SMDPad,CuDef")?;
+        sheet.flash(code, mirror(v.position, layer))?;
         sheet.flash(code, mirror(v.position, layer))?;
     }
     let (function, comment) = match layer {
@@ -888,6 +890,8 @@ mod tests {
         Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id,
             reference: reference.into(),
             value: "1k".into(),
@@ -909,9 +913,12 @@ mod tests {
                     rules,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         }
     sourcing: Default::default(),
     compliance: Default::default(),
@@ -1014,6 +1021,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {

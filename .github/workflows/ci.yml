@@ -282,7 +282,69 @@ runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted
         with:
           shared-key: wasm
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Ensure Node.js
+        run: |
+          if ! command -v node; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends nodejs npm
+          fi
+          node --version
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: trunk
       - run: cargo xtask wasm
+
+  web-smoke:
+    name: Browser smoke test
+    # Builds the web app the way build-dist.yml does, serves it on 127.0.0.1 and
+    # loads it in headless Chromium. Fails on any console error or panic, a
+    # blank first frame, or a Layout tab that does not switch. `cargo xtask wasm`
+    # only type-checks, so it cannot see a panic on the first frame (issue 750).
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: web-smoke
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: trunk
+      - name: Find or install Chromium
+        run: |
+          for name in google-chrome google-chrome-stable chromium chromium-browser; do
+            if command -v "$name" >/dev/null 2>&1; then
+              echo "CHROME=$(command -v "$name")" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends chromium || sudo apt-get install -y --no-install-recommends chromium-browser
+          echo "CHROME=$(command -v chromium || command -v chromium-browser)" >> "$GITHUB_ENV"
+      - name: Build the browser bundle
+        working-directory: apps/pcbcraft-web
+        run: trunk build --release --public-url ./
+      - name: Test the page script
+        run: node apps/pcbcraft-web/tests/webgpu-check.test.js
+      - name: Load the bundle in headless Chromium
+        run: node apps/pcbcraft-web/smoke/web-smoke.mjs apps/pcbcraft-web/dist --shots web-smoke-shots
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: web-smoke-shots
+          path: web-smoke-shots
+          if-no-files-found: warn
+          retention-days: 14
 
   msrv:
     name: Minimum Rust version
@@ -394,3 +456,28 @@ if: needs.changes.outputs.rust == 'true' && github.event_name != 'pull_request'
           shared-key: build
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build --locked -p pcbcraft -p pcbcraft-cli
+steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: build
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo build --locked -p pcbcraft -p pcbcraft-cli
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+          CHANGES: ${{ needs.changes.result }}
+        run: |
+          echo "$RESULTS"
+          if [ "$CHANGES" = skipped ]; then
+            echo "Branch push covered by its pull request run."
+            exit 0
+          fi
+          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
+            echo "A required job failed or was cancelled."
+            exit 1
+          fi

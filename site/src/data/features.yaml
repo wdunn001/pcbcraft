@@ -307,7 +307,7 @@ name: Library tab
   summary: Write a placement file and feeder sheet for a pick and place machine profile.
   status: desktop
   key: true
-  evidence: [command:placement_yy1.export]
+  evidence: [command:placement_yy1.export, kind:placement_yy1]
 - area: machines
   name: Import drawings and images
   summary: Bring in DXF or SVG drawings as board graphics, or trace a PNG into outlines.

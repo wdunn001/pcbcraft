@@ -1,52 +1,22 @@
 # PCBCraft agent instructions
 
-Rust EDA app, GPL-3.0-or-later, MCP-first. **Home:** [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft). Code, issues, pull requests and CI all live there; the old tracker on tangency-labs/pcbcraft is frozen history, so never post to it. Onboarding: [docs/getting-started.md](docs/getting-started.md), issue [#1](https://github.com/wdunn001/pcbcraft/issues/1) (authoritative), full pipeline in CONTRIBUTING.md.
+Rust EDA app, GPL-3.0-or-later, MCP-first. Home: [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft). Start here: issue [#1](https://github.com/wdunn001/pcbcraft/issues/1) (authoritative), then [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/getting-started.md](docs/getting-started.md).
 
-## Before coding
+The agent rules live in `.cursor/rules/*.mdc`, one topic per file. This file only points to them.
 
-Read README.md (what works), ROADMAP.md, docs/architecture.md. For a claimed issue, read its body plus every `### Research` and `### Enrichment` comment.
+| File | Topic |
+| --- | --- |
+| `pcbcraft-pipeline.mdc` | claims, branches, pull requests, CI, changesets, integrators |
+| `pcbcraft-core.mdc` | code: typed commands, no panics, layering |
+| `pcbcraft-ui.mdc` | `crates/ui-egui`: design docs, widgets, tabs |
+| `pcbcraft-tests.mdc` | stories, tooltips, golden files, flaky list |
+| `pcbcraft-docs.mdc` | documentation layers and edit procedure |
+| `pcbcraft-public-repo.mdc` | public repo hygiene, licences, names |
 
-## Before editing a file (docs/doc-standard.md)
+Before editing a file (`docs/doc-standard.md`):
 
 - **Pre-edit:** read the file's `//!` header and the doc block of each function you change.
-- **Pre-edit:** confirm every path under `# Dependencies` and every `Contract:` line exists. If one is missing, stop and report it on the issue. Do not guess a path.
+- **Pre-edit:** confirm every path under `# Dependencies` and every `Contract:` line exists. If one is missing, stop and report it on the issue.
 - **Pre-edit:** before editing a trait or the engine command registry, open every file under its `# Implementations`. If the list is missing or stale, stop and report.
-- Never shorten a `# Do not` section; only append to it.
-- Each rule lives at the layer it governs (this file, `//!` header, trait or shared type, function). Point up to a rule; do not copy it down.
-- `cargo xtask docs check` must pass (docs/ci.md).
 
-## Parallel agents
-
-- **One clone or worktree per agent.** Never share a checkout another agent is using.
-- **One claimed issue** unless stacked children of one epic.
-- **Workers** claim only issues tagged `ready` and `status:open`, with a `CLAIM <agent>@<team> until <UTC time> branch <name>` comment. A claim is live until its `until` time passes or a `RELEASE` follows; the earliest claim wins. Renew with `CLAIM-RENEW`. On a shared machine, also require `conflict:parallel-safe`.
-- **Conflict lane:** only the active `conflict:ui-egui-lib` ticket may edit `crates/ui-egui/src/lib.rs`. Everyone else keeps UI shell changes out of that file; put `a_newcomer_*` tests in `crates/ui-egui/src/e2e/<area>.rs` (helpers in `src/e2e/support.rs`).
-- **Branch** from `main`: `<kind>-<slug>` (see CONTRIBUTING.md §7). Merge latest `main` before the final push. Open a pull request against `main` on wdunn001/pcbcraft with the build report in the body and an `Issues: #N` line. Never push to `main`; do not merge your own pull request. Integrators merge on green CI.
-
-## CI (source of truth)
-
-Green **GitHub Actions on your pull request** for the commit you report is required proof. Push early; link the run in the pull request body. Local `cargo xtask ci` is optional; job list in docs/ci.md. Done = merged into `main` with Actions green there.
-
-## Architecture invariants
-
-- One main window: tabs and docked panes only; shared project and selection.
-- All mutations: typed engine commands (UI, CLI, MCP); programmatic paths never open dialogs.
-- Validate inputs (bounded coords, counts, stable IDs, reference integrity). Invalid command/batch leaves state untouched.
-- No `unsafe`; no production `unwrap`/`expect`/`panic`/`todo`/`unimplemented`/`unreachable`.
-- Layering: geom → doc/library → rules/io → engine → mcp/ui-egui → apps. Lower crates never depend on egui, eframe, wgpu, or MCP.
-
-## Content and honesty
-
-- GPL adaptations: record source, revision, license in ATTRIBUTION.md. Pin craft-libs; no proprietary Craft trademarks/assets.
-- Do not name other EDA products in code, docs, UI, commits, or issue comments.
-- Do not oversell checks or routing; state limits in UI where users hit them.
-- UI: every control gets a tooltip of at most two lines: what it does, why or when, its shortcut, and its limits. Disabled controls say how to enable them. Full rule: [docs/tooltips.md](docs/tooltips.md). Real margins; inspect rendered UI for visual changes (`track:ui-design` → screenshots in report).
-- No AI attribution in commits. No releases or third-party pushes without authorization.
-
-## Stuck
-
-Same build/test failure twice with identical output → post output, set `status:blocked`, stop (CONTRIBUTING.md §9).
-
-## Cloud Agent fleet
-
-Workers open pull requests against `main`; the integrator merges them on green CI. Full text: docs/agents/README.md.
+`cargo xtask docs check` must pass.

@@ -1,15 +1,19 @@
 ---
-description: PCBCraft invariants for every agent session
-alwaysApply: true
+description: PCBCraft code rules for every Rust change
+globs: crates/**/*.rs,xtask/**/*.rs,apps/**/*.rs
+alwaysApply: false
 ---
 
-# PCBCraft core
+# Code rules
 
-Full rules: repository root `AGENTS.md`. Architecture: `docs/architecture.md`.
+Architecture and layers: `docs/architecture.md`. Process: `pcbcraft-pipeline.mdc`. Doc blocks: `pcbcraft-docs.mdc`.
 
-- **Base:** `main` on `wdunn001/pcbcraft`. Issues, pull requests and CI live there; the old tracker on `tangency-labs/pcbcraft` is frozen.
-- **CI proof:** green GitHub Actions on your pull request for the pushed commit (required). Local `cargo xtask ci` optional (`docs/ci.md`).
-- **Engine:** typed commands only; invalid batches leave state untouched; no production panics/unwrap.
-- **UI shell lane:** do not edit `crates/ui-egui/src/lib.rs` unless issue tag `conflict:ui-egui-lib` and you hold that lane.
-- **One window, MCP-first, crate layering** — see AGENTS.md (no egui in lower crates).
-- **Never** name other EDA products; **never** push to `main` or merge your own pull request; open a PR against `main` instead.
+- **One window.** Tabs and docked panes only; project and selection are shared.
+- **Typed commands.** Every change to a design is an engine command in `crates/engine` with a JSON schema, bounded validation and undo. UI, CLI and MCP call the same engine. Programmatic paths never open dialogs.
+- **Validation.** Finite, bounded coordinates and dimensions; bounded counts; stable IDs; reference integrity. An invalid command or batch leaves the document, revision and history untouched.
+- **No panics.** No `unsafe`. No `unwrap`, `expect`, `panic`, `todo`, `unimplemented` or `unreachable` in production code. Tests may use `?` with `Result<(), String>`.
+- **Layering.** geom, then doc and library, then rules and io, then engine, then mcp and ui-egui, then apps. Lower crates never depend on egui, eframe, wgpu or MCP. `cargo xtask policy` checks it.
+- **Formats.** Import and export formats are entries in the one registry in `crates/io/src/formats.rs`, never a menu item or code path per format.
+- **Tests.** Unit tests named as sentences (`rejects_out_of_range`). Details in `pcbcraft-tests.mdc`.
+- **Honest limits.** Do not present basic checks as complete rule checks or a basic route as a shove router. Say the limits where users hit them.
+- **Shared UI file.** Do not edit `crates/ui-egui/src/lib.rs` unless your issue is tagged `conflict:ui-egui-lib` and holds that lane.

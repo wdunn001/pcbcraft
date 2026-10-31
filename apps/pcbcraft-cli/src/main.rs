@@ -15,6 +15,7 @@ fn flag(args: &[String], key: &str) -> bool {
 
 fn empty_session(name: Option<&str>) -> Result<Session, String> {
     let mut session = Session::default();
+    session.config = pcbcraft_engine::user_config::UserConfig::from_environment();
     if let Some(title) = name {
         session
             .execute("project.rename", json!({"name": title}), None)
@@ -87,6 +88,7 @@ fn run() -> Result<(), String> {
     } else {
         Session::default()
     };
+    session.config = pcbcraft_engine::user_config::UserConfig::from_environment();
     if let Some(path) = option(&args, "--project") {
         session
             .replace(pcbcraft_io::load(Path::new(path))?)

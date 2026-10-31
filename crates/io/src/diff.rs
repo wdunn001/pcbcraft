@@ -724,6 +724,8 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
 sourcing: Default::default(),
         compliance: Default::default(),
@@ -744,7 +746,9 @@ sourcing: Default::default(),
                 castellated: None,
                 geometry: None,
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p
     }
 

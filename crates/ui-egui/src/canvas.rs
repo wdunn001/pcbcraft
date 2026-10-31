@@ -2660,6 +2660,8 @@ mod library_render_tests {
         project.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "ZZ8".into(),
             value: "9".into(),
@@ -2690,6 +2692,7 @@ mod library_render_tests {
                 castellated: None,
                 geometry: None,
             }],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
