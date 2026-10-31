@@ -116,7 +116,19 @@ pub(crate) fn default_values(project: &Project, flavour: &BomFlavour) -> BTreeMa
 /// The option values a fresh bill starts with: the flavour's file type, every column of
 /// the flavour and of the project, grouping as the flavour says.
 pub(crate) fn default_values(project: &Project, flavour: &BomFlavour) -> BTreeMap<String, String> {
-    // Description and supplier columns only start ticked when some part has the data,
+// Description and supplier columns only start ticked when some part has the data,
+    // so a bill with none keeps its familiar columns.
+    let has = |token: &str| match token {
+        "description" => project
+            .components
+            .iter()
+            .any(|c| !c.description().is_empty()),
+        "suppliers" => project
+            .components
+            .iter()
+            .any(|c| !c.sourcing.suppliers.is_empty()),
+        _ => true,
+    };
     // so a bill with none keeps its familiar columns.
     let has = |token: &str| match token {
         "description" => project
@@ -133,6 +145,18 @@ pub(crate) fn default_values(project: &Project, flavour: &BomFlavour) -> BTreeMa
         .columns
         .iter()
         .filter(|(t, _)| has(t))
+.map(|(t, _)| (*t).to_owned())
+        .collect();
+    columns.extend(
+        project
+            .bom_fields
+            .iter()
+            .map(|f| format!("field:{}", f.key)),
+    );
+    BTreeMap::from([
+        (FLAVOUR.to_owned(), flavour.id.to_owned()),
+        (FILE_TYPE.to_owned(), flavour.file_type.to_owned()),
+        (BUILD.to_owned(), String::new()),
         .map(|(t, _)| (*t).to_owned())
         .collect();
     columns.extend(
@@ -291,6 +315,20 @@ let ask = |keys: &mut Vec<String>, field: &PartField| {
             keys.push(key.to_owned());
         }
     }
+        ("mpn", "MPN"),
+        ("manufacturer", "Manufacturer"),
+        ("description", "Description"),
+        ("suppliers", "Suppliers"),
+    ] {
+if wants(token) && o.flavour.columns.iter().any(|(t, _)| *t == token) && !keys.contains(key) {
+            keys.push(key.to_owned());
+        }
+    }
+        }
+    }
+            keys.push(key.to_owned());
+        }
+    }
         }
     }
     let mut extra: Vec<(String, String)> = vec![];
@@ -399,7 +437,7 @@ let mut missing: BTreeMap<String, Vec<String>> = BTreeMap::new();
                 }
                 "mpn" => field("MPN"),
                 "manufacturer" => field("Manufacturer"),
-                "description" => field("Description"),
+"description" => field("Description"),
                 "suppliers" => field("Suppliers"),
                 token => PART_FIELDS
                     .iter()

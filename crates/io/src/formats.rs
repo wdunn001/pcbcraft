@@ -483,6 +483,15 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Exchange,
         Run::Kind("dsn"),
     ),
+    #[cfg(feature = "plugin-firmware-target")]
+    output(
+        "firmware_target",
+        "Flight controller target",
+        "Board config header and manifest from the firmware pin map (plugin).",
+        &["h", "json"],
+        Group::Exchange,
+        Run::Engine("firmware.target.export"),
+    ),
     FormatSpec {
         id: "board_interchange",
         label: "Board interchange file",
@@ -557,6 +566,66 @@ pub static FORMATS: &[FormatSpec] = &[
         &[],
     ),
 ];
+/// One vendor flavour of the bill of materials, as pure data: which columns, what the
+/// headers say, whether identical parts share a row, how references are joined and which
+/// file type it is.
+///
+/// Why: a distributor or assembler upload format is a table row, not code; adding one
+/// is adding a row to [`BOM_FLAVOURS`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BomFlavour {
+    /// Stable id.
+    pub id: &'static str,
+    /// English label shown under the BOM format.
+    pub label: &'static str,
+    /// Tooltip: who asks for this file.
+    pub tip: &'static str,
+    /// `csv`, `tsv` or `json`.
+    pub file_type: &'static str,
+    /// (column token, header text), in file order. Tokens: reference, value, footprint,
+/// mpn, manufacturer, quantity, description, suppliers (every supplier as `Name: number`).
+    pub columns: &'static [(&'static str, &'static str)],
+    /// True gives one row per kind of part.
+    pub group: bool,
+    /// Joins the references of a grouped row.
+    pub reference_separator: &'static str,
+}
+
+/// Every bill of materials flavour. The first is the default.
+pub static BOM_FLAVOURS: &[BomFlavour] = &[BomFlavour {
+    id: "generic_csv",
+    label: "Generic CSV",
+    tip: "A plain spreadsheet file with the usual columns. Opens anywhere.",
+    file_type: "csv",
+    columns: &[
+        ("reference", "Reference"),
+        ("value", "Value"),
+        ("footprint", "Footprint"),
+        ("mpn", "MPN"),
+        ("manufacturer", "Manufacturer"),
+        ("quantity", "Quantity"),
+        ("description", "Description"),
+        ("suppliers", "Supplier part numbers"),
+    ],
+    group: true,
+    reference_separator: ", ",
+}];
+
+/// A bill of materials flavour by id.
+pub fn bom_flavour(id: &str) -> Option<&'static BomFlavour> {
+    BOM_FLAVOURS.iter().find(|f| f.id == id)
+}
+
+/// The first format that can go `direction` and whose extension matches `path`.
+pub fn for_path(path: &str, direction: Direction) -> Option<&'static FormatSpec> {
+    FORMATS
+        .iter()
+        .find(|f| f.directions().contains(&direction) && f.matches(path))
+}
+
+/// The formats that can go `direction` in `scope`, in table order.
+pub fn listed(direction: Direction, scope: Scope) -> Vec<&'static FormatSpec> {
+    FORMATS
 }
 
 /// The first format that can go `direction` and whose extension matches `path`.

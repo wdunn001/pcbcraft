@@ -1172,6 +1172,25 @@ Some("export-flavour") => {
                     self.edit.dialog.values = bom_export::default_values(&self.project, flavour);
                 }
             }
+            Some("export-dialog") => {
+                self.open_dialog(Mode::Export, Some("bom"), None, vec![]);
+                let mut values = self.edit.dialog.values.clone();
+                values.insert(bom_export::GROUP.into(), "false".into());
+                let summary = bom_export::summary(&self.project, &values);
+                remember(
+                    &mut self.preferences.recent_files.exports,
+                    Recent {
+                        format: "bom".into(),
+                        values,
+                        summary,
+                    },
+                );
+            }
+            Some(scene) if scene.starts_with("library-") => self.capture_library_scene(scene),
+            Some(scene) if scene.starts_with("files-") => self.files_capture_scene(scene),
+            _ => {}
+        }
+    }
             _ => {}
         }
     }
