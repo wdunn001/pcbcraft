@@ -161,6 +161,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "project.import",
+            "Replace the open design from an interchange file on disk; schematic text is supported today",
+            schema(
+                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"format":{"type":"string","enum":["schematic"]}}),
+                &["path", "format"],
+            ),
+        ),
+        (
             "component.add",
             "Place an original built-in symbol: resistor, capacitor, led or connector",
             schema(
@@ -3798,6 +3806,12 @@ struct ProjectSetAutoSyncParams {
 #[serde(deny_unknown_fields)]
 struct ArchivePathParams {
     path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectImportParams {
+    path: String,
+    format: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8070,6 +8084,21 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 "components": imported.components.len(),
                 "files": imported.files.len(),
             });
+            *p = imported;
+            Ok(summary)
+        }
+        "project.import" => {
+            let a: ProjectImportParams = parse(params)?;
+            if a.format != "schematic" {
+                return Err(Error::Invalid(
+                    "only schematic interchange import is supported".into(),
+                ));
+            }
+            let path = std::path::Path::new(&a.path);
+            let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
+            let (imported, preserved_bytes) = pcbcraft_io::read_schematic_interchange_path(path, &text)
+                .map_err(Error::Invalid)?;
+            let summary = pcbcraft_io::import_summary(&imported, preserved_bytes);
             *p = imported;
             Ok(summary)
         }
@@ -23425,6 +23454,40 @@ mod tests {
         assert_eq!(keeper.project, before, "a refused import changes nothing");
         std::fs::remove_file(&plain).ok();
         std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn project_import_schematic_replaces_session_undo_once() -> Result<(), Error> {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../io/tests/fixtures/schematic_import_flat.kicad_sch");
+        let path = fixture.to_string_lossy().to_string();
+        let mut session = Session::sample()?;
+        let before = session.project.clone();
+        let summary = session.execute(
+            "project.import",
+            json!({"path": path, "format": "schematic"}),
+            None,
+        )?;
+        assert_eq!(summary["result"]["components"], 2);
+        assert!(summary["result"]["nets"].as_u64().is_some_and(|n| n >= 1));
+        assert_ne!(session.project, before);
+        session.undo()?;
+        assert_eq!(session.project, before);
+        Ok(())
+    }
+
+    #[test]
+    fn project_import_schematic_invalid_leaves_project_unchanged() -> Result<(), Error> {
+        let mut session = Session::sample()?;
+        let before = session.project.clone();
+        let bad = session.execute(
+            "project.import",
+            json!({"path": "not-a-real-file.kicad_sch", "format": "schematic"}),
+            None,
+        );
+        assert!(bad.is_err());
+        assert_eq!(session.project, before);
         Ok(())
     }
 
