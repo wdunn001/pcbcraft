@@ -104,7 +104,7 @@ pub enum OptionKind {
     Variant,
     /// The columns of a bill of materials.
     Columns,
-    /// The vendor flavours of a bill of materials ([`BOM_FLAVOURS`]).
+    /// The vendor flavours of a bill of materials ([`crate::bom_profiles()`]).
     Flavour,
 }
 
@@ -270,11 +270,27 @@ const GERBER_OPTIONS: &[OptionSpec] = &[
         kind: OptionKind::Bool { default: true },
     },
 ];
+
 const USE_OUTLINE: &[OptionSpec] = &[OptionSpec {
     param: Some("use_outline"),
     label: "Use as board outline",
     tip: "Trace a closed shape in the file as the board outline.",
     kind: OptionKind::Bool { default: false },
+}];
+
+const COMPLIANCE_REPORT_OPTIONS: &[OptionSpec] = &[OptionSpec {
+    param: Some("format"),
+    label: "Format",
+    tip: "File type for the report body.",
+    kind: OptionKind::Choice {
+        choices: &[
+            ("markdown", "Markdown"),
+            ("csv", "CSV"),
+            ("html", "HTML"),
+            ("pdf", "PDF"),
+        ],
+        default: 0,
+    },
 }];
 
 const VIEW: &[OptionSpec] = &[OptionSpec {
@@ -404,7 +420,7 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Assembly,
         Run::Kind("ipc2581"),
     ),
-common(FormatSpec {
+    common(FormatSpec {
         options: GERBER_OPTIONS,
         ..output(
             "gerbers",
@@ -412,7 +428,7 @@ common(FormatSpec {
             "Gerber copper layers, the board outline and drill files that a board maker needs.",
             &["gbr", "drl"],
             Group::Fabrication,
-            Run::Kind("gerbers"),
+            Run::Engine("gerber.files"),
         )
     }),
     output(
@@ -438,6 +454,14 @@ common(FormatSpec {
         &["ipc"],
         Group::Fabrication,
         Run::Kind("ipc356"),
+    ),
+    output(
+        "bring_up",
+        "Bring-up test plan",
+        "Markdown and CSV checklist of rails, headers, continuity and nets missing a probe pad.",
+        &["md", "csv"],
+        Group::Documentation,
+        Run::Kind("bring_up"),
     ),
     common(output(
         "pdf",
@@ -480,6 +504,19 @@ common(FormatSpec {
         Run::Kind("stats"),
     ),
     FormatSpec {
+        id: "compliance_report",
+        label: "Compliance data report",
+        tip: "Part declarations, list snapshots and supplier questions as a data-quality aid, not a certification.",
+        extensions: &["md", "csv", "html", "pdf"],
+        scope: Scope::Output,
+        group: Group::Documentation,
+        open: None,
+        import: None,
+        export: Some(Run::Engine("compliance.report")),
+        options: COMPLIANCE_REPORT_OPTIONS,
+        common: false,
+    },
+    FormatSpec {
         id: "picture",
         label: "Picture (PNG)",
         tip: "A picture of the board or the schematic.",
@@ -519,7 +556,7 @@ common(FormatSpec {
     output(
         "idf",
         "Mechanical drawing (IDF)",
-        "Board size and each part's position, for enclosure design.",
+        "Board outline and placements plus a library of footprint outlines and heights.",
         &["idf"],
         Group::Exchange,
         Run::Kind("idf"),
@@ -532,6 +569,38 @@ common(FormatSpec {
         Group::Exchange,
         Run::Kind("dsn"),
     ),
+output(
+        "spice",
+        "Circuit netlist (SPICE)",
+        "A passive circuit netlist from sim.model fields for an outside solver.",
+        &["cir"],
+        Group::Exchange,
+        Run::Kind("spice"),
+    ),
+    output(
+        "touchstone",
+        "Touchstone (S-parameters)",
+        "A stored S-parameter file copied from the project attachment touchstone.s2p.",
+        &["s2p"],
+        Group::Exchange,
+        Run::Kind("touchstone"),
+    ),
+    output(
+        "si_net_results",
+        "Signal integrity results (CSV)",
+        "Per-net impedance estimate, length, differential pair data and optional DC volts.",
+        &["csv"],
+        Group::Documentation,
+        Run::Kind("si_net_results"),
+    ),
+    output(
+        "impedance_table",
+        "Impedance table (CSV)",
+        "Per-net impedance estimates and validity notes for the fab package.",
+        &["csv"],
+        Group::Documentation,
+        Run::Kind("impedance_table"),
+    ),
     #[cfg(feature = "plugin-firmware-target")]
     output(
         "firmware_target",
@@ -540,6 +609,7 @@ common(FormatSpec {
         &["h", "json"],
         Group::Exchange,
         Run::Engine("firmware.target.export"),
+    ),
     ),
     FormatSpec {
         id: "board_interchange",

@@ -370,6 +370,35 @@ fn reply(code: u16, reason: &'static str, body: Option<Value>) -> Reply {
     }
 }
 
+/// Turn one parsed body into a status and an optional JSON reply.
+fn dispatch(hub: &DocumentHub, body: &[u8]) -> (u16, &'static str, Option<Value>) {
+    match serde_json::from_slice::<Value>(body) {
+        Err(_) => (
+            400,
+            "Bad Request",
+            Some(rpc_error(Value::Null, -32700, "parse error")),
+        ),
+        Ok(Value::Array(_)) => (
+            400,
+            "Bad Request",
+            Some(rpc_error(Value::Null, -32600, "batching is not supported")),
+        ),
+        Ok(message) => {
+            let is_client_response = message.get("method").is_none()
+                && (message.get("result").is_some() || message.get("error").is_some());
+            if is_client_response {
+                return (202, "Accepted", None);
+            }
+            match handle_rpc(hub, message, None, None) {
+                Some(reply) => (200, "OK", Some(reply)),
+                None => (202, "Accepted", None),
+            }
+        }
+    }
+}
+    }
+}
+
 fn respond(stream: &mut TcpStream, code: u16, reason: &str, extra: &str, body: Option<&Value>) {
     let text = body.map(Value::to_string).unwrap_or_default();
     let kind = if body.is_some() {

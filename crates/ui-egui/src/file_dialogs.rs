@@ -1118,7 +1118,10 @@ values.insert(bom_export::GROUP.into(), "false".into());
             Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
             Some(scene) if scene.starts_with("library-") => self.capture_library_scene(scene),
             Some(scene) if scene.starts_with("files-") => self.files_capture_scene(scene),
-            _ => {}
+            Some(scene) => {
+                self.capture_project_settings(scene);
+            }
+            None => {}
         }
     }
             _ => {}

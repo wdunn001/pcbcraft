@@ -45,6 +45,31 @@ with filesystem access as the invoking user. It has no remote authentication.
 Only tools/call requests are forwarded; tool discovery comes from the same registry.
 Do not expose this port through forwarding to an untrusted network.
 
+### Assistant gated bridge
+
+When the desktop assistant starts a user's coding agent, it also starts a separate
+loopback MCP bridge (`start_gated_bridge` in `crates/mcp`). That bridge picks a free
+port on `127.0.0.1`, returns the port to the app, and requires a per-launch random
+token on every JSON line. Requests without a matching token get error `-32001`
+(unauthorized). `tools/list` is answered locally from the tool registry;
+`tools/call` is handed to the assistant gate and may wait up to 300 seconds while
+the user approves a change.
+
+The agent's MCP entry uses `pcbcraft-cli mcp --connect 127.0.0.1:PORT --token TOKEN`.
+The token is passed on the command line in the agent session setup, not in the agent's
+environment. An agent could read its own session parameters; the gate, not the token,
+is the real guard.
+
+For manual testing, pass the same token to the CLI:
+
+```sh
+pcbcraft-cli mcp --connect 127.0.0.1:PORT --token TOKEN
+```
+
+When `--token` is omitted, `PCBCRAFT_CONTROL_TOKEN` is used (the same variable name
+as for the unauthenticated `--control` bridge, but the assistant bridge uses a fresh
+token each launch).
+
 How the server measures against the specification, and the test list, are in
 [mcp-conformance.md](mcp-conformance.md).
 
@@ -106,6 +131,13 @@ The engine validates supported placement and exact numbered-pin/pad corresponden
 embeds the used definitions, and makes assignment undoable. `board.sync` returns
 `unassigned_components` rather than inventing packages for imported symbols.
 These commands also work in atomic batches and the live desktop bridge.
+
+`part.attach_source` records distributor answers on a placed component in one undo
+step. It requires component `id`, non-empty `manufacturer` and `mpn`, and accepts
+optional `datasheet`, `distributor`, and `sku`. It writes named properties
+`Manufacturer`, `MPN`, `Datasheet`, and either `SKU` or `<distributor> SKU` when a
+seller line is present. Length and control-character checks match `component.field`.
+The library crate searches online part sources; the engine does not call them.
 
 `component.move` and `component.rotate` accept optional `unit` (default 1) for
 independent schematic unit placement. All package pins still use the same
@@ -172,10 +204,12 @@ pcbcraft-cli tool library.search --args '{"path":"/usr/share/kicad/symbols/Devic
 `gerber.export` writes front and back copper, outline and Excellon drill into a
 directory without editing the project. `output_job.add` records a named recipe
 (listing export kinds such as `gerbers`, `netlist`, `bom`, `placement`, `dxf`,
-`panel`, `layer_plots` and `raster`). `output_job.run` writes every file in that
+`panel`, `layer_plots`, `conformal_coat` and `raster`). `output_job.run` writes every file in that
 recipe into one folder after layout changes. Drawn silk, mask and machine layers
 in `layer_plots` become their own Gerber, DXF, SVG and HP-GL files as positive
-ink, not negative soldermask from pads. The `raster` kind writes six high-DPI
+ink, not negative soldermask from pads. The `conformal_coat` kind writes one
+Gerber keep-out plot from the drawn layer named in `board.set_conformal_coat_keepout`.
+The `raster` kind writes six high-DPI
 PNGs (top and bottom copper, mask and legend). `panel.export` duplicates
 fabrication outputs for every copy when a panel grid is enabled.
 
@@ -186,6 +220,23 @@ automation with no remote authentication. Initial checks exposed through `checks
 are not full ERC/DRC. Preview `export` supports PNG and SVG for schematic/PCB
 views; it does not write fabrication BMP rasters (those PNGs come from output
 jobs).
+
+## Cancellation
+
+The MCP spec lets a client send `notifications/cancelled` with a `requestId` so the
+server can stop work for that call. PCBCraft treats every JSON-RPC message without
+an `id` as a notification: `handle_rpc` returns no reply, including for
+`notifications/cancelled`. The server does not track in-flight request ids and does
+not stop a tool that is already running.
+
+On stdio, `serve` reads stdin one line at a time and only handles the next message
+after the current `tools/call` finishes. A cancel notification sent while a long
+export runs is not read until that call returns, so it cannot interrupt
+`output_job.package`, `step.write`, `odb.write`, `pdf.write`, or similar file
+writers. The loopback `--connect` bridge handles one request per TCP connection with
+the same limitation. Stopping mid-export would need a concurrent reader and
+cooperative checks inside the writers; that is out of scope for the current server.
+Fast tools do not need cancellation in practice.
 
 ## See also
 

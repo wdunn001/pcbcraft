@@ -1,0 +1,12 @@
+schema = 1
+id = "dup-test"
+title = "Duplicate entity fixture"
+source_url = "https://example.com/dup"
+retrieved = "2026-01-01"
+licence = "CC0-1.0"
+
+[[entities]]
+name = "Fixture Entity A"
+
+[[entities]]
+name = "Fixture Entity A"

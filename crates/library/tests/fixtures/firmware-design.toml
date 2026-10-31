@@ -1,0 +1,63 @@
+[board]
+name = "TESTFC"
+manufacturer_id = "TST"
+mcu = "U1"
+mcu_record = "stm32f405-fixture.mcu.toml"
+
+[[assignment]]
+pin = "PA4"
+function = "SPI1_NSS"
+
+[[assignment]]
+pin = "PA5"
+function = "SPI1_SCK"
+
+[[assignment]]
+pin = "PA6"
+function = "SPI1_MISO"
+
+[[assignment]]
+pin = "PA7"
+function = "SPI1_MOSI"
+
+[[assignment]]
+pin = "PA9"
+function = "USART1_TX"
+
+[[assignment]]
+pin = "PA10"
+function = "USART1_RX"
+
+[[assignment]]
+pin = "PB12"
+function = "SPI2_NSS"
+
+[[assignment]]
+pin = "PB13"
+function = "SPI2_SCK"
+
+[[assignment]]
+pin = "PB14"
+function = "SPI2_MISO"
+
+[[assignment]]
+pin = "PB15"
+function = "SPI2_MOSI"
+
+[[gyro]]
+driver = "BMI270"
+spi = "SPI1"
+cs = "PA4"
+
+[[flash]]
+spi = "SPI2"
+cs = "PB12"
+
+[[serial]]
+port = 0
+tx = "PA9"
+rx = "PA10"
+function = "USART1"
+
+unmapped = ["UNKNOWN_PART"]
+
