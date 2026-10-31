@@ -1,23 +1,22 @@
-# Pull request and branch gate. Each job runs one `cargo xtask` step, so any
-# failure can be reproduced locally with the same command. See docs/ci.md.
+# Pull request and main gate. Four stages, each job runs one `cargo xtask`
+# command (or one build), so any failure reproduces locally with the same
+# command. Stage 1 is the only stage a draft pull request runs. See docs/ci.md.
 name: CI
 
 on:
-  # Branches get CI only through their pull request. Pushes run for main
-  # (every commit keeps its result); release tags have their own workflow.
-  push:
-    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
   merge_group:
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  # One run per pull request. A new push, or marking the pull request ready,
-  # cancels the older run. Runs on main, merge queue and manual runs are never
-  # cancelled, so every commit on main keeps its result.
+  # One run per pull request: a new push, or marking the pull request ready,
+  # cancels the older run of that pull request. Runs on main, in the merge queue
+  # and manual runs are never cancelled, so every commit on main keeps its result.
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -26,14 +25,11 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   RUST_BACKTRACE: 1
-  # Build dependencies needed by eframe's x11 and wayland features.
-  LINUX_DEPS: libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev
 
 jobs:
   changes:
     name: Changes
-    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, pcbcraft]
     permissions:
       contents: read
     outputs:
@@ -44,7 +40,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - id: filter
-        name: Skip heavy jobs for documentation-only changes
+        name: Skip stages 2 to 4 for documentation-only changes
         env:
           EVENT: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -67,37 +63,38 @@ jobs:
           if [ -n "$code" ]; then
             echo "rust=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Only documentation changed; skipping build jobs."
+            echo "Only documentation changed; skipping stages 2 to 4."
             echo "rust=false" >> "$GITHUB_OUTPUT"
           fi
 
-  policy:
-    name: Format and policy
-    needs: changes
-    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
-    runs-on: ubuntu-24.04
+  # Stage 1: cheap checks, fail fast. Drafts run this stage only.
+  lint:
+    name: Lint
+    runs-on: [self-hosted, pcbcraft-laptop]
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
           components: rustfmt
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: xtask
+          shared-key: lint
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo xtask policy
-      - run: cargo xtask fmt
+      - name: Lint
+        run: cargo xtask lint --json
 
-  lint:
-    name: Clippy and docs
+  clippy:
+    name: Clippy
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft-laptop"]') || 'ubuntu-24.04' }}
+    runs-on: [self-hosted, pcbcraft-laptop]
     permissions:
       contents: read
     steps:
@@ -105,148 +102,30 @@ jobs:
         with:
           persist-credentials: false
       - name: Install window-system packages
-        run: |
-          sudo apt-get update
-          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
-          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
+        run: .github/scripts/install-linux-deps.sh 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: lint
+          shared-key: clippy
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask clippy
-      - run: cargo xtask docs
-
-  docs-check:
-    name: Documentation standard
-    needs: changes
-    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install window-system packages
-        run: |
-          sudo apt-get update
-          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
-          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: docs-check
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo xtask docs check
-
-- uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: docs-check
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo xtask docs check
-  a11y:
-    name: Accessibility
-    needs: changes
-    # Draft pull requests run only the cheap jobs; see docs/ci.md.
-    if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install window-system packages
-        run: |
-          sudo apt-get update
-          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
-          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: test
-          save-if: false
-      # Headless, no GPU: walks every screen through the AccessKit tree and writes a per-screen table to the job summary.
-      - run: cargo xtask a11y
-
-  wasm:
-    name: WebAssembly
-    needs: changes
-    # Draft pull requests run only the cheap jobs; see docs/ci.md.
-    if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: wasm
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo xtask wasm
-
-  msrv:
-    name: Minimum Rust version
-    needs: changes
-    # Main and manual runs only: pull requests share a small pool of hosted runners.
-    if: needs.changes.outputs.rust == 'true' && github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install window-system packages
-        run: |
-          sudo apt-get update
-          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
-          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
-      - name: Read rust-version from Cargo.toml
-        id: msrv
-        run: echo "version=$(sed -n 's/^rust-version *= *"\(.*\)"/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: ${{ steps.msrv.outputs.version }}
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: msrv
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo xtask msrv
 
   deny:
     name: Licenses and advisories
     needs: changes
-    # Draft pull requests run only the cheap jobs; see docs/ci.md.
-    if: ${{ !github.event.pull_request.draft }}
-    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
-    runs-on: ubuntu-24.04
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: [self-hosted, pcbcraft-laptop]
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
@@ -256,32 +135,209 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: xtask
-          save-if: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask deny
 
-  build:
-    name: Build (${{ matrix.os }})
-    needs: changes
-    # Ready pull requests build on Windows; main, merge queue and manual runs
-    # add macOS. Draft pull requests skip it.
-    if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
-    runs-on: ${{ matrix.os }}
+  # Stage 2: unit tests.
+  unit:
+    name: Unit tests
+    needs: [changes, lint, clippy, deny]
+    if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
+    runs-on: [self-hosted, pcbcraft-laptop]
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        # Windows on every change; macOS on main, merge queue and manual runs.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["windows-2025"]' || '["windows-2025","macos-15"]') }}
+    env:
+      NEXTEST_PROFILE: ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask test
+      - name: Upload test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-report
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Stage 3: builds, in parallel. The wasm build comes first in priority.
+  build-wasm:
+    name: Build (wasm)
+    needs: [changes, unit]
+    if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: trunk
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: wasm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Checks the wasm packages, wasm clippy, a trunk release build with hashed
+      # file names, and the headless browser first-frame smoke.
+      - run: cargo xtask wasm
+      - run: cargo xtask wasm-deps
+      - name: Upload the web bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: apps/pcbcraft-web/dist
+          if-no-files-found: error
+          retention-days: 14
+
+  build-linux-x64:
+    name: Build (Linux x86_64)
+    needs: [changes, unit]
+    if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: build
+          shared-key: build-linux
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo build --locked -p pcbcraft -p pcbcraft-cli
+      - run: cargo build --release --locked -p pcbcraft -p pcbcraft-cli
+      - name: Upload the binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-x86_64
+          path: |
+            target/release/pcbcraft
+            target/release/pcbcraft-cli
+          if-no-files-found: error
+          retention-days: 14
+
+  # Windows is cross-compiled on a Linux runner. Main and the merge queue only.
+  build-windows:
+    name: Build (Windows x86_64)
+    needs: [changes, unit]
+    if: ${{ needs.changes.outputs.rust == 'true' && (github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch') }}
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    env:
+      XWIN_ACCEPT_LICENSE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh clang lld llvm
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: build-windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install cargo-xwin when the runner image lacks it
+        run: command -v cargo-xwin || cargo install --locked cargo-xwin
+      - run: cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p pcbcraft -p pcbcraft-cli
+      - name: Upload the executables
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-x86_64
+          path: |
+            target/x86_64-pc-windows-msvc/release/pcbcraft.exe
+            target/x86_64-pc-windows-msvc/release/pcbcraft-cli.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  # Stage 4: end-to-end stories and the browser smoke on the built bundle.
+  e2e:
+    name: E2E
+    needs: [changes, build-wasm, build-linux-x64]
+    if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: e2e
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask e2e
+      - name: Upload the e2e report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-coverage
+          path: target/e2e
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Fetch the built web bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-dist
+          path: apps/pcbcraft-web/dist
+      - name: Browser smoke against the built bundle
+        working-directory: apps/pcbcraft-web
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install chromium
+          node scripts/smoke-first-frame.mjs
+
+  # The single required check. Runs even when an earlier job failed.
+  result:
+    name: CI result
+    if: ${{ always() }}
+    needs: [changes, lint, clippy, deny, unit, build-wasm, build-linux-x64, build-windows, e2e]
+    runs-on: [self-hosted, pcbcraft]
+    permissions: {}
+    steps:
+      - name: Fail when a job failed or was cancelled
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS"
+          # Skipped is fine: jobs skip by design (draft, documentation-only,
+          # Windows off main). Failure or cancellation is not.
+          if echo "$NEEDS" | grep -Eq '"result": "(failure|cancelled)"'; then
+            echo "A required job failed or was cancelled."
+            exit 1
+          fi

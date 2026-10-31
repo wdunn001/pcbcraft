@@ -1,0 +1,3 @@
+# Hashed output file names let a cache hold the bundle indefinitely.
+[build]
+filehash = true
