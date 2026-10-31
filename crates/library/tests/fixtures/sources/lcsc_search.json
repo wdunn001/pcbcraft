@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "",
+  "result": {
+    "product_list": [
+      {
+        "product_code": "C25905",
+        "product_model": "0402WGF5101TCE",
+        "brand_name_en": "UNI-ROYAL",
+        "product_desc_en": "5.1k Ohm 1% 0402 thick film resistor",
+        "stock_number": 12000,
+        "product_price_list": [
+          { "ladder": 100, "currency_price": 0.0009, "currency": "USD" },
+          { "ladder": 1000, "currency_price": 0.0008, "currency": "USD" }
+        ],
+        "datasheet_url": "https://www.lcsc.com/datasheet/example-0402wgf5101tce.pdf",
+        "product_url": "https://www.lcsc.com/product-detail/C25905.html"
+      }
+    ]
+  }
+}

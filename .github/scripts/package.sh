@@ -21,6 +21,10 @@ docs=(LICENSE NOTICE ATTRIBUTION.md README.md)
 cp "${docs[@]}" "$stage/"
 mkdir -p "$stage/examples"
 cp examples/* "$stage/examples/"
+# Languages the built-in fonts cannot draw load their font file from the
+# fonts/ folder next to the program; the license travels beside the file.
+mkdir -p "$stage/fonts"
+cp crates/ui-egui/assets/fonts/NotoSansJP-Regular.otf crates/ui-egui/assets/fonts/NotoSansSC-Regular.otf crates/ui-egui/assets/fonts/OFL-NotoSansCJK.txt "$stage/fonts/"
 
 case "$platform" in
   linux-x86_64 | linux-aarch64)
@@ -46,6 +50,8 @@ case "$platform" in
     app="$stage/PCBCraft.app"
     mkdir -p "$app/Contents/MacOS"
     cp "$bin/pcbcraft" "$app/Contents/MacOS/pcbcraft"
+    # The app reads fonts from fonts/ next to its executable.
+    cp -r "$stage/fonts" "$app/Contents/MacOS/fonts"
     cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -63,9 +69,15 @@ case "$platform" in
 </dict>
 </plist>
 PLIST
+    if [[ "${PCBCRAFT_SIGN:-}" == 1 ]]; then
+      bash .github/scripts/sign-macos.sh prepare "$stage" "$app" "$bin/pcbcraft-cli"
+    fi
     rm "$bin/pcbcraft"
     tar -C "$(dirname "$stage")" -czf "$out/$name.tar.gz" "$name"
     hdiutil create -quiet -volname "PCBCraft $version" -srcfolder "$stage" -ov -format UDZO "$out/$name.dmg"
+    if [[ "${PCBCRAFT_SIGN:-}" == 1 ]]; then
+      bash .github/scripts/sign-macos.sh finish "$out/$name.dmg"
+    fi
     ;;
   *)
     echo "unknown platform $platform" >&2

@@ -1,0 +1,12 @@
+LED_indicator.GBL	Copper,L2,Bot
+LED_indicator.GBO	Legend,Bot
+LED_indicator.GBP	Paste,Bot
+LED_indicator.GBS	Soldermask,Bot
+LED_indicator.GD1	Drillmap
+LED_indicator.GKO	Profile,NP
+LED_indicator.GTL	Copper,L1,Top
+LED_indicator.GTO	Legend,Top
+LED_indicator.GTP	Paste,Top
+LED_indicator.GTS	Soldermask,Top
+LED_indicator.gbrjob	-
+README-fabrication.txt	-
