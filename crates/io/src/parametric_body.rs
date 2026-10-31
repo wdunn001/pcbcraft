@@ -1036,10 +1036,10 @@ mod tests {
 
     #[test]
     fn footprint_name_overrides_generic_family() -> Result<(), String> {
-        let mut gen = nominal_params();
-        gen.name = "SOIC-8_3.9x4.9mm_P1.27mm".into();
-        gen.body_width = 3.9;
-        let def = generate_footprint("soic", LandPatternDensity::Nominal, &gen)?;
+        let mut params = nominal_params();
+        params.name = "SOIC-8_3.9x4.9mm_P1.27mm".into();
+        params.body_width = 3.9;
+        let def = generate_footprint("soic", LandPatternDensity::Nominal, &params)?;
         let pads = pads_from_def(&def);
         let mut comp = Component {
             id: 1,
@@ -1080,10 +1080,10 @@ mod tests {
 
     #[test]
     fn stored_body_family_beats_footprint_name() -> Result<(), String> {
-        let mut gen = nominal_params();
-        gen.name = "SOIC-8_3.9x4.9mm_P1.27mm".into();
-        gen.body_width = 3.9;
-        let def = generate_footprint("soic", LandPatternDensity::Nominal, &gen)?;
+        let mut params = nominal_params();
+        params.name = "SOIC-8_3.9x4.9mm_P1.27mm".into();
+        params.body_width = 3.9;
+        let def = generate_footprint("soic", LandPatternDensity::Nominal, &params)?;
         let pads = pads_from_def(&def);
         let comp = Component {
             id: 1,
@@ -1113,12 +1113,12 @@ mod tests {
 
     #[test]
     fn led_footprint_name_is_chip_with_polarity_mark() -> Result<(), String> {
-        let mut gen = nominal_params();
-        gen.name = "LED_0805_2012Metric".into();
-        gen.body_length = 2.0;
-        gen.body_width = 1.25;
-        gen.pin_count = 2;
-        let def = generate_footprint("chip_2terminal", LandPatternDensity::Nominal, &gen)?;
+        let mut params = nominal_params();
+        params.name = "LED_0805_2012Metric".into();
+        params.body_length = 2.0;
+        params.body_width = 1.25;
+        params.pin_count = 2;
+        let def = generate_footprint("chip_2terminal", LandPatternDensity::Nominal, &params)?;
         let pads = pads_from_def(&def);
         let comp = Component {
             id: 1,

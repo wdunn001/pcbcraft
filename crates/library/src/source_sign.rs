@@ -37,7 +37,7 @@ pub fn jlcpcb_authorization(
         return String::new();
     };
     mac.update(string_to_sign.as_bytes());
-    let signature = base64_encode(mac.finalize().into_bytes());
+    let signature = base64_encode(mac.finalize().into_bytes().to_vec());
     format!(
         "JOP appid=\"{app_id}\",accesskey=\"{access_key}\",timestamp=\"{timestamp}\",nonce=\"{nonce}\",signature=\"{signature}\""
     )

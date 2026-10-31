@@ -1,5 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+use pcbcraft_library::credentials::KeyStore as _;
 use pcbcraft_library::credentials::{self, MemoryKeyStore};
 use pcbcraft_library::element14::{Element14Source, MAX_STORE_ID_LEN};
 use pcbcraft_library::http_client::{HttpRequest, HttpResponse, RecordedHttp};
