@@ -6,6 +6,8 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
+mod datasheet;
 mod bitmap_trace;
 mod board_mesh;
 mod diff;
@@ -65,6 +67,8 @@ pub use cam_drill::{
 };
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
 pub use diff::{DesignChange, DesignDiff, project_diff};
+#[cfg(not(target_arch = "wasm32"))]
+pub use datasheet::HttpDatasheetTransport;
 /// Functions for generating layer plots from drawn graphics.
 /// # Dependencies
 /// - crates/io/src/drawn.rs
