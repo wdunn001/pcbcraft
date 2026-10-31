@@ -1018,6 +1018,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bridge_tests;
 #[cfg(test)]
 mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
