@@ -1028,6 +1028,13 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
     airwires_from(&copper(project))
 }
 
+fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
+    project
+        .no_connects
+        .iter()
+        .any(|f| f.pin.component == component && f.pin.pin == pin)
+}
+          
 fn net_has_capacitor(project: &Project, net: Id) -> bool {
     project
         .components
@@ -1228,6 +1235,27 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                 message: format!("{} has {pins} connected pins", net.name),
                 objects: vec![net.id],
                 hint: None,
+            });
+        }
+    }
+    for net in &project.nets {
+        let undriven_power = project.components.iter().any(|c| {
+            c.pins.iter().any(|p| {
+                p.net == Some(net.id)
+                    && p.electrical_type == "power_in"
+                    && !pin_flagged_no_connect(project, c.id, &p.number)
+            })
+        });
+        if undriven_power && !net_has_power_driver(project, net.id) {
+            result.push(Finding {
+                code: "power_not_driven",
+                severity: project.rule_severity("power_not_driven", "warning"),
+                message: format!(
+                    "{} has a power input but no power source; drive it from a power output, \
+                     a power label or a connector pin",
+                    net.name
+                ),
+                objects: vec![net.id],
             });
         }
     }
@@ -3024,6 +3052,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         }
         p
     }
+  
     fn test_copper(id: Id, point: Point, layer: Layer, net: Id, pad: bool) -> Copper {
         Copper {
             id,
@@ -3043,6 +3072,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             cutouts: vec![],
         }
     }
+  
     #[test]
     fn erc_suppresses_unassigned_pin_warnings_for_no_connect_flags() -> Result<(), String> {
         let mut p = Project::default();
@@ -3069,6 +3099,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
         Ok(())
     }
+  
     fn pin_on_net(
         p: &mut Project,
         component: Id,
@@ -3097,6 +3128,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         }
         Ok(())
     }
+  
     #[test]
     fn erc_flags_two_outputs_on_one_net_and_undriven_input() -> Result<(), String> {
         let mut p = Project::default();
@@ -3145,6 +3177,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
+  
     #[test]
     fn erc_power_input_fed_by_power_output_is_clean() -> Result<(), String> {
         let mut p = Project::default();
@@ -3177,6 +3210,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
+  
     #[test]
     fn erc_reports_undriven_power_input_once() -> Result<(), String> {
         let mut p = Project::default();
@@ -3216,6 +3250,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
+  
     #[test]
     fn erc_power_not_driven_cleared_by_connector_pin() -> Result<(), String> {
         let mut p = Project::default();
@@ -3241,6 +3276,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
+  
     #[test]
     fn erc_power_not_driven_exclusion_hides_the_single_finding() -> Result<(), String> {
         let mut p = Project::default();
@@ -3268,6 +3304,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
+  
     #[test]
     fn erc_reports_missing_decoupling_without_cap_on_power_net() -> Result<(), String> {
         let mut p = Project::default();
