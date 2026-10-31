@@ -9,7 +9,7 @@ use pcbcraft_assistant::{
 };
 use serde_json::json;
 use std::sync::mpsc::channel;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use support::{FakeServer, Reply, first_tool_name};
 
 fn cfg(url: &str, key: Option<&str>) -> ApiConfig {
@@ -39,9 +39,9 @@ fn host() -> StartContext {
 }
 
 fn run_until(b: &mut ApiBackend, done: impl Fn(&Event) -> bool) -> Result<Vec<Event>, String> {
-    let end = Instant::now() + Duration::from_secs(15);
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(15);
     let mut all = Vec::new();
-    while Instant::now() < end {
+    while pcbcraft_clock::instant_now() < end {
         for e in b.poll() {
             let stop = done(&e);
             all.push(e);
@@ -102,11 +102,11 @@ fn the_turn_stops_at_twenty_four_requests_over_a_socket() -> Result<(), String> 
 fn cancel_while_the_server_is_slow_ends_the_turn_as_cancelled() -> Result<(), String> {
     let srv = FakeServer::start(vec![Reply::text("late").after(3000)])?;
     let mut b = start(&srv, None, host())?;
-    let end = Instant::now() + Duration::from_secs(10);
-    while srv.posts().is_empty() && Instant::now() < end {
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(10);
+    while srv.posts().is_empty() && pcbcraft_clock::instant_now() < end {
         std::thread::sleep(Duration::from_millis(5));
     }
-    let t = Instant::now();
+    let t = pcbcraft_clock::instant_now();
     b.cancel();
     let events = run_until(&mut b, ended)?;
     assert!(t.elapsed() < Duration::from_secs(2));
@@ -170,7 +170,7 @@ fn a_slow_server_hits_the_request_timeout() -> Result<(), String> {
         timeout_s: 1,
         stream_out: None,
     };
-    let t = Instant::now();
+    let t = pcbcraft_clock::instant_now();
     let err = plain_request(&req).err().ok_or("expected a timeout")?;
     assert!(err.contains("timed out"), "{err}");
     assert!(t.elapsed() < Duration::from_secs(3));

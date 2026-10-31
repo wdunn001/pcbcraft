@@ -552,3 +552,27 @@ fn drag_unknown_track_and_equal_ends_are_refused() -> Result<(), Error> {
     assert_eq!(f.s.project.board.tracks, before);
     Ok(())
 }
+
+#[test]
+fn route_search_box_includes_outline_arc_bulges() -> Result<(), Error> {
+    let mut s = Session::default();
+    s.execute(
+        "board.set_outline",
+        json!({"points":[[0.0,0.0],[40.0,0.0],[40.0,30.0],[0.0,30.0]]}),
+        None,
+    )?;
+    s.execute(
+        "board.outline_set_arc",
+        json!({"segment":1,"radius":20.0,"side":"convex"}),
+        None,
+    )?;
+    let (min, max) = super::bounds(&s.project);
+    assert!((min.x - 0.0).abs() < 1e-9 && (min.y - 0.0).abs() < 1e-9);
+    assert!(
+        max.x > 40.0 + 1e-6,
+        "the outward arc widens the routing box: {}",
+        max.x
+    );
+    assert!((max.y - 30.0).abs() < 1e-6);
+    Ok(())
+}

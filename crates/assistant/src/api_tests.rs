@@ -10,7 +10,7 @@ use crate::turn::ToolRequest;
 use serde_json::{Value, json};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 type Log = Arc<Mutex<Vec<HttpRequest>>>;
 
@@ -84,9 +84,9 @@ fn host(text: &'static str) -> (StartContext, Arc<Mutex<Vec<String>>>) {
 
 /// Poll until `done` matches an event, giving up after ten seconds.
 fn run_until(b: &mut ApiBackend, done: impl Fn(&Event) -> bool) -> Result<Vec<Event>, String> {
-    let end = Instant::now() + Duration::from_secs(10);
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(10);
     let mut all = Vec::new();
-    while Instant::now() < end {
+    while pcbcraft_clock::instant_now() < end {
         for e in b.poll() {
             let stop = done(&e);
             all.push(e);
@@ -228,8 +228,8 @@ fn the_turn_stops_after_twenty_four_requests_and_tells_the_model() -> Result<(),
     );
     // The next message carries the stop note, so the model reports instead of carrying on.
     say(&mut b, "again");
-    let end = Instant::now() + Duration::from_secs(10);
-    while posts(&log).len() < 25 && Instant::now() < end {
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(10);
+    while posts(&log).len() < 25 && pcbcraft_clock::instant_now() < end {
         std::thread::sleep(Duration::from_millis(5));
     }
     let sent = posts(&log);

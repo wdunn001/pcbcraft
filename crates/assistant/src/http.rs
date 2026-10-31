@@ -6,10 +6,11 @@
 //! is returned as its status and never followed, no panics.
 
 use crate::backend::{HttpFn, HttpRequest, deliver_streamed_body};
+use pcbcraft_clock::Instant;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Largest reply body accepted, in bytes.
 pub const MAX_BODY: usize = 8 * 1024 * 1024;
@@ -41,7 +42,7 @@ pub fn plain_http() -> HttpFn {
 /// Echo header values (they may hold a key).
 pub fn plain_request(req: &HttpRequest) -> Result<(u16, Vec<u8>), String> {
     let (host, port, path) = split_url(&req.url)?;
-    let deadline = Instant::now() + Duration::from_secs(req.timeout_s.max(1));
+    let deadline = pcbcraft_clock::instant_now() + Duration::from_secs(req.timeout_s.max(1));
     let mut stream = connect(&host, port, deadline)?;
     let mut head = format!(
         "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nAccept: application/json\r\n",
@@ -114,7 +115,7 @@ fn connect(host: &str, port: u16, deadline: Instant) -> Result<TcpStream, String
         .map_err(|_| "The host name could not be found.".to_string())?;
     let mut last = "No address to connect to.".to_string();
     for a in addrs {
-        let left = deadline.saturating_duration_since(Instant::now());
+        let left = deadline.saturating_duration_since(pcbcraft_clock::instant_now());
         if left.is_zero() {
             return Err("The request timed out.".into());
         }
@@ -127,7 +128,7 @@ fn connect(host: &str, port: u16, deadline: Instant) -> Result<TcpStream, String
 }
 
 fn set_timeouts(s: &TcpStream, deadline: Instant) -> Result<(), String> {
-    let left = deadline.saturating_duration_since(Instant::now());
+    let left = deadline.saturating_duration_since(pcbcraft_clock::instant_now());
     if left.is_zero() {
         return Err("The request timed out.".into());
     }
