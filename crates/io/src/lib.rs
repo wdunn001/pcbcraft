@@ -321,6 +321,10 @@ pub fn save(project: &Project, path: &Path) -> Result<(), String> {
 fn quote(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into())
 }
+
+fn specctra_layer_id(p: &Project, layer: pcbcraft_doc::Layer) -> String {
+    p.layer_name(layer)
+}
 /// SVG fragment for one project graphic: its outline as a stroked polyline, or a
 /// text element for the text shape.
 fn project_graphic_svg(g: &pcbcraft_doc::Graphic) -> String {
@@ -4088,6 +4092,51 @@ pub fn hyperlynx_csv(p: &Project) -> Result<String, String> {
         }
         out.push('\n');
     }
+    if p.copper_layer_count() > 2 {
+        let mut layer_nets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for track in &p.board.tracks {
+            let net = names
+                .get(&track.net)
+                .ok_or("track references an unknown net")?
+                .clone();
+            layer_nets
+                .entry(p.layer_name(track.layer))
+                .or_default()
+                .insert(net);
+        }
+        for zone in &p.board.zones {
+            if !zone.filled {
+                continue;
+            }
+            let net = names
+                .get(&zone.net)
+                .ok_or("zone references an unknown net")?
+                .clone();
+            layer_nets
+                .entry(p.layer_name(zone.layer))
+                .or_default()
+                .insert(net);
+        }
+        let bottom = p.copper_layer_count().saturating_sub(1);
+        for layer in p.copper_layers() {
+            let idx = layer.index();
+            if idx == 0 || idx == bottom {
+                continue;
+            }
+            let lname = p.layer_name(layer);
+            let Some(nets) = layer_nets.get(&lname) else {
+                continue;
+            };
+            if nets.is_empty() {
+                continue;
+            }
+            out.push_str(&format!("# layer {lname}\n"));
+            for net in nets {
+                out.push_str(net);
+                out.push('\n');
+            }
+        }
+    }
     Ok(out)
 }
 /// In-circuit test netlist in IPC-D-356A style fixed columns: five-digit net
@@ -4544,6 +4593,16 @@ pub fn gencad_text(p: &Project) -> Result<String, String> {
     let mils = |v: f64| (v / 0.0254).round() as i64;
     let mut out = String::new();
     let mut records = 0usize;
+    if p.copper_layer_count() > 2 {
+        out.push_str(&format!("%H\t{}\n", p.copper_layer_count()));
+        for layer in p.copper_layers() {
+            out.push_str(&format!(
+                "%L\t{}\t{}\n",
+                layer.index() + 1,
+                p.layer_name(layer)
+            ));
+        }
+    }
     for f in &p.board.footprints {
         let c = refs
             .get(&f.component)
@@ -4617,6 +4676,24 @@ pub fn gencad_text(p: &Project) -> Result<String, String> {
             .collect::<Vec<_>>()
             .join("\t");
         out.push_str(&format!("%N\t{}\t{}\t{}\n", n.name, members.len(), list));
+    }
+    if p.copper_layer_count() > 2 {
+        for track in &p.board.tracks {
+            records += 1;
+            if records > MAX_RECORDS {
+                return Err("interchange file exceeds the record limit".into());
+            }
+            out.push_str(&format!(
+                "%T\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                track.layer.index() + 1,
+                p.net_name(track.net),
+                mils(track.start.x),
+                mils(track.start.y),
+                mils(track.end.x),
+                mils(track.end.y),
+                mils(track.width),
+            ));
+        }
     }
     Ok(out)
 }
@@ -4698,21 +4775,31 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     out.push_str("  )\n");
     for class in &p.net_classes {
-        out.push_str(&format!(
-            "  (classpath {} (circuit (minClearance {}) (sameNetClearance {}) (defaultTraceWidth {})) (layer \"F.Cu\" \"(c: {}))\" (layer \"B.Cu\" \"(c: {}))\")\n",
+        let mut line = format!(
+            "  (classpath {} (circuit (minClearance {}) (sameNetClearance {}) (defaultTraceWidth {}))",
             quote(&class.name),
             um(class.clearance)?,
             um(class.clearance)?,
-            um(class.width)?,
-            um(class.width)?,
             um(class.width)?
-        ));
+        );
+        for layer in p.copper_layers() {
+            let name = quote(&p.layer_name(layer));
+            line.push_str(&format!(" (layer {name} \"(c: {}))\")", um(class.width)?));
+        }
+        line.push('\n');
+        out.push_str(&line);
     }
     let clearance = um(p.board.clearance)?;
-    out.push_str(&format!(
-        "  (structure\n    (layer \"signal\" \"F.Cu\" (circuit (minClearance {c}) (viaSize 600 600) (viaDepth 0 0)))\n    (layer \"signal\" \"B.Cu\" (circuit (minClearance {c}) (viaSize 600 600) (viaDepth 0 0)))\n    (layer \"through_via\" \"VIA\" (circuit (viaType \"VIA\")))\n    (layer \"boundary\" \"BOARD_BOUNDARY\" (boundary (direction \"positive\")))\n    (via \"VIA\" (type \"through_via\") (shape (circle (path (0 0)) (width 600))))\n  )\n",
-        c = clearance
-    ));
+    out.push_str("  (structure\n");
+    for layer in p.copper_layers() {
+        let name = quote(&p.layer_name(layer));
+        out.push_str(&format!(
+            "    (layer \"signal\" {name} (circuit (minClearance {clearance}) (viaSize 600 600) (viaDepth 0 0)))\n"
+        ));
+    }
+    out.push_str(
+        "    (layer \"through_via\" \"VIA\" (circuit (viaType \"VIA\")))\n    (layer \"boundary\" \"BOARD_BOUNDARY\" (boundary (direction \"positive\")))\n    (via \"VIA\" (type \"through_via\") (shape (circle (path (0 0)) (width 600))))\n  )\n",
+    );
     out.push_str("  (image\n");
     let corners: Vec<Point> = board_edge_points(p)
         .iter()
@@ -4754,11 +4841,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for t in &p.board.tracks {
         bump(&mut count)?;
-        let layer = if t.layer == pcbcraft_doc::Layer::Back {
-            "B.Cu"
-        } else {
-            "F.Cu"
-        };
+        let layer = specctra_layer_id(p, t.layer);
         let width = um(t.width)?;
         let net = net_number(Some(t.net))?;
         let segments: Vec<(Point, Point)> = match t.curve() {
@@ -4793,11 +4876,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for z in &p.board.zones {
         bump(&mut count)?;
-        let layer = if z.layer == pcbcraft_doc::Layer::Back {
-            "B.Cu"
-        } else {
-            "F.Cu"
-        };
+        let layer = specctra_layer_id(p, z.layer);
         let net = net_number(Some(z.net))?;
         let path: Result<Vec<String>, String> = z.outline.iter().map(point).collect();
         out.push_str(&format!(
@@ -4807,13 +4886,13 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for area in &p.board.rule_areas {
         bump(&mut count)?;
-        let layers: Vec<&str> = match area.layer {
-            Some(l) => vec![if l == pcbcraft_doc::Layer::Back {
-                "B.Cu"
-            } else {
-                "F.Cu"
-            }],
-            None => vec!["F.Cu", "B.Cu"],
+        let layers: Vec<String> = match area.layer {
+            Some(l) => vec![p.layer_name(l)],
+            None => p
+                .copper_layers()
+                .into_iter()
+                .map(|l| p.layer_name(l))
+                .collect(),
         };
         let lo = Point::new(area.region.x, area.region.y);
         let hi = Point::new(
@@ -10732,6 +10811,135 @@ mod tests {
             dsn.contains("(keepout (layer F.Cu) (net 0) (rect (5000 5000) (15000 13000)))")
                 && dsn.contains("(keepout (layer B.Cu) (net 0) (rect (5000 5000) (15000 13000)))"),
             "rule areas become keepouts on both copper layers"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn specctra_dsn_places_inner_tracks_on_their_copper_layer() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.layer_records.extend([
+            pcbcraft_doc::LayerRecord {
+                name: "F.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+            },
+            pcbcraft_doc::LayerRecord {
+                name: "In1.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.017,
+                copper_role: None,
+            },
+            pcbcraft_doc::LayerRecord {
+                name: "In2.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.017,
+                copper_role: None,
+            },
+            pcbcraft_doc::LayerRecord {
+                name: "B.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+            },
+        ]);
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 2,
+            reference: "R1".into(),
+            value: "1k".into(),
+            kind: "resistor".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                name: String::new(),
+                offset: Point::default(),
+                net: Some(1),
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            }],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 3,
+            component: 2,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 0.6,
+                net: Some(1),
+                castellated: None,
+                geometry: None,
+            }],
+        });
+        let inner = pcbcraft_doc::Layer::from_index(1).map_err(|e| e.to_string())?;
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 4,
+            net: 1,
+            start: Point::new(11.0, 10.0),
+            end: Point::new(29.0, 10.0),
+            width: 0.3,
+            layer: inner,
+            arc: None,
+        });
+        project.validate().map_err(|e| e.to_string())?;
+        let dsn = specctra_dsn(&project)?;
+        assert!(
+            dsn.contains("(layer \"signal\" \"In1.Cu\" (circuit (minClearance "),
+            "structure lists every copper layer from the stackup"
+        );
+        assert!(
+            dsn.contains(
+                "(wire (path (net 1) (layer In1.Cu) (width 300) (11000 10000) (29000 10000)))"
+            ),
+            "inner tracks land on the stack layer name, not only on outer copper"
+        );
+        assert!(
+            !dsn.contains(
+                "(wire (path (net 1) (layer F.Cu) (width 300) (11000 10000) (29000 10000)))"
+            ),
+            "the inner track must not be forced onto the top layer"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn two_layer_example_exchange_exports_stay_byte_stable() -> Result<(), String> {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/dual-amplifier.pcbcraft");
+        let project = load(&path)?;
+        project.validate().map_err(|e| e.to_string())?;
+        assert_eq!(project.copper_layer_count(), 2);
+        let hyperlynx = hyperlynx_csv(&project)?;
+        let gencad = gencad_text(&project)?;
+        let dsn = specctra_dsn(&project)?;
+        assert!(
+            !hyperlynx.contains("# layer "),
+            "two-layer hyperlynx export stays a plain net list"
+        );
+        assert!(
+            !gencad.contains("%H\t") && !gencad.contains("%T\t"),
+            "two-layer gencad export keeps the legacy record layout"
+        );
+        assert!(
+            dsn.contains("(layer \"signal\" \"F.Cu\" (circuit (minClearance ")
+                && dsn.contains("(layer \"signal\" \"B.Cu\" (circuit (minClearance "),
+            "two-layer autorouter export still names the outer copper pair"
         );
         Ok(())
     }
