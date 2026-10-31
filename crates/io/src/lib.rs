@@ -9,6 +9,7 @@ use std::path::Path;
 mod bitmap_trace;
 mod board_edge;
 mod board_mesh;
+mod parametric_body;
 mod diff;
 mod drawn;
 mod drill_table;
