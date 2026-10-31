@@ -197,6 +197,9 @@ pub use model_load::{
     ModelCacheKey, ModelError, SharedModel, companion_model_cache_key, load_model,
     load_model_with_part, model_cache_key, model_extension_supported,
 };
+pub use model_preview::{
+    MODEL_PREVIEW_SIZE, ModelPreviewOptions, preview_loaded_model,
+};
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
 /// # Dependencies
