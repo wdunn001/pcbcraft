@@ -1600,6 +1600,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
@@ -1726,6 +1727,8 @@ mod tests {
                 definition,
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
         sourcing: Default::default(),
         compliance: Default::default(),
