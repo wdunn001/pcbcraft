@@ -207,6 +207,101 @@ fn radial_two_lead_span() -> Result<(), String> {
 }
 
 #[test]
+fn tssop16_matches_soic_style_row_count() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.65;
+    p.pin_count = 16;
+    p.body_width = 4.4;
+    let def = generate_footprint("tssop", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 16);
+    assert!(near(def.pads[0].size.y, 0.65 * 0.28));
+    Ok(())
+}
+
+#[test]
+fn tssop_honors_terminal_width() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.65;
+    p.pin_count = 16;
+    p.body_width = 4.4;
+    p.lead_width = 0.35;
+    let def = generate_footprint("tssop", LandPatternDensity::Nominal, &p)?;
+    assert!(near(def.pads[0].size.y, 0.35));
+    Ok(())
+}
+
+#[test]
+fn dfn8_two_side_pad_count() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.5;
+    p.pin_count = 8;
+    p.body_length = 2.5;
+    p.body_width = 2.5;
+    let def = generate_footprint("dfn", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 8);
+    let left: Vec<_> = def.pads.iter().filter(|pad| pad.position.x < 0.0).collect();
+    assert_eq!(left.len(), 4);
+    Ok(())
+}
+
+#[test]
+fn lga_4x4_rect_pads() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.5;
+    p.grid_rows = 4;
+    p.grid_cols = 4;
+    let def = generate_footprint("lga", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 16);
+    assert!(def.pads.iter().all(|pad| pad.shape == "rect"));
+    Ok(())
+}
+
+#[test]
+fn sod123_two_end_pads() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.body_length = 3.2;
+    p.body_width = 1.6;
+    let def = generate_footprint("sod", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 2);
+    assert!(def.pads[0].position.x < 0.0 && def.pads[1].position.x > 0.0);
+    Ok(())
+}
+
+#[test]
+fn to_single_three_plated_holes() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 2.54;
+    p.pin_count = 3;
+    p.body_width = 10.0;
+    let def = generate_footprint("to_single", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 3);
+    assert!(def.pads.iter().all(|pad| pad.pad_type == "thru_hole"));
+    Ok(())
+}
+
+#[test]
+fn ssop_alias_uses_tssop_layout() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.65;
+    p.pin_count = 8;
+    p.body_width = 3.0;
+    let def = generate_footprint("ssop", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 8);
+    Ok(())
+}
+
+#[test]
+fn msop_alias_uses_tssop_layout() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.5;
+    p.pin_count = 10;
+    p.body_width = 3.0;
+    let def = generate_footprint("msop", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 10);
+    Ok(())
+}
+
+#[test]
 fn axial_two_lead_span() -> Result<(), String> {
     let mut p = nominal_params();
     p.pitch = 10.0;
@@ -274,6 +369,7 @@ fn check_reports_overlapping_pads() -> Result<(), String> {
         }],
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
         retained: vec![],
