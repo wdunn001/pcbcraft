@@ -2185,6 +2185,17 @@ json!({"code":{"type":"string","description":"check code: unassigned_pin, single
             schema(json!({}), &[]),
         ),
         (
+            "rules.profile_read",
+            "Read one interface rule profile by built-in id or file path and return its bus template name and unsupported fields",
+            schema(
+                json!({
+                    "id":{"type":"string","minLength":1,"maxLength":64,"description":"built-in or library profile id"},
+                    "path":{"type":"string","minLength":1,"maxLength":4096,"description":"path to profile TOML"}
+                }),
+                &[],
+            ),
+        ),
+        (
             "rules.profile_apply",
             "Apply a built-in profile by id or a profile TOML file from disk; optional dry run returns the plan without changing the design",
             schema(
@@ -16152,6 +16163,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             Ok(json!({"id": a.id}))
         }
         "rules.profile_list" => Ok(profiles::profile_list()),
+        "rules.profile_read" => profiles::profile_read(p, params).map_err(Error::Invalid),
         "rules.profile_apply" => profiles::profile_apply(p, next, params).map_err(Error::Invalid),
         "board.layer_add" => {
             let a: LayerAddParams = parse(params)?;
