@@ -10,6 +10,7 @@ mod bitmap_trace;
 mod board_import;
 mod board_edge;
 mod board_mesh;
+mod parametric_body;
 mod diff;
 mod drawn;
 pub mod export_package;
