@@ -11,7 +11,8 @@
 use pcbcraft_doc::MachineProfile;
 use serde_json::{Map, Value};
 
-const BUILTIN_IDS: [&str; 5] = [
+const BUILTIN_IDS: [&str; 6] = [
+    "neoden-4",
     "neoden-yy1",
     "eufymake-e1",
     "snapmaker-2-a350t-200w-cnc",
@@ -31,6 +32,7 @@ pub fn builtin_machine_profile_ids() -> &'static [&'static str] {
 pub fn builtin_machine_profile(id: &str) -> Result<MachineProfile, String> {
     let text = match id {
         "neoden-yy1" => include_str!("../../../machine-profiles/neoden-yy1.toml"),
+        "neoden-4" => include_str!("../../../machine-profiles/neoden-4.toml"),
         "eufymake-e1" => include_str!("../../../machine-profiles/eufymake-e1.toml"),
         "snapmaker-2-a350t-200w-cnc" => {
             include_str!("../../../machine-profiles/snapmaker-2-a350t-200w-cnc.toml")
@@ -135,6 +137,25 @@ mod tests {
                 return Err(format!("built-in id mismatch for {id}"));
             }
             profile.validate()?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn each_shipped_preset_toml_on_disk_matches_its_builtin() -> Result<(), String> {
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../machine-profiles");
+        for id in builtin_machine_profile_ids() {
+            let path = root.join(format!("{id}.toml"));
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| format!("read preset file {id}: {e}"))?;
+            let from_disk = machine_profile_from_toml(&text)?;
+            let from_builtin = builtin_machine_profile(id)?;
+            if from_disk != from_builtin {
+                return Err(format!(
+                    "machine-profiles/{id}.toml does not match the compiled built-in preset"
+                ));
+            }
         }
         Ok(())
     }

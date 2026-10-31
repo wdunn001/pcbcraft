@@ -20,13 +20,16 @@ Free graphics: line, rectangle, circle, arc, polygon, text. Multi-unit symbols
 share one reference and footprint; units move independently.
 
 Parts table graphics, dimensions, barcodes (Code 39), find-and-replace across
-the project, named component properties, bill of materials grouping.
+the project, named component properties, per-part parts-list and placement
+inclusion flags, bill of materials grouping.
 
 ## Board
 
 Front SMD and plated through-hole pads (circle, rectangle, roundrect, oval).
 Straight, two-segment orthogonal and arc tracks. Plated vias, including stitch
-grids. Poured zones with cutouts; unfilled zones are outline only. Rectangular
+grids. Teardrop copper grown where tracks meet pads and vias, removed in one
+pass, exported with other filled copper. Poured zones with cutouts; unfilled
+zones are outline only. Rectangular
 or polygonal outline, circular cutouts, Edge.Cuts export. Copper move, width
 and layer edits update clearance findings. Step-and-repeat arrays, placement
 locks, edge docking, castellated pad flags.
@@ -53,7 +56,8 @@ Initial ERC and DRC with object IDs: shorts, clearance, board edge, cutout,
 unrouted nets, pin assignment. Findings can be re-levelled or silenced per
 code, per object, or per rectangle. Pad table, drill chart, board statistics,
 impedance estimates from recorded stackup, net chain walk, library part
-compare.
+compare. Compliance data report export (CSV, Markdown, HTML or PDF) summarises
+part declarations and supplier questions; it is not a product certification.
 
 ## Export
 

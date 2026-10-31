@@ -1,80 +1,65 @@
-//! Compliance rule set loader (schema 1, issue #691).
 use serde::Deserialize;
 
-/// One check rule inside a compliance rule set file.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ComplianceRule {
-    /// Stable rule id referenced by findings.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ComplianceRuleSet {
+    pub schema: u32,
     pub id: String,
-    /// Rule kind, such as `entity_list` or `classification_report`.
-    pub kind: String,
-    /// List snapshot id for entity rules.
+    pub title: String,
     #[serde(default)]
-    pub list_id: String,
-    /// Declaration regime id for declaration rules.
+    pub description: String,
+    pub rules: Vec<ComplianceRuleSpec>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ComplianceRuleSpec {
+    pub id: String,
+    pub kind: String,
     #[serde(default)]
     pub regime: String,
-    /// Severity when the rule matches.
+    #[serde(default)]
     pub severity_hit: String,
-    /// Severity when required data is missing.
+    #[serde(default = "default_warning")]
     pub severity_unverified: String,
-    /// Plain-language explanation shown in the UI.
-    pub text: String,
-    /// Source citation printed on the report.
+    #[serde(default)]
+    pub severity_stale: Option<String>,
+    #[serde(default)]
+    pub message_unverified: String,
+    #[serde(default)]
+    pub message_hit: String,
+    #[serde(default)]
+    pub message_stale: String,
+    #[serde(default)]
+    pub message_reference: String,
     pub citation: String,
-    /// Evidence field the engine reads.
-    pub evidence: String,
+    #[serde(default)]
+    pub list: String,
+    #[serde(default)]
+    pub field: String,
+    #[serde(default)]
+    pub template: String,
+    #[serde(default)]
+    pub attribute: String,
+    #[serde(default)]
+    pub limit: f64,
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub finish_leaded: Vec<String>,
 }
 
-/// Metadata and rules for one selectable compliance programme.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ComplianceRuleSet {
-    /// File schema version.
-    pub schema: u32,
-    /// Programme id stored on the project.
-    pub id: String,
-    /// Short title for pickers and reports.
-    pub title: String,
-    /// Longer summary for tooltips.
-    pub summary: String,
-    /// Ordered rules evaluated for the programme.
-    pub rules: Vec<ComplianceRule>,
+fn default_warning() -> String {
+    "warning".into()
 }
 
-impl ComplianceRuleSet {
-    /// Parse and validate a rule set TOML document.
-    pub fn parse(text: &str) -> Result<Self, String> {
-        let set: Self = toml::from_str(text).map_err(|e| format!("rule set parse: {e}"))?;
-        set.validate()?;
-        Ok(set)
+pub fn load_rule_set(toml_text: &str) -> Result<ComplianceRuleSet, String> {
+    let set: ComplianceRuleSet = toml::from_str(toml_text).map_err(|e| e.to_string())?;
+    if set.schema != 1 {
+        return Err(format!("unsupported compliance ruleset schema {}", set.schema));
     }
-
-    /// Check schema, ids and rule counts.
-    pub fn validate(&self) -> Result<(), String> {
-        if self.schema != 1 {
-            return Err("compliance rule set schema must be 1".into());
-        }
-        if self.id.is_empty() || self.id.len() > 64 {
-            return Err("rule set id must be 1 to 64 bytes".into());
-        }
-        if self.rules.is_empty() || self.rules.len() > 64 {
-            return Err("a rule set needs 1 to 64 rules".into());
-        }
-        for rule in &self.rules {
-            if rule.id.is_empty() || rule.id.len() > 64 {
-                return Err("rule id must be 1 to 64 bytes".into());
-            }
-        }
-        Ok(())
+    if set.id.is_empty() {
+        return Err("ruleset id is required".into());
     }
-}
-
-const EXPORT_AND_TRADE_TOML: &str =
-    include_str!("../../data/compliance/rulesets/export_and_trade.toml");
-
-/// Load the bundled export-and-trade rule set shipped with the app.
-pub fn bundled_export_and_trade() -> Result<ComplianceRuleSet, String> {
-    ComplianceRuleSet::parse(EXPORT_AND_TRADE_TOML)
+    Ok(set)
 }
