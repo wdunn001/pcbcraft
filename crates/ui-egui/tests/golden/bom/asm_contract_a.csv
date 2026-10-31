@@ -1,0 +1,42 @@
+Reference Designators,Manufacturer Part Number,Description,Value,Manufacturer,Supplier,Supplier Part Number
+C10,MP-100nF,Analog supply filter,100nF,Maker,Shop,S-100nF
+C13,MP-100nF,Flash decoupling,100nF,Maker,Shop,S-100nF
+"C14, C15, C16",MP-100nF,Sensor decoupling,100nF,Maker,Shop,S-100nF
+"C7, C8, C9",MP-100nF,Supply decoupling,100nF,Maker,Shop,S-100nF
+R5,MP-10k,Reset pull-up,10k,Maker,Shop,S-10k
+C1,MP-10uF,Supply input capacitor,10uF,Maker,Shop,S-10uF
+Y1,MP-16MHz,Main crystal,16 MHz,Maker,Shop,S-16MHz
+"C5, C6",MP-18pF,Crystal load capacitor,18pF,Maker,Shop,S-18pF
+R4,MP-1k,Charge indicator resistor,1k,Maker,Shop,S-1k
+"R10, R11, R12, R13, R14, R15",MP-1k,LED series resistor,1k,Maker,Shop,S-1k
+C12,MP-1uF,Analog supply bulk,1uF,Maker,Shop,S-1uF
+C17,MP-1uF,Sensor rail capacitor,1uF,Maker,Shop,S-1uF
+C3,MP-22uF,Regulator input capacitor,2.2uF,Maker,Shop,S-22uF
+C4,MP-22uF,Regulator output capacitor,2.2uF,Maker,Shop,S-22uF
+R3,MP-2k,Charge current set,2k,Maker,Shop,S-2k
+TP2,MP-3V3,Supply test point,3V3,Maker,Shop,S-3V3
+"R8, R9",MP-47k,I2C pull-up,4.7k,Maker,Shop,S-47k
+C2,MP-47uF,Battery decoupling,4.7uF,Maker,Shop,S-47uF
+C11,MP-47uF,Bulk capacitor,4.7uF,Maker,Shop,S-47uF
+R1,MP-51k,USB CC1 pull-down,5.1k,Maker,Shop,S-51k
+R2,MP-51k,USB CC2 pull-down,5.1k,Maker,Shop,S-51k
+F1,MP-500mA,Resettable fuse,500 mA,Maker,Shop,S-500mA
+D1,MP-Amber,Charge indicator,Amber,Maker,Shop,S-Amber
+"D6, D7",MP-Amber,Status LED,Amber,Maker,Shop,S-Amber
+J2,MP-Battery,Two-pin battery connector,Battery,Maker,Shop,S-Battery
+U1,MP-Charger,Single-cell linear charger,Charger,Maker,Shop,S-Charger
+U5,MP-Climate,"Temperature, humidity and pressure sensor",Climate,Maker,Shop,S-Climate
+J3,MP-Debug,Programming and serial header,Debug,Maker,Shop,S-Debug
+U4,MP-Flash,Serial flash memory,Flash,Maker,Shop,S-Flash
+"D3, D4, D5",MP-Green,Status LED,Green,Maker,Shop,S-Green
+U2,MP-LDO3V3,Low-dropout regulator,LDO 3V3,Maker,Shop,S-LDO3V3
+U6,MP-Light,Ambient light sensor,Light,Maker,Shop,S-Light
+U3,MP-MCU,"32-bit microcontroller, USB device",MCU,Maker,Shop,S-MCU
+D8,MP-Red,Status LED,Red,Maker,Shop,S-Red
+SW1,MP-Reset,Reset button,Reset,Maker,Shop,S-Reset
+U7,MP-Switch,High-side switch for the sensor rail,Switch,Maker,Shop,S-Switch
+D2,MP-TVS,Transient suppressor on the USB supply,TVS,Maker,Shop,S-TVS
+J1,MP-USBC,Power and USB 2.0 receptacle,USB-C,Maker,Shop,S-USBC
+SW2,MP-User1,User button,User 1,Maker,Shop,S-User1
+SW3,MP-User2,User button,User 2,Maker,Shop,S-User2
+TP1,MP-VBAT,Battery test point,VBAT,Maker,Shop,S-VBAT
