@@ -90,6 +90,7 @@ const READS: &[&str] = &[
     "library.inspect_footprint",
     "library.sources",
     "library.compare",
+    "library.samtec.manufacturer_page",
     "design.recents",
     "search_knowledge",
 ];

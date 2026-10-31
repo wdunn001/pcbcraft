@@ -140,6 +140,15 @@ pub trait ChatBackend {
     fn shutdown(&mut self, wait: bool);
 }
 
+/// One chunk of an incremental HTTP reply body.
+#[derive(Clone, Debug, PartialEq)]
+pub enum HttpStreamPart {
+    /// Raw bytes from the wire (often several SSE lines).
+    Chunk(Vec<u8>),
+    /// The reply is complete; carries the HTTP status.
+    End { status: u16 },
+}
+
 /// One HTTP request of the API backend (the desktop host sends it; nothing else in the chat
 /// reaches the network).
 #[derive(Clone, Debug, PartialEq)]
@@ -149,6 +158,8 @@ pub struct HttpRequest {
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
     pub timeout_s: u64,
+    /// When set, the host sends the reply body here in parts and returns an empty body.
+    pub stream_out: Option<std::sync::mpsc::Sender<Result<HttpStreamPart, String>>>,
 }
 
 /// An HTTP reply: status, lowercased header names, and body.
@@ -181,6 +192,23 @@ impl HttpResponse {
 
 /// Sends an [`HttpRequest`]: the reply, or why it failed.
 pub type HttpFn = Arc<dyn Fn(&HttpRequest) -> Result<HttpResponse, String> + Send + Sync>;
+
+/// Push a complete reply body to [`HttpRequest::stream_out`] in parts, then return an empty body.
+pub fn deliver_streamed_body(
+    out: &std::sync::mpsc::Sender<Result<HttpStreamPart, String>>,
+    status: u16,
+    body: &[u8],
+) -> Result<(u16, Vec<u8>), String> {
+    for chunk in body.chunks(4096) {
+        if !chunk.is_empty() {
+            out.send(Ok(HttpStreamPart::Chunk(chunk.to_vec())))
+                .map_err(|_| "The stream ended early.".to_string())?;
+        }
+    }
+    out.send(Ok(HttpStreamPart::End { status }))
+        .map_err(|_| "The stream ended early.".to_string())?;
+    Ok((status, Vec::new()))
+}
 
 /// The system keychain (the desktop host's), for API keys: never in the preferences.
 pub trait Secrets: Send + Sync {

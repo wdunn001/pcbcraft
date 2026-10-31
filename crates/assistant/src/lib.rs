@@ -10,7 +10,9 @@ mod http;
 mod prompt;
 mod retrieval;
 mod script;
+mod steps;
 mod store;
+mod stream;
 mod text;
 mod tool_names;
 mod transcript;
@@ -22,9 +24,10 @@ pub use api::{
     key_safe_for, model_list, openai_tools, test_anthropic_endpoint, test_endpoint,
 };
 pub use backend::{
-    AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, HttpResponse, ModelInfo,
+AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, HttpResponse, HttpStreamPart, ModelInfo,
     PermissionOption, PromptPart, Secrets, SourceLink, StartContext, ToolStatus, base64,
-    content_blocks,
+    content_blocks, deliver_streamed_body,
+};
 };
 pub use connections::{Connection, PRESETS, Preset, config_for, key_id, new_id, normalize_url};
 pub use context::{Context, MAX_NOTE, MAX_PICTURE_BYTES, Selection, Sent, note, picture};
@@ -41,6 +44,10 @@ pub use retrieval::{
     append_model_tool, pick_search_tool, register_tool_name, system_note_offered, test_retrieval,
 };
 pub use script::{CountingHttp, ScriptBackend};
+pub use steps::{
+    Digest, MAX_SUGGESTIONS, StepKind, StepState, Suggestion, command_kind, commands_of, digest,
+    error_line, split_suggestions, step_kind,
+};
 pub use store::{
     clear as clear_transcript, export_markdown, load as load_transcript, save as save_transcript,
     transcript_path,

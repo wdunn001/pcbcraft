@@ -26,6 +26,8 @@ pub const MAX_ITEMS: usize = 2048;
 mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
+mod via_protection;
+mod sourcing;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub mod fill;
 pub use fill::{
@@ -1853,7 +1855,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 29] = [
+pub const OUTPUT_KINDS: [&str; 33] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1883,10 +1885,14 @@ pub const OUTPUT_KINDS: [&str; 29] = [
     "raster",
     "laser_job",
     "uv_print",
+    "spice",
+    "si_net_results",
+    "impedance_table",
+    "touchstone",
 ];
 /// How many export kinds one output job may hold. It is larger than the kind
 /// list so a single job can still ask for every file a board needs.
-pub const MAX_OUTPUT_KINDS: usize = 32;
+pub const MAX_OUTPUT_KINDS: usize = 36;
 /// A named fabrication output recipe: the export kinds a job writes when it
 /// runs.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -2082,6 +2088,10 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
         "hpgl" => ("package", "board.hpgl"),
         "stackup" => ("package", "board-stackup.txt"),
         "stats" => ("package", "board-stats.csv"),
+        "spice" => ("package", "schematic.cir"),
+        "si_net_results" => ("package", "si-net-results.csv"),
+        "impedance_table" => ("package", "impedance-table.csv"),
+        "touchstone" => ("package", "touchstone.s2p"),
         _ => return None,
     })
 }
@@ -2339,6 +2349,12 @@ pub const LAYER_FUNCTIONS: [&str; 10] = [
     "other",
     "none",
 ];
+/// Design roles an inner copper layer may carry: routing, ground plane or power plane.
+pub const COPPER_LAYER_PLANE_ROLES: [&str; 3] = ["signal", "ground", "power"];
+
+fn skip_copper_layer_roles(v: &[Option<String>]) -> bool {
+    v.is_empty() || v.iter().all(|r| r.is_none())
+}
 impl LayerRecord {
     fn valid(&self) -> bool {
         let in_set =
@@ -2777,6 +2793,9 @@ pub struct Board {
     /// Recorded per-layer fabrication notes in physical stack order (top to bottom).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
+    /// Design role per copper layer index (0 = top): signal, ground or power.
+    #[serde(default, skip_serializing_if = "skip_copper_layer_roles")]
+    pub copper_layer_roles: Vec<Option<String>>,
     /// Extra via spans (upper, lower copper layer index) the build allows
     /// beyond the generic ones, for example a buried span.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -3971,6 +3990,78 @@ impl Project {
             v.from_layer = v.from_layer.map(to);
             v.to_layer = v.to_layer.map(to);
         }
+    }
+    /// True when `layer` is neither the top nor the bottom copper row.
+    pub fn is_inner_copper_layer(&self, layer: Layer) -> bool {
+        let count = self.copper_layer_count();
+        let i = layer.index();
+        i > 0 && i + 1 < count
+    }
+    /// Recorded plane role for a copper layer, if it is not plain signal routing.
+    pub fn copper_layer_plane_role(&self, layer: Layer) -> Option<&str> {
+        self.board
+            .copper_layer_roles
+            .get(layer.index() as usize)
+            .and_then(|r| r.as_deref())
+            .filter(|r| *r != "signal")
+    }
+    /// True when the layer is marked as a ground or power plane.
+    pub fn copper_layer_is_plane(&self, layer: Layer) -> bool {
+        matches!(
+            self.copper_layer_plane_role(layer),
+            Some("ground") | Some("power")
+        )
+    }
+    /// True when a filled pour sits on a layer marked ground or power.
+    pub fn zone_is_plane_pour(&self, zone: &CopperZone) -> bool {
+        zone.filled && self.copper_layer_is_plane(zone.layer)
+    }
+    fn trim_copper_layer_roles(&mut self) {
+        let count = self.copper_layer_count() as usize;
+        self.board.copper_layer_roles.truncate(count);
+        while self.board.copper_layer_roles.last().is_some_and(|r| r.is_none()) {
+            self.board.copper_layer_roles.pop();
+        }
+    }
+    /// Keep plane roles aligned when copper layer indices move.
+    pub fn remap_copper_layer_roles(&mut self, map: impl Fn(u8) -> u8) {
+        let count = self.copper_layer_count() as usize;
+        let mut next = vec![None; count];
+        for (i, role) in self.board.copper_layer_roles.iter().enumerate() {
+            if let Some(role) = role.clone() {
+                let ni = map(i as u8) as usize;
+                if ni < count {
+                    next[ni] = Some(role);
+                }
+            }
+        }
+        self.board.copper_layer_roles = next;
+        self.trim_copper_layer_roles();
+    }
+    /// Set or clear the design role of one inner copper layer.
+    pub fn set_copper_layer_plane_role(&mut self, layer: Layer, role: &str) -> Result<(), String> {
+        if !COPPER_LAYER_PLANE_ROLES.contains(&role) {
+            return Err("role must be signal, ground or power".into());
+        }
+        if !self.is_inner_copper_layer(layer) {
+            return Err("only inner copper layers carry a plane role".into());
+        }
+        let i = layer.index() as usize;
+        if i >= self.copper_layer_count() as usize {
+            return Err("layer is not on this board".into());
+        }
+        if self.board.copper_layer_roles.len() <= i {
+            self.board
+                .copper_layer_roles
+                .resize(i + 1, None);
+        }
+        self.board.copper_layer_roles[i] = if role == "signal" {
+            None
+        } else {
+            Some(role.into())
+        };
+        self.trim_copper_layer_roles();
+        Ok(())
     }
     /// True when any board object sits on copper layer `index`.
     pub fn copper_layer_in_use(&self, index: u8) -> bool {
@@ -5249,6 +5340,21 @@ impl Project {
             return Err(format!(
                 "copper layer count must be 1 to {MAX_COPPER_LAYERS}"
             ));
+        }
+        if b.copper_layer_roles.len() > copper_count as usize {
+            return Err("copper layer roles exceed the copper layer count".into());
+        }
+        for (i, role) in b.copper_layer_roles.iter().enumerate() {
+            let Some(role) = role else {
+                continue;
+            };
+            if !COPPER_LAYER_PLANE_ROLES.contains(&role.as_str()) {
+                return Err("copper layer role must be signal, ground or power".into());
+            }
+            let layer = Layer::from_index(i as u8)?;
+            if !self.is_inner_copper_layer(layer) {
+                return Err("copper layer role applies only to inner layers".into());
+            }
         }
         for t in &b.tracks {
             if !self.copper_layer_valid(t.layer) {
