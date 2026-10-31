@@ -42,7 +42,7 @@ Stages in words:
 4. **Ready.** A worker may claim it. Workers claim only `ready` issues. Workers who share a build machine with others also need `conflict:parallel-safe`.
 5. **Work.** The worker claims, branches off fork `main`, builds, tests, merges the latest fork `main` back in, pushes the branch, waits for the Actions run, and posts a build report ending in "PR pending owner review".
 6. **Review.** A reviewer checks the pushed branch against the acceptance criteria and posts `### Review`.
-7. **Integration.** The integrator merges the branch into fork `main` with a merge commit. When the Actions build on fork `main` is green, the change is done.
+7. **Integration.** The integrator merges the branch into fork `main` with a merge commit. The merge message ends with a line `Issues: #N, #M` listing every issue the branch delivers, with no other text on that line. When the Actions build on fork `main` is green, the change is done.
 8. **Owner test.** The maintainer runs fork `main`. Only then does a pull request to upstream open.
 
 ## 2. Roles, step by step
@@ -192,13 +192,13 @@ A branch that does not merge cleanly into fork `main` at review time goes back t
 
 **Build and test**
 
-CI is GitHub Actions on the fork, and it runs on every pushed branch. The Actions run is the proof of a green build; link it in your report. Running the gate yourself before pushing is optional and saves round trips:
+CI is GitHub Actions on the fork, and it runs on pull requests and on `main`, not on plain branch pushes. Open a draft pull request to get the cheap checks (format, policy, clippy, docs); mark it ready for review to run the full gate. The green run is the proof of a build; link it in your report. Running the gate yourself before pushing is optional and saves round trips:
 
 ```sh
 cargo xtask ci
 ```
 
-It runs formatting, dependency layer checks, clippy with warnings denied, the workspace tests (including the `a_newcomer_*` end-to-end tests) and the WebAssembly check. Once the CI pipeline branch (#340) is merged, the Actions gate also runs policy, docs, MSRV and license checks, the full e2e suite and the screenshot sheet; `docs/ci.md` lists every job and its local command. If you build on a shared machine, cap parallelism (`CARGO_BUILD_JOBS=4`) and keep your own target directory; do not run full builds on a laptop when a build machine or Actions can do it.
+It runs formatting, dependency layer checks, clippy with warnings denied, the workspace tests (including the `a_newcomer_*` end-to-end tests) and the WebAssembly check. `docs/ci.md` lists every job and its local command. CI does not capture screenshots. If you build on a shared machine, cap parallelism (`CARGO_BUILD_JOBS=4`) and keep your own target directory; do not run full builds on a laptop when a build machine or Actions can do it.
 
 For UI changes, look at the rendered result (section 6).
 
@@ -281,7 +281,8 @@ One agent owns the integration branch, the fork's `main`. It merges every review
    ```sh
    git checkout main && git pull --ff-only origin main
    git merge --no-ff feat-<slug>
-   ```
+```
+End the merge commit message with a line `Issues: #N, #M` listing every issue the branch delivers, with no other text on that line.
 3. Resolve conflicts in the merge commit, keeping both sides' intent; if the resolution is not obvious, ask on both issues before pushing.
 4. Push the merge, then watch the GitHub Actions run on fork `main`. The change is done when that full build is green; if it is red, fix forward on a branch or report on the issue, and never rewrite `main`. Where a local run is cheap, run `cargo xtask ci` on the merged tree before the push:
    ```sh
@@ -292,7 +293,7 @@ One agent owns the integration branch, the fork's `main`. It merges every review
 
 ### Owner test
 
-The maintainer tests with one packaged command that builds the branch or fork `main` and produces the screenshot sheet. It wraps `cargo xtask screenshots` from the CI pipeline (#340); the command is tracked as its own issue. Until it exists, run `cargo xtask screenshots --out target/screenshots` yourself. Only after the maintainer has tested:
+The maintainer tests on fork `main`. Screenshots are local (`cargo xtask screenshots --out target/screenshots`). Only after the maintainer has tested:
 
 - The maintainer opens one pull request per feature from the feature branch to upstream `main`, with a body that starts with the Tags line, and sets `status:pr-open` on the issue.
 - Upstream pull requests merge only with green CI.
@@ -320,7 +321,7 @@ Vocabulary, one line each. "One" means exactly one value.
 | conflict (one) | `conflict:ui-egui-lib` edits crates/ui-egui/src/lib.rs; `conflict:parallel-safe` stays out of that file |
 | size (one) | `size:s` one PR, one crate, under a day; `size:m` one PR, several crates; `size:l` several PRs or an epic |
 | machine (zero or more) | `machine:neoden-yy1` `machine:eufymake-e1` `machine:snapmaker-cnc` `machine:commarker-b6` |
-| status (one) | `status:open` `status:claimed` `status:in-progress` `status:pr-open` `status:needs-owner-test` `status:blocked` |
+| status (one) | `status:open` `status:claimed` `status:in-progress` `status:pr-open` `status:needs-owner-test` `status:blocked` `status:review` |
 | stage (one) | `stage:research` `stage:enrich` `ready` (bare; an issue never carries both `ready` and a `stage:` tag) |
 | research | `research:needed` `research:done` `research:n/a` |
 | enrich | `enrich:done` (an `### Enrichment` comment exists) |
@@ -411,6 +412,7 @@ These come from AGENTS.md and apply to every change.
 - **Golden fixtures** cover every file writer and reader. Put fixture files under `crates/<crate>/tests/fixtures/` and compare whole outputs, not substrings. For output that an independent parser exists for, read the output back with that parser as a dev-dependency. Fixtures from external libraries keep their license file beside them.
 - **M6 artifact goldens** live under `tests/fixtures/artifacts/` and are exercised by `crates/engine/tests/m6_artifact_goldens.rs` (also wired into the dual-amplifier parity case). Re-bless on a Linux build host with `cargo xtask bless-parity` or `PCBCRAFT_BLESS=1 cargo test -p pcbcraft-engine --test m6_artifact_goldens`. Blessing is ignored when `CI` is set; see `docs/validation.md`.
 - **End-to-end tests** are named `a_newcomer_<does something>`. They drive the real `App` headlessly with the `frame`, `tap`, `paints_text` and `scrolled_to` helpers, and every assertion message is a plain sentence that someone who has never seen the app could follow ("the matching part stays in the list"). One test per user-visible feature. They live in `crates/ui-egui/src/e2e/<area>.rs` (helpers in `src/e2e/support.rs`), one file per area (library, nets, rules, builds, board, checks, artifacts, layout, layers, shell). Put new tests in the matching area file, or add a new area file plus one `mod <area>;` line in `src/e2e/mod.rs`, and never add one to lib.rs. CI runs the full e2e suite as a required check, uploads a screenshot sheet, and fails if any control lacks a tooltip or an e2e story.
+- **End-to-end tests** are named `a_newcomer_<does something>`. They drive the real `App` headlessly with the `frame`, `tap`, `paints_text` and `scrolled_to` helpers, and every assertion message is a plain sentence that someone who has never seen the app could follow ("the matching part stays in the list"). One test per user-visible feature. They live in `crates/ui-egui/src/e2e/<area>.rs` (helpers in `src/e2e/support.rs`), one file per area (library, nets, rules, builds, board, checks, artifacts, layout, layers, shell). Put new tests in the matching area file, or add a new area file plus one `mod <area>;` line in `src/e2e/mod.rs`, and never add one to lib.rs. CI does not run the e2e suite and does not capture a screenshot sheet. Run `cargo xtask e2e` and `cargo xtask screenshots` locally when you need them.
 - **Engine round trips** for any new document field: save and load a project carrying it and compare.
 - **Screenshots for UI changes.** Render the change and attach the image to the build report. On `main` today:
   ```sh
@@ -418,7 +420,7 @@ These come from AGENTS.md and apply to every change.
     env -u WAYLAND_DISPLAY WGPU_BACKEND=vulkan \
     cargo run -p pcbcraft -- --sample --capture pcbcraft.png
   ```
-  `cargo xtask screenshots --out target/screenshots` (from the CI pipeline, #340) captures the standard views, and CI uploads a side-by-side sheet of base and head. Add a view there when a new tab or dialog deserves one. If your issue carries `track:ui-design`, you produce the screenshots yourself and put the sheet path in your report; never ask the owner for evidence you can produce.
+  `cargo xtask screenshots --out target/screenshots` captures the standard views locally. Add a view there when a new tab or dialog deserves one. If your issue carries `track:ui-design`, you produce the screenshots yourself and put the sheet path in your report; never ask the owner for evidence you can produce. CI does not capture images.
 - **Where to run.** CI runs on GitHub Actions on the owner's fork. Push early and use the run as proof. A local `cargo xtask ci` is optional.
 
 ## 7. Branches, commits, merge flow

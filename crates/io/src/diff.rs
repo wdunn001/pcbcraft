@@ -725,8 +725,10 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            sourcing: Default::default(),
         });
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 20,
             component: 10,
             position: Point::new(15.0, 15.0),
