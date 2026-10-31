@@ -548,6 +548,10 @@ pub struct NetClass {
     /// Absent means no stub check; zero means no stubs at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_stub: Option<f64>,
+    /// Maximum plated vias allowed on each member net. Absent means no limit;
+    /// zero means no vias.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_vias: Option<u32>,
     /// Default outer via pad diameter for member nets, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_diameter: Option<f64>,
@@ -612,6 +616,9 @@ pub struct DiffPair {
     /// means length matching is not checked for this pair.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// When true, both sides must carry the same number of plated vias.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub equal_vias: bool,
     /// Rule profile that last applied this differential pair, when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
@@ -5281,6 +5288,7 @@ self.validate_manufacturers()?;
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
                 || c.max_stub
                     .is_some_and(|s| !s.is_finite() || !(0.0..=100.0).contains(&s))
+                || c.max_vias.is_some_and(|v| v > 1024)
                 || !profile_tag_valid(&c.profile)
                 || c.via_diameter
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
