@@ -2065,4 +2065,24 @@ instance: None,
         assert_eq!(full["bounds"]["min"][0], 0.0);
         Ok(())
     }
+
+    #[test]
+    fn vertex_count_of_a_box_mesh_is_eight() -> Check {
+        let mesh = BoardMesh {
+            parts: vec![MeshPart {
+                kind: PartKind::Board,
+                name: "box".into(),
+                component: None,
+                family: None,
+                height_source: None,
+                model: None,
+                color: None,
+                positions: (0..8).map(|i| [i as f64, 0.0, 0.0]).collect(),
+                indices: vec![0, 1, 2, 0, 2, 3],
+            }],
+            warnings: vec![],
+        };
+        assert_eq!(mesh.vertex_count(), 8);
+        Ok(())
+    }
 }

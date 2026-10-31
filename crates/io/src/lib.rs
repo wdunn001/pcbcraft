@@ -259,7 +259,7 @@ pub fn load(path: &Path) -> Result<Project, String> {
 /// # Do not
 /// - Call with paths to binary files
 pub fn read_text(path: &Path) -> Result<String, String> {
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut text = String::new();
     file.take(MAX_FILE_BYTES + 1)
         .read_to_string(&mut text)
@@ -271,7 +271,7 @@ pub fn read_text(path: &Path) -> Result<String, String> {
 }
 /// Read a binary file at the given path, enforcing the 8 MiB size limit.
 pub fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut bytes = Vec::new();
     file.take(MAX_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
@@ -436,9 +436,16 @@ pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     let mut zip: Vec<u8> = Vec::new();
     let mut central: Vec<u8> = Vec::new();
     let mut offset = 0u32;
+    let mut seen = std::collections::BTreeSet::new();
     for (name, data) in entries {
         if name.is_empty() || name.len() > 255 {
             return Err("archive entry names are 1 to 255 bytes".into());
+        }
+        if name.contains("..") {
+            return Err(format!("unsafe archive entry name {name}"));
+        }
+        if !seen.insert(name.clone()) {
+            return Err(format!("duplicate archive entry name {name}"));
         }
         let size = u32::try_from(data.len())
             .map_err(|_| format!("{name} is larger than the 4 GiB a stored ZIP address"))?;
@@ -7714,12 +7721,153 @@ mod tests {
             zip_entries(&[(String::new(), vec![])]).is_err(),
             "an empty name is refused"
         );
+        assert!(
+            zip_entries(&[
+                ("a.txt".into(), b"1".to_vec()),
+                ("a.txt".into(), b"2".to_vec()),
+            ])
+            .is_err(),
+            "duplicate names are refused"
+        );
+        assert!(
+            zip_entries(&[("files/../escape".into(), vec![])]).is_err(),
+            "parent segments in a name are refused"
+        );
         let many: Vec<(String, Vec<u8>)> =
             (0..65_536).map(|n| (format!("f{n}"), Vec::new())).collect();
         assert!(
             zip_entries(&many).is_err(),
             "more than 65535 entries is refused, not wrapped in the header"
         );
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn read_text_returns_the_file_contents() -> Result<(), String> {
+        let dir = std::env::temp_dir().join(format!("pcbcraft-io-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join("sample.txt");
+        std::fs::write(&path, "line one\nline two").map_err(|e| e.to_string())?;
+        assert_eq!(read_text(&path)?, "line one\nline two");
+        let missing = dir.join("missing.txt");
+        let err = read_text(&missing)
+            .err()
+            .ok_or("missing file should fail")?;
+        assert!(
+            err.contains("missing.txt"),
+            "error should name the path: {err}"
+        );
+        let bad = dir.join("bad.bin");
+        std::fs::write(&bad, &[0xff, 0xfe]).map_err(|e| e.to_string())?;
+        assert!(read_text(&bad).is_err(), "invalid UTF-8 is rejected");
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn read_bytes_round_trips_binary_data() -> Result<(), String> {
+        let dir = std::env::temp_dir().join(format!("pcbcraft-io-bytes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join("payload.bin");
+        let bytes: Vec<u8> = (0..=255).collect();
+        std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+        assert_eq!(read_bytes(&path)?, bytes);
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    #[test]
+    fn board_text_formats_a_label_with_its_variables() -> Result<(), String> {
+        let mut p = Project::default();
+        let plain = pcbcraft_doc::BoardText {
+            id: 1,
+            text: "GND pour".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: 1.0,
+            layer: pcbcraft_doc::Layer::Front,
+            component: None,
+        };
+        assert_eq!(board_text(&p, &plain), "GND pour");
+        let mut c = pcbcraft_doc::component_template("resistor", 2, "R5".into(), Point::default())
+            .ok_or("template missing")?;
+        c.value = "10k".into();
+        c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+            library: "R".into(),
+            definition: pcbcraft_library::FootprintDefinition {
+                name: "R_0805".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads: vec![],
+                graphics: vec![],
+                model: None,
+                rules: None,
+                raw_source: String::new(),
+                unsupported: vec![],
+            },
+        });
+        c.fields.push(pcbcraft_doc::ComponentField {
+            key: "MFG".into(),
+            value: "Acme".into(),
+        });
+        p.components.push(c);
+        let bound = pcbcraft_doc::BoardText {
+            id: 2,
+            text: "${REFERENCE} ${VALUE} ${FOOTPRINT} ${MFG}".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: 1.0,
+            layer: pcbcraft_doc::Layer::Front,
+            component: Some(2),
+        };
+        assert_eq!(
+            board_text(&p, &bound),
+            "R5 10k R_0805 Acme",
+            "tokens expand from the bound component"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn gerber_files_at_names_every_layer_file() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.width = 20.0;
+        p.board.height = 15.0;
+        p.validate()?;
+        let stamp = "2024-06-01T12:00:00Z";
+        let files = gerber_files_at(&p, stamp)?;
+        assert!(files.contains_key("pcb-F.Cu.gbr"));
+        assert!(files.contains_key("pcb-B.Cu.gbr"));
+        assert!(files.contains_key("pcb-Edge.gbr"));
+        let job = files
+            .get("pcb-job.gbrjob")
+            .ok_or("job file is part of the bundle")?;
+        assert!(
+            job.contains(stamp),
+            "the job file records the pinned creation date"
+        );
+        for (name, body) in &files {
+            if name.ends_with(".gbr") {
+                assert!(
+                    body.contains("%FSLAX") || body.contains("G04"),
+                    "{name} looks like gerber"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn lib_fab_readme_text_matches_fab_export() -> Result<(), String> {
+        let mut p = Project::default();
+        p.name = "readme oracle".into();
+        p.validate()?;
+        let names = vec!["pcb-F.Cu.gbr".into(), "pcb-B.Cu.gbr".into()];
+        let from_lib = fab_readme_text(&p, &names)?;
+        let from_export = fab_export::fab_readme_text(&p, &names)?;
+        assert_eq!(from_lib, from_export);
         Ok(())
     }
 
