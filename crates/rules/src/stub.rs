@@ -201,6 +201,7 @@ pub(crate) fn stub_length_findings(project: &Project, items: &[Copper]) -> Vec<F
                             project.net_name(*net),
                         ),
                         objects: ids,
+                        hint: None,
                     });
                 }
             }
@@ -348,6 +349,7 @@ mod tests {
             via_drill: None,
             pair_width: None,
             pair_gap: None,
+            target_impedance: None,
             nets: vec![1],
             profile: None,
         });

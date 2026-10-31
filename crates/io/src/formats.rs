@@ -219,6 +219,21 @@ const USE_OUTLINE: &[OptionSpec] = &[OptionSpec {
     kind: OptionKind::Bool { default: false },
 }];
 
+const COMPLIANCE_REPORT_OPTIONS: &[OptionSpec] = &[OptionSpec {
+    param: Some("format"),
+    label: "Format",
+    tip: "File type for the report body.",
+    kind: OptionKind::Choice {
+        choices: &[
+            ("markdown", "Markdown"),
+            ("csv", "CSV"),
+            ("html", "HTML"),
+            ("pdf", "PDF"),
+        ],
+        default: 0,
+    },
+}];
+
 const VIEW: &[OptionSpec] = &[OptionSpec {
     param: Some("view"),
     label: "View",
@@ -418,6 +433,19 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Documentation,
         Run::Kind("stats"),
     ),
+    FormatSpec {
+        id: "compliance_report",
+        label: "Compliance data report",
+        tip: "Part declarations, list snapshots and supplier questions as a data-quality aid, not a certification.",
+        extensions: &["md", "csv", "html", "pdf"],
+        scope: Scope::Output,
+        group: Group::Documentation,
+        open: None,
+        import: None,
+        export: Some(Run::Engine("compliance.report")),
+        options: COMPLIANCE_REPORT_OPTIONS,
+        common: false,
+    },
     FormatSpec {
         id: "picture",
         label: "Picture (PNG)",

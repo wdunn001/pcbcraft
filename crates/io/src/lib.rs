@@ -48,6 +48,7 @@ pub use bitmap_trace::{
 mod cam;
 mod cam_drill;
 mod cam_shapes;
+mod compliance_report;
 mod snapmaker;
 mod solidcraft;
 mod solidcraft_format;
@@ -72,6 +73,10 @@ pub use cam_drill::{
     drill_gcode, drill_tools, outline_gcode,
 };
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
+pub use compliance_report::{
+    ComplianceReportFormat, ComplianceReportOptions, RuleSetLine, SnapshotLine, WaiverLine,
+    compliance_report_bytes, compliance_report_markdown,
+};
 pub use diff::{DesignChange, DesignDiff, project_diff};
 #[cfg(not(target_arch = "wasm32"))]
 pub use datasheet::HttpDatasheetTransport;
@@ -1024,6 +1029,21 @@ pub(crate) fn pdf_bytes_from_ops(ops: String) -> Result<Vec<u8>, String> {
     Ok(pdf)
 }
 
+fn pdf_literal_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' | '(' | ')' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ if ch.is_ascii() => out.push(ch),
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Export the design as a one-page vector PDF document, in bytes.
 pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     p.validate()?;
@@ -1037,6 +1057,55 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     page.op("0 0 842 595 re f")?;
     pdf_draw(&mut page, p, view)?;
     pdf_bytes_from_ops(page.ops)
+}
+
+/// One-page PDF whose body is plain text lines (compliance report export).
+pub fn pdf_plain_text_document(body: &str) -> Result<Vec<u8>, String> {
+    const MAX_LINES: usize = 500;
+    let mut stream = String::from("BT /F1 9 Tf 72 750 Td ");
+    for (index, line) in body.lines().take(MAX_LINES).enumerate() {
+        if index > 0 {
+            stream.push_str("0 -12 Td ");
+        }
+        stream.push('(');
+        stream.push_str(&pdf_literal_escape(line));
+        stream.push_str(") Tj ");
+    }
+    stream.push_str("ET");
+    let content = stream.as_bytes();
+    let mut pdf: Vec<u8> = Vec::new();
+    let mut offsets = [0u32; 5];
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    for (index, body_obj) in [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>".to_string(),
+        format!(
+            "<< /Length {} >>\nstream\n{}endstream",
+            content.len(),
+            String::from_utf8_lossy(content)
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ]
+    .iter()
+    .enumerate()
+    {
+        offsets[index] = pdf.len() as u32;
+        pdf.extend_from_slice(
+            format!("{} 0 obj\n{}\nendobj\n", index + 1, body_obj)
+                .as_bytes(),
+        );
+    }
+    let xref_at = pdf.len() as u32;
+    pdf.extend_from_slice(b"xref\n0 5\n0000000000 65535 f \n");
+    for offset in offsets.iter() {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
+    );
+    Ok(pdf)
+}
 }
 
 /// Draw one view as a standalone PostScript document: the same path, circle
@@ -2560,6 +2629,8 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         /// A track stroke, kept apart from a pad or via circle of the same
         /// diameter so the X2 aperture function names it a conductor.
         Track(u64),
+        /// A via pad, kept apart from component pads of the same diameter.
+        Via(u64),
     }
     #[derive(Clone)]
     struct LayerFile {
@@ -2655,9 +2726,11 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             for (ap, code) in &self.apertures {
                 if matches!(ap, Ap::Track(_)) {
                     out.push_str("%TA.AperFunction,Conductor,Cu*%\n");
+                } else if matches!(ap, Ap::Via(_)) {
+                    out.push_str("%TA.AperFunction,ViaPad*%\n");
                 }
                 match *ap {
-                    Ap::Circle(d) | Ap::Track(d) => out.push_str(&format!(
+                    Ap::Circle(d) | Ap::Track(d) | Ap::Via(d) => out.push_str(&format!(
                         "%ADD{code}C,{:.6}*%\n",
                         d as f64 / 1000.0 * self.scale
                     )),
@@ -2818,7 +2891,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     }
     for v in &p.board.vias {
         let d = (v.diameter * 1_000.0).round() as u64;
-        let ap = Ap::Circle(d.max(1));
+        let ap = Ap::Via(d.max(1));
         let (reaches_top, reaches_bottom) = fab_export::via_reaches_outer(p, v);
         if reaches_top {
             let front_code = front.code(ap.clone())?;
@@ -2938,7 +3011,7 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     fab_export::fab_readme_text(p, file_names)
 }
 
-pub use fab_export::via_mask_opening;
+pub use fab_export::{via_mask_opening, via_mask_opening_on_face};
 /// Bill of materials as CSV: identical parts collapsed into one row with a
 /// sorted, quoted reference list. Requested property keys become extra
 /// columns; with no request, the columns the project itself defines are
@@ -7246,6 +7319,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -7326,6 +7400,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 502,
@@ -7453,6 +7528,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.validate()?;
         let text = stats_text(&project)?;
@@ -7496,6 +7572,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -7506,6 +7583,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 503,
@@ -7689,6 +7767,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.validate()?;
         let pcb = hpgl_plot(&project, "pcb")?;
@@ -7736,6 +7815,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.validate()?;
         let package = odb_package(&project)?;
@@ -7800,6 +7880,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -8790,6 +8871,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.unit = "inch".into();
         project.validate()?;
@@ -8885,6 +8967,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
@@ -9141,6 +9224,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -9768,6 +9852,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
@@ -10132,6 +10217,7 @@ mod tests {
             via_drill: None,
             pair_width: None,
             pair_gap: None,
+            target_impedance: None,
             nets: vec![5],
             profile: None,
         });
@@ -10211,6 +10297,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
@@ -10487,6 +10574,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
@@ -10616,6 +10704,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 12,
@@ -11540,6 +11629,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
@@ -11698,6 +11788,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -12921,6 +13012,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -12954,6 +13046,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -13499,6 +13592,7 @@ mod tests {
             from_layer: from.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             covering: None,
+            covering_scope: None,
         };
         project.board.vias.push(via(10, 5.0, None, None));
         project.board.vias.push(via(11, 7.0, None, Some(1)));
@@ -13637,6 +13731,7 @@ mod tests {
                 from_layer: None,
                 to_layer: None,
                 covering,
+                covering_scope: None,
             });
         }
         project.validate()?;
@@ -13703,11 +13798,17 @@ mod tests {
         )?)?;
         let drill = &files["pcb-Plated.drl"];
         assert!(
-            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill\n"),
+            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ib\n"),
             "{drill}"
         );
-        assert!(drill.contains("; via protection: tented\n"), "{drill}");
-        assert!(drill.contains("; via protection: plugged\n"), "{drill}");
+        assert!(
+            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill,IIIb\n"),
+            "{drill}"
+        );
+        assert!(
+            !drill.contains("; via protection:"),
+            "covering travels in the tool attribute: {drill}"
+        );
         assert_eq!(
             drill.matches("; #@! TD\n").count(),
             2,
