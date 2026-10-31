@@ -82,7 +82,7 @@ To capture the actual UI, use the desktop's `--capture /absolute/path.png` optio
 
 ## Library workflow
 
-`library.list` filters part listings (the open project's saved parts, installed libraries and any `listings` you pass) with one
+`library.list` filters part listings (embedded Samtec connector series records, the open project's saved parts, installed libraries and any `listings` you pass) with one
 filter (`categories`, `packages`, `value_min`, `value_max`, `voltage_min`,
 `temp_range`, `stock_min`, `lifecycle`, `sources`, `rohs`, `text`), `limit`
 (1-100) and a `cursor` from the previous answer. It returns `items`,
@@ -91,7 +91,7 @@ numeric filter. Results are grouped by source in each source's own order and are
 not ranked across sources. Optional `listings` carries already loaded
 distributor pages to filter with the same rules. It is read-only.
 
-`library.catalog` discovers host folders. `library.search` accepts `path`, `kind`
+`library.catalog` discovers host folders and returns `configurable_connectors` (the embedded Samtec series catalog; see docs/samtec-library.md). `library.search` accepts `path`, `kind`
 (`symbol` or `footprint`), optional `query`, and `limit` (1–100). A symbol path is
 a `.kicad_sym` file; a footprint search path is a `.pretty` directory. Results
 report search and directory-scan truncation. `library.inspect_symbol` accepts
@@ -116,6 +116,11 @@ pads connect their own front/back copper; two different pads are never bridged.
 declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
 routes both nets with coupled orthogonal L geometry and refuses when the pair gap
 cannot be kept.
+
+`track.tune_skew` takes a differential pair `id` or `name`, optional `layer`
+(default `F.Cu`), and a declared `length_tolerance` on the pair. It serpentines
+the shorter net until skew is within tolerance, in one undo step.
+
 `track.drag` takes a track `id`, which `end` ("start" or "end"), a `position` and an
 optional `mode` (`octilinear` by default, or `octilinear_shove`). The other end stays
 put and the track is re-laid as 45-degree copper around pads, cutouts and other
@@ -195,7 +200,7 @@ MCP hints, so a client can decide when to ask the user first.
 
 | Kind | Tools | readOnly | destructive | idempotent |
 | --- | --- | --- | --- | --- |
-| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
+| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.drop_in_check`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
 | Writes files outside the project | `*.write`, `*.export`, `export`, `save`, `library.save`, `library.export_*`, `output_job.package` | no | no | yes |
 | Replaces the whole design | `new_design`, `sample_design`, `open` | no | yes | no |
 | Everything else (`execute`, `batch`, `undo`, `redo`, engine commands, `library.add_folder`, `library.remove_folder`) | edits that can be undone | no | no | no |
