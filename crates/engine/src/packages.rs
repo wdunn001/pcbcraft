@@ -1,5 +1,5 @@
-//! Export package commands: `package.list`, `package.save`, `package.duplicate`,
-//! `package.remove`, `package.export`.
+//! Export package commands: `package.list`, `package.save`, `package.remove`,
+//! `package.export`.
 //!
 //! Context: issue #224 (child of #214). A package is a `PackageDef` record; bundled ones
 //! ship in `crates/io/data/packages.json` and a project saves its own in `Project::packages`.
@@ -39,18 +39,6 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             input_schema: schema(json!({"package":{"type":"object"}}), &["package"]),
         },
         CommandSpec {
-            id: "package.duplicate",
-            description: "Copy a bundled or project export package into the project under a new id so it can be edited. The bundled original stays read-only; give a new id and optionally a new name",
-            input_schema: schema(
-                json!({
-                    "from":{"type":"string","minLength":1,"maxLength":32},
-                    "id":{"type":"string","minLength":1,"maxLength":32},
-                    "name":{"type":"string","minLength":1,"maxLength":64}
-                }),
-                &["from", "id"],
-            ),
-        },
-        CommandSpec {
             id: "package.remove",
             description: "Remove a package the project saved; bundled packages cannot be removed",
             input_schema: schema(
@@ -78,14 +66,6 @@ struct SaveParams {
 #[serde(deny_unknown_fields)]
 struct IdParams {
     id: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DuplicateParams {
-    from: String,
-    id: String,
-    #[serde(default)]
-    name: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -175,33 +155,6 @@ pub(super) fn run(
             validate_packages(&list).map_err(Error::Invalid)?;
             p.packages = list;
             Ok(json!({"id": def.id, "replaced": replaced}))
-        })(),
-        "package.duplicate" => (|| {
-            let a: DuplicateParams = parse(params)?;
-            let mut def = find_package(p, &a.from)
-                .ok_or_else(|| Error::Invalid(format!("no package has id {}", a.from)))?;
-            if bundled_packages().iter().any(|b| b.id == a.id) {
-                return Err(Error::Invalid(format!(
-                    "{} is a bundled package id; pick a new id for the copy",
-                    a.id
-                )));
-            }
-            if p.packages.iter().any(|d| d.id == a.id) {
-                return Err(Error::Invalid(format!(
-                    "the project already saved a package {}",
-                    a.id
-                )));
-            }
-            def.id = a.id.clone();
-            if let Some(name) = a.name {
-                def.name = name;
-            }
-            availability(&def).map_err(Error::Invalid)?;
-            let mut list = p.packages.clone();
-            list.push(def.clone());
-            validate_packages(&list).map_err(Error::Invalid)?;
-            p.packages = list;
-            Ok(json!({"from": a.from, "id": def.id, "name": def.name}))
         })(),
         "package.remove" => (|| {
             let a: IdParams = parse(params)?;

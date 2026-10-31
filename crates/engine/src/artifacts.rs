@@ -32,7 +32,7 @@ use std::path::Path;
 /// # Do not
 /// - List a command that mutates the project.
 pub fn command_is_read_only(id: &str) -> bool {
-matches!(id, "artifact.generate" | "artifact.stale" | "package.list" | "design.summary")
+    matches!(id, "artifact.generate" | "artifact.stale" | "package.list")
 }
 
 /// An artifact is stale when it was never generated or its live output hash
@@ -110,6 +110,19 @@ pub fn format_generate_payload(output: &GeneratedOutput) -> Value {
                         "name": name,
                         "encoding": "text",
                         "payload": body,
+                    })
+                })
+                .collect();
+            json!({ "files": files })
+        }
+        GeneratedOutput::BinaryFiles(map) => {
+            let files: Vec<Value> = map
+                .iter()
+                .map(|(name, body)| {
+                    json!({
+                        "name": name,
+                        "encoding": "base64",
+                        "payload": base64::engine::general_purpose::STANDARD.encode(body),
                     })
                 })
                 .collect();

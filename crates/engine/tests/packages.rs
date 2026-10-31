@@ -1,4 +1,4 @@
-//! Export package tests on the sample design (issues #214 and #224).
+//! Export package tests on the sample design (issue #224).
 //!
 //! Golden files live in `tests/golden/`; set `UPDATE_GOLDEN=1` to rewrite them after a
 //! deliberate change and review the diff.
@@ -191,66 +191,5 @@ fn a_project_package_is_saved_validated_and_exported() -> Result<(), String> {
     let back: pcbcraft_doc::Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     back.validate()?;
     assert_eq!(back.packages, s.project.packages);
-    Ok(())
-}
-
-#[test]
-fn a_bundled_package_can_be_duplicated_edited_and_exported() -> Result<(), String> {
-    let mut s = Session::sample().map_err(|e| e.to_string())?;
-    s.execute(
-        "package.duplicate",
-        json!({"from": "fab_prototype", "id": "my_fab", "name": "My fab"}),
-        None,
-    )
-    .map_err(|e| e.to_string())?;
-    assert!(
-        s.execute(
-            "package.duplicate",
-            json!({"from": "fab_prototype", "id": "fab_prototype"}),
-            None,
-        )
-        .is_err(),
-        "bundled id"
-    );
-    let list = s
-        .query("package.list", json!({}), None)
-        .map_err(|e| e.to_string())?;
-    let mine = list["result"]["packages"]
-        .as_array()
-        .ok_or("packages")?
-        .iter()
-        .find(|p| p["id"] == "my_fab")
-        .ok_or("my_fab")?;
-    assert_eq!(mine["source"], "project");
-    let dir = scratch("dup");
-    export(&mut s, "my_fab", &dir)?;
-    Ok(())
-}
-
-#[test]
-fn the_ipc2581_package_writes_one_xml_file() -> Result<(), String> {
-    let mut s = Session::sample().map_err(|e| e.to_string())?;
-    let dir = scratch("ipc");
-    let r = export(&mut s, "ipc2581", &dir)?;
-    let written: Vec<String> = r["written"]
-        .as_array()
-        .ok_or("written")?
-        .iter()
-        .filter_map(|v| v.as_str().map(String::from))
-        .collect();
-    assert_eq!(written, ["LED_indicator-A.xml"]);
-    let xml =
-        std::fs::read_to_string(dir.join("LED_indicator-A.xml")).map_err(|e| e.to_string())?;
-    assert!(
-        xml.contains("IPC-2581") || xml.contains("ipc2581"),
-        "looks like IPC-2581"
-    );
-    assert_eq!(r["files"].as_array().ok_or("files")?.len(), 1);
-    let dir2 = scratch("ipc2");
-    export(&mut s, "ipc2581", &dir2)?;
-    assert_eq!(
-        std::fs::read(dir.join("LED_indicator-A.xml")).map_err(|e| e.to_string())?,
-        std::fs::read(dir2.join("LED_indicator-A.xml")).map_err(|e| e.to_string())?
-    );
     Ok(())
 }

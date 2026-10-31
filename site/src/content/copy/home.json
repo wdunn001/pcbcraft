@@ -1,6 +1,12 @@
 {
   "_note": "Copy for the one-page landing. Every sentence states something the app does today (see src/data/features.yaml).",
   "hero": {
+    "eyebrow": { "text": "Open-source electronics design", "placeholder": true },
+    "title": { "text": "One native window for schematic, board layout, libraries and checks.", "placeholder": true },
+    "lede": { "text": "Every edit goes through a typed engine command. The desktop, the CLI and MCP call the same commands.", "placeholder": true },
+    "primary": { "text": "Download", "placeholder": false },
+    "secondary": { "text": "Try it in the browser", "placeholder": false },
+    "meta": { "text": "Code MIT OR Apache-2.0. Docs and screenshots CC BY-SA 4.0.", "placeholder": false },
     "eyebrow": { "text": "Open-source electronics design", "placeholder": false },
     "title": { "text": "Design circuit boards in one window.", "placeholder": false },
     "lede": { "text": "PCBCraft is an app for drawing a schematic, laying out the board, picking parts from libraries and writing the files a manufacturer needs.", "placeholder": false },

@@ -10,6 +10,7 @@
 //! changed only through engine commands (`rules.exclude`,
 //! `rules.exclude_region`).
 
+use super::finding_set::{Counts, FindingSet, Loudness, Row};
 use super::*;
 
 /// What a row of a finding's right-click menu does.
@@ -63,16 +64,6 @@ pub(crate) struct SheetState {
     pub(crate) filter: SeverityFilter,
 }
 
-/// One finding flattened for display.
-struct Row {
-    key: &'static str,
-    code: String,
-    message: String,
-    objects: Vec<Id>,
-    /// 0 error, 1 warning, 2 note.
-    rank: u8,
-}
-
 impl App {
     /// Height of the tab strip, and of the sheet when collapsed.
     const SHEET_STRIP: f32 = 36.0;
@@ -89,44 +80,6 @@ impl App {
         region.bottom_tab = tab.id().to_owned();
     }
 
-    fn sheet_rows(&self) -> Vec<Row> {
-        let mut rows = Vec::new();
-        for (key, name) in [("erc", "erc"), ("drc", "drc")] {
-            let Some(list) = self.checks.get(name).and_then(Value::as_array) else {
-                continue;
-            };
-            for f in list {
-                let code = f
-                    .get("code")
-                    .and_then(Value::as_str)
-                    .unwrap_or("finding")
-                    .to_owned();
-                let rank = match self.project.rule_severity(&code, "warning").as_str() {
-                    "error" => 0,
-                    "info" => 2,
-                    _ => 1,
-                };
-                rows.push(Row {
-                    key,
-                    code,
-                    message: f
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_owned(),
-                    objects: f
-                        .get("objects")
-                        .and_then(Value::as_array)
-                        .map(|v| v.iter().filter_map(Value::as_u64).collect())
-                        .unwrap_or_default(),
-                    rank,
-                });
-            }
-        }
-        rows.sort_by_key(|r| r.rank);
-        rows
-    }
-
     /// Draws the sheet at the bottom of the centre area.
     ///
     /// # Rules
@@ -135,8 +88,8 @@ impl App {
     /// # Do not
     /// Draw it across the asides; it sits under the canvas only.
     pub(crate) fn bottom_sheet(&mut self, ui: &mut egui::Ui) {
-        let rows = self.sheet_rows();
-        let count = rows.len();
+        let findings = self.findings();
+        let count = findings.counts();
         let open = self.region().bottom_open;
         let tab = SheetTab::from_id(&self.region().bottom_tab);
         let height = if open {
@@ -158,7 +111,7 @@ impl App {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .show(ui, |ui| match tab {
-                            SheetTab::Findings => self.sheet_findings(ui, rows),
+                            SheetTab::Findings => self.sheet_findings(ui, &findings),
                             SheetTab::Output => self.sheet_output(ui),
                             SheetTab::Console => self.sheet_console(ui),
                         });
@@ -166,7 +119,7 @@ impl App {
             });
     }
 
-    fn sheet_tab_strip(&mut self, ui: &mut egui::Ui, count: usize, open: bool, current: SheetTab) {
+    fn sheet_tab_strip(&mut self, ui: &mut egui::Ui, count: Counts, open: bool, current: SheetTab) {
         use crate::ui_kit::{
             button::{Size, icon_button, secondary_button},
             chip::BadgeKind,
@@ -182,8 +135,13 @@ impl App {
             .iter()
             .map(|(tab, label, tip)| {
                 let mut item = TabItem::new(label, tip);
-                if *tab == SheetTab::Findings && count > 0 {
-                    item.badge = Some((count.to_string(), BadgeKind::Warning));
+                if *tab == SheetTab::Findings && count.total() > 0 {
+                    let kind = if count.errors > 0 {
+                        BadgeKind::Error
+                    } else {
+                        BadgeKind::Warning
+                    };
+                    item.badge = Some((count.total().to_string(), kind));
                 }
                 item
             })
@@ -196,9 +154,22 @@ impl App {
             40.0
         };
         let bar_w = (ui.available_width() - right_w).max(120.0);
+        let ws = self.workspace().id();
+        let region_ids: Vec<String> = tabs
+            .iter()
+            .map(|t| tour::anchor::region_tab_id(ws, t.id))
+            .collect();
+        let region_refs: Vec<&str> = region_ids.iter().map(String::as_str).collect();
         let response = ui
             .allocate_ui(egui::vec2(bar_w, TabSize::Sheet.height()), |ui| {
-                tab_bar(ui, "bottom-sheet-tabs", &mut index, &items, TabSize::Sheet)
+                tab_bar(
+                    ui,
+                    "bottom-sheet-tabs",
+                    &mut index,
+                    &items,
+                    TabSize::Sheet,
+                    Some(&region_refs),
+                )
             })
             .inner;
         if response.changed()
@@ -277,8 +248,11 @@ impl App {
         }
     }
 
-    fn sheet_findings(&mut self, ui: &mut egui::Ui, rows: Vec<Row>) {
-        if rows.is_empty() {
+    fn sheet_findings(&mut self, ui: &mut egui::Ui, findings: &FindingSet) {
+        let filter = self.sheet.filter;
+        self.checks_view(ui);
+        let rows: Vec<Row> = findings.visible(filter).cloned().collect();
+        if findings.counts().total() == 0 {
             empty_state(ui, EMPTY_CHECKS, self.muted());
             ui.label(
                 egui::RichText::new(t!("checks.checks_view.no_problems"))
@@ -286,21 +260,10 @@ impl App {
                     .color(self.accent()),
             );
         }
-        let filter = self.sheet.filter;
-        self.checks_view(ui);
         for (i, row) in rows.into_iter().enumerate() {
-            let keep = match filter {
-                SeverityFilter::All => true,
-                SeverityFilter::Errors => row.rank == 0,
-                SeverityFilter::Warnings => row.rank == 1,
-                SeverityFilter::Notes => row.rank == 2,
-            };
-            if keep {
-                ui.push_id(i, |ui| self.sheet_row(ui, row));
-            }
+            ui.push_id(i, |ui| self.sheet_row(ui, row));
         }
         ui.add_space(8.0);
-        self.library_checks_section(ui);
     }
 
     fn sheet_row(&mut self, ui: &mut egui::Ui, row: Row) {
@@ -331,13 +294,13 @@ impl App {
         );
         let ui = &mut inner;
         {
-            let (colour, word) = match row.rank {
-                0 => (self.accent(), t!("sheet.severity_error")),
-                1 => (
+            let (colour, word) = match row.loudness {
+                Loudness::Error => (Color32::from_rgb(225, 90, 80), t!("sheet.severity_error")),
+                Loudness::Warning => (
                     Color32::from_rgb(230, 170, 60),
                     t!("sheet.severity_warning"),
                 ),
-                _ => (self.muted(), t!("sheet.severity_note")),
+                Loudness::Note => (self.muted(), t!("sheet.severity_note")),
             };
             let (dot, response) =
                 ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
@@ -354,7 +317,13 @@ impl App {
                     ))
                     .frame(false),
                 )
-                .on_hover_text(t!("sheet.show.tip"))
+                .on_hover_text(if row.hint.is_empty() {
+                    t!("sheet.show.tip")
+                } else {
+                    // Library findings carry their fix in the tooltip, which
+                    // keeps the row on one line beside its buttons.
+                    t!("library.library_checks_section.fix_hint", hint = row.hint)
+                })
                 .clicked()
             {
                 self.show_finding(&row);
@@ -454,6 +423,22 @@ impl App {
     /// Selects the first object a finding names, on the sheet or board that
     /// the finding belongs to.
     fn show_finding(&mut self, row: &Row) {
+        if let Some(name) = &row.footprint {
+            if let Some(def) = self
+                .project
+                .library
+                .footprints
+                .iter()
+                .find(|d| d.name == *name)
+                .cloned()
+            {
+                self.library.editor.draft = Some(authoring::Draft::Footprint(def));
+                self.library.editor.mode = 2;
+                self.library.editor.notice = None;
+                self.change_tab(Tab::Libraries);
+            }
+            return;
+        }
         if let Some(id) = row.objects.first().copied() {
             self.change_tab(if row.key == "erc" {
                 Tab::Schematic
@@ -493,12 +478,12 @@ impl App {
     }
 
     fn sheet_output(&mut self, ui: &mut egui::Ui) {
-        let (fix, warnings, notes) = Self::finding_counts(&self.checks);
+        let counts = self.findings().counts();
         ui.label(t!(
             "sheet.output_summary",
-            errors = fix,
-            warnings = warnings,
-            notes = notes
+            errors = counts.errors,
+            warnings = counts.warnings,
+            notes = counts.notes
         ));
         if !self.message.is_empty() {
             ui.label(egui::RichText::new(&self.message).color(self.muted()));
