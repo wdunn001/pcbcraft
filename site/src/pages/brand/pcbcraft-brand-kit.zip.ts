@@ -48,7 +48,7 @@ export async function GET() {
       'Type: IBM Plex Sans Condensed (headings), IBM Plex Sans (body) and JetBrains Mono (code).',
       'All three are licensed under the SIL Open Font License 1.1 and are not in this zip.',
       '',
-      'Terms: the PCBCraft name and logo are reserved. The code is GPL-3.0. Docs and screenshots',
+      'Terms: the PCBCraft name and logo are reserved. The code is MIT OR Apache-2.0. Docs and screenshots',
       'are CC BY-SA 4.0. The full acceptable-use wording is on the License page of the site.',
       '',
     ].join('\n'),

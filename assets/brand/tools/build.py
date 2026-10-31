@@ -23,7 +23,7 @@ import json
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRAND = os.path.dirname(HERE)
 GEN = os.path.join(BRAND, "generated")
-APP_ID = "io.github.tangency-labs.pcbcraft"
+APP_ID = "io.github.tangency_labs.pcbcraft"
 
 # Palette. Dark-page values and light-page values per #686 section 2.
 TILE = "#0b1a16"

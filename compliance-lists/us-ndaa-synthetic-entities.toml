@@ -1,0 +1,30 @@
+schema = 1
+id = "us-ndaa-synthetic-entities"
+title = "Synthetic US government entity list (fixture only, not an official register)"
+source_url = "https://example.com/compliance/us-ndaa-synthetic-entities"
+published = "2026-01-01"
+retrieved = "2026-06-01"
+licence = "CC0-1.0"
+cadence_days = 90
+
+[[entities]]
+name = "Synthetic Telecom Vendor Orion"
+aliases = ["Orion Telecom Demo"]
+entry_type = "telecommunications"
+added = "2026-01-10"
+citation = "Fixture row for Section 889 style entity-list tests."
+
+[[entities]]
+name = "Synthetic Surveillance Vendor Vega"
+entry_type = "video_surveillance"
+added = "2026-02-01"
+
+[[entities]]
+name = "Synthetic Semiconductor Vendor Delta"
+entry_type = "covered_semiconductor"
+added = "2026-03-01"
+citation = "Fixture row for NDAA Section 5949 style tests."
+
+[[entities]]
+name = "Synthetic Near Match Echo"
+aliases = ["SynEcho Demo Co"]
