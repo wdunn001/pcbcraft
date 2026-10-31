@@ -13381,6 +13381,32 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn companion_rules_survive_save_and_load() -> Result<(), String> {
+        let mut project = Project::default();
+        project.companion_rules.push(pcbcraft_doc::CompanionRule {
+            id: "usb-series".into(),
+            name: "USB series resistor".into(),
+            net_patterns: vec!["USB_*".into()],
+            required_kind: "resistor".into(),
+            value_min: Some("22".into()),
+            value_max: Some("33".into()),
+            before_kind: None,
+            anchor_kind: None,
+            sink_kind: None,
+            count: None,
+            exactly: None,
+            role: None,
+            finding_code: Some("missing_series_resistor".into()),
+        });
+        project.validate()?;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("companion.pcbcraft");
+        save(&project, &path)?;
+        let loaded = load(&path)?;
+        assert_eq!(loaded.companion_rules, project.companion_rules);
+        Ok(())
+    }
+    #[test]
     fn chamfered_and_custom_pads_survive_project_save_and_load() -> Result<(), String> {
         let project = shaped_pad_project()?;
         let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
