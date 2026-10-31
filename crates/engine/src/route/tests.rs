@@ -557,6 +557,18 @@ fn drag_unknown_track_and_equal_ends_are_refused() -> Result<(), Error> {
     Ok(())
 }
 
+fn drag_unknown_track_and_equal_ends_are_refused() -> Result<(), Error> {
+    let (mut f, id) = drag_fixture()?;
+    let (revision, before) = (f.s.revision, f.s.project.board.tracks.clone());
+    assert!(f.drag(9999, "end", (30.0, 5.0), "octilinear").is_err());
+    assert!(f.drag(id, "end", (5.0, 15.0), "octilinear").is_err());
+    assert!(f.drag(id, "end", (99.0, 5.0), "octilinear").is_err());
+    assert!(f.drag(id, "end", (30.0, 5.0), "orthogonal").is_err());
+    assert_eq!(f.s.revision, revision);
+    assert_eq!(f.s.project.board.tracks, before);
+    Ok(())
+}
+
 fn open_space(lo: (f64, f64), hi: (f64, f64), hulls: Vec<Hull>) -> Space {
     Space {
         hulls,
@@ -677,4 +689,29 @@ fn find_path_picks_a_legal_route_or_reports_a_specific_failure() {
         .expect("detour above the pad row");
     assert!(path_ok(&detour, &choke));
     assert!(length(&detour) > 5.0 + 0.2);
+}
+
+#[test]
+fn route_search_box_includes_outline_arc_bulges() -> Result<(), Error> {
+    let mut s = Session::default();
+    s.execute(
+        "board.set_outline",
+        json!({"points":[[0.0,0.0],[40.0,0.0],[40.0,30.0],[0.0,30.0]]}),
+        None,
+    )?;
+    s.execute(
+        "board.outline_set_arc",
+        json!({"segment":1,"radius":20.0,"side":"convex"}),
+        None,
+    )?;
+    let (min, max) = super::bounds(&s.project);
+    assert!((min.x - 0.0).abs() < 1e-9 && (min.y - 0.0).abs() < 1e-9);
+    assert!(
+        max.x > 40.0 + 1e-6,
+        "the outward arc widens the routing box: {}",
+        max.x
+    );
+    assert!((max.y - 30.0).abs() < 1e-6);
+    Ok(())
+}
 }
