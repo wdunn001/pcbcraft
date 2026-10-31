@@ -243,14 +243,8 @@ impl App {
                             "prop-side",
                             &mut side,
                             &[
-                                Segment {
-                                    label: &top_label,
-                                    tip: &top_tip,
-                                },
-                                Segment {
-                                    label: &bottom_label,
-                                    tip: &bottom_tip,
-                                },
+                                Segment::text(&top_label, &top_tip),
+                                Segment::text(&bottom_label, &bottom_tip),
                             ],
                         );
                     });
