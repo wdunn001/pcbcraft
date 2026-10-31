@@ -1,0 +1,16 @@
+---
+description: PCBCraft is a public repository: hygiene, licences, attribution, names
+alwaysApply: true
+---
+
+# Public repository
+
+`wdunn001/pcbcraft` is public. Everything in code, docs, commits, issues, pull requests and file names is public.
+
+- **No internal architecture.** No host names, IP addresses, local or build-host paths, user names, internal service or domain names, or credentials. Say "the build host". Deploy targets live in gitignored env files with a committed `.example` using placeholders.
+- **Never name other EDA products** in code, docs, UI strings, commits, issues or pull requests. Describe formats and behaviours instead ("the board interchange format").
+- **No AI attribution** in commits, trailers or pull request bodies. Commit as yourself.
+- **Licences.** The project is GPL-3.0-or-later. Adapted GPL-compatible code is recorded in `ATTRIBUTION.md` with source, revision and licence. Translating code does not remove attribution or copyleft. Never commit third-party designs, datasheets, models, screenshots or reference images unless their licence allows it and `ATTRIBUTION.md` says so.
+- **Craft trademarks.** No proprietary trademarks or assets of the shared companion libraries; pin their revisions.
+- **Text.** Plain, short sentences. No em-dashes or fancy dashes.
+- **Honesty.** Do not oversell what the app checks or routes.

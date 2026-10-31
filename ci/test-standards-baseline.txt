@@ -1,0 +1,26 @@
+# Existing breaches of docs/testing-standard.md. A count may fall, never rise.
+# rule | file | count
+environment | apps/pcbcraft/src/online_http.rs | 4
+environment | crates/assistant/src/api_tests.rs | 7
+environment | crates/assistant/tests/openai_wire.rs | 8
+environment | crates/assistant/tests/support/mod.rs | 1
+environment | crates/engine/src/library.rs | 1
+environment | crates/library/tests/cad_cache.rs | 3
+environment | crates/mcp/src/http_tests.rs | 1
+environment | crates/ui-egui/src/e2e/assistant.rs | 3
+environment | crates/ui-egui/src/e2e/board3d.rs | 1
+environment | crates/ui-egui/src/e2e/layers.rs | 1
+environment | crates/ui-egui/src/e2e/library.rs | 2
+environment | crates/ui-egui/src/e2e/modifiers.rs | 1
+environment | crates/ui-egui/src/e2e/support.rs | 1
+environment | crates/ui-egui/src/hover_affordance.rs | 1
+environment | crates/ui-egui/src/layers_tree.rs | 2
+ignore | apps/pcbcraft/src/online_http.rs | 1
+ignore | crates/io/src/lib.rs | 1
+ignore | crates/library/tests/readers.rs | 1
+no-assert | crates/calc/tests/golden.rs | 1
+no-assert | crates/io/src/lib.rs | 2
+no-assert | crates/library/tests/footprint_generate.rs | 2
+no-assert | crates/text/src/lib.rs | 8
+no-assert | crates/ui-egui/src/e2e/audit.rs | 1
+no-assert | crates/ui-egui/src/target_size.rs | 1

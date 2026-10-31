@@ -1,0 +1,71 @@
+schema = 1
+id = "eu_market"
+title = "EU market"
+description = "RoHS 3, REACH SVHC, halogen-free, WEEE and battery marking reminders."
+
+[[rules]]
+id = "rohs_part_declaration"
+kind = "declaration_required"
+regime = "rohs"
+severity_hit = "warning"
+severity_unverified = "warning"
+message_unverified = "No RoHS declaration is recorded for this part."
+citation = "Directive 2011/65/EU (RoHS 3), as amended by 2015/863."
+
+[[rules]]
+id = "rohs_exemption_fresh"
+kind = "declaration_fresh"
+regime = "rohs"
+status = "declared_exempt"
+list = "rohs_exemptions"
+severity_hit = "warning"
+severity_stale = "warning"
+message_stale = "The RoHS exemption cited on this part is expired or removed."
+citation = "Directive 2011/65/EU Annex III exemption list."
+
+[[rules]]
+id = "reach_svhc_declaration"
+kind = "declaration_required"
+regime = "reach"
+severity_hit = "warning"
+severity_unverified = "warning"
+message_unverified = "No REACH SVHC declaration is recorded for this part."
+citation = "Regulation (EC) No 1907/2006 (REACH), Article 33."
+
+[[rules]]
+id = "reach_svhc_list_fresh"
+kind = "declaration_fresh"
+regime = "reach"
+list = "reach_svhc_candidate"
+field = "detail"
+severity_hit = "warning"
+severity_stale = "warning"
+message_stale = "The REACH candidate list version on this declaration is older than the bundled snapshot."
+citation = "ECHA SVHC candidate list."
+
+[[rules]]
+id = "halogen_free_claim"
+kind = "declaration_required"
+regime = "halogen_free"
+severity_hit = "warning"
+severity_unverified = "warning"
+message_unverified = "No halogen-free claim is recorded for this part."
+message_reference = "Halogen-free limits: 900 ppm chlorine, 900 ppm bromine, 1500 ppm combined (IEC 61249-2-21)."
+citation = "IEC 61249-2-21 halogen-free material limits."
+
+[[rules]]
+id = "board_lead_free_finish"
+kind = "board_finish"
+finish_leaded = ["HASL leaded", "HASL (leaded)", "leaded HASL"]
+regime = "rohs"
+severity_hit = "warning"
+message_hit = "The board finish or solder choice is leaded and no board-level RoHS exemption is selected."
+citation = "Directive 2011/65/EU (RoHS 3); finish and solder from the fab profile."
+
+[[rules]]
+id = "battery_marking"
+kind = "classification_report"
+role = "battery"
+severity_hit = "warning"
+message_hit = "Battery parts need marking and data-sheet checklist items for the EU battery regulation and WEEE."
+citation = "Regulation (EU) 2023/1542; Directive 2012/19/EU (WEEE)."
