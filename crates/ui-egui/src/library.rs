@@ -520,6 +520,7 @@ impl App {
         let camera = Camera {
             mirror: false,
             turns: 0,
+            up: false,
             center,
             zoom: ((response.rect.width() - 24.0) / extent.x as f32)
                 .min(150.0 / extent.y as f32)

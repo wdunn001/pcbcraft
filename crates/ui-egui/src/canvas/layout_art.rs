@@ -297,8 +297,10 @@ impl App {
         }
         let art = self.art();
         let (lo, hi) = board_bounds(p);
-        let a = camera.screen(lo, rect);
-        let b = camera.screen(hi, rect);
+        // Two opposite corners on screen, whichever way the camera runs y.
+        let (p, q) = (camera.screen(lo, rect), camera.screen(hi, rect));
+        let a = Pos2::new(p.x.min(q.x), p.y.min(q.y));
+        let b = Pos2::new(p.x.max(q.x), p.y.max(q.y));
         let stroke = Stroke::new(1.0, art.muted);
         let font = crate::fonts::Role::Mono.font();
         // Width: below the board.
