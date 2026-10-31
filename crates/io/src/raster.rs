@@ -570,6 +570,7 @@ mod tests {
             preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 9002,
             reference: "R99".into(),

@@ -327,20 +327,10 @@ fn push_board_text(
 }
 
 pub(crate) fn profile_edge(p: &Project) -> Vec<Point> {
-    match &p.board.outline {
-        Some(o) => o.iter().map(|pt| fabrication_point(p, *pt)).collect(),
-        None => {
-            let w = p.board.width;
-            let h = p.board.height;
-            vec![
-                fabrication_point(p, Point::new(0.0, 0.0)),
-                fabrication_point(p, Point::new(w, 0.0)),
-                fabrication_point(p, Point::new(w, h)),
-                fabrication_point(p, Point::new(0.0, h)),
-                fabrication_point(p, Point::new(0.0, 0.0)),
-            ]
-        }
-    }
+    crate::board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR)
+        .into_iter()
+        .map(|pt| fabrication_point(p, pt))
+        .collect()
 }
 
 fn push_drill_hole(shapes: &mut Vec<Shape>, pos: Point, diameter: f64, mark: f64, p: &Project) {
@@ -775,6 +765,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         let pad = pcbcraft_doc::Pad {
             number: "1".into(),
@@ -822,6 +813,7 @@ mod tests {
             preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),

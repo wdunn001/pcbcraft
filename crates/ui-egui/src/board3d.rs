@@ -118,11 +118,50 @@ impl Default for View3d {
     }
 }
 
-struct Basis {
+pub(crate) struct Basis {
     eye: V,
     fwd: V,
     right: V,
     up: V,
+}
+
+/// Fixed camera for benchmarks and tests outside the tab.
+pub struct BenchBasis(Basis);
+
+impl BenchBasis {
+    pub fn isometric(target: V, dist: f64) -> Self {
+        let view = View3d {
+            yaw: FIT_YAW,
+            pitch: FIT_PITCH,
+            dist,
+            target,
+            ..View3d::default()
+        };
+        Self(view.basis())
+    }
+    pub(crate) fn inner(&self) -> &Basis {
+        &self.0
+    }
+}
+
+/// Headless render entry for performance tests.
+pub fn bench_render(
+    mesh: &BoardMesh,
+    basis: &BenchBasis,
+    w: usize,
+    h: usize,
+) -> egui::ColorImage {
+    raster::render(
+        mesh,
+        basis.inner(),
+        w,
+        h,
+        &raster::Look {
+            gold: false,
+            selected: None,
+            ss: 2,
+        },
+    )
 }
 
 impl View3d {
@@ -191,6 +230,26 @@ impl View3d {
         let mut best: Option<(Id, f64)> = None;
         for part in &mesh.parts {
             let Some(id) = part.component else { continue };
+            if let (Some(proto), Some(m)) = (&part.prototype, &part.instance) {
+                for tri in proto.indices.as_chunks::<3>().0.iter() {
+                    let (Some(a), Some(b), Some(c)) = (
+                        proto.positions.get(tri[0] as usize),
+                        proto.positions.get(tri[1] as usize),
+                        proto.positions.get(tri[2] as usize),
+                    ) else {
+                        continue;
+                    };
+                    let a = pcbcraft_io::apply_matrix(m, *a);
+                    let b = pcbcraft_io::apply_matrix(m, *b);
+                    let c = pcbcraft_io::apply_matrix(m, *c);
+                    if let Some(t) = ray_triangle(o, d, a, b, c)
+                        && best.is_none_or(|(_, bt)| t < bt)
+                    {
+                        best = Some((id, t));
+                    }
+                }
+                continue;
+            }
             for tri in part.indices.as_chunks::<3>().0.iter() {
                 let (Some(a), Some(b), Some(c)) = (
                     part.positions.get(tri[0] as usize),
@@ -230,7 +289,12 @@ impl View3d {
         mesh.parts
             .iter()
             .find(|p| p.kind == PartKind::Body && p.component == Some(id))
-            .map(|p| p.triangle_count())
+            .map(|p| {
+                p.prototype
+                    .as_ref()
+                    .map(|proto| proto.indices.len() / 3)
+                    .unwrap_or_else(|| p.triangle_count())
+            })
     }
     #[cfg(test)]
     pub(crate) fn body_bounds(&self, id: Id) -> Option<(V, V)> {

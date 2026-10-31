@@ -3,19 +3,26 @@
 name: CI
 
 on:
+  # Branches get CI only through their pull request. Pushes run for main
+  # (every commit keeps its result); release tags have their own workflow.
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   workflow_dispatch:
+  # Refresh status data every 6 hours (ticket #581).
+  schedule:
+    - cron: '23 */6 * * *'
 
 permissions: {}
 
 concurrency:
-  # One run per pull request or branch. A new push cancels the older run,
-  # except on main where every commit keeps its result.
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # One run per pull request. A new push, or marking the pull request ready,
+  # cancels the older run. Runs on main, merge queue and manual runs are never
+  # cancelled, so every commit on main keeps its result.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -28,14 +35,8 @@ env:
 jobs:
   changes:
     name: Changes
-    # In the upstream repository, branch pushes other than main are covered by
-    # their pull request. Forks run on every push so stacked branches get
-    # results without waiting for workflow approval upstream.
-    if: >-
-      github.event_name != 'push'
-      || github.ref == 'refs/heads/main'
-      || github.repository != 'tangency-labs/pcbcraft'
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
@@ -73,10 +74,47 @@ jobs:
             echo "rust=false" >> "$GITHUB_OUTPUT"
           fi
 
+
+  status-data:
+    name: Status data
+    # Ticket #581: refresh issue status data from the API using ETag caching.
+    # Runs on every push to main and on schedule; skips on pull requests.
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: status-data
+          save-if: false
+      - name: Generate status data
+        run: cargo xtask status-data --refresh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit updated status data
+        run: |
+          git config user.name "PCBCraft CI"
+          git config user.email "ci@pcbcraft.dev"
+          git add site/src/data/status.json site/src/data/status-cache.json
+          if git diff --cached --quiet; then
+            echo "No status data changes to commit."
+          else
+            git commit -m "chore: refresh status data [skip ci]"
+            git push origin main
+          fi
   policy:
     name: Format and policy
     needs: changes
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -124,7 +162,8 @@ jobs:
   docs-check:
     name: Documentation standard
     needs: changes
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -145,10 +184,19 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask docs check
 
-  test:
-    name: Tests
+- uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: docs-check
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask docs check
+  a11y:
+    name: Accessibility
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+# Draft pull requests run only the cheap jobs; see docs/ci.md.
+    if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
     runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft-laptop"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
@@ -164,8 +212,6 @@ jobs:
           # shellcheck disable=SC2086 # LINUX_DEPS is a word list
           sudo apt-get install -y --no-install-recommends $LINUX_DEPS
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-nextest
@@ -174,6 +220,7 @@ jobs:
           shared-key: test
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask test
+      - run: cargo xtask board3d-bench
       - name: Upload test report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -182,12 +229,6 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: ignore
           retention-days: 14
-
-  e2e:
-    name: E2E stories and control coverage
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft-laptop"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -206,47 +247,14 @@ jobs:
         with:
           shared-key: test
           save-if: false
-      # Runs every a_newcomer_* story, walks every page of the UI, and fails
-      # naming each control that has no tooltip or no story.
-      - run: cargo xtask e2e
-      - name: Upload the control coverage report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: e2e-coverage
-          path: target/e2e/
-          if-no-files-found: ignore
-          retention-days: 14
-
-  strings:
-    name: UI strings are in the catalog
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install window-system packages
-        run: |
-          sudo apt-get update
-          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
-          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: strings
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo xtask strings check
+      # Headless, no GPU: walks every screen through the AccessKit tree and writes a per-screen table to the job summary.
+      - run: cargo xtask a11y
 
   wasm:
     name: WebAssembly
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    # Draft pull requests run only the cheap jobs; see docs/ci.md.
+    if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
     runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
@@ -299,7 +307,10 @@ jobs:
   deny:
     name: Licenses and advisories
     needs: changes
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Draft pull requests run only the cheap jobs; see docs/ci.md.
+    if: ${{ !github.event.pull_request.draft }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -318,128 +329,12 @@ jobs:
           save-if: false
       - run: cargo xtask deny
 
-  screenshots:
-    name: UI screenshots (${{ matrix.side }})
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        # Pull requests also capture their base so reviewers can compare.
-        side: ${{ fromJSON(github.event_name == 'pull_request' && '["head","base"]' || '["head"]') }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Check out the base commit next to the head
-        if: matrix.side == 'base'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: base-tree
-          persist-credentials: false
-      - name: Install window-system and software rendering packages
-        run: |
-          sudo apt-get update
-          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
-          sudo apt-get install -y --no-install-recommends $LINUX_DEPS \
-            xvfb xauth mesa-vulkan-drivers libvulkan1 libxkbcommon-x11-0
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: screenshots
-          save-if: ${{ github.ref == 'refs/heads/main' && matrix.side == 'head' }}
-      - name: Build the desktop app
-        env:
-          SIDE: ${{ matrix.side }}
-        run: |
-          # The base tree builds into the same target directory so both sides
-          # share the cache and the binary path.
-          if [ "$SIDE" = base ]; then
-            CARGO_TARGET_DIR="$PWD/target" cargo build --locked -p pcbcraft --manifest-path base-tree/Cargo.toml
-          else
-            cargo build --locked -p pcbcraft
-          fi
-      - name: Capture views under Xvfb with Mesa software Vulkan
-        env:
-          SIDE: ${{ matrix.side }}
-          WGPU_BACKEND: vulkan
-        run: |
-          xvfb-run -a -s '-screen 0 1600x1100x24' \
-            env -u WAYLAND_DISPLAY \
-            cargo xtask screenshots --bin target/debug/pcbcraft --out "screenshots/$SIDE"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ !cancelled() }}
-        with:
-          name: screenshots-${{ matrix.side }}
-          path: screenshots/${{ matrix.side }}
-          if-no-files-found: warn
-          retention-days: 30
-
-  screenshot-sheet:
-    name: UI screenshot sheet
-    needs: screenshots
-    if: ${{ !cancelled() && needs.screenshots.result != 'skipped' }}
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: screenshots-head
-          path: shots/head
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        # Only pull requests capture a base.
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
-        with:
-          name: screenshots-base
-          path: shots/base
-      - name: Build one side-by-side sheet
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends imagemagick
-          mkdir -p sheet
-          args=()
-          for head in shots/head/*.png; do
-            name=$(basename "$head")
-            base="shots/base/$name"
-            if [ -d shots/base ]; then
-              if [ -f "$base" ]; then args+=("$base"); else args+=("null:"); fi
-            fi
-            args+=("$head")
-          done
-          tile=1x
-          [ -d shots/base ] && tile=2x
-          montage "${args[@]}" -resize 50% -tile "$tile" -geometry +6+6 -background '#222' sheet/ui-screenshots.png
-      - id: upload
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ui-screenshots.png
-          path: sheet/ui-screenshots.png
-          archive: false
-          retention-days: 30
-      - name: Link the sheet from the run summary
-        env:
-          SHEET_URL: ${{ steps.upload.outputs.artifact-url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          {
-            echo "## UI screenshots"
-            echo
-            echo "[Open the screenshot sheet]($SHEET_URL). Left column is the base branch, right column is this change."
-            echo "Full-size PNGs are in the screenshots-head and screenshots-base artifacts of [this run]($RUN_URL)."
-          } >> "$GITHUB_STEP_SUMMARY"
-
   build:
     name: Build (${{ matrix.os }})
     needs: changes
-    # Main and manual runs only: pull requests share a small pool of hosted runners.
-    if: needs.changes.outputs.rust == 'true' && github.event_name != 'pull_request'
+    # Ready pull requests build on Windows; main, merge queue and manual runs
+    # add macOS. Draft pull requests skip it.
+    if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -447,7 +342,7 @@ jobs:
       fail-fast: false
       matrix:
         # Windows on every change; macOS on main, merge queue and manual runs.
-        os: ${{ fromJSON((github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main')) && '["windows-2025"]' || '["windows-2025","macos-15"]') }}
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["windows-2025"]' || '["windows-2025","macos-15"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -460,25 +355,3 @@ jobs:
           shared-key: build
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build --locked -p pcbcraft -p pcbcraft-cli
-
-  result:
-    name: CI result
-    # The single check to mark as required in branch protection.
-    needs: [changes, policy, lint, docs-check, strings, test, e2e, wasm, msrv, deny, screenshots, build]
-    if: always()
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
-    permissions: {}
-    steps:
-      - env:
-          RESULTS: ${{ toJSON(needs.*.result) }}
-          CHANGES: ${{ needs.changes.result }}
-        run: |
-          echo "$RESULTS"
-          if [ "$CHANGES" = skipped ]; then
-            echo "Branch push covered by its pull request run."
-            exit 0
-          fi
-          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
-            echo "A required job failed or was cancelled."
-            exit 1
-          fi

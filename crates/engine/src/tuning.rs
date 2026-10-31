@@ -1,4 +1,13 @@
 //! Impedance estimates, length-match groups and the meander length tuner.
+//!
+//! # Rules
+//! - `run` answers only the six ids it lists; any other id returns `None` so the next module can try.
+//! - Lengths count copper tracks only; via barrels and pad interiors are not included.
+//!
+//! # Dependencies
+//! - crates/engine/src/lib.rs
+//! - crates/geom/src/impedance.rs
+//! - crates/geom/src/meander.rs
 use super::*;
 use pcbcraft_geom::impedance as imp;
 use pcbcraft_geom::meander::{self, Corner, Run, Seg};
@@ -9,6 +18,10 @@ const DEFAULT_COPPER_MM: f64 = 0.035;
 const VIA_NOTE: &str =
     "Lengths count copper tracks only; via barrels and pad interiors are not included.";
 
+/// Registers the six tuning command specs merged into the engine catalog.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs
 pub(super) fn commands() -> Vec<CommandSpec> {
     vec![
         CommandSpec {
@@ -56,13 +69,14 @@ pub(super) fn commands() -> Vec<CommandSpec> {
     ]
 }
 
+/// Rounds a value to two decimal places for impedance and delay fields in JSON.
 fn r2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
+/// Rounds a value to three decimal places for length and width fields in JSON.
 fn r3(v: f64) -> f64 {
     (v * 1000.0).round() / 1000.0
 }
-/// Copper thickness for a layer and where it came from.
 /// Height and relative permittivity for a track on `layer`: the dielectric
 /// row beside that copper row when one carries a permittivity, else the
 /// board-wide thickness and `Board.er`.
@@ -70,6 +84,10 @@ fn dielectric_for(p: &Project, layer: Layer) -> (f64, f64) {
     p.dielectric_beside(&p.layer_name(layer))
         .unwrap_or((p.board.thickness, p.board.er))
 }
+/// Copper thickness for a layer and a short source string for report rows.
+///
+/// # Rules
+/// - Uses the positive copper layer record when present, otherwise `DEFAULT_COPPER_MM`.
 fn copper_thickness(p: &Project, layer: Layer) -> (f64, String) {
     let name = p.layer_name(layer);
     match p
@@ -85,6 +103,10 @@ fn copper_thickness(p: &Project, layer: Layer) -> (f64, String) {
         ),
     }
 }
+/// Sum of routed copper track lengths on one net.
+///
+/// # Rules
+/// - Via barrels and pad interiors are excluded; see the module header.
 fn net_length(p: &Project, net: Id) -> f64 {
     p.board
         .tracks
@@ -93,6 +115,10 @@ fn net_length(p: &Project, net: Id) -> f64 {
         .map(Track::length)
         .sum()
 }
+/// Widest track width on a net and the layer that track uses.
+///
+/// # Rules
+/// - When several tracks share the maximum width, board track order decides which layer is returned.
 fn widest(p: &Project, net: Id) -> Option<(f64, Layer)> {
     p.board
         .tracks
@@ -103,19 +129,32 @@ fn widest(p: &Project, net: Id) -> Option<(f64, Layer)> {
             _ => Some((t.width, t.layer)),
         })
 }
+/// Turns a plain-language refusal into `Error::Invalid` for command handlers.
 fn refuse(text: &str) -> Error {
     Error::Invalid(text.into())
 }
+/// Microstrip impedance for one width and stackup slice, or a refusal when the model rejects it.
+///
+/// # Dependencies
+/// - crates/geom/src/impedance.rs
 fn single(width: f64, height: f64, thickness: f64, er: f64) -> Result<imp::Microstrip, Error> {
     imp::microstrip(width, height, thickness, er).ok_or_else(|| {
         refuse("the stackup or track width is outside what the impedance model accepts")
     })
 }
+/// Bisects track width between 0.01 and 100 mm to hit a target single-ended impedance.
+///
+/// # Dependencies
+/// - crates/geom/src/impedance.rs
 fn width_for(target: f64, height: f64, thickness: f64, er: f64) -> Option<f64> {
     imp::width_for_ohms(target, |w| {
         imp::microstrip(w, height, thickness, er).map(|m| m.ohms)
     })
 }
+/// Optional validity text when coupled-model width/height or gap/height sit outside the documented range.
+///
+/// # Rules
+/// - Width over height must be 0.1 to 10 and gap over height must be at least 0.01.
 fn coupled_validity(width: f64, gap: f64, height: f64) -> Option<String> {
     let (u, g) = (width / height, gap / height);
     if !(0.1..=10.0).contains(&u) || g < 0.01 {
@@ -127,6 +166,11 @@ fn coupled_validity(width: f64, gap: f64, height: f64) -> Option<String> {
     }
 }
 
+/// Parameters for `net.impedance`.
+///
+/// # Rules
+/// - Optional `net` limits the report to one id; omitted means every net that has routed copper.
+/// - `target` is 1 to 1000 ohms; `target_diff` is 1 to 2000 ohms when set.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ImpedanceParams {
@@ -137,6 +181,11 @@ struct ImpedanceParams {
     #[serde(default)]
     target_diff: Option<f64>,
 }
+/// Parameters for `impedance.calc`.
+///
+/// # Rules
+/// - `geometry` must be `microstrip`, `coupled`, or `stripline`; coupled geometry requires `gap`.
+/// - `width`, optional `gap`, and resolved height are positive and at most 100 mm; `thickness` is 0 to 1 mm.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CalcParams {
@@ -153,6 +202,11 @@ struct CalcParams {
     #[serde(default)]
     target: Option<f64>,
 }
+/// Parameters for `board.set_length_group`.
+///
+/// # Rules
+/// - `name` is 1 to 64 bytes after trim; `nets` holds two to 32 distinct ids.
+/// - `tolerance` is 0 to 100 mm; optional `id` updates that group instead of matching by name.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GroupParams {
@@ -162,12 +216,22 @@ struct GroupParams {
     #[serde(default)]
     id: Option<Id>,
 }
+/// Parameters for `net.length_groups`.
+///
+/// # Rules
+/// - Optional `id` limits the report to one group; omitted lists every length group on the board.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GroupQuery {
     #[serde(default)]
     id: Option<Id>,
 }
+/// Parameters for `track.tune_length`.
+///
+/// # Rules
+/// - `target` is 0.1 to 10,000 mm; `tolerance` is 0.01 to 10 mm and defaults to 0.1.
+/// - `amplitude_max` is 0.1 to 10 mm and `spacing` is above 0 and at most 50 mm.
+/// - `style` is `trombone` (mitre corners) or `rounded`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TuneParams {
@@ -183,6 +247,11 @@ struct TuneParams {
     style: Option<String>,
 }
 
+/// Dispatches the six tuning command ids to their handlers.
+///
+/// # Rules
+/// - Returns `None` for any other id so later engine modules may handle it.
+/// - Mutating handlers take `next` to allocate fresh track and group ids.
 pub(super) fn run(
     p: &mut Project,
     next: &mut Id,
@@ -200,6 +269,14 @@ pub(super) fn run(
     })
 }
 
+/// Handles `net.impedance`: per-net microstrip estimates and optional target widths.
+///
+/// # Rules
+/// - Skips nets with no routed tracks; uses the widest track and dielectric beside its layer.
+/// - Nets in a differential pair also report coupled differential metrics at the recorded gap.
+///
+/// # Dependencies
+/// - crates/geom/src/impedance.rs
 fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
     let a: ImpedanceParams = parse(params)?;
     if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
@@ -291,6 +368,13 @@ fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
     }))
 }
 
+/// Handles `impedance.calc`: pure geometry calculator that does not mutate the project.
+///
+/// # Rules
+/// - Height and permittivity default from the board when omitted; thickness defaults to `DEFAULT_COPPER_MM`.
+///
+/// # Dependencies
+/// - crates/geom/src/impedance.rs
 fn calc(p: &Project, params: &Value) -> Result<Value, Error> {
     let a: CalcParams = parse(params)?;
     let height = a.height.unwrap_or(p.board.thickness);
@@ -355,6 +439,10 @@ fn calc(p: &Project, params: &Value) -> Result<Value, Error> {
     }
 }
 
+/// Handles `board.set_length_group`: create or update a named length-match group.
+///
+/// # Rules
+/// - A board holds at most 64 groups; duplicate names are rejected when updating by id.
 fn set_group(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> {
     let a: GroupParams = parse(params)?;
     let name = a.name.trim().to_string();
@@ -408,6 +496,7 @@ fn set_group(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
     Ok(json!({"id": id, "name": name}))
 }
 
+/// Handles `board.remove_length_group`: drops a group by id; routed copper is unchanged.
 fn remove_group(p: &mut Project, params: &Value) -> Result<Value, Error> {
     let a: IdParams = parse(params)?;
     let before = p.board.length_groups.len();
@@ -418,6 +507,10 @@ fn remove_group(p: &mut Project, params: &Value) -> Result<Value, Error> {
     Ok(json!({"id": a.id}))
 }
 
+/// Handles `net.length_groups`: read-only length, spread, and delay report per group.
+///
+/// # Rules
+/// - Delay uses outer-layer microstrip on each net's widest track when that net is routed.
 fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
     let a: GroupQuery = parse(params)?;
     if a.id
@@ -473,8 +566,11 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
     )
 }
 
-/// Remove a net from every length group, or swap it for another net, and
-/// drop groups left with fewer than two nets.
+/// Keeps length groups consistent when nets are deleted or merged elsewhere in the engine.
+///
+/// # Rules
+/// - Removes `net` from every group; optional `replacement` is appended when supplied.
+/// - Groups with fewer than two nets afterward are removed.
 pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
     for group in p.board.length_groups.iter_mut() {
         if !group.nets.contains(&net) {
@@ -490,6 +586,10 @@ pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
     p.board.length_groups.retain(|g| g.nets.len() >= 2);
 }
 
+/// Builds board tracks from a meander path, copying net, layer, and width from the replaced segment.
+///
+/// # Dependencies
+/// - crates/geom/src/meander.rs
 fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Track>, Error> {
     let mut out = Vec::new();
     for seg in path {
@@ -514,8 +614,10 @@ fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Tr
     Ok(out)
 }
 
-/// Findings the new copper causes that the original track did not already
-/// cause with the same neighbour.
+/// Copper DRC findings the trial meander introduces beyond conflicts already tied to the replaced track.
+///
+/// # Dependencies
+/// - crates/rules/src/lib.rs
 fn new_conflicts(
     trial: &Project,
     tracks: &[Track],
@@ -532,6 +634,16 @@ fn new_conflicts(
         .collect()
 }
 
+/// Lengthens a track run to a target length with a meander.
+///
+/// # Rules
+/// - `target` is 0.1 to 10,000 mm; `tolerance` is 0.01 to 10 mm and defaults to 0.1.
+/// - `amplitude_max` is 0.1 to 10 mm and `spacing` is above 0 and at most 50 mm.
+/// - A refused request leaves the project untouched.
+///
+/// # Dependencies
+/// - crates/geom/src/meander.rs
+/// - crates/rules/src/lib.rs
 fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> {
     let a: TuneParams = parse(params)?;
     if !a.target.is_finite() || !(0.1..=10_000.0).contains(&a.target) {

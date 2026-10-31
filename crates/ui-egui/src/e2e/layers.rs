@@ -467,66 +467,60 @@ fn a_silkscreen_line_drawn_on_the_layout_is_kept_for_the_capture() -> Result<(),
     Ok(())
 }
 
-/// Type `text` over what the focused field holds.
-fn type_over(ctx: &egui::Context, app: &mut App, text: &str) {
-    frame(
-        ctx,
-        app,
-        vec![egui::Event::Key {
-            key: egui::Key::A,
-            physical_key: Some(egui::Key::A),
-            pressed: true,
-            repeat: false,
-            modifiers: egui::Modifiers::COMMAND,
-        }],
-        egui::Modifiers::COMMAND,
+#[test]
+fn a_newcomer_draws_on_bottom_copper_of_a_four_layer_board() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.run("board.stackup_add_pair", json!({"after":"F.Cu"}));
+    app.refresh();
+    assert_eq!(
+        app.project.copper_layer_count(),
+        4,
+        "the board now has four copper layers: {}",
+        app.message
     );
-    frame(
-        ctx,
-        app,
-        vec![egui::Event::Text(text.to_owned())],
-        egui::Modifiers::NONE,
+    // Settings > Route on > Bottom.
+    app.route_layer = pcbcraft_doc::Layer::Back;
+    let net = app.project.nets[0].id;
+    app.run(
+        "track.add",
+        json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":app.route_layer}),
     );
+    app.refresh();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let track = app
+        .project
+        .board
+        .tracks
+        .last()
+        .cloned()
+        .ok_or("the track should exist")?;
+    assert_eq!(
+        track.layer,
+        app.project.bottom_layer(),
+        "a track drawn on Bottom lands on the last copper layer: {}",
+        app.message
+    );
+    let rows = object_detail_rows(&app.project, track.id);
+    let shown = rows
+        .iter()
+        .find(|(name, _)| name == &t!("schematic.object_detail_rows.layer"))
+        .map(|(_, value)| value.clone())
+        .ok_or("Properties lists the track's layer")?;
+    assert_eq!(shown, "B.Cu", "Properties names the bottom layer");
+    let gerber = pcbcraft_io::gerber_copper(&app.project, app.project.bottom_layer())?;
+    assert!(
+        gerber.contains("Copper,L4,Bot") && gerber.contains("D01*"),
+        "the track is in the bottom Gerber file"
+    );
+    let inner = pcbcraft_io::gerber_copper(&app.project, pcbcraft_doc::Layer::Back)?;
+    assert!(
+        !inner.contains("D01*"),
+        "no inner Gerber file carries the bottom track"
+    );
+    Ok(())
 }
 
-#[test]
-fn a_newcomer_presses_f2_to_rename_a_net_and_a_layer() -> Result<(), String> {
-    let (ctx, mut app) = pcb_app();
-    // A net: F2 on its row, type, Enter.
-    let net = app.project.nets[0].id;
-    app.tree.expanded.insert("nets".to_owned());
-    press_on(&ctx, &mut app, &format!("nets/net:{net}"), egui::Key::F2);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(app.tree.rename.is_some(), "F2 starts a rename on a net row");
-    type_over(&ctx, &mut app, "SIGNAL_A");
-    key(&ctx, &mut app, egui::Key::Enter);
-    assert_eq!(
-        app.project.net_name(net),
-        "SIGNAL_A",
-        "Enter renames the net: {}",
-        app.message
-    );
-    // Escape on the same row keeps the name.
-    press_on(&ctx, &mut app, &format!("nets/net:{net}"), egui::Key::F2);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    type_over(&ctx, &mut app, "OTHER");
-    key(&ctx, &mut app, egui::Key::Escape);
-    assert_eq!(app.project.net_name(net), "SIGNAL_A", "Escape cancels");
-    // A stackup layer.
-    app.tool_call("board.stackup_add_pair", json!({"after": "F.Cu"}));
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    press_on(&ctx, &mut app, "inner:1", egui::Key::F2);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    type_over(&ctx, &mut app, "PWR");
-    key(&ctx, &mut app, egui::Key::Enter);
-    assert!(
-        app.project
-            .board
-            .layer_records
-            .iter()
-            .any(|r| r.name == "PWR"),
-        "F2 renames a PCB layer: {}",
-        app.message
-    );
+Ok(())
+}
     Ok(())
 }
