@@ -154,7 +154,16 @@ pub fn tool_list() -> Value {
         json!({"name":"export","description":"Export the supported PCB subset to a board interchange text file, or export a schematic/PCB preview as an SVG vector file or a PNG raster file","inputSchema":object(json!({"path":{"type":"string"},"format":{"type":"string","enum":["kicad_pcb","svg","png"]},"view":{"type":"string","enum":["schematic","pcb"]}}),&["path","format"])}),
         json!({"name":"screenshot","description":"Return a PNG design preview from current session state (not a desktop UI screenshot)","inputSchema":object(json!({"view":{"type":"string","enum":["schematic","pcb"]}}),&["view"])}),
     ];
+    let mut engine_names = std::collections::HashSet::new();
+    for tool in &tools {
+        if let Some(name) = tool.get("name").and_then(Value::as_str) {
+            engine_names.insert(name.to_string());
+        }
+    }
     for spec in pcbcraft_engine::commands() {
+        if !engine_names.insert(spec.id.to_string()) {
+            continue;
+        }
         tools.push(
             json!({"name":spec.id,"description":spec.description,"inputSchema":spec.input_schema}),
         );
