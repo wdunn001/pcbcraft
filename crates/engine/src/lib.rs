@@ -9547,6 +9547,29 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             component.sourcing = next;
             Ok(json!({"id": a.id, "sourcing": component.sourcing}))
         }
+        "component.set_compliance" => {
+            let a: SetComplianceParams = parse(params)?;
+            a.compliance.validate().map_err(Error::Invalid)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.compliance = a.compliance;
+            Ok(json!({"id": a.id}))
+        }
+        "manufacturer.set" => {
+            let a: ManufacturerSetParams = parse(params)?;
+            let record = pcbcraft_doc::ManufacturerRecord {
+                name: a.name,
+                aliases: a.aliases,
+                country: a.country,
+                parent: a.parent.filter(|p| !p.trim().is_empty()),
+                supplier_responsibility_on_file: a.supplier_responsibility_on_file,
+            };
+            let replaced = p.upsert_manufacturer(record).map_err(Error::Invalid)?;
+            Ok(json!({"replaced": replaced, "count": p.manufacturers.len()}))
+        }
         "component.set_supplier" => {
             let a: SupplierParams = parse(params)?;
             let component = p
