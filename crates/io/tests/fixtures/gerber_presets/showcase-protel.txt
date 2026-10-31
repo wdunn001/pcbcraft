@@ -1,0 +1,17 @@
+README-fabrication.txt	-
+Showcase_sensor_node-NPTH.XLN	-
+Showcase_sensor_node.G2L	Copper,L2,Bot
+Showcase_sensor_node.G3L	Copper,L3,Inr
+Showcase_sensor_node.GBL	Copper,L4,Bot
+Showcase_sensor_node.GBO	Legend,Bot
+Showcase_sensor_node.GBP	Paste,Bot
+Showcase_sensor_node.GBS	Soldermask,Bot
+Showcase_sensor_node.GD1	Drillmap
+Showcase_sensor_node.GKO	Profile,NP
+Showcase_sensor_node.GTL	Copper,L1,Top
+Showcase_sensor_node.GTO	Legend,Top
+Showcase_sensor_node.GTP	Paste,Top
+Showcase_sensor_node.GTS	Soldermask,Top
+Showcase_sensor_node.XLN	-
+Showcase_sensor_node.gbrjob	-
+logo.gbr	Legend,Top
