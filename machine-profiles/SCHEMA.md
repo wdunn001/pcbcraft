@@ -71,7 +71,13 @@ Table `[mill.material]`: `name`, `thickness_mm`, `safe_z_mm`.
 
 Tables `[pick_place.board]`, `[pick_place.rotation]`, `[pick_place.csv]`.
 
-Arrays (each at most 64 rows): `[[pick_place.feeders]]`, `[[pick_place.nozzle]]`, `[[pick_place.rotation_offset]]`, `[[pick_place.footprint_alias]]`, `[[pick_place.feeder_map]]`.
+Arrays (each at most 64 rows): `[[pick_place.feeders]]`, `[[pick_place.nozzle]]`, `[[pick_place.rotation_offset]]`, `[[pick_place.footprint_alias]]`, `[[pick_place.feeder_map]]`, and up to 256 `[[pick_place.placement_rule]]` rows.
+
+Keys of `[pick_place]` itself: `nozzle_slots` (nozzle types the machine runs in one go without an operator, 0 = unlimited) and `default_speed_pct`.
+
+Each `[[pick_place.nozzle]]` has `id`, `diameter_mm` (inner), optional `outer_diameter_mm` and `packages` (package-name prefixes it is recommended for).
+
+Each `[[pick_place.placement_rule]]` chooses a nozzle for a part from its short package name (`package` is a prefix; empty matches all), the largest pad dimension (`min_size_mm`, `max_size_mm`) and the body height from the part's `height` property (`min_height_mm`, `max_height_mm`); 0 means no bound. It also gives `nozzle`, `speed_pct`, `pick_height_mm`, `place_height_mm`, `skip` (leave the part out, for test points) and a `note`. The first matching row wins. A part overrides any value with the properties `Placement nozzle`, `Placement feeder`, `Placement speed`, `Placement pick height`, `Placement place height` and `Placement skip`. A rule's `nozzle` must be listed in `[[pick_place.nozzle]]`.
 
 ## UV printer (`uv_printer`)
 
@@ -82,6 +88,7 @@ Tables `[uv_printer.print]`, `[uv_printer.artwork]`, `[uv_printer.limits]` with 
 | `id` | Kind |
 | --- | --- |
 | `neoden-yy1` | pick and place |
+| `neoden-4` | pick and place (nozzle rules only; no job file yet) |
 | `eufymake-e1` | uv printer |
 | `snapmaker-2-a350t-200w-cnc` | mill |
 | `snapmaker-artisan-200w-cnc` | mill |

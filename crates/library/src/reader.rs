@@ -426,8 +426,10 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                 return Err(invalid("invalid reference point size"));
             }
         } else if child.name() == "pad" {
+            // A drill record with an offset but no diameter drills nothing.
             let drill = child
                 .child("drill")
+                .filter(|d| !d.value(1).is_empty())
                 .map(|d| {
                     let oval = d.value(1) == "oval";
                     let x = num(d.value(if oval { 2 } else { 1 }))?;
@@ -442,7 +444,7 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     })
                 })
                 .transpose()?;
-            let layers = child
+            let layers: Vec<String> = child
                 .child("layers")
                 .ok_or_else(|| invalid("missing pad layers"))?
                 .children
@@ -492,6 +494,12 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
             let pad_type = match child.value(2) {
                 "np_thru_hole" => "unplated".into(),
                 token => token.to_owned(),
+            };
+            // A mounting hole lists copper layers in some files; it has none.
+            let layers: Vec<String> = if pad_type == "unplated" {
+                layers.into_iter().filter(|l| !l.ends_with(".Cu")).collect()
+            } else {
+                layers
             };
             s.pads.push(FootprintPad {
                 number,

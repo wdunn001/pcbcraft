@@ -3,6 +3,18 @@ mod a11y;
 mod arrange;
 mod assistant;
 mod authoring;
+pub mod board3d;
+mod board_side;
+mod bom_export;
+mod bottom_sheet;
+pub mod brand;
+mod browser;
+mod canvas;
+mod contrast;
+mod datums;
+mod draw_target;
+mod drill_table;
+mod editing;
 mod board3d;
 mod board_side;
 mod bom_export;
@@ -13,8 +25,23 @@ mod canvas;
 mod contrast;
 mod datums;
 mod draw_target;
+mod drill_table;
+mod editing;
+mod finding_set;
+mod file_dialogs;
+mod board_side;
+mod bom_export;
+mod bottom_sheet;
+pub mod brand;
+mod browser;
+mod canvas;
+mod contrast;
+mod datums;
+mod draw_target;
+mod drill_table;
 mod editing;
 mod file_dialogs;
+mod files_home;
 pub mod fonts;
 mod footprint_wizard;
 mod hover_affordance;
@@ -27,6 +54,57 @@ mod library_builtin;
 mod library_dock;
 mod library_online;
 mod library_quality;
+pub mod fonts;
+mod footprint_wizard;
+mod hover_affordance;
+mod icons;
+mod impedance_panel;
+mod keymap;
+mod layers_tree;
+mod library;
+mod library_builtin;
+mod library_dock;
+mod library_online;
+mod library_quality;
+pub mod fonts;
+mod footprint_wizard;
+mod hover_affordance;
+mod icons;
+mod impedance_panel;
+mod keymap;
+mod layers_tree;
+mod library;
+mod library_builtin;
+mod library_dock;
+mod library_online;
+mod library_quality;
+mod library_workspace;
+mod minimap;
+mod modifier_ui;
+mod motion;
+mod number_entry;
+mod pages;
+mod palette;
+mod placement_machine_ui;
+mod plot_viewer;
+mod pour_panel;
+mod properties;
+mod reference_panel;
+mod route_drag;
+mod rules_fab;
+mod sheet_rows;
+mod showcase;
+mod sources;
+mod sourcing_panel;
+mod pages;
+mod palette;
+mod plot_viewer;
+mod pour_panel;
+mod properties;
+mod reference_panel;
+mod route_drag;
+mod library_quality;
+mod minimap;
 mod modifier_ui;
 mod motion;
 mod number_entry;
@@ -37,9 +115,11 @@ mod pour_panel;
 mod properties;
 mod reference_panel;
 mod route_drag;
+mod rules_fab;
 mod sheet_rows;
 mod showcase;
 mod sources;
+mod sourcing_panel;
 mod stack_view;
 mod sync_notice;
 #[cfg(test)]
@@ -48,13 +128,14 @@ mod targets;
 pub mod theme;
 mod tool_modifiers;
 mod toolbar;
+mod tour;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
 mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
-use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
+use pcbcraft_doc::{Id, PanelSeparation, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
 use pcbcraft_text::t;
@@ -615,6 +696,7 @@ use serde_json::{Value, json};
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
     Files,
+    Library,
     Schematic,
     Pcb,
     Board3d,
@@ -670,6 +752,27 @@ struct Preferences {
     /// Library cards the person starred, by card key.
     #[serde(default)]
     library_favourites: Vec<String>,
+    /// When on, placing an open-library part also fetches its 3D model into the local cache.
+    #[serde(default)]
+    fetch_open_library_3d: bool,
+    /// Region layout per workspace id; missing means the workspace default.
+    #[serde(default)]
+    layouts: std::collections::BTreeMap<String, workspace::RegionLayout>,
+    /// Language tag of the text catalog, or `system` to follow the computer.
+    #[serde(default = "default_language")]
+    language: String,
+    /// The last exports and imports with the options they used, newest first.
+    #[serde(default)]
+    recent_files: file_dialogs::Recents,
+/// Projects kept at the top of the Files page, by path.
+    #[serde(default)]
+    pinned_projects: Vec<String>,
+    /// When each project was last opened or saved here, seconds since 1970, by path.
+    #[serde(default)]
+    project_opened: std::collections::BTreeMap<String, u64>,
+    /// Library cards the person starred, by card key.
+    #[serde(default)]
+    library_favourites: Vec<String>,
     /// Region layout per workspace id; missing means the workspace default.
     #[serde(default)]
     layouts: std::collections::BTreeMap<String, workspace::RegionLayout>,
@@ -682,6 +785,9 @@ struct Preferences {
     /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
     #[serde(default)]
     reduced_motion: bool,
+    /// Minimap look per tab (`layout`, `schematic`): pinned, width, opacity, position.
+    #[serde(default)]
+    minimap: std::collections::BTreeMap<String, minimap::MapPrefs>,
     /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
     #[serde(default = "default_ui_scale")]
     ui_scale: f32,
@@ -755,10 +861,38 @@ impl Default for Preferences {
             aside_lower_tab: 0,
             left_tab: 0,
             library_favourites: Vec::new(),
+            fetch_open_library_3d: false,
             layouts: std::collections::BTreeMap::new(),
             language: default_language(),
             recent_files: Default::default(),
+dark: true,
+            grid: true,
+            accent: [91, 224, 188],
+            pad_labels: PadLabels::Number,
+            hidden_layers: Vec::new(),
+            aside_split: default_aside_split(),
+            aside_lower_tab: 0,
+            left_tab: 0,
+            library_favourites: Vec::new(),
+            layouts: std::collections::BTreeMap::new(),
+            language: default_language(),
+            recent_files: Default::default(),
+            pinned_projects: Vec::new(),
+            project_opened: Default::default(),
             reduced_motion: motion::os_prefers_reduced_motion(),
+            minimap: Default::default(),
+            ui_scale: a11y::DEFAULT_UI_SCALE,
+            chamfer_corners: true,
+            route_shove: false,
+            assistant_enabled: true,
+            assistant_connections: Vec::new(),
+            assistant_default: String::new(),
+            assistant_mode: pcbcraft_assistant::Mode::Ask,
+            assistant_modes: Default::default(),
+            assistant_always_allow: Default::default(),
+            assistant_turn_limit: default_turn_limit(),
+            reduced_motion: motion::os_prefers_reduced_motion(),
+            minimap: Default::default(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
             route_shove: false,
@@ -939,8 +1073,10 @@ enum DrawShape {
 /// so drawing and picking cannot disagree.
 ///
 /// # Rules
-/// - Order: shift to the centre, mirror x, turn clockwise by `turns` quarters,
-///   then scale. `turns` is always 0 to 3.
+/// - Order: shift to the centre, mirror x, lift y when `up` is set, turn
+///   clockwise by `turns` quarters, then scale. `turns` is always 0 to 3.
+/// - The board view sets `up`: world +y points up the screen, as in the
+///   manufacturing files and the 3D view. The schematic keeps y down.
 ///
 /// # Do not
 /// - Offset the centre by screen amounts; use [`Camera::pan_screen`].
@@ -952,11 +1088,16 @@ struct Camera {
     mirror: bool,
     /// Quarter turns clockwise on screen.
     turns: u8,
+    /// World +y points up the screen (the board view). Off, y runs down.
+    up: bool,
 }
 impl Camera {
     /// A zoom-free offset taken through the mirror and the turns.
     fn turn(self, dx: f64, dy: f64) -> (f64, f64) {
-        let (mut x, mut y) = (if self.mirror { -dx } else { dx }, dy);
+        let (mut x, mut y) = (
+            if self.mirror { -dx } else { dx },
+            if self.up { -dy } else { dy },
+        );
         for _ in 0..(self.turns % 4) {
             (x, y) = (-y, x);
         }
@@ -968,7 +1109,10 @@ impl Camera {
         for _ in 0..(self.turns % 4) {
             (x, y) = (y, -x);
         }
-        (if self.mirror { -x } else { x }, y)
+        (
+            if self.mirror { -x } else { x },
+            if self.up { -y } else { y },
+        )
     }
     fn screen(self, p: Point, rect: Rect) -> egui::Pos2 {
         let (x, y) = self.turn(p.x - self.center.x, p.y - self.center.y);
@@ -987,6 +1131,19 @@ impl Camera {
         let z = self.zoom as f64;
         let (x, y) = self.unturn(d.x as f64 / z, d.y as f64 / z);
         self.center = self.center.offset(Point::new(-x, -y));
+    }
+    /// The on-screen angle (egui: clockwise, radians) of text whose baseline
+    /// runs along world angle `world` (radians, from +x toward +y). Mirrored
+    /// views keep the text readable instead of reversing it.
+    fn text_angle(self, world: f64) -> f32 {
+        let (dx, dy) = self.turn(world.cos(), world.sin());
+        let screen = dy.atan2(dx) as f32;
+        let flipped = screen + std::f32::consts::PI;
+        match (self.mirror, flipped > std::f32::consts::PI) {
+            (false, _) => screen,
+            (true, false) => flipped,
+            (true, true) => flipped - std::f32::consts::TAU,
+        }
     }
     /// Where world +x and +y point on screen, as unit vectors.
     fn axes(self) -> (Vec2, Vec2) {
@@ -1020,7 +1177,11 @@ pub struct App {
     preferences: Preferences,
     /// Text for the language chosen in Settings.
     catalog: std::sync::Arc<pcbcraft_text::Catalog>,
+    /// Embedded in-app tour definitions (#769).
+    tours: tour::data::Doc,
     recent_designs: Vec<String>,
+    /// The Files workspace: page, selection, pictures of recent projects.
+    files_home: files_home::State,
     home_open: bool,
     home_path_focus: bool,
     /// The unified Layers tree view state (left aside).
@@ -1082,10 +1243,13 @@ pub struct App {
     custom_measure: usize,
     custom_limit: f64,
     custom_loud: bool,
+    panel_enabled: bool,
     panel_columns: usize,
     panel_rows: usize,
     panel_gap: f64,
     panel_rail: f64,
+    panel_separation: String,
+    panel_tab_channel: f64,
     panel_plan: Value,
     renumber_plan: Option<RenumberPlan>,
     stack_name: String,
@@ -1154,6 +1318,8 @@ pub struct App {
     connected_cycle: usize,
     last_repeat: Option<(String, Value)>,
     needs_zoom_selection: bool,
+    /// The minimap's per-session state (`minimap.rs`).
+    minimap: minimap::State,
     tree_search_focus: bool,
     about_open: bool,
     command_focus: bool,
@@ -1170,26 +1336,51 @@ pub struct App {
     capture_sheet: bool,
     frames: u32,
     library: library::Browser,
+command_scroll: bool,
+    capture: Option<String>,
+    /// Reference of the part to select for a capture image.
+    capture_select: Option<String>,
+    /// Open the canvas right-click menu on the selected part in a capture.
+    capture_menu: bool,
+    /// Kind of row whose right-click menu opens by itself in a capture image.
+    capture_menu_tag: Option<String>,
+    /// Capture option: open the bottom sheet on its Findings tab.
+    capture_sheet: bool,
+    frames: u32,
+    library: library::Browser,
+    /// This design's autosave slot, while the desktop has a recovery folder.
+    autosave: Option<pcbcraft_engine::recovery::Autosaver>,
+    /// Snapshots a killed app left behind, newest first.
+    recovery_offer: Vec<pcbcraft_engine::recovery::Entry>,
+    /// True while the offer window is up for the designer to answer.
+    recovery_open: bool,
+    /// The folder this window autosaves into and offers snapshots from.
+    recovery_dir: Option<std::path::PathBuf>,
     pub(crate) compare_open: bool,
     pub(crate) compare_baseline_path: String,
     compare_report_open: bool,
     pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
     pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
     dock: library_dock::Dock,
+    /// The Library tab: open parts, the showing page, recorded supplier answers.
+    libws: library_workspace::State,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
+    /// This design's autosave slot, while the desktop has a recovery folder.
+    autosave: Option<pcbcraft_engine::recovery::Autosaver>,
+    /// Snapshots a killed app left behind, newest first.
+    recovery_offer: Vec<pcbcraft_engine::recovery::Entry>,
+    /// True while the offer window is up for the designer to answer.
+    recovery_open: bool,
+    /// The folder this window autosaves into and offers snapshots from.
+    recovery_dir: Option<std::path::PathBuf>,
 }
 /// Plain-language facts about a selected board or schematic object that is not
 /// a component, so the properties panel can describe tracks, vias, zones,
 /// labels, wires and graphics instead of showing a bare id.
 fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
     let net = |id: Id| project.net_name(id).to_string();
-    let layer = |value: &pcbcraft_doc::Layer| {
-        serde_json::to_value(value)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_string))
-            .unwrap_or_default()
-    };
+    let layer = |value: &pcbcraft_doc::Layer| project.layer_name(*value);
     let clearance_rows = |net: Id, rows: &mut Vec<(String, String)>| {
         let base = project.board.clearance;
         let class = project.net_class(net);
@@ -1425,6 +1616,138 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
 }
 
 impl App {
+    /// How long ago a snapshot was written, in words.
+    fn ago(saved_at: u64) -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let seconds = now.saturating_sub(saved_at);
+        match seconds {
+            0..=59 => "just now".into(),
+            60..=3599 => format!("{} minutes ago", seconds / 60),
+            3600..=86399 => format!("{} hours ago", seconds / 3600),
+            _ => format!("{} days ago", seconds / 86400),
+        }
+    }
+
+    /// The window that offers work a killed app left behind, newest first.
+    fn recovery_window(&mut self, ui: &mut egui::Ui) {
+        if !self.recovery_open {
+            return;
+        }
+        let Some(dir) = self.recovery_dir.clone() else {
+            self.recovery_open = false;
+            return;
+        };
+        let entries = self.recovery_offer.clone();
+        let mut open = true;
+        let mut chose: Option<(String, bool)> = None;
+        let muted = self.muted();
+        egui::Window::new("Pick up where you left off")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ui, |ui| {
+                ui.label(
+                    "PCBCraft closed before this work was saved. Recover it, or throw the snapshot away.",
+                );
+                ui.add_space(6.0);
+                if entries.is_empty() {
+                    ui.label("Nothing is left to recover.");
+                }
+                for entry in &entries {
+                    let what = match &entry.path {
+                        Some(path) => format!("{} · {} · {} pads", entry.name, path, entry.pads),
+                        None => format!("{} · never saved · {} pads", entry.name, entry.pads),
+                    };
+                    egui::Frame::group(ui.style())
+                        .inner_margin(10.0)
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(what).strong());
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "saved {} · revision {}",
+                                    Self::ago(entry.saved_at),
+                                    entry.revision
+                                ))
+                                .small()
+                                .color(muted),
+                            );
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .button("Recover")
+                                    .on_hover_text(
+                                        "Open this snapshot as the design, as unsaved work you can keep editing or save.",
+                                    )
+                                    .clicked()
+                                {
+                                    chose = Some((entry.id.clone(), true));
+                                }
+                                if ui
+                                    .button("Discard")
+                                    .on_hover_text(
+                                        "Delete this snapshot and its record; the design file on disk is not touched.",
+                                    )
+                                    .clicked()
+                                {
+                                    chose = Some((entry.id.clone(), false));
+                                }
+                            });
+                        });
+                }
+            });
+        if !open {
+            self.recovery_open = false;
+            return;
+        }
+        match chose {
+            Some((id, true)) => self.recover_entry(&dir, &id),
+            Some((id, false)) => {
+                match pcbcraft_engine::recovery::remove(&dir, &id) {
+                    Ok(()) => self.message = "recovery snapshot discarded".into(),
+                    Err(e) => self.message = e,
+                }
+                self.recovery_offer = pcbcraft_engine::recovery::orphans(&dir);
+                self.recovery_open = !self.recovery_offer.is_empty();
+            }
+            None => {}
+        }
+    }
+
+    fn recover_entry(&mut self, dir: &std::path::Path, id: &str) {
+        let (project, entry) = match pcbcraft_engine::recovery::load(dir, id) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                self.message = e;
+                self.recovery_offer = pcbcraft_engine::recovery::orphans(dir);
+                self.recovery_open = !self.recovery_offer.is_empty();
+                return;
+            }
+        };
+        let replaced = self
+            .session
+            .lock()
+            .map_err(|_| "the design is busy".to_string())
+            .and_then(|mut s| s.replace(project).map_err(|e| e.to_string()));
+        match replaced {
+            Ok(_) => {
+                let _ = pcbcraft_engine::recovery::remove(dir, id);
+                self.saved_revision = None;
+                self.needs_fit = true;
+                self.refresh();
+                self.message = format!(
+                    "recovered {} from {}",
+                    entry.name,
+                    Self::ago(entry.saved_at)
+                );
+            }
+            Err(e) => self.message = e,
+        }
+        self.recovery_offer = pcbcraft_engine::recovery::orphans(dir);
+        self.recovery_open = !self.recovery_offer.is_empty();
+    }
+
     pub fn with_project_path(mut self, path: Option<String>) -> Self {
         if let Some(path) = path {
             self.path = path;
@@ -1455,7 +1778,7 @@ impl App {
     }
     /// Capture option: start with the bottom sheet open. Ignored outside capture mode.
     pub fn with_capture_sheet(mut self, open: bool) -> Self {
-        self.capture_sheet = open;
+        self.capture_sheet |= open;
         self
     }
     /// Fill the Library tab's search box and open that tab, so a `--capture`
@@ -1479,6 +1802,7 @@ impl App {
                 self.preferences.left_tab = 0;
                 self.region().left_tab = "layers".to_owned();
             }
+            Some("machines") => self.region().left_tab = "machines".to_owned(),
             _ => {}
         }
         self
@@ -1529,12 +1853,15 @@ impl App {
         if light {
             preferences.dark = false;
         }
+// The browser has no recovery folder, so it keeps one slot in the
+        // page's own storage. Everywhere else the offer window asks first.
+        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_arch = "wasm32")]
         if let Some(text) = cc
             .storage
             .and_then(|storage| storage.get_string("recovery"))
             && text.len() <= pcbcraft_io_limit()
-            && let Ok(project) = serde_json::from_str::<Project>(&text)
-            && project.validate().is_ok()
+            && let Ok(project) = pcbcraft_io::read_project(&text)
             && let Ok(mut current) = session.lock()
             && current.revision == 0
             && current.project.components.is_empty()
@@ -1544,6 +1871,12 @@ impl App {
         let show_home = capture.is_none();
         let mut app = Self::create(session, preferences, capture, tab);
         app.home_open = show_home && app.project.components.is_empty();
+app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
+        // Install the fonts now, so the fallback font added next lands behind them.
+        fonts::install(&cc.egui_ctx);
+        cc.egui_ctx
+            .data_mut(|d| d.insert_temp(egui::Id::new("design-fonts-installed"), true));
+        app.apply_fallback_font(&cc.egui_ctx);
         app
     }
     fn create(
@@ -1552,6 +1885,31 @@ impl App {
         capture: Option<String>,
         tab: Option<&str>,
     ) -> Self {
+        Self::create_with_recovery(session, preferences, capture, tab, recovery_dir())
+    }
+
+/// `create` with the recovery folder named, so a test can point the offer
+    /// at its own folder without touching the machine's.
+    pub(crate) fn create_with_recovery(
+        session: SharedSession,
+        preferences: Preferences,
+        capture: Option<String>,
+        tab: Option<&str>,
+        recovery: Option<std::path::PathBuf>,
+    ) -> Self {
+        let (autosave, recovery_offer) = recovery_slots(recovery.as_deref());
+        let project = session
+            .lock()
+            .map(|s| s.project.clone())
+            .unwrap_or_default();
+        let width = project.board.width;
+        session: SharedSession,
+        preferences: Preferences,
+        capture: Option<String>,
+        tab: Option<&str>,
+        recovery: Option<std::path::PathBuf>,
+    ) -> Self {
+        let (autosave, recovery_offer) = recovery_slots(recovery.as_deref());
         let project = session
             .lock()
             .map(|s| s.project.clone())
@@ -1569,11 +1927,11 @@ impl App {
             revision: u64::MAX,
             checks: json!({}),
             tab: match tab {
-                Some("pcb" | "layout") => Tab::Pcb,
+                Some("pcb" | "layout" | "checks") => Tab::Pcb,
                 Some("files") => Tab::Files,
+                Some("library") => Tab::Library,
                 Some("rules") => Tab::Rules,
                 Some("settings") => Tab::Settings,
-                Some("checks") => Tab::Checks,
                 Some("plots") => Tab::PlotFiles,
                 Some("3d") => Tab::Board3d,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
@@ -1592,8 +1950,10 @@ impl App {
             catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
                 &preferences.language,
             )),
+            tours: tour::data::embedded_for_shell(),
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
+            files_home: files_home::State::default(),
             home_open: false,
             home_path_focus: false,
             tree: layers_tree::TreeView::default(),
@@ -1653,10 +2013,13 @@ impl App {
             custom_measure: 0,
             custom_limit: 0.2,
             custom_loud: false,
+            panel_enabled: false,
             panel_columns: 2,
             panel_rows: 2,
             panel_gap: 2.0,
             panel_rail: 3.0,
+            panel_separation: "tab".into(),
+            panel_tab_channel: 1.8,
             panel_plan: Value::Null,
             renumber_plan: None,
             stack_name: String::new(),
@@ -1677,6 +2040,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             dock: library_dock::Dock::default(),
+            libws: library_workspace::State::default(),
             sheet: bottom_sheet::SheetState::default(),
             needs_fit: true,
             stack: stack_view::StackView::plain(2, false),
@@ -1689,6 +2053,7 @@ impl App {
             schematic: Camera {
                 mirror: false,
                 turns: 0,
+                up: false,
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
@@ -1696,6 +2061,7 @@ impl App {
             pcb: Camera {
                 mirror: false,
                 turns: 0,
+                up: true,
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
@@ -1732,7 +2098,8 @@ impl App {
             capture_select: None,
             capture_menu: false,
             capture_menu_tag: None,
-            capture_sheet: false,
+            // `--tab checks` is Layout with the Findings sheet expanded.
+            capture_sheet: tab == Some("checks"),
             frames: 0,
             binding_capture: None,
             profile_name_draft: String::new(),
@@ -1741,6 +2108,7 @@ impl App {
             connected_cycle: 0,
             last_repeat: None,
             needs_zoom_selection: false,
+            minimap: minimap::State::default(),
             tree_search_focus: false,
             shortcuts_settings_open: false,
             compare_open: false,
@@ -1749,18 +2117,52 @@ impl App {
             compare_diff: None,
             compare_tint: std::collections::BTreeMap::new(),
             library,
+            autosave,
+            recovery_open: !recovery_offer.is_empty(),
+            recovery_offer,
+            recovery_dir: recovery,
             #[cfg(test)]
             icon_rects: BTreeMap::new(),
+            autosave,
+            recovery_open: !recovery_offer.is_empty(),
+            recovery_offer,
+            recovery_dir: recovery,
         }
     }
     fn refresh(&mut self) {
+// The autosave goes out with the same lock that takes the snapshot, so
+        // what lands in the recovery folder is a revision the window has seen.
+        let mut autosave = self.autosave.take();
+        let saved = self.saved_revision;
+        let mut autosave_error: Option<String> = None;
         let snapshot = self.session.lock().ok().and_then(|s| {
             if s.revision != self.revision {
+                if let Some(slot) = autosave.as_mut()
+                    && let Err(e) = slot.tick(&s, saved)
+                {
+                    autosave_error = Some(e);
+                }
+                Some((s.project.clone(), s.revision, s.checks()))
+            } else {
+        let mut autosave = self.autosave.take();
+        let saved = self.saved_revision;
+        let mut autosave_error: Option<String> = None;
+        let snapshot = self.session.lock().ok().and_then(|s| {
+            if s.revision != self.revision {
+                if let Some(slot) = autosave.as_mut()
+                    && let Err(e) = slot.tick(&s, saved)
+                {
+                    autosave_error = Some(e);
+                }
                 Some((s.project.clone(), s.revision, s.checks()))
             } else {
                 None
             }
         });
+        self.autosave = autosave;
+        if let Some(error) = autosave_error {
+            self.message = format!("autosave: {error}");
+        }
         if let Some((p, r, checks)) = snapshot {
             self.project = p;
             self.revision = r;
@@ -1774,6 +2176,58 @@ impl App {
             self.width = self.project.board.width;
             self.height = self.project.board.height;
             self.load_properties();
+            self.load_panel_fields_from_project();
+        }
+    }
+    fn load_panel_fields_from_project(&mut self) {
+        if !self.project.panel.enabled {
+            return;
+        }
+        self.panel_enabled = true;
+        self.panel_columns = self.project.panel.columns;
+        self.panel_rows = self.project.panel.rows;
+        if self.project.panel.pitch_x.is_finite() && self.project.panel.pitch_x > 0.0 {
+            self.panel_gap = self.project.panel.pitch_x;
+        }
+        self.panel_rail = self.project.panel.rail;
+        self.panel_tab_channel = self.project.panel.tab_channel;
+        self.panel_separation = match self.project.panel.separation {
+            PanelSeparation::Tab => "tab".into(),
+            PanelSeparation::VScore => "v_score".into(),
+        };
+    }
+    fn panel_set_params(&self) -> Value {
+        json!({
+            "enabled": self.panel_enabled,
+            "columns": self.panel_columns,
+            "rows": self.panel_rows,
+            "pitch_x": self.panel_gap,
+            "pitch_y": self.panel_gap,
+            "rail": self.panel_rail,
+            "tab_channel": self.panel_tab_channel,
+            "separation": self.panel_separation,
+        })
+    }
+    fn export_panel_files(&mut self) {
+        let directory = self.make_directory();
+        if std::fs::create_dir_all(std::path::Path::new(&directory)).is_err() {
+            self.message = t!("status.write_job_file.that_folder_could_not_be");
+            return;
+        }
+        self.run("panel.set", self.panel_set_params());
+        let out = self.run_and_keep("panel.export", json!({"directory": &directory}));
+        if let Some(files) = out.get("files").and_then(Value::as_array) {
+            let names = files
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.message = t!(
+                "status.panel_export_saved",
+                directory = directory,
+                files = names
+            );
+            self.refresh();
         }
     }
     fn execute_palette_params(&mut self) {
@@ -1900,6 +2354,8 @@ impl App {
         if success && (name == "save" || name == "open") {
             pcbcraft_engine::recents::record_recent_path(&self.path);
             self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
+            let opened = self.path.clone();
+            self.files_note_opened(&opened);
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
@@ -2709,6 +3165,9 @@ impl App {
             KeyAction::ToggleAssistant => {
                 self.assistant_toggle();
             }
+            KeyAction::MinimapPeek => {
+                self.minimap.key_held = matches!(self.tab, Tab::Pcb | Tab::Schematic);
+            }
         }
     }
 
@@ -2787,6 +3246,39 @@ impl App {
                 {
                     self.dispatch_shortcut(action);
                 }
+};
+                let chord = keymap::chord_from_input(*key, i.modifiers);
+                if let Some(action) = map.resolve(chord, tab, command_open)
+                    && !matches!(
+                        action,
+                        keymap::KeyAction::PaletteLineUp
+                            | keymap::KeyAction::PaletteLineDown
+                            | keymap::KeyAction::PaletteRun
+                    )
+                {
+                    self.dispatch_shortcut(action);
+                }
+                if i.key_pressed(egui::Key::Z) {
+                    self.tool_call(if held.shift { "redo" } else { "undo" }, json!({}));
+                }
+                if i.key_pressed(egui::Key::Y) {
+                    self.tool_call("redo", json!({}));
+                }
+                if held.shift && i.key_pressed(egui::Key::A) {
+                    self.assistant_toggle();
+                }
+                if i.key_pressed(egui::Key::K) {
+                    self.command_open = !self.command_open;
+                    self.command_focus = self.command_open;
+                    self.command_index = 0;
+                }
+                return;
+            }
+            if i.key_pressed(egui::Key::A) && self.tab == Tab::Schematic {
+                self.palette = true;
+                self.region().left_tab = "library".to_owned();
+            }
+        });
             }
         });
         ctx.input(|i| {
@@ -2832,7 +3324,6 @@ impl App {
     /// Left edge shared by the tab row, the tool strip and the page content.
     const PAGE_GUTTER: f32 = 28.0;
     /// The type scale: page title, section title, body, caption.
-    const SECTION: f32 = 18.0;
     const BODY: f32 = 14.0;
     const CAPTION: f32 = 12.0;
     fn header(&mut self, ui: &mut egui::Ui) {
@@ -2840,7 +3331,7 @@ impl App {
             .exact_size(Self::APP_BAR_HEIGHT)
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
-                ui.horizontal_centered(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let label = egui::RichText::new(t!("app.name"))
                         .size(15.0)
                         .strong()
@@ -2864,12 +3355,13 @@ impl App {
                 });
             });
     }
-    /// The tab row: Files, Schematic, Layout, 3D and Manufacture, left-aligned
+    /// The tab row: Files, Library, Schematic, Layout and Manufacture, left-aligned
     /// with the active tab underlined. Rules, Checks and Settings are reached
     /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
-        let shown: [(Tab, String); 4] = [
+        let shown: [(Tab, String); 5] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
+            (Tab::Library, t!("docks.workbench_tabs.library")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
             (Tab::Pcb, t!("docks.workbench_tabs.layout")),
             (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
@@ -2958,9 +3450,10 @@ impl App {
                                 .color(self.muted()),
                             );
                             ui.add_space(24.0);
+                            let home_btn = [300.0, 64.0];
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!("dialogs.start_home.new_design"))
                                             .size(16.0)
@@ -2982,7 +3475,7 @@ impl App {
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.worked_example"
@@ -3007,7 +3500,7 @@ impl App {
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.showcase_board"
@@ -3032,7 +3525,7 @@ impl App {
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.open_a_design_file"
@@ -3052,12 +3545,12 @@ impl App {
                                 self.home_path_focus = true;
                             }
                             ui.add_space(6.0);
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 let path_box = ui
                                     .add(
                                         crate::targets::text_field(&mut self.path)
                                             .hint_text(t!("dialogs.start_home.design_file_path"))
-                                            .desired_width(240.0),
+                                            .desired_width(ui.available_width().min(240.0)),
                                     )
                                     .named("design file path")
                                     .on_hover_text(t!("dialogs.start_home.design_file_path.tip"));
@@ -3135,14 +3628,32 @@ impl App {
                 .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
-                self.home_open = true;
+                self.show_files(files_home::Page::Open);
+                ui.close();
             }
             if ui
                 .button(t!("menu.file.save"))
                 .on_hover_text(t!("menu.file.save.tip"))
                 .clicked()
             {
-                self.tool_call("save", json!({"path":self.path}));
+                self.save_or_ask();
+                ui.close();
+            }
+            if ui
+.button(t!("menu.file.save_as"))
+                .on_hover_text(t!("menu.file.save_as.tip"))
+                .clicked()
+            {
+                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
+            }
+            if ui
+.button(t!("menu.file.save_as"))
+                .on_hover_text(t!("menu.file.save_as.tip"))
+                .clicked()
+            {
+                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
             }
             if ui
                 .button(t!("menu.file.compare"))
@@ -3151,6 +3662,10 @@ impl App {
             {
                 self.compare_open = true;
             }
+            }
+            ui.separator();
+            self.import_submenu(ui);
+            self.export_submenu(ui);
             if ui
                 .button(t!("menu.file.save_as"))
                 .on_hover_text(t!("menu.file.save_as.tip"))
@@ -3290,11 +3805,50 @@ impl App {
         .response
         .on_hover_text(t!("menu.edit.tip"));
     }
-    /// Switch the app's language; the next frame paints in it.
-    fn set_language(&mut self, tag: &str) {
+    /// Switch the app's language; the next frame paints in it. A language
+    /// that needs a fallback font (Japanese, Chinese) loads it too.
+    ///
+    /// # Dependencies
+    /// `fonts.rs` (`load_for_language`, `add_fallback`).
+    fn set_language(&mut self, ctx: &egui::Context, tag: &str) {
         self.preferences.language = tag.to_string();
         self.catalog = std::sync::Arc::new(pcbcraft_text::Catalog::for_language(tag));
         pcbcraft_text::activate(&self.catalog);
+        self.apply_fallback_font(ctx);
+    }
+
+    /// The language tag the user chose (`en`, `ja`, `zh`...), with `system`
+    /// resolved. It can name a language with a font but no translation yet. The browser build reads it to fetch a font.
+    pub fn language(&self) -> String {
+        if self.preferences.language == "system" {
+            pcbcraft_text::resolve_system_language()
+        } else {
+            self.preferences.language.clone()
+        }
+    }
+
+    /// Load the fallback font for the showing language when it needs one. A
+    /// missing file keeps the default fonts and says so in the status line.
+    /// The browser build fetches its font in `apps/pcbcraft-web` instead.
+    ///
+    /// # Dependencies
+    /// `fonts.rs` (`load_for_language`).
+    ///
+    /// # Do not
+    /// Fail or block the app for a missing font; empty boxes are survivable.
+    fn apply_fallback_font(&mut self, ctx: &egui::Context) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(file) = fonts::load_for_language(ctx, &self.language()) {
+            self.report_missing_font(file);
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = ctx;
+    }
+
+    /// Say in the status line that a language's font file could not be
+    /// loaded. The browser build calls this when its fetch fails.
+    pub fn report_missing_font(&mut self, file: &str) {
+        self.message = pcbcraft_text::lookup("font.the_font_file_for_this", &[("file", file)]);
     }
     fn language_menu(&mut self, ui: &mut egui::Ui) {
         let mut picked = None;
@@ -3323,7 +3877,7 @@ impl App {
         .response
         .on_hover_text(t!("menu.settings.language.tip"));
         if let Some(tag) = picked {
-            self.set_language(&tag);
+            self.set_language(ui.ctx(), &tag);
             ui.ctx().request_repaint();
         }
     }
@@ -3373,6 +3927,17 @@ impl App {
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
+            ui.menu_button(t!("menu.help.tours"), |ui| {
+                for tour in &self.tours.tour {
+                    let list_key = tour.list_key();
+                    let label = pcbcraft_text::lookup(&list_key, &[]);
+                    let tip_key = format!("{list_key}.tip");
+                    ui.button(label)
+                        .on_hover_text(pcbcraft_text::lookup(&tip_key, &[]));
+                }
+            })
+            .response
+            .on_hover_text(t!("menu.help.tours.tip"));
             ui.separator();
             if ui
                 .button(t!("app.about"))
@@ -3411,23 +3976,6 @@ impl App {
             && !url.chars().any(char::is_whitespace))
         .then(|| url.to_owned())
     }
-    /// How many check findings are errors, warnings and notes.
-    fn finding_counts(checks: &Value) -> (usize, usize, usize) {
-        let mut counts = (0, 0, 0);
-        for key in ["erc", "drc"] {
-            let Some(findings) = checks.get(key).and_then(Value::as_array) else {
-                continue;
-            };
-            for f in findings {
-                match f.get("severity").and_then(Value::as_str) {
-                    Some("error") => counts.0 += 1,
-                    Some("warning") => counts.1 += 1,
-                    _ => counts.2 += 1,
-                }
-            }
-        }
-        counts
-    }
     /// True when the window is too narrow to put the library dock beside the
     /// drawing (WCAG 1.4.10 reflow at 320 points). The dock steps aside and the
     /// Lib button opens the Libraries page instead.
@@ -3441,8 +3989,14 @@ impl App {
         if Self::narrow_window(ui.ctx()) {
             return;
         }
-        egui::Panel::left("left-aside")
-            .default_size(320.0)
+        // The Library tab gives its browser more room; the saved width is kept per panel id.
+        let (id, width) = if self.tab == Tab::Library {
+            ("left-aside-library", 380.0)
+        } else {
+            ("left-aside", 320.0)
+        };
+        egui::Panel::left(id)
+            .default_size(width)
             .min_size(240.0)
             .frame(egui::Frame::NONE.fill(ui.style().visuals.panel_fill))
             .show(ui, |ui| {
@@ -4965,6 +5519,49 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
+        ui.checkbox(
+            &mut self.panel_enabled,
+            t!("settings.settings_tab.panel_enabled"),
+        )
+        .on_hover_text(t!("settings.settings_tab.panel_enabled.tip"))
+        .named("Panel enabled for manufacturing");
+        ui.horizontal(|ui| {
+            ui.label(t!("settings.settings_tab.panel_separation"));
+            let separation_label = if self.panel_separation == "v_score" {
+                t!("settings.settings_tab.panel_separation_vscore")
+            } else {
+                t!("settings.settings_tab.panel_separation_tab")
+            };
+            egui::ComboBox::from_id_salt("panel-separation")
+                .selected_text(separation_label)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(
+                            self.panel_separation == "tab",
+                            t!("settings.settings_tab.panel_separation_tab"),
+                        )
+                        .on_hover_text(t!("settings.settings_tab.panel_separation_tab.tip"))
+                        .clicked()
+                    {
+                        self.panel_separation = "tab".into();
+                        ui.close();
+                    }
+                    if ui
+                        .selectable_label(
+                            self.panel_separation == "v_score",
+                            t!("settings.settings_tab.panel_separation_vscore"),
+                        )
+                        .on_hover_text(t!("settings.settings_tab.panel_separation_vscore.tip"))
+                        .clicked()
+                    {
+                        self.panel_separation = "v_score".into();
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text(t!("settings.settings_tab.panel_separation.tip"))
+                .named("Panel separation method");
+        });
         ui.horizontal(|ui| {
             ui.add(
                 egui::DragValue::new(&mut self.panel_columns)
@@ -5003,22 +5600,54 @@ impl App {
             .on_hover_text(t!("settings.settings_tab.mm_rail.tip"))
             .named("Rail width");
         });
+        if self.panel_separation == "tab" {
+            ui.horizontal(|ui| {
+                ui.add(crate::number_entry::localized_active(
+                    egui::DragValue::new(&mut self.panel_tab_channel)
+                        .range(1.6..=2.0)
+                        .speed(0.05)
+                        .suffix(format!(
+                            " {}",
+                            t!("settings.settings_tab.panel_tab_channel_suffix")
+                        )),
+                    3,
+                ))
+                .on_hover_text(t!("settings.settings_tab.panel_tab_channel.tip"))
+                .named("Tab channel width");
+            });
+        }
         if ui
-            .button(t!("settings.settings_tab.preview_panel"))
-            .on_hover_text(t!("settings.settings_tab.preview_panel.tip"))
+            .button(t!("settings.settings_tab.apply_panel_settings"))
+            .on_hover_text(t!("settings.settings_tab.apply_panel_settings.tip"))
             .clicked()
         {
-            self.panel_plan = self.run_and_keep(
-                "board.panel",
-                json!({
-                    "columns": self.panel_columns,
-                    "rows": self.panel_rows,
-                    "pitch_x": self.panel_gap,
-                    "pitch_y": self.panel_gap,
-                    "rail": self.panel_rail,
-                }),
-            );
+            self.run("panel.set", self.panel_set_params());
         }
+        ui.horizontal(|ui| {
+            if ui
+                .button(t!("settings.settings_tab.preview_panel"))
+                .on_hover_text(t!("settings.settings_tab.preview_panel.tip"))
+                .clicked()
+            {
+                self.panel_plan = self.run_and_keep(
+                    "board.panel",
+                    json!({
+                        "columns": self.panel_columns,
+                        "rows": self.panel_rows,
+                        "pitch_x": self.panel_gap,
+                        "pitch_y": self.panel_gap,
+                        "rail": self.panel_rail,
+                    }),
+                );
+            }
+            if ui
+                .button(t!("settings.settings_tab.export_panel_files"))
+                .on_hover_text(t!("settings.settings_tab.export_panel_files.tip"))
+                .clicked()
+            {
+                self.export_panel_files();
+            }
+        });
         if let Some(plan) = self.panel_plan.get("panel") {
             let copies = self
                 .panel_plan
@@ -5155,6 +5784,7 @@ impl App {
                         }
                     });
                 } else {
+                    self.class_fab_fields(ui, &class);
                     ui.label(
                         egui::RichText::new(t!(
                             "rules.rules_tab.gap_clearance_mm_wire_width",
@@ -5837,6 +6467,8 @@ impl App {
                 });
             }
         }
+        self.class_pair_section(ui);
+        self.fab_rules_section(ui);
     }
     fn builds_tab(&mut self, ui: &mut egui::Ui) {
         if let Some((name, _)) = &self.build_note
@@ -6211,6 +6843,21 @@ impl App {
         }
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
+        if self.tab == Tab::Files {
+            if !Self::narrow_window(ui.ctx()) {
+                let tokens = theme::tokens(ui.ctx());
+                egui::Panel::right("inspector")
+                    .default_size(340.0)
+                    .min_size(280.0)
+                    .frame(
+                        egui::Frame::NONE
+                            .fill(tokens.panel)
+                            .stroke(egui::Stroke::new(theme::BORDER, tokens.line)),
+                    )
+                    .show(ui, |ui| self.files_details(ui));
+            }
+            return;
+        }
         if Self::narrow_window(ui.ctx()) {
             egui::Panel::bottom("inspector-narrow")
                 .default_size(260.0)
@@ -6269,6 +6916,12 @@ impl App {
                 .begin(ui);
             assistant::pane::show(self, &mut padded.content_ui);
             padded.end(ui);
+            return;
+        }
+        if self.tab == Tab::Library {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| self.library_properties(ui));
             return;
         }
         egui::ScrollArea::vertical()
@@ -6535,8 +7188,7 @@ impl App {
     }
     fn footer(&mut self, ui: &mut egui::Ui) {
         // Notes count with the warnings: the bar says only "warnings" and "errors".
-        let (fix, warnings, notes) = Self::finding_counts(&self.checks);
-        let mind = warnings + notes;
+        let (fix, mind) = self.findings().counts().strip();
         let (base, zoom) = match self.tab {
             Tab::Schematic => (15.0, self.schematic.zoom),
             _ => (11.0, self.pcb.zoom),
@@ -6553,7 +7205,7 @@ impl App {
             )
             .show(ui, |ui| {
                 use ui_kit::{icons as kit_icons, status_item::status_item};
-                ui.horizontal_centered(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let status =
                         status_item(ui, None, &self.message, &t!("status.message.tip"), false);
@@ -6882,6 +7534,28 @@ impl App {
         if self.frames == 3 && self.capture_sheet {
             self.open_sheet(bottom_sheet::SheetTab::Findings);
         }
+        // A numeric reference names a via by id, so an image can show its protection.
+        if self.frames == 3
+            && let Some(via) = self
+                .capture_select
+                .as_deref()
+                .and_then(|r| r.parse::<Id>().ok())
+                .filter(|id| self.project.board.vias.iter().any(|v| v.id == *id))
+        {
+            self.capture_select = None;
+            self.select(Some(via));
+        }
+        if self.frames == 3
+            && let Some(row) = self
+                .capture_select
+                .as_deref()
+                .and_then(|s| s.strip_prefix("row:"))
+                .map(str::to_owned)
+        {
+            // `--select row:title` (or symbols, power, drawing) opens that page row.
+            self.capture_select = None;
+            self.select_sheet_row(0, &row);
+        }
         if self.frames == 3
             && let Some(row) = self
                 .capture_select
@@ -6931,6 +7605,13 @@ impl App {
             && library_ready
             && self.online_settled()
             && self.edit.dialog.script.ready()
+if self.capture.is_some()
+            && self.frames >= 5
+            && library_ready
+            && self.online_settled()
+            && self.edit.dialog.script.ready()
+            && (self.tab != Tab::Files || self.files_home.settled(&self.files_listed()))
+        {
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
@@ -7166,6 +7847,7 @@ impl App {
             ctx.request_repaint();
             return;
         }
+        self.file_shortcuts(&ctx);
         self.shortcuts(&ctx);
         if self.compare_open {
             self.compare_window(&ctx);
@@ -7173,7 +7855,9 @@ impl App {
         self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
+self.recovery_window(ui);
         self.renumber_window(&ctx);
+        self.recovery_window(ui);
         if self.home_open {
             self.start_home(ui);
         } else {
@@ -7224,6 +7908,21 @@ impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
         self.assistant_save();
+}
+}
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+        self.show(ui);
+    }
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.capture_inputs(raw_input);
+    }
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, "preferences", &self.preferences);
+        self.assistant_save();
+        // The desktop autosaves into the recovery folder (see `recovery`);
+        // only the browser still needs the page's own storage for it.
+        #[cfg(target_arch = "wasm32")]
         if let Ok(session) = self.session.lock()
             && let Ok(text) = serde_json::to_string(&session.project)
             && text.len() <= pcbcraft_io_limit()
@@ -7232,6 +7931,78 @@ impl eframe::App for App {
         }
     }
 }
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(session) = self.session.lock()
+            && let Ok(text) = serde_json::to_string(&session.project)
+            && text.len() <= pcbcraft_io_limit()
+        {
+            storage.set_string("recovery", text);
+        }
+    }
+}
+
+/// Closing the window with everything saved leaves no recovery entry behind;
+/// closing with unsaved work leaves it for the next launch to offer.
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(session) = self.session.lock()
+            && let Ok(text) = serde_json::to_string(&session.project)
+            && text.len() <= pcbcraft_io_limit()
+        {
+            storage.set_string("recovery", text);
+        }
+    }
+}
+impl Drop for App {
+    fn drop(&mut self) {
+        let Some(slot) = self.autosave.take() else {
+            return;
+        };
+        let saved = self.saved_revision;
+        match self.session.lock() {
+            Ok(session) => slot.close(&session, saved),
+            Err(_) => slot.discard(),
+        }
+    }
+}
+/// The recovery folder this build reads and writes: the real one on a desktop,
+/// and in a test run only a folder a test pointed the override at, so a test
+/// never sees or writes the user's own snapshots.
+#[cfg(not(target_arch = "wasm32"))]
+fn recovery_dir() -> Option<std::path::PathBuf> {
+    let pointed = pcbcraft_engine::recovery::override_dir();
+    if cfg!(test) {
+        pointed
+    } else {
+        pointed.or_else(|| pcbcraft_engine::recovery::default_dir().ok())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn recovery_dir() -> Option<std::path::PathBuf> {
+    None
+}
+
+/// This design's autosave slot, and the snapshots a killed app left in the same
+/// folder, newest first. The offer is read before the slot takes its own lock,
+/// so this session's empty entry is never one of them.
+fn recovery_slots(
+fn recovery_slots(
+    dir: Option<&std::path::Path>,
+) -> (
+    Option<pcbcraft_engine::recovery::Autosaver>,
+    Vec<pcbcraft_engine::recovery::Entry>,
+) {
+    let Some(dir) = dir else {
+        return (None, Vec::new());
+    };
+    let offer = pcbcraft_engine::recovery::orphans(dir);
+    match pcbcraft_engine::recovery::Autosaver::new(dir) {
+        Ok(slot) => (Some(slot), offer),
+        Err(_) => (None, offer),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 fn pcbcraft_io_limit() -> usize {
     8 * 1024 * 1024
 }
@@ -7357,6 +8128,41 @@ mod tests {
         let _ = std::fs::remove_file(&file);
         outcome
     }
+    /// Draw frames until `done` holds, sleeping between them so the library
+    /// worker thread can answer even when many tests share the machine.
+    /// Gives up after `frames` frames, about 25 ms apart.
+    fn frames_until(
+        ctx: &egui::Context,
+        app: &mut App,
+        frames: usize,
+        mut done: impl FnMut(&App) -> bool,
+    ) -> bool {
+        for _ in 0..frames {
+            frame(ctx, app, vec![], egui::Modifiers::NONE);
+            if done(app) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        false
+    }
+    /// Press `label` until `done` holds. The library browser drops a press
+    /// that arrives while an earlier request is still in flight, so a press
+    /// that lands then is repeated rather than lost.
+    fn press_until(
+        ctx: &egui::Context,
+        app: &mut App,
+        label: &str,
+        mut done: impl FnMut(&App) -> bool,
+    ) -> Result<bool, String> {
+        for _ in 0..5 {
+            authoring::tests::tap(ctx, app, label)?;
+            if frames_until(ctx, app, 80, &mut done) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
     /// The visible loop a newcomer follows: type a folder, press Add folder,
     /// watch its collections appear, select one, press Remove source, and
     /// watch both the list and the remembered config forget it.
@@ -7366,12 +8172,9 @@ mod tests {
         app.change_tab(Tab::Libraries);
         app.refresh();
         let ctx = egui::Context::default();
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.catalog.is_some() && app.library.sources.is_some() {
-                break;
-            }
-        }
+        frames_until(&ctx, &mut app, 400, |app| {
+            app.library.catalog.is_some() && app.library.sources.is_some()
+        });
         assert!(
             app.library.catalog.is_some(),
             "the catalog arrives on its own"
@@ -7383,15 +8186,9 @@ mod tests {
         .to_string_lossy()
         .into_owned();
         app.library.new_source = shelf.clone();
-        authoring::tests::tap(&ctx, &mut app, "Add folder")?;
-        let mut added = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.notice.contains("Added") {
-                added = true;
-                break;
-            }
-        }
+        let added = press_until(&ctx, &mut app, "Add folder", |app| {
+            app.library.notice.contains("Added")
+        })?;
         assert!(
             added,
             "adding the folder reports back: {}",
@@ -7403,11 +8200,8 @@ mod tests {
             saved.contains(&shelf),
             "the folder is remembered in the config file"
         );
-        let mut listed = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            listed = app
-                .library
+        let listed = frames_until(&ctx, &mut app, 400, |app| {
+            app.library
                 .catalog
                 .as_ref()
                 .and_then(|catalog| catalog.get("symbol_libraries"))
@@ -7418,11 +8212,8 @@ mod tests {
                             .and_then(Value::as_str)
                             .is_some_and(|path| path.starts_with(&shelf))
                     })
-                });
-            if listed {
-                break;
-            }
-        }
+                })
+        });
         assert!(
             listed,
             "the added folder's collections join the unified list"
@@ -7443,15 +8234,9 @@ mod tests {
             })
             .ok_or("the added collection vanished from the list")?;
         app.library.path = added_path;
-        authoring::tests::tap(&ctx, &mut app, "Remove source")?;
-        let mut removed = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.notice.contains("Removed") {
-                removed = true;
-                break;
-            }
-        }
+        let removed = press_until(&ctx, &mut app, "Remove source", |app| {
+            app.library.notice.contains("Removed")
+        })?;
         assert!(removed, "removal reports back: {}", app.library.notice);
         let saved = std::fs::read_to_string(file).map_err(|_| "config vanished")?;
         assert!(
@@ -7576,7 +8361,11 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Back to a plain rectangle")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            app.project.board.outline.is_none_or(|o| o.len() < 3),
+            app.project
+                .board
+                .outline
+                .as_ref()
+                .is_none_or(|o| o.len() < 3),
             "the board is a plain rectangle again"
         );
         let _ = std::fs::remove_file(&file);
@@ -8788,6 +9577,166 @@ mod tests {
             app.project.component(2).map(|c| c.value.as_str()),
             Some("470 Ω")
         );
+        Ok(())
+    }
+
+    fn large_board() -> Result<Project, String> {
+        let mut project = Project::default();
+        project.board.width = 240.0;
+        project.board.height = 180.0;
+        for net in 1..=8 {
+            project.nets.push(pcbcraft_doc::Net {
+                id: net,
+                name: format!("net {net}"),
+                ..Default::default()
+            });
+        }
+        let (columns, rows, spacing, packages) = (8u64, 8u64, 1.2, 160u64);
+        for package in 0..packages {
+            let id = 10 + package;
+            let origin = Point::new(
+                8.0 + (package % 16) as f64 * 14.0,
+                8.0 + (package / 16) as f64 * 17.0,
+            );
+            let mut pins = Vec::new();
+            let mut pads = Vec::new();
+            for pad in 0..columns * rows {
+                let number = (pad + 1).to_string();
+                let net = 1 + (pad % 8);
+                let offset = Point::new(
+                    (pad % columns) as f64 * spacing,
+                    (pad / columns) as f64 * spacing,
+                );
+                pins.push(pcbcraft_doc::Pin {
+                    number: number.clone(),
+                    name: number.clone(),
+                    offset,
+                    net: Some(net),
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                });
+                pads.push(pcbcraft_doc::Pad {
+                    number,
+                    offset,
+                    diameter: 0.8,
+                    net: Some(net),
+                    castellated: None,
+                    geometry: None,
+                });
+            }
+            project.components.push(pcbcraft_doc::Component {
+                id,
+                reference: format!("J{id}"),
+                value: "header".into(),
+                kind: "connector".into(),
+                position: origin,
+                rotation: 0.0,
+                pins,
+                units: Vec::new(),
+                library_symbol: None,
+                library_footprint: None,
+                fields: Vec::new(),
+                sourcing: Default::default(),
+                sheet: 0,
+            });
+            project.board.footprints.push(pcbcraft_doc::Footprint {
+                id: 2000 + package,
+                component: id,
+                position: origin,
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads,
+            });
+        }
+        for track in 0..400u64 {
+            let start = Point::new(
+                8.0 + (track % 16) as f64 * 14.0,
+                16.0 + (track / 16) as f64 * 17.0,
+            );
+            project.board.tracks.push(pcbcraft_doc::Track {
+                id: 5000 + track,
+                net: 1 + (track % 8),
+                start,
+                end: Point::new(start.x + 6.0, start.y),
+                width: 0.25,
+                layer: pcbcraft_doc::Layer::Front,
+                arc: None,
+            });
+        }
+        project.validate()?;
+        Ok(project)
+    }
+
+    #[test]
+    #[ignore = "timed bench: run with cargo xtask bench"]
+    fn large_board_ten_thousand_pads_stays_within_its_budget() -> Result<(), String> {
+        use std::time::{Duration, Instant};
+        let project = large_board()?;
+        let pads: usize = project.board.footprints.iter().map(|f| f.pads.len()).sum();
+        assert_eq!(pads, 10_240, "the bench board holds ten thousand pads");
+        let (pairs, items) = pcbcraft_rules::copper_pair_candidates(&project);
+        assert!(
+            pairs <= items * 40,
+            "the broad phase should hand the exact test at most 40 pairs per item, not {pairs} for {items} items"
+        );
+        let started = Instant::now();
+        let findings = pcbcraft_rules::drc(&project);
+        let checks = started.elapsed();
+        assert!(
+            !findings.is_empty(),
+            "the bench board is dense enough to report findings"
+        );
+        let started = Instant::now();
+        let airwires = pcbcraft_rules::airwires(&project);
+        let wires = started.elapsed();
+        assert!(
+            airwires.len() <= items,
+            "one airwire per extra island at most"
+        );
+        eprintln!(
+            "bench: {items} copper items, {pairs} candidate pairs, checks {checks:?}, airwires {wires:?} ({} wires)",
+            airwires.len()
+        );
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        shared
+            .lock()
+            .map_err(|_| "the design is busy".to_string())?
+            .replace(project)
+            .map_err(|e| e.to_string())?;
+        let mut app =
+            App::create_with_recovery(shared, Preferences::default(), None, Some("pcb"), None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let started = Instant::now();
+        for step in 0..5 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(600.0 + step as f32, 500.0)),
+                    egui::Event::PointerButton {
+                        pos: egui::pos2(600.0, 500.0),
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        let painted = started.elapsed();
+        assert!(
+            checks < Duration::from_secs(20),
+            "the copper checks on ten thousand pads took {checks:?}"
+        );
+        assert!(
+            painted < Duration::from_secs(20),
+            "five selection frames on ten thousand pads took {painted:?}"
+        );
+        eprintln!("bench: five frames {painted:?}");
         Ok(())
     }
 }

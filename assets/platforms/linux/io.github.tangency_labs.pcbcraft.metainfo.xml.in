@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.tangency_labs.pcbcraft</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>PCBCraft</name>
+  <summary>Open-source Rust PCB design</summary>
+  <developer id="io.github.tangency_labs">
+    <name>PCBCraft contributors</name>
+  </developer>
+  <description>
+    <p>
+      PCBCraft is an open-source PCB design application written in Rust. Capture schematics,
+      place and route a board, run design checks, and export fabrication files.
+    </p>
+    <ul>
+      <li>Unified schematic and PCB editing in one window</li>
+      <li>Symbol and footprint libraries, with import from common file formats</li>
+      <li>Routing, design rules, and headless checks via pcbcraft-cli</li>
+      <li>MCP server for agent-driven workflows</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.tangency_labs.pcbcraft.desktop</launchable>
+  <icon type="stock">io.github.tangency_labs.pcbcraft</icon>
+  <url type="homepage">https://github.com/tangency-labs/pcbcraft</url>
+  <url type="bugtracker">https://github.com/tangency-labs/pcbcraft/issues</url>
+  <categories>
+    <category>Science</category>
+    <category>Engineering</category>
+    <category>Electronics</category>
+  </categories>
+  <keywords>
+    <keyword>pcb</keyword>
+    <keyword>eda</keyword>
+    <keyword>schematic</keyword>
+  </keywords>
+  <provides>
+    <binary>pcbcraft</binary>
+    <binary>pcbcraft-cli</binary>
+    <mediatype>application/x-pcbcraft</mediatype>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>
