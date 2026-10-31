@@ -104,7 +104,7 @@ pub enum OptionKind {
     Variant,
     /// The columns of a bill of materials.
     Columns,
-    /// The vendor flavours of a bill of materials ([`BOM_FLAVOURS`]).
+    /// The vendor flavours of a bill of materials ([`crate::bom_profiles()`]).
     Flavour,
 }
 

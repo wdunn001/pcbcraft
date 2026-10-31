@@ -1,0 +1,35 @@
+﻿Reference,Value,Footprint,MPN,Manufacturer,Quantity
+"C10, C13, C14, C15, C16, C7, C8, C9",100nF,project:Chip_0402,MP-100nF,Maker,8
+R5,10k,project:Chip_0402,MP-10k,Maker,1
+C1,10uF,project:Chip_0603,MP-10uF,Maker,1
+Y1,16 MHz,project:Crystal_3225,MP-16MHz,Maker,1
+"C5, C6",18pF,project:Chip_0402,MP-18pF,Maker,2
+R4,1k,project:Chip_0402,MP-1k,Maker,1
+"R10, R11, R12, R13, R14, R15",1k,project:Chip_0603,MP-1k,Maker,6
+C12,1uF,project:Chip_0402,MP-1uF,Maker,1
+C17,1uF,project:Chip_0603,MP-1uF,Maker,1
+"C3, C4",2.2uF,project:Chip_0603,MP-22uF,Maker,2
+R3,2k,project:Chip_0402,MP-2k,Maker,1
+TP2,3V3,project:Test_Pad,MP-3V3,Maker,1
+"R8, R9",4.7k,project:Chip_0402,MP-47k,Maker,2
+"C11, C2",4.7uF,project:Chip_0603,MP-47uF,Maker,2
+"R1, R2",5.1k,project:Chip_0402,MP-51k,Maker,2
+F1,500 mA,project:Chip_1206,MP-500mA,Maker,1
+"D1, D6, D7",Amber,project:LED_0603,MP-Amber,Maker,3
+J2,Battery,project:Battery_2P,MP-Battery,Maker,1
+U1,Charger,project:SOT-23-5,MP-Charger,Maker,1
+U5,Climate,project:DFN-8,MP-Climate,Maker,1
+J3,Debug,project:Header_1x7_1.27,MP-Debug,Maker,1
+U4,Flash,project:SOIC-8,MP-Flash,Maker,1
+"D3, D4, D5",Green,project:LED_0603,MP-Green,Maker,3
+U2,LDO 3V3,project:SOT-23-5,MP-LDO3V3,Maker,1
+U6,Light,project:SOT-23-6,MP-Light,Maker,1
+U3,MCU,project:QFN-32,MP-MCU,Maker,1
+D8,Red,project:LED_0603,MP-Red,Maker,1
+SW1,Reset,project:Tact_4p5,MP-Reset,Maker,1
+U7,Switch,project:SOT-23-5,MP-Switch,Maker,1
+D2,TVS,project:SOD-323,MP-TVS,Maker,1
+J1,USB-C,project:USB_C_Receptacle,MP-USBC,Maker,1
+SW2,User 1,project:Tact_4p5,MP-User1,Maker,1
+SW3,User 2,project:Tact_4p5,MP-User2,Maker,1
+TP1,VBAT,project:Test_Pad,MP-VBAT,Maker,1
