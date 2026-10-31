@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+pcbcraft-clock.workspace = true
 pcbcraft-engine.workspace = true
 pcbcraft-mcp.workspace = true
 serde.workspace = true
@@ -16,3 +17,5 @@ serde_json.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", default-features = false, features = ["process", "signal"] }
+[dev-dependencies]
+pcbcraft-engine.workspace = true

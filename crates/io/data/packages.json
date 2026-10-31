@@ -1,0 +1,293 @@
+[
+  {
+    "id": "fab_prototype",
+    "name": "Prototype fab (Gerber + drill)",
+    "audience": "Online prototype board makers that take a ZIP of Gerber layers with legacy layer suffixes (.GTL style) and drill files, no folders.",
+    "container": "zip",
+    "archive": "{project}-fab-{rev}.zip",
+    "files": [
+      {
+        "kind": "gerbers",
+        "format": "gerber_layers",
+        "name": "{project}.{ext}",
+        "options": {
+          "naming": "legacy_ext"
+        }
+      },
+      {
+        "kind": "gerbers",
+        "format": "gerber_drill",
+        "name": "{project}-{layer}.{ext}",
+        "options": {
+          "naming": "legacy_ext"
+        }
+      },
+      {
+        "kind": "gerbers",
+        "format": "drill_map",
+        "name": "{project}-{layer}.{ext}"
+      },
+      {
+        "kind": "report",
+        "format": "fab_readme",
+        "name": "{project}-{layer}.{ext}"
+      }
+    ]
+  },
+  {
+    "id": "fab_x2",
+    "name": "Fab, Gerber X2 with job file",
+    "audience": "Board makers that read Gerber X2 with a job file; plain .gbr names, no folders.",
+    "container": "zip",
+    "archive": "{project}-gerber-x2-{rev}.zip",
+    "files": [
+      {
+        "kind": "gerbers",
+        "format": "gerber_layers",
+        "name": "{project}-{layer}.{ext}",
+        "options": {
+          "naming": "ucamco"
+        }
+      },
+      {
+        "kind": "gerbers",
+        "format": "gerber_drill",
+        "name": "{project}-{layer}.{ext}",
+        "options": {
+          "naming": "ucamco"
+        }
+      },
+      {
+        "kind": "gerbers",
+        "format": "drill_map",
+        "name": "{project}-{layer}.{ext}"
+      },
+      {
+        "kind": "gerbers",
+        "format": "gerber_job",
+        "name": "{project}-{layer}.{ext}"
+      }
+    ]
+  },
+  {
+    "id": "fab_quickturn",
+    "name": "Quick-turn fab with drawing",
+    "audience": "Quick-turn board makers that also want a fab drawing with drill chart, stackup, impedance and notes, and a test netlist.",
+    "container": "zip",
+    "archive": "{project}-quickturn-{rev}.zip",
+    "files": [
+      {
+        "kind": "gerbers",
+        "format": "gerber_layers",
+        "name": "{project}-{layer}.{ext}",
+        "options": {
+          "naming": "ucamco"
+        }
+      },
+      {
+        "kind": "gerbers",
+        "format": "gerber_drill",
+        "name": "{project}-{layer}.{ext}",
+        "options": {
+          "naming": "ucamco"
+        }
+      },
+      {
+        "kind": "ipc356",
+        "format": "ipc356",
+        "name": "{project}-ipc356.{ext}"
+      },
+      {
+        "kind": "pdf",
+        "format": "fab_drawing",
+        "name": "{project}-fab-drawing.pdf"
+      },
+      {
+        "kind": "report",
+        "format": "fab_readme",
+        "name": "{project}-{layer}.{ext}"
+      }
+    ]
+  },
+  {
+    "id": "assembly_prototype",
+    "name": "Assembly, online prototype house",
+    "audience": "Online prototype assemblers: a parts list and a surface-mount placement file, same designators in both.",
+    "container": "folder",
+    "files": [
+      {
+        "kind": "bom",
+        "format": "bom_csv",
+        "name": "{project}-bom-{rev}.{ext}",
+        "options": {
+          "profile": "generic"
+        }
+      },
+      {
+        "kind": "placement",
+        "format": "cpl_csv",
+        "name": "{project}-cpl-{rev}.{ext}",
+        "options": {
+          "profile": "prototype"
+        }
+      }
+    ]
+  },
+  {
+    "id": "assembly_contract",
+    "name": "Assembly, contract assembler",
+    "audience": "Contract assemblers: vendor-profile parts list, per-side placement in inches, and assembly drawings for top and bottom.",
+    "container": "zip",
+    "archive": "{project}-asm-{rev}-{variant}.zip",
+    "files": [
+      {
+        "kind": "bom",
+        "format": "bom_contract",
+        "name": "{project}-bom-{rev}.{ext}"
+      },
+      {
+        "kind": "placement",
+        "format": "cpl_contract",
+        "name": "{project}-cpl-{side}-{rev}.{ext}"
+      },
+      {
+        "kind": "pdf",
+        "format": "assembly_drawing_top",
+        "name": "{project}-assembly-top.pdf"
+      },
+      {
+        "kind": "pdf",
+        "format": "assembly_drawing_bottom",
+        "name": "{project}-assembly-bottom.pdf"
+      }
+    ]
+  },
+  {
+    "id": "ipc2581",
+    "name": "IPC-2581 single file",
+    "audience": "Makers and assemblers that take one intelligent-format file. Experimental until checked against the schema and a viewer.",
+    "container": "file",
+    "experimental": true,
+    "files": [
+      {
+        "kind": "ipc2581",
+        "format": "ipc2581",
+        "name": "{project}-{rev}.xml"
+      }
+    ]
+  },
+  {
+    "id": "odb",
+    "name": "ODB++ single archive",
+    "audience": "Makers that take an ODB++ archive. Experimental until checked against a viewer.",
+    "container": "file",
+    "experimental": true,
+    "files": [
+      {
+        "kind": "odb",
+        "format": "odb",
+        "name": "{project}-{rev}.odb.zip"
+      }
+    ]
+  },
+  {
+    "id": "mechanical",
+    "name": "Mechanical handoff",
+    "audience": "Enclosure and mechanical designers: STEP board, IDF board and library, and a DXF outline.",
+    "container": "zip",
+    "archive": "{project}-mech-{rev}.zip",
+    "files": [
+      {
+        "kind": "step",
+        "format": "step",
+        "name": "{project}.{ext}"
+      },
+      {
+        "kind": "idf",
+        "format": "idf_board",
+        "name": "{project}.{ext}"
+      },
+      {
+        "kind": "idf",
+        "format": "idf_library",
+        "name": "{project}.emp"
+      },
+      {
+        "kind": "dxf",
+        "format": "dxf_board",
+        "name": "{project}.{ext}"
+      }
+    ]
+  },
+  {
+    "id": "documentation",
+    "name": "Documentation",
+    "audience": "People who need to read the design: schematic and board PDFs, assembly drawings, parts list, stackup, drill chart and revision notes.",
+    "container": "zip",
+    "archive": "{project}-docs-{rev}.zip",
+    "files": [
+      {
+        "kind": "pdf",
+        "format": "pdf_schematic",
+        "name": "{project}-{layer}-{rev}.{ext}"
+      },
+      {
+        "kind": "pdf",
+        "format": "pdf_board",
+        "name": "{project}-{layer}-{rev}.{ext}"
+      },
+      {
+        "kind": "pdf",
+        "format": "assembly_drawing_top",
+        "name": "{project}-assembly-top-{rev}.pdf"
+      },
+      {
+        "kind": "pdf",
+        "format": "assembly_drawing_bottom",
+        "name": "{project}-assembly-bottom-{rev}.pdf"
+      },
+      {
+        "kind": "bom",
+        "format": "bom_csv",
+        "name": "{project}-bom-{rev}.{ext}",
+        "options": {
+          "profile": "generic"
+        }
+      },
+      {
+        "kind": "stackup",
+        "format": "stackup",
+        "name": "{project}-stackup-{rev}.{ext}"
+      },
+      {
+        "kind": "drill_chart",
+        "format": "drill_chart",
+        "name": "{project}-drill-chart-{rev}.{ext}"
+      },
+      {
+        "kind": "report",
+        "format": "revision_notes",
+        "name": "{project}-revision-notes-{rev}.txt"
+      }
+    ]
+  },
+  {
+    "id": "stencil",
+    "name": "Solder paste stencil",
+    "audience": "Stencil makers: top and bottom paste layers, not mirrored, with fiducials, and an optional cut file.",
+    "container": "zip",
+    "archive": "{project}-stencil-{rev}.zip",
+    "files": [
+      {
+        "kind": "gerbers",
+        "format": "paste_gerbers",
+        "name": "{project}-paste-{side}.{ext}"
+      },
+      {
+        "kind": "svg",
+        "format": "stencil_cut",
+        "name": "{project}-stencil.{ext}"
+      }
+    ]
+  }
+]
