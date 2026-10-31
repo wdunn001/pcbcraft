@@ -1625,9 +1625,9 @@ schema(
         ),
         (
             "track.route",
-            "Connect a same-net pad or point to another on the chosen copper layer. Default mode orthogonal is one right-angle bend with no obstacle checks. Mode octilinear routes 45-degree copper around other nets' pads, tracks and cutouts. Mode octilinear_shove walks around pads and cutouts and pushes other nets' tracks aside within fixed iteration limits. Refusals say why and change nothing. Single layer, no vias",
+            "Connect a same-net pad or point to another on the chosen copper layer. Optional end_layer finishes on another layer and inserts a through via at the bend in the same step. Default mode orthogonal is one right-angle bend with no obstacle checks. Mode octilinear routes 45-degree copper around other nets' pads, tracks and cutouts. Mode octilinear_shove walks around pads and cutouts and pushes other nets' tracks aside within fixed iteration limits. Refusals say why and change nothing",
             schema(
-                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
+                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"start copper layer for the route"},"end_layer":{"type":"string","maxLength":64,"description":"finish copper layer; when it differs from layer a through via is placed at the bend"},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
                 &["from", "to"],
             ),
         ),
@@ -6655,6 +6655,8 @@ struct Route {
     #[serde(default = "front")]
     layer: Layer,
     #[serde(default)]
+    end_layer: Option<Layer>,
+    #[serde(default)]
     mode: route::Mode,
     net: Option<Id>,
 }
@@ -6691,6 +6693,23 @@ fn class_width(p: &Project, net: Id) -> f64 {
     p.net_class(net)
         .map(|class| class.width)
         .unwrap_or_else(default_width)
+}
+fn class_via_size(p: &Project, net: Id) -> Result<(f64, f64), Error> {
+    let class = p.net_class(net);
+    let diameter = class
+        .and_then(|c| c.via_diameter)
+        .filter(|d| d.is_finite() && *d > 0.0 && *d <= 100.0)
+        .unwrap_or(0.8);
+    let drill = class
+        .and_then(|c| c.via_drill)
+        .filter(|d| d.is_finite() && *d >= 0.0)
+        .unwrap_or(0.4);
+    if drill >= diameter {
+        return Err(Error::Invalid(
+            "via drill must be smaller than its pad".into(),
+        ));
+    }
+    Ok((diameter, drill))
 }
 fn start_at_one() -> u64 {
     1
@@ -17962,8 +17981,67 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
         }
         "track.route" => {
             let a: Route = parse(params)?;
-            let layer = command_layer(p, params, a.layer)?;
-            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, layer)?;
+            let start_layer = command_layer(p, params, a.layer)?;
+            let end_layer = match params.get("end_layer").and_then(|v| v.as_str()) {
+                Some(name) => resolve_layer_param(p, name)?,
+                None => a.end_layer.unwrap_or(start_layer),
+            };
+            if start_layer != end_layer {
+                if a.mode != route::Mode::Orthogonal {
+                    return Err(Error::Invalid(
+                        "a layer change route uses right-angle copper only".into(),
+                    ));
+                }
+                let (start, end, net) = route::resolve_between_layers(
+                    p,
+                    &a.from,
+                    &a.to,
+                    a.net,
+                    start_layer,
+                    end_layer,
+                )?;
+                let width = a.width.unwrap_or_else(|| class_width(p, net));
+                if start.distance(end) < 1e-6 || !positive(width) {
+                    return Err(Error::Invalid(
+                        "route requires distinct pads on the same net and a valid width".into(),
+                    ));
+                }
+                let bend = Point::new(end.x, start.y);
+                if !bend.valid() {
+                    return Err(Error::Invalid("via position is out of range".into()));
+                }
+                let (diameter, drill) = class_via_size(p, net)?;
+                let mut ids = vec![];
+                for (from, to, layer) in [(start, bend, start_layer), (bend, end, end_layer)] {
+                    if from.distance(to) > 1e-6 {
+                        let id = allocate(next)?;
+                        ids.push(id);
+                        p.board.tracks.push(Track {
+                            id,
+                            net,
+                            start: from,
+                            end: to,
+                            width,
+                            layer,
+                            arc: None,
+                        });
+                    }
+                }
+                let via_id = allocate(next)?;
+                ids.push(via_id);
+                p.board.vias.push(pcbcraft_doc::Via {
+                    id: via_id,
+                    net,
+                    position: bend,
+                    diameter,
+                    drill,
+                    from_layer: None,
+                    to_layer: None,
+                    covering: None,
+                });
+                return Ok(json!({"ids":ids,"net":net,"width":width,"via":via_id}));
+            }
+            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, start_layer)?;
             let width = a.width.unwrap_or_else(|| class_width(p, net));
             if start.distance(end) < 1e-6 || !positive(width) {
                 return Err(Error::Invalid(
@@ -17971,7 +18049,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 ));
             }
             if a.mode != route::Mode::Orthogonal {
-                return route::run(p, next, start, end, net, width, layer, a.mode);
+                return route::run(p, next, start, end, net, width, start_layer, a.mode);
             }
             let bend = Point::new(end.x, start.y);
             let mut ids = vec![];
@@ -17985,7 +18063,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                         start: from,
                         end: to,
                         width,
-                        layer,
+                        layer: start_layer,
                         arc: None,
                     });
                 }
@@ -38353,6 +38431,176 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
                 .is_err(),
             "shrinking the stack while bottom copper still carries a track is refused"
         );
+        Ok(())
+    }
+    #[test]
+    fn track_route_with_different_end_layer_places_via_and_undo_once() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("board.resize", json!({"width":60.0,"height":40.0}), None)?;
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            s.execute(
+                "board.set_layer_record",
+                json!({"name":name,"kind":"copper","thickness":thickness}),
+                None,
+            )?;
+        }
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let a = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":a,"pin":"1"},{"component":b,"pin":"1"}]}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp_a = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == a)
+            .ok_or_else(missing)?
+            .id;
+        let fp_b = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == b)
+            .ok_or_else(missing)?
+            .id;
+        if let Some(f) = s.project.board.footprints.iter_mut().find(|f| f.id == fp_b)
+            && let Some(pad) = f.pads.iter_mut().find(|pad| pad.number == "1")
+        {
+            pad.diameter = 1.6;
+            pad.geometry = Some(pcbcraft_library::FootprintPad {
+                number: "1".into(),
+                pad_type: "smd".into(),
+                shape: "circle".into(),
+                position: Point::default(),
+                rotation: 0.0,
+                size: Point::new(1.6, 1.6),
+                layers: vec!["In1.Cu".into()],
+                drill: None,
+                roundrect_ratio: None,
+                chamfer: None,
+                polygon: vec![],
+                raw_source: String::new(),
+            });
+        }
+        let tracks_before = s.project.board.tracks.len();
+        let vias_before = s.project.board.vias.len();
+        s.execute(
+            "track.route",
+            json!({
+                "from":{"footprint":fp_a,"pad":"1"},
+                "to":{"footprint":fp_b,"pad":"1"},
+                "layer":"F.Cu",
+                "end_layer":"In1.Cu",
+                "width":0.25
+            }),
+            None,
+        )?;
+        assert_eq!(s.project.board.tracks.len(), tracks_before + 2);
+        assert_eq!(s.project.board.vias.len(), vias_before + 1);
+        assert!(
+            pcbcraft_rules::airwires(&s.project).is_empty(),
+            "the layer-change route connects both pads"
+        );
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), tracks_before);
+        assert_eq!(s.project.board.vias.len(), vias_before);
+        Ok(())
+    }
+    #[test]
+    fn track_route_rejects_end_layer_without_pad_copper() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            s.execute(
+                "board.set_layer_record",
+                json!({"name":name,"kind":"copper","thickness":thickness}),
+                None,
+            )?;
+        }
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let a = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":a,"pin":"1"},{"component":b,"pin":"1"}]}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp_a = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == a)
+            .ok_or_else(missing)?
+            .id;
+        let fp_b = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == b)
+            .ok_or_else(missing)?
+            .id;
+        let snapshot = s.project.clone();
+        assert!(
+            s.execute(
+                "track.route",
+                json!({
+                    "from":{"footprint":fp_a,"pad":"1"},
+                    "to":{"footprint":fp_b,"pad":"1"},
+                    "layer":"F.Cu",
+                    "end_layer":"In1.Cu"
+                }),
+                None,
+            )
+            .is_err(),
+            "the destination pad has no inner copper"
+        );
+        assert_eq!(s.project, snapshot);
         Ok(())
     }
     #[test]
