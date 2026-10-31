@@ -33027,6 +33027,56 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn import_footprint_file_records_the_given_notice() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-notice-fp-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let footprint_path = directory.join(format!("notice-{}.kicad_mod", std::process::id()));
+        std::fs::write(
+            &footprint_path,
+            std::fs::read_to_string(library_fixture("R_0805_2012Metric.kicad_mod"))
+                .map_err(|e| Error::Invalid(e.to_string()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        const NOTICE: &str = "Added by hand from a download; check the provider terms";
+        s.execute(
+            "library.import_footprint_file",
+            json!({"path": footprint_path.to_string_lossy(), "notice": NOTICE}),
+            None,
+        )?;
+        assert_eq!(s.project.library.notices, vec![NOTICE.to_owned()]);
+        s.undo()?;
+        assert!(s.project.library.notices.is_empty());
+        std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+    #[test]
+    fn import_symbol_file_records_the_given_notice() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-notice-sym-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let symbol_path = directory.join(format!("notice-{}.kicad_sym", std::process::id()));
+        std::fs::write(
+            &symbol_path,
+            std::fs::read_to_string(library_fixture("device.kicad_sym"))
+                .map_err(|e| Error::Invalid(e.to_string()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        const NOTICE: &str = "Added by hand from a download; check the provider terms";
+        s.execute(
+            "library.import_symbol_file",
+            json!({"path": symbol_path.to_string_lossy(), "notice": NOTICE}),
+            None,
+        )?;
+        assert_eq!(s.project.library.notices, vec![NOTICE.to_owned()]);
+        s.undo()?;
+        assert!(s.project.library.notices.is_empty());
+        std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+    #[test]
     fn embedded_items_are_adopted_into_the_project_library_and_undo_cleanly() -> Result<(), Error> {
         let directory = std::env::temp_dir().join(format!("pcbcraft-adopt-{}", std::process::id()));
         std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
