@@ -719,7 +719,7 @@ impl App {
     }
 
     fn transcript_file(&self) -> Option<std::path::PathBuf> {
-        pcbcraft_assistant::transcript_path(Some(self.path.as_str()))
+        pcbcraft_assistant::transcript_path(&self.user_config(), Some(self.path.as_str()))
     }
 
     /// Write this design's conversation outside the design file. Does nothing for a design
@@ -764,7 +764,7 @@ impl App {
     /// design has no path yet) and say where it went.
     pub(crate) fn assistant_export(&mut self) {
         let name = self.project.name.clone();
-        let now = crate::wall_clock::unix_secs_now();
+let now = pcbcraft_clock::unix_secs();
         let markdown =
             pcbcraft_assistant::export_markdown(&self.assistant.transcript.items, &name, now);
         let folder = std::path::Path::new(&self.path)

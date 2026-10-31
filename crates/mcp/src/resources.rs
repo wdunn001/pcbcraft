@@ -152,6 +152,7 @@ mod tests {
             hub,
             json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}),
             None,
+            None,
         )
         .ok_or_else(|| "expected a reply".to_string())
     }

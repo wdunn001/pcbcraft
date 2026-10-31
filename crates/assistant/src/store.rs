@@ -10,6 +10,7 @@
 //! Do not: write a connection key, a context note or a picture here.
 
 use crate::transcript::{Item, MAX_ITEMS};
+use pcbcraft_engine::user_config::UserConfig;
 use serde_json::{Value, json};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -21,22 +22,13 @@ const MAX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_LINE: usize = 512 * 1024;
 
 /// The file for a design, or `None` for a design that has no path yet.
-pub fn transcript_path(design_path: Option<&str>) -> Option<PathBuf> {
+pub fn transcript_path(config: &UserConfig, design_path: Option<&str>) -> Option<PathBuf> {
     let design = design_path.map(str::trim).filter(|p| !p.is_empty())?;
-    let directory = |key: &str| {
-        std::env::var(key)
-            .ok()
-            .map(|v| v.trim().to_owned())
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
-    let base = directory("XDG_CONFIG_HOME")
-        .or_else(|| directory("APPDATA"))
-        .or_else(|| directory("HOME").map(|h| h.join(".config")))?;
     let mut hasher = DefaultHasher::new();
     design.as_bytes().hash(&mut hasher);
     Some(
-        base.join("pcbcraft")
+        config
+            .folder()?
             .join("assistant")
             .join(format!("{:016x}.jsonl", hasher.finish())),
     )
@@ -66,10 +58,14 @@ fn to_line(item: &Item) -> Option<Value> {
             "text": format!("{title}: {}", answer.as_deref().unwrap_or("not answered")),
             "error": false,
         }),
+Item::Queued { .. } => return None,
+        Item::Sources(links) => json!({
+            "k": "sources",
+            "links": links.iter().map(|l| json!({"title": l.title, "source": l.source})).collect::<Vec<_>>(),
+        }),
         Item::Step { title, result, .. } => {
             json!({"k": "note", "text": format!("{title}: {result}"), "error": false})
         }
-        Item::Suggestions(_) | Item::Queued { .. } => return None,
     })
 }
 
@@ -138,6 +134,19 @@ pub fn load(path: &std::path::Path) -> (Vec<Item>, usize) {
                     .into_iter()
                     .flatten()
                     .filter_map(|s| Some((s[0].as_str()?.to_string(), s[1].as_str()?.to_string())))
+                    .collect(),
+            ),
+            Some("sources") => Item::Sources(
+                v["links"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|l| {
+                        Some(crate::backend::SourceLink {
+                            title: l["title"].as_str()?.to_string(),
+                            source: l["source"].as_str().unwrap_or("").to_string(),
+                        })
+                    })
                     .collect(),
             ),
             _ => {
@@ -287,12 +296,13 @@ mod tests {
 
     #[test]
     fn an_unsaved_design_is_not_persisted_until_it_has_a_path() {
-        assert_eq!(transcript_path(None), None);
-        assert_eq!(transcript_path(Some("  ")), None);
-        let a = transcript_path(Some("/a/b.pcbcraft"));
+        let config = UserConfig::in_folder("/config/pcbcraft");
+        assert_eq!(transcript_path(&config, None), None);
+        assert_eq!(transcript_path(&config, Some("  ")), None);
+        let a = transcript_path(&config, Some("/a/b.pcbcraft"));
         assert!(a.is_some());
-        assert_ne!(a, transcript_path(Some("/a/c.pcbcraft")));
-        assert_eq!(a, transcript_path(Some("/a/b.pcbcraft")));
+        assert_ne!(a, transcript_path(&config, Some("/a/c.pcbcraft")));
+        assert_eq!(a, transcript_path(&config, Some("/a/b.pcbcraft")));
     }
 
     #[test]
