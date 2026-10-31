@@ -3373,7 +3373,7 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
         };
         let values: Vec<String> = columns
             .iter()
-            .map(|(key, _)| c.field(key).unwrap_or("").to_string())
+            .map(|(key, _)| c.bom_value(key))
             .collect();
         groups
             .entry((c.value.clone(), c.kind.clone(), footprint, values))
@@ -7818,6 +7818,7 @@ mod tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             instance: None,
             prototype: None,
@@ -8708,6 +8709,7 @@ mod tests {
             .collect();
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             instance: None,
             prototype: None,
@@ -9383,6 +9385,7 @@ mod tests {
             pads: vec![through_pad, pad2],
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             instance: None,
             prototype: None,
@@ -9630,6 +9633,7 @@ mod tests {
         };
         for id in 1..=2u64 {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -9724,6 +9728,7 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -9846,6 +9851,7 @@ mod tests {
         };
         for (id, reference) in [(1, "R1"), (2, "D1")] {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -9940,6 +9946,7 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -10101,6 +10108,7 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -10280,6 +10288,7 @@ mod tests {
             polygon: Vec::new(),
         };
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             instance: None,
             prototype: None,
@@ -10319,6 +10328,7 @@ mod tests {
         compliance: Default::default(),
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             instance: None,
             prototype: None,
@@ -10587,6 +10597,7 @@ mod tests {
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -10742,6 +10753,7 @@ mod tests {
         ]);
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -11357,6 +11369,7 @@ mod tests {
             (4, "C1", "100n"),
         ] {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -11453,10 +11466,77 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn bom_csv_reads_typed_sourcing_columns() -> Result<(), String> {
+        let mut project = Project::default();
+        let mut c = pcbcraft_doc::Component {
+            sourcing: Default::default(),
+            sheet: 0,
+            id: 1,
+            reference: "R1".into(),
+            value: "10k".into(),
+            kind: "resistor".into(),
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            pins: vec![
+                pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::new(-1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+                pcbcraft_doc::Pin {
+                    number: "2".into(),
+                    name: String::new(),
+                    offset: Point::new(1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+            ],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+        };
+        c.sourcing.manufacturer = "Yageo".into();
+        c.sourcing.mpn = "RC0603".into();
+        c.sourcing
+            .set_supplier("Digi-Key", Some("311-ND"), None)
+            .map_err(|e| e.to_string())?;
+        project.components.push(c);
+        project.validate()?;
+        let text = bom_csv(
+            &project,
+            &[
+                "MPN".to_string(),
+                "Manufacturer".to_string(),
+                "Suppliers".to_string(),
+            ],
+            None,
+        )?;
+        assert!(
+            text.contains("RC0603"),
+            "typed MPN in bom.csv: {text}"
+        );
+        assert!(text.contains("Yageo"), "typed manufacturer in bom.csv: {text}");
+        assert!(
+            text.contains("Digi-Key: 311-ND"),
+            "supplier list in bom.csv: {text}"
+        );
+        Ok(())
+    }
+
     #[test]
     fn bom_csv_prints_project_defined_columns_under_their_labels() -> Result<(), String> {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             instance: None,
             prototype: None,
@@ -11542,6 +11622,7 @@ mod tests {
         let mut project = Project::default();
         for (id, reference) in [(1, "R1"), (2, "R2")] {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -11708,6 +11789,7 @@ mod tests {
         }
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -11860,6 +11942,7 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -12009,6 +12092,7 @@ mod tests {
             ..geometry.clone()
         };
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             instance: None,
             prototype: None,
@@ -12195,6 +12279,7 @@ mod tests {
         }
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 instance: None,
                 prototype: None,
@@ -12286,6 +12371,7 @@ mod tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             instance: None,
             prototype: None,
@@ -12734,6 +12820,7 @@ mod tests {
         symbol.validate().map_err(|e| e.to_string())?;
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             instance: None,
             prototype: None,
@@ -13931,6 +14018,7 @@ mod tests {
         };
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             instance: None,
             prototype: None,
