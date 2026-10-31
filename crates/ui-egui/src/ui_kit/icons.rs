@@ -27,7 +27,7 @@ impl std::fmt::Debug for Icon {
     }
 }
 
-fn pt(rect: Rect, x: f32, y: f32) -> Pos2 {
+pub(super) fn pt(rect: Rect, x: f32, y: f32) -> Pos2 {
     // 16 by 16 design grid mapped into the rect.
     pos2(
         rect.min.x + rect.width() * x / 16.0,
@@ -35,7 +35,7 @@ fn pt(rect: Rect, x: f32, y: f32) -> Pos2 {
     )
 }
 
-fn line(p: &Painter, rect: Rect, c: Color32, pts: &[(f32, f32)]) {
+pub(super) fn line(p: &Painter, rect: Rect, c: Color32, pts: &[(f32, f32)]) {
     let points: Vec<Pos2> = pts.iter().map(|&(x, y)| pt(rect, x, y)).collect();
     p.add(Shape::line(points, Stroke::new(ICON_STROKE, c)));
 }
@@ -65,6 +65,10 @@ pub const CLOSE: Icon = Icon(|p, r, c| {
 /// A chevron pointing down.
 pub const CHEVRON_DOWN: Icon =
     Icon(|p, r, c| line(p, r, c, &[(4.0, 6.0), (8.0, 10.0), (12.0, 6.0)]));
+
+/// A chevron pointing up.
+pub const CHEVRON_UP: Icon =
+    Icon(|p, r, c| line(p, r, c, &[(4.0, 10.0), (8.0, 6.0), (12.0, 10.0)]));
 
 /// A chevron pointing right.
 pub const CHEVRON_RIGHT: Icon =
@@ -120,6 +124,57 @@ pub const FIT: Icon = Icon(|p, r, c| {
     line(p, r, c, &[(13.5, 10.0), (13.5, 13.5), (10.0, 13.5)]);
     line(p, r, c, &[(6.0, 13.5), (2.5, 13.5), (2.5, 10.0)]);
 });
+
+/// An eye crossed out, for hidden items.
+pub const EYE_OFF: Icon = Icon(|p, r, c| {
+    line(
+        p,
+        r,
+        c,
+        &[
+            (1.5, 8.0),
+            (4.5, 4.5),
+            (8.0, 3.5),
+            (11.5, 4.5),
+            (14.5, 8.0),
+            (11.5, 11.5),
+            (8.0, 12.5),
+            (4.5, 11.5),
+            (1.5, 8.0),
+        ],
+    );
+    line(p, r, c, &[(3.0, 13.0), (13.0, 3.0)]);
+});
+
+/// A closed padlock.
+pub const LOCK: Icon = Icon(|p, r, c| {
+    p.rect_stroke(
+        Rect::from_min_max(pt(r, 3.5, 7.0), pt(r, 12.5, 14.0)),
+        egui::CornerRadius::same(2),
+        Stroke::new(ICON_STROKE, c),
+        egui::StrokeKind::Inside,
+    );
+    line(
+        p,
+        r,
+        c,
+        &[(5.5, 7.0), (5.5, 5.0), (8.0, 2.5), (10.5, 5.0), (10.5, 7.0)],
+    );
+});
+
+/// An open padlock.
+pub const LOCK_OPEN: Icon = Icon(|p, r, c| {
+    p.rect_stroke(
+        Rect::from_min_max(pt(r, 3.5, 7.0), pt(r, 12.5, 14.0)),
+        egui::CornerRadius::same(2),
+        Stroke::new(ICON_STROKE, c),
+        egui::StrokeKind::Inside,
+    );
+    line(p, r, c, &[(5.5, 7.0), (5.5, 5.0), (8.0, 2.5), (10.5, 5.0)]);
+});
+
+/// A tick, for checked boxes.
+pub const CHECK: Icon = Icon(|p, r, c| line(p, r, c, &[(3.5, 8.5), (6.8, 11.5), (12.5, 4.8)]));
 
 /// A triangle with a bar, for warnings.
 pub const WARNING: Icon = Icon(|p, r, c| {

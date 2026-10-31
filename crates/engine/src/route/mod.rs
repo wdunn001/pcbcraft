@@ -3,6 +3,7 @@
 //! Hulls come from `pcbcraft_rules::obstacles`, the same copper list the checks
 //! use, grown by clearance plus half the track width. Limits are iteration
 //! counts only (never time), so identical input gives identical copper.
+mod drag;
 mod shove;
 mod walk;
 
@@ -18,6 +19,8 @@ use std::collections::BTreeSet;
 use walk::{Failure, Hull, Space, find_path};
 
 use walk::WALK_ITERATIONS;
+
+pub(crate) use drag::run as drag;
 
 /// Extra room added to every hull so routed copper never sits exactly on the limit.
 pub(crate) const MARGIN: f64 = 1e-4;

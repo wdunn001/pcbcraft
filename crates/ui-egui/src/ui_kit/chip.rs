@@ -58,6 +58,7 @@ pub fn badge_colors(kind: BadgeKind, t: &Tokens) -> (Color32, Color32) {
 ///
 /// # Rules
 /// - `tip` says what pressing it does, or what it names.
+/// - The press target is at least 24 by 24 around the 20 high drawing.
 ///
 /// # Do not
 /// - Put a sentence in a chip.
@@ -67,7 +68,14 @@ pub fn chip(ui: &mut Ui, text: &str, tip: &str) -> Response {
         .painter()
         .layout_no_wrap(text.to_owned(), Role::Mono.font(), t.text);
     let size = Vec2::new(galley.size().x + 12.0, CHIP_HEIGHT);
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let (rect, placed) = ui.allocate_exact_size(size, Sense::hover());
+    // The chip is drawn 20 high, but a press must land on a 24 by 24 target.
+    let target = Vec2::splat(crate::targets::MIN_TARGET).max(size);
+    let response = ui.interact(
+        egui::Rect::from_center_size(rect.center(), target),
+        placed.id.with("press"),
+        Sense::click(),
+    );
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, text));
     let fill = if response.hovered() {
         t.hover
@@ -133,7 +141,7 @@ pub fn badge(ui: &mut Ui, text: &str, kind: BadgeKind, tip: &str) -> Response {
 mod tests {
     use super::*;
 
-    /// Chips are 20 high and badges 18 high.
+    /// Chips press as a 24 high target around their 20 high drawing; badges are 18 high.
     #[test]
     fn chip_and_badge_heights() {
         let ctx = egui::Context::default();
@@ -144,6 +152,6 @@ mod tests {
             heights.push(badge(ui, "3", BadgeKind::Warning, "Warnings").rect.height());
         });
         out.textures_delta.clear();
-        assert_eq!(heights, vec![20.0, 18.0]);
+        assert_eq!(heights, vec![24.0, 18.0]);
     }
 }

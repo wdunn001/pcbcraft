@@ -409,3 +409,146 @@ fn walkaround_alone_never_moves_another_nets_track() -> Result<(), Error> {
     assert_eq!(f.tracks(&d), d_before);
     Ok(())
 }
+
+impl Fixture {
+    fn drag(&mut self, id: Id, end: &str, to: (f64, f64), mode: &str) -> Result<Value, Error> {
+        self.s.execute(
+            "track.drag",
+            json!({"id":id,"end":end,"position":{"x":to.0,"y":to.1},"mode":mode}),
+            None,
+        )
+    }
+}
+
+/// Net 0 pads left and right, a big foreign pad between them, and a short
+/// stub of net 0 hanging off the left pad that the tests drag toward the right.
+fn drag_fixture() -> Result<(Fixture, Id), Error> {
+    let mut f = fixture(
+        40.0,
+        30.0,
+        &[
+            (0, 5.0, 15.0, 1.0),
+            (0, 35.0, 15.0, 1.0),
+            (1, 20.0, 15.0, 3.0),
+            (1, 5.0, 25.0, 1.0),
+        ],
+    )?;
+    let stub = f.track(0, &[(5.0, 15.0), (10.0, 15.0)], 0.25)?;
+    let id = *stub.first().ok_or_else(missing)?;
+    Ok((f, id))
+}
+
+#[test]
+fn drag_end_keeps_the_other_end_and_walks_around_a_foreign_pad() -> Result<(), Error> {
+    let (mut f, id) = drag_fixture()?;
+    let r = f.drag(id, "end", (35.0, 15.0), "octilinear")?;
+    let tracks = f.tracks(&ids(&r));
+    assert!(tracks.len() >= 3, "a detour needs several segments");
+    assert_eq!(tracks.first().map(|t| t.start), Some(Point::new(5.0, 15.0)));
+    assert_eq!(tracks.last().map(|t| t.end), Some(Point::new(35.0, 15.0)));
+    only_legal_angles(&tracks);
+    assert!(is_connected_chain(&tracks));
+    let pad = Point::new(20.0, 15.0);
+    for t in &tracks {
+        let gap = pcbcraft_geom::point_segment(pad, t.start, t.end) - 1.5 - 0.125;
+        assert!(gap >= 0.2 - 1e-6, "gap {gap}");
+    }
+    assert!(f.errors().is_empty(), "{:?}", f.errors());
+    Ok(())
+}
+
+#[test]
+fn drag_the_start_end_keeps_the_far_end() -> Result<(), Error> {
+    let (mut f, id) = drag_fixture()?;
+    let r = f.drag(id, "start", (5.0, 8.0), "octilinear")?;
+    let tracks = f.tracks(&ids(&r));
+    assert_eq!(tracks.first().map(|t| t.start), Some(Point::new(5.0, 8.0)));
+    assert_eq!(tracks.last().map(|t| t.end), Some(Point::new(10.0, 15.0)));
+    Ok(())
+}
+
+#[test]
+fn drag_result_has_only_legal_angles() -> Result<(), Error> {
+    let (mut f, id) = drag_fixture()?;
+    let r = f.drag(id, "end", (33.0, 22.0), "octilinear")?;
+    let tracks = f.tracks(&ids(&r));
+    assert!(!tracks.is_empty());
+    only_legal_angles(&tracks);
+    assert_eq!(acute(&polyline(&tracks)), 0);
+    Ok(())
+}
+
+#[test]
+fn drag_shove_moves_exactly_the_blocking_track() -> Result<(), Error> {
+    let (mut f, b, d) = shove_fixture()?;
+    let stub = f.track(0, &[(5.0, 15.0), (10.0, 15.0)], 0.25)?;
+    let id = *stub.first().ok_or_else(missing)?;
+    let (b_before, d_before) = (f.tracks(&b), f.tracks(&d));
+    let r = f.drag(id, "end", (35.0, 15.0), "octilinear_shove")?;
+    let dragged = f.tracks(&ids(&r));
+    assert_eq!(
+        dragged.first().map(|t| t.start),
+        Some(Point::new(5.0, 15.0))
+    );
+    assert_eq!(dragged.last().map(|t| t.end), Some(Point::new(35.0, 15.0)));
+    only_legal_angles(&dragged);
+    let pushed = r["result"]["pushed"].as_array().ok_or_else(missing)?;
+    assert_eq!(pushed.len(), 1, "only the blocking track moves");
+    assert_ne!(f.tracks(&b), b_before, "the blocking track moved");
+    assert_eq!(f.tracks(&d), d_before, "the decoy track stayed");
+    assert!(f.errors().is_empty(), "{:?}", f.errors());
+    Ok(())
+}
+
+#[test]
+fn drag_refused_leaves_revision_and_tracks_unchanged() -> Result<(), Error> {
+    let mut f = fixture(
+        40.0,
+        30.0,
+        &[
+            (0, 5.0, 15.0, 1.0),
+            (0, 35.0, 15.0, 1.0),
+            (1, 5.0, 25.0, 1.0),
+            (1, 35.0, 25.0, 1.0),
+        ],
+    )?;
+    let stub = f.track(0, &[(5.0, 15.0), (8.0, 15.0)], 0.25)?;
+    let id = *stub.first().ok_or_else(missing)?;
+    f.track(1, &[(10.0, 15.2), (20.0, 15.2)], 0.25)?;
+    let (revision, before) = (f.s.revision, f.s.project.board.tracks.clone());
+    let e = f
+        .drag(id, "end", (35.0, 15.0), "octilinear_shove")
+        .err()
+        .ok_or_else(missing)?;
+    assert!(e.to_string().contains("N1"), "{e}");
+    assert_eq!(f.s.revision, revision);
+    assert_eq!(f.s.project.board.tracks, before);
+    Ok(())
+}
+
+#[test]
+fn drag_without_clearance_room_names_the_reason() -> Result<(), Error> {
+    let (mut f, id) = drag_fixture()?;
+    let (revision, before) = (f.s.revision, f.s.project.board.tracks.clone());
+    let e = f
+        .drag(id, "end", (20.0, 15.5), "octilinear")
+        .err()
+        .ok_or_else(missing)?;
+    assert!(e.to_string().contains("too close to net N1"), "{e}");
+    assert_eq!(f.s.revision, revision);
+    assert_eq!(f.s.project.board.tracks, before);
+    Ok(())
+}
+
+#[test]
+fn drag_unknown_track_and_equal_ends_are_refused() -> Result<(), Error> {
+    let (mut f, id) = drag_fixture()?;
+    let (revision, before) = (f.s.revision, f.s.project.board.tracks.clone());
+    assert!(f.drag(9999, "end", (30.0, 5.0), "octilinear").is_err());
+    assert!(f.drag(id, "end", (5.0, 15.0), "octilinear").is_err());
+    assert!(f.drag(id, "end", (99.0, 5.0), "octilinear").is_err());
+    assert!(f.drag(id, "end", (30.0, 5.0), "orthogonal").is_err());
+    assert_eq!(f.s.revision, revision);
+    assert_eq!(f.s.project.board.tracks, before);
+    Ok(())
+}

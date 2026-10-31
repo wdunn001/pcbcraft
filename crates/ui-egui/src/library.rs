@@ -518,6 +518,8 @@ impl App {
             ui.allocate_painter(Vec2::new(ui.available_width(), 180.0), egui::Sense::hover());
         let (center, extent) = library_paths_extent(&paths);
         let camera = Camera {
+            mirror: false,
+            turns: 0,
             center,
             zoom: ((response.rect.width() - 24.0) / extent.x as f32)
                 .min(150.0 / extent.y as f32)
@@ -626,7 +628,7 @@ pub(super) fn library_paths_bounds(paths: &[Vec<Point>]) -> (Point, Point) {
     }
 }
 
-fn paint_library_paths(
+pub(super) fn paint_library_paths(
     painter: &egui::Painter,
     rect: Rect,
     camera: Camera,

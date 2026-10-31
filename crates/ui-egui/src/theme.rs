@@ -105,6 +105,8 @@ pub struct Tokens {
     pub red_tint: Color32,
     /// Mask tint for success badges.
     pub mask_tint: Color32,
+    /// Dimming layer behind a modal dialog.
+    pub scrim: Color32,
 }
 
 const fn rgb(hex: u32) -> Color32 {
@@ -139,6 +141,7 @@ impl Tokens {
         gold_tint: tint(0xE6BE5A, 16),
         red_tint: tint(0xFF8A80, 16),
         mask_tint: tint(0x4FCB8C, 16),
+        scrim: tint(0x0A1411, 72),
     };
     /// The light theme values.
     pub const LIGHT: Tokens = Tokens {
@@ -161,6 +164,7 @@ impl Tokens {
         gold_tint: tint(0x7A5A00, 12),
         red_tint: tint(0xB3261E, 12),
         mask_tint: tint(0x14663F, 12),
+        scrim: tint(0x101C17, 40),
     };
 
     /// The tokens for `Preferences.dark`.

@@ -63,6 +63,13 @@ fn r3(v: f64) -> f64 {
     (v * 1000.0).round() / 1000.0
 }
 /// Copper thickness for a layer and where it came from.
+/// Height and relative permittivity for a track on `layer`: the dielectric
+/// row beside that copper row when one carries a permittivity, else the
+/// board-wide thickness and `Board.er`.
+fn dielectric_for(p: &Project, layer: Layer) -> (f64, f64) {
+    p.dielectric_beside(&p.layer_name(layer))
+        .unwrap_or((p.board.thickness, p.board.er))
+}
 fn copper_thickness(p: &Project, layer: Layer) -> (f64, String) {
     let name = p.layer_name(layer);
     match p
@@ -204,7 +211,6 @@ fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
     if a.target_diff.is_some_and(|v| !(1.0..=2000.0).contains(&v)) {
         return Err(refuse("target_diff must be 1-2000 ohms"));
     }
-    let (height, er) = (p.board.thickness, p.board.er);
     let mut rows: Vec<Value> = vec![];
     for net in &p.nets {
         if a.net.is_some_and(|id| id != net.id) {
@@ -214,6 +220,7 @@ fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
             continue;
         };
         let (copper, source) = copper_thickness(p, layer);
+        let (height, er) = dielectric_for(p, layer);
         let m = single(width, height, copper, er)?;
         let mut row = json!({
             "net": net.id,
@@ -225,6 +232,8 @@ fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
             "delay_ps_per_mm": r3(imp::delay_ps(1.0, m.eeff)),
             "copper_mm": copper,
             "copper_source": source,
+            "dielectric_mm": height,
+            "er": er,
         });
         if let Some(note) = imp::validity(width, height) {
             row["validity"] = json!(note);
@@ -274,8 +283,8 @@ fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
     Ok(json!({
         "rows": rows,
         "count": count,
-        "dielectric": height,
-        "er": er,
+        "dielectric": p.board.thickness,
+        "er": p.board.er,
         "target_ohm": a.target,
         "model": "Hammerstad and Jensen 1980 microstrip with thickness correction",
         "notes": ["Surface microstrip over the reference plane one dielectric away; finish does not change the estimate."],
@@ -416,7 +425,6 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
     {
         return Err(missing());
     }
-    let (height, er) = (p.board.thickness, p.board.er);
     let mut rows = vec![];
     for group in &p.board.length_groups {
         if a.id.is_some_and(|id| id != group.id) {
@@ -436,6 +444,7 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
             .map(|(net, length)| {
                 let delay = widest(p, *net).and_then(|(w, layer)| {
                     let (copper, _) = copper_thickness(p, layer);
+                    let (height, er) = dielectric_for(p, layer);
                     imp::microstrip(w, height, copper, er).map(|m| imp::delay_ps(*length, m.eeff))
                 });
                 json!({
@@ -585,7 +594,7 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
             "this net is already within the tolerance of its target",
         ));
     }
-    let (height, er) = (p.board.thickness, p.board.er);
+    let (height, er) = dielectric_for(p, track.layer);
     let (copper, _) = copper_thickness(p, track.layer);
     let clearance = p
         .net_class(track.net)

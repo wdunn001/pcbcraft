@@ -73,11 +73,23 @@ pub(super) struct EditState {
     /// What was selected when the clip was taken, to select the copies.
     pub clip_sources: Vec<Id>,
     pub pastes: u32,
+    /// The array dialog (see arrange.rs).
+    pub arrange: crate::arrange::ArrangeState,
     /// Centre of the objects when they were copied; Paste from the menu moves
     /// the copies from here to where the menu was opened.
     pub clip_origin: Option<Point>,
     /// Where the right-click menu was opened, in world millimetres.
     pub menu_at: Option<Point>,
+    /// A press that is turning into a drag; see `canvas/gestures.rs`.
+    pub press: Option<crate::canvas::gestures::Press>,
+    /// What the pointer hovers and what a click there will do.
+    pub hover: Option<crate::canvas::gestures::Hover>,
+    /// Modifier actions held this frame for the active tool.
+    pub live: crate::tool_modifiers::ActionSet,
+    /// The status hint for the hovered target and held keys.
+    pub hint: String,
+    /// The rename-a-net prompt, open after a double-click on a net label.
+    pub rename: Option<crate::canvas::gestures::Rename>,
 }
 
 /// Distance, dx, dy and angle between two points, as one plain sentence.
@@ -697,50 +709,6 @@ impl App {
                     FontId::monospace(12.0),
                     self.ink(),
                 );
-            }
-        }
-    }
-
-    /// The pick filter chips and the measure button, in the tool strip.
-    pub(super) fn editing_controls(&mut self, ui: &mut egui::Ui) {
-        if ui
-            .selectable_label(matches!(self.tool, Tool::Measure), "Measure")
-            .on_hover_text(
-                "Click two points to read the distance, the across and up-down parts and the angle. Holes, pads and pins snap. Shortcut U; Esc clears.",
-            )
-            .clicked()
-        {
-            self.arm_measure();
-        }
-        ui.separator();
-        ui.label("Pick:")
-            .on_hover_text("Choose which kinds of object a click or a drag box may pick up.");
-        let chips = [
-            (
-                "Parts",
-                "Parts and their symbols. Turn off to pick only the rest.",
-            ),
-            (
-                "Copper",
-                "Tracks, vias and copper zones. Turn off to leave wiring alone.",
-            ),
-            ("Graphics", "Drawn shapes, cutouts and holes."),
-            ("Text", "Text labels and net labels."),
-        ];
-        for (label, tip) in chips {
-            let f = &mut self.edit.filter;
-            let flag = match label {
-                "Parts" => &mut f.parts,
-                "Copper" => &mut f.copper,
-                "Graphics" => &mut f.graphics,
-                _ => &mut f.text,
-            };
-            if ui
-                .selectable_label(*flag, label)
-                .on_hover_text(tip)
-                .clicked()
-            {
-                *flag = !*flag;
             }
         }
     }

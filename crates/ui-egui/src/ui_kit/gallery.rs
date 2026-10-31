@@ -14,10 +14,15 @@
 use super::button::{self, Kind, Look, Size, State};
 use super::card;
 use super::chip::{self, BadgeKind};
+use super::dialog::{self, Dialog, Outcome};
 use super::empty_state;
+use super::form_row::{self, FormWidth};
 use super::icons;
+use super::number_field::{self, NumberSpec};
 use super::panel_header;
+use super::rows::{self, Finding, Severity, TreeRow};
 use super::segmented::{self, Segment};
+use super::select;
 use super::status_item;
 use super::tab_bar::{self, TabItem, TabSize};
 use crate::fonts;
@@ -35,6 +40,10 @@ pub enum Page {
     Buttons,
     /// Segmented control, tab bars, panel header, card, empty state, status items.
     Tabs,
+    /// List, tree and finding rows, form rows, number field, select, checkbox.
+    Rows,
+    /// A modal dialog with tabs, form rows and a footer, over a dimmed page.
+    Dialog,
 }
 
 impl Page {
@@ -45,6 +54,8 @@ impl Page {
             "type" => Some(Page::Type),
             "buttons" => Some(Page::Buttons),
             "tabs" => Some(Page::Tabs),
+            "rows" => Some(Page::Rows),
+            "dialog" => Some(Page::Dialog),
             _ => None,
         }
     }
@@ -63,6 +74,20 @@ pub struct GalleryState {
     pub seg: [usize; 3],
     /// Frames shown, used to put keyboard focus on one demo control once.
     pub frames: u32,
+    /// Demo values of the Properties form: x, y, rotation.
+    pub xyz: [f64; 3],
+    /// Demo footprint choice.
+    pub footprint: usize,
+    /// Demo checkboxes: parts list, placement file, lock.
+    pub flags: [bool; 3],
+    /// Demo selected list row.
+    pub row: usize,
+    /// Demo track width in mm.
+    pub track: f64,
+    /// The demo dialog is open.
+    pub dialog_open: bool,
+    /// Selected tab of the demo dialog.
+    pub dialog_tab: usize,
 }
 
 impl GalleryState {
@@ -74,6 +99,13 @@ impl GalleryState {
             tab: [1, 0, 0],
             seg: [0, 0, 1],
             frames: 0,
+            xyz: [44.0, 20.0, 0.0],
+            footprint: 1,
+            flags: [true, true, false],
+            row: 1,
+            track: 0.25,
+            dialog_open: true,
+            dialog_tab: 0,
         }
     }
 }
@@ -201,11 +233,9 @@ pub fn type_scale(ui: &mut egui::Ui, state: &GalleryState) {
     ];
     for (name, role, sample) in rows {
         ui.horizontal(|ui| {
-            ui.allocate_ui_with_layout(
-                Vec2::new(200.0, 28.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| ui.label(fonts::caption(name).color(t.muted)),
-            );
+            cell(ui, 200.0, 28.0, |ui| {
+                ui.label(fonts::caption(name).color(t.muted));
+            });
             ui.label(fonts::text(role, sample));
         });
         ui.add_space(4.0);
@@ -213,6 +243,18 @@ pub fn type_scale(ui: &mut egui::Ui, state: &GalleryState) {
     ui.add_space(8.0);
     ui.label(fonts::section_caption("General").color(t.muted));
     ui.label(fonts::caption("Section caption: 11, 600, uppercase").color(t.muted));
+}
+
+/// A fixed-size, vertically centred cell, so columns line up whatever is inside.
+fn cell(ui: &mut egui::Ui, width: f32, height: f32, f: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(
+        Vec2::new(width, height),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.set_min_size(Vec2::new(width, height));
+            f(ui);
+        },
+    );
 }
 
 const STATES: [(&str, State); 5] = [
@@ -225,33 +267,25 @@ const STATES: [(&str, State); 5] = [
 
 fn state_header(ui: &mut egui::Ui, t: &Tokens) {
     ui.horizontal(|ui| {
-        ui.allocate_space(Vec2::new(96.0, 20.0));
+        cell(ui, 96.0, 20.0, |_| {});
         for (name, _) in STATES {
-            ui.allocate_ui_with_layout(
-                Vec2::new(144.0, 20.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| ui.label(fonts::section_caption(name).color(t.muted)),
-            );
+            cell(ui, 144.0, 20.0, |ui| {
+                ui.label(fonts::section_caption(name).color(t.muted));
+            });
         }
     });
 }
 
 fn state_row(ui: &mut egui::Ui, t: &Tokens, name: &str, look: Look<'_>) {
     ui.horizontal(|ui| {
-        ui.allocate_ui_with_layout(
-            Vec2::new(96.0, 36.0),
-            egui::Layout::left_to_right(egui::Align::Center),
-            |ui| ui.label(fonts::caption(name).color(t.muted)),
-        );
+        cell(ui, 96.0, 36.0, |ui| {
+            ui.label(fonts::caption(name).color(t.muted));
+        });
         for (_, state) in STATES {
-            ui.allocate_ui_with_layout(
-                Vec2::new(144.0, 36.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.add_space(4.0);
-                    button::static_button(ui, look, state);
-                },
-            );
+            cell(ui, 144.0, 36.0, |ui| {
+                ui.add_space(4.0);
+                button::static_button(ui, look, state);
+            });
         }
     });
 }
@@ -396,6 +430,18 @@ pub fn buttons(ui: &mut egui::Ui, state: &GalleryState) {
     });
 }
 
+/// Run `f` in a top-down column of fixed width, whatever layout `ui` has.
+fn column(ui: &mut egui::Ui, width: f32, f: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(
+        Vec2::new(width, 0.0),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_width(width);
+            f(ui);
+        },
+    );
+}
+
 /// Draw the tabs page: segmented controls, the three tab bars, a panel header,
 /// a card with form content, an empty state and status items.
 ///
@@ -512,7 +558,7 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
     }
     ui.add_space(16.0);
     ui.horizontal_top(|ui| {
-        ui.allocate_ui(Vec2::new(360.0, 0.0), |ui| {
+        column(ui, 360.0, |ui| {
             ui.label(fonts::caption("Panel header (36)").color(t.muted));
             panel_header::panel_header(ui, "Layers", |ui| {
                 button::icon_button(
@@ -558,7 +604,7 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
             });
         });
         ui.add_space(24.0);
-        ui.allocate_ui(Vec2::new(520.0, 0.0), |ui| {
+        column(ui, 520.0, |ui| {
             card::card(
                 ui,
                 "Board outline",
@@ -605,6 +651,456 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
     });
 }
 
+/// Draw the rows page: a Properties panel built from form rows, the Layers tree
+/// rows, finding rows and list rows.
+///
+/// Why: the visual proof for ticket #763, laid out like the mockup's right aside
+/// and left aside so the parts can be compared with the approved design.
+pub fn rows_page(ui: &mut egui::Ui, state: &mut GalleryState) {
+    let t = state.tokens;
+    state.frames += 1;
+    ui.label(fonts::title(format!("Rows and fields, {:?}", t.theme)));
+    ui.add_space(8.0);
+    ui.horizontal_top(|ui| {
+        column(ui, 340.0, |ui| {
+            ui.label(
+                fonts::caption("Properties panel: form rows (aside, 104 label)").color(t.muted),
+            );
+            egui::Frame::new()
+                .fill(t.panel)
+                .inner_margin(12)
+                .show(ui, |ui| {
+                    let xy = NumberSpec {
+                        unit: "mm",
+                        step: 0.5,
+                        width: 112.0,
+                        ..NumberSpec::default()
+                    };
+                    let deg = NumberSpec {
+                        unit: "deg",
+                        step: 15.0,
+                        places: 0,
+                        min: -360.0,
+                        max: 360.0,
+                        width: 112.0,
+                    };
+                    form_row::form_row(ui, FormWidth::Aside, "X", None, None, |ui| {
+                        number_field::number_field(
+                            ui,
+                            "g-x",
+                            &mut state.xyz[0],
+                            &xy,
+                            "X position",
+                            "Move the part along X",
+                        );
+                    });
+                    form_row::form_row(ui, FormWidth::Aside, "Y", None, None, |ui| {
+                        number_field::number_field(
+                            ui,
+                            "g-y",
+                            &mut state.xyz[1],
+                            &xy,
+                            "Y position",
+                            "Move the part along Y",
+                        );
+                    });
+                    form_row::form_row(ui, FormWidth::Aside, "Rotation", None, None, |ui| {
+                        number_field::number_field(
+                            ui,
+                            "g-r",
+                            &mut state.xyz[2],
+                            &deg,
+                            "Rotation",
+                            "Turn the part",
+                        );
+                    });
+                    form_row::form_row(ui, FormWidth::Aside, "Footprint", None, None, |ui| {
+                        select::select(
+                            ui,
+                            "g-fp",
+                            &mut state.footprint,
+                            &["Resistor 0805", "Resistor 1206", "Resistor 0603"],
+                            "Footprint",
+                            "Package of the part",
+                            168.0,
+                        );
+                    });
+                    form_row::toggle_row(
+                        ui,
+                        FormWidth::Aside,
+                        "Include in parts list",
+                        "List this part in the bill of materials",
+                        &mut state.flags[0],
+                    );
+                    form_row::toggle_row(
+                        ui,
+                        FormWidth::Aside,
+                        "Include in placement file",
+                        "List this part for the pick and place machine",
+                        &mut state.flags[1],
+                    );
+                    form_row::toggle_row(
+                        ui,
+                        FormWidth::Aside,
+                        "Lock position",
+                        "Stop the part from being moved",
+                        &mut state.flags[2],
+                    );
+                });
+            ui.add_space(16.0);
+            ui.label(
+                fonts::caption("Page form row (200 label), with hint and error").color(t.muted),
+            );
+            egui::Frame::new()
+                .fill(t.panel)
+                .inner_margin(12)
+                .show(ui, |ui| {
+                    let w = NumberSpec {
+                        unit: "mm",
+                        min: 0.05,
+                        max: 5.0,
+                        step: 0.05,
+                        width: 112.0,
+                        ..NumberSpec::default()
+                    };
+                    let mut bad = 9.0;
+                    form_row::form_row(
+                        ui,
+                        FormWidth::Page,
+                        "Track width",
+                        Some("Default for new tracks"),
+                        None,
+                        |ui| {
+                            number_field::number_field(
+                                ui,
+                                "g-w",
+                                &mut state.track,
+                                &w,
+                                "Track width",
+                                "Default track width",
+                            );
+                        },
+                    );
+                    form_row::form_row(
+                        ui,
+                        FormWidth::Page,
+                        "Clearance",
+                        None,
+                        Some("Enter a value from 0.05 to 5.00"),
+                        |ui| {
+                            number_field::number_field(
+                                ui,
+                                "g-bad",
+                                &mut bad,
+                                &NumberSpec { max: 20.0, ..w },
+                                "Clearance",
+                                "Smallest gap between copper",
+                            );
+                        },
+                    );
+                });
+        });
+        ui.add_space(24.0);
+        column(ui, 340.0, |ui| {
+            ui.label(fonts::caption("Layers tree rows (28)").color(t.muted));
+            egui::Frame::new().fill(t.panel).show(ui, |ui| {
+                let c = CanvasColors::for_dark(t.is_dark());
+                let sample = [
+                    TreeRow {
+                        depth: 0,
+                        expanded: Some(true),
+                        swatch: Some(c.top_copper),
+                        icon: None,
+                        name: "Top copper",
+                        count: Some("6".into()),
+                        locked: Some(false),
+                        visible: Some(true),
+                        selected: false,
+                        dimmed: false,
+                    },
+                    TreeRow {
+                        depth: 1,
+                        expanded: Some(false),
+                        swatch: None,
+                        icon: Some(icons::PLUS),
+                        name: "Pads",
+                        count: Some("6".into()),
+                        locked: None,
+                        visible: Some(true),
+                        selected: true,
+                        dimmed: false,
+                    },
+                    TreeRow {
+                        depth: 1,
+                        expanded: Some(false),
+                        swatch: None,
+                        icon: Some(icons::MINUS),
+                        name: "Tracks",
+                        count: Some("0".into()),
+                        locked: None,
+                        visible: Some(true),
+                        selected: false,
+                        dimmed: true,
+                    },
+                    TreeRow {
+                        depth: 0,
+                        expanded: Some(false),
+                        swatch: Some(c.bottom_copper),
+                        icon: None,
+                        name: "Bottom copper",
+                        count: Some("0".into()),
+                        locked: Some(false),
+                        visible: Some(true),
+                        selected: false,
+                        dimmed: false,
+                    },
+                    TreeRow {
+                        depth: 0,
+                        expanded: Some(false),
+                        swatch: Some(c.silkscreen),
+                        icon: None,
+                        name: "Bottom silkscreen",
+                        count: Some("0".into()),
+                        locked: Some(true),
+                        visible: Some(false),
+                        selected: false,
+                        dimmed: true,
+                    },
+                ];
+                for (i, row) in sample.iter().enumerate() {
+                    rows::tree_row(ui, ("g-tree", i), row);
+                }
+            });
+            ui.add_space(16.0);
+            ui.label(fonts::caption("List rows (36)").color(t.muted));
+            egui::Frame::new().fill(t.panel).show(ui, |ui| {
+                for (i, (name, meta)) in [
+                    ("J1", "5V input"),
+                    ("R1", "330 \u{3a9}"),
+                    ("D1", "Green LED"),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let r = rows::list_row(ui, state.row == i, name, "Select this part", |ui| {
+                        ui.label(fonts::strong(name).color(t.text));
+                        ui.label(fonts::mono(meta).color(t.muted));
+                    });
+                    if r.clicked() {
+                        state.row = i;
+                    }
+                }
+            });
+        });
+        ui.add_space(24.0);
+        column(ui, 560.0, |ui| {
+            ui.label(fonts::caption("Finding rows (48, selected, compact 36)").color(t.muted));
+            egui::Frame::new().fill(t.panel).show(ui, |ui| {
+                let base = Finding {
+                    severity: Severity::Warning,
+                    title: "VCC is not fully routed",
+                    detail: "Copper does not join J1 pin 1 and R1 pin 1. Top copper.",
+                    chip: Some("VCC"),
+                    selected: false,
+                    compact: false,
+                };
+                rows::finding_row(ui, &base);
+                rows::finding_row(
+                    ui,
+                    &Finding {
+                        title: "LED is not fully routed",
+                        chip: Some("LED"),
+                        selected: true,
+                        ..base
+                    },
+                );
+                rows::finding_row(
+                    ui,
+                    &Finding {
+                        severity: Severity::Error,
+                        title: "Track too close",
+                        detail: "0.12 mm gap, rule needs 0.15 mm.",
+                        chip: Some("GND"),
+                        ..base
+                    },
+                );
+                rows::finding_row(
+                    ui,
+                    &Finding {
+                        severity: Severity::Ok,
+                        title: "No problems",
+                        detail: "All checks passed.",
+                        chip: None,
+                        ..base
+                    },
+                );
+                rows::finding_row(
+                    ui,
+                    &Finding {
+                        compact: true,
+                        ..base
+                    },
+                );
+            });
+        });
+    });
+}
+
+/// Draw the dialog page: a page behind, a dimmed scrim and the Project settings
+/// dialog with tabs, a scrolling body and the footer.
+///
+/// Why: the visual proof for ticket #774; Escape cancels and Enter saves, and a
+/// button reopens the dialog so the keys can be tried by hand.
+pub fn dialog_page(ui: &mut egui::Ui, state: &mut GalleryState) {
+    let t = state.tokens;
+    ui.label(fonts::title("Page behind the dialog"));
+    ui.add_space(8.0);
+    ui.label(
+        fonts::text(fonts::Role::Body, "Project settings opens over this page.").color(t.text),
+    );
+    ui.add_space(8.0);
+    if button::secondary_button(
+        ui,
+        None,
+        "Project settings",
+        "Open the settings dialog",
+        Size::Normal,
+        true,
+    )
+    .clicked()
+    {
+        state.dialog_open = true;
+    }
+    if !state.dialog_open {
+        return;
+    }
+    let tabs = [
+        TabItem::new("Board", "Board size, corners and stackup"),
+        TabItem::new("Rules", "Clearances and widths"),
+        TabItem::new("Machines", "Fabrication machines"),
+    ];
+    let spec = Dialog {
+        id: "gallery-project",
+        title: "Project settings",
+        width: 640.0,
+        tabs: &tabs,
+        note: Some("Changes apply when you press Save"),
+        cancel: Some(("Cancel", "Close without saving")),
+        primary: ("Save", "Save the settings and close"),
+    };
+    let ctx = ui.ctx().clone();
+    let mut tab = state.dialog_tab;
+    let outcome = dialog::show(&ctx, &spec, &mut tab, |ui| {
+        let w = NumberSpec {
+            unit: "mm",
+            min: 0.05,
+            max: 5.0,
+            step: 0.05,
+            width: 112.0,
+            ..NumberSpec::default()
+        };
+        let mut width = 60.0;
+        let mut height = 40.0;
+        let big = NumberSpec {
+            min: 1.0,
+            max: 500.0,
+            step: 1.0,
+            ..w
+        };
+        form_row::form_row(
+            ui,
+            FormWidth::Page,
+            "Board width",
+            Some("Outside edge"),
+            None,
+            |ui| {
+                number_field::number_field(
+                    ui,
+                    "d-w",
+                    &mut width,
+                    &big,
+                    "Board width",
+                    "Width of the board",
+                );
+            },
+        );
+        form_row::form_row(ui, FormWidth::Page, "Board height", None, None, |ui| {
+            number_field::number_field(
+                ui,
+                "d-h",
+                &mut height,
+                &big,
+                "Board height",
+                "Height of the board",
+            );
+        });
+        form_row::form_row(ui, FormWidth::Page, "Corners", None, None, |ui| {
+            let mut corner = 0;
+            segmented::segmented(
+                ui,
+                "d-corner",
+                &mut corner,
+                &[
+                    Segment {
+                        label: "45",
+                        tip: "Cut corners at 45 degrees",
+                    },
+                    Segment {
+                        label: "90",
+                        tip: "Square corners",
+                    },
+                    Segment {
+                        label: "Free",
+                        tip: "Any angle",
+                    },
+                ],
+            );
+        });
+        form_row::form_row(ui, FormWidth::Page, "Copper layers", None, None, |ui| {
+            let mut n = 1;
+            select::select(
+                ui,
+                "d-layers",
+                &mut n,
+                &["1", "2", "4", "6"],
+                "Copper layers",
+                "Number of copper layers",
+                120.0,
+            );
+        });
+        form_row::form_row(
+            ui,
+            FormWidth::Page,
+            "Track width",
+            Some("Default for new tracks"),
+            None,
+            |ui| {
+                let mut v = 0.25;
+                number_field::number_field(
+                    ui,
+                    "d-tw",
+                    &mut v,
+                    &w,
+                    "Track width",
+                    "Default track width",
+                );
+            },
+        );
+        let mut plated = true;
+        form_row::toggle_row(
+            ui,
+            FormWidth::Page,
+            "Plated edge",
+            "Plate the board edge with copper",
+            &mut plated,
+        );
+    });
+    state.dialog_tab = tab;
+    if outcome != Outcome::Open {
+        state.dialog_open = false;
+    }
+}
+
 /// Draw the page named in `state`.
 pub fn show(ui: &mut egui::Ui, state: &mut GalleryState) {
     match state.page {
@@ -612,6 +1108,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut GalleryState) {
         Page::Type => type_scale(ui, state),
         Page::Buttons => buttons(ui, state),
         Page::Tabs => tabs(ui, state),
+        Page::Rows => rows_page(ui, state),
+        Page::Dialog => dialog_page(ui, state),
     }
 }
 
@@ -630,7 +1128,14 @@ mod tests {
         theme::apply(&ctx, &state.tokens);
         crate::fonts::install(&ctx);
         let mut nodes = Vec::new();
-        for page in [Page::Swatches, Page::Type, Page::Buttons, Page::Tabs] {
+        for page in [
+            Page::Swatches,
+            Page::Type,
+            Page::Buttons,
+            Page::Tabs,
+            Page::Rows,
+            Page::Dialog,
+        ] {
             state.page = page;
             for pass in 0..2 {
                 let mut out = ctx.run_ui(

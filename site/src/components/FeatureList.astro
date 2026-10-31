@@ -1,0 +1,82 @@
+---
+// Feature items for one area, with status mark and proof line. Used on /features/ and the
+// per-area pages. Each <li> carries data attributes the filter script reads.
+// Rules: proof is shown for every item; the evidence string is the claim's source.
+import StatusChip from './StatusChip.astro';
+import type { Feature } from '../lib/features';
+interface Props { items: Feature[] }
+const { items } = Astro.props;
+const proof = (e: string) => {
+  const i = e.indexOf(':');
+  return { kind: e.slice(0, i), id: e.slice(i + 1) };
+};
+---
+
+<ul class="list">
+  {
+    items.map((f) => (
+      <li class="feat" data-area={f.area} data-status={f.status} data-search={`${f.name} ${f.summary} ${f.evidence.join(' ')}`.toLowerCase()}>
+        <div class="head">
+          <h3>{f.name}</h3>
+          <StatusChip status={f.status} />
+        </div>
+        <p>{f.summary}</p>
+        <p class="proof mono">
+          <span class="sr-only">Proof: </span>
+          {f.evidence.map((e) => {
+            const p = proof(e);
+            return <span class="ev"><b>{p.kind}</b> {p.id}</span>;
+          })}
+        </p>
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  .list {
+    display: grid;
+    gap: 0.9rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .feat {
+    padding: 1.1rem 1.2rem 1rem;
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-line);
+    border-radius: 8px;
+  }
+  .feat[hidden] {
+    display: none;
+  }
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem 0.75rem;
+  }
+  h3 {
+    margin: 0 !important;
+    font-size: 1.12rem !important;
+    line-height: 1.25;
+  }
+  p {
+    margin: 0.5rem 0 0;
+    color: var(--pc-muted);
+    font-size: 0.95rem;
+  }
+  .proof {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    font-size: 0.72rem !important;
+    word-break: break-word;
+  }
+  .ev b {
+    color: var(--pc-copper);
+    font-weight: 600;
+  }
+</style>

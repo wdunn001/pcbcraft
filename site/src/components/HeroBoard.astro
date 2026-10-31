@@ -1,0 +1,117 @@
+---
+// Decorative board drawing for the hero, inline SVG, drawn from tokens so it follows the theme.
+// Context: stands in for the real layout screenshot until #715 lands. Traces draw in once;
+// the animation is off under prefers-reduced-motion (the drawn state is the default).
+// Rules: colours come from --pc-* tokens only; layer colours match the app (top copper,
+// bottom cyan, silk text colour, board edge gold). No text that makes a claim.
+// Do not: add real project data or measurements.
+const left = [0, 2, 4, 6].map((i, n) => {
+  const y0 = 164 + i * 12;
+  const ty = [110, 160, 210, 260][n];
+  const d = Math.abs(ty - y0);
+  return { y0, ty, d: `M262 ${y0}H236L${236 - d} ${ty}H100` };
+});
+const side = Array.from({ length: 8 }, (_, i) => 164 + i * 12);
+const span = Array.from({ length: 8 }, (_, i) => 284 + i * 12);
+---
+
+<svg viewBox="0 0 640 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+  <defs>
+    <pattern id="hb-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="var(--pc-line)" stroke-width="1" opacity="0.5" />
+    </pattern>
+    <pattern id="hb-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <path d="M0 0V8" stroke="var(--pc-mask)" stroke-width="2" opacity="0.45" />
+    </pattern>
+  </defs>
+  <rect width="640" height="420" fill="var(--pc-surface)" />
+  <rect width="640" height="420" fill="url(#hb-grid)" />
+
+  <!-- board edge, chamfered corners -->
+  <polygon points="56,36 584,36 604,56 604,364 584,384 56,384 36,364 36,56" fill="color-mix(in srgb, var(--pc-bg) 65%, var(--pc-surface))" stroke="var(--pc-gold)" stroke-width="2" />
+  <g fill="none" stroke="var(--pc-gold)" stroke-width="2">
+    <circle cx="62" cy="62" r="8" /><circle cx="578" cy="62" r="8" /><circle cx="62" cy="358" r="8" /><circle cx="578" cy="358" r="8" />
+  </g>
+
+  <!-- copper pour with a keepout notch -->
+  <path d="M500 252H576V352H500V330H520V274H500Z" fill="url(#hb-hatch)" stroke="var(--pc-mask)" stroke-width="1.5" />
+
+  <!-- bottom layer (cyan) -->
+  <g class="bot" fill="none" stroke="var(--pc-cyan)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path class="tr" pathLength="1" d="M460 308V340H330" />
+    <path class="tr" pathLength="1" d="M448 292L420 320H352" />
+    <path class="tr" pathLength="1" d="M250 96H150L120 66" />
+  </g>
+
+  <!-- top layer (copper) -->
+  <g class="top" fill="none" stroke="var(--pc-copper)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    {left.map((t, i) => <path class="tr" pathLength="1" style={`--n:${i}`} d={t.d} />)}
+    <path class="tr" pathLength="1" style="--n:4" d="M398 188H428L460 220V308" />
+    <path class="tr" pathLength="1" style="--n:5" d="M398 200H423L448 225V292" />
+    <path class="tr" pathLength="1" style="--n:6" d="M296 278V312" />
+    <path class="tr" pathLength="1" style="--n:7" d="M356 278V312" />
+    <path class="tr" pathLength="1" style="--n:8" d="M320 142V96H250" />
+  </g>
+
+  <!-- U1: QFP with 32 pads -->
+  <g fill="var(--pc-copper)">
+    {side.map((y) => <rect x="258" y={y - 3} width="20" height="6" rx="1" />)}
+    {side.map((y) => <rect x="382" y={y - 3} width="20" height="6" rx="1" />)}
+    {span.map((x) => <rect x={x - 3} y="138" width="6" height="20" rx="1" />)}
+    {span.map((x) => <rect x={x - 3} y="262" width="6" height="20" rx="1" />)}
+  </g>
+  <rect x="280" y="160" width="100" height="100" rx="3" fill="var(--pc-raised)" stroke="var(--pc-text)" stroke-width="2" />
+  <circle cx="292" cy="172" r="4" fill="var(--pc-text)" />
+
+  <!-- J1 connector pads, passives -->
+  <g fill="var(--pc-copper)">
+    {left.map((t) => <rect x="82" y={t.ty - 9} width="22" height="18" rx="3" />)}
+    <rect x="286" y="312" width="20" height="14" rx="2" /><rect x="286" y="332" width="20" height="14" rx="2" />
+    <rect x="346" y="312" width="20" height="14" rx="2" /><rect x="346" y="332" width="20" height="14" rx="2" />
+  </g>
+  <g fill="var(--pc-surface)">
+    {left.map((t) => <circle cx="93" cy={t.ty} r="3.5" />)}
+  </g>
+  <rect x="70" y="92" width="44" height="186" rx="4" fill="none" stroke="var(--pc-text)" stroke-width="1.5" opacity="0.8" />
+
+  <!-- vias -->
+  <g>
+    <circle cx="460" cy="308" r="8" fill="var(--pc-copper)" /><circle cx="460" cy="308" r="3.5" fill="var(--pc-surface)" />
+    <circle cx="448" cy="292" r="8" fill="var(--pc-copper)" /><circle cx="448" cy="292" r="3.5" fill="var(--pc-surface)" />
+    <circle cx="250" cy="96" r="8" fill="var(--pc-copper)" /><circle cx="250" cy="96" r="3.5" fill="var(--pc-surface)" />
+  </g>
+
+  <!-- silkscreen -->
+  <g font-family="var(--pc-font-mono)" font-size="13" font-weight="600" fill="var(--pc-text)">
+    <text x="318" y="132">U1</text>
+    <text x="72" y="84">J1</text>
+    <text x="288" y="362">C1</text>
+    <text x="348" y="362">R1</text>
+    <text x="64" y="378" font-size="11" letter-spacing="2" fill="var(--pc-muted)">PCBCRAFT</text>
+  </g>
+
+  <!-- dimension line -->
+  <g stroke="var(--pc-muted)" stroke-width="1.2" fill="none">
+    <path d="M36 402H604M36 394V410M604 394V410" />
+    <path d="M36 402l8-4v8zM604 402l-8-4v8z" fill="var(--pc-muted)" />
+  </g>
+</svg>
+
+<style>
+  @media (prefers-reduced-motion: no-preference) {
+    .tr {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+      animation: draw 1.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      animation-delay: calc(0.15s + var(--n, 0) * 0.12s);
+    }
+    .bot .tr {
+      animation-delay: 1.3s;
+    }
+    @keyframes draw {
+      to {
+        stroke-dashoffset: 0;
+      }
+    }
+  }
+</style>

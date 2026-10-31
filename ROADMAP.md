@@ -43,7 +43,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [ ] General import of boards and schematics with unknown-field preservation and round-trip fixtures (#309, #310, #311) (#309 subset on fork main; #310, #311, #458, #463 remain open)
 - [ ] Complete pin-type electrical rules (#312) and project/net-class rules with fabrication presets (#313) (#312 subset on fork main; #381, #382, #384, #466, #467 remain open)
 - [ ] Browser download/upload and project recovery (#314) (#314 subset on fork main; #438, #440 remain open)
-- [ ] Configurable shortcut profiles and a complete default keymap (#315)
+- [x] Configurable shortcut profiles and a complete default keymap (#315)
 - [ ] Schematic and board stay in sync automatically (#332)
 
 ## M2: Serious board layout
@@ -69,7 +69,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [x] Dimensions, constraints, named parameters and expression-driven regeneration (#288)
 - [x] Unplated mounting holes, routed slots and rectangular edge notches (#289 subset on fork main; sketch-driven patterns remain in #287)
 - [x] PCB/enclosure coordination, shared mounting datums and STEP exchange (#290)
-- [ ] Component bodies in STEP and enclosure model import (#321)
+- [ ] Component bodies in STEP and enclosure model import (#321) (#321 subset on fork main; STEP part bodies are in, glTF, VRML and STEP model import remain open)
 - [ ] Real 3D board tab with component bodies and inspection (#291) (#291 subset on fork main; #542, #670 remain open)
 
 ## M4: Complete workflows and distribution
@@ -121,12 +121,13 @@ User-interface work that cuts across milestones. These lines carry
 
 - [x] Top menu bar, Start page, plain menu labels, canvas handles, pin and pad click wiring, stackup-first Layers, status strip, Review groups, custom checks, unified library sources and sets, drawn machine layer model
 - [x] Workbench layout: top menu bar, library left, assistant and Layers tree right, tool strip under the tabs (#299)
-- [x] One vector-style Layers tree replaces the Parts, Nets and Layers docks (#274)
+- [ ] One vector-style Layers tree replaces the Parts, Nets and Layers docks (#274) (scope continues in #756)
 - [x] Draw directly on your own layers from the canvas (#275)
 - [x] Rules and Checks as top tabs, Project Settings with breathing room (#278)
 - [x] Right-click context menu on the canvas (#279)
 - [ ] Library browser with filters in the left dock (#280)
 - [x] Online part sources: search distributor catalogs from the library (#333)
+- [x] Find and place open-library footprints by name (#76)
 - [x] Generate IPC-style land patterns from package parameters and read-only footprint checks (#344 subset on fork main)
 - [ ] Parts table: edit every part's fields in one grid (#345) (#345 subset on fork main; #435, #436 remain open)
 - [ ] Schematic tool strip: wiring, labels, shapes, text and tables drawn on the sheet (#346) (#346 subset on fork main; #443, #444, #445, #475 remain open)

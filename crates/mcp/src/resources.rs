@@ -39,8 +39,17 @@ pub(crate) fn list() -> Value {
 /// The resource templates `resources/templates/list` returns.
 pub(crate) fn templates() -> Value {
     json!({"resourceTemplates":[
-        {"uriTemplate":"pcbcraft://design/preview/{view}","name":"design_preview","title":"Design preview","description":"PNG preview of the schematic or the pcb view","mimeType":"image/png","annotations":annotations(0.4)}
+        {"uriTemplate":"pcbcraft://design/preview/{view}","name":"design_preview","title":"Design preview","description":"PNG preview of the schematic or the pcb view","mimeType":"image/png","annotations":annotations(0.4)},
+        {"uriTemplate":"pcbcraft://net/{id}/members","name":"net_members","title":"Net members","description":"Every member of one net: tracks, zones and vias per copper layer, pads, pins, wires and labels","mimeType":"application/json","annotations":annotations(0.5)}
     ]})
+}
+
+/// The net id in `pcbcraft://net/<id>/members`, if the uri has that shape.
+fn net_members_id(uri: &str) -> Option<u64> {
+    uri.strip_prefix("pcbcraft://net/")?
+        .strip_suffix("/members")?
+        .parse()
+        .ok()
 }
 
 fn not_found(uri: &str) -> ReadError {
@@ -92,6 +101,18 @@ pub(crate) fn read(hub: &DocumentHub, uri: &str) -> Result<Value, ReadError> {
             &run_tool(hub, "list_commands", &json!({}))?,
         )),
         "pcbcraft://checks" => Ok(json_contents(uri, &run_tool(hub, "checks", &json!({}))?)),
+        _ if net_members_id(uri).is_some() => {
+            let id = net_members_id(uri).ok_or_else(|| not_found(uri))?;
+            let reply = run_tool(
+                hub,
+                "execute",
+                &json!({"command":"net.members","params":{"net":id}}),
+            )?;
+            let result = &reply["structuredContent"]["result"];
+            Ok(
+                json!({"contents":[{"uri":uri,"mimeType":"application/json","text":result.to_string()}]}),
+            )
+        }
         _ => {
             let Some(view) = uri.strip_prefix(PREVIEW_PREFIX) else {
                 return Err(not_found(uri));
@@ -167,6 +188,31 @@ mod tests {
             templates["result"]["resourceTemplates"][0]["uriTemplate"],
             "pcbcraft://design/preview/{view}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn reading_the_net_members_resource_equals_the_net_members_command() -> Result<(), String> {
+        let hub = sample_hub()?;
+        let net =
+            hub.call_tool("inspect_design", &json!({}))["structuredContent"]["project"]["nets"][0]
+                ["id"]
+                .as_u64()
+                .ok_or("sample has a net")?;
+        let uri = format!("pcbcraft://net/{net}/members");
+        let reply = rpc(&hub, "resources/read", json!({"uri":uri}))?;
+        let text = reply["result"]["contents"][0]["text"]
+            .as_str()
+            .ok_or("text")?;
+        let read: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        assert_eq!(read["net"], net);
+        assert!(read["by_layer"].is_array());
+        let bad = rpc(
+            &hub,
+            "resources/read",
+            json!({"uri":"pcbcraft://net/987654/members"}),
+        )?;
+        assert!(bad["error"].is_object(), "{bad}");
         Ok(())
     }
 

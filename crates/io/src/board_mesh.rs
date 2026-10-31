@@ -10,11 +10,12 @@
 //! unplated holes, via and pad drills; top and bottom copper (pads, tracks,
 //! vias, poured zones, fiducials, net ties) as thin prisms; a solder mask
 //! sheet with pad openings; silk strokes; and one body per placed footprint.
-//! Bodies are parametric defaults chosen from the pad pattern, because no
-//! model file is loaded yet. A footprint that references a model also
-//! carries the exact placement matrix a loader will need ([`model_matrix`]).
+//! Bodies are parametric defaults chosen from the pad pattern. A footprint
+//! that references a model carries the exact placement matrix ([`model_matrix`]),
+//! and [`with_models`] swaps the box for the loaded model's triangles.
 //!
 //! Limits are explicit: [`BoardMesh::warnings`] says what was skipped and why.
+use crate::model_load::LoadedModel;
 use pcbcraft_doc::{ArtKind, ArtShape, Component, Footprint, Id, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::Model3D;
@@ -91,6 +92,8 @@ impl Default for MeshLayers {
 pub struct ModelPlacement {
     pub path: String,
     pub matrix: [f64; 16],
+    /// True once [`with_models`] replaced the default box by the file's triangles.
+    pub loaded: bool,
 }
 
 /// One named triangle list.
@@ -105,6 +108,8 @@ pub struct MeshPart {
     pub height_source: Option<&'static str>,
     /// The placement a loaded model would take, when the footprint names one.
     pub model: Option<ModelPlacement>,
+    /// Diffuse colour 0..1 from a loaded model file, when it has one.
+    pub color: Option<[f32; 3]>,
     pub positions: Vec<[f64; 3]>,
     pub indices: Vec<u32>,
 }
@@ -117,6 +122,7 @@ impl MeshPart {
             family: None,
             height_source: None,
             model: None,
+            color: None,
             positions: vec![],
             indices: vec![],
         }
@@ -190,7 +196,7 @@ impl BoardMesh {
                     if let Some(model) = &part.model {
                         map.insert(
                             "model".into(),
-                            json!({"path": model.path, "matrix": model.matrix.to_vec(), "loaded": false}),
+                            json!({"path": model.path, "matrix": model.matrix.to_vec(), "loaded": model.loaded}),
                         );
                     }
                     if geometry {
@@ -759,6 +765,70 @@ pub fn model_matrix(
     );
     mul(&footprint, &local)
 }
+/// What a model lookup answered for one part.
+pub enum ModelLookup {
+    /// The file is still being read; keep the box for now.
+    Loading,
+    /// The file loaded.
+    Ready(std::sync::Arc<LoadedModel>),
+    /// The file cannot be used; the sentence says why.
+    Failed(String),
+}
+/// The load state of one part's model, for the parts list.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ModelStatus {
+    /// The file is still being read.
+    Loading,
+    /// The model replaced the box.
+    Loaded,
+    /// The box stayed; the sentence says why.
+    Failed(String),
+}
+
+/// Replace default boxes by model files. For each body that names a model,
+/// `lookup` is asked once for the path; a ready model's triangles go through
+/// the part's placement matrix and take the box's place. Returns the state
+/// per component so the UI can say why a box stayed.
+///
+/// # Rules
+/// The part keeps its component id and `PartKind::Body`, so picking works.
+/// A failed or pending model leaves the box untouched.
+/// # Dependencies
+/// `./model_load.rs` for [`LoadedModel`]; `model_matrix` above for placement.
+/// # Do not
+/// Do not read files here; the caller owns loading and caching.
+pub fn with_models(
+    mesh: &mut BoardMesh,
+    mut lookup: impl FnMut(&str) -> ModelLookup,
+) -> Vec<(Id, ModelStatus)> {
+    let mut notes = vec![];
+    for part in &mut mesh.parts {
+        let (Some(id), Some(model)) = (part.component, part.model.as_mut()) else {
+            continue;
+        };
+        if part.kind != PartKind::Body {
+            continue;
+        }
+        match lookup(&model.path) {
+            ModelLookup::Loading => notes.push((id, ModelStatus::Loading)),
+            ModelLookup::Failed(reason) => notes.push((id, ModelStatus::Failed(reason))),
+            ModelLookup::Ready(m) => {
+                part.positions = m
+                    .positions
+                    .iter()
+                    .map(|p| apply_matrix(&model.matrix, *p))
+                    .collect();
+                part.indices = m.indices.clone();
+                part.family = Some("model".into());
+                part.color = m.color;
+                model.loaded = true;
+                notes.push((id, ModelStatus::Loaded));
+            }
+        }
+    }
+    notes
+}
+
 /// Apply a [`model_matrix`] to one model vertex.
 pub fn apply_matrix(m: &[f64; 16], p: [f64; 3]) -> [f64; 3] {
     [
@@ -1297,7 +1367,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
             };
             for fp in &p.board.footprints {
                 for pad in &fp.pads {
-                    let (front, back, copper) = pad_sides(pad);
+                    let (front, back, copper) = pad_sides(fp, pad);
                     if !copper || (top && !front) || (!top && !back) {
                         continue;
                     }
@@ -1370,7 +1440,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                     .filter(|m| m.is_finite() && m.abs() <= 1.0)
                     .unwrap_or(MASK_MARGIN);
                 for pad in &fp.pads {
-                    let (front, back, _) = pad_sides(pad);
+                    let (front, back, _) = pad_sides(fp, pad);
                     if (top && !front) || (!top && !back) {
                         continue;
                     }
@@ -1525,7 +1595,14 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
             {
                 b.part.model = Some(ModelPlacement {
                     path: model.path.clone(),
-                    matrix: model_matrix(model, fp.position, fp.rotation, false, thickness),
+                    matrix: model_matrix(
+                        model,
+                        fp.position,
+                        fp.rotation,
+                        fp.board_side() == Layer::Back,
+                        thickness,
+                    ),
+                    loaded: false,
                 });
             }
             if let Some(ring) = clean_ring(&map_ring(fp, &body.ring)) {
@@ -1561,23 +1638,27 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
 }
 
 /// Which copper sides a pad touches, and whether it has copper at all.
-pub(crate) fn pad_sides(pad: &Pad) -> (bool, bool, bool) {
+pub(crate) fn pad_sides(fp: &Footprint, pad: &Pad) -> (bool, bool, bool) {
     match &pad.geometry {
         None => (true, false, true),
         Some(g) => {
             if g.pad_type == "np_thru_hole" || g.pad_type == "unplated" {
                 return (false, false, false);
             }
-            let front = g
-                .layers
+            if g.pad_type == "thru_hole" {
+                return (true, true, true);
+            }
+            let layers = fp.pad_geometry_layers(pad);
+            let front = layers
                 .iter()
                 .any(|l| l == "F.Cu" || l == "*.Cu" || l == "F&B.Cu");
-            let back = g
-                .layers
+            let back = layers
                 .iter()
                 .any(|l| l == "B.Cu" || l == "*.Cu" || l == "F&B.Cu");
             if front || back {
                 (front, back, true)
+            } else if fp.board_side() == Layer::Back {
+                (false, true, true)
             } else {
                 (true, false, true)
             }
@@ -1831,6 +1912,7 @@ mod tests {
             position: Point::new(20.0, 15.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads,
         }
     }

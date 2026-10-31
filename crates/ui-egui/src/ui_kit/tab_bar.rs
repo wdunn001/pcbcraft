@@ -124,7 +124,8 @@ fn tab_width(ui: &Ui, item: &TabItem<'_>, size: TabSize) -> f32 {
 /// # Rules
 /// - Returns the bar response; `changed()` is true on the frame the active tab moves.
 /// - Left and right arrows, Home and End move the active tab while a tab has focus.
-/// - `current` is clamped into range before drawing.
+/// - A `current` past the last tab means none is active (the page is not one of the tabs), so
+///   a press on any tab, the last included, still counts as a change.
 ///
 /// # Dependencies
 /// - crates/ui-egui/src/ui_kit/chip.rs (badge painting)
@@ -147,7 +148,6 @@ pub fn tab_bar(
     if count == 0 {
         return outer;
     }
-    *current = (*current).min(count - 1);
     let mut x = bar.min.x;
     let mut moved_to = None;
     let mut rects = Vec::with_capacity(count);

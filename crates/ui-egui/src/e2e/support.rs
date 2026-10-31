@@ -1,6 +1,67 @@
 //! Helpers shared by every headless UI story and by the unit tests in `lib.rs`.
 
 use super::super::*;
+use pcbcraft_library::open_library::{FetchError, Fetcher};
+use std::collections::BTreeMap;
+
+/// Answers the open library from the recordings kept beside the library
+/// crate's own tests, so a story can search real part names with no network.
+///
+/// Contract: crates/library/src/open_library.rs
+pub(crate) struct RecordedLibrary {
+    index: BTreeMap<String, String>,
+}
+
+impl RecordedLibrary {
+    fn folder() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/open_library")
+    }
+
+    /// Load the recorded index of URLs and answer files.
+    pub(crate) fn load() -> Result<Self, String> {
+        let text = std::fs::read_to_string(Self::folder().join("index.json"))
+            .map_err(|e| e.to_string())?;
+        let index = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        Ok(Self { index })
+    }
+}
+
+/// Contract: crates/library/src/open_library.rs
+impl Fetcher for RecordedLibrary {
+    fn get(&self, url: &str) -> Result<Vec<u8>, FetchError> {
+        let file = self
+            .index
+            .get(url)
+            .ok_or_else(|| FetchError::Failed(format!("not recorded: {url}")))?;
+        std::fs::read(Self::folder().join(file)).map_err(|e| FetchError::Failed(e.to_string()))
+    }
+}
+
+/// Switch the open library on over the recordings and keep its files in a
+/// folder of its own, as pressing "Turn on Open library" does with a live
+/// connection.
+pub(crate) fn use_recorded_library(app: &mut App, name: &str) -> Result<(), String> {
+    let dir = std::env::temp_dir().join(format!("pcbcraft-open-{}-{name}", std::process::id()));
+    app.use_open_source(Box::new(RecordedLibrary::load()?), Some(dir));
+    Ok(())
+}
+
+/// Draw frames until `needle` is on screen, giving a worker thread up to
+/// five seconds to answer.
+pub(crate) fn waits_for_text(
+    ctx: &egui::Context,
+    app: &mut App,
+    needle: &str,
+) -> Result<bool, String> {
+    for _ in 0..100 {
+        if paints_text(ctx, app, needle)? {
+            return Ok(true);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Ok(false)
+}
 
 /// True when the named words appear anywhere on screen this frame or the
 /// next two, so tests can assert what a person actually sees.
@@ -22,14 +83,29 @@ pub(crate) fn paints_text(
     }
     Ok(false)
 }
-/// Scroll the right-aside layers tree until `needle` appears, then nudge
-/// the wheel so rows just below it are visible too.
+/// Default width of the left aside (`browser` panel) beside the canvas.
+pub(crate) const LEFT_ASIDE: f32 = 320.0;
+
+/// Scroll the side docks until `needle` appears: the layers tree on the
+/// left first, then the Properties column on the right.
 pub(crate) fn scrolled_to(
     ctx: &egui::Context,
     app: &mut App,
     needle: &str,
 ) -> Result<bool, String> {
-    scrolled_to_at(ctx, app, needle, 1280.0)
+    if scrolled_to_at(ctx, app, needle, 150.0)? {
+        return Ok(true);
+    }
+    scrolled_to_at(ctx, app, needle, 1170.0)
+}
+
+/// Scroll the left aside (Layers tree or Library tab) until `needle` is visible.
+pub(crate) fn scrolled_to_left(
+    ctx: &egui::Context,
+    app: &mut App,
+    needle: &str,
+) -> Result<bool, String> {
+    scrolled_to_at(ctx, app, needle, LEFT_ASIDE / 2.0)
 }
 /// Same, but over a panel whose horizontal centre is at `x`: 150 is the
 /// left dock, 700 the middle page (Rules, Settings, Checks).
@@ -97,6 +173,24 @@ pub(crate) fn frame(
     modifiers: egui::Modifiers,
 ) -> egui::FullOutput {
     ctx.enable_accesskit();
+    // The first pass on a fresh context only installs the fonts and is
+    // discarded; spend it on an empty input so the caller's events land.
+    if !ctx.data(|d| {
+        d.get_temp::<bool>(egui::Id::new("design-fonts-installed"))
+            .unwrap_or(false)
+    }) {
+        let mut warm = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(1440.0, 940.0),
+                )),
+                ..Default::default()
+            },
+            |ui| app.show(ui),
+        );
+        warm.textures_delta.clear();
+    }
     super::audit::record_touches(ctx, app, &events);
     events.insert(0, egui::Event::ModifiersChanged(modifiers));
     let mut output = ctx.run_ui(
@@ -194,6 +288,18 @@ impl Drop for TallScope {
 /// width`) sits right now, found on a screen tall enough for the whole page
 /// so a control below the fold needs no scrolling.
 fn control_center(ctx: &egui::Context, app: &mut App, id: &str) -> Result<egui::Pos2, String> {
+    control_center_within(ctx, app, id, 0.0, f32::INFINITY)
+}
+
+/// Same, but only a control whose middle sits right of `min_x` and above
+/// `max_y` counts.
+fn control_center_within(
+    ctx: &egui::Context,
+    app: &mut App,
+    id: &str,
+    min_x: f32,
+    max_y: f32,
+) -> Result<egui::Pos2, String> {
     // A tooltip left by the last control must not cover this one.
     for _ in 0..3 {
         frame(
@@ -205,7 +311,13 @@ fn control_center(ctx: &egui::Context, app: &mut App, id: &str) -> Result<egui::
     }
     let found: Vec<_> = super::audit::controls(ctx, app)
         .into_iter()
-        .filter(|c| c.enabled && c.rect.height() >= 1.0 && c.id.as_deref() == Some(id))
+        .filter(|c| {
+            c.enabled
+                && c.rect.height() >= 1.0
+                && c.rect.center().x >= min_x
+                && c.rect.center().y < max_y
+                && c.id.as_deref() == Some(id)
+        })
         .collect();
     found
         .into_iter()
@@ -214,10 +326,104 @@ fn control_center(ctx: &egui::Context, app: &mut App, id: &str) -> Result<egui::
         .ok_or_else(|| format!("{id} is not on screen, or is switched off"))
 }
 
+/// Screen row below which nothing belongs to the tool bar.
+const TOOL_BAR_BOTTOM: f32 = 120.0;
+
+/// Click a tool in the tool bar under the tabs. A tool that does not fit the
+/// row lives in the "More" menu, so a person opens More and picks it by name.
+pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    if let Ok(pos) = control_center_within(ctx, app, id, 0.0, TOOL_BAR_BOTTOM) {
+        return tap_at(ctx, app, pos);
+    }
+    let label = match id.strip_prefix("icon:") {
+        Some(icon) => match icon {
+            "tool-select" => "Select",
+            "tool-move" => "Move",
+            "tool-place-part" => "Place part",
+            "tool-wire" => "Wire",
+            "tool-noconnect" => "No connect",
+            "tool-route" => "Route",
+            "tool-via" => "Via",
+            "tool-keepout" => "Keepout",
+            "tool-line" => "Line",
+            "tool-box" => "Box",
+            "tool-circle" => "Circle",
+            "tool-outline" => "Outline",
+            "tool-words" => "Text",
+            "tool-draw-shape" => "Draw shape",
+            "tool-cutout" => "Cutout",
+            "tool-hole" => "Mounting hole",
+            "tool-fiducial" => "Assembly mark",
+            "tool-measure" => "Measure",
+            other => return Err(format!("{other} has no known name")),
+        }
+        .to_owned(),
+        None => id.split_once(':').map_or(id, |(_, label)| label).to_owned(),
+    };
+    authoring::tests::tap(ctx, app, "More")?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let name = if matches!(label.as_str(), "Parts" | "Copper" | "Graphics" | "Text")
+        && id.starts_with("button:")
+    {
+        format!("Pick: {label}")
+    } else {
+        label
+    };
+    authoring::tests::tap(ctx, app, &name)
+}
+
+/// Click a control in the Properties column on the right of the window,
+/// like `tap_id` but ignoring a control of the same name elsewhere.
+pub(crate) fn tap_properties(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
+    let _tall = TallScope::enter();
+    let pos = control_center_within(ctx, app, id, PROPERTIES_LEFT, f32::INFINITY)?;
+    tap_at(ctx, app, pos)
+}
+
+/// True when the control the gate calls `id` is on screen and switched on.
+pub(crate) fn on_screen(ctx: &egui::Context, app: &mut App, id: &str) -> bool {
+    let _tall = TallScope::enter();
+    control_center(ctx, app, id).is_ok()
+}
+
+/// Press each control in turn, like a person working down a list, and
+/// return the ones that were not there to press.
+pub(crate) fn press_each(ctx: &egui::Context, app: &mut App, ids: &[&str]) -> Vec<String> {
+    ids.iter()
+        .filter(|id| tap_id(ctx, app, id).is_err())
+        .map(|id| (*id).to_owned())
+        .collect()
+}
+
+/// Press `from`, then check that `to` is what the same control reads now.
+pub(crate) fn flips_to(
+    ctx: &egui::Context,
+    app: &mut App,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    tap_id(ctx, app, from)?;
+    if on_screen(ctx, app, to) {
+        Ok(())
+    } else {
+        Err(format!("after {from} the control should read {to}"))
+    }
+}
+
+/// Screen column right of which the Properties dock sits.
+const PROPERTIES_LEFT: f32 = 1000.0;
+
 /// Click the control the gate calls `id`, like a person pressing it.
 pub(crate) fn tap_id(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
     let _tall = TallScope::enter();
     let pos = control_center(ctx, app, id)?;
+    tap_at(ctx, app, pos)
+}
+
+/// Press and release at `pos`, like a hand.
+pub(crate) fn tap_at(ctx: &egui::Context, app: &mut App, pos: egui::Pos2) -> Result<(), String> {
     // Rest the pointer on it first, as a hand does, before pressing.
     frame(
         ctx,
@@ -280,6 +486,90 @@ pub(crate) fn type_into(
         vec![key(egui::Key::Enter, egui::Modifiers::NONE)],
         egui::Modifiers::NONE,
     );
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
+/// Select a row of the left aside's Layers tree that is not one object, so
+/// Properties shows it: `root` for the board settings, `nets`
+/// for the connections editor.
+pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
+    // The board's settings are edited on the layout page.
+    if key == "root" && app.tab != Tab::Pcb {
+        app.change_tab(Tab::Pcb);
+    }
+    app.region().left_tab = "layers".to_owned();
+    app.select(None);
+    app.tree.selected_key = Some(key.to_owned());
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+}
+
+pub(crate) fn key(ctx: &egui::Context, app: &mut App, key: egui::Key) {
+    for pressed in [true, false] {
+        frame(
+            ctx,
+            app,
+            vec![egui::Event::Key {
+                key,
+                physical_key: Some(key),
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            egui::Modifiers::NONE,
+        );
+    }
+}
+
+/// Reach a tree row with the keyboard cursor, then press one key on it.
+pub(crate) fn press_on(ctx: &egui::Context, app: &mut App, row: &str, k: egui::Key) {
+    app.tree.focus_row(row);
+    for _ in 0..4 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+    key(ctx, app, k);
+}
+
+/// Click the row of the left aside whose words read exactly `label`, ignoring
+/// the same words painted on the drawing (net names and part references
+/// appear in both places).
+pub(crate) fn tap_left(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let at = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == label => {
+                let c = t.pos + t.galley.size() / 2.0;
+                (c.x < 320.0 && shape.clip_rect.contains(c)).then_some(c)
+            }
+            _ => None,
+        })
+        .next_back()
+        .ok_or_else(|| format!("{label} is not in the left aside"))?;
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::PointerMoved(at)],
+        egui::Modifiers::NONE,
+    );
+    for pressed in [true, false] {
+        frame(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     Ok(())
 }

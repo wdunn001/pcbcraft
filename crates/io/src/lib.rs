@@ -8,37 +8,84 @@ use std::io::Write;
 use std::path::Path;
 mod bitmap_trace;
 mod board_mesh;
+mod diff;
 mod drawn;
 mod fab_export;
+mod generate;
 mod gerber;
 mod gerber_job;
 mod laser;
 mod layers;
 mod library_render;
 mod machine_profile;
+mod model_load;
 mod neoden_yy1;
 mod package;
 mod panel_export;
+mod part_bodies;
 mod plot_read;
 mod raster;
+mod step_read;
 mod uv_print;
+mod vrml_read;
+/// Bitmap trace constants, options, and functions for converting images to polygon traces.
+/// # Dependencies
+/// - crates/io/src/bitmap_trace.rs
 pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
 };
+mod cam;
+mod cam_drill;
+mod cam_shapes;
+mod snapmaker;
+/// 3D board mesh types and functions for generating mesh representations of PCBs.
+/// # Dependencies
+/// - crates/io/src/board_mesh.rs
 pub use board_mesh::{
-    BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
-    ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
+    BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
+    ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
+    with_models,
 };
+pub use cam::{
+    CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
+    MirrorAxis as CamMirrorAxis, Side, Spindle, Tool, isolation_gcode, isolation_paths,
+};
+pub use cam_drill::{
+    CamProfile, CutDirection, Dialect as DrillDialect, DrillHit, DrillOptions, DrillOrder,
+    DrillTool, OutlineCompensation, OutlineOptions, Tabs, Tool as DrillMillTool, ToolChange,
+    drill_gcode, drill_tools, outline_gcode,
+};
+pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
+pub use diff::{DesignChange, DesignDiff, project_diff};
+/// Functions for generating layer plots from drawn graphics.
+/// # Dependencies
+/// - crates/io/src/drawn.rs
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use generate::{
+    GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
+};
+/// Gerber file generation for copper and silk layers.
+/// # Dependencies
+/// - crates/io/src/gerber.rs
 pub use gerber::{gerber_copper, gerber_silk};
+/// Gerber job file generation and zipping.
+/// # Dependencies
+/// - crates/io/src/gerber_job.rs
 pub use gerber_job::{gerber_job, gerber_zip};
+/// Re-export of the RGBA image type from the image crate for use by callers.
 pub use image::RgbaImage;
+/// Laser marking job types, profiles, and export functions.
+/// # Dependencies
+/// - crates/io/src/laser.rs
 pub use laser::{
     LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile,
     laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
     laser_job_validate_work_area, laser_job_work_area_mm,
 };
+/// Layer shape types and functions for extracting shapes from project layers.
+/// # Dependencies
+/// - crates/io/src/layers.rs
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
     fabrication_point, gerber_copper_counts, layer_shapes, legend_shapes,
@@ -48,35 +95,71 @@ pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
 };
+pub use model_load::{
+    LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
+    ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
+};
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
+/// Package file constants, types, and functions for creating package archives.
+/// # Dependencies
+/// - crates/io/src/package.rs
 pub use package::{
     MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
     package_zip,
 };
+/// Panel fabrication file and placement text generation.
+/// # Dependencies
+/// - crates/io/src/panel_export.rs
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
+/// Re-export of the Layer enum from pcbcraft_doc for use by callers.
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 pub use pcbcraft_doc::Layer;
+/// Plot file reading types and functions for parsing Gerber and Excellon files.
+/// # Dependencies
+/// - crates/io/src/plot_read.rs
 pub use plot_read::{
     MAX_PLOT_ZIP_BYTES, PlotAperture, PlotDrillHit, PlotDrillTool, PlotFlash, PlotHint, PlotLayer,
     PlotLayerKind, PlotPackage, PlotStroke, count_flashes_and_draws, distance_mm, layer_bounds,
     load_plot_folder, load_plot_zip, parse_excellon_drill, parse_gerber_layer,
 };
+/// Rasterization types and functions for converting vector shapes to raster images.
+/// # Dependencies
+/// - crates/io/src/raster.rs
 pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
     layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg, rasterize_shapes,
 };
+pub use snapmaker::{
+    SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
+    snapmaker_settings, spindle_percent, spindle_percent_for_tool,
+};
+/// UV printing types, profiles, and job file generation functions.
+/// # Dependencies
+/// - crates/io/src/uv_print.rs
 pub use uv_print::{
     UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer,
     eufymake_e1_profile, uv_print_artwork, write_uv_print_job_files,
 };
 
+/// Maximum size in bytes for project files, 8 MiB.
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
+/// Load a project from a JSON file at the given path.
+/// # Rules
+/// - Validates the loaded project structure
+/// # Do not
+/// - Call with paths to non-JSON files
 pub fn load(path: &Path) -> Result<Project, String> {
     let text = read_text(path)?;
-    let project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let mut project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    migrate_loaded_project(&mut project)?;
     project.validate()?;
     Ok(project)
 }
+/// Read a text file at the given path, enforcing the 8 MiB size limit.
+/// # Do not
+/// - Call with paths to binary files
 pub fn read_text(path: &Path) -> Result<String, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut text = String::new();
@@ -88,6 +171,7 @@ pub fn read_text(path: &Path) -> Result<String, String> {
     }
     Ok(text)
 }
+/// Read a binary file at the given path, enforcing the 8 MiB size limit.
 pub fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut bytes = Vec::new();
@@ -99,6 +183,10 @@ pub fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
     }
     Ok(bytes)
 }
+/// Write bytes to a file atomically using a temporary file and rename.
+/// # Rules
+/// - Uses sync_all before rename to ensure durability
+/// - Creates temp file in the same directory as the target
 #[cfg(not(target_arch = "wasm32"))]
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path
@@ -111,10 +199,18 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     temporary.persist(path).map_err(|e| e.to_string())?;
     Ok(())
 }
+/// Write bytes to a file atomically. On wasm32, returns an error because
+/// host filesystem writes are not available.
+/// # Rules
+/// - On wasm32, always returns an error with a helpful message
 #[cfg(target_arch = "wasm32")]
 pub fn atomic_write(_path: &Path, _bytes: &[u8]) -> Result<(), String> {
     Err("host filesystem writes are unavailable in the browser; download support is planned".into())
 }
+/// Save a project to a JSON file at the given path.
+/// # Rules
+/// - Validates the project before saving
+/// - Uses atomic write to prevent corruption
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
     project.validate()?;
     let bytes = serde_json::to_vec_pretty(project).map_err(|e| e.to_string())?;
@@ -1214,13 +1310,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
-        let back = f.pads.iter().any(|pad| {
-            pad.geometry.as_ref().is_some_and(|g| {
-                g.pad_type == "smd"
-                    && !g.layers.is_empty()
-                    && !g.layers.iter().any(|l| l.starts_with("F."))
-            })
-        });
+        let back = f.board_side() == pcbcraft_doc::Layer::Back;
         placed += 1;
         let side = if back {
             &mut comps_bottom
@@ -1255,9 +1345,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
                 .geometry
                 .as_ref()
                 .is_some_and(|g| g.drill.is_some() || g.pad_type.starts_with("thru_hole"));
-            let on_back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
-            });
+            let on_back = f.board_side() == pcbcraft_doc::Layer::Back;
             let name = match &pad.geometry {
                 Some(g) => {
                     let w = um(g.size.x);
@@ -1489,6 +1577,10 @@ impl StepDoc {
     /// Extrude a closed polygon from z=0 to z=depth, returning the advanced
     /// face ids that close the prism.
     fn prism(&mut self, ring: &[Point], depth: f64) -> Result<Vec<u32>, String> {
+        self.prism_between(ring, 0.0, depth)
+    }
+    /// Extrude a closed polygon from z0 to z1.
+    fn prism_between(&mut self, ring: &[Point], z0: f64, z1: f64) -> Result<Vec<u32>, String> {
         let ring = thin_ring(ring);
         let count = ring.len();
         if count < 3 {
@@ -1506,10 +1598,10 @@ impl StepDoc {
                 continue;
             }
             let corners = [
-                (a.x, a.y, 0.0),
-                (b.x, b.y, 0.0),
-                (b.x, b.y, depth),
-                (a.x, a.y, depth),
+                (a.x, a.y, z0),
+                (b.x, b.y, z0),
+                (b.x, b.y, z1),
+                (a.x, a.y, z1),
             ];
             faces.push(self.face(
                 &corners,
@@ -1517,8 +1609,8 @@ impl StepDoc {
                 (dx / length, dy / length, 0.0),
             )?);
         }
-        let bottom: Vec<Coords> = ring.iter().map(|p| (p.x, p.y, 0.0)).collect();
-        let mut top: Vec<Coords> = ring.iter().map(|p| (p.x, p.y, depth)).collect();
+        let bottom: Vec<Coords> = ring.iter().map(|p| (p.x, p.y, z0)).collect();
+        let mut top: Vec<Coords> = ring.iter().map(|p| (p.x, p.y, z1)).collect();
         top.reverse();
         faces.push(self.face(&bottom, (0.0, 0.0, -1.0), (1.0, 0.0, 0.0))?);
         faces.push(self.face(&top, (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))?);
@@ -1544,7 +1636,7 @@ fn thin_ring(points: &[Point]) -> Vec<Point> {
 }
 
 /// Export the board as an AP214 STEP file: the outline and every placed pad
-/// as a solid prism, in millimetres.
+/// as a solid prism, plus one box solid per placed part, in millimetres.
 pub fn step_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let depth = p.board.thickness;
@@ -1587,6 +1679,16 @@ pub fn step_board(p: &Project) -> Result<String, String> {
                 .collect();
             items.extend(doc.prism(&ring, depth)?);
         }
+    }
+    for body in part_bodies::part_boxes(p) {
+        let faces = doc.prism_between(&body.ring, body.z0, body.z1)?;
+        if faces.is_empty() {
+            continue;
+        }
+        let listed: Vec<String> = faces.iter().map(|f| format!("#{f}")).collect();
+        let shell = doc.add(&format!("CLOSED_SHELL('',({}))", listed.join(",")))?;
+        let name = body.name.replace('\'', "''");
+        items.push(doc.add(&format!("MANIFOLD_SOLID_BREP('{name}',#{shell})"))?);
     }
     for datum in &p.board.datums {
         let at = p.datum_position(datum);
@@ -1635,16 +1737,21 @@ pub fn vrml_board(p: &Project) -> Result<String, String> {
             Point::new(0.0, p.board.height),
         ],
     };
-    let mut rings = vec![outline];
+    let mut rings = vec![(outline, 0.0, depth)];
     for footprint in &p.board.footprints {
         for pad in &footprint.pads {
-            rings.push(
+            rings.push((
                 pad.outline_points()
                     .into_iter()
                     .map(|pos| footprint.position.offset(pos.rotate(-footprint.rotation)))
                     .collect(),
-            );
+                0.0,
+                depth,
+            ));
         }
+    }
+    for body in part_bodies::part_boxes(p) {
+        rings.push((body.ring, body.z0, body.z1));
     }
     if rings.len() > MAX_PRISMS {
         return Err("mechanical scene exceeds the solid limit".into());
@@ -1652,9 +1759,10 @@ pub fn vrml_board(p: &Project) -> Result<String, String> {
     let mut out = String::new();
     out.push_str("#VRML V2.0 utf8\n# pcbcraft board\n");
     let mut faces = 0usize;
-    for ring in &rings {
+    for (ring, z0, z1) in &rings {
         let base = 0usize;
         let ring = thin_ring(ring);
+        let (z0, z1) = (*z0, *z1);
         let count = ring.len();
         if count < 3 {
             continue;
@@ -1672,16 +1780,16 @@ pub fn vrml_board(p: &Project) -> Result<String, String> {
                 "{} {} {},{} {} {},{} {} {},{} {} {},",
                 f64s(a.x),
                 f64s(a.y),
-                "0",
+                f64s(z0),
                 f64s(b.x),
                 f64s(b.y),
-                "0",
+                f64s(z0),
                 f64s(b.x),
                 f64s(b.y),
-                f64s(depth),
+                f64s(z1),
                 f64s(a.x),
                 f64s(a.y),
-                f64s(depth),
+                f64s(z1),
             ));
         }
 
@@ -1723,6 +1831,8 @@ fn f64s(v: f64) -> String {
     if r == 0.0 { "0".into() } else { format!("{r}") }
 }
 
+/// Export the board as a KiCad PCB file, with nets, pads, tracks, vias,
+/// silkscreen, solder mask, paste, and courtyard geometry.
 pub fn kicad_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let b = &p.board;
@@ -1824,7 +1934,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                         },
                         g.size,
                         f.rotation + g.rotation,
-                        g.layers
+                        f.pad_geometry_layers(pad)
                             .iter()
                             .map(|l| quote(l))
                             .collect::<Vec<_>>()
@@ -2429,7 +2539,9 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             }
             let world = f.pad_world_position(pad);
             let through = g.pad_type == "thru_hole" || g.drill.is_some();
-            let is_back = !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."));
+            let layers = f.pad_geometry_layers(pad);
+            let is_back = f.board_side() == pcbcraft_doc::Layer::Back
+                || (!layers.is_empty() && !layers.iter().any(|l| l.starts_with("F.")));
             let ap = match g.shape.as_str() {
                 "circle" => {
                     let w = (g.size.x * 1_000.0).round() as u64;
@@ -2782,13 +2894,7 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
-        let back = f.pads.iter().any(|pad| {
-            pad.geometry.as_ref().is_some_and(|g| {
-                g.pad_type == "smd"
-                    && !g.layers.is_empty()
-                    && !g.layers.iter().any(|l| l.starts_with("F."))
-            })
-        });
+        let back = f.board_side() == pcbcraft_doc::Layer::Back;
         let side = if back { "bottom" } else { "top" };
         out.push_str(&format!(
             "<COMPONENT ref=\"{}\" package=\"{}\" x=\"{:.3}\" y=\"{:.3}\" rotation=\"{:.1}\" side=\"{}\"/>\n",
@@ -2874,6 +2980,9 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
         }
         for f in &p.board.footprints {
             for pad in &f.pads {
+                if !f.pad_on_copper(pad, layer) {
+                    continue;
+                }
                 let position = f.position.offset(pad.offset.rotate(f.rotation));
                 let (w, h) = pad
                     .geometry
@@ -2939,6 +3048,8 @@ pub fn read_fp_assignments(text: &str) -> Result<Vec<(String, String)>, String> 
     Ok(rows)
 }
 
+/// Export the board as a simple ASCII netlist: component pin connections
+/// grouped by reference, with net names resolved.
 pub fn netlist_text(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_PINS: usize = 50_000;
@@ -3321,7 +3432,9 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
     Ok(out)
 }
 
-/// separated, nets sorted by name and pins sorted by reference and number.
+/// Export the board as a HyperLynx-style simulation netlist CSV, with pins
+/// separated by commas, nets sorted by name and pins sorted by reference and
+/// number.
 pub fn hyperlynx_csv(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_PINS: usize = 50_000;
@@ -3361,9 +3474,6 @@ pub fn hyperlynx_csv(p: &Project) -> Result<String, String> {
     }
     Ok(out)
 }
-/// Pick-and-place placement file: one row per placed footprint in the classic
-/// centroid format (`SMT|THT,reference,X,Y,rotation,side,package`), sorted by
-/// reference. Side comes from the pad layers; height is unknown to this tool.
 /// In-circuit test netlist in IPC-D-356A style fixed columns: five-digit net
 /// number, twelve-column component reference, ten-column pin name, a 000000
 /// operation code and eight-digit X and Y coordinates in micrometres, sorted
@@ -3427,6 +3537,9 @@ pub fn ipc356_netlist(p: &Project) -> Result<String, String> {
     Ok(out)
 }
 
+/// Pick-and-place placement file: one row per placed footprint in the classic
+/// centroid format (`SMT|THT,reference,X,Y,rotation,side,package`), sorted by
+/// reference. Side comes from the pad layers; height is unknown to this tool.
 pub fn placement_text(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_PLACED: usize = 5_000;
@@ -3440,13 +3553,7 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
-        let back = f.pads.iter().any(|pad| {
-            pad.geometry.as_ref().is_some_and(|g| {
-                g.pad_type == "smd"
-                    && !g.layers.is_empty()
-                    && !g.layers.iter().any(|l| l.starts_with("F."))
-            })
-        });
+        let back = f.board_side() == pcbcraft_doc::Layer::Back;
         let tht = f.pads.iter().any(|pad| {
             pad.geometry
                 .as_ref()
@@ -3548,7 +3655,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
             };
             let centre = f.position.offset(geometry.position.rotate(-f.rotation));
             let points = [(centre.x, centre.y)];
-            for layer in &geometry.layers {
+            for layer in f.pad_geometry_layers(pad) {
                 let name = match layer.as_str() {
                     "F.Cu" | "B.Cu" => Some(layer.as_str()),
                     "*.Cu" => None,
@@ -3669,14 +3776,7 @@ pub fn cmp_text(p: &Project) -> Result<String, String> {
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
         for pad in &f.pads {
-            let back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty()
-                    && if g.pad_type == "smd" {
-                        !g.layers.iter().any(|l| l.starts_with("F."))
-                    } else {
-                        g.layers.iter().any(|l| l == "B.Cu")
-                    }
-            });
+            let back = f.board_side() == pcbcraft_doc::Layer::Back;
             let at = f.position.offset(pad.offset.rotate(-f.rotation));
             components.push(format!(
                 "$CD {}\t{}\t{}\t{}\t{}\t{}\t0",
@@ -3762,14 +3862,7 @@ pub fn gencad_text(p: &Project) -> Result<String, String> {
                 return Err("interchange file exceeds the record limit".into());
             }
             let at = f.position.offset(pad.offset.rotate(-f.rotation));
-            let back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty()
-                    && if g.pad_type == "smd" {
-                        !g.layers.iter().any(|l| l.starts_with("F."))
-                    } else {
-                        true
-                    }
-            });
+            let back = f.board_side() == pcbcraft_doc::Layer::Back;
             let shape = match pad
                 .geometry
                 .as_ref()
@@ -3846,13 +3939,7 @@ pub fn idf_board(p: &Project) -> Result<String, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
-        let back = f.pads.iter().any(|pad| {
-            pad.geometry.as_ref().is_some_and(|g| {
-                g.pad_type == "smd"
-                    && !g.layers.is_empty()
-                    && !g.layers.iter().any(|l| l.starts_with("F."))
-            })
-        });
+        let back = f.board_side() == pcbcraft_doc::Layer::Back;
         body.push_str(&format!(
             ".END_BODY {}\t{}\t{}\t{}\t{}\t{}\n",
             c.reference,
@@ -3996,8 +4083,13 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
         bump(&mut count)?;
+        let side = if f.board_side() == pcbcraft_doc::Layer::Back {
+            "bottom"
+        } else {
+            "top"
+        };
         out.push_str(&format!(
-            "    (component (name {}) (place (type fixed) (side top) (rotate {:.1}) (at {})))\n",
+            "    (component (name {}) (place (type fixed) (side {side}) (rotate {:.1}) (at {})))\n",
             quote(&c.reference),
             f.rotation.rem_euclid(360.0),
             point(&f.position)?
@@ -4263,6 +4355,13 @@ impl DxfWriter {
     }
 }
 
+/// Board as an R12 DXF drawing: edge outline, cutouts, front and back copper
+/// tracks, vias, pads and silkscreen. Arcs are written as DXF arc entities;
+/// pads and vias become circles or polylines. Layer names follow the
+/// convention Edge, F_Cu, B_Cu, F_Pads, B_Pads, Via, Drill, F_Silk.
+/// # Rules
+/// - Coordinates are in the project's native units (typically mm).
+/// - The entity count is capped at 50,000; exceeding it returns an error.
 pub fn dxf_board(p: &Project) -> Result<String, String> {
     p.validate()?;
 
@@ -4310,9 +4409,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
     for f in &p.board.footprints {
         for pad in &f.pads {
             let world = f.position.offset(pad.offset.rotate(-f.rotation));
-            let back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
-            });
+            let back = f.board_side() == pcbcraft_doc::Layer::Back;
             let layer = if back { "B_Pads" } else { "F_Pads" };
             let geometry = match &pad.geometry {
                 Some(g) => g,
@@ -4689,6 +4786,12 @@ pub fn dxf_entities(text: &str) -> Result<Vec<DxfEntity>, String> {
     Ok(out)
 }
 
+/// Board or schematic as an SVG vector image. The `view` argument must be
+/// "pcb" or "schematic". Copper tracks, pads, vias, silkscreen and component
+/// bodies are drawn with appropriate colors and stroke widths.
+/// # Rules
+/// - The viewBox is computed from the content bounds plus 16 units of margin.
+/// - Coordinates are in the project's native units (typically mm).
 pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
     if view != "pcb" && view != "schematic" {
@@ -7236,12 +7339,14 @@ mod tests {
             kind: "copper".into(),
             thickness: 0.035,
             copper_role: None,
+            ..Default::default()
         });
         project.board.layer_records.push(pcbcraft_doc::LayerRecord {
             name: "core".into(),
             kind: "core".into(),
             thickness: 1.2,
             copper_role: None,
+            ..Default::default()
         });
         project.board.machining = Some(pcbcraft_doc::MachiningNotes {
             edge_plating: Some(true),
@@ -7631,6 +7736,166 @@ mod tests {
         Ok(())
     }
 
+    /// Two parts of the same footprint: R1 with no model on the top side and
+    /// R2 with a model reference. R2 is placed at (30, 15), optionally on the
+    /// bottom side and rotated.
+    fn two_part_project(bottom: bool, rotation: f64) -> Result<Project, String> {
+        let mut project = real_library_project()?;
+        let mut component = project.components[0].clone();
+        component.id = 3;
+        component.reference = "R2".into();
+        if let Some(lib) = component.library_footprint.as_mut() {
+            lib.definition.model = Some(pcbcraft_library::Model3D {
+                path: "R_0805.step".into(),
+                offset: [0.0; 3],
+                scale: [1.0; 3],
+                rotate: [0.0; 3],
+                raw_source: String::new(),
+            });
+        }
+        let mut footprint = project.board.footprints[0].clone();
+        footprint.id = 4;
+        footprint.component = 3;
+        footprint.position = Point::new(30.0, 15.0);
+        footprint.rotation = rotation;
+        if bottom {
+            for pad in &mut footprint.pads {
+                if let Some(g) = pad.geometry.as_mut() {
+                    g.layers = vec!["B.Cu".into(), "B.Mask".into()];
+                }
+            }
+            if let Some(lib) = component.library_footprint.as_mut() {
+                for pad in &mut lib.definition.pads {
+                    pad.layers = vec!["B.Cu".into(), "B.Mask".into()];
+                }
+            }
+        }
+        project.components.push(component);
+        project.board.footprints.push(footprint);
+        if !bottom {
+            // Placement does not yet accept bottom-side surface-mount parts,
+            // so the bottom case is checked on the body list directly.
+            project.validate()?;
+        }
+        Ok(project)
+    }
+    fn bounds(ring: &[Point]) -> (Point, Point) {
+        let mut lo = ring[0];
+        let mut hi = ring[0];
+        for p in ring {
+            lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+            hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+        }
+        (lo, hi)
+    }
+
+    #[test]
+    fn step_board_places_a_box_for_a_part_without_a_model() -> Result<(), String> {
+        let project = two_part_project(false, 0.0)?;
+        let step = step_board(&project)?;
+        assert_eq!(
+            step.matches("MANIFOLD_SOLID_BREP(").count(),
+            2,
+            "one solid for each placed part"
+        );
+        assert!(step.contains("MANIFOLD_SOLID_BREP('R1',"));
+        assert!(step.contains("MANIFOLD_SOLID_BREP('R2',"));
+        let boxes = part_bodies::part_boxes(&project);
+        assert_eq!(boxes.len(), 2);
+        let first = &boxes[0];
+        let (lo, hi) = bounds(&first.ring);
+        // The 0805 courtyard is 3.36 by 1.9 millimetres around the part origin.
+        assert!(((hi.x - lo.x) - 3.36).abs() < 0.01, "{lo:?} {hi:?}");
+        assert!(((hi.y - lo.y) - 1.9).abs() < 0.01, "{lo:?} {hi:?}");
+        assert!(((lo.x + hi.x) / 2.0 - 10.0).abs() < 0.01);
+        let thickness = project.board.thickness;
+        assert!((first.z0 - thickness).abs() < 1e-9);
+        assert!((first.z1 - thickness - part_bodies::DEFAULT_BODY_HEIGHT_MM).abs() < 1e-9);
+        // The part with a model gets the same box shape for now.
+        let (mlo, mhi) = bounds(&boxes[1].ring);
+        assert!(((mhi.x - mlo.x) - 3.36).abs() < 0.01);
+        assert!(((mlo.x + mhi.x) / 2.0 - 30.0).abs() < 0.01);
+        Ok(())
+    }
+
+    #[test]
+    fn step_board_places_bottom_side_parts_below_the_board() -> Result<(), String> {
+        let mut project = two_part_project(true, 90.0)?;
+        // An off-centre courtyard makes the x mirror visible.
+        if let Some(lib) = project.components[1].library_footprint.as_mut() {
+            lib.definition.graphics = vec![pcbcraft_library::Graphic::Rectangle {
+                start: Point::new(-1.0, -1.0),
+                end: Point::new(3.0, 1.0),
+                width: 0.05,
+                fill: "none".into(),
+                layer: "F.CrtYd".into(),
+            }];
+        }
+        let boxes = part_bodies::part_boxes(&project);
+        assert_eq!(boxes.len(), 2);
+        let bottom = &boxes[1];
+        assert!(
+            (bottom.z1 - 0.0).abs() < 1e-9,
+            "top of the box is the bottom face"
+        );
+        assert!(bottom.z0 < -1.0, "the box hangs below the board");
+        // Mirrored in x the courtyard spans x -3..1; the part turns by
+        // minus its rotation, so local x maps to board y as -x: 14..18
+        // around the origin (30, 15). Without the mirror it would be 12..16.
+        let (lo, hi) = bounds(&bottom.ring);
+        assert!(((hi.x - lo.x) - 2.0).abs() < 0.01, "{lo:?} {hi:?}");
+        assert!(((hi.y - lo.y) - 4.0).abs() < 0.01, "{lo:?} {hi:?}");
+        assert!(((lo.x + hi.x) / 2.0 - 30.0).abs() < 0.01);
+        assert!(((lo.y + hi.y) / 2.0 - 16.0).abs() < 0.01, "{lo:?} {hi:?}");
+        let mut area = 0.0;
+        for i in 0..bottom.ring.len() {
+            let a = bottom.ring[i];
+            let b = bottom.ring[(i + 1) % bottom.ring.len()];
+            area += a.x * b.y - b.x * a.y;
+        }
+        assert!(area > 0.0, "the ring stays counter-clockwise");
+        Ok(())
+    }
+
+    #[test]
+    fn vrml_board_lists_the_same_bodies_as_step() -> Result<(), String> {
+        let project = two_part_project(false, 0.0)?;
+        let plain = {
+            let mut p = project.clone();
+            p.board.footprints.clear();
+            p
+        };
+        let with = vrml_board(&project)?;
+        let without = vrml_board(&plain)?;
+        assert_eq!(
+            with.matches("IndexedFaceSet").count(),
+            without.matches("IndexedFaceSet").count() + 2 + 4,
+            "two bodies and the four pads of the parts"
+        );
+        let top = project.board.thickness + part_bodies::DEFAULT_BODY_HEIGHT_MM;
+        assert!(with.contains(&f64s(top)), "body tops are written");
+        // The parts' pads are the only other solids besides the bodies.
+        let step = step_board(&project)?;
+        assert_eq!(step.matches("MANIFOLD_SOLID_BREP(").count(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn step_board_with_no_parts_writes_no_bodies() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.width = 40.0;
+        project.board.height = 30.0;
+        let step = step_board(&project)?;
+        assert_eq!(step.matches("MANIFOLD_SOLID_BREP(").count(), 0);
+        assert_eq!(step.matches("CLOSED_SHELL(").count(), 0);
+        assert_eq!(
+            step.matches("ADVANCED_FACE(").count(),
+            6,
+            "only the board slab"
+        );
+        Ok(())
+    }
+
     use std::collections::BTreeMap;
     fn real_library_project() -> Result<Project, String> {
         let definition = pcbcraft_library::read_symbols(include_str!(
@@ -7698,6 +7963,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads,
         });
         project.validate()?;
@@ -8336,6 +8602,7 @@ mod tests {
             position: Point::new(0.0, 0.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![through_pad, pad2],
         });
         project.components.push(pcbcraft_doc::Component {
@@ -8497,6 +8764,48 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn gerber_files_round_trips_flash_and_draw_counts() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 8,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 3,
+            net: 8,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.3,
+            layer: pcbcraft_doc::Layer::Back,
+            arc: None,
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 4,
+            net: 8,
+            position: Point::new(30.0, 10.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        for (name, text) in &files {
+            if !name.ends_with(".gbr") {
+                continue;
+            }
+            let (writer_flashes, writer_draws) = count_flashes_and_draws(text)?;
+            let layer = parse_gerber_layer(text, name)?;
+            assert_eq!(layer.flash_count, writer_flashes, "flash count for {name}");
+            assert_eq!(layer.draw_count, writer_draws, "draw count for {name}");
+        }
+        Ok(())
+    }
+
     #[test]
     fn oval_drills_export_as_spanned_slots_following_pad_rotation() -> Result<(), String> {
         let mut project = Project::default();
@@ -8527,6 +8836,7 @@ mod tests {
             },
             rotation: if component == 1 { 0.0 } else { 90.0 },
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
@@ -8680,6 +8990,7 @@ mod tests {
                 position: Point::new(x, y),
                 rotation,
                 locked: None,
+                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -8887,6 +9198,7 @@ mod tests {
                 position: Point::new(x, y),
                 rotation,
                 locked: None,
+                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -9042,6 +9354,7 @@ mod tests {
                 position: Point::new(x, y),
                 rotation: 0.0,
                 locked: None,
+                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -9237,6 +9550,7 @@ mod tests {
             position: Point::new(12.5, 8.25),
             rotation: 90.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(-1.0, 0.0),
@@ -9252,6 +9566,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
@@ -9396,6 +9711,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, Some(5))],
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
@@ -9404,6 +9720,7 @@ mod tests {
             position: Point::new(30.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, None)],
         });
         project.board.tracks.push(pcbcraft_doc::Track {
@@ -9542,6 +9859,7 @@ mod tests {
             position: Point::new(20.0, 10.0),
             rotation: 90.0,
             locked: None,
+            side: None,
             pads: vec![pad("1", -1.0, 0.0, None), pad("2", 1.0, 0.0, Some(9))],
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
@@ -9550,6 +9868,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pad("1", 0.0, 0.0, Some(5)), pad("2", 2.0, 0.0, Some(9))],
         });
         let text = ipc356_netlist(&project)?;
@@ -10456,6 +10775,7 @@ mod tests {
                 position: Point::new(x, y),
                 rotation,
                 locked: None,
+                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -10598,6 +10918,7 @@ mod tests {
             position: Point::new(10.0, 20.0),
             rotation: 90.0,
             locked: None,
+            side: None,
             pads: vec![
                 pcbcraft_doc::Pad {
                     number: "1".into(),
@@ -11877,6 +12198,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: placed,
         });
         project.validate()?;
@@ -12490,6 +12812,7 @@ mod tests {
             position: Point::new(12.0, 8.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
@@ -12527,6 +12850,7 @@ mod tests {
             kind: "copper".into(),
             thickness: 0.035,
             copper_role: None,
+            ..Default::default()
         });
         project
             .meta
@@ -12551,6 +12875,7 @@ mod tests {
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: None,
+                ..Default::default()
             });
             if i < 6 {
                 p.board.layer_records.push(pcbcraft_doc::LayerRecord {
@@ -12558,6 +12883,7 @@ mod tests {
                     kind: "prepreg".into(),
                     thickness: 0.2,
                     copper_role: None,
+                    ..Default::default()
                 });
             }
         }
@@ -12909,6 +13235,7 @@ mod tests {
             position: Point::new(20.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::default(),
@@ -12927,5 +13254,46 @@ mod tests {
             "four gaps between four spokes"
         );
         Ok(())
+    }
+    #[test]
+    fn an_arced_corner_round_trips_through_save_and_open() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.outline = Some(vec![
+            Point::new(0.0, 2.0),
+            Point::new(20.0, 2.0),
+            Point::new(20.0, 22.0),
+            Point::new(0.0, 22.0),
+        ]);
+        project.board.outline_arcs = vec![Some(Point::new(10.0, 0.0)), None, None, None];
+        project.board.width = 20.0;
+        project.board.height = 22.0;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("arced.pcbcraft");
+        save(&project, &path)?;
+        let loaded = load(&path)?;
+        assert_eq!(loaded.board.outline_arcs, project.board.outline_arcs);
+        assert_eq!(loaded, project);
+        assert!(
+            loaded.board.edge_ring(0.01).len() > 4,
+            "the opened outline still flattens into chords"
+        );
+        Ok(())
+    }
+    #[test]
+    fn files_without_outline_arcs_open_with_straight_edges() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.outline = Some(vec![
+            Point::new(0.0, 0.0),
+            Point::new(60.0, 0.0),
+            Point::new(60.0, 40.0),
+        ]);
+        let text = serde_json::to_string(&project).map_err(|e| e.to_string())?;
+        assert!(
+            !text.contains("outline_arcs"),
+            "straight outlines write no arc list"
+        );
+        let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert!(back.board.outline_arcs.is_empty());
+        back.validate()
     }
 }

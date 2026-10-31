@@ -192,3 +192,135 @@ fn a_newcomer_runs_track_cleanup_from_the_menu() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// Four resistors placed by hand and synced to the board, at staggered heights.
+fn four_board_parts() -> Result<(App, Vec<Id>), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    for (i, y) in [10.0, 14.0, 8.0, 12.0].into_iter().enumerate() {
+        app.run(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0 + 12.0 * i as f64,"y":y}}),
+        );
+    }
+    app.run("board.sync", json!({}));
+    app.change_tab(Tab::Pcb);
+    let ids: Vec<Id> = app.project.board.footprints.iter().map(|f| f.id).collect();
+    if ids.len() < 4 {
+        return Err(format!("the board needs four parts: {}", app.message));
+    }
+    Ok((app, ids))
+}
+
+#[test]
+fn a_newcomer_lines_up_four_connectors() -> Result<(), String> {
+    let (mut app, ids) = four_board_parts()?;
+    let ys = |app: &App| -> Vec<f64> {
+        app.project
+            .board
+            .footprints
+            .iter()
+            .map(|f| f.position.y)
+            .collect()
+    };
+    let before = ys(&app);
+    app.set_selection(ids);
+    app.align_selection("top");
+    let after = ys(&app);
+    assert!(
+        after.windows(2).all(|w| (w[0] - w[1]).abs() < 1e-9),
+        "every part sits at one height: {after:?} ({})",
+        app.message
+    );
+    app.tool_call("undo", json!({}));
+    assert_eq!(ys(&app), before, "one undo restores every position");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_makes_a_row_of_led_footprints_with_an_array() -> Result<(), String> {
+    let (mut app, ids) = four_board_parts()?;
+    let before = app.project.board.footprints.len();
+    app.set_selection(vec![ids[0]]);
+    app.open_array_dialog();
+    assert!(app.edit.arrange.open, "the array dialog opens");
+    app.edit.arrange.rows = 1;
+    app.edit.arrange.columns = 5;
+    app.edit.arrange.pitch_x = 6.0;
+    app.run_array();
+    assert_eq!(
+        app.project.board.footprints.len(),
+        before + 4,
+        "one part becomes a row of five: {}",
+        app.message
+    );
+    assert!(!app.edit.arrange.open, "the dialog closes on success");
+    app.tool_call("undo", json!({}));
+    assert_eq!(
+        app.project.board.footprints.len(),
+        before,
+        "one undo removes the row"
+    );
+    Ok(())
+}
+
+#[test]
+fn align_needs_two_selected_items() -> Result<(), String> {
+    let (mut app, ids) = four_board_parts()?;
+    app.set_selection(vec![ids[0]]);
+    let before: Vec<_> = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .map(|f| f.position)
+        .collect();
+    app.align_selection("left");
+    let after: Vec<_> = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .map(|f| f.position)
+        .collect();
+    assert_eq!(before, after, "nothing moves with one part selected");
+    assert!(app.message.contains("at least two"), "{}", app.message);
+    Ok(())
+}
+
+#[test]
+fn array_dialog_bounds_match_the_engine() -> Result<(), String> {
+    let (mut app, ids) = four_board_parts()?;
+    let before = app.project.board.footprints.len();
+    app.set_selection(vec![ids[0]]);
+    app.open_array_dialog();
+    app.edit.arrange.rows = crate::arrange::ARRAY_MAX + 1;
+    app.edit.arrange.columns = 2;
+    app.run_array();
+    assert_eq!(
+        app.project.board.footprints.len(),
+        before,
+        "refused, nothing added"
+    );
+    assert!(
+        app.message.contains("1-64"),
+        "the engine reason shows: {}",
+        app.message
+    );
+    assert!(
+        app.edit.arrange.open,
+        "the dialog stays open after a refusal"
+    );
+    app.edit.arrange.rows = crate::arrange::ARRAY_MAX;
+    app.edit.arrange.columns = 1;
+    app.edit.arrange.pitch_x = crate::arrange::PITCH_MAX + 1.0;
+    app.edit.arrange.pitch_y = 5.0;
+    app.run_array();
+    assert_eq!(
+        app.project.board.footprints.len(),
+        before,
+        "pitch over the limit is refused"
+    );
+    Ok(())
+}

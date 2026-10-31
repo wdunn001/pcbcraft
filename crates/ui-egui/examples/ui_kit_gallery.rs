@@ -69,7 +69,7 @@ fn main() -> eframe::Result {
     let capture = option("--capture");
     let page = option("--page").and_then(|name| Page::from_name(&name));
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 900.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1560.0, 960.0]),
         ..Default::default()
     };
     eframe::run_native(

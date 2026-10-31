@@ -28,7 +28,7 @@ fn a_newcomer_prints_a_drawing_of_the_board() -> Result<(), String> {
             egui::Modifiers::NONE,
         );
     }
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     scrolled_to_at(&ctx, &mut app, "Printable drawing (PDF)", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Printable drawing (PDF)")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -61,7 +61,7 @@ fn a_newcomer_pours_a_block_of_copper() -> Result<(), String> {
     let before = app.project.board.zones.len();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "Pour copper", 700.0)?,
         "the board geometry section should offer a copper pour: {}",
@@ -129,7 +129,7 @@ fn a_newcomer_fills_a_copper_area_with_vias() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Fill with vias")?,
+        scrolled_to(&ctx, &mut app, "Fill with vias")?,
         "a chosen copper area offers to be stitched: {}",
         app.message
     );
@@ -165,7 +165,7 @@ fn a_newcomer_writes_a_drill_map() -> Result<(), String> {
     app.make_dir = folder.to_string_lossy().into_owned();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "Drill map (CSV)", 700.0)?,
         "the make files should include a drill map: {}",
@@ -210,7 +210,7 @@ fn a_newcomer_gets_a_3d_model_of_the_board() -> Result<(), String> {
             egui::Modifiers::NONE,
         );
     }
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "BOARD DRAWINGS", 700.0)?,
         "the factory folder section should also offer a 3D look: {}",
@@ -262,7 +262,7 @@ fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
             egui::Modifiers::NONE,
         );
     }
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 700.0)?,
         "the factory folder section should also plan panels: {}",
@@ -300,10 +300,14 @@ fn a_newcomer_opens_their_factory_zip_and_hides_a_layer() -> Result<(), String> 
     app.make_dir = directory.to_string_lossy().into_owned();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Copper & drill files", 700.0)?,
+        "the make files section offers the copper and drill files"
+    );
     authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Plot files")?;
+    tap_id(&ctx, &mut app, "tab:Manufacture")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.plot_viewer.folder_path = directory.to_string_lossy().into_owned();
     authoring::tests::tap(&ctx, &mut app, "Load")?;
@@ -345,7 +349,7 @@ fn a_newcomer_makes_print_art_for_the_silkscreen() -> Result<(), String> {
     app.make_dir = folder.to_string_lossy().into_owned();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "Print art, top silkscreen", 700.0)?,
         "the make files list offers print art for the top silkscreen: {}",
@@ -414,6 +418,23 @@ fn outputs_in(tag: &str) -> Result<std::collections::BTreeMap<String, Vec<u8>>, 
     Ok(files)
 }
 
+fn gbrjob_bytes_for_compare(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    if !bytes.starts_with(b"{") {
+        return Ok(bytes.to_vec());
+    }
+    let mut value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    if let Some(header) = value
+        .get_mut("Header")
+        .and_then(|header| header.as_object_mut())
+    {
+        header.insert(
+            "CreationDate".into(),
+            serde_json::Value::String(String::new()),
+        );
+    }
+    serde_json::to_vec(&value).map_err(|e| e.to_string())
+}
+
 /// True when every file in `names` is in both sets and has the same bytes.
 fn same_files(
     english: &std::collections::BTreeMap<String, Vec<u8>>,
@@ -425,7 +446,15 @@ fn same_files(
         let other = german
             .get(name)
             .ok_or_else(|| format!("{name} is missing when the language is German"))?;
-        if other != bytes {
+        let (left, right) = if name.ends_with(".gbrjob") {
+            (
+                gbrjob_bytes_for_compare(bytes)?,
+                gbrjob_bytes_for_compare(other)?,
+            )
+        } else {
+            (bytes.clone(), other.clone())
+        };
+        if left != right {
             return Err(format!("{name} differs between English and German"));
         }
         compared += 1;
