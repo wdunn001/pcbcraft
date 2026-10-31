@@ -45,7 +45,7 @@ pub fn tool_list() -> Value {
         json!({"name":"cmp.write","description":"Write a legacy board trace file listing every placed pad position in mils with a front or back layer code and every net's pad membership, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"report.write","description":"Write a plain-text design report summarizing the board, every component with its package and placement, and every net with its pins, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ipc2581.write","description":"Write a single-file IPC-2581 style assembly exchange XML with the board outline, nets and their pins, placed components, drill holes and copper by layer, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"idf.write","description":"Write a board-level mechanical drawing (board size plus every placed part's position, side and rotation, with default component heights) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"idf.write","description":"Write IDF version 3 board and library files (board outline and placements plus one outline and height per distinct footprint) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"wrl.write","description":"Write a VRML 2.0 scene extruding the board outline and every placed pad into solid prisms into a directory for mechanical viewers, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"hyperlynx.write","description":"Write a simulation netlist CSV, one line per net naming the net and every reference.pin on it, into a directory for circuit simulators, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gencad.write","description":"Write a legacy board interchange text listing components, pins in whole mils with shape and layer, and nets by component and pad index, into a directory for EDA bridges, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -433,15 +433,26 @@ pub(crate) fn invoke_session(
         }
         "idf.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::idf_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.idf"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.idf","bytes":text.len()})
+            let board = pcbcraft_io::idf_board(&s.project)?;
+            let library = pcbcraft_io::idf_library(&s.project)?;
+            pcbcraft_io::atomic_write(&Path::new(directory).join("board.idf"), board.as_bytes())?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("library.idf"),
+                library.as_bytes(),
+            )?;
+            json!({"directory":directory,"files":["board.idf","library.idf"],"bytes":board.len() + library.len()})
         }
         "step.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::step_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.step"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.step","bytes":text.len()})
+            let base = Path::new(&directory);
+            let loader = pcbcraft_io::project_step_loader(&s.project, Some(base));
+            let export = pcbcraft_io::step_board_with_models(&s.project, &loader)
+                .map_err(|e| e.to_string())?;
+            pcbcraft_io::atomic_write(
+                &base.join("board.step"),
+                export.text.as_bytes(),
+            )?;
+            json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
         }
         "wrl.write" => {
             let directory = string(args, "path")?;
@@ -597,11 +608,12 @@ pub(crate) fn invoke_session(
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                const COPPER: [&str; 7] = [
+                const COPPER: [&str; 8] = [
                     "clearance",
                     "copper_short",
                     "track_width",
                     "stub_length",
+                    "acute_angle",
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
@@ -1018,6 +1030,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bridge_tests;
 #[cfg(test)]
 mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -2188,21 +2202,27 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         let export = call_tool(&session, "idf.write", &json!({"path":directory.path()}));
         assert_eq!(export.get("isError"), Some(&json!(false)));
-        let text = std::fs::read_to_string(directory.path().join("board.idf"))
+        let board = std::fs::read_to_string(directory.path().join("board.idf"))
+            .map_err(|e| e.to_string())?;
+        let library = std::fs::read_to_string(directory.path().join("library.idf"))
             .map_err(|e| e.to_string())?;
         assert!(
-            text.starts_with(".FILE_IDF\n.3DIDF VERSION: 2.0\n"),
-            "the mechanical drawing declares itself"
+            board.starts_with(".HEADER\nBOARD_FILE 3.0"),
+            "the board file declares IDF version 3"
         );
         assert!(
-            text.contains(".END_BODY R1\t") && text.contains(".END_BODY R2\t"),
-            "every placed part is listed with its position"
+            board.contains(".PLACEMENT\n") && board.contains(" R1\n") && board.contains(" R2\n"),
+            "every placed part is listed with its reference"
+        );
+        assert!(board.ends_with(".END_PLACEMENT\n"), "the board file closes");
+        assert!(
+            library.starts_with(".HEADER\nLIBRARY_FILE 3.0"),
+            "the library file declares IDF version 3"
         );
         assert!(
-            text.contains(".PIN 2\n"),
-            "the embedded pin file counts every part"
+            library.contains(".ELECTRICAL\n") && library.contains(".END_ELECTRICAL\n"),
+            "the library carries at least one footprint outline"
         );
-        assert!(text.ends_with(".END_FILE_IDF\n"), "the file closes");
         assert_eq!(
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,

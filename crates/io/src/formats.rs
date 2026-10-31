@@ -458,7 +458,7 @@ pub static FORMATS: &[FormatSpec] = &[
     output(
         "idf",
         "Mechanical drawing (IDF)",
-        "Board size and each part's position, for enclosure design.",
+        "Board outline and placements plus a library of footprint outlines and heights.",
         &["idf"],
         Group::Exchange,
         Run::Kind("idf"),
@@ -471,6 +471,38 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Exchange,
         Run::Kind("dsn"),
     ),
+output(
+        "spice",
+        "Circuit netlist (SPICE)",
+        "A passive circuit netlist from sim.model fields for an outside solver.",
+        &["cir"],
+        Group::Exchange,
+        Run::Kind("spice"),
+    ),
+    output(
+        "touchstone",
+        "Touchstone (S-parameters)",
+        "A stored S-parameter file copied from the project attachment touchstone.s2p.",
+        &["s2p"],
+        Group::Exchange,
+        Run::Kind("touchstone"),
+    ),
+    output(
+        "si_net_results",
+        "Signal integrity results (CSV)",
+        "Per-net impedance estimate, length, differential pair data and optional DC volts.",
+        &["csv"],
+        Group::Documentation,
+        Run::Kind("si_net_results"),
+    ),
+    output(
+        "impedance_table",
+        "Impedance table (CSV)",
+        "Per-net impedance estimates and validity notes for the fab package.",
+        &["csv"],
+        Group::Documentation,
+        Run::Kind("impedance_table"),
+    ),
     #[cfg(feature = "plugin-firmware-target")]
     output(
         "firmware_target",
@@ -479,6 +511,7 @@ pub static FORMATS: &[FormatSpec] = &[
         &["h", "json"],
         Group::Exchange,
         Run::Engine("firmware.target.export"),
+    ),
     ),
     FormatSpec {
         id: "board_interchange",
