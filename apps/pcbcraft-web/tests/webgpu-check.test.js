@@ -1,59 +1,68 @@
 // Run with: node apps/pcbcraft-web/tests/webgpu-check.test.js
 const assert = require("node:assert");
 const {
-  pcbcraftNeedsWebGpu,
-  pcbcraftHasWebGl2,
+  pcbcraftNeedsGraphics,
+  pcbcraftIsCrash,
+  pcbcraftWatchForCrash,
 } = require("../webgpu-check.js");
 
 function fakeDocument(webgl2) {
-  const removed = [];
-  const loaders = ["script", "link"].map((name) => ({
-    name,
-    remove: () => removed.push(name),
-  }));
   const notice = { hidden: true };
+  const crashed = { hidden: true };
   const canvas = { hidden: false };
-  const probe = {
-    getContext: (kind) =>
-      webgl2 && (kind === "webgl2" || kind === "experimental-webgl2")
-        ? {}
-        : null,
-  };
+  const button = { listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; } };
   return {
-    removed,
     notice,
+    crashed,
     canvas,
+    button,
+    createElement: () => ({ getContext: (kind) => (webgl2 && kind === "webgl2" ? {} : null) }),
     getElementById: (id) =>
-      id === "needs-webgpu" ? notice : id === "pcbcraft" ? canvas : null,
-    createElement: (tag) => (tag === "canvas" ? probe : {}),
-    querySelectorAll: () => loaders,
+      ({ "needs-webgpu": notice, "web-crashed": crashed, pcbcraft: canvas, "web-reload": button })[id] || null,
   };
 }
 
-function the_message_shows_without_any_graphics_api() {
+function the_message_shows_with_neither_webgpu_nor_webgl2() {
   const doc = fakeDocument(false);
-  assert.strictEqual(pcbcraftNeedsWebGpu({}, doc), true);
+  assert.strictEqual(pcbcraftNeedsGraphics({}, doc), true);
   assert.strictEqual(doc.notice.hidden, false, "the message is shown");
   assert.strictEqual(doc.canvas.hidden, true, "the canvas is hidden");
-  assert.strictEqual(doc.removed.length, 2, "the wasm loaders are removed");
 }
 
-function the_page_starts_normally_with_webgpu() {
+function the_page_starts_with_webgpu_only() {
   const doc = fakeDocument(false);
-  assert.strictEqual(pcbcraftNeedsWebGpu({ gpu: {} }, doc), false);
+  assert.strictEqual(pcbcraftNeedsGraphics({ gpu: {} }, doc), false);
   assert.strictEqual(doc.notice.hidden, true);
-  assert.strictEqual(doc.removed.length, 0);
 }
 
-function the_page_starts_normally_with_webgl2_only() {
+function the_page_starts_with_webgl2_only() {
   const doc = fakeDocument(true);
-  assert.strictEqual(pcbcraftHasWebGl2(doc), true);
-  assert.strictEqual(pcbcraftNeedsWebGpu({}, doc), false);
-  assert.strictEqual(doc.notice.hidden, true);
-  assert.strictEqual(doc.removed.length, 0);
+  assert.strictEqual(pcbcraftNeedsGraphics({}, doc), false);
+  assert.strictEqual(doc.notice.hidden, true, "no notice for a WebGL 2 browser");
+  assert.strictEqual(doc.canvas.hidden, false);
 }
 
-the_message_shows_without_any_graphics_api();
-the_page_starts_normally_with_webgpu();
-the_page_starts_normally_with_webgl2_only();
+function a_wasm_trap_shows_the_crash_notice_and_reload_works() {
+  const doc = fakeDocument(true);
+  const listeners = {};
+  let reloaded = false;
+  const win = {
+    addEventListener: (name, fn) => (listeners[name] = fn),
+    location: { reload: () => (reloaded = true) },
+  };
+  pcbcraftWatchForCrash(win, doc);
+  listeners.error({ error: { name: "Error", message: "ordinary script error" }, message: "x" });
+  assert.strictEqual(doc.crashed.hidden, true, "an ordinary error is not a crash");
+  listeners.error({ error: { name: "RuntimeError", message: "unreachable" }, message: "x" });
+  assert.strictEqual(doc.crashed.hidden, false, "the crash notice is shown");
+  assert.strictEqual(doc.canvas.hidden, true);
+  doc.button.listeners.click();
+  assert.strictEqual(reloaded, true, "the button reloads the page");
+  assert.strictEqual(pcbcraftIsCrash(null, "panicked at sheet.rs"), true);
+}
+
+the_message_shows_with_neither_webgpu_nor_webgl2();
+the_page_starts_with_webgpu_only();
+the_page_starts_with_webgl2_only();
+a_wasm_trap_shows_the_crash_notice_and_reload_works();
 console.log("ok");
