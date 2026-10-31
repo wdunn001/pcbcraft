@@ -39,7 +39,7 @@ clipped | Pcb, lower dock page 2 | 320 | 4
 escaped | Pcb, lower dock page 2 | 320 | 93
 escaped | Start page | 1280 | 2
 clipped | Start page | 320 | 2
-escaped | Start page | 320 | 18
+escaped | Start page | 320 | 10
 escaped | About dialog | 1280 | 3
 clipped | About dialog | 320 | 1
 escaped | About dialog | 320 | 42
