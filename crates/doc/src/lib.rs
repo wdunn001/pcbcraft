@@ -4760,6 +4760,150 @@ impl Project {
         self.trim_copper_layer_roles();
         Ok(())
     }
+    /// True when `layer` is neither the top nor the bottom copper row.
+    pub fn is_inner_copper_layer(&self, layer: Layer) -> bool {
+        let count = self.copper_layer_count();
+        let i = layer.index();
+        i > 0 && i + 1 < count
+    }
+    /// Recorded plane role for a copper layer, if it is not plain signal routing.
+    pub fn copper_layer_plane_role(&self, layer: Layer) -> Option<&str> {
+        self.board
+            .copper_layer_roles
+            .get(layer.index() as usize)
+            .and_then(|r| r.as_deref())
+            .filter(|r| *r != "signal")
+    }
+    /// True when the layer is marked as a ground or power plane.
+    pub fn copper_layer_is_plane(&self, layer: Layer) -> bool {
+        matches!(
+            self.copper_layer_plane_role(layer),
+            Some("ground") | Some("power")
+        )
+    }
+    /// True when a filled pour sits on a layer marked ground or power.
+    pub fn zone_is_plane_pour(&self, zone: &CopperZone) -> bool {
+        zone.filled && self.copper_layer_is_plane(zone.layer)
+    }
+    fn trim_copper_layer_roles(&mut self) {
+        let count = self.copper_layer_count() as usize;
+        self.board.copper_layer_roles.truncate(count);
+        while self.board.copper_layer_roles.last().is_some_and(|r| r.is_none()) {
+            self.board.copper_layer_roles.pop();
+        }
+    }
+    /// Keep plane roles aligned when copper layer indices move.
+    pub fn remap_copper_layer_roles(&mut self, map: impl Fn(u8) -> u8) {
+        let count = self.copper_layer_count() as usize;
+        let mut next = vec![None; count];
+        for (i, role) in self.board.copper_layer_roles.iter().enumerate() {
+            if let Some(role) = role.clone() {
+                let ni = map(i as u8) as usize;
+                if ni < count {
+                    next[ni] = Some(role);
+                }
+            }
+        }
+        self.board.copper_layer_roles = next;
+        self.trim_copper_layer_roles();
+    }
+    /// Set or clear the design role of one inner copper layer.
+    pub fn set_copper_layer_plane_role(&mut self, layer: Layer, role: &str) -> Result<(), String> {
+        if !COPPER_LAYER_PLANE_ROLES.contains(&role) {
+            return Err("role must be signal, ground or power".into());
+        }
+        if !self.is_inner_copper_layer(layer) {
+            return Err("only inner copper layers carry a plane role".into());
+        }
+        let i = layer.index() as usize;
+        if i >= self.copper_layer_count() as usize {
+            return Err("layer is not on this board".into());
+        }
+        if self.board.copper_layer_roles.len() <= i {
+            self.board
+                .copper_layer_roles
+                .resize(i + 1, None);
+        }
+        self.board.copper_layer_roles[i] = if role == "signal" {
+            None
+        } else {
+            Some(role.into())
+        };
+        self.trim_copper_layer_roles();
+        Ok(())
+    }
+    /// True when `layer` is neither the top nor the bottom copper row.
+    pub fn is_inner_copper_layer(&self, layer: Layer) -> bool {
+        let count = self.copper_layer_count();
+        let i = layer.index();
+        i > 0 && i + 1 < count
+    }
+    /// Recorded plane role for a copper layer, if it is not plain signal routing.
+    pub fn copper_layer_plane_role(&self, layer: Layer) -> Option<&str> {
+        self.board
+            .copper_layer_roles
+            .get(layer.index() as usize)
+            .and_then(|r| r.as_deref())
+            .filter(|r| *r != "signal")
+    }
+    /// True when the layer is marked as a ground or power plane.
+    pub fn copper_layer_is_plane(&self, layer: Layer) -> bool {
+        matches!(
+            self.copper_layer_plane_role(layer),
+            Some("ground") | Some("power")
+        )
+    }
+    /// True when a filled pour sits on a layer marked ground or power.
+    pub fn zone_is_plane_pour(&self, zone: &CopperZone) -> bool {
+        zone.filled && self.copper_layer_is_plane(zone.layer)
+    }
+    fn trim_copper_layer_roles(&mut self) {
+        let count = self.copper_layer_count() as usize;
+        self.board.copper_layer_roles.truncate(count);
+        while self.board.copper_layer_roles.last().is_some_and(|r| r.is_none()) {
+            self.board.copper_layer_roles.pop();
+        }
+    }
+    /// Keep plane roles aligned when copper layer indices move.
+    pub fn remap_copper_layer_roles(&mut self, map: impl Fn(u8) -> u8) {
+        let count = self.copper_layer_count() as usize;
+        let mut next = vec![None; count];
+        for (i, role) in self.board.copper_layer_roles.iter().enumerate() {
+            if let Some(role) = role.clone() {
+                let ni = map(i as u8) as usize;
+                if ni < count {
+                    next[ni] = Some(role);
+                }
+            }
+        }
+        self.board.copper_layer_roles = next;
+        self.trim_copper_layer_roles();
+    }
+    /// Set or clear the design role of one inner copper layer.
+    pub fn set_copper_layer_plane_role(&mut self, layer: Layer, role: &str) -> Result<(), String> {
+        if !COPPER_LAYER_PLANE_ROLES.contains(&role) {
+            return Err("role must be signal, ground or power".into());
+        }
+        if !self.is_inner_copper_layer(layer) {
+            return Err("only inner copper layers carry a plane role".into());
+        }
+        let i = layer.index() as usize;
+        if i >= self.copper_layer_count() as usize {
+            return Err("layer is not on this board".into());
+        }
+        if self.board.copper_layer_roles.len() <= i {
+            self.board
+                .copper_layer_roles
+                .resize(i + 1, None);
+        }
+        self.board.copper_layer_roles[i] = if role == "signal" {
+            None
+        } else {
+            Some(role.into())
+        };
+        self.trim_copper_layer_roles();
+        Ok(())
+    }
     /// True when any board object sits on copper layer `index`.
     pub fn copper_layer_in_use(&self, index: u8) -> bool {
         let b = &self.board;
