@@ -1,0 +1,20 @@
+---
+description: PCBCraft test rules: stories, tooltips, golden files, network, flaky list
+globs: crates/**/tests/**,crates/ui-egui/src/e2e/**,crates/**/*.rs
+alwaysApply: false
+---
+
+# Tests
+
+Pipeline and CI: `pcbcraft-pipeline.mdc`, `docs/ci.md`. Test guide: `CONTRIBUTING.md` section 6.
+
+- **Stories.** Anything a user does gets an end-to-end test named `a_newcomer_<does something>` in `crates/ui-egui/src/e2e/<area>.rs`. Never add one to `lib.rs`. A new area file needs one `mod <area>;` line in `src/e2e/mod.rs`. Helpers are in `src/e2e/support.rs`. Every assertion message is a plain sentence a stranger could follow.
+- **Tooltips.** Every visible control has a tooltip and a story. CI fails otherwise (`docs/tooltips.md`).
+- **Golden files.** Every generated output (Gerber, drill, placement, BOM) and every file reader and writer compares a whole output against a fixture under `crates/<crate>/tests/fixtures/`. Fixtures from outside keep their licence file beside them.
+- **Round trips.** A new document field gets a save and load test.
+- **Network.** Tests never touch the network. Use recorded fixtures.
+- **Fonts.** A test checks that bundled fonts cover every non-ASCII UI string.
+- **Names.** Unit tests are sentences, not `test_foo`.
+- **Known flaky tests.** A single failure of the language byte-identity check, the library folder test, or the two frame-budget tests is not yours (fixes in flight). Re-run once, say so in the pull request, and never mask or delete a test to pass.
+- **Coverage.** Line coverage is gated in CI (job 'Coverage'): the bar is 70% and crates may not fall below their recorded baseline; tests must assert behaviour, and a test written only to execute code is not acceptable.
+- **Test rules:** docs/testing-standard.md (once it exists), one golden bless variable PCBCRAFT_BLESS, a_newcomer story per user goal, tests assert behaviour, no clocks, network or real config in tests.
