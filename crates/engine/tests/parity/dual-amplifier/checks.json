@@ -4,6 +4,15 @@
   "erc": [
     {
       "code": "missing_decoupling",
+      "message": "U1 pin 4 on GND needs a decoupling capacitor on the same net",
+      "objects": [
+        45
+      ],
+      "severity": "warning"
+    },
+    {
+      "code": "missing_decoupling",
+      "message": "U1 pin 8 on VCC needs a decoupling capacitor on the same net",
       "message": "U1 pin 8 (VCC) has no capacitor on VCC; add 100 nF next to the pin",
       "objects": [
         45

@@ -8,18 +8,20 @@
 //! # Dependencies
 //! - .github/workflows/ci.yml
 //! - docs/ci.md
-//! - xtask/src/changeset.rs
 //! - xtask/src/coverage.rs
 //! - xtask/src/doc_check.rs
 //! - xtask/src/tooltips.rs
 //! - xtask/src/status_data.rs
+//! - xtask/src/i18n.rs
+//! - xtask/src/a11y.rs
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
-mod changeset;
+mod a11y;
 mod coverage;
 mod doc_check;
 mod e2e;
+mod i18n;
 mod showcase;
 mod status_data;
 mod status_schema;
@@ -27,7 +29,7 @@ mod tooltips;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const USAGE: &str = "usage: cargo xtask <command>
 
@@ -37,6 +39,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   fmt          rustfmt check
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
+  bench        timed large-board bench (release, ignored tests)
   wasm         WebAssembly check of the shared UI and browser entry point
   tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
@@ -45,13 +48,26 @@ const USAGE: &str = "usage: cargo xtask <command>
   msrv         check the workspace with the declared rust-version toolchain
   bless-parity regenerate the reference-project parity goldens
   strings      extract | check: list text catalog keys, or fail on a bad catalog
-  changeset    check | list: the pull request's .changes/ file and its documentation gate
-  changelog    [--version X] compile .changes/ into CHANGELOG.md and archive the files
+  a11y         accessibility gate: names, duplicates, target size, keyboard reach, contrast, motion
+  i18n         [--write] localization gate: key parity, placeholders, literals, pseudo-locale, fonts
   coverage     [--bless] [--base REF] [--no-run] tests under cargo-llvm-cov, per-crate table, gate and ratchet
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
+tooltips     [--strict] check tooltip text against docs/tooltips.md
+  docs         rustdoc with warnings denied
+  docs check   documentation standard: paths, trait implementation lists, AGENTS.md, missing-docs ratchet
+  deny         cargo-deny licenses, advisories, bans and sources
+  msrv         check the workspace with the declared rust-version toolchain
+  bless-parity regenerate the reference-project parity goldens
+  strings      extract | check: list text catalog keys, or fail on a bad catalog
+  a11y         accessibility gate: names, duplicates, target size, keyboard reach, contrast, motion
+  i18n         [--write] localization gate: key parity, placeholders, literals, pseudo-locale, fonts
+  coverage     [--bless] [--base REF] [--no-run] tests under cargo-llvm-cov, per-crate table, gate and ratchet
+  e2e          full a_newcomer suite plus the tooltip and story coverage gate
+  showcase     regenerate the sample projects in examples/ from engine commands
+  screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files
+  board3d-bench  run the six-hundred-part 3D render regression test
   status-data  [--refresh] write site/src/data/status.json from the cached tracker snapshot
-  screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
 const WASM_PACKAGES: [&str; 2] = ["pcbcraft-ui-egui", "pcbcraft-web"];
@@ -150,6 +166,24 @@ fn fmt() -> Result<(), String> {
     cargo(&["fmt", "--all", "--", "--check"])
 }
 
+/// Six-hundred-part 3D software render gate (issue 721).
+fn board3d_bench() -> Result<(), String> {
+    run_env(
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "pcbcraft-ui-egui",
+            "--test",
+            "board3d_perf",
+            "--",
+            "six_hundred_parts_render_stays_within_the_baseline",
+            "--nocapture",
+        ],
+        &[("CARGO_BUILD_JOBS", "4")],
+    )
+}
+
 /// Runs clippy on all targets with warnings denied.
 fn clippy() -> Result<(), String> {
     cargo(&[
@@ -160,6 +194,20 @@ fn clippy() -> Result<(), String> {
         "--",
         "-D",
         "warnings",
+    ])
+}
+
+fn bench() -> Result<(), String> {
+    cargo(&[
+        "test",
+        "--release",
+        "--locked",
+        "-p",
+        "pcbcraft-ui-egui",
+        "--lib",
+        "--",
+        "--ignored",
+        "large_board_",
     ])
 }
 
@@ -328,7 +376,7 @@ fn layers() -> Result<(), String> {
     let metadata = workspace_metadata()?;
     let layer = |name: &str| -> Option<u8> {
         match name {
-            "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" => Some(0),
+            "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" | "pcbcraft-clock" => Some(0),
             "pcbcraft-doc" | "pcbcraft-library" | "pcbcraft-sim" => Some(1),
             "pcbcraft-rules" | "pcbcraft-io" => Some(2),
             "pcbcraft-engine" => Some(3),
@@ -405,6 +453,16 @@ fn lint_policy() -> Result<(), String> {
             ));
         }
     }
+    // The browser has no standard-library clock (issue 750): clippy.toml must
+    // keep banning the two calls that panic there, and only crates/clock may opt out.
+    let clippy_config = std::fs::read_to_string(root.join("clippy.toml")).unwrap_or_default();
+    for banned in ["std::time::SystemTime::now", "std::time::Instant::now"] {
+        if !clippy_config.contains(banned) {
+            return Err(format!(
+                "clippy.toml must keep banning {banned} in disallowed-methods (it panics in the browser)"
+            ));
+        }
+    }
     let metadata = workspace_metadata()?;
     let packages = metadata
         .get("packages")
@@ -439,7 +497,11 @@ fn lint_policy() -> Result<(), String> {
                     || REQUIRED_DENY
                         .iter()
                         .any(|lint| compact.contains(&format!("clippy::{lint}"))));
-            if opts_out {
+            let clock_opt_out = attribute
+                && compact.contains("allow(")
+                && compact.contains("clippy::disallowed_methods")
+                && !file.ends_with("crates/clock/src/lib.rs");
+            if opts_out || clock_opt_out {
                 problems.push(format!(
                     "{}:{}: lint opt-out is not allowed: {}",
                     file.strip_prefix(&root).unwrap_or(&file).display(),
@@ -501,7 +563,7 @@ fn screenshots(args: &[String]) -> Result<(), String> {
             .current_dir(&root)
             .spawn()
             .map_err(|e| format!("{}: {e}", bin.display()))?;
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let finished = loop {
             match child.try_wait().map_err(|e| e.to_string())? {
                 Some(status) => break Some(status),
@@ -551,15 +613,16 @@ fn run() -> Result<(), String> {
         "fmt" => fmt()?,
         "clippy" => clippy()?,
         "test" => test()?,
+        "bench" => bench()?,
         "coverage" => coverage::run(&root()?, args.get(1..).unwrap_or(&[]))?,
         "e2e" => e2e()?,
+        "a11y" => a11y_gate()?,
+        "i18n" => i18n_gate(args.get(1..).unwrap_or(&[]))?,
         "wasm" => wasm()?,
         "docs" if args.get(1).map(String::as_str) == Some("check") => {
             doc_check::run(args.get(2..).unwrap_or(&[]))?;
         }
         "docs" => docs()?,
-        "changeset" => changeset::run_changeset(&root()?, args.get(1..).unwrap_or(&[]))?,
-        "changelog" => changeset::run_changelog(&root()?, args.get(1..).unwrap_or(&[]))?,
         "tooltips" => tooltips::run(args.get(1..).unwrap_or(&[]))?,
         "deny" => deny()?,
         "msrv" => msrv()?,
@@ -567,15 +630,71 @@ fn run() -> Result<(), String> {
         "showcase" => showcase::run(&root()?)?,
         "status-data" => status_data::run(args.get(1..).unwrap_or(&[]), &root()?)?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
-        "bless-parity" => run_env(
-            "cargo",
-            &["test", "-p", "pcbcraft-engine", "--test", "parity"],
-            &[("PCBCRAFT_BLESS", "1")],
-        )?,
+"bless-parity" => {
+            run_env(
+                "cargo",
+                &["test", "-p", "pcbcraft-engine", "--test", "parity"],
+                &[("PCBCRAFT_BLESS", "1")],
+            )?;
+            run_env(
+                "cargo",
+                &[
+                    "test",
+                    "-p",
+                    "pcbcraft-engine",
+                    "--test",
+                    "m6_artifact_goldens",
+                ],
+                &[("PCBCRAFT_BLESS", "1")],
+            )?;
+        }
+        "board3d-bench" => board3d_bench()?,
         "help" | "--help" | "-h" => println!("{USAGE}"),
         _ => return Err(USAGE.into()),
     }
     Ok(())
+}
+
+/// `a11y` runs the accessibility tests of ui-egui and prints the per-screen table.
+fn a11y_gate() -> Result<(), String> {
+    let dir = root()?.join("target").join("a11y");
+    let _ = std::fs::remove_file(dir.join("report.json"));
+    let mut args = vec!["test", "-p", "pcbcraft-ui-egui", "--lib", "--"];
+    args.extend(a11y::FILTERS);
+    let result = run_env(
+        "cargo",
+        &args,
+        &[("PCBCRAFT_A11Y_REPORT", &dir.to_string_lossy())],
+    );
+    if let Ok(report) = std::fs::read_to_string(dir.join("report.json")) {
+        let table = a11y::table(&report)?;
+        println!("{table}");
+        if let Ok(path) = std::env::var("GITHUB_STEP_SUMMARY") {
+            let _ = std::fs::write(&path, format!("### Accessibility by screen\n\n{table}\n"));
+        }
+    }
+    result
+}
+
+/// `i18n` runs the text checks of `i18n.rs`, then the pseudo-locale and font tests in ui-egui.
+fn i18n_gate(args: &[String]) -> Result<(), String> {
+    i18n::run(&root()?, args)?;
+    if args.iter().any(|a| a == "--write") {
+        return Ok(());
+    }
+    let report = root()?.join("target").join("i18n");
+    run_env(
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "pcbcraft-ui-egui",
+            "--lib",
+            "--",
+            "e2e::i18n::",
+        ],
+        &[("PCBCRAFT_I18N_REPORT", &report.to_string_lossy())],
+    )
 }
 
 /// `strings extract` prints every catalog key with its English text.
@@ -610,6 +729,7 @@ fn strings(mode: Option<&str>) -> Result<(), String> {
                     || !name.ends_with(".txt")
                     || name == "converted-fns.txt"
                     || name == "plural-known.txt"
+                    || name == "i18n-ratchet.txt"
                 {
                     continue;
                 }

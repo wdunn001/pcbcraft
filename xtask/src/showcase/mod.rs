@@ -14,6 +14,7 @@
 //! - xtask/src/showcase/design.rs
 //! - xtask/src/showcase/parts.rs
 //! - xtask/src/showcase/board.rs
+//! - xtask/src/showcase/schematic.rs
 //! - crates/engine/src/lib.rs
 //! - crates/io/src/lib.rs
 //!
@@ -26,8 +27,10 @@ mod finish;
 mod layout;
 mod parts;
 mod routes;
+mod schematic_layout;
+mod schematic;
 
-use design::{DIRECT, PARTS, PINS, POWER_NETS, SHEETS};
+use design::{PARTS, PINS, SHEETS};
 use parts::{BoxUnit, PinSpec};
 use pcbcraft_engine::Session;
 use pcbcraft_geom::Point;
@@ -89,7 +92,9 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "USB_C_Receptacle",
             &[BoxUnit {
                 unit: 1,
-                width: 12.7,
+                width: 25.4,
+                pitch: 5.08,
+                column: 5.08,
                 left: vec![
                     pin("1", "GND", pw),
                     pin("8", "GND", pw),
@@ -119,6 +124,8 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             &[BoxUnit {
                 unit: 1,
                 width: 10.16,
+                pitch: 5.08,
+                column: 5.08,
                 left: vec![],
                 right: vec![pin("1", "+", "passive"), pin("2", "-", pw)],
                 top: vec![],
@@ -133,18 +140,16 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "SOT-23-5",
             &[BoxUnit {
                 unit: 1,
-                width: 15.24,
-                left: vec![
-                    pin("1", "VDD", pw),
-                    pin("4", "PROG", "input"),
-                    pin("2", "VSS", pw),
-                ],
+                width: 25.4,
+                pitch: 5.08,
+                column: 10.16,
+                left: vec![pin("", "", pw), pin("4", "PROG", "input")],
                 right: vec![
-                    pin("5", "STAT", "open_collector"),
                     pin("3", "VBAT", "power_out"),
+                    pin("5", "STAT", "open_collector"),
                 ],
-                top: vec![],
-                bottom: vec![],
+                top: vec![pin("1", "VDD", pw)],
+                bottom: vec![pin("2", "VSS", pw)],
             }],
         ),
         parts::boxed(
@@ -155,15 +160,13 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "SOT-23-5",
             &[BoxUnit {
                 unit: 1,
-                width: 15.24,
-                left: vec![
-                    pin("1", "IN", pw),
-                    pin("3", "EN", "input"),
-                    pin("2", "GND", pw),
-                ],
+                width: 25.4,
+                pitch: 5.08,
+                column: 10.16,
+                left: vec![pin("3", "EN", "input")],
                 right: vec![pin("5", "OUT", "power_out"), pin("4", "NC", "no_connect")],
-                top: vec![],
-                bottom: vec![],
+                top: vec![pin("1", "IN", pw)],
+                bottom: vec![pin("2", "GND", pw)],
             }],
         ),
         parts::boxed(
@@ -174,15 +177,13 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "SOT-23-5",
             &[BoxUnit {
                 unit: 1,
-                width: 15.24,
-                left: vec![
-                    pin("1", "IN", pw),
-                    pin("3", "EN", "input"),
-                    pin("2", "GND", pw),
-                ],
+                width: 25.4,
+                pitch: 5.08,
+                column: 10.16,
+                left: vec![pin("3", "EN", "input")],
                 right: vec![pin("5", "OUT", "power_out"), pin("4", "NC", "no_connect")],
-                top: vec![],
-                bottom: vec![],
+                top: vec![pin("1", "IN", pw)],
+                bottom: vec![pin("2", "GND", pw)],
             }],
         ),
         parts::boxed(
@@ -194,32 +195,20 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             &[
                 BoxUnit {
                     unit: 1,
-                    width: 25.4,
+                    width: 40.64,
+                    pitch: 5.08,
+                    column: 5.08,
                     left: vec![
-                        pin("7", "USB_DP", io),
-                        pin("6", "USB_DM", io),
                         pin("29", "SWDIO", io),
                         pin("28", "SWCLK", "input"),
                         pin("27", "UART_TX", "output"),
                         pin("26", "UART_RX", "input"),
+                    ],
+                    right: vec![
                         pin("24", "SPI_CS", "output"),
                         pin("23", "SPI_SCK", "output"),
                         pin("22", "SPI_MOSI", "output"),
                         pin("21", "SPI_MISO", "input"),
-                        pin("5", "BTN2", "input"),
-                    ],
-                    right: vec![
-                        pin("9", "LED0", "output"),
-                        pin("10", "LED1", "output"),
-                        pin("11", "LED2", "output"),
-                        pin("12", "LED3", "output"),
-                        pin("13", "LED4", "output"),
-                        pin("14", "LED5", "output"),
-                        pin("20", "BTN1", "input"),
-                        pin("19", "I2C_SCL", io),
-                        pin("18", "I2C_SDA", io),
-                        pin("17", "SENSOR_EN", "output"),
-                        pin("4", "PA0", io),
                     ],
                     top: vec![],
                     bottom: vec![],
@@ -227,6 +216,44 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
                 BoxUnit {
                     unit: 2,
                     width: 20.32,
+                    pitch: 5.08,
+                    column: 5.08,
+                    left: vec![],
+                    right: vec![
+                        pin("19", "I2C_SCL", io),
+                        pin("18", "I2C_SDA", io),
+                        pin("17", "SENSOR_EN", "output"),
+                        pin("7", "USB_DP", io),
+                        pin("6", "USB_DM", io),
+                        pin("20", "BTN1", "input"),
+                        pin("5", "BTN2", "input"),
+                        pin("4", "PA0", io),
+                    ],
+                    top: vec![],
+                    bottom: vec![],
+                },
+                BoxUnit {
+                    unit: 3,
+                    width: 10.16,
+                    pitch: 5.08,
+                    column: 5.08,
+                    left: vec![],
+                    right: vec![
+                        pin("9", "LED0", "output"),
+                        pin("10", "LED1", "output"),
+                        pin("11", "LED2", "output"),
+                        pin("12", "LED3", "output"),
+                        pin("13", "LED4", "output"),
+                        pin("14", "LED5", "output"),
+                    ],
+                    top: vec![],
+                    bottom: vec![],
+                },
+                BoxUnit {
+                    unit: 4,
+                    width: 25.4,
+                    pitch: 5.08,
+                    column: 7.62,
                     left: vec![
                         pin("25", "NRST", "input"),
                         pin("3", "XIN", "input"),
@@ -256,18 +283,18 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "SOIC-8",
             &[BoxUnit {
                 unit: 1,
-                width: 15.24,
+                width: 25.4,
+                pitch: 5.08,
+                column: 5.08,
                 left: vec![
                     pin("1", "CS", "input"),
                     pin("2", "SCK", "input"),
                     pin("3", "DI", "input"),
                     pin("4", "DO", "output"),
-                    pin("6", "WP", "input"),
-                    pin("7", "HOLD", "input"),
                 ],
-                right: vec![pin("8", "VCC", pw), pin("5", "GND", pw)],
-                top: vec![],
-                bottom: vec![],
+                right: vec![pin("6", "WP", "input"), pin("7", "HOLD", "input")],
+                top: vec![pin("8", "VCC", pw)],
+                bottom: vec![pin("5", "GND", pw)],
             }],
         ),
         parts::boxed(
@@ -278,21 +305,21 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "DFN-8",
             &[BoxUnit {
                 unit: 1,
-                width: 15.24,
-                left: vec![
-                    pin("2", "SCL", io),
-                    pin("4", "SDA", io),
-                    pin("6", "CSB", "input"),
-                    pin("5", "SDO", "passive"),
-                ],
-                right: vec![
+                width: 40.64,
+                pitch: 5.08,
+                column: 12.7,
+                left: vec![pin("2", "SCL", io), pin("4", "SDA", io)],
+                right: vec![],
+                top: vec![
                     pin("1", "VDDIO", pw),
+                    pin("6", "CSB", "input"),
                     pin("8", "VDD", pw),
+                ],
+                bottom: vec![
                     pin("3", "GND", pw),
+                    pin("5", "SDO", "passive"),
                     pin("7", "GND", pw),
                 ],
-                top: vec![],
-                bottom: vec![],
             }],
         ),
         parts::boxed(
@@ -303,19 +330,13 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "SOT-23-6",
             &[BoxUnit {
                 unit: 1,
-                width: 15.24,
-                left: vec![
-                    pin("1", "SCL", io),
-                    pin("3", "SDA", io),
-                    pin("4", "ADDR", "passive"),
-                ],
-                right: vec![
-                    pin("6", "VDD", pw),
-                    pin("2", "GND", pw),
-                    pin("5", "INT", "output"),
-                ],
-                top: vec![],
-                bottom: vec![],
+                width: 25.4,
+                pitch: 5.08,
+                column: 10.16,
+                left: vec![pin("1", "SCL", io), pin("3", "SDA", io)],
+                right: vec![pin("5", "INT", "output")],
+                top: vec![pin("6", "VDD", pw)],
+                bottom: vec![pin("2", "GND", pw), pin("4", "ADDR", "passive")],
             }],
         ),
         parts::boxed(
@@ -326,16 +347,18 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "Header_1x7_1.27",
             &[BoxUnit {
                 unit: 1,
-                width: 12.7,
+                width: 15.24,
+                pitch: 5.08,
+                column: 5.08,
                 left: vec![],
                 right: vec![
                     pin("1", "3V3", pw),
-                    pin("2", "GND", pw),
                     pin("3", "SWDIO", io),
                     pin("4", "SWCLK", "output"),
                     pin("5", "RX", "input"),
                     pin("6", "TX", "output"),
                     pin("7", "NRST", io),
+                    pin("2", "GND", pw),
                 ],
                 top: vec![],
                 bottom: vec![],
@@ -396,6 +419,8 @@ pub fn build(g: &mut Gen) -> Res<()> {
         ("revision", "A"),
         ("company", "PCBCraft examples"),
         ("licence", "CC BY-SA 4.0"),
+        ("date", "2026-10-29"),
+        ("paper", "A4"),
         (
             "notes",
             "Original battery powered environment sensor node. Generated by cargo xtask showcase.",
@@ -423,16 +448,18 @@ pub fn build(g: &mut Gen) -> Res<()> {
     }
     // Components.
     for p in PARTS {
+        let at = schematic::spot_of(p.reference)
+            .ok_or_else(|| format!("{} has no schematic spot", p.reference))?;
         let r = g.cmd(
             "component.place_custom",
-            json!({"name": p.symbol, "position": {"x": p.sch.0, "y": p.sch.1}, "reference": p.reference, "value": p.value, "rotation": p.sch_rot}),
+            json!({"name": p.symbol, "position": {"x": at.x * schematic::GRID, "y": at.y * schematic::GRID}, "reference": p.reference, "value": p.value, "rotation": at.rot}),
         )?;
         let id = r["id"].as_u64().ok_or("component id")?;
         g.comp.insert(p.reference, id);
-        if p.sheet != 0 {
+        if at.sheet != 0 {
             g.cmd(
                 "schematic.move_component",
-                json!({"id": id, "sheet": sheet_ids[p.sheet]}),
+                json!({"id": id, "sheet": sheet_ids[at.sheet]}),
             )?;
         }
         g.cmd(
@@ -448,12 +475,20 @@ pub fn build(g: &mut Gen) -> Res<()> {
             json!({"id": id, "key": "height", "value": format!("{}", p.height)}),
         )?;
     }
-    // Second unit of the microcontroller sits on its own spot of the page.
+    // The other units of the microcontroller sit on their own spots of the page.
     let u3 = g.id_of("U3")?;
-    g.cmd(
+g.cmd(
         "component.move",
         json!({"id": u3, "unit": 2, "position": {"x": 195.58, "y": 81.28}}),
     )?;
+    for (unit, x, y) in schematic::U3_UNITS {
+        g.cmd(
+            "component.move",
+            json!({"id": u3, "unit": unit, "position": {"x": x * schematic::GRID, "y": y * schematic::GRID}}),
+        )?;
+    }
+    // Validate schematic layout: no overlaps, nothing past the frame.
+    schematic_layout::audit_all(PARTS)?;
     // Nets.
     let mut by_net: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
     for (r, pins) in PINS {
@@ -477,89 +512,13 @@ pub fn build(g: &mut Gen) -> Res<()> {
         let id = g.id_of(r)?;
         g.cmd("pins.set_all_no_connect", json!({"component": id}))?;
     }
-    draw_schematic(g, &sheet_ids)?;
+    let made = schematic::draw(g, &sheet_ids)?;
+    schematic::check_pages(g, &sheet_ids, &made)?;
     g.cmd("board.sync", json!({}))?;
     board::build(g)?;
     // Loading a file adopts free-form MPN and manufacturer fields into the typed record, so
     // the generated project already holds them and a save, load and save round trip is stable.
     g.s.project.adopt_free_form_sourcing();
-    Ok(())
-}
-
-/// Draw wires, power and net labels, ports and the LED bus on the pages.
-fn draw_schematic(g: &mut Gen, sheet_ids: &[u64]) -> Res<()> {
-    let direct: Vec<(&str, &str)> = DIRECT
-        .iter()
-        .flat_map(|(a, b)| [(a.0, a.1), (b.0, b.1)])
-        .collect();
-    for ((ra, pa), (rb, pb)) in DIRECT {
-        let (a, b) = (g.id_of(ra)?, g.id_of(rb)?);
-        g.cmd(
-            "wire.connect",
-            json!({"from": {"component": a, "pin": pa}, "to": {"component": b, "pin": pb}}),
-        )?;
-    }
-    for (r, pins) in PINS {
-        let id = g.id_of(r)?;
-        for (n, net) in *pins {
-            if direct.contains(&(*r, *n)) {
-                continue;
-            }
-            let c = g.s.project.component(id).ok_or("component")?;
-            let Some(at) = c.pin_position(n) else {
-                continue;
-            };
-            let dir = outward(g, r, n)?;
-            let end = Point::new(at.x + dir.x * 5.08, at.y + dir.y * 5.08);
-            let net_id = g.nets[*net];
-            g.cmd(
-                "wire.draw",
-                json!({"points": [pt(at), pt(end)], "net": net_id}),
-            )?;
-            let kind = if POWER_NETS.contains(net) {
-                "power"
-            } else {
-                "label"
-            };
-            let rotation = if dir.y != 0.0 { 90.0 } else { 0.0 };
-            g.cmd(
-                "label.place",
-                json!({"kind": kind, "net": net_id, "position": pt(end), "rotation": rotation}),
-            )?;
-        }
-    }
-    // Hierarchy ports for every net that crosses pages.
-    let mut sheets_of: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
-    for (r, pins) in PINS {
-        let page = PARTS
-            .iter()
-            .find(|p| p.reference == *r)
-            .map(|p| p.sheet)
-            .unwrap_or(0);
-        for (_, net) in *pins {
-            let v = sheets_of.entry(net).or_default();
-            if !v.contains(&page) {
-                v.push(page);
-            }
-        }
-    }
-    let mut row = [0_u32; 3];
-    for (net, pages) in &sheets_of {
-        if pages.len() < 2 || net.starts_with("LED") {
-            continue;
-        }
-        for page in pages {
-            let net_id = g.nets[*net];
-            let y = 12.7 + f64::from(row[*page]) * 5.08;
-            row[*page] += 1;
-            g.cmd("schematic.place_port", json!({"name": net, "net": net_id, "sheet": sheet_ids[*page], "position": {"x": 7.62, "y": y}}))?;
-        }
-    }
-    // The LED lines travel between pages as one bus.
-    g.cmd(
-        "wire.draw_bus",
-        json!({"points": [{"x": 133.35, "y": 33.0}, {"x": 133.35, "y": 96.0}], "name": "LED*6"}),
-    )?;
     Ok(())
 }
 
@@ -628,6 +587,9 @@ pub fn run(root: &Path) -> Res<()> {
         .join("showcase-with-findings.pcbcraft");
     pcbcraft_io::save(&variant, &out2)?;
     println!("wrote {}", out2.display());
+    for line in schematic::audit(&g.s.project) {
+        eprintln!("audit: {line}");
+    }
     let checks = g.s.checks();
     println!(
         "erc {} drc {} airwires {}",
@@ -690,6 +652,106 @@ mod tests {
             }
         }
         (errors, warnings, other)
+    }
+
+    /// The netlist as text: one line per net, pins sorted, nets sorted by name.
+    fn netlist_text(p: &Project) -> String {
+        let mut by_net: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for c in &p.components {
+            for pin in &c.pins {
+                if let Some(net) = pin.net {
+                    by_net
+                        .entry(p.net_name(net).to_string())
+                        .or_default()
+                        .push(format!("{}.{}", c.reference, pin.number));
+                }
+            }
+        }
+        let mut out = String::new();
+        for (net, mut pins) in by_net {
+            pins.sort();
+            pins.dedup();
+            out.push_str(&format!("{net}: {}\n", pins.join(" ")));
+        }
+        out
+    }
+
+    /// The board with every id replaced by the name it points at, so a change
+    /// in how many schematic objects were created before the board does not
+    /// count as a board change.
+    fn board_text(p: &Project) -> Result<String, String> {
+        fn walk(v: &mut Value, p: &Project) {
+            match v {
+                Value::Object(map) => {
+                    map.remove("id");
+                    for (key, value) in map.iter_mut() {
+                        if let Some(n) = value.as_u64() {
+                            if key == "net" {
+                                *value = Value::String(p.net_name(n).to_string());
+                            } else if key == "component" {
+                                let name = p.component(n).map_or("?", |c| c.reference.as_str());
+                                *value = Value::String(name.to_string());
+                            }
+                        } else {
+                            walk(value, p);
+                        }
+                    }
+                }
+                Value::Array(items) => items.iter_mut().for_each(|i| walk(i, p)),
+                _ => {}
+            }
+        }
+        let mut v = serde_json::to_value(&p.board).map_err(|e| e.to_string())?;
+        walk(&mut v, p);
+        serde_json::to_string(&v).map_err(|e| e.to_string())
+    }
+
+    fn fnv(text: &str) -> u64 {
+        text.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+        })
+    }
+
+    /// The netlist the sample shipped with before its schematic pages were
+    /// redrawn: redrawing must not change a single connection.
+    #[test]
+    fn showcase_netlist_is_unchanged() -> Result<(), String> {
+        assert_eq!(
+            netlist_text(shared()?),
+            include_str!("netlist.golden.txt"),
+            "the schematic drawing changed the netlist"
+        );
+        Ok(())
+    }
+
+    /// The board as it shipped before the schematic pages were redrawn, as a
+    /// hash of its id-free text: redrawing must not move a part or a track.
+    #[test]
+    fn showcase_board_is_unchanged() -> Result<(), String> {
+        let text = board_text(shared()?)?;
+        assert_eq!(
+            (fnv(&text), text.len()),
+            (0xa6aa_2d57_13da_c2ca, 103_516),
+            "the schematic drawing changed the board"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_schematic_is_clean() -> Result<(), String> {
+        let problems = schematic::audit(shared()?);
+        assert!(problems.is_empty(), "schematic problems: {problems:#?}");
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_title_block_is_filled() -> Result<(), String> {
+        let p = shared()?;
+        for key in ["title", "revision", "company", "date", "paper"] {
+            let value = p.meta.get(key).map_or("", String::as_str);
+            assert!(!value.trim().is_empty(), "project meta {key} is empty");
+        }
+        Ok(())
     }
 
     #[test]
@@ -787,6 +849,18 @@ mod tests {
     fn showcase_labels_do_not_overlap() -> Result<(), String> {
         let problems = layout::audit(shared()?);
         assert!(problems.is_empty(), "label problems: {problems:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_schematic_layout_is_clean() -> Result<(), String> {
+        schematic_layout::audit_all(&design::PARTS)?;
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_schematic_labels_do_not_overlap() -> Result<(), String> {
+        schematic_layout::audit_labels(&design::PARTS)?;
         Ok(())
     }
 }

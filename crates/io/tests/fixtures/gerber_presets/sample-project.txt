@@ -1,0 +1,12 @@
+README-fabrication.txt	-
+pcb-B.Cu.gbr	Copper,L2,Bot
+pcb-B.Mask.gbr	Soldermask,Bot
+pcb-B.Paste.gbr	Paste,Bot
+pcb-B.SilkS.gbr	Legend,Bot
+pcb-DrillMap.gbr	Drillmap
+pcb-Edge.gbr	Profile,NP
+pcb-F.Cu.gbr	Copper,L1,Top
+pcb-F.Mask.gbr	Soldermask,Top
+pcb-F.Paste.gbr	Paste,Top
+pcb-F.SilkS.gbr	Legend,Top
+pcb-job.gbrjob	-
