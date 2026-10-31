@@ -139,3 +139,5 @@ AGENTS.md carries three checks, each one sentence:
 1. Read the file's `//!` header and the doc block of each function you change.
 2. Confirm every path under `# Dependencies` and every `Contract:` line exists; if one is missing, stop and report it.
 3. Before editing a trait or the command registry, open every file under its `# Implementations`; if the list is missing or stale, stop and report.
+
+Background: [Documentation: beating your AI stack](https://themildtake.com/articles/2026-05-05-documentation-beating-your-ai-stack/).
