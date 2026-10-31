@@ -1,16 +1,51 @@
-schema = 1
+schema = 2
+
+[record]
+kind = "interface_profile"
+license = "MIT"
+source = "PCBCraft built-in interface profiles"
 
 [profile]
 id = "i2c"
 name = "I2C bus"
 category = "bus"
-summary = "Open-drain bus nets share one net class."
+summary = "Open-drain SDA and SCL with pull-up companion parts."
+
+[bus]
+name = "I2C"
+schematic_type = "I2C"
+
+[bus.limits]
+edge_rate_band = "standard_mode"
+reference_plane = "recommended"
+
+[[signal]]
+name = "SDA"
+net = "SDA"
+electrical_class = "open-drain"
+
+[[signal]]
+name = "SCL"
+net = "SCL"
+electrical_class = "open-drain"
 
 [[net_class]]
 name = "I2C"
 clearance = 0.15
 width = 0.15
 nets = ["SDA", "SCL"]
+
+[[companion]]
+role = "pull_up"
+value_min = 1000.0
+value_max = 10000.0
+unit = "ohm"
+source = "NXP UM10204 section 7.2 (Rp for standard-mode, Cb up to 200 pF)"
+nets = ["SDA", "SCL"]
+
+[[check]]
+name = "missing_pullup"
+params = { nets = ["SDA", "SCL"] }
 
 [[value_source]]
 field = "net_class.clearance"

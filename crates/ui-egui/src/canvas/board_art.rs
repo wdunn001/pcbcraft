@@ -11,7 +11,20 @@ impl App {
         camera: Camera,
         p: &Project,
     ) {
-        for g in p.graphics.iter().filter(|g| g.layer == "board") {
+        for g in p.graphics.iter().filter(|g| {
+            g.layer == "board"
+                && match g.sublayer.as_str() {
+                    "F.SilkS" => self.board_sub_effective_on_layer(
+                        pcbcraft_doc::Layer::Front,
+                        crate::layer_visibility::SubLayer::Silk,
+                    ),
+                    "B.SilkS" => self.board_sub_effective_on_layer(
+                        pcbcraft_doc::Layer::Back,
+                        crate::layer_visibility::SubLayer::Silk,
+                    ),
+                    _ => true,
+                }
+        }) {
             let color = match g.sublayer.as_str() {
                 "F.SilkS" => Color32::from_rgb(240, 236, 200),
                 "B.SilkS" => Color32::from_rgb(150, 190, 240),

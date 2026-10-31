@@ -1,0 +1,48 @@
+schema = 1
+id = "synthetic_demo"
+title = "Synthetic demo compliance rule set"
+description = "Fixture rules for engine tests; names are fictional."
+
+[[rules]]
+id = "demo.declaration_required"
+kind = "declaration_required"
+regime = "demo.regime"
+severity_hit = "error"
+severity_unverified = "warning"
+message_unverified = "No declaration is recorded for the demo regime."
+message_hit = "The part is declared non-compliant for the demo regime."
+citation = "Synthetic demo rule set, schema 1."
+
+[[rules]]
+id = "demo.entity_list"
+kind = "entity_list"
+list = "synthetic-demo-entities"
+severity_hit = "error"
+severity_unverified = "warning"
+message_unverified = "Manufacturer is unknown for the demo entity list check."
+message_hit = "Manufacturer matches an entry on the demo entity list."
+citation = "Synthetic demo entity list retrieved 2026-06-01."
+
+[[rules]]
+id = "demo.declaration_fresh"
+kind = "declaration_fresh"
+regime = "demo.list_regime"
+list = "synthetic-demo-entities"
+severity_hit = "warning"
+severity_unverified = "warning"
+severity_stale = "warning"
+message_stale = "Declaration predates the list snapshot or names an older list version."
+message_hit = "Declaration is stale against the bundled list."
+citation = "Synthetic demo freshness rule."
+
+[[rules]]
+id = "demo.origin"
+kind = "origin"
+attribute = "country"
+field = "XX"
+status = "restricted"
+severity_hit = "warning"
+severity_unverified = "warning"
+message_unverified = "Country of origin is not recorded."
+message_hit = "Country of origin matches the restricted demo code."
+citation = "Synthetic demo origin rule."

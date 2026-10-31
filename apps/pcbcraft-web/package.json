@@ -1,0 +1,8 @@
+{
+  "name": "pcbcraft-web-smoke",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "playwright": "1.50.1"
+  }
+}
