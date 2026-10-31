@@ -1348,6 +1348,37 @@ schema(
             ),
         ),
         (
+            "board.fab_limits.set",
+            "Set fabrication minimums recorded on the board without changing copper clearance",
+            schema(
+                json!({
+                    "min_track":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_space":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_drill":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_npth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_ring_via":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_ring_pth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_hole_via":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_hole_pad":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_copper_via":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_copper_pth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_copper_npth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "edge_routed":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "edge_vscore":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "silk_line":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "silk_text_height":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "silk_to_pad":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "mask_dam":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "max_aspect_ratio":{"type":"number","exclusiveMinimum":1,"maximum":50},
+                    "plating_allowance":{"type":"number","minimum":0,"maximum":0.5},
+                    "preset":{"type":"string","maxLength":64},
+                    "source_url":{"type":"string","maxLength":512},
+                    "retrieved":{"type":"string","maxLength":32}
+                }),
+                &[],
+            ),
+        ),
+        (
             "board.cutout.add",
             "Add a dimensioned circular Edge.Cuts cutout strictly within the board",
             schema(
@@ -3005,6 +3036,28 @@ fn render_kind(
     }
     Ok(out)
 }
+
+fn check_finding_json(
+    code: &str,
+    severity: &str,
+    message: &str,
+    objects: Vec<Id>,
+    hint: Option<&str>,
+) -> Value {
+    let mut row = json!({
+        "code": code,
+        "severity": severity,
+        "message": message,
+        "objects": objects,
+    });
+    if let Some(text) = hint {
+        if let Some(obj) = row.as_object_mut() {
+            obj.insert("hint".into(), json!(text));
+        }
+    }
+    row
+}
+
 /// Findings for the checks the designer wrote themselves, shaped like the
 /// built-in ones so they report, group and click through the same way.
 fn custom_findings(p: &Project) -> Vec<Value> {
@@ -3019,9 +3072,9 @@ fn custom_findings(p: &Project) -> Vec<Value> {
             if p.rule_excluded(&code, &objects) || p.rule_region_excluded(&code, &objects) {
                 return;
             }
-            out.push(
-                json!({"code": code, "severity": severity, "message": message, "objects": objects}),
-            )
+            out.push(check_finding_json(
+                &code, &severity, &message, objects, None,
+            ))
         };
         match c.measure.as_str() {
             "track width below" => {
@@ -6268,11 +6321,9 @@ fn merge_fab_mm(dst: &mut Option<f64>, src: Option<f64>) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
-struct BoardRulesSetParams {
-    #[serde(default)]
-    clearance: Option<f64>,
+struct FabLimitsSetParams {
     #[serde(default)]
     min_track: Option<f64>,
     #[serde(default)]
@@ -6319,7 +6370,7 @@ struct BoardRulesSetParams {
     retrieved: Option<String>,
 }
 
-impl BoardRulesSetParams {
+impl FabLimitsSetParams {
     fn touches_fab(&self) -> bool {
         self.min_track.is_some()
             || self.min_space.is_some()
@@ -6343,6 +6394,79 @@ impl BoardRulesSetParams {
             || self.preset.is_some()
             || self.source_url.is_some()
             || self.retrieved.is_some()
+    }
+}
+
+fn apply_fab_limits(rules: &mut FabRules, a: &FabLimitsSetParams) -> Result<(), Error> {
+    merge_fab_mm(&mut rules.min_track, a.min_track)?;
+    merge_fab_mm(&mut rules.min_space, a.min_space)?;
+    merge_fab_mm(&mut rules.min_drill, a.min_drill)?;
+    merge_fab_mm(&mut rules.min_npth, a.min_npth)?;
+    merge_fab_mm(&mut rules.min_ring_via, a.min_ring_via)?;
+    merge_fab_mm(&mut rules.min_ring_pth, a.min_ring_pth)?;
+    merge_fab_mm(&mut rules.hole_to_hole_via, a.hole_to_hole_via)?;
+    merge_fab_mm(&mut rules.hole_to_hole_pad, a.hole_to_hole_pad)?;
+    merge_fab_mm(&mut rules.hole_to_copper_via, a.hole_to_copper_via)?;
+    merge_fab_mm(&mut rules.hole_to_copper_pth, a.hole_to_copper_pth)?;
+    merge_fab_mm(&mut rules.hole_to_copper_npth, a.hole_to_copper_npth)?;
+    merge_fab_mm(&mut rules.edge_routed, a.edge_routed)?;
+    merge_fab_mm(&mut rules.edge_vscore, a.edge_vscore)?;
+    merge_fab_mm(&mut rules.silk_line, a.silk_line)?;
+    merge_fab_mm(&mut rules.silk_text_height, a.silk_text_height)?;
+    merge_fab_mm(&mut rules.silk_to_pad, a.silk_to_pad)?;
+    merge_fab_mm(&mut rules.mask_dam, a.mask_dam)?;
+    if let Some(ratio) = a.max_aspect_ratio {
+        if !ratio.is_finite() || !(1.0..=50.0).contains(&ratio) {
+            return Err(Error::Invalid(
+                "aspect ratio must be between 1 and 50".into(),
+            ));
+        }
+        rules.max_aspect_ratio = Some(ratio);
+    }
+    if let Some(pad) = a.plating_allowance {
+        if !pad.is_finite() || !(0.0..=0.5).contains(&pad) {
+            return Err(Error::Invalid(
+                "plating allowance must be between 0 and 0.5 mm".into(),
+            ));
+        }
+        rules.plating_allowance = Some(pad);
+    }
+    if let Some(name) = a.preset.clone() {
+        if name.is_empty() || name.len() > 64 {
+            return Err(Error::Invalid("preset name must be 1 to 64 bytes".into()));
+        }
+        rules.preset = Some(name);
+    }
+    if let Some(url) = a.source_url.clone() {
+        if url.is_empty() || url.len() > 512 {
+            return Err(Error::Invalid("source URL is out of range".into()));
+        }
+        rules.source_url = Some(url);
+    }
+    if let Some(day) = a.retrieved.clone() {
+        if day.is_empty() || day.len() > 32 {
+            return Err(Error::Invalid("retrieval date is out of range".into()));
+        }
+        rules.retrieved = Some(day);
+    }
+    if !rules.valid() {
+        return Err(Error::Invalid("fabrication rules are inconsistent".into()));
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoardRulesSetParams {
+    #[serde(default)]
+    clearance: Option<f64>,
+    #[serde(flatten)]
+    fab: FabLimitsSetParams,
+}
+
+impl BoardRulesSetParams {
+    fn touches_fab(&self) -> bool {
+        self.fab.touches_fab()
     }
 }
 
@@ -16598,62 +16722,20 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             }
             if a.touches_fab() {
                 let rules = p.board.rules.get_or_insert_with(FabRules::default);
-                merge_fab_mm(&mut rules.min_track, a.min_track)?;
-                merge_fab_mm(&mut rules.min_space, a.min_space)?;
-                merge_fab_mm(&mut rules.min_drill, a.min_drill)?;
-                merge_fab_mm(&mut rules.min_npth, a.min_npth)?;
-                merge_fab_mm(&mut rules.min_ring_via, a.min_ring_via)?;
-                merge_fab_mm(&mut rules.min_ring_pth, a.min_ring_pth)?;
-                merge_fab_mm(&mut rules.hole_to_hole_via, a.hole_to_hole_via)?;
-                merge_fab_mm(&mut rules.hole_to_hole_pad, a.hole_to_hole_pad)?;
-                merge_fab_mm(&mut rules.hole_to_copper_via, a.hole_to_copper_via)?;
-                merge_fab_mm(&mut rules.hole_to_copper_pth, a.hole_to_copper_pth)?;
-                merge_fab_mm(&mut rules.hole_to_copper_npth, a.hole_to_copper_npth)?;
-                merge_fab_mm(&mut rules.edge_routed, a.edge_routed)?;
-                merge_fab_mm(&mut rules.edge_vscore, a.edge_vscore)?;
-                merge_fab_mm(&mut rules.silk_line, a.silk_line)?;
-                merge_fab_mm(&mut rules.silk_text_height, a.silk_text_height)?;
-                merge_fab_mm(&mut rules.silk_to_pad, a.silk_to_pad)?;
-                merge_fab_mm(&mut rules.mask_dam, a.mask_dam)?;
-                if let Some(ratio) = a.max_aspect_ratio {
-                    if !ratio.is_finite() || !(1.0..=50.0).contains(&ratio) {
-                        return Err(Error::Invalid(
-                            "aspect ratio must be between 1 and 50".into(),
-                        ));
-                    }
-                    rules.max_aspect_ratio = Some(ratio);
-                }
-                if let Some(pad) = a.plating_allowance {
-                    if !pad.is_finite() || !(0.0..=0.5).contains(&pad) {
-                        return Err(Error::Invalid(
-                            "plating allowance must be between 0 and 0.5 mm".into(),
-                        ));
-                    }
-                    rules.plating_allowance = Some(pad);
-                }
-                if let Some(name) = a.preset {
-                    if name.is_empty() || name.len() > 64 {
-                        return Err(Error::Invalid("preset name must be 1 to 64 bytes".into()));
-                    }
-                    rules.preset = Some(name);
-                }
-                if let Some(url) = a.source_url {
-                    if url.is_empty() || url.len() > 512 {
-                        return Err(Error::Invalid("source URL is out of range".into()));
-                    }
-                    rules.source_url = Some(url);
-                }
-                if let Some(day) = a.retrieved {
-                    if day.is_empty() || day.len() > 32 {
-                        return Err(Error::Invalid("retrieval date is out of range".into()));
-                    }
-                    rules.retrieved = Some(day);
-                }
-                if !rules.valid() {
-                    return Err(Error::Invalid("fabrication rules are inconsistent".into()));
-                }
+                apply_fab_limits(rules, &a.fab)?;
             }
             Ok(json!({"clearance":p.board.clearance,"rules":p.board.rules}))
+        }
+        "board.fab_limits.set" => {
+            let a: FabLimitsSetParams = parse(params)?;
+            if !a.touches_fab() {
+                return Err(Error::Invalid(
+                    "give at least one fabrication minimum to record".into(),
+                ));
+            }
+            let rules = p.board.rules.get_or_insert_with(FabRules::default);
+            apply_fab_limits(rules, &a)?;
+            Ok(json!({"rules": p.board.rules}))
         }
         "board.cutout.add" => {
             let a: Cut = parse(params)?;
@@ -36893,6 +36975,45 @@ mod tests {
                 .iter()
                 .any(|f| f.code == "min_drill" && f.objects.contains(&via)),
             "a via smaller than min_drill is reported"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fab_limits_validate_and_undo_cleanly() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let rev = s.revision;
+        assert!(
+            s.execute(
+                "board.fab_limits.set",
+                json!({"min_drill": f64::NAN}),
+                Some(rev)
+            )
+            .is_err(),
+            "non-finite fabrication values are rejected"
+        );
+        assert!(
+            s.execute(
+                "board.fab_limits.set",
+                json!({"min_drill": 500.0}),
+                Some(rev)
+            )
+            .is_err(),
+            "out-of-range fabrication values are rejected"
+        );
+        s.execute(
+            "board.fab_limits.set",
+            json!({"min_track": 0.2, "min_drill": 0.35}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.rules.as_ref().and_then(|r| r.min_track),
+            Some(0.2)
+        );
+        s.undo()?;
+        assert!(
+            s.project.board.rules.is_none(),
+            "undo restores the prior fab limits"
         );
         Ok(())
     }
