@@ -12478,22 +12478,22 @@ assert!(
         let text = bom_csv(&project, &fields, None)?;
         assert_eq!(
             text.lines().next(),
-            Some("quantity,references,value,kind,footprint,Tolerance"),
+            Some("Reference,Value,Footprint,MPN,Manufacturer,Quantity,Tolerance"),
             "requested properties become extra columns"
         );
         assert_eq!(
             text.lines().nth(1),
-            Some("1,R2,\"10,000\",resistor,starter pads,"),
+            Some("R2,\"10,000\",starter pads,,,1,"),
             "rows sort by value, kind and footprint"
         );
         assert_eq!(
             text.lines().nth(2),
-            Some("1,C1,100n,capacitor,starter pads,10%"),
+            Some("C1,100n,starter pads,,,1,10%"),
             "the property column follows the requested key"
         );
         assert_eq!(
             text.lines().nth(3),
-            Some("2,\"R1,R3\",10k,resistor,starter pads,"),
+            Some("\"R1, R3\",10k,starter pads,,,2,"),
             "identical parts collapse into one sorted reference list"
         );
         assert_eq!(
@@ -12651,16 +12651,19 @@ assert!(
         project.validate()?;
         let text = bom_csv(&project, &[], None)?;
         assert!(
-            text.starts_with("quantity,references,value,kind,footprint,Manufacturer part,Rating\n"),
+            text.starts_with(
+                "Reference,Value,Footprint,MPN,Manufacturer,Quantity,Rating\n"
+            ),
             "recorded columns print under their labels, falling back to the key"
         );
         assert!(
-            text.contains("RC0603-10K,0.1W"),
+            text.contains("R1,10k,starter pads,RC0603-10K,,1,0.1W"),
             "recorded columns read the matching component properties"
         );
         let explicit = bom_csv(&project, &["MPN".to_string()], None)?;
-        assert!(
-            explicit.lines().next().is_some_and(|l| l.ends_with(",MPN")),
+        assert_eq!(
+            explicit.lines().next(),
+            Some("Reference,Value,Footprint,MPN,Manufacturer,Quantity"),
             "an explicit request overrides the recorded columns"
         );
         project.bom_fields.push(pcbcraft_doc::BomField {
@@ -12720,7 +12723,9 @@ assert!(
         project.validate()?;
         let plain = bom_csv(&project, &[], None)?;
         assert!(
-            plain.contains("starter pads") && plain.contains("R1,R2") && !plain.contains("R_0603"),
+            plain.contains("starter pads")
+                && plain.contains("R1, R2")
+                && !plain.contains("R_0603"),
             "the plain bill lists both parts with the placed footprint"
         );
         let slim = bom_csv(&project, &[], Some("Slim"))?;

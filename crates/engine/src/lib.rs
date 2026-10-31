@@ -6149,6 +6149,7 @@ pub fn compliance_report_write(p: &Project, params: &Value) -> Result<Value, Err
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs (`Component::in_bom`).
+/// - crates/io/src/bom_sheet.rs (row collection and generic CSV text).
 ///
 /// # Do not
 /// - Print the bill from anywhere else; `pcbcraft_io::bom_csv` is the file writer.
@@ -6172,14 +6173,11 @@ pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
     } else {
         a.fields.clone()
     };
-    let variant = match a.variant.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(name) => Some(
-            p.variants
-                .iter()
-                .find(|v| v.name == name)
-                .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
-        ),
+    let sheet = pcbcraft_io::BomSheetParams {
+        fields: keys.clone(),
+        variant: a.variant.clone(),
+        ids: a.ids.clone(),
+        group: a.group,
     };
     if a.ids.len() > 4096 {
         return Err(Error::Invalid(
@@ -6228,24 +6226,30 @@ let values: Vec<String> = keys
             references.sort();
             let columns = keys.clone();
             let mut fields = serde_json::Map::new();
-            for (key, value) in columns.into_iter().zip(values) {
-                fields.insert(key, json!(value));
+            for (key, value) in keys.iter().zip(&row.property_values) {
+                fields.insert(key.clone(), json!(value));
             }
             json!({
-                "quantity": references.len(),
-                "references": references,
-                "value": value,
-                "kind": kind,
-                "footprint": footprint,
+                "quantity": row.references.len(),
+                "references": row.references.clone(),
+                "value": row.value,
+                "kind": row.kind,
+                "footprint": row.footprint,
                 "fields": Value::Object(fields),
             })
         })
         .collect();
+    let csv = pcbcraft_io::bom_sheet_generic_csv(p, &rows, &keys);
+    let variant = match a.variant.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(name) => Some(name.to_owned()),
+    };
     Ok(json!({
         "items": items,
         "groups": items.len(),
         "components": populated,
-        "variant": variant.map(|v| v.name.clone()),
+        "variant": variant,
+        "csv": csv,
     }))
 }
 /// Set or clear one named custom field on a component.
@@ -27139,6 +27143,13 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         let grouped = s.execute("bom.export", json!({}), None)?["result"].clone();
         assert_eq!(grouped["groups"], 1, "identical parts share a row");
         assert_eq!(grouped["items"][0]["quantity"], 3);
+        assert!(
+            grouped["csv"].as_str().is_some_and(|csv| {
+                csv.starts_with("Reference,Value,Footprint,MPN,Manufacturer,Quantity")
+                    && csv.contains("R1, R2, R3")
+            }),
+            "the export carries generic CSV matching the dialog"
+        );
         let apart = s.execute("bom.export", json!({"group": false}), None)?["result"].clone();
         assert_eq!(apart["groups"], 3, "ungrouped lists each part");
         let some =
