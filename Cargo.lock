@@ -2985,6 +2985,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "toml",
+ "web-time",
 ]
 
 [[package]]
@@ -3017,6 +3018,7 @@ dependencies = [
  "toml",
  "truck-meshalgo",
  "truck-stepio",
+ "web-time",
 ]
 
 [[package]]
@@ -3029,6 +3031,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "toml",
+ "web-time",
 ]
 
 [[package]]

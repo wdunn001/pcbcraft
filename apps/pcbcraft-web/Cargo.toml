@@ -10,12 +10,15 @@ workspace = true
 
 [dependencies]
 pcbcraft-ui-egui.workspace = true
-eframe.workspace = true
 pcbcraft-engine.workspace = true
 pcbcraft-mcp.workspace = true
 pcbcraft-text.workspace = true
-
+# Use minimal eframe without desktop features for wasm
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+eframe = { version = "0.36", default-features = false, features = ["default_fonts"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "console", "Element"] }
+# Desktop eframe features
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "x11", "wayland", "persistence", "accesskit"] }
