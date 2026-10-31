@@ -1,7 +1,11 @@
 //! MCP stdio server plus a loopback bridge into the desktop's actual engine session.
 mod document_hub;
 #[cfg(not(target_arch = "wasm32"))]
+mod gated_bridge;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod http;
+#[cfg(not(target_arch = "wasm32"))]
+pub use gated_bridge::{ToolRequest, start_gated_bridge};
 mod prompts;
 mod resources;
 use base64::Engine as _;
@@ -45,7 +49,7 @@ pub fn tool_list() -> Value {
         json!({"name":"cmp.write","description":"Write a legacy board trace file listing every placed pad position in mils with a front or back layer code and every net's pad membership, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"report.write","description":"Write a plain-text design report summarizing the board, every component with its package and placement, and every net with its pins, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ipc2581.write","description":"Write a single-file IPC-2581 style assembly exchange XML with the board outline, nets and their pins, placed components, drill holes and copper by layer, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"idf.write","description":"Write a board-level mechanical drawing (board size plus every placed part's position, side and rotation, with default component heights) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"idf.write","description":"Write IDF version 3 board and library files (board outline and placements plus one outline and height per distinct footprint) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"wrl.write","description":"Write a VRML 2.0 scene extruding the board outline and every placed pad into solid prisms into a directory for mechanical viewers, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"hyperlynx.write","description":"Write a simulation netlist CSV, one line per net naming the net and every reference.pin on it, into a directory for circuit simulators, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gencad.write","description":"Write a legacy board interchange text listing components, pins in whole mils with shape and layer, and nets by component and pad index, into a directory for EDA bridges, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -67,6 +71,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.add_folder","description":"Register any folder on this computer as a library source so its symbol and footprint collections join the unified browser; returns discovered counts","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string","description":"optional friendly name, defaults to the folder name"}}),&["path"])}),
         json!({"name":"library.remove_folder","description":"Forget an added library folder; installed locations are never removed","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
+        json!({"name":"library.samtec.manufacturer_page","description":"Build the public Samtec product page URL for a part number so the user can download official CAD files in the browser","inputSchema":object(json!({"mpn":{"type":"string","minLength":1,"maxLength":64}}),&["mpn"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
         json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
@@ -110,7 +115,7 @@ enum ToolKind {
 }
 
 fn tool_kind(name: &str) -> ToolKind {
-    const READ_ONLY: [&str; 15] = [
+    const READ_ONLY: [&str; 16] = [
         "inspect_design",
         "list_commands",
         "checks",
@@ -122,6 +127,7 @@ fn tool_kind(name: &str) -> ToolKind {
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",
+        "library.samtec.manufacturer_page",
         "library.sources",
         "design.recents",
         "design.list_open",
@@ -294,6 +300,7 @@ pub(crate) fn invoke_session(
         "library.sources",
         "library.add_folder",
         "library.remove_folder",
+        "library.samtec.manufacturer_page",
     ]
     .contains(&name)
     {
@@ -430,15 +437,26 @@ pub(crate) fn invoke_session(
         }
         "idf.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::idf_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.idf"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.idf","bytes":text.len()})
+            let board = pcbcraft_io::idf_board(&s.project)?;
+            let library = pcbcraft_io::idf_library(&s.project)?;
+            pcbcraft_io::atomic_write(&Path::new(directory).join("board.idf"), board.as_bytes())?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("library.idf"),
+                library.as_bytes(),
+            )?;
+            json!({"directory":directory,"files":["board.idf","library.idf"],"bytes":board.len() + library.len()})
         }
         "step.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::step_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.step"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.step","bytes":text.len()})
+            let base = Path::new(&directory);
+            let loader = pcbcraft_io::project_step_loader(&s.project, Some(base));
+            let export = pcbcraft_io::step_board_with_models(&s.project, &loader)
+                .map_err(|e| e.to_string())?;
+            pcbcraft_io::atomic_write(
+                &base.join("board.step"),
+                export.text.as_bytes(),
+            )?;
+            json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
         }
         "wrl.write" => {
             let directory = string(args, "path")?;
@@ -594,11 +612,12 @@ pub(crate) fn invoke_session(
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                const COPPER: [&str; 7] = [
+                const COPPER: [&str; 8] = [
                     "clearance",
                     "copper_short",
                     "track_width",
                     "stub_length",
+                    "acute_angle",
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
@@ -773,7 +792,12 @@ fn validate_schema(value: &Value, schema: &Value, path: &str) -> Result<(), Stri
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
-pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> Option<Value> {
+pub fn handle_rpc(
+    hub: &DocumentHub,
+    request: Value,
+    connect: Option<&str>,
+    bridge_token: Option<&str>,
+) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str);
     if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
@@ -844,7 +868,7 @@ pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> O
             if let Some(address) = connect {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    match forward(address, &request) {
+                    match forward(address, &request, bridge_token) {
                         Ok(response) => return Some(response),
                         Err(e) => error_result(e),
                     }
@@ -925,6 +949,7 @@ pub fn serve(
     writer: &mut impl Write,
     hub: &DocumentHub,
     connect: Option<&str>,
+    bridge_token: Option<&str>,
 ) -> Result<(), String> {
     let mut initialized = false;
     while let Some(line) = read_message(reader)? {
@@ -937,7 +962,7 @@ pub fn serve(
                         .map(|id| rpc_error(id.clone(), -32002, "initialize the MCP session first"))
                 } else {
                     let initialize = method == Some("initialize");
-                    let response = handle_rpc(hub, request, connect);
+                    let response = handle_rpc(hub, request, connect, bridge_token);
                     if initialize && response.as_ref().is_some_and(|r| r.get("result").is_some()) {
                         initialized = true;
                     }
@@ -965,7 +990,18 @@ fn loopback(address: &str) -> Result<std::net::SocketAddr, String> {
     Ok(address)
 }
 #[cfg(not(target_arch = "wasm32"))]
-pub fn forward(address: &str, request: &Value) -> Result<Value, String> {
+pub fn forward(
+    address: &str,
+    request: &Value,
+    bridge_token: Option<&str>,
+) -> Result<Value, String> {
+    let mut payload = request.clone();
+    if let Some(token) = bridge_token {
+        if let Some(obj) = payload.as_object_mut() {
+            obj.entry("token".into())
+                .or_insert_with(|| Value::String(token.to_string()));
+        }
+    }
     let mut stream = std::net::TcpStream::connect_timeout(
         &loopback(address)?,
         std::time::Duration::from_secs(3),
@@ -977,7 +1013,7 @@ pub fn forward(address: &str, request: &Value) -> Result<Value, String> {
     stream
         .set_write_timeout(Some(std::time::Duration::from_secs(3)))
         .map_err(|e| e.to_string())?;
-    serde_json::to_writer(&mut stream, request).map_err(|e| e.to_string())?;
+    serde_json::to_writer(&mut stream, &payload).map_err(|e| e.to_string())?;
     stream.write_all(b"\n").map_err(|e| e.to_string())?;
     let text =
         read_message(&mut BufReader::new(stream))?.ok_or("bridge closed without a response")?;
@@ -1000,7 +1036,7 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
                     let mut reader = BufReader::new(reader);
                     if let Ok(Some(line)) = read_message(&mut reader) {
                         let response = match serde_json::from_str(&line) {
-                            Ok(request) => handle_rpc(&hub, request, None),
+                            Ok(request) => handle_rpc(&hub, request, None, None),
                             Err(_) => Some(rpc_error(Value::Null, -32700, "parse error")),
                         };
                         if let Some(response) = response {
@@ -1015,6 +1051,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bridge_tests;
 #[cfg(test)]
 mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1028,7 +1066,7 @@ mod tests {
         let hub = DocumentHub::new(Session::default(), None)?;
         let input: String = lines.iter().map(|line| format!("{line}\n")).collect();
         let mut output = vec![];
-        serve(&mut input.as_bytes(), &mut output, &hub, None)?;
+        serve(&mut input.as_bytes(), &mut output, &hub, None, None)?;
         String::from_utf8(output)
             .map_err(|e| e.to_string())?
             .lines()
@@ -1078,6 +1116,37 @@ mod tests {
             .as_array()
             .cloned()
             .ok_or_else(|| "tools is an array".to_string())
+    }
+    #[test]
+fn every_listed_tool_name_is_unique() -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            if !seen.insert(name.to_string()) {
+                return Err(format!("tool {name} is listed twice"));
+            }
+        }
+        Ok(())
+    }
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            if !seen.insert(name.to_string()) {
+                return Err(format!("tool {name} is listed twice"));
+            }
+#[test]
+    fn every_listed_tool_name_is_unique() -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            if !seen.insert(name.to_string()) {
+                return Err(format!("tool {name} is listed twice"));
+            }
+        }
+        Ok(())
+    }
+        }
+        Ok(())
     }
     #[test]
     fn every_listed_tool_has_a_title_and_the_four_annotation_hints() -> Result<(), String> {
@@ -2174,21 +2243,27 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         let export = call_tool(&session, "idf.write", &json!({"path":directory.path()}));
         assert_eq!(export.get("isError"), Some(&json!(false)));
-        let text = std::fs::read_to_string(directory.path().join("board.idf"))
+        let board = std::fs::read_to_string(directory.path().join("board.idf"))
+            .map_err(|e| e.to_string())?;
+        let library = std::fs::read_to_string(directory.path().join("library.idf"))
             .map_err(|e| e.to_string())?;
         assert!(
-            text.starts_with(".FILE_IDF\n.3DIDF VERSION: 2.0\n"),
-            "the mechanical drawing declares itself"
+            board.starts_with(".HEADER\nBOARD_FILE 3.0"),
+            "the board file declares IDF version 3"
         );
         assert!(
-            text.contains(".END_BODY R1\t") && text.contains(".END_BODY R2\t"),
-            "every placed part is listed with its position"
+            board.contains(".PLACEMENT\n") && board.contains(" R1\n") && board.contains(" R2\n"),
+            "every placed part is listed with its reference"
+        );
+        assert!(board.ends_with(".END_PLACEMENT\n"), "the board file closes");
+        assert!(
+            library.starts_with(".HEADER\nLIBRARY_FILE 3.0"),
+            "the library file declares IDF version 3"
         );
         assert!(
-            text.contains(".PIN 2\n"),
-            "the embedded pin file counts every part"
+            library.contains(".ELECTRICAL\n") && library.contains(".END_ELECTRICAL\n"),
+            "the library carries at least one footprint outline"
         );
-        assert!(text.ends_with(".END_FILE_IDF\n"), "the file closes");
         assert_eq!(
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
@@ -2808,6 +2883,7 @@ mod tests {
             &hub,
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}),
             None,
+            None,
         );
         assert_eq!(
             response
@@ -2819,7 +2895,8 @@ mod tests {
             handle_rpc(
                 &hub,
                 json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
-                None
+                None,
+                None,
             )
             .is_none()
         );
@@ -2838,7 +2915,8 @@ mod tests {
                 &mut BufReader::new(messages.as_bytes()),
                 &mut output,
                 &hub,
-                None
+                None,
+                None,
             )
             .is_ok()
         );
