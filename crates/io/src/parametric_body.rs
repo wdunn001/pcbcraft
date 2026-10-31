@@ -57,9 +57,7 @@ pub(crate) fn resolve(fp: &Footprint, component: Option<&Component>) -> Option<P
     if let Some(over) = stored {
         if let Some(f) = over.family {
             body.family = f;
-            body.height = over
-                .height
-                .unwrap_or_else(|| default_height(f, &body.ring));
+            body.height = over.height.unwrap_or_else(|| default_height(f, &body.ring));
         } else {
             let height_override = over.height;
             if let Some(h) = height_override {
@@ -226,7 +224,7 @@ fn chamfer_ring_corner(ring: &[Point], pin1: Point) -> Vec<Point> {
     let prev = ring[(best + n - 1) % n];
     let corner = ring[best];
     let next = ring[(best + 1) % n];
-    let cut = 0.35;
+    let cut = 0.35_f64;
     let p1 = Point::new(
         corner.x + (prev.x - corner.x).signum() * cut.min(prev.distance(corner)),
         corner.y + (prev.y - corner.y).signum() * cut.min(prev.distance(corner)),
@@ -260,15 +258,14 @@ fn pin1_chamfer_solid(ring: &[Point], pin1: Point, height: f64) -> Option<Solid>
     })
 }
 
-fn polarity_mark(
-    pads: &[PadBox],
-    component: Option<&Component>,
-    height: f64,
-) -> Option<Solid> {
-    let kind = component.map(|c| c.kind.to_ascii_lowercase()).unwrap_or_default();
+fn polarity_mark(pads: &[PadBox], component: Option<&Component>, height: f64) -> Option<Solid> {
+    let kind = component
+        .map(|c| c.kind.to_ascii_lowercase())
+        .unwrap_or_default();
     let mark_second = kind.contains("diode") || kind.contains("led");
     let pad = if mark_second && pads.len() >= 2 {
-        pads.iter().max_by(|a, b| a.centre.x.total_cmp(&b.centre.x))?
+        pads.iter()
+            .max_by(|a, b| a.centre.x.total_cmp(&b.centre.x))?
     } else {
         pads.first()?
     };
@@ -288,8 +285,7 @@ fn leads_for_family(family: &str, pads: &[PadBox], body_height: f64) -> Vec<Soli
         "bga" => 0.05,
         _ => (body_height * 0.25).max(0.1),
     };
-    pads
-        .iter()
+    pads.iter()
         .filter(|p| !thermal_pad(p, pads))
         .map(|p| {
             let w = p.width().max(0.12);
@@ -309,7 +305,8 @@ fn thermal_pad(p: &PadBox, all: &[PadBox]) -> bool {
         && all
             .iter()
             .filter(|q| q.centre.distance(p.centre) < 0.2)
-            .count() == 1
+            .count()
+            == 1
 }
 
 fn median_pad_area(pads: &[PadBox]) -> f64 {
@@ -405,7 +402,9 @@ fn smallest_gap(values: &[f64]) -> Option<f64> {
         .windows(2)
         .map(|w| w[1] - w[0])
         .filter(|g| *g > 0.05)
-        .fold(None, |best: Option<f64>, g| Some(best.map_or(g, |b| b.min(g))))
+        .fold(None, |best: Option<f64>, g| {
+            Some(best.map_or(g, |b| b.min(g)))
+        })
 }
 
 fn chip_height(length: f64) -> f64 {
@@ -480,7 +479,7 @@ fn infer_from_pads(fp: &Footprint, component: Option<&Component>) -> Option<Para
     let yc = clusters(&mut ys, 0.1);
 
     if through {
-        return through_body(component, &pads, &xc, &yc).or_else(generic);
+        return through_body(component, &pads, &xc, &yc).or_else(|| Some(generic()));
     }
     if n == 2 {
         let (a, b) = (&pads[0], &pads[1]);
@@ -795,7 +794,7 @@ pub(crate) fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board_mesh::{board_mesh, MeshLayers, PartKind};
+    use crate::board_mesh::{MeshLayers, PartKind, board_mesh};
     use pcbcraft_doc::{Component, Footprint, Pad, Project};
     use pcbcraft_library::{
         FootprintDefinition, FootprintPad, LandPatternDensity, LandPatternParams,
@@ -896,6 +895,7 @@ mod tests {
                 definition: def.clone(),
             }),
             fields: vec![],
+            sourcing: Default::default(),
             sheet: 0,
         });
         p.board.footprints.push(footprint(pads));
@@ -1056,6 +1056,7 @@ mod tests {
                 definition: def.clone(),
             }),
             fields: vec![],
+            sourcing: Default::default(),
             sheet: 0,
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
@@ -1103,6 +1104,7 @@ mod tests {
                 key: "body".into(),
                 value: r#"{"family":"chip","height":0.5}"#.into(),
             }],
+            sourcing: Default::default(),
             sheet: 0,
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
@@ -1135,6 +1137,7 @@ mod tests {
                 definition: def,
             }),
             fields: vec![],
+            sourcing: Default::default(),
             sheet: 0,
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
@@ -1164,6 +1167,7 @@ mod tests {
                 key: "body".into(),
                 value: r#"{"family":"chip","height":0.9}"#.into(),
             }],
+            sourcing: Default::default(),
             sheet: 0,
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
@@ -1233,20 +1237,17 @@ mod tests {
         ];
         for (family, params) in families {
             let def = generate_footprint(family, LandPatternDensity::Nominal, &params())?;
-            let pads: Vec<PadBox> = pads_from_def(&def)
-                .iter()
-                .filter_map(pad_box)
-                .collect();
+            let pads: Vec<PadBox> = pads_from_def(&def).iter().filter_map(pad_box).collect();
             let body = resolve(&footprint(pads_from_def(&def)), None).ok_or("no body")?;
             let (blo, bhi, z0, z1) = local_bounds(&body);
-            assert!(
-                z0 >= -EPS,
-                "{family}: bottom below seating plane {z0}"
-            );
+            assert!(z0 >= -EPS, "{family}: bottom below seating plane {z0}");
             assert!(z0 <= body.standoff + EPS, "{family}: unexpected standoff");
             if let Some((hx, hy)) = courtyard_half(&def) {
                 assert!(
-                    blo.x >= -hx - 0.01 && bhi.x <= hx + 0.01 && blo.y >= -hy - 0.01 && bhi.y <= hy + 0.01,
+                    blo.x >= -hx - 0.01
+                        && bhi.x <= hx + 0.01
+                        && blo.y >= -hy - 0.01
+                        && bhi.y <= hy + 0.01,
                     "{family}: body {blo:?} {bhi:?} outside courtyard {hx} {hy}"
                 );
             }

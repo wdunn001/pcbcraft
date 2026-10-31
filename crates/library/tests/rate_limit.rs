@@ -1,8 +1,9 @@
+use pcbcraft_library::http_client::HttpClient as _;
 use pcbcraft_library::http_client::{HttpRequest, HttpResponse, RecordedHttp};
 use pcbcraft_library::rate_limit::{FixedClock, TokenBucket, retry_after_secs};
 use pcbcraft_library::sources::{PartResult, PartSource, ResponseCache, SourceError};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
 fn bucket_refuses_when_empty_and_reports_the_wait() {
@@ -32,12 +33,15 @@ fn cached_answer_makes_no_http_call() -> Result<(), SourceError> {
         }
         fn search(&self, _q: &str) -> Result<Vec<PartResult>, SourceError> {
             self.hits.fetch_add(1, Ordering::SeqCst);
-            let _ = self.http.call(&HttpRequest {
-                method: "GET".into(),
-                url: "https://example.invalid/".into(),
-                headers: Default::default(),
-                body: Vec::new(),
-            })?;
+            let _ = self
+                .http
+                .call(&HttpRequest {
+                    method: "GET".into(),
+                    url: "https://example.invalid/".into(),
+                    headers: Default::default(),
+                    body: Vec::new(),
+                })
+                .map_err(|e| SourceError::Unavailable(e.to_string()))?;
             Ok(vec![])
         }
         fn fetch(&self, m: &str) -> Result<PartResult, SourceError> {

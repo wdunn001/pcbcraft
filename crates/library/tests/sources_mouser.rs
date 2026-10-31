@@ -1,5 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+use pcbcraft_library::credentials::KeyStore as _;
 use pcbcraft_library::credentials::{self, MemoryKeyStore};
 use pcbcraft_library::http_client::{HttpRequest, HttpResponse, RecordedHttp};
 use pcbcraft_library::mouser::MouserSource;
@@ -8,12 +9,15 @@ use std::sync::Arc;
 
 const SEARCH: &str = include_str!("fixtures/sources/mouser_search.json");
 
-fn source_err(e: pcbcraft_library::credentials::CredentialError) -> pcbcraft_library::sources::SourceError {
+fn source_err(
+    e: pcbcraft_library::credentials::CredentialError,
+) -> pcbcraft_library::sources::SourceError {
     pcbcraft_library::sources::SourceError::Unavailable(e.to_string())
 }
 
 #[test]
-fn mouser_search_parses_a_recorded_response() -> Result<(), pcbcraft_library::sources::SourceError> {
+fn mouser_search_parses_a_recorded_response() -> Result<(), pcbcraft_library::sources::SourceError>
+{
     let store = Arc::new(MemoryKeyStore::default());
     store
         .set(credentials::keys::MOUSER_API_KEY, "sample-key")

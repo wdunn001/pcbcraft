@@ -1,33 +1,33 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod credentials;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
 pub mod drop_in_check;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod element14;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
+pub mod http_client;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
 pub mod listing;
 pub mod listing_adapters;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
 pub mod online_import;
 pub mod open_library;
 mod paths;
+pub mod rate_limit;
 mod reader;
 mod sexpr;
-pub mod credentials;
-pub mod http_client;
-pub mod rate_limit;
-pub mod source_log;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod digikey;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod mouser;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod element14;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod lcsc;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod jlcpcb;
 pub mod source_errors;
 pub mod source_hosts;
+pub mod source_log;
 #[cfg(not(target_arch = "wasm32"))]
 mod source_sign;
 pub mod sources;

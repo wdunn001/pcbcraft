@@ -160,7 +160,9 @@ pub fn solidcraft_counts(design: &SolidcraftDesign) -> Result<(usize, usize, usi
 }
 
 pub fn bounds_close(a: &Bounds, b: &Bounds, eps: f64) -> bool {
-    (0..3).all(|axis| (a.min[axis] - b.min[axis]).abs() <= eps && (a.max[axis] - b.max[axis]).abs() <= eps)
+    (0..3).all(|axis| {
+        (a.min[axis] - b.min[axis]).abs() <= eps && (a.max[axis] - b.max[axis]).abs() <= eps
+    })
 }
 
 pub fn transforms_close(a: &[[f64; 4]; 4], b: &[[f64; 4]; 4], eps: f64) -> bool {

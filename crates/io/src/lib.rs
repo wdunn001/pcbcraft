@@ -9,7 +9,6 @@ use std::path::Path;
 mod bitmap_trace;
 mod board_edge;
 mod board_mesh;
-mod parametric_body;
 mod diff;
 mod drawn;
 mod drill_table;
@@ -27,6 +26,7 @@ mod model_load;
 mod neoden_yy1;
 mod package;
 mod panel_export;
+mod parametric_body;
 mod part_bodies;
 mod plot_read;
 mod raster;
@@ -145,6 +145,14 @@ pub use snapmaker::{
     SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
     snapmaker_settings, spindle_percent, spindle_percent_for_tool,
 };
+/// SolidCraft board export and interchange test helpers.
+/// # Dependencies
+/// - crates/io/src/solidcraft/mod.rs
+pub use solidcraft::{
+    Bounds, PartSnapshot, SOLIDCRAFT_FORMAT, SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA,
+    SolidcraftLayers, bounds_close, design_as_value, designs_equal, part_snapshots,
+    solidcraft_board, solidcraft_counts, transforms_close,
+};
 /// SolidCraft design subset reader and writer (plain JSON and stored ZIP containers).
 /// # Dependencies
 /// - crates/io/src/solidcraft_format.rs
@@ -153,14 +161,6 @@ pub use solidcraft_format::{
     SolidcraftAppearances, SolidcraftComponent, SolidcraftDesign, SolidcraftOccurrence,
     read_solidcraft, read_solidcraft_container, read_solidcraft_json, write_solidcraft_container,
     write_solidcraft_json,
-};
-/// SolidCraft board export and interchange test helpers.
-/// # Dependencies
-/// - crates/io/src/solidcraft/mod.rs
-pub use solidcraft::{
-    SOLIDCRAFT_FORMAT, SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA, Bounds, PartSnapshot,
-    SolidcraftLayers, bounds_close, design_as_value, designs_equal, part_snapshots,
-    solidcraft_board, solidcraft_counts, transforms_close,
 };
 /// UV printing types, profiles, and job file generation functions.
 /// # Dependencies

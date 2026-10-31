@@ -1,8 +1,9 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+use pcbcraft_library::credentials::KeyStore as _;
 use pcbcraft_library::credentials::{self, MemoryKeyStore};
 use pcbcraft_library::http_client::{HttpRequest, HttpResponse, RecordedHttp};
-use pcbcraft_library::lcsc::{LcscSource, KEYWORD_SEARCH_URL};
+use pcbcraft_library::lcsc::{KEYWORD_SEARCH_URL, LcscSource};
 use pcbcraft_library::sources::{PartSource, SourceError};
 use std::sync::Arc;
 

@@ -551,6 +551,7 @@ mod tests {
                     definition: footprint.clone(),
                 }),
                 fields: vec![],
+                sourcing: Default::default(),
             });
             project.board.footprints.push(pcbcraft_doc::Footprint {
                 id: id + 1,

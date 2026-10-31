@@ -1,17 +1,21 @@
 //! SolidCraft interchange fixtures and export round trips (#736).
+use pcbcraft_doc::{Layer, Project};
+use pcbcraft_geom::Point;
 use pcbcraft_io::{
     MeshLayers, SolidcraftDesign, SolidcraftLayers, board_mesh, bounds_close, design_as_value,
     designs_equal, part_snapshots, read_solidcraft, solidcraft_board, solidcraft_counts,
     transforms_close, write_solidcraft_container, write_solidcraft_json,
 };
-use pcbcraft_doc::{Layer, Project};
-use pcbcraft_geom::Point;
 use serde_json::Value;
 
 type Check = Result<(), String>;
 
 fn read_fixture(name: &str) -> Result<SolidcraftDesign, String> {
-    read_solidcraft(include_bytes!(concat!("fixtures/solidcraft/", name)).as_slice())
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/solidcraft")
+        .join(name);
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    read_solidcraft(bytes.as_slice())
 }
 
 fn body_names(doc: &Value) -> Result<Vec<String>, String> {
@@ -45,11 +49,19 @@ fn solidcraft_fixture_part_reads() -> Check {
         .and_then(Value::as_object)
         .ok_or("appearances.bodies missing")?;
     assert_eq!(
-        looks.get("Red").and_then(|v| v.get("color")).and_then(Value::as_array).map(|a| a.len()),
+        looks
+            .get("Red")
+            .and_then(|v| v.get("color"))
+            .and_then(Value::as_array)
+            .map(|a| a.len()),
         Some(3)
     );
     assert_eq!(
-        looks.get("Blue").and_then(|v| v.get("color")).and_then(Value::as_array).map(|a| a.len()),
+        looks
+            .get("Blue")
+            .and_then(|v| v.get("color"))
+            .and_then(Value::as_array)
+            .map(|a| a.len()),
         Some(3)
     );
     Ok(())
@@ -89,7 +101,11 @@ fn solidcraft_fixture_container_reads() -> Check {
         .and_then(|m| m.get("positions"))
         .and_then(Value::as_array)
         .ok_or("hydrated positions missing")?;
-    assert_eq!(positions.len(), 9, "container mesh should hydrate to nine coordinates");
+    assert_eq!(
+        positions.len(),
+        9,
+        "container mesh should hydrate to nine coordinates"
+    );
     Ok(())
 }
 
@@ -197,6 +213,7 @@ fn random_board(seed: u64) -> Result<Project, String> {
                 definition: footprint.clone(),
             }),
             fields: vec![],
+            sourcing: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: id + 1,

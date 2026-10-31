@@ -1208,13 +1208,12 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 });
             }
             let z_base = thickness + body.standoff;
-            let mut extrude =
-                |ring: &[Point], z0: f64, z1: f64| -> Result<(), String> {
-                    if let Some(ring) = clean_ring(&map_ring(fp, ring)) {
-                        b.prism(&ring, vec![], z_base + z0, z_base + z1, &mut warnings)?;
-                    }
-                    Ok(())
-                };
+            let mut extrude = |ring: &[Point], z0: f64, z1: f64| -> Result<(), String> {
+                if let Some(ring) = clean_ring(&map_ring(fp, ring)) {
+                    b.prism(&ring, vec![], z_base + z0, z_base + z1, &mut warnings)?;
+                }
+                Ok(())
+            };
             extrude(&body.ring, 0.0, body.height)?;
             for lead in &body.leads {
                 extrude(&lead.ring, lead.z0, lead.z1)?;

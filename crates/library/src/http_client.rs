@@ -54,9 +54,10 @@ impl RecordedHttp {
 impl HttpClient for RecordedHttp {
     fn call(&self, request: &HttpRequest) -> Result<HttpResponse, HttpError> {
         let i = self.step.fetch_add(1, Ordering::SeqCst);
-        let (expected, response) = self.script.get(i).ok_or_else(|| {
-            HttpError::Failed(format!("no recorded answer for step {i}"))
-        })?;
+        let (expected, response) = self
+            .script
+            .get(i)
+            .ok_or_else(|| HttpError::Failed(format!("no recorded answer for step {i}")))?;
         if expected.method != request.method || expected.url != request.url {
             return Err(HttpError::Failed(format!(
                 "step {i} expected {} {}, got {} {}",
