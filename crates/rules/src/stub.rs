@@ -348,6 +348,7 @@ mod tests {
             pair_gap: None,
             nets: vec![1],
             profile: None,
+            fast: false,
         });
         p.validate()
     }
