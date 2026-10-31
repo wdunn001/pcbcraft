@@ -137,6 +137,15 @@
   key: true
   evidence: [command:part.attach_source]
 - area: libraries
+  name: Part sourcing fields
+  summary: Typed manufacturer, part number, description and supplier numbers on a part, edited in Properties and read by the bill of materials.
+  status: browser
+  evidence: [command:component.set_sourcing, command:component.set_supplier]
+- area: libraries
+name: Library tab
+  summary: Read a part's details, cached prices, 3D model and sources in one tab, compare parts side by side and edit their symbols, footprints and model alignment; also import symbols and footprints from files on disk into the project library.
+  status: available
+  evidence: [test:a_newcomer_opens_the_library_tab_and_reads_a_parts_details, test:a_newcomer_compares_two_parts_and_sees_their_differences, command:library.import_symbol_file, command:library.import_footprint_file]
   name: Import library files
   summary: Read symbols and footprints from files on disk into the project library.
   status: desktop
@@ -156,6 +165,11 @@
   summary: Compare two symbols or two footprints and list the pin or pad differences.
   status: desktop
   evidence: [mcp:library.compare]
+- area: libraries
+  name: Drop-in replacement check
+  summary: Decide whether a candidate part may replace one on the board from footprint, pinout, ratings, lifecycle and height.
+  status: desktop
+  evidence: [mcp:library.drop_in_check]
 
 # ---------- Rules and checks ----------
 - area: rules
@@ -293,7 +307,7 @@
   summary: Write a placement file and feeder sheet for a pick and place machine profile.
   status: desktop
   key: true
-  evidence: [command:placement_yy1.export]
+  evidence: [command:placement_yy1.export, kind:placement_yy1]
 - area: machines
   name: Import drawings and images
   summary: Bring in DXF or SVG drawings as board graphics, or trace a PNG into outlines.

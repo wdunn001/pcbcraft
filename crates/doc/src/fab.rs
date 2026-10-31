@@ -57,6 +57,9 @@ pub struct FabRules {
     pub source_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrieved: Option<String>,
+    /// Assembly solder alloy choice, for example `lead_free` or `leaded`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solder: Option<String>,
 }
 
 impl FabRules {
@@ -97,10 +100,19 @@ impl FabRules {
                 .retrieved
                 .as_ref()
                 .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self
+                .solder
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 64)
     }
 
     pub fn drill_tool(&self, finished_drill: f64) -> f64 {
         finished_drill + self.plating_allowance.unwrap_or(0.0)
+    }
+
+    /// Default for `remove_unused_inner_pads` when the profile omits the field.
+    pub fn remove_unused_inner_pads_default(copper_layers: u8) -> bool {
+        copper_layers >= 6
     }
 }
 
@@ -176,6 +188,7 @@ static FAB_PRESETS: LazyLock<Vec<FabPreset>> = LazyLock::new(|| {
                 "https://jlcpcb.com/capabilities/Capabilities",
                 "2026-03-28",
                 FabRules {
+                    arcs: Some(true),
                     min_track: Some(0.127),
                     min_space: Some(0.127),
                     min_drill: Some(0.3),

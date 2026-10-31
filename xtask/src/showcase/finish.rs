@@ -383,6 +383,37 @@ pub fn artwork(g: &mut Gen) -> Res<()> {
     Ok(())
 }
 
+/// Fill and cap every via that sits inside a pad, so a via under a test
+/// point does not wick solder away from the joint.
+///
+/// # Rules
+/// - Runs after every via is placed and before the builds.
+/// - Uses the same test the design check uses, so the check stays quiet.
+///
+/// # Dependencies
+/// - crates/rules/src/lib.rs `via_in_pad_message`.
+/// - crates/engine/src/via_protection.rs `via.set_covering`.
+///
+/// # Do not
+/// - Move a via; only its protection changes.
+pub fn cap_vias_in_pads(g: &mut Gen) -> Res<()> {
+    let ids: Vec<u64> =
+        g.s.project
+            .board
+            .vias
+            .iter()
+            .filter(|v| pcbcraft_rules::via_in_pad_message(&g.s.project, v).is_some())
+            .map(|v| v.id)
+            .collect();
+    for id in ids {
+        g.cmd(
+            "via.set_covering",
+            json!({"id": id, "covering": "filled_capped"}),
+        )?;
+    }
+    Ok(())
+}
+
 /// The two builds and the fabrication recipes.
 pub fn builds(g: &mut Gen) -> Res<()> {
     g.cmd(

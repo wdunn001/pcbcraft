@@ -5,7 +5,7 @@ pub mod track_corner;
 mod overlay;
 use serde::{Deserialize, Serialize};
 
-pub use overlay::{OffsetJoin, Ring, polygon_offset, polygon_union};
+pub use overlay::{OffsetJoin, Ring, polygon_difference, polygon_offset, polygon_union};
 pub mod hull;
 pub mod poly;
 
@@ -301,6 +301,38 @@ pub fn triangulate(points: &[Point]) -> Vec<[usize; 3]> {
         triangles.push([a, b, c]);
     }
     triangles
+}
+
+fn ring_open_points(ring: &Ring) -> Vec<Point> {
+    let mut pts: Vec<Point> = ring.iter().copied().filter(|p| p.valid()).collect();
+    if pts.len() >= 2
+        && pts
+            .first()
+            .zip(pts.last())
+            .is_some_and(|(a, b)| a.distance(*b) < 1e-9)
+    {
+        pts.pop();
+    }
+    pts
+}
+
+/// Parallel hatch segments clipped to each simple ring. Caps output at 8192 segments per ring.
+pub fn hatch(rings: &[Ring], spacing_mm: f64, angle_deg: f64) -> Vec<(Point, Point)> {
+    if !spacing_mm.is_finite() || spacing_mm <= 0.0 || !angle_deg.is_finite() {
+        return vec![];
+    }
+    let mut out = Vec::new();
+    for ring in rings {
+        let open = ring_open_points(ring);
+        if open.len() < 3 {
+            continue;
+        }
+        out.extend(hatch_fill_polygon(&open, spacing_mm, angle_deg, 0.0));
+        if out.len() >= 8192 {
+            return out.into_iter().take(8192).collect();
+        }
+    }
+    out
 }
 
 /// Parallel hatch segments filling a simple closed polygon. Caps output at 8192

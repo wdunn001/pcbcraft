@@ -11,7 +11,9 @@ let footprint = pcbcraft_library::read_footprint(&source)?;
 ```
 
 Symbols preserve arbitrary string pin numbers, names, electrical types, unit and
-body-style indices, lengths and pin directions. The reader resolves `extends`
+body-style indices, lengths, pin directions, standard graphical pin styles
+(line, inverted, clock, inverted_clock, and the other interchange tokens), and
+hide flags. The reader resolves `extends`
 references within the same library, detects missing parents and inheritance
 cycles, and applies child property overrides. Common graphics use unit `0`;
 standard and alternate body drawings retain their body-style indices. Local
@@ -44,8 +46,8 @@ through the given midpoint and handle collinear points as a three-point path.
 Invalid definitions and text produce empty paths; renderers handle text separately.
 
 Each definition preserves its raw source node and each pad preserves its raw
-source. Unsupported expressions, alternate pin functions and non-line pin styles
-are reported; metadata such as properties and
+source. Unsupported expressions and alternate pin functions are reported;
+unknown pin shape tokens fall back to line and are noted in raw source. Metadata such as properties and
 3D model references is preserved in raw source without inventing graphics.
 Inherited geometry is resolved in the DTO; a derived symbol's raw source is only
 its own original node, so reconstituting an entire source library requires
@@ -96,7 +98,7 @@ The data is copyright its KiCad community contributors and is licensed under
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/legalcode) with
 KiCad's design-output exception. The unmodified upstream license document is
 included at `crates/library/tests/fixtures/LICENSE-kicad-libraries.md`.
-These test fixtures retain that license independently of PCBCraft's GPL code.
+These test fixtures retain that license independently of PCBCraft's MIT OR Apache-2.0 code.
 The exception permits use of library data in electronic designs without forcing
 the design's license; redistributing library collections retains CC BY-SA
 attribution and share-alike requirements.
