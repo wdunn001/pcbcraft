@@ -27,7 +27,7 @@ fn golden_dir(case: &str) -> PathBuf {
         .join(case)
 }
 fn blessing() -> bool {
-    std::env::var_os("PCBCRAFT_BLESS").is_some() && std::env::var_os("CI").is_none()
+    pcbcraft_testkit::blessing()
 }
 
 /// 64-bit FNV-1a, enough to detect any change to a binary output.

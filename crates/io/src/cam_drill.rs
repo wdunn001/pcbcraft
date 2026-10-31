@@ -1078,7 +1078,7 @@ covering_scope: None,
         let text = &files[0].1;
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/drill_three_tools.nc");
-        if std::env::var_os("PCBCRAFT_BLESS").is_some() {
+        if pcbcraft_testkit::blessing() {
             std::fs::write(&fixture, text).map_err(|e| e.to_string())?;
         }
         let expected = std::fs::read_to_string(&fixture).map_err(|e| e.to_string())?;
@@ -1130,7 +1130,7 @@ covering_scope: None,
         let text = outline_gcode(&p, &options, &profile)?;
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/outline_four_tabs_three_passes.nc");
-        if std::env::var_os("PCBCRAFT_BLESS").is_some() {
+        if pcbcraft_testkit::blessing() {
             std::fs::write(&fixture, &text).map_err(|e| e.to_string())?;
         }
         let expected = std::fs::read_to_string(&fixture).map_err(|e| e.to_string())?;

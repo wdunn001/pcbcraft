@@ -13677,7 +13677,7 @@ mod tests {
         let text = gerber_copper(&project, pcbcraft_doc::Layer::Front)?;
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/shaped_pads_F_Cu.gbr");
-        if std::env::var_os("PCBCRAFT_BLESS").is_some() {
+        if pcbcraft_testkit::blessing() {
             std::fs::write(&fixture, &text).map_err(|e| e.to_string())?;
         }
         let expected = std::fs::read_to_string(&fixture).map_err(|e| e.to_string())?;

@@ -999,7 +999,7 @@ pub mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
             .join(name);
-        if std::env::var("PCBCRAFT_BLESS").is_ok() {
+        if pcbcraft_testkit::blessing() {
             fs::write(&path, actual).map_err(|e| e.to_string())?;
             return Ok(());
         }
