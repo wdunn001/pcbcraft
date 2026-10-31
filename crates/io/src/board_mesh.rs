@@ -1974,6 +1974,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
         let slab = part(&mesh, PartKind::Board)?;
@@ -2079,6 +2080,7 @@ mod tests {
             unsupported: vec![],
         };
         p.components.push(Component {
+            sourcing: Default::default(),
             id: 11,
             reference: "R1".into(),
             value: "10k".into(),
