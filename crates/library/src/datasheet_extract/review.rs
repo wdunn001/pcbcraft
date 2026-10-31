@@ -13,7 +13,7 @@ pub enum ReviewDecision {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, bound(deserialize = "T: serde::Deserialize<'de>"))]
 pub struct ReviewedField<T> {
     pub value: T,
     #[serde(default)]

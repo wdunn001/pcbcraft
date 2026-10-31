@@ -1,6 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use pcbcraft_library::credentials::{self, MemoryKeyStore};
+use pcbcraft_library::credentials::{self, KeyStore, MemoryKeyStore};
 use pcbcraft_library::digikey::DigiKeySource;
 use pcbcraft_library::http_client::{HttpRequest, HttpResponse, RecordedHttp};
 use pcbcraft_library::rate_limit::FixedClock;

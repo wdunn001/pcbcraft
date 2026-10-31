@@ -1,6 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use pcbcraft_library::credentials::{self, MemoryKeyStore};
+use pcbcraft_library::credentials::{self, KeyStore, MemoryKeyStore};
 use pcbcraft_library::http_client::{HttpRequest, HttpResponse, RecordedHttp};
 use pcbcraft_library::mouser::MouserSource;
 use pcbcraft_library::sources::PartSource;

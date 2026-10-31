@@ -1,6 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use pcbcraft_library::credentials::{self, MemoryKeyStore};
+use pcbcraft_library::credentials::{self, KeyStore, MemoryKeyStore};
 use pcbcraft_library::element14::Element14Source;
 
 const API_KEY: &str = "test-partner-key-123456789012";

@@ -1,4 +1,4 @@
-use pcbcraft_library::http_client::{HttpRequest, HttpResponse, RecordedHttp};
+use pcbcraft_library::http_client::{HttpClient, HttpRequest, HttpResponse, RecordedHttp};
 use pcbcraft_library::rate_limit::{FixedClock, TokenBucket, retry_after_secs};
 use pcbcraft_library::sources::{PartResult, PartSource, ResponseCache, SourceError};
 use std::sync::Arc;
@@ -37,7 +37,7 @@ fn cached_answer_makes_no_http_call() -> Result<(), SourceError> {
                 url: "https://example.invalid/".into(),
                 headers: Default::default(),
                 body: Vec::new(),
-            })?;
+            }).map_err(|e| SourceError::Unavailable(e.to_string()))?;
             Ok(vec![])
         }
         fn fetch(&self, m: &str) -> Result<PartResult, SourceError> {

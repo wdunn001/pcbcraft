@@ -190,41 +190,10 @@ impl ResponseCache {
     fn search_key(source: &str, query: &str) -> String {
         format!("{source}\u{1f}search\u{1f}{}", query.trim().to_lowercase())
     }
-fn fetch_key(source: &str, mpn: &str) -> String {
+    fn fetch_key(source: &str, mpn: &str) -> String {
         format!("{source}\u{1f}fetch\u{1f}{}", mpn.trim().to_lowercase())
     }
-}
-        if self.entries.len() >= MAX_CACHE_ENTRIES
-            && let Some(oldest) = self
-                .entries
-                .iter()
-                .min_by_key(|(_, e)| e.stored_at)
-                .map(|(k, _)| k.clone())
-        {
-            self.entries.remove(&oldest);
-        }
-fn store(&mut self, key: String, stored_at: u64, results: Vec<PartResult>) {
-        if self.entries.len() >= MAX_CACHE_ENTRIES
-            && let Some(oldest) = self
-                .entries
-                .iter()
-                .min_by_key(|(_, e)| e.stored_at)
-                .map(|(k, _)| k.clone())
-        {
-            self.entries.remove(&oldest);
-        }
-        self.entries.insert(
-            key,
-        if self.entries.len() >= MAX_CACHE_ENTRIES
-            && let Some(oldest) = self
-                .entries
-                .iter()
-                .min_by_key(|(_, e)| e.stored_at)
-                .map(|(k, _)| k.clone())
-        {
-            self.entries.remove(&oldest);
-        }
-fn store(&mut self, key: String, stored_at: u64, results: Vec<PartResult>) {
+    fn store(&mut self, key: String, stored_at: u64, results: Vec<PartResult>) {
         if self.entries.len() >= MAX_CACHE_ENTRIES
             && let Some(oldest) = self
                 .entries
@@ -235,8 +204,34 @@ fn store(&mut self, key: String, stored_at: u64, results: Vec<PartResult>) {
             self.entries.remove(&oldest);
         }
         self.entries.insert(key, CacheEntry { stored_at, results });
+    }
+    /// Return a still-fresh memory entry without asking the source.
+    pub fn get_if_fresh(
+        &self,
+        source: &dyn PartSource,
+        query: &str,
+        now: u64,
+    ) -> Option<Vec<PartResult>> {
+        let query = check_query(query).ok()?;
+        let key = Self::search_key(source.id(), query);
+        let entry = self.entries.get(&key)?;
+        (now.saturating_sub(entry.stored_at) < source.cache_secs()).then(|| entry.results.clone())
+    }
+
+    /// Store an answer the caller already fetched.
+    pub fn remember(
+        &mut self,
+        source: &dyn PartSource,
+        query: &str,
+        now: u64,
+        results: Vec<PartResult>,
+    ) -> Result<(), SourceError> {
+        let query = check_query(query)?;
+        let key = Self::search_key(source.id(), query);
+        self.store(key, now, results);
         Ok(())
     }
+
     /// Answer from the cache while the entry is younger than the source's
     /// window, otherwise ask the source and store the answer. `now` is
     /// seconds since the Unix epoch.
@@ -247,21 +242,11 @@ fn store(&mut self, key: String, stored_at: u64, results: Vec<PartResult>) {
         now: u64,
     ) -> Result<Vec<PartResult>, SourceError> {
         let query = check_query(query)?;
-let key = Self::search_key(source.id(), query);
-        if let Some(entry) = self.entries.get(&key)
-            && now.saturating_sub(entry.stored_at) < source.cache_secs()
-        {
-            return Ok(entry.results.clone());
+        if let Some(hit) = self.get_if_fresh(source, query, now) {
+            return Ok(hit);
         }
         self.misses += 1;
-        let key = Self::key(source.id(), query);
-        let mut results = source.search(query)?;
-        results.truncate(MAX_RESULTS);
-        self.store(key, now, results.clone());
-        Ok(results)
-        }
-        self.misses += 1;
-        let key = Self::key(source.id(), query);
+        let key = Self::search_key(source.id(), query);
         let mut results = source.search(query)?;
         results.truncate(MAX_RESULTS);
         self.store(key, now, results.clone());

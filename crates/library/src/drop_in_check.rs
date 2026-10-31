@@ -175,11 +175,11 @@ impl DropInPart {
     }
 }
 
-fn finding(code: &str, pass: bool, message: impl Into<String>) -> DropInFinding {
+fn finding(code: &str, pass: bool, message: String) -> DropInFinding {
     DropInFinding {
         code: code.into(),
         pass,
-        message: message.into(),
+        message,
     }
 }
 
@@ -382,6 +382,11 @@ fn compare_temp(inc: &DropInPart, cand: &DropInPart) -> DropInFinding {
         ((None, None), (None, None)) => {
             finding("temperature", true, "No temperature span on either part".into())
         }
+        ((None, None), (Some(_), Some(_))) | ((Some(_), Some(_)), (None, None)) => finding(
+            "temperature",
+            false,
+            "Temperature span is missing on one of the parts".into(),
+        ),
         ((Some(_), None) | (None, Some(_)), _) | (_, (Some(_), None) | (None, Some(_))) => finding(
             "temperature",
             false,

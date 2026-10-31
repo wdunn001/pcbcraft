@@ -835,6 +835,8 @@ mod tests {
                 rotate: [0.0, 0.0, 0.0],
                 cad_part: None,
                 raw_source: "(offset (xyz 25.4 0 0))".into(),
+                body_id: None,
+            embedded: String::new(),
             }),
             rules: None,
             box_body: None,

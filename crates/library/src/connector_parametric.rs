@@ -44,6 +44,9 @@ impl ConnectorParametricSpec {
             offset: [0.0; 3],
             scale: [1.0; 3],
             rotate: [0.0; 3],
+            cad_part: None,
+            body_id: None,
+            embedded: String::new(),
             raw_source: raw,
         })
     }

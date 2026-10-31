@@ -65,6 +65,7 @@ fn qfn_symbol_and_footprint() -> Result<(SymbolDefinition, FootprintDefinition),
         extends: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        retained: vec![],
     };
     let mut fp = fp;
     let gnd = fp.pads[0].clone();
@@ -210,6 +211,7 @@ fn bga_alphanumeric_pad_numbers_map_by_symbol_pin() -> Result<(), String> {
         extends: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        retained: vec![],
     };
     let map = auto_fill(&symbol, &fp);
     assert_eq!(map.rows.len(), 16);

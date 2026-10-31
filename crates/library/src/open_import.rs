@@ -69,7 +69,7 @@ pub fn import_open(
     let start = usize::from(!fetch_3d);
     let mut last = invalid("the part could not be imported");
     for (fp, m) in &candidates[start..] {
-        match import_part(source, &symbol, fp.copied(), m.copied()) {
+        match import_part(source, &symbol, *fp, *m) {
             Ok(part) => return Ok(part.to_params()),
             Err(e) => last = e,
         }
