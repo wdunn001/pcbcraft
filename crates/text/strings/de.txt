@@ -1176,6 +1176,7 @@ check.panel_missing_fiducials = Panel: fehlende Referenzmarken
 check.panel_tab_too_narrow = Panel-Steg zu schmal
 check.panel_too_large_for_assembler = Panel zu groß für den Bestücker
 check.pour_fill = Flächenfüllung
+check.return_path = Rückleiterpfad
 check.silk_text_height = Texthöhe im Siebdruck
 check.single_pin_net = Ein-Pin-Netz
 check.stacked_microvia = Gestapeltes Microvia

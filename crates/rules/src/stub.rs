@@ -355,6 +355,7 @@ mod tests {
             target_impedance: None,
             nets: vec![1],
             profile: None,
+            fast: false,
         });
         p.validate()
     }

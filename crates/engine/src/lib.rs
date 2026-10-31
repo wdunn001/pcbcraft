@@ -550,6 +550,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.fast_signal",
+            "Mark whether member nets are fast signals for return-path checks",
+            schema(
+                json!({"class":id_schema(),"fast":{"type":"boolean"}}),
+                &["class", "fast"],
+            ),
+        ),
+        (
             "netclass.clearance",
             "Change the clearance a net class requires between its copper and everything else",
             schema(
@@ -4727,6 +4735,12 @@ struct LengthRulesParams {
 struct StubRulesParams {
     class: Id,
     max_stub: Value,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FastSignalParams {
+    class: Id,
+    fast: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -9613,6 +9627,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 target_impedance: None,
                 nets: a.nets,
                 profile: None,
+                fast: false,
             });
             Ok(json!({"id": id}))
         }
@@ -9748,6 +9763,16 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 "class": a.class,
                 "max_stub": class.max_stub,
             }))
+        }
+        "netclass.fast_signal" => {
+            let a: FastSignalParams = parse(params)?;
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.fast = a.fast;
+            Ok(json!({"class": a.class, "fast": class.fast}))
         }
         "netclass.clearance" => {
             let a: ClassClearanceParams = parse(params)?;
@@ -26426,6 +26451,42 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             json!({"class":class,"max_stub":1.0,"extra":1}),
         ] {
             assert!(s.execute("netclass.stub_rules", params, None).is_err());
+        }
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn netclass_fast_signal_marks_class_members() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"FastIO","clearance":0.2,"width":0.3,"nets":[sig]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(!s.project.net_is_fast(sig));
+        s.execute(
+            "netclass.fast_signal",
+            json!({"class":class,"fast":true}),
+            None,
+        )?;
+        assert!(s.project.net_is_fast(sig));
+        s.execute(
+            "netclass.fast_signal",
+            json!({"class":class,"fast":false}),
+            None,
+        )?;
+        assert!(!s.project.net_is_fast(sig));
+        for params in [
+            json!({"class":999,"fast":true}),
+            json!({"class":class,"fast":"yes"}),
+            json!({"class":class,"fast":true,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.fast_signal", params, None).is_err());
         }
         assert!(s.project.validate().is_ok());
         Ok(())

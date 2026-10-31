@@ -1448,6 +1448,7 @@ check.placement_feeders = Placement feeders
 check.placement_nozzle = Placement nozzle
 check.placement_nozzle_types = Placement nozzle types
 check.pour_fill = Pour fill
+check.return_path = Return path
 check.silk_text_height = Silk text height
 check.single_pin_net = Single pin net
 check.stacked_microvia = Stacked microvia

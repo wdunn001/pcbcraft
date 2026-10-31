@@ -512,6 +512,7 @@ fn find_or_create_class<'a>(
         target_impedance: None,
         nets: Vec::new(),
         profile: Some(profile_id.to_string()),
+        fast: false,
     });
     p.net_classes
         .last_mut()

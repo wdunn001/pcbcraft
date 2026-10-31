@@ -10833,6 +10833,7 @@ mod tests {
             target_impedance: None,
             nets: vec![5],
             profile: None,
+            fast: false,
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {

@@ -574,6 +574,9 @@ pub struct NetClass {
     /// Built-in or custom rule profile that last applied these values, when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// When true, return-path checks apply to member nets (fast signals).
+    #[serde(default)]
+    pub fast: bool,
 }
 /// A clearance requirement between two named nets, stricter than either
 /// class or the board default when it is larger.
@@ -4848,6 +4851,16 @@ impl Project {
     /// The id of the net class a net belongs to, if any.
     pub fn net_class_id(&self, net: Id) -> Option<Id> {
         self.net_class(net).map(|c| c.id)
+    }
+    /// True when return-path and related SI checks should treat this net as fast.
+    pub fn net_is_fast(&self, net: Id) -> bool {
+        if self.net_class(net).is_some_and(|c| c.fast) {
+            return true;
+        }
+        self.board
+            .diff_pairs
+            .iter()
+            .any(|pair| pair.net_p == net || pair.net_n == net)
     }
     /// Severity a check code should report at: the project override when it
     /// names one of the two real levels, otherwise the check's own default.
