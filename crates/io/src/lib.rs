@@ -2842,7 +2842,7 @@ fn excellon_drill_file(
 /// as routed slots. Back-copper coordinates are
 /// mirrored about x=0 as fabrication houses expect for bottom-side films.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
-    gerber_files_at(p, PACKAGE_CREATION_DATE)
+    gerber_files_at(p, &gerber_job::now_utc())
 }
 
 /// Verify the `%TF.MD5` attribute on one Gerber layer file.
@@ -2851,8 +2851,8 @@ pub fn assert_gerber_md5_valid(text: &str) -> Result<(), String> {
 }
 
 /// The same fabrication files as `gerber_files`, with the creation date the
-/// job file records given by the caller. Directory exports and packages pin
-/// that date so two runs over the same design produce the same bytes.
+/// job file records given by the caller. Packages pass a fixed date so the
+/// archive is byte-identical between runs.
 pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
     let opts = GerberArcOptions::default_for(p, &serde_json::Value::Null);
     gerber_files_with_options(p, creation, opts).map(|(files, _report)| files)
