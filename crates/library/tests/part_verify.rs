@@ -47,6 +47,7 @@ fn soic8_verify_happy_path() -> Result<(), String> {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     let (mut part, _) = part_from_library_bundle(
         1,
@@ -127,6 +128,7 @@ fn missing_pad_fails_symbol_match() -> Result<(), String> {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     let (part, _) = part_from_library_bundle(
         1,
@@ -191,6 +193,7 @@ fn qfn16_ep_parametric_body_fits_courtyard() -> Result<(), String> {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     let (mut part, _) = part_from_library_bundle(
         2,

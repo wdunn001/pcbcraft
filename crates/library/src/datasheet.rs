@@ -53,7 +53,7 @@ pub struct ProjectDatasheetRef {
 }
 
 /// Metadata kept beside each cached PDF.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredMeta {
     source_url: String,
@@ -315,9 +315,12 @@ impl DatasheetCache {
             }
         });
         if offline {
-            return self
-                .open_url(&url)
-                .ok_or_else(|| DatasheetError::Offline("There is no network and no saved copy.".into()));
+            return self.open_url(&url).map_err(|e| match e {
+                DatasheetError::NotCached => {
+                    DatasheetError::Offline("There is no network and no saved copy.".into())
+                }
+                other => other,
+            });
         }
         match transport.fetch(&url, prior_etag.as_deref(), false)? {
             FetchAnswer::NotModified => self.open_url(&url),

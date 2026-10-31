@@ -31,7 +31,7 @@ pub enum ListingSource {
 }
 
 /// The closed list of 16 part categories.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
     /// Resistors.
@@ -65,6 +65,7 @@ pub enum Category {
     /// Mechanical parts.
     Mechanical,
     /// Anything the table does not map.
+    #[default]
     Other,
 }
 

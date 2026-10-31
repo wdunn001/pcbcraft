@@ -176,6 +176,7 @@ mod tests {
             extends: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         }
     }
 

@@ -95,7 +95,7 @@ fn rejected_values_stay_off_the_part() -> Result<(), String> {
             SymbolPin {
                 number: "1".into(),
                 name: "~".into(),
-                position: Point::ZERO,
+                position: Point::new(0.0, 0.0),
                 angle: 0.0,
                 length: 2.54,
                 electrical_type: "input".into(),
@@ -107,7 +107,7 @@ fn rejected_values_stay_off_the_part() -> Result<(), String> {
             SymbolPin {
                 number: "2".into(),
                 name: "~".into(),
-                position: Point::ZERO,
+                position: Point::new(0.0, 0.0),
                 angle: 180.0,
                 length: 2.54,
                 electrical_type: "input".into(),
@@ -121,6 +121,7 @@ fn rejected_values_stay_off_the_part() -> Result<(), String> {
         extends: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        retained: Vec::new(),
     };
     apply_patch_to_symbol(&mut symbol, &patch);
     assert_eq!(symbol.pins[0].name, "IN+");

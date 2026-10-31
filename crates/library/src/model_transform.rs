@@ -57,6 +57,9 @@ mod tests {
             scale: [1.0, 1.0, 1.0],
             rotate: [0.0, 0.0, 0.0],
             raw_source: String::new(),
+            cad_part: None,
+        body_id: None,
+        embedded: String::new(),
         }
     }
 

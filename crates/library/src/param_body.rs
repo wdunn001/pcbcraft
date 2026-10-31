@@ -74,11 +74,11 @@ fn cylinder_mesh(key: &PackageKey) -> TriangleMesh {
     let segments = 12;
     let mut vertices = Vec::with_capacity(segments * 2);
     for i in 0..segments {
-        let t = std::f64::consts::TAU * f64::from(i) / f64::from(segments);
+        let t = std::f64::consts::TAU * i as f64 / segments as f64;
         vertices.push([r * t.cos(), r * t.sin(), 0.0]);
     }
     for i in 0..segments {
-        let t = std::f64::consts::TAU * f64::from(i) / f64::from(segments);
+        let t = std::f64::consts::TAU * i as f64 / segments as f64;
         vertices.push([r * t.cos(), r * t.sin(), h]);
     }
     let mut triangles = Vec::new();

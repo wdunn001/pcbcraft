@@ -305,6 +305,9 @@ mod tests {
             footprint: None,
             model3d: None,
             attribution: None,
+            reach: None,
+            halogen_free: None,
+            moisture_level: None,
         }
     }
 

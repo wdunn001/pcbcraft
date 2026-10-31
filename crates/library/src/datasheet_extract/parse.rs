@@ -241,6 +241,7 @@ fn split_value_unit(cols: &[&str]) -> (String, String) {
 mod tests {
     use super::*;
     use crate::datasheet_extract::provenance::DatasheetRect;
+    use crate::datasheet_extract::text::TextPage;
 
     fn cell(page: u32, y: f32, x: f32, text: &str) -> TextCell {
         TextCell {

@@ -245,7 +245,8 @@ pub fn listing_from_orderable(
     let (value, value_unit) = component
         .parameters
         .get("value")
-        .and_then(|v| crate::listing::parse_value(v, category_hint(&component.kind)));
+        .and_then(|v| crate::listing::parse_value(v, category_hint(&component.kind)))
+        .unzip();
     let package_key = component
         .footprints
         .first()
@@ -281,6 +282,9 @@ pub fn listing_from_orderable(
         lifecycle: orderable.lifecycle,
         lifecycle_raw: orderable.lifecycle_raw.clone(),
         rohs: orderable.rohs,
+        reach: None,
+        halogen_free: None,
+        moisture_level: None,
         datasheet_url: (!orderable.datasheet_url.is_empty()).then(|| orderable.datasheet_url.clone()),
         symbol: component.symbol.clone(),
         footprint: component.footprints.first().cloned(),
@@ -536,6 +540,9 @@ mod tests {
             footprint: Some("Resistor_SMD:R_0603".into()),
             model3d: None,
             attribution: None,
+            reach: None,
+            halogen_free: None,
+            moisture_level: None,
         };
         let component = component_from_links(
             Some(("Device".into(), "R".into())),

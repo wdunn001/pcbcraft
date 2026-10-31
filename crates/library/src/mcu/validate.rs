@@ -92,7 +92,9 @@ fn gpio_signal_allowed(signal: &str) -> bool {
     let Some(rest) = signal.strip_prefix("GPIO") else {
         return false;
     };
-    let (port, pin) = rest.split_once('.')?;
+    let Some((port, pin)) = rest.split_once('.') else {
+        return false;
+    };
     port.len() == 1
         && port.chars().all(|c| c.is_ascii_uppercase())
         && !pin.is_empty()

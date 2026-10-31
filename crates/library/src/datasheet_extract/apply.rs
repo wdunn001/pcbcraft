@@ -116,7 +116,7 @@ mod tests {
             pins: vec![SymbolPin {
                 number: "1".into(),
                 name: "~".into(),
-                position: Point::ZERO,
+                position: Point::new(0.0, 0.0),
                 angle: 0.0,
                 length: 2.54,
                 electrical_type: "passive".into(),
@@ -129,6 +129,7 @@ mod tests {
             extends: None,
             raw_source: String::new(),
             unsupported: Vec::new(),
+            retained: vec![],
         };
         apply_patch_to_symbol(&mut symbol, &patch);
         assert_eq!(symbol.pins[0].name, "VOUT");

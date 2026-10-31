@@ -89,6 +89,7 @@ pub struct IndexedPartRecord {
     pub vector: Option<Vec<f32>>,
 }
 
+#[derive(Clone, Debug)]
 struct Entry {
     listing: PartListing,
     tags: BTreeSet<String>,
@@ -200,6 +201,8 @@ pub fn tags_for_listing(listing: &PartListing) -> Vec<String> {
     }
     let source = match listing.source {
         ListingSource::Fixture => "source:fixture",
+        ListingSource::Generated => "source:generated",
+        ListingSource::OpenLibrary => "source:open_library",
         ListingSource::Project => "source:project",
         ListingSource::Installed => "source:installed",
         ListingSource::Distributor => "source:distributor",
@@ -623,6 +626,9 @@ mod tests {
             footprint: None,
             model3d: None,
             attribution: None,
+            reach: None,
+            halogen_free: None,
+            moisture_level: None,
         }
     }
 

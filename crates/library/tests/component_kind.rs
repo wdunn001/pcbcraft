@@ -28,6 +28,7 @@ fn three_pin_symbol(keywords: &str) -> SymbolDefinition {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     }
 }
 

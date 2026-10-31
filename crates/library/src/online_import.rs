@@ -107,6 +107,8 @@ pub fn import_part(
                 scale: [1.0; 3],
                 rotate: [0.0; 3],
                 cad_part: None,
+                body_id: None,
+                embedded: String::new(),
                 raw_source: String::new(),
             }),
             (_, None) => None,
@@ -308,6 +310,9 @@ pub fn open_pool_model3d(cached_path: &str, package: &OpenPoolPackageRecord) -> 
         ],
         scale: [1.0, 1.0, 1.0],
         rotate: mref.rotate_deg,
+        cad_part: None,
+        body_id: None,
+        embedded: String::new(),
         raw_source: String::new(),
     })
 }

@@ -17,7 +17,7 @@
 //! - crates/library/src/cad_cache.rs
 //! - crates/library/src/sources.rs
 use crate::cad::{CadFile, CadKind, CadRef, CadSource, LicenseInfo, MAX_FILE_BYTES, Provenance};
-use crate::cad_cache::{CadCache, now_secs};
+use crate::cad_cache::CadCache;
 use crate::sources::{
     Attribution, MAX_RESULTS, PartResult, PartSource, SetupCard, SourceError, check_query,
 };
