@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "status.schema.json",
+  "title": "PCBCraft implementation status",
+  "description": "Written by `cargo xtask status-data`. Every state is derived from the tracker, merged pull requests and CI runs, never typed by hand.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "stale", "source", "counts", "features", "roadmap", "issues", "warnings"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "type": "string" },
+    "stale": { "type": "boolean" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "main_sha", "last_green_ci", "latest_release", "api_requests"],
+      "properties": {
+        "repo": { "type": "string" },
+        "main_sha": { "type": ["string", "null"] },
+        "last_green_ci": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ci_run" }] },
+        "latest_release": { "type": ["string", "null"] },
+        "api_requests": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issues_by_state", "features_by_proof"],
+      "properties": {
+        "issues_by_state": { "$ref": "#/$defs/state_counts" },
+        "features_by_proof": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tested", "no-test"],
+          "properties": {
+            "tested": { "type": "integer", "minimum": 0 },
+            "no-test": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "features": { "type": "array", "items": { "$ref": "#/$defs/feature" } },
+    "roadmap": { "type": "array", "items": { "$ref": "#/$defs/roadmap_line" } },
+    "issues": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "state": { "enum": ["planned", "ready", "in-progress", "awaiting-test", "built", "released"] },
+    "feature_state": { "enum": ["planned", "ready", "in-progress", "awaiting-test", "built", "released", "unlinked"] },
+    "state_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["planned", "ready", "in-progress", "awaiting-test", "built", "released"],
+      "properties": {
+        "planned": { "type": "integer", "minimum": 0 },
+        "ready": { "type": "integer", "minimum": 0 },
+        "in-progress": { "type": "integer", "minimum": 0 },
+        "awaiting-test": { "type": "integer", "minimum": 0 },
+        "built": { "type": "integer", "minimum": 0 },
+        "released": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "ci_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "head_sha", "created_at"],
+      "properties": {
+        "url": { "type": "string" },
+        "head_sha": { "type": "string" },
+        "created_at": { "type": "string" }
+      }
+    },
+    "merge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pr", "title", "url", "merge_sha", "merged_at", "ci"],
+      "properties": {
+        "pr": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "merge_sha": { "type": "string" },
+        "merged_at": { "type": "string" },
+        "ci": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ci_run" }] }
+      }
+    },
+    "test_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "file"],
+      "properties": {
+        "name": { "type": "string" },
+        "file": { "type": "string" }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "area", "title", "listed_status", "state", "issues", "merges", "ci", "tests", "missing_tests", "proof", "commands", "mcp_tools"],
+      "properties": {
+        "id": { "type": "string" },
+        "area": { "type": "string" },
+        "title": { "type": "string" },
+        "listed_status": { "type": "string" },
+        "state": { "$ref": "#/$defs/feature_state" },
+        "issues": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+        "merges": { "type": "array", "items": { "$ref": "#/$defs/merge" } },
+        "ci": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ci_run" }] },
+        "tests": { "type": "array", "items": { "$ref": "#/$defs/test_ref" } },
+        "missing_tests": { "type": "array", "items": { "type": "string" } },
+        "proof": { "enum": ["tested", "no-test"] },
+        "commands": { "type": "array", "items": { "type": "string" } },
+        "mcp_tools": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "roadmap_line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["milestone", "text", "checked", "scope", "issues", "state"],
+      "properties": {
+        "milestone": { "type": "string" },
+        "text": { "type": "string" },
+        "checked": { "type": "boolean" },
+        "scope": { "enum": ["full", "subset"] },
+        "issues": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+        "state": { "$ref": "#/$defs/feature_state" }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "title", "url", "state", "blocked", "blocked_by", "owner_tested", "milestone", "tags", "merges"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "state": { "$ref": "#/$defs/state" },
+        "blocked": { "type": "boolean" },
+        "blocked_by": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+        "owner_tested": { "type": "boolean" },
+        "milestone": { "type": ["string", "null"] },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "merges": { "type": "array", "items": { "$ref": "#/$defs/merge" } }
+      }
+    }
+  }
+}
