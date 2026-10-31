@@ -195,7 +195,7 @@ fn a_board_of_two_thousand_parts_keeps_the_tree_interactive() -> Result<(), Stri
     app.revision = app.revision.wrapping_add(1);
     app.tree.expanded.insert("components".to_owned());
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let start = std::time::Instant::now();
+    let start = pcbcraft_clock::instant_now();
     for _ in 0..5 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }

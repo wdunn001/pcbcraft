@@ -114,6 +114,7 @@ pub(crate) fn drill_findings(project: &Project) -> Vec<Finding> {
                     a.label, b.label, -gap
                 ),
                 objects,
+                hint: None,
             });
         }
     }
