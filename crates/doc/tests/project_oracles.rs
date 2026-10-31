@@ -29,6 +29,33 @@ fn component_unit_placement_and_schematic_views_split_units() -> T {
 }
 
 #[test]
+fn footprint_drawing_points_include_pad_outlines() -> T {
+    let mut p = Project::default();
+    p.components.push(
+        component_template("resistor", 1, "R1".into(), Point::default()).ok_or("template")?,
+    );
+    let fp = Footprint {
+        id: 2,
+        component: 1,
+        position: Point::default(),
+        rotation: 0.0,
+        locked: None,
+        side: None,
+        pads: vec![Pad {
+            number: "1".into(),
+            offset: Point::default(),
+            diameter: 1.0,
+            net: None,
+            castellated: None,
+            geometry: None,
+        }],
+    };
+    let points = fp.drawing_points(&p);
+    assert!(!points.is_empty());
+    Ok(())
+}
+
+#[test]
 fn footprint_pad_world_position_rotates_offsets() {
     let fp = Footprint {
         id: 1,
