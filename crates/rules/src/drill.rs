@@ -114,6 +114,7 @@ pub(crate) fn drill_findings(project: &Project) -> Vec<Finding> {
                     a.label, b.label, -gap
                 ),
                 objects,
+                hint: None,
             });
         }
     }
@@ -253,6 +254,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         }

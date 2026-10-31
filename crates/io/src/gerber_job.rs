@@ -261,6 +261,29 @@ fn source_date_epoch() -> Option<u64> {
     std::env::var("SOURCE_DATE_EPOCH").ok()?.trim().parse().ok()
 }
 
+/// Value of one `%TF.Name,value*%` attribute, without its closing `*%`.
+fn attribute_value(value: &str) -> String {
+    value
+        .trim_end()
+        .trim_end_matches("*%")
+        .trim_end_matches('*')
+        .trim_end()
+        .to_owned()
+}
+
+/// Current time as an ISO 8601 UTC timestamp, the form the specification uses
+/// for `CreationDate`, for example `2026-10-28T22:05:11+00:00`. The clock comes
+/// from `crates/clock`, which also works in the browser.
+pub(crate) fn now_utc() -> String {
+    iso8601_utc(pcbcraft_clock::unix_secs())
+}
+
+/// Civil date from Unix seconds, by the days-to-civil algorithm the calendar
+/// literature uses (shift the epoch to 0000-03-01, then 400-year eras).
+fn iso8601_utc(seconds: u64) -> String {
+    let days = (seconds / 86_400) as i64;
+    let rem = seconds % 86_400;
+}
 /// Current time as an ISO 8601 UTC timestamp, the form the specification uses
 /// for `CreationDate`, for example `2026-10-28T22:05:11+00:00`. The clock comes
 /// from `crates/clock`, which also works in the browser.
@@ -343,6 +366,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });

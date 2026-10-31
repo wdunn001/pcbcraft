@@ -43,6 +43,8 @@ fn via(id: Id, net: Id, x: f64, from: Option<u8>, to: Option<u8>) -> Result<Via,
         from_layer: from.map(layer).transpose()?,
         to_layer: to.map(layer).transpose()?,
         covering: None,
+covering: None,
+        covering_scope: None,
         covering_bottom: None,
         backdrill: None,
     })
@@ -293,6 +295,8 @@ fn keepout_hits_cover_inner_layers() -> Result<(), String> {
             height: 10.0,
         },
         profile: None,
+        forbid: None,
+        footprint_ref: None,
     });
     let hits = keepout_hits(&p)?;
     let hit: Vec<Id> = sorted(hits.iter().map(|hit| hit.object).collect());

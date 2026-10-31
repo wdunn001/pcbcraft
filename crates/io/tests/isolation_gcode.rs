@@ -42,12 +42,17 @@ fn sample_two_pads_track() -> Project {
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: vec![],
         }],
         units: vec![],
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
+    sourcing: Default::default(),
+    compliance: Default::default(),
     });
     p.components.push(Component {
         sourcing: Default::default(),
@@ -65,12 +70,17 @@ fn sample_two_pads_track() -> Project {
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: vec![],
         }],
         units: vec![],
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
+    sourcing: Default::default(),
+    compliance: Default::default(),
     });
     let fp1 = Footprint {
         preserved: pcbcraft_doc::PreservedSource::default(),
@@ -88,7 +98,9 @@ fn sample_two_pads_track() -> Project {
         }],
         locked: None,
         side: None,
-    };
+    
+        preserved: pcbcraft_doc::PreservedSource::default(),
+};
     let mut fp2 = fp1.clone();
     fp2.id = 11;
     fp2.component = 202;
@@ -105,7 +117,9 @@ fn sample_two_pads_track() -> Project {
         width: 0.4,
         layer: Layer::Front,
         arc: None,
-    });
+    
+        preserved: pcbcraft_doc::PreservedSource::default(),
+});
     p.board.tracks.push(Track {
         preserved: pcbcraft_doc::PreservedSource::default(),
         id: 21,
@@ -115,7 +129,9 @@ fn sample_two_pads_track() -> Project {
         width: 0.4,
         layer: Layer::Back,
         arc: None,
-    });
+    
+        preserved: pcbcraft_doc::PreservedSource::default(),
+});
     p
 }
 
@@ -133,7 +149,7 @@ fn isolation_gcode_golden_two_pads_one_track_point_two_tool_two_passes() -> Resu
     let out = isolation_gcode(&p, &opts, &CncProfile::default())?;
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/isolation_two_pads_one_track.gcode");
-    if std::env::var("BLESS_GOLDEN").is_ok() {
+    if pcbcraft_testkit::blessing() {
         std::fs::write(&path, &out.files[0].1).map_err(|e| e.to_string())?;
     }
     let golden = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
