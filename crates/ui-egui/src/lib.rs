@@ -749,7 +749,7 @@ struct Preferences {
     minimap: std::collections::BTreeMap<String, minimap::MapPrefs>,
     /// In-app tour progress; the browser build stores this in page storage.
     #[serde(default)]
-    tour_progress: tour::state::TourProgress,
+    tour_replay: tour::playback::TourProgress,
     /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
     #[serde(default = "default_ui_scale")]
     ui_scale: f32,
@@ -843,7 +843,7 @@ impl Default for Preferences {
             project_opened: Default::default(),
             reduced_motion: motion::os_prefers_reduced_motion(),
             minimap: Default::default(),
-            tour_progress: tour::state::TourProgress::default(),
+            tour_replay: tour::playback::TourProgress::default(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
             route_shove: false,
@@ -1138,7 +1138,7 @@ pub struct App {
     /// Embedded in-app tour definitions (#769).
     tours: tour::data::Doc,
     /// Active tour while steps are shown.
-    tour_playback: Option<tour::state::Playback>,
+    tour_playback: Option<tour::playback::Playback>,
     recent_designs: Vec<String>,
     /// The Files workspace: page, selection, pictures of recent projects.
     files_home: files_home::State,

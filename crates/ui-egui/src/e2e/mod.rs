@@ -154,6 +154,8 @@ mod showcase_schematic_layout;
 mod sourcing;
 mod toolbar;
 mod tours;
+mod tours_progress;
+mod tours_replay;
 mod tree_rows;
 mod via_backdrill;
 mod via_covering;

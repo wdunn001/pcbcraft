@@ -1,7 +1,7 @@
 //! Catalog gates and preferences round-trip for tour progress (#774).
 
 use super::data::Tour;
-use super::state::{TourProgress, TourRecord, TourState};
+use super::playback::{TourProgress, TourRecord, TourState};
 use pcbcraft_text::lookup;
 
 /// Gate: every step title and body key resolves in the English catalog.

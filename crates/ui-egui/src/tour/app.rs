@@ -1,6 +1,6 @@
 //! Tour playback hooks on [`crate::App`] (headless replay and future overlay).
 
-use super::state::{Playback, TourRecord, TourState};
+use super::playback::{Playback, TourRecord, TourState};
 
 impl crate::App {
     pub(crate) fn tour_playback(&self) -> Option<&Playback> {
@@ -10,7 +10,7 @@ impl crate::App {
     pub(crate) fn tour_start(&mut self, tour_id: String, version: u32) {
         let step = self
             .preferences
-            .tour_progress
+            .tour_replay
             .get(&tour_id)
             .filter(|r| r.version == version && r.state == TourState::InProgress)
             .map(|r| r.step)
@@ -33,7 +33,7 @@ impl crate::App {
         let Some(pb) = self.tour_playback.take() else {
             return;
         };
-        self.preferences.tour_progress.record(TourRecord {
+        self.preferences.tour_replay.record(TourRecord {
             id: pb.tour_id,
             version: pb.version,
             state: TourState::Done,
@@ -45,7 +45,7 @@ impl crate::App {
         let Some(pb) = self.tour_playback.take() else {
             return;
         };
-        self.preferences.tour_progress.record(TourRecord {
+        self.preferences.tour_replay.record(TourRecord {
             id: pb.tour_id,
             version: pb.version,
             state: TourState::InProgress,
