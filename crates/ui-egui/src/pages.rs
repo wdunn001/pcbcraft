@@ -193,12 +193,18 @@ impl App {
             number += 1;
         }
         let name = t!("schematic.pages.new_name", number = number);
+        let parent_page = self.schematic_page();
+        let entry = schematic_port::default_sheet_entry(&self.project, parent_page);
         let before = self.project.sheets.len();
         self.tool_call("schematic.new_sheet", json!({"name": name}));
         if self.project.sheets.len() > before
             && let Some(sheet) = self.project.sheets.last()
         {
             let id = sheet.id;
+            let _ = self.tool_call(
+                "schematic.set_sheet_parent",
+                json!({"id": id, "parent": parent_page, "entry": {"x": entry.x, "y": entry.y}}),
+            );
             self.show_page(id);
         }
     }
