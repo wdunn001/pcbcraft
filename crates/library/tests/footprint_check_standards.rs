@@ -31,8 +31,10 @@ fn bare_footprint(pads: Vec<FootprintPad>, graphics: Vec<Graphic>) -> FootprintD
         graphics,
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     }
 }
 
@@ -116,6 +118,7 @@ fn symbol_duplicate_position_is_reported() {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     assert!(has_code(&check_symbol(&def), "lib_pin_duplicate_position"));
 }
@@ -148,6 +151,7 @@ fn symbol_side_warning_for_top_pins() {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     assert!(has_code(&check_symbol(&def), "lib_symbol_pins_top_bottom"));
 }
@@ -196,7 +200,6 @@ fn model_offset_unit_mismatch_is_reported() {
         scale: [1.0, 1.0, 1.0],
         rotate: [0.0, 0.0, 0.0],
         cad_part: None,
-        body_id: None,
         raw_source: "(offset (xyz 50.8 0 0))".into(),
     });
     assert!(has_code(

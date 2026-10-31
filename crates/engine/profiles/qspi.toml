@@ -1,16 +1,54 @@
-schema = 1
+schema = 2
+
+[record]
+kind = "interface_profile"
+license = "MIT"
+source = "PCBCraft built-in interface profiles"
 
 [profile]
 id = "qspi"
 name = "QSPI flash"
 category = "interface"
-summary = "QSPI flash rule starting points."
+summary = "Single-ended quad SPI with tighter edge-rate band than SPI."
+
+[bus]
+name = "QSPI"
+schematic_type = "QSPI"
+
+[bus.limits]
+edge_rate_band = "fast"
+reference_plane = "required"
+
+[[signal]]
+name = "CLK"
+pattern = "*QSPI*CLK*"
+electrical_class = "single-ended"
+
+[[signal]]
+name = "IO0"
+pattern = "*QSPI*IO0*"
+electrical_class = "single-ended"
+
+[[signal]]
+name = "IO1"
+pattern = "*QSPI*IO1*"
+electrical_class = "single-ended"
+
+[[signal]]
+name = "IO2"
+pattern = "*QSPI*IO2*"
+electrical_class = "single-ended"
+
+[[signal]]
+name = "IO3"
+pattern = "*QSPI*IO3*"
+electrical_class = "single-ended"
 
 [[net_class]]
-name = "SIG"
+name = "QSPI"
 clearance = 0.15
 width = 0.2
-patterns = ["*"]
+patterns = ["QSPI_*", "*QSPI*"]
 
 [[value_source]]
 field = "net_class.width"

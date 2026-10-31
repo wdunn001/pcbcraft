@@ -443,6 +443,15 @@ fn resolve_net(
             name: source.name.clone(),
             target_length: source.target_length,
             length_tolerance: source.length_tolerance,
+            impedance_target: source.impedance_target,
+            impedance_tolerance_pct: source.impedance_tolerance_pct,
+            line_structure: source.line_structure.clone(),
+            reference_layers: source.reference_layers.clone(),
+            current: source.current,
+            temperature_rise: source.temperature_rise,
+            working_voltage: source.working_voltage,
+            insulation: source.insulation.clone(),
+            return_path_rule: source.return_path_rule.clone(),
         });
         id
     };
