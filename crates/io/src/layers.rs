@@ -773,6 +773,7 @@ mod tests {
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         let pad = pcbcraft_doc::Pad {
             number: "1".into(),

@@ -46,6 +46,7 @@ fn via(id: Id, net: Id, x: f64, from: Option<u8>, to: Option<u8>) -> Result<Via,
 covering: None,
         covering_scope: None,
         covering_bottom: None,
+        backdrill: None,
     })
 }
 

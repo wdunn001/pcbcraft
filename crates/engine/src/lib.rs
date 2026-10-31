@@ -8191,7 +8191,7 @@ fn select_connected_copper(p: &Project, seed: Id) -> Result<(Vec<Id>, Vec<Value>
             }
             (Via(y), Pad(f, q)) | (Pad(f, q), Via(y)) => {
                 let (v, pad) = (&p.board.vias[y], &p.board.footprints[f].pads[q]);
-                p.via_span_layers(v).iter().any(|l| pad_layers(pad, *l))
+p.via_span_layers(v).iter().any(|l| pad_layers(pad, *l))
                     && v.position.distance(pad_anchor(f, q))
                         <= v.diameter / 2.0 + pad.bounding_radius() + TRACK_ENDPOINT_EPS
             }
@@ -9024,6 +9024,21 @@ fn run_command(
 ) -> Result<Value, Error> {
 if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(command) || sim::dc::handles(command) {
         return run_read_only(p, command, params);
+    }
+    if let Some(result) = authoring::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = online::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = tuning::run(p, next, command, params) {
+        return result;
+    }
+if let Some(result) = via_protection::run(p, command, params) {
+        return result;
+    }
+    if let Some(result) = backdrill::run(p, command, params) {
+        return result;
     }
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;

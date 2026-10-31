@@ -155,6 +155,7 @@ mod sourcing;
 mod toolbar;
 mod tours;
 mod tree_rows;
+mod via_backdrill;
 mod via_covering;
 mod vias;
 mod view_side;
