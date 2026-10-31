@@ -437,11 +437,6 @@ fn blob_hash_from_path(path: &str, extension: &str) -> Result<String, String> {
         .ok_or_else(|| "invalid blob reference".to_string())
 }
 
-/// Raw ZIP entries for optional display-cache reads (issue #733).
-pub fn read_container_entries(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
-    read_stored_zip(bytes)
-}
-
 fn read_stored_zip(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
     let eocd = bytes
         .windows(22)

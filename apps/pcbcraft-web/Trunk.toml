@@ -1,0 +1,7 @@
+# The page loads the wasm only when webgpu-check.js found WebGPU or WebGL 2
+# (window.pcbcraftGraphics). Trunk's own preload hints are dropped because a
+# preload downloads the wasm whether or not the check passed. The loader is a
+# module that waits for the flag set by the classic script in the page body.
+[build]
+pattern_preload = ""
+pattern_script = """<script type="module">if (window.pcbcraftGraphics) { const bindings = await import('{base}{js}'); await bindings.default({ module_or_path: '{base}{wasm}' }); }</script>"""
