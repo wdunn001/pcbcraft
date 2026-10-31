@@ -1,0 +1,6 @@
+# Trunk settings for the browser build. Run `trunk build --release` from this folder.
+# filehash puts a content hash in the names of the generated .js and .wasm files, so a
+# new release never meets a cached old file under the same name. index.html must not
+# name those files; Trunk writes the hashed names into the built page.
+[build]
+filehash = true

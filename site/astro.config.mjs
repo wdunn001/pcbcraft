@@ -25,6 +25,10 @@ export default defineConfig({
       title: 'PCBCraft',
       description: 'Documentation for PCBCraft, a schematic and board layout tool.',
       favicon: '/favicon.svg',
+      head: [
+        { tag: 'link', attrs: { rel: 'icon', href: `${base}favicon.ico`, sizes: '48x48' } },
+        { tag: 'link', attrs: { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` } },
+      ],
       defaultLocale: 'root',
       locales: { root: { label: 'English', lang: 'en' } },
       customCss: ['./src/styles/fonts.css', './src/styles/theme.css', './src/styles/docs.css'],
