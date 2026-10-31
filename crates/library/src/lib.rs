@@ -15,6 +15,24 @@ mod paths;
 mod reader;
 pub mod samtec;
 mod sexpr;
+pub mod credentials;
+pub mod http_client;
+pub mod rate_limit;
+pub mod source_log;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod element14;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+pub mod source_errors;
+pub mod source_hosts;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
