@@ -384,16 +384,16 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    fn read_fixture(name: &str) -> String {
+    fn read_fixture(name: &str) -> Result<String, String> {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
             .join(name);
-        std::fs::read_to_string(path).expect("fixture")
+        std::fs::read_to_string(path).map_err(|_| format!("fixture {name}"))
     }
 
     #[test]
     fn step_merge_renumbers_without_clashing_ids() -> Result<(), String> {
-        let exchange = parse_exchange(&read_fixture("box.step"))?;
+        let exchange = parse_exchange(&read_fixture("box.step")?)?;
         let high = exchange.entities.iter().map(|(id, _)| *id).max().unwrap_or(0);
         let shifted = renumber(exchange, 1000);
         assert!(shifted.entities.iter().all(|(id, _)| *id > 1000));
@@ -410,9 +410,9 @@ mod tests {
 
     #[test]
     fn step_merge_keeps_each_bodys_own_unit() -> Result<(), String> {
-        let mm = parse_exchange(&read_fixture("box.step"))?;
+        let mm = parse_exchange(&read_fixture("box.step")?)?;
         assert!((unit_scale_to_mm(&mm) - 1.0).abs() < 1e-9);
-        let inch = parse_exchange(&read_fixture("inch_box.step"))?;
+        let inch = parse_exchange(&read_fixture("inch_box.step")?)?;
         assert!((unit_scale_to_mm(&inch) - 25.4).abs() < 1e-9);
         Ok(())
     }
