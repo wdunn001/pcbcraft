@@ -226,23 +226,46 @@ fn attribute_value(value: &str) -> String {
         .to_owned()
 }
 
-/// Current time as an ISO 8601 UTC timestamp, the form the specification uses
-/// for `CreationDate`, for example `2026-10-28T22:05:11+00:00`.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn now_utc() -> String {
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    iso8601_utc(seconds)
+std::thread_local! {
+    /// Clock override for the current thread, in Unix seconds. Set only by
+    /// `with_fixed_clock`; a thread-local keeps parallel tests apart.
+    static FIXED_CLOCK: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
 
-/// The browser standard library has no clock, so a manifest built there
-/// carries the epoch rather than failing; the browser build cannot write a
-/// package to disk yet either.
-#[cfg(target_arch = "wasm32")]
+/// Run `body` with `CreationDate` stamped from `seconds` (Unix time) instead
+/// of the real clock, on this thread only. Tests use it to make two exports
+/// byte-identical without touching process-wide state.
+///
+/// # Rules
+/// The override ends when `body` returns, even if it panics.
+///
+/// # Dependencies
+/// `now_utc` in this file reads it.
+///
+/// # Do not
+/// Use it in application code; real exports must stamp the real time.
+pub fn with_fixed_clock<R>(seconds: u64, body: impl FnOnce() -> R) -> R {
+    struct Restore(Option<u64>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FIXED_CLOCK.with(|slot| slot.set(self.0));
+        }
+    }
+    let _restore = Restore(FIXED_CLOCK.with(|slot| slot.replace(Some(seconds))));
+    body()
+}
+
+/// Unix seconds from the standard `SOURCE_DATE_EPOCH` setting, when it holds
+/// a plain non-negative integer.
+fn source_date_epoch() -> Option<u64> {
+    std::env::var("SOURCE_DATE_EPOCH").ok()?.trim().parse().ok()
+}
+
+/// Current time as an ISO 8601 UTC timestamp, the form the specification uses
+/// for `CreationDate`, for example `2026-10-28T22:05:11+00:00`. The clock comes
+/// from `crates/clock`, which also works in the browser.
 pub(crate) fn now_utc() -> String {
-    iso8601_utc(0)
+    iso8601_utc(pcbcraft_clock::unix_secs())
 }
 
 /// Civil date from Unix seconds, by the days-to-civil algorithm the calendar
@@ -300,6 +323,7 @@ mod tests {
             ..Default::default()
         });
         project.board.tracks.push(Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 3,
             net: 8,
             start: Point::new(10.0, 10.0),
@@ -310,6 +334,7 @@ mod tests {
         });
         // A plated via puts a plated drill file in the package.
         project.board.vias.push(pcbcraft_doc::Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             net: 8,
             position: Point::new(40.0, 10.0),
@@ -318,7 +343,8 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
+covering_scope: None,
+            covering_bottom: None,
         });
         project
     }
@@ -446,6 +472,22 @@ mod tests {
         assert_eq!(date.len(), 25, "an ISO 8601 timestamp with an offset");
         assert!(date.ends_with("+00:00"), "the stamp is UTC");
         assert_eq!(&date[4..5], "-", "the year comes first");
+        Ok(())
+    }
+
+    #[test]
+    fn a_fixed_clock_makes_two_jobs_byte_identical_and_ends_with_its_scope() -> Result<(), String> {
+        let project = board();
+        let files = crate::gerber_files(&project)?;
+        let (first, second) = with_fixed_clock(1_800_000_000, || {
+            let first = gerber_job(&project, &files)?;
+            std::thread::sleep(std::time::Duration::from_millis(1_100));
+            Ok::<_, String>((first, gerber_job(&project, &files)?))
+        })?;
+        assert_eq!(first, second, "a pinned clock does not tick");
+        assert!(first.contains("2027-01-15T08:00:00+00:00"));
+        let after = gerber_job(&project, &files)?;
+        assert!(!after.contains("2027-01-15"), "the override is gone");
         Ok(())
     }
 
