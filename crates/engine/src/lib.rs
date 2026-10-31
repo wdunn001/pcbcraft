@@ -13003,6 +13003,16 @@ fn run_command(
                     n.saturating_sub(1)
                 )));
             }
+            if p.board
+                .outline_arcs
+                .get(a.segment)
+                .and_then(|m| *m)
+                .is_some()
+            {
+                return Err(Error::Invalid(
+                    "notches only work on straight outline edges".into(),
+                ));
+            }
             if n + 4 > 64 {
                 return Err(Error::Invalid(
                     "a board outline holds at most 64 vertices".into(),
@@ -30733,6 +30743,33 @@ mod tests {
             "a 12 mm notch cannot fit across a 10 mm board"
         );
         assert!(small.project.board.outline.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn a_notch_on_an_arced_outline_edge_is_refused() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "board.set_outline",
+            json!({"points":[[0.0,0.0],[40.0,0.0],[40.0,30.0],[0.0,30.0]]}),
+            None,
+        )?;
+        s.execute(
+            "board.outline_set_arc",
+            json!({"segment":0,"radius":25.0,"side":"convex"}),
+            None,
+        )?;
+        let before = s.project.clone();
+        assert!(
+            s.execute(
+                "board.notch",
+                json!({"segment":0,"at":20.0,"width":4.0,"depth":3.0}),
+                None,
+            )
+            .is_err(),
+            "arc segments cannot be notched yet"
+        );
+        assert_eq!(s.project, before);
         Ok(())
     }
 
