@@ -418,7 +418,7 @@ fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
         "the reopened app still reads French"
     );
     // A language tag the app does not carry quietly shows English.
-    reopened.set_language("zz");
+    reopened.set_language(&ctx, "zz");
     assert!(
         paints_text(&ctx, &mut reopened, "File")?,
         "an unknown language falls back to English"
