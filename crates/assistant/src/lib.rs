@@ -9,6 +9,7 @@ mod guard;
 mod http;
 mod prompt;
 mod script;
+mod steps;
 mod store;
 mod stream;
 mod text;
@@ -37,6 +38,10 @@ pub use guard::{Blocked, can_send};
 pub use http::{MAX_BODY, plain_http, plain_request};
 pub use prompt::SYSTEM_NOTE;
 pub use script::{CountingHttp, ScriptBackend};
+pub use steps::{
+    Digest, MAX_SUGGESTIONS, StepKind, StepState, Suggestion, command_kind, commands_of, digest,
+    error_line, split_suggestions, step_kind,
+};
 pub use store::{
     clear as clear_transcript, export_markdown, load as load_transcript, save as save_transcript,
     transcript_path,
