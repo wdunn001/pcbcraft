@@ -11,13 +11,13 @@
 //! - X2 extended attributes are written for designators and layer names.
 //!
 //! # Dependencies
-//! - crates/doc/src/lib.rs Board, Layer, Project, Via, ViaCovering
+//! - crates/doc/src/lib.rs Board, Layer, Project, Via, ViaCovering, ViaProtectionType
 //! - crates/geom/src/lib.rs Point
 //! - crates/library/src/lib.rs FootprintRules
 //! - crates/io/src/gerber.rs GerberWriter, Aperture, Operation
 //! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
 //! - crates/io/src/lib.rs PickPlaceWriter
-use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering};
+use pcbcraft_doc::{Board, Layer, Project, Via, ViaProtectionType};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
 use std::collections::BTreeMap;
@@ -28,14 +28,46 @@ const MAX_HITS: usize = 50_000;
 const MAX_TOOLS: usize = 64;
 const DEFAULT_MASK_MARGIN_MM: f64 = 0.05;
 
-/// Whether a via gets a solder-mask opening on top and bottom plots.
+/// Whether a via gets a solder-mask opening on at least one face.
 ///
-/// The covering is the via's own, else the board default. Only an open via
-/// keeps its opening; tented, plugged and filled types close the hole, so the
-/// mask plots leave the opening out. A via without a drilled hole has nothing
-/// to open.
+/// See `via_mask_opening_on` for the per-face rule.
 pub fn via_mask_opening(v: &Via, board: &Board) -> bool {
-    v.drill > 0.0 && v.effective_covering(board).keeps_mask_opening()
+    via_mask_opening_on(v, board, false) || via_mask_opening_on(v, board, true)
+}
+
+/// Whether a via gets a solder-mask opening on one face.
+///
+/// The covering of that face is the via's own, else the board default. Only
+/// an open face keeps its opening; tented, plugged and filled types close the
+/// hole, so the mask plot of that face leaves the opening out. A via without
+/// a drilled hole has nothing to open.
+///
+/// # Rules
+/// - `bottom` picks the face; the top face uses `Via::effective_covering`, the bottom face `Via::effective_covering_bottom`.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` `Via`, `Board`.
+///
+/// # Do not
+/// - Test whether the span reaches the face here; the caller knows the layer it plots.
+pub fn via_mask_opening_on(v: &Via, board: &Board, bottom: bool) -> bool {
+    let covering = if bottom {
+        v.effective_covering_bottom(board)
+    } else {
+        v.effective_covering(board)
+    };
+    v.drill > 0.0 && covering.keeps_mask_opening()
+}
+
+/// What a drilled hole is for, in the order the drill table lists them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DrillFunction {
+    /// A via barrel.
+    Via,
+    /// The hole of a component pad.
+    ComponentPad,
+    /// A mounting or tooling hole.
+    Mounting,
 }
 
 #[derive(Clone, Copy)]
@@ -45,8 +77,12 @@ pub(crate) struct DrillHit {
     pub d_um: u64,
     pub span_um: u64,
     pub plated: bool,
-    /// Covering of the via this hit drills, `None` for pad and mounting holes.
-    pub via: Option<ViaCovering>,
+    /// Protection type of the via this hit drills, `None` for pad and mounting holes.
+    pub via: Option<ViaProtectionType>,
+    /// Copper span (upper, lower layer index) the hole runs through; top to bottom for pad and mounting holes.
+    pub span: (u8, u8),
+    /// What the hole is for.
+    pub function: DrillFunction,
     pub x: f64,
     pub y: f64,
     pub ux: f64,
@@ -73,6 +109,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
     let push = |hits: &mut Vec<DrillHit>, hit: DrillHit| {
         hits.push(hit);
     };
+    let through = (0u8, p.copper_layer_count().saturating_sub(1));
     for v in &p.board.vias {
         if v.drill > 0.0 {
             push(
@@ -82,7 +119,12 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                     d_um: (v.drill * 1_000.0).round() as u64,
                     span_um: 0,
                     plated: true,
-                    via: Some(v.effective_covering(&p.board)),
+                    via: Some(p.via_protection_type(v)),
+                    span: {
+                        let (a, b) = p.via_span(v);
+                        (a.index(), b.index())
+                    },
+                    function: DrillFunction::Via,
                     x: v.position.x,
                     y: v.position.y,
                     ux: 0.0,
@@ -116,6 +158,8 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                 span_um,
                 plated: false,
                 via: None,
+                span: through,
+                function: DrillFunction::Mounting,
                 x,
                 y,
                 ux,
@@ -161,6 +205,12 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                     span_um,
                     plated: g.pad_type == "thru_hole",
                     via: None,
+                    span: through,
+                    function: if g.pad_type == "thru_hole" {
+                        DrillFunction::ComponentPad
+                    } else {
+                        DrillFunction::Mounting
+                    },
                     x: world.x,
                     y: world.y,
                     ux,
@@ -492,17 +542,44 @@ fn outline_ring(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
     }
 }
 
+/// The drill tolerance the board records, in millimetres, plus or minus.
+fn drill_tolerance(p: &Project) -> Option<f64> {
+    p.board
+        .machining
+        .as_ref()
+        .and_then(|m| m.drill_tolerance)
+        .filter(|t| *t > 0.0)
+}
+
+/// One Excellon drill file with X2 tool attributes.
+///
+/// Each tool is written under `TA.DrillTolerance` when the board records a
+/// drill tolerance, and under `TA.AperFunction,Plated,PTH,ViaDrill,<type>`
+/// when it drills vias, so a fab reads both from the file itself. Via hits
+/// get their own tools per protection type.
+///
+/// # Rules
+/// - The tolerance is written in the file's unit, plus and minus equal.
+/// - A tool with no attribute writes no `TD` line.
+///
+/// # Dependencies
+/// - `crates/io/src/fab_export.rs` `DrillHit`, `drill_tolerance`.
+///
+/// # Do not
+/// - Write a comment line for the protection; the attribute carries it.
 fn write_excellon(
     hits: &[DrillHit],
     plating_line: &str,
     scale: f64,
     origin: Point,
     inch: bool,
+    tolerance: Option<f64>,
 ) -> Result<String, String> {
     let round: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um == 0).collect();
-    // Via hits get their own tools per covering so each tool can carry the
-    // via drill attribute and name its covering.
-    let mut by_tool: BTreeMap<(u64, u64, Option<ViaCovering>), Vec<&DrillHit>> = BTreeMap::new();
+    // Via hits get their own tools per protection type so each tool can
+    // carry the via drill attribute.
+    let mut by_tool: BTreeMap<(u64, u64, Option<ViaProtectionType>), Vec<&DrillHit>> =
+        BTreeMap::new();
     for hit in round {
         by_tool
             .entry((hit.d_um, hit.span_um, hit.via))
@@ -520,11 +597,21 @@ fn write_excellon(
     let mut out = format!("M48\n{plating_line}\nFMAT,2\n{unit_line}\n");
     for (n, key) in by_tool.keys().enumerate() {
         let d = key.0;
-        if let Some(covering) = key.2 {
+        let mut attributed = false;
+        if let Some(t) = tolerance {
             out.push_str(&format!(
-                "; #@! TA.AperFunction,Plated,PTH,ViaDrill\n; via protection: {}\n",
-                covering.label()
+                "; #@! TA.DrillTolerance,{t:.prec$},{t:.prec$}\n",
+                t = t * scale,
+                prec = prec
             ));
+            attributed = true;
+        }
+        if let Some(kind) = key.2 {
+            out.push_str(&format!(
+                "; #@! TA.AperFunction,Plated,PTH,ViaDrill,{}\n",
+                kind.gerber_token()
+            ));
+            attributed = true;
         }
         out.push_str(&format!(
             "T{}C{:.prec$}\n",
@@ -532,7 +619,7 @@ fn write_excellon(
             d as f64 / 1000.0 * scale,
             prec = prec
         ));
-        if key.2.is_some() {
+        if attributed {
             out.push_str("; #@! TD\n");
         }
     }
@@ -606,6 +693,17 @@ pub fn drill_map_plot(p: &Project) -> Result<String, String> {
     let hits = collect_drill_hits(p)?;
     let counts = drill_tool_counts(p)?;
     let mut layer = GerberLayer::new(scale);
+    // The drill table, as comments, in the same lines the readme prints.
+    for (n, line) in crate::drill_table::drill_table_lines(&crate::drill_table::drill_table(p)?)
+        .iter()
+        .enumerate()
+    {
+        layer.body.push_str(&format!(
+            "G04 DRILL TABLE {}{} *\n",
+            if n == 0 { "" } else { "ROW " },
+            line
+        ));
+    }
     let mut tool_index = 0usize;
     for ((d_um, span_um, plated), count) in &counts {
         tool_index += 1;
@@ -693,6 +791,11 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     out.push_str(
         "Drill tool numbers restart in each Excellon file; the CSV chart may use different indices.\n",
     );
+    out.push_str("\nDRILL TABLE\n");
+    for line in crate::drill_table::drill_table_lines(&crate::drill_table::drill_table(p)?) {
+        out.push_str(&line);
+        out.push('\n');
+    }
     let meta_keys = [
         "contact",
         "company",
@@ -874,7 +977,9 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             back.flash(back_code, x, y)?;
         }
 
-        if via_mask_opening(v, &p.board) && (reaches_top || reaches_bottom) {
+        let open_top = reaches_top && via_mask_opening_on(v, &p.board, false);
+        let open_bottom = reaches_bottom && via_mask_opening_on(v, &p.board, true);
+        if open_top || open_bottom {
             let margin = DEFAULT_MASK_MARGIN_MM;
             let r = v.drill / 2.0 + margin;
             let n = 16usize;
@@ -883,11 +988,11 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 let a = std::f64::consts::TAU * i as f64 / n as f64;
                 ring.push((v.position.x + r * a.cos(), v.position.y + r * a.sin()));
             }
-            if reaches_top {
+            if open_top {
                 let code_f = mask_front.code(Ap::Circle(1))?;
                 mask_front.fill(code_f, &outline_ring(&ring))?;
             }
-            if reaches_bottom {
+            if open_bottom {
                 let mirrored: Vec<(f64, f64)> =
                     ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
                 let code_b = mask_back.code(Ap::Circle(1))?;
@@ -917,6 +1022,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 
     let hits = collect_drill_hits(p)?;
     let origin = p.board.drill_origin;
+    let tolerance = drill_tolerance(p);
     let plated: Vec<DrillHit> = hits
         .iter()
         .copied()
@@ -997,13 +1103,20 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     if !plated.is_empty() {
         files.insert(
             "pcb-Plated.drl".into(),
-            write_excellon(&plated, "Plated,1,2,PTH", scale, origin, inch)?,
+            write_excellon(&plated, "Plated,1,2,PTH", scale, origin, inch, tolerance)?,
         );
     }
     if !unplated.is_empty() {
         files.insert(
             "pcb-NPTH.drl".into(),
-            write_excellon(&unplated, "NonPlated,1,2,NPTH", scale, origin, inch)?,
+            write_excellon(
+                &unplated,
+                "NonPlated,1,2,NPTH",
+                scale,
+                origin,
+                inch,
+                tolerance,
+            )?,
         );
     }
     // Blind and buried vias drill in their own passes: one file per span.
@@ -1028,6 +1141,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 scale,
                 origin,
                 inch,
+                tolerance,
             )?,
         );
     }

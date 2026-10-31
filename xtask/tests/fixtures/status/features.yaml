@@ -1,0 +1,32 @@
+# Fixture feature list for the status-data tests. Same layout as site/src/data/features.yaml.
+- area: layout
+  name: Layer record
+  summary: Physical layers with spans.
+  status: browser
+  evidence: [command:layer.record, test:a_newcomer_reads_the_layer_record, issue:#798]
+- area: layout
+  name: Span-aware pours
+  summary: Pours that respect via spans.
+  status: browser
+  issues: [800, 803]
+  evidence: [command:pour.span, test:a_newcomer_pours_around_a_span, test:a_name_that_matches_nothing]
+- area: libraries
+  name: Online part sources
+  summary: Read open libraries.
+  status: available
+  evidence: [mcp:library.online_search, issue:#781, issue:#782, issue:#783, issue:#785]
+- area: libraries
+  name: Part search without a test
+  summary: A feature whose only proof is a command.
+  status: available
+  evidence: [command:library.search, issue:#796]
+- area: access
+  name: Keyboard map
+  summary: No issue and no test.
+  status: available
+  evidence: [command:keymap.show]
+- area: access
+  name: Planned dialog
+  summary: Linked to an unmerged issue.
+  status: desktop
+  evidence: [test:a_newcomer_opens_the_planned_dialog, issue:#766]
