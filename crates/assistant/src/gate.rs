@@ -90,6 +90,7 @@ const READS: &[&str] = &[
     "library.inspect_footprint",
     "library.sources",
     "library.compare",
+    "library.drop_in_check",
     "design.recents",
 ];
 /// Tools that touch files or replace the whole design.
