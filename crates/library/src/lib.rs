@@ -13,6 +13,8 @@ pub mod listing_adapters;
 pub mod listing_search;
 pub mod online_import;
 pub mod open_library;
+pub mod part_validation;
+pub mod pin_pad_map;
 mod paths;
 mod reader;
 pub mod samtec;
@@ -38,6 +40,16 @@ mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
+pub use footprint_check::{
+    FindingSeverity, FootprintFinding, check_footprint, courtyard_half_extents,
+};
+pub use part_validation::{
+    PartCatalogFields, PartValidationFinding, PartValidationResult, ReplacementCheckResult,
+    replacement_check, validate_catalog_fields, validate_part,
+};
+pub use pin_pad_map::{
+    PadRole, PinPadFinding, PinPadMap, PinPadRow, auto_fill, footprint_pad_labels, pad_label,
+    validate_pin_pad_map,
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use datasheet::{
     DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
