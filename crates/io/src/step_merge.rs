@@ -120,7 +120,7 @@ fn rewrite_refs(body: &str, map: &BTreeMap<u32, u32>) -> String {
                 }
             }
         }
-        out.push(body[index] as char);
+        out.push(bytes[index] as char);
         index += 1;
     }
     out
@@ -242,7 +242,7 @@ fn solid_id(exchange: &Exchange) -> Option<u32> {
 
 /// Append a vendor body to a board [`StepWriter`] and return product links.
 pub fn append_body(
-    doc: &mut StepWriter,
+    doc: &mut impl StepWriter,
     exchange: Exchange,
     part_name: &str,
 ) -> Result<VendorLinks, String> {
@@ -311,7 +311,7 @@ pub fn append_body(
 
 /// Write one placed-part occurrence under the board assembly.
 pub fn write_occurrence(
-    doc: &mut StepWriter,
+    doc: &mut impl StepWriter,
     board_product_definition: u32,
     links: &VendorLinks,
     matrix: &[f64; 16],
@@ -343,7 +343,7 @@ pub fn write_occurrence(
     Ok(())
 }
 
-fn placement_from_matrix(doc: &mut StepWriter, matrix: &[f64; 16]) -> Result<u32, String> {
+fn placement_from_matrix(doc: &mut impl StepWriter, matrix: &[f64; 16]) -> Result<u32, String> {
     let origin = apply_matrix(matrix, [0.0, 0.0, 0.0]);
     let x = apply_matrix(matrix, [1.0, 0.0, 0.0]);
     let z = apply_matrix(matrix, [0.0, 0.0, 1.0]);
