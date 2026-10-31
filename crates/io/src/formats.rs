@@ -458,7 +458,7 @@ pub static FORMATS: &[FormatSpec] = &[
     output(
         "idf",
         "Mechanical drawing (IDF)",
-        "Board size and each part's position, for enclosure design.",
+        "Board outline and placements plus a library of footprint outlines and heights.",
         &["idf"],
         Group::Exchange,
         Run::Kind("idf"),
@@ -470,6 +470,48 @@ pub static FORMATS: &[FormatSpec] = &[
         &["dsn"],
         Group::Exchange,
         Run::Kind("dsn"),
+    ),
+output(
+        "spice",
+        "Circuit netlist (SPICE)",
+        "A passive circuit netlist from sim.model fields for an outside solver.",
+        &["cir"],
+        Group::Exchange,
+        Run::Kind("spice"),
+    ),
+    output(
+        "touchstone",
+        "Touchstone (S-parameters)",
+        "A stored S-parameter file copied from the project attachment touchstone.s2p.",
+        &["s2p"],
+        Group::Exchange,
+        Run::Kind("touchstone"),
+    ),
+    output(
+        "si_net_results",
+        "Signal integrity results (CSV)",
+        "Per-net impedance estimate, length, differential pair data and optional DC volts.",
+        &["csv"],
+        Group::Documentation,
+        Run::Kind("si_net_results"),
+    ),
+    output(
+        "impedance_table",
+        "Impedance table (CSV)",
+        "Per-net impedance estimates and validity notes for the fab package.",
+        &["csv"],
+        Group::Documentation,
+        Run::Kind("impedance_table"),
+    ),
+    #[cfg(feature = "plugin-firmware-target")]
+    output(
+        "firmware_target",
+        "Flight controller target",
+        "Board config header and manifest from the firmware pin map (plugin).",
+        &["h", "json"],
+        Group::Exchange,
+        Run::Engine("firmware.target.export"),
+    ),
     ),
     FormatSpec {
         id: "board_interchange",
@@ -551,7 +593,7 @@ pub struct BomFlavour {
     /// `csv`, `tsv` or `json`.
     pub file_type: &'static str,
     /// (column token, header text), in file order. Tokens: reference, value, footprint,
-    /// mpn, manufacturer, quantity.
+/// mpn, manufacturer, quantity, description, suppliers (every supplier as `Name: number`).
     pub columns: &'static [(&'static str, &'static str)],
     /// True gives one row per kind of part.
     pub group: bool,
@@ -572,6 +614,14 @@ pub static BOM_FLAVOURS: &[BomFlavour] = &[BomFlavour {
         ("mpn", "MPN"),
         ("manufacturer", "Manufacturer"),
         ("quantity", "Quantity"),
+("reference", "Reference"),
+        ("value", "Value"),
+        ("footprint", "Footprint"),
+        ("mpn", "MPN"),
+        ("manufacturer", "Manufacturer"),
+        ("quantity", "Quantity"),
+        ("description", "Description"),
+        ("suppliers", "Supplier part numbers"),
     ],
     group: true,
     reference_separator: ", ",

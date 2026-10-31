@@ -1,0 +1,53 @@
+{
+  "_note": "Catalog of product images. One entry per image file in src/assets/screens/. origin is 'capture' (a real capture of the app) or 'design-render' (rendered from the app design mockup, for views the app does not match yet). crop is [x, y, width, height] in CSS pixels of the 1920 by 1240 window. mobile is an optional second crop (about 4:3) used on narrow screens. `use` points a slot at another entry's image. alt is required for every image: scripts/make-screens.mjs and ShotFrame fail without it. Rebuild the files with `node scripts/make-screens.mjs --captures DIR --renders DIR`.",
+  "images": {
+    "hero-layout": {
+      "origin": "capture", "source": "layout-sheet", "crop": [0, 0, 1920, 1240], "mobile": [470, 200, 960, 720],
+      "alt": "The PCBCraft Layout tab: the Layers tree on the left, a 60 by 40 millimetre board with three footprints and dashed connection lines in the middle, Properties for the selected LED on the right, and the Findings sheet below."
+    },
+    "home-schematic": {
+      "origin": "capture", "source": "schematic", "crop": [320, 112, 1260, 788], "mobile": [440, 330, 1020, 765],
+      "alt": "A schematic sheet with a connector J1, a 330 ohm resistor R1 and a green LED D1 joined by wires, with VCC and GND power symbols, row and column markers and a title block."
+    },
+    "home-layout": {
+      "origin": "capture", "source": "layout", "crop": [320, 112, 1260, 788], "mobile": [470, 330, 960, 720],
+      "alt": "The board canvas: a 60 by 40 millimetre outline with chamfered corners, two mounting holes and three footprints joined by dashed connection lines, with rulers and a 60 millimetre dimension."
+    },
+    "layout-routed": {
+      "origin": "capture", "source": "showcase-layout", "crop": [320, 112, 1260, 788], "mobile": [480, 230, 940, 705],
+      "alt": "A routed sensor board in the layout view: red top copper and blue bottom copper traces joining a microcontroller, a USB connector, resistors, capacitors and LEDs inside a rounded board outline."
+    },
+    "home-libraries": {
+      "origin": "capture", "source": "layout-library", "crop": [0, 112, 960, 600], "mobile": [0, 112, 640, 480],
+      "alt": "The Library tab beside the board: a keyword box, Symbols, Footprints and Both buttons, and cards for Resistor, LED, Capacitor and a two-pin connector, each with its source, pad count and pin count."
+    },
+    "home-outputs": {
+      "origin": "design-render", "source": "manufacture", "crop": [0, 112, 1580, 988], "mobile": [600, 260, 860, 645],
+      "alt": "The Manufacture tab: an Outputs tree with Gerber files, drill, bill of materials and machine jobs marked Current or Stale, beside a toolpath preview of the board outline and pads."
+    },
+    "view3d": {
+      "origin": "design-render", "source": "3d", "crop": [320, 112, 1260, 788], "mobile": [420, 330, 1120, 840],
+      "alt": "The board in the 3D view from an isometric angle, with a green board, a black two-pin connector, a small resistor and a round green LED."
+    },
+    "layers-tree": {
+      "origin": "capture", "source": "layout-sheet", "crop": [0, 112, 320, 880],
+      "alt": "The Layers tree: a filter box, Show all, Hide others and New layer, then Layer 1 Top with Copper, Solder mask, Silkscreen, Paste and Components, Layer 2 Bottom, Board edge, Parts and Nets, each with a lock and an eye toggle."
+    },
+    "bottom-sheet": {
+      "origin": "capture", "source": "layout-sheet", "crop": [320, 988, 1260, 232], "mobile": [320, 988, 900, 232],
+      "alt": "The bottom sheet under the canvas: Findings, Output and Console tabs, a Run checks button, and a list of findings that each have Show, Hide and Mute buttons."
+    }
+  },
+  "slots": {
+    "feature-schematic": "home-schematic",
+    "feature-layout": "layout-routed",
+    "feature-libraries": "home-libraries",
+    "feature-rules": "bottom-sheet",
+    "feature-view3d": "view3d",
+    "feature-outputs": "home-outputs",
+    "feature-machines": "home-outputs",
+    "feature-assistant": "hero-layout",
+    "feature-access": "home-schematic",
+    "feature-browser": "hero-layout"
+  }
+}
