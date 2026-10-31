@@ -1879,8 +1879,9 @@ impl App {
         };
         let sku = part.sku.clone();
         let fetch_3d = self.preferences.fetch_open_library_3d;
-        let reply =
-            spawn_read(ctx, move || library_online::import_open(&source, &sku, fetch_3d));
+        let reply = spawn_read(ctx, move || {
+            library_online::import_open(&source, &sku, fetch_3d)
+        });
         self.dock.pending = Some(Pending {
             intent: Intent::Online {
                 target: target.to_owned(),

@@ -9,13 +9,13 @@ use std::path::Path;
 mod bitmap_trace;
 mod board_edge;
 mod board_mesh;
+mod bom_flavour;
 mod diff;
-mod schematic_import;
 mod drawn;
 mod drill_table;
 mod fab_export;
 pub mod formats;
-mod bom_flavour;
+mod schematic_import;
 pub use bom_flavour::{
     BomColumn, BomLimits, BomProfile, BomTable, DERIVED_TOKENS, ExportOptions, MissingField,
     PART_FIELDS, PartField, bom_profile, bom_profiles, default_bom_profile, default_export_values,
@@ -42,17 +42,17 @@ mod step_merge;
 mod step_read;
 mod uv_print;
 mod vrml_read;
+pub use bitmap_trace::{
+    MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
+    decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
+};
+pub use board_edge::{DxfOutlineSource, dxf_import_outline};
 /// Bitmap trace constants, options, and functions for converting images to polygon traces.
 /// # Dependencies
 /// - crates/io/src/bitmap_trace.rs
 pub use schematic_import::{
     import_summary, read_schematic_interchange, read_schematic_interchange_path,
 };
-pub use bitmap_trace::{
-    MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
-    decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
-};
-pub use board_edge::{DxfOutlineSource, dxf_import_outline};
 mod cam;
 mod cam_drill;
 mod cam_shapes;
@@ -14133,9 +14133,10 @@ mod tests {
 
     #[test]
     fn schematic_import_flat_matches_golden_json() -> Result<(), String> {
-        let text =
-            std::fs::read_to_string(schematic_fixture_dir().join("schematic_import_flat.kicad_sch"))
-                .map_err(|e| e.to_string())?;
+        let text = std::fs::read_to_string(
+            schematic_fixture_dir().join("schematic_import_flat.kicad_sch"),
+        )
+        .map_err(|e| e.to_string())?;
         let project = read_schematic_interchange(&text)?;
         let snapshot = schematic_snapshot(&project);
         let golden = load_schematic_golden("schematic_import_flat.golden.json")?;
@@ -14222,7 +14223,9 @@ mod tests {
             schematic_fixture_dir().join("schematic_import_legacy.kicad_sch"),
         )
         .map_err(|e| format!("legacy fixture missing: {e}"))?;
-        let err = read_schematic_interchange(&text).err().ok_or("legacy schematic should be refused")?;
+        let err = read_schematic_interchange(&text)
+            .err()
+            .ok_or("legacy schematic should be refused")?;
         if !err.contains("embedded symbol definitions") {
             return Err(format!("legacy file should be refused plainly: {err}"));
         }

@@ -21,7 +21,9 @@ pub(crate) fn paint_offers(
         return;
     };
     match offer.kind {
-        OfferKind::FirstLaunchCard => paint_first_launch_card(ui, ctrl, progress, &meta, muted, accent),
+        OfferKind::FirstLaunchCard => {
+            paint_first_launch_card(ui, ctrl, progress, &meta, muted, accent)
+        }
         OfferKind::TabChip | OfferKind::VersionChip => {
             paint_tab_chip(ui, ctrl, progress, &meta, muted, accent)
         }
@@ -119,7 +121,11 @@ fn paint_first_launch_card(
                     ctrl.dismiss_first_launch_card();
                 }
             });
-            ui.label(RichText::new(t!("tour.card.first_launch.footer")).small().color(muted));
+            ui.label(
+                RichText::new(t!("tour.card.first_launch.footer"))
+                    .small()
+                    .color(muted),
+            );
         });
     if !open {
         ctrl.dismiss_first_launch_card();

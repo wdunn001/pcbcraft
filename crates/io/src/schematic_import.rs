@@ -1,10 +1,10 @@
 //! Read interchange schematic text into a native [`Project`].
 use pcbcraft_doc::{
-    Component, ComponentField, DrawnWire, Label, LibrarySymbol, Net, NoConnectFlag, Port,
-    Project, ProjectLibrary, Sheet,
+    Component, ComponentField, DrawnWire, Label, LibrarySymbol, Net, NoConnectFlag, Port, Project,
+    ProjectLibrary, Sheet,
 };
 use pcbcraft_geom::Point;
-use pcbcraft_library::{parse_sexpr, read_symbols, Node, SymbolDefinition};
+use pcbcraft_library::{Node, SymbolDefinition, parse_sexpr, read_symbols};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -20,7 +20,10 @@ pub fn read_schematic_interchange(text: &str) -> Result<Project, String> {
     read_schematic_interchange_path(Path::new("."), text).map(|(project, _)| project)
 }
 
-pub fn read_schematic_interchange_path(path: &Path, text: &str) -> Result<(Project, usize), String> {
+pub fn read_schematic_interchange_path(
+    path: &Path,
+    text: &str,
+) -> Result<(Project, usize), String> {
     let root = parse_sexpr(text).map_err(format_sexpr_error(text))?;
     if root.name() != "kicad_sch" {
         return Err("expected a schematic interchange root".into());
@@ -80,7 +83,10 @@ fn parse_version(raw: &str) -> Result<i64, String> {
         .map_err(|_| format!("invalid schematic version {raw:?}"))
 }
 
-fn read_embedded_symbols(source: &str, lib: &Node) -> Result<BTreeMap<String, SymbolDefinition>, String> {
+fn read_embedded_symbols(
+    source: &str,
+    lib: &Node,
+) -> Result<BTreeMap<String, SymbolDefinition>, String> {
     let mut body = String::from("(kicad_symbol_lib (version 20250114)\n");
     for child in lib.children.iter().filter(|c| c.name() == "symbol") {
         body.push_str(&source[child.span.clone()]);
@@ -94,10 +100,7 @@ fn read_embedded_symbols(source: &str, lib: &Node) -> Result<BTreeMap<String, Sy
     if defs.len() > MAX_SYMBOLS {
         return Err("schematic embeds too many symbol definitions".into());
     }
-    Ok(defs
-        .into_iter()
-        .map(|d| (d.name.clone(), d))
-        .collect())
+    Ok(defs.into_iter().map(|d| (d.name.clone(), d)).collect())
 }
 
 fn prop(node: &Node, name: &str) -> Option<String> {
@@ -245,14 +248,14 @@ impl ImportCtx {
                 "label" => {
                     let (pos, rot) = label_anchor(child)?;
                     let text = child.value(1).to_owned();
-                    draft.labels.push(("label".into(), text, pos, rot, String::new()));
+                    draft
+                        .labels
+                        .push(("label".into(), text, pos, rot, String::new()));
                 }
                 "global_label" => {
                     let (pos, rot) = label_anchor(child)?;
                     let text = child.value(1).to_owned();
-                    draft
-                        .global_labels
-                        .push((text.clone(), pos));
+                    draft.global_labels.push((text.clone(), pos));
                     draft
                         .labels
                         .push(("global".into(), text, pos, rot, String::new()));
@@ -261,13 +264,9 @@ impl ImportCtx {
                     let (pos, rot) = label_anchor(child)?;
                     let text = child.value(1).to_owned();
                     draft.hierarchical_labels.push((text.clone(), pos));
-                    draft.labels.push((
-                        "hierarchical".into(),
-                        text,
-                        pos,
-                        rot,
-                        String::new(),
-                    ));
+                    draft
+                        .labels
+                        .push(("hierarchical".into(), text, pos, rot, String::new()));
                 }
                 "bus_label" => {
                     let (pos, rot) = label_anchor(child)?;
@@ -320,9 +319,8 @@ impl ImportCtx {
         node: &Node,
         _source: &str,
     ) -> Result<(), String> {
-        let sheetfile = prop(node, "Sheetfile").ok_or_else(|| {
-            "hierarchical sheet is missing a sheet file reference".to_string()
-        })?;
+        let sheetfile = prop(node, "Sheetfile")
+            .ok_or_else(|| "hierarchical sheet is missing a sheet file reference".to_string())?;
         if sheetfile.is_empty() || sheetfile.len() > 256 {
             return Err("sheet file reference is out of range".into());
         }
@@ -484,10 +482,7 @@ impl ImportCtx {
                 });
             }
         }
-        project.components = pages
-            .iter()
-            .flat_map(|p| p.components.clone())
-            .collect();
+        project.components = pages.iter().flat_map(|p| p.components.clone()).collect();
 
         let mut uf = UnionFind::new();
         let mut keys: HashMap<(u64, i64, i64), usize> = HashMap::new();
@@ -531,8 +526,7 @@ impl ImportCtx {
                 attach_net_name(&mut named, &mut keys, &mut uf, text, page.sheet_id, *pos)?;
                 for (pin_name, parent_sheet, parent_pos) in &page.parent_links {
                     if pin_name == text {
-                        let child_idx =
-                            connection_key(&mut keys, &mut uf, page.sheet_id, *pos);
+                        let child_idx = connection_key(&mut keys, &mut uf, page.sheet_id, *pos);
                         let parent_idx =
                             connection_key(&mut keys, &mut uf, *parent_sheet, *parent_pos);
                         uf.union(child_idx, parent_idx);
@@ -613,9 +607,9 @@ impl ImportCtx {
         for page in &pages {
             for wire in &page.wires {
                 let id = self.alloc();
-                let net = wire.first().and_then(|p| {
-                    lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *p)
-                });
+                let net = wire
+                    .first()
+                    .and_then(|p| lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *p));
                 project.drawn_wires.push(DrawnWire {
                     id,
                     net,
@@ -627,9 +621,8 @@ impl ImportCtx {
                 let net = if kind == "bus" {
                     0
                 } else {
-                    lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos).ok_or_else(
-                        || format!("label {text} is not on a derived net"),
-                    )?
+                    lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos)
+                        .ok_or_else(|| format!("label {text} is not on a derived net"))?
                 };
                 project.labels.push(Label {
                     id,
@@ -720,9 +713,7 @@ fn connection_key(
     point: Point,
 ) -> usize {
     let key = snap_key(sheet, point);
-    *keys
-        .entry(key)
-        .or_insert_with(|| uf.insert())
+    *keys.entry(key).or_insert_with(|| uf.insert())
 }
 
 fn attach_net_name(
@@ -753,11 +744,7 @@ fn lookup_net_id(
     net_ids.get(&root).copied()
 }
 
-fn find_pin_at(
-    components: &[Component],
-    sheet: u64,
-    point: Point,
-) -> Option<(u64, String)> {
+fn find_pin_at(components: &[Component], sheet: u64, point: Point) -> Option<(u64, String)> {
     let target = snap_key(sheet, point);
     for component in components.iter().filter(|c| c.sheet == sheet) {
         for pin in &component.pins {

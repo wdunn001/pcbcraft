@@ -714,7 +714,9 @@ fn apply_model_transform(
     }
     if let Some(preset) = &a.preset {
         if a.offset.is_some() || a.scale.is_some() || a.rotate.is_some() {
-            return Err(Error::Invalid("preset cannot mix with explicit transforms".into()));
+            return Err(Error::Invalid(
+                "preset cannot mix with explicit transforms".into(),
+            ));
         }
         match preset.as_str() {
             "rotate_90" => pcbcraft_library::model_rotate_z_90(model),
@@ -842,9 +844,10 @@ pub(super) fn run(
                 .iter_mut()
                 .find(|s| s.name == a.name)
                 .ok_or_else(missing)?;
-            let model = def.model.as_mut().ok_or_else(|| {
-                Error::Invalid("footprint has no 3D model to transform".into())
-            })?;
+            let model = def
+                .model
+                .as_mut()
+                .ok_or_else(|| Error::Invalid("footprint has no 3D model to transform".into()))?;
             apply_model_transform(model, &a)?;
             let applied = json!({
                 "name": a.name,

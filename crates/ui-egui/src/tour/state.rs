@@ -1,8 +1,8 @@
 //! Tour progress, triggers and the in-session state machine (#773).
 
+use pcbcraft_clock::Instant;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
-use pcbcraft_clock::Instant;
 use std::time::Duration;
 
 const TAB_QUIET: Duration = Duration::from_secs(3);
@@ -177,9 +177,7 @@ impl Controller {
     }
 
     pub(crate) fn hint_tours(&self) -> impl Iterator<Item = &TourMeta> {
-        self.catalog
-            .iter()
-            .filter(|t| t.trigger == Trigger::Hint)
+        self.catalog.iter().filter(|t| t.trigger == Trigger::Hint)
     }
 
     #[cfg(test)]
@@ -242,7 +240,8 @@ impl Controller {
                     (MenuAction::Resume, "tour.menu.resume_at".into())
                 }
                 Some(rec)
-                    if rec.state == PersistedState::Done || rec.state == PersistedState::Skipped =>
+                    if rec.state == PersistedState::Done
+                        || rec.state == PersistedState::Skipped =>
                 {
                     (MenuAction::Restart, "tour.menu.restart".into())
                 }
@@ -287,7 +286,9 @@ impl Controller {
                 return;
             }
             match meta.trigger {
-                Trigger::FirstLaunch if !view.first_launch_done && !self.session.first_launch_card_seen => {
+                Trigger::FirstLaunch
+                    if !view.first_launch_done && !self.session.first_launch_card_seen =>
+                {
                     self.session.pending = Some(PendingOffer {
                         tour_id: meta.id.clone(),
                         kind: OfferKind::FirstLaunchCard,
@@ -368,12 +369,7 @@ impl Controller {
             return;
         };
         let step = self.session.active_step;
-        write_record(
-            progress,
-            &meta,
-            PersistedState::InProgress,
-            step,
-        );
+        write_record(progress, &meta, PersistedState::InProgress, step);
         self.session.events.push(TourEvent::Skipped {
             id: id.clone(),
             step,
@@ -398,16 +394,10 @@ impl Controller {
             return;
         }
         let next = step + 1;
-        write_record(
-            progress,
-            &meta,
-            PersistedState::InProgress,
-            next,
-        );
-        self.session.events.push(TourEvent::Advanced {
-            id,
-            step: next,
-        });
+        write_record(progress, &meta, PersistedState::InProgress, next);
+        self.session
+            .events
+            .push(TourEvent::Advanced { id, step: next });
         self.session.active_step = next;
         self.session.events.push(TourEvent::StepShown {
             id: self.session.active_id.clone().unwrap_or_default(),
@@ -423,17 +413,9 @@ impl Controller {
             return;
         };
         let step = self.session.active_step.saturating_sub(1);
-        write_record(
-            progress,
-            &meta,
-            PersistedState::InProgress,
-            step,
-        );
+        write_record(progress, &meta, PersistedState::InProgress, step);
         self.session.active_step = step;
-        self.session.events.push(TourEvent::StepShown {
-            id,
-            step,
-        });
+        self.session.events.push(TourEvent::StepShown { id, step });
     }
 
     fn start_tour(
@@ -443,12 +425,7 @@ impl Controller {
         step: u32,
     ) {
         let step = step.min(meta.step_count.saturating_sub(1) as u32);
-        write_record(
-            progress,
-            meta,
-            PersistedState::InProgress,
-            step,
-        );
+        write_record(progress, meta, PersistedState::InProgress, step);
         self.session.active_id = Some(meta.id.clone());
         self.session.active_step = step;
         self.session.events.push(TourEvent::Started {
@@ -518,10 +495,7 @@ pub fn e2e_fixture_catalog() -> Vec<TourMeta> {
 mod tests {
     use super::*;
 
-    fn shell<'a>(
-        progress: &'a BTreeMap<String, TourRecord>,
-        offer: bool,
-    ) -> ShellView<'a> {
+    fn shell<'a>(progress: &'a BTreeMap<String, TourRecord>, offer: bool) -> ShellView<'a> {
         ShellView {
             offer_tours: offer,
             modal_open: false,
@@ -530,7 +504,9 @@ mod tests {
             workspace: Some(WorkspaceId::Layout),
             progress,
             first_launch_done: false,
-            tab_changed_at: Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1)),
+            tab_changed_at: Some(
+                pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1),
+            ),
         }
     }
 
@@ -602,7 +578,9 @@ mod tests {
             workspace: Some(WorkspaceId::Layout),
             progress: &progress,
             first_launch_done: true,
-            tab_changed_at: Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1)),
+            tab_changed_at: Some(
+                pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1),
+            ),
         };
         ctrl.sync_triggers(view, pcbcraft_clock::instant_now());
         let offer = ctrl.pending_offer().ok_or("expected version chip")?;

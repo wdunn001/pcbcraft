@@ -1,8 +1,7 @@
 //! Panel layout and separation oracle tests.
 use pcbcraft_doc::{
-    PanelGrid, PanelSeparation, PanelSettings, Project, board_copy_size,
-    panel_layout_from_grid, panel_layout_with_settings, panel_score_lines, panel_tab_channel_width,
-    panel_tab_segments,
+    PanelGrid, PanelSeparation, PanelSettings, Project, board_copy_size, panel_layout_from_grid,
+    panel_layout_with_settings, panel_score_lines, panel_tab_channel_width, panel_tab_segments,
 };
 use pcbcraft_geom::Point;
 

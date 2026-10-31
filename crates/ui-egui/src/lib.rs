@@ -2010,8 +2010,7 @@ impl App {
             first_launch_done: self.preferences.tour_first_launch_done,
             tab_changed_at: self.tour.tab_changed_at(),
         };
-        self.tour
-            .sync_triggers(view, pcbcraft_clock::instant_now());
+        self.tour.sync_triggers(view, pcbcraft_clock::instant_now());
     }
     fn tour_panel_hints(&mut self, ui: &mut egui::Ui) {
         let ids: Vec<String> = self.tour.hint_tours().map(|m| m.id.clone()).collect();
@@ -2334,8 +2333,7 @@ impl App {
         if !page(tab) && !page(self.tab) {
             self.needs_fit = true;
         }
-        self.tour
-            .note_tab_change(pcbcraft_clock::instant_now());
+        self.tour.note_tab_change(pcbcraft_clock::instant_now());
         self.tab = tab;
         self.tool = Tool::Select;
         self.drag = None;

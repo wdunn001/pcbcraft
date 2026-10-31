@@ -9,7 +9,6 @@ pub mod drop_in_check;
 pub mod element14;
 mod footprint_check;
 mod footprint_generate;
-pub mod model_transform;
 mod footprint_pad_outline;
 pub mod http_client;
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,6 +17,7 @@ pub mod jlcpcb;
 pub mod lcsc;
 pub mod listing;
 pub mod listing_adapters;
+pub mod model_transform;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mouser;
 pub mod online_import;
@@ -37,15 +37,15 @@ mod validation;
 pub use drop_in_check::{DropInFinding, DropInPart, DropInPin, DropInReport, drop_in_check};
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+pub use model_transform::{
+    model_mirror_y, model_pin1_cycle, model_rotate_z_90, normalize_degrees,
+    refresh_model_raw_source,
+};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
 pub use sexpr::{Error, Limits, Node, parse as parse_sexpr, parse_limits as parse_sexpr_limits};
 pub use symbol_check::check_symbol;
-pub use model_transform::{
-    model_mirror_y, model_pin1_cycle, model_rotate_z_90, normalize_degrees,
-    refresh_model_raw_source,
-};
 pub use validation::custom_polygon_error;
 
 /// A schematic symbol definition parsed from the interchange format.

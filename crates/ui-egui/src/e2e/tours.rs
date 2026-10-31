@@ -20,7 +20,11 @@ fn a_newcomer_skips_a_tour_and_resumes_it_from_help() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "Help")?;
     authoring::tests::tap(&ctx, &mut app, "Tours")?;
     let start = t!("tour.menu.start");
-    authoring::tests::tap(&ctx, &mut app, &format!("Layout walkthrough (test) ({start})"))?;
+    authoring::tests::tap(
+        &ctx,
+        &mut app,
+        &format!("Layout walkthrough (test) ({start})"),
+    )?;
     assert!(
         paints_text(&ctx, &mut app, "Step 1 of 4")?,
         "the tour runner should open on step 1"
@@ -66,17 +70,19 @@ fn a_newcomer_turns_off_tour_offers() -> Result<(), String> {
     app.tour.test_quiet_tab_changes();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let chip = pcbcraft_text::lookup(
-        "tour.e2e_resume.chip",
-        &[("steps", "4")],
-    );
+    let chip = pcbcraft_text::lookup("tour.e2e_resume.chip", &[("steps", "4")]);
     assert!(
         paints_text(&ctx, &mut app, &chip)?,
         "with offers on, the tab chip should appear"
     );
     app.change_tab(Tab::Settings);
     assert!(
-        scrolled_to_at(&ctx, &mut app, &t!("settings.settings_tab.offer_tours"), 700.0)?,
+        scrolled_to_at(
+            &ctx,
+            &mut app,
+            &t!("settings.settings_tab.offer_tours"),
+            700.0
+        )?,
         "Settings should list Offer tours"
     );
     authoring::tests::tap(&ctx, &mut app, &t!("settings.settings_tab.offer_tours"))?;

@@ -7818,11 +7818,11 @@ fn parse_cam_rubout(value: Option<&Value>) -> Result<Option<pcbcraft_io::RubRegi
         val.get("tool")
             .ok_or_else(|| "rubout.tool is required".to_string())?,
     )?;
-    let stepover_pct = val
-        .get("stepover_pct")
-        .and_then(Value::as_u64)
-        .filter(|v| (30..=80).contains(v))
-        .ok_or_else(|| "rubout.stepover_pct must be 30 to 80".to_string())? as u8;
+    let stepover_pct =
+        val.get("stepover_pct")
+            .and_then(Value::as_u64)
+            .filter(|v| (30..=80).contains(v))
+            .ok_or_else(|| "rubout.stepover_pct must be 30 to 80".to_string())? as u8;
     let angle_deg = val
         .get("angle_deg")
         .and_then(Value::as_f64)
@@ -8295,8 +8295,9 @@ fn run_command(
             }
             let path = std::path::Path::new(&a.path);
             let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
-            let (imported, preserved_bytes) = pcbcraft_io::read_schematic_interchange_path(path, &text)
-                .map_err(Error::Invalid)?;
+            let (imported, preserved_bytes) =
+                pcbcraft_io::read_schematic_interchange_path(path, &text)
+                    .map_err(Error::Invalid)?;
             let summary = pcbcraft_io::import_summary(&imported, preserved_bytes);
             *p = imported;
             Ok(summary)
@@ -8520,8 +8521,8 @@ fn run_command(
                         continue;
                     }
                 };
-                let mut pins = pcbcraft_doc::collapse_symbol_pins(&definition)
-                    .map_err(Error::Invalid)?;
+                let mut pins =
+                    pcbcraft_doc::collapse_symbol_pins(&definition).map_err(Error::Invalid)?;
                 for pin in &mut pins {
                     pin.net = old_nets.get(pin.number.as_str()).copied().flatten();
                 }

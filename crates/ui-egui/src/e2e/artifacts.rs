@@ -290,7 +290,8 @@ fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_exports_a_two_by_two_panel_and_sees_four_placement_references() -> Result<(), String> {
+fn a_newcomer_exports_a_two_by_two_panel_and_sees_four_placement_references() -> Result<(), String>
+{
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();

@@ -2,8 +2,8 @@
 use crate::cam_shapes::{LayerShape, layer_shapes};
 use pcbcraft_doc::{Layer, Project};
 use pcbcraft_geom::{
-    OffsetJoin, Point, Ring, hatch, polygon_boundary_distance, polygon_difference,
-    polygon_offset, polygon_union, segment_distance,
+    OffsetJoin, Point, Ring, hatch, polygon_boundary_distance, polygon_difference, polygon_offset,
+    polygon_union, segment_distance,
 };
 use serde::{Deserialize, Serialize};
 
