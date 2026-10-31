@@ -3,13 +3,13 @@ use solidcraft_doc::Document;
 
 #[test]
 fn opens_pcbcraft_export() {
-    let path = std::env::var("PCBCRAFT_FIXTURE").unwrap_or_else(|_| "board_mini.solidcraft".into());
+let path = std::env::var("PCBCRAFT_FIXTURE").unwrap_or_else(|_| "board_mini.solidcraft".into());
     let bytes = std::fs::read(&path).expect("fixture");
     let doc: Document = solidcraft_io::read_design(&bytes).expect("read_design");
     let components = doc.components.len();
     let occurrences = doc.occurrences.len();
     let features = doc.features.len();
-    println!("components={components} occurrences={occurrences} features={features}");
+    println!("format={} components={} occurrences={} features={}", doc.format, components, occurrences, features);
     let mut model = solidcraft_doc::Model::new();
     model.evaluate(&doc);
     for r in &model.results {

@@ -11,7 +11,6 @@ mod board_mesh;
 mod diff;
 mod drawn;
 mod fab_export;
-pub mod formats;
 mod generate;
 mod gerber;
 mod gerber_job;
@@ -19,6 +18,7 @@ mod laser;
 mod layers;
 mod library_render;
 mod machine_profile;
+mod model_align;
 mod model_load;
 mod neoden_yy1;
 mod package;
@@ -45,6 +45,9 @@ mod solidcraft_format;
 /// 3D board mesh types and functions for generating mesh representations of PCBs.
 /// # Dependencies
 /// - crates/io/src/board_mesh.rs
+pub use model_align::{
+    AutoAlignResult, COARSE_ALIGN_MM, auto_align_model, model_lead_points, shift_mesh, test_chip_mesh,
+};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
     ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
@@ -2776,7 +2779,7 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
     };
     let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
     for c in &p.components {
-        if !c.in_bom() || variant.is_some_and(|v| v.dnp.contains(&c.id)) {
+        if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
             continue;
         }
         let footprint = match variant
@@ -3437,6 +3440,19 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
         total += l.thickness;
     }
     out.push_str(&format!("Total recorded thickness: {:.3} mm\n", total));
+    let roles: Vec<_> = p
+        .copper_layers()
+        .filter_map(|layer| {
+            p.copper_layer_plane_role(layer)
+                .map(|role| (p.layer_name(layer), role))
+        })
+        .collect();
+    if !roles.is_empty() {
+        out.push_str("\nInner copper plane roles:\nLAYER,ROLE\n");
+        for (name, role) in roles {
+            out.push_str(&format!("{name},{role}\n"));
+        }
+    }
     if let Some(m) = &p.board.machining {
         out.push_str("\nMachining notes:\n");
         if let Some(v) = m.edge_plating {
@@ -7354,25 +7370,27 @@ mod tests {
     #[test]
     fn stackup_text_lists_layer_notes_and_machining_tolerances() -> Result<(), String> {
         let mut project = Project::default();
-        project.board.layer_records.push(pcbcraft_doc::LayerRecord {
-            name: "L1".into(),
-            kind: "copper".into(),
-            thickness: 0.035,
-            copper_role: None,
-            ..Default::default()
-        });
-        project.board.layer_records.push(pcbcraft_doc::LayerRecord {
-            name: "core".into(),
-            kind: "core".into(),
-            thickness: 1.2,
-            copper_role: None,
-            ..Default::default()
-        });
+        for (name, kind, thickness) in [
+            ("F.Cu", "copper", 0.035),
+            ("core", "core", 1.2),
+            ("In1.Cu", "copper", 0.035),
+            ("B.Cu", "copper", 0.035),
+        ] {
+            project.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: name.into(),
+                kind: kind.into(),
+                thickness,
+                copper_role: None,
+                ..Default::default()
+            });
+        }
         project.board.machining = Some(pcbcraft_doc::MachiningNotes {
             edge_plating: Some(true),
             drill_tolerance: Some(0.05),
             edge_tolerance: None,
         });
+        let inner = pcbcraft_doc::Layer::from_index(1)?;
+        project.set_copper_layer_plane_role(inner, "ground")?;
         project.validate()?;
         let text = stackup_text(&project)?;
         assert!(
@@ -7380,12 +7398,16 @@ mod tests {
             "the sheet names the design"
         );
         assert!(
-            text.contains("L1,copper,0.035") && text.contains("core,core,1.200"),
+            text.contains("F.Cu,copper,0.035") && text.contains("core,core,1.200"),
             "every recorded layer note is listed with its role and thickness"
         );
         assert!(
-            text.contains("Total recorded thickness: 1.235 mm"),
+            text.contains("Total recorded thickness: 1.305 mm"),
             "the recorded layers are totalled"
+        );
+        assert!(
+            text.contains("Inner copper plane roles:") && text.contains("In1.Cu,ground"),
+            "recorded plane roles reach the stackup sheet"
         );
         assert!(
             text.contains("Edge plating: yes") && text.contains("Drill tolerance: +/- 0.050 mm"),
@@ -10077,7 +10099,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 13,
@@ -10087,7 +10108,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 14,
@@ -10216,7 +10236,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         let text = dxf_board(&project)?;
         let entities = dxf_entities(&text)?;
@@ -11244,7 +11263,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 2,
@@ -11254,7 +11272,6 @@ mod tests {
             width: 1.5,
             text: "REV B".into(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 3,
@@ -11264,7 +11281,6 @@ mod tests {
             width: 4.0,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.validate()?;
         let schematic = svg(&project, "schematic")?;
