@@ -253,8 +253,7 @@ fn a_newcomer_sees_a_malformed_change_refused_with_the_reason() -> Result<(), St
 fn fake_http(calls: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> pcbcraft_assistant::HttpFn {
     std::sync::Arc::new(move |_| {
         calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok((
-            200,
+        Ok(pcbcraft_assistant::HttpResponse::ok(
             br#"{"data":[{"id":"small-model"},{"id":"big-model"}]}"#.to_vec(),
         ))
     })

@@ -15,6 +15,7 @@ plugin-firmware-target = ["dep:pcbcraft-plugin-sdk"]
 pcbcraft-clock.workspace = true
 pcbcraft-geom.workspace = true
 pcbcraft-doc.workspace = true
+pcbcraft-sim.workspace = true
 pcbcraft-library.workspace = true
 pcbcraft-plugin-sdk = { workspace = true, optional = true }
 pcbcraft-rules.workspace = true
@@ -30,8 +31,13 @@ gltf.workspace = true
 truck-stepio.workspace = true
 truck-meshalgo.workspace = true
 
+[dev-dependencies]
+gerber_parser.workspace = true
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tempfile.workspace = true
+ipc2581.workspace = true
+ureq = { version = "2", default-features = false, features = ["tls"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tempfile.workspace = true

@@ -370,7 +370,7 @@ fn hovering_a_part_paints_its_outline_inside_the_frame_budget() -> Result<(), St
         let mut took = std::time::Duration::ZERO;
         let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             let painter = ui.painter().clone();
-            let start = std::time::Instant::now();
+            let start = pcbcraft_clock::instant_now();
             app.paint_affordance(&painter, rect, camera);
             took = start.elapsed();
         });

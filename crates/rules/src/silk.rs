@@ -211,6 +211,7 @@ pub(crate) fn silk_findings(project: &Project) -> Vec<Finding> {
                         ink.what
                     ),
                     objects: vec![ink.id, f.id],
+                    hint: None,
                 });
             } else if nearest + 1e-9 < limit {
                 result.push(Finding {
@@ -221,7 +222,8 @@ pub(crate) fn silk_findings(project: &Project) -> Vec<Finding> {
                         ink.what
                     ),
                     objects: vec![ink.id, f.id],
-                });
+            hint: None,
+        });
             }
         }
     }
@@ -255,7 +257,9 @@ mod tests {
                 castellated: None,
                 geometry: None,
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p
     }
     fn add_silk_line(p: &mut Project, y: f64) {
@@ -363,6 +367,7 @@ mod tests {
                     }),
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             });
         }

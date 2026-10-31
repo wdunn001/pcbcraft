@@ -159,6 +159,10 @@ fn run() -> Result<(), String> {
                 pcbcraft_mcp::http::serve_server(std::sync::Arc::new(server), &listener);
                 return Ok(());
             }
+let bridge_token = option(&args, "--token")
+                .map(str::to_string)
+                .or_else(|| std::env::var("PCBCRAFT_CONTROL_TOKEN").ok())
+                .filter(|t| !t.is_empty());
             if flag(&args, "--allow-remote") || flag(&args, "--token-file") {
                 return Err("--allow-remote and --token-file only apply with --http".into());
             }
@@ -167,6 +171,7 @@ fn run() -> Result<(), String> {
                 &mut std::io::stdout().lock(),
                 &hub,
                 option(&args, "--connect"),
+                bridge_token.as_deref(),
             )?
         }
         "run" => {
@@ -272,7 +277,7 @@ new: pcbcraft-cli new --out design.pcbcraft [--name TITLE]\n\
 init: pcbcraft-cli init DIRECTORY [--name TITLE] [--force]\n\
 Diff: pcbcraft-cli diff FILE_A FILE_B [--format text|json] (exit 1 when designs differ)\n\
 Tool: pcbcraft-cli tool NAME --args JSON [--save FILE]\n\
-MCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991 | --http 127.0.0.1:PORT [--token-file FILE] [--allow-remote [--allow-origin ORIGIN]...]]\n\
+MCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991 [--token T]] | --http 127.0.0.1:PORT [--token-file FILE] [--allow-remote [--allow-origin ORIGIN]...]]\n\
 Desktop: pcbcraft --sample --control 127.0.0.1:7991\n\
 See README.md and docs/mcp.md for schemas and examples."
         ),
