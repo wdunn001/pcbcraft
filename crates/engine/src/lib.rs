@@ -8032,7 +8032,7 @@ fn select_connected_copper(p: &Project, seed: Id) -> Result<(Vec<Id>, Vec<Value>
             }
             (Track(x), Via(y)) | (Via(y), Track(x)) => {
                 let (t, v) = (&p.board.tracks[x], &p.board.vias[y]);
-                p.via_span_layers(v).contains(&t.layer)
+                p.via_conducting_layers(v).contains(&t.layer)
                     && [t.start, t.end]
                         .iter()
                         .any(|e| e.distance(v.position) <= v.diameter / 2.0 + TRACK_ENDPOINT_EPS)
@@ -8899,6 +8899,18 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
         return result;
     }
     if let Some(result) = datasheet_annotations::run_design(p, command, params) {
+        return result;
+    }
+    match command {
+        "project.rename" => {
+            let a: Name = parse(params)?;
+            p.name = a.name;
+        return result;
+    }
+    if let Some(result) = images::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = outline::run(p, next, command, params) {
         return result;
     }
     match command {
@@ -14695,6 +14707,16 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 .iter_mut()
                 .find(|v| v.id == a.id)
                 .ok_or_else(missing)?;
+            let mut moved = via.clone();
+            moved.from_layer = from_layer;
+            moved.to_layer = to_layer;
+            if let Some(spec) = moved.backdrill {
+                p.validate_backdrill(&moved, &spec).map_err(|e| {
+                    Error::Invalid(format!(
+                        "clear the back-drill first, it no longer fits: {e}"
+                    ))
+                })?;
+            }
             via.from_layer = from_layer;
             via.to_layer = to_layer;
             let via = via.clone();

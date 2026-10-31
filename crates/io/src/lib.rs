@@ -3510,7 +3510,7 @@ pub fn gerber_files_with_options(
         }
     }
     for (key, text) in &extras {
-        if key.starts_with("pcb-Drill-L") {
+        if key.starts_with("pcb-Drill-L") || key.starts_with("pcb-BackDrill-") {
             files.insert(key.clone(), text.clone());
         }
     }

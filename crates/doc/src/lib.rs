@@ -568,6 +568,9 @@ pub struct NetClass {
     /// Default drilled hole for member vias, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_drill: Option<f64>,
+    /// Back-drill applied to member vias that carry none of their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrill: Option<BackDrill>,
     /// Default track width for differential pairs on member nets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pair_width: Option<f64>,
@@ -1712,6 +1715,7 @@ pub enum ViaCoveringScope {
     Top,
     /// The covering applies on the bottom face only; the top stays open.
     Bottom,
+}
 }
 /// How a via hole is protected, named after the seven types of the via
 /// protection standard (IPC-4761). The types that close the hole under the
@@ -4546,24 +4550,7 @@ impl Project {
     /// from the stackup records; none when the stackup carries no such rows.
     pub fn via_depth(&self, via: &Via) -> Option<f64> {
         let (a, b) = self.via_span(via);
-        let mut copper = 0usize;
-        let mut inside = false;
-        let mut depth = 0.0;
-        for rec in &self.board.layer_records {
-            if rec.kind == "copper" {
-                if inside && copper == b.index() as usize {
-                    return Some(depth);
-                }
-                if copper == a.index() as usize {
-                    inside = true;
-                }
-                copper += 1;
-            }
-            if inside {
-                depth += rec.thickness;
-            }
-        }
-        None
+        self.layer_distance(a, b)
     }
     /// Kind of a via, derived from its span (never stored).
     pub fn via_kind(&self, via: &Via) -> ViaKind {
