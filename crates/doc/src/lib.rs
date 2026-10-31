@@ -39,6 +39,16 @@ pub const MAX_OBJECTS: usize = 16384;
 
 mod material;
 pub use material::{MATERIALS, Material, material};
+mod compliance;
+mod compliance_list;
+pub use compliance::{
+    Compliance, ComplianceProjectSettings, ManufacturerRecord, PartRole, normalize_manufacturer_name,
+    part_role_text, MAX_MANUFACTURERS,
+};
+pub use compliance_list::{
+    ComplianceListEntityEntry, ComplianceListSnapshot, ComplianceListSubstanceEntry,
+    COMPLIANCE_LIST_SCHEMA, MAX_COMPLIANCE_LIST_BYTES, MAX_COMPLIANCE_LIST_ENTRIES,
+};
 mod net_members;
 mod sourcing;
 mod via_protection;
