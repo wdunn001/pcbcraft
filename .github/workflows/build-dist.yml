@@ -4,6 +4,13 @@
 #
 # Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
 # repackage jobs. No Snap Store or Flathub upload in CI.
+# Release builds for every platform. Called by nightly.yml and release.yml so
+# nightly runs exercise the exact packaging that a tagged release uses.
+# No build cache here: release artifacts are built from a clean state.
+#
+# Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
+# repackage jobs. No Snap Store or Flathub upload in CI.
+#
 name: Build distributables
 
 on:
@@ -21,6 +28,34 @@ on:
         required: false
         type: number
         default: 14
+      sign:
+        description: When true, sign Windows and macOS artifacts when repository secrets are set
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      WINDOWS_CERTIFICATE:
+        required: false
+      WINDOWS_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_CODESIGN_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_APP_SPECIFIC_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APPLE_NOTARY_KEY:
+        required: false
+      APPLE_NOTARY_KEY_ID:
+        required: false
+      APPLE_NOTARY_ISSUER_ID:
+        required: false
 
 permissions: {}
 
@@ -103,6 +138,13 @@ jobs:
           for target in ${TARGETS//,/ }; do
             cargo build --locked --release -p pcbcraft -p pcbcraft-cli --target "$target"
           done
+      - name: Sign Windows binaries
+        if: inputs.sign && matrix.platform == 'windows-x86_64'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: ./.github/scripts/sign-windows.ps1
       - name: Package Linux installers
         if: runner.os == 'Linux'
         shell: bash
@@ -148,6 +190,16 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
           VERSION: ${{ inputs.version }}
+          PCBCRAFT_SIGN: ${{ inputs.sign == true && '1' || '0' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
         run: bash .github/scripts/package.sh "$PLATFORM" "$VERSION" dist
       - name: Linux FHS tarball for Flatpak and Snap
         if: runner.os == 'Linux'

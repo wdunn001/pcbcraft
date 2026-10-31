@@ -290,6 +290,103 @@ fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_exports_a_two_by_two_panel_and_sees_four_placement_references() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let directory = std::env::temp_dir().join(format!("pcbcraft-panel-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    app.make_dir = directory.to_string_lossy().into_owned();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    for _ in 0..8 {
+        frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Line,
+                    delta: egui::vec2(0.0, -4.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 700.0)?,
+        "the factory section lists panel planning: {}",
+        app.message
+    );
+    app.panel_enabled = true;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Apply panel settings")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.project.panel.enabled,
+        "apply stores enabled panel settings: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Export panel files")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let placement_path = directory.join("panel-placement.txt");
+    assert!(
+        placement_path.is_file(),
+        "export writes panel placement beside gerbers: {}",
+        app.message
+    );
+    let placement = std::fs::read_to_string(&placement_path).map_err(|e| e.to_string())?;
+    for reference in ["J1_1", "R1_2", "D1_3", "J1_4"] {
+        assert!(
+            placement.contains(reference),
+            "placement must suffix {reference}: {placement}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_panel_settings_survive_save_and_reopen() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.panel_enabled = true;
+    app.panel_columns = 2;
+    app.panel_rows = 2;
+    app.panel_gap = 2.0;
+    app.run("panel.set", app.panel_set_params());
+    let path = std::env::temp_dir().join(format!(
+        "pcbcraft-panel-save-{}.pcbcraft",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        app.tool_call("save", json!({"path": path.to_string_lossy()})),
+        "save the design with panel settings: {}",
+        app.message
+    );
+    let mut reopened = App::create(shared, Preferences::default(), None, None);
+    assert!(
+        reopened.tool_call("open", json!({"path": path.to_string_lossy()})),
+        "reopen the saved design: {}",
+        reopened.message
+    );
+    assert_eq!(reopened.project.panel.columns, 2);
+    assert_eq!(reopened.project.panel.rows, 2);
+    assert!(reopened.project.panel.enabled);
+    assert_eq!(reopened.panel_columns, 2);
+    assert_eq!(reopened.panel_rows, 2);
+    let _ = std::fs::remove_file(&path);
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_opens_their_factory_zip_and_hides_a_layer() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
@@ -384,6 +481,12 @@ fn a_newcomer_makes_print_art_for_the_silkscreen() -> Result<(), String> {
 /// Make every kind of fabrication output from the sample board with the
 /// language set to `tag`, and return each file's name and bytes in name order.
 fn outputs_in(tag: &str) -> Result<std::collections::BTreeMap<String, Vec<u8>>, String> {
+    // Every timestamp comes from one pinned clock on this thread, so the two
+    // languages are compared byte for byte with nothing blanked out.
+    pcbcraft_io::with_fixed_clock(1_800_000_000, || outputs_in_pinned(tag))
+}
+
+fn outputs_in_pinned(tag: &str) -> Result<std::collections::BTreeMap<String, Vec<u8>>, String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
@@ -418,23 +521,6 @@ fn outputs_in(tag: &str) -> Result<std::collections::BTreeMap<String, Vec<u8>>, 
     Ok(files)
 }
 
-fn gbrjob_bytes_for_compare(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    if !bytes.starts_with(b"{") {
-        return Ok(bytes.to_vec());
-    }
-    let mut value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    if let Some(header) = value
-        .get_mut("Header")
-        .and_then(|header| header.as_object_mut())
-    {
-        header.insert(
-            "CreationDate".into(),
-            serde_json::Value::String(String::new()),
-        );
-    }
-    serde_json::to_vec(&value).map_err(|e| e.to_string())
-}
-
 /// True when every file in `names` is in both sets and has the same bytes.
 fn same_files(
     english: &std::collections::BTreeMap<String, Vec<u8>>,
@@ -446,15 +532,7 @@ fn same_files(
         let other = german
             .get(name)
             .ok_or_else(|| format!("{name} is missing when the language is German"))?;
-        let (left, right) = if name.ends_with(".gbrjob") {
-            (
-                gbrjob_bytes_for_compare(bytes)?,
-                gbrjob_bytes_for_compare(other)?,
-            )
-        } else {
-            (bytes.clone(), other.clone())
-        };
-        if left != right {
+        if bytes != other {
             return Err(format!("{name} differs between English and German"));
         }
         compared += 1;

@@ -1,0 +1,8 @@
+{
+  "name": "Hierarchy root",
+  "components": ["R1", "R2"],
+  "nets": ["IN1"],
+  "sheets": 1,
+  "ports": 2,
+  "shared_net_on_both_pages": true
+}

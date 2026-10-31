@@ -36,11 +36,20 @@ const MAX_FILE_OPS: usize = 50_000;
 const MAX_FILE_APERTURES: usize = 64;
 
 /// Millimetres to 4.6 fixed-point coordinate integers.
-fn coordinate(value: f64) -> i64 {
+pub(crate) fn coordinate(value: f64) -> i64 {
     (value * 1_000_000.0).round() as i64
 }
 fn decimal(value: f64) -> String {
     let text = format!("{value:.6}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    if text == "-0" || text.is_empty() {
+        "0".into()
+    } else {
+        text.into()
+    }
+}
+fn aperture_mm(value: f64) -> String {
+    let text = format!("{:.3}", value);
     let text = text.trim_end_matches('0').trim_end_matches('.');
     if text == "-0" || text.is_empty() {
         "0".into()
@@ -111,7 +120,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
         }
     };
     for t in p.board.tracks.iter().filter(|t| t.layer == layer) {
-        let code = define(Aperture::Standard(format!("C,{}", decimal(t.width))));
+        let code = define(Aperture::Standard(format!("C,{}", aperture_mm(t.width))));
         select(&mut body, code);
         let (a, b) = (to_gerber(t.start), to_gerber(t.end));
         body.push_str(&format!(
@@ -139,9 +148,9 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             let axis_aligned = quarter < 1e-9 || 90.0 - quarter < 1e-9;
             let swapped = (rotation.rem_euclid(180.0) - 90.0).abs() < 1e-9;
             let aperture = match pad.geometry.as_ref().map(|g| (g.shape_kind(), g.size)) {
-                None => Aperture::Standard(format!("C,{}", decimal(pad.diameter))),
+                None => Aperture::Standard(format!("C,{}", aperture_mm(pad.diameter))),
                 Some((PadShape::Circle, size)) => {
-                    Aperture::Standard(format!("C,{}", decimal(size.x)))
+                    Aperture::Standard(format!("C,{}", aperture_mm(size.x)))
                 }
                 Some((kind @ (PadShape::Rect | PadShape::Oval), size)) if axis_aligned => {
                     let (w, h) = if swapped {
@@ -150,7 +159,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
                         (size.x, size.y)
                     };
                     let letter = if kind == PadShape::Rect { "R" } else { "O" };
-                    Aperture::Standard(format!("{letter},{}X{}", decimal(w), decimal(h)))
+                    Aperture::Standard(format!("{letter},{}X{}", aperture_mm(w), aperture_mm(h)))
                 }
                 Some((PadShape::Unsupported, _)) => {
                     return Err(format!(
@@ -970,6 +979,7 @@ mod tests {
             None,
         );
         project.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 2,
             component: 1,
             position: front.position,
@@ -979,6 +989,7 @@ mod tests {
             pads: front_pads.iter().map(placed).collect(),
         });
         project.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             component: 3,
             position: through.position,
@@ -992,6 +1003,7 @@ mod tests {
         project.components.push(front);
         project.components.push(through);
         project.board.vias.push(Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 5,
             net: 8,
             position: Point::new(30.0, 10.0),
@@ -1253,6 +1265,7 @@ mod tests {
         let placed = placed(&pad);
         assert!(pad_is_smd(&placed), "a pad without a drill takes paste");
         let footprint = Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 1,
             component: 1,
             position: Point::new(0.0, 0.0),
