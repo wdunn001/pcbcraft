@@ -204,10 +204,12 @@ pcbcraft-cli tool library.search --args '{"path":"/usr/share/kicad/symbols/Devic
 `gerber.export` writes front and back copper, outline and Excellon drill into a
 directory without editing the project. `output_job.add` records a named recipe
 (listing export kinds such as `gerbers`, `netlist`, `bom`, `placement`, `dxf`,
-`panel`, `layer_plots` and `raster`). `output_job.run` writes every file in that
+`panel`, `layer_plots`, `conformal_coat` and `raster`). `output_job.run` writes every file in that
 recipe into one folder after layout changes. Drawn silk, mask and machine layers
 in `layer_plots` become their own Gerber, DXF, SVG and HP-GL files as positive
-ink, not negative soldermask from pads. The `raster` kind writes six high-DPI
+ink, not negative soldermask from pads. The `conformal_coat` kind writes one
+Gerber keep-out plot from the drawn layer named in `board.set_conformal_coat_keepout`.
+The `raster` kind writes six high-DPI
 PNGs (top and bottom copper, mask and legend). `panel.export` duplicates
 fabrication outputs for every copy when a panel grid is enabled.
 
