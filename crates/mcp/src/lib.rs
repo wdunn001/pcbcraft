@@ -1,11 +1,16 @@
 //! MCP stdio server plus a loopback bridge into the desktop's actual engine session.
 mod document_hub;
 #[cfg(not(target_arch = "wasm32"))]
+mod gated_bridge;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod http;
+#[cfg(not(target_arch = "wasm32"))]
+pub use gated_bridge::{ToolRequest, start_gated_bridge};
 mod prompts;
 mod resources;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
+use pcbcraft_engine::user_config::UserConfig;
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
 #[cfg(any(not(target_arch = "wasm32"), test))]
@@ -14,12 +19,41 @@ use std::io::{BufRead, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-pub type SharedSession = Arc<Mutex<Session>>;
+/// One design session shared between the window, the tools and the server.
+///
+/// # Rules
+/// - Locks like the `Mutex<Session>` it wraps (it derefs to it).
+/// - Carries a copy of the session's [`UserConfig`] taken when it was made, so
+///   library and recents reads find the settings folder without taking the
+///   design lock.
+///
+/// # Do not
+/// - Read the configuration through `lock()`; a long edit would stall the read.
+#[derive(Clone)]
+pub struct SharedSession {
+    session: Arc<Mutex<Session>>,
+    config: Arc<UserConfig>,
+}
+impl std::ops::Deref for SharedSession {
+    type Target = Mutex<Session>;
+    fn deref(&self) -> &Self::Target {
+        &self.session
+    }
+}
+impl SharedSession {
+    /// The settings folder this session was made with.
+    pub fn config(&self) -> &UserConfig {
+        &self.config
+    }
+}
 pub const MAX_MESSAGE: u64 = 1024 * 1024;
 /// Protocol versions `initialize` accepts, newest first; the HTTP transport checks its header against it.
 pub(crate) const SUPPORTED_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2024-11-05"];
 pub fn shared(session: Session) -> SharedSession {
-    Arc::new(Mutex::new(session))
+    SharedSession {
+        config: Arc::new(session.config.clone()),
+        session: Arc::new(Mutex::new(session)),
+    }
 }
 pub fn tool_list() -> Value {
     let object = |properties: Value, required: &[&str]| json!({"type":"object","properties":properties,"required":required,"additionalProperties":false});
@@ -32,7 +66,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbol","description":"Write one project-library symbol to a .kicad_sym symbol library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_footprint_svg","description":"Write one project-library footprint to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_symbol_svg","description":"Write one project-library symbol to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
-        json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist and a test-point CSV for fixture builders into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ps.write","description":"Write a one-page PostScript drawing of either view with copper, pads, zones and text as real stroke and fill operators, without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"]}}),&["path"])}),
         json!({"name":"stats.write","description":"Write a CSV board statistics sheet counting parts, nets, pins, routing, vias and zones, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"drill_chart.write","description":"Write a CSV drill tool chart listing every distinct drill size with its plating and hole count, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -45,7 +79,7 @@ pub fn tool_list() -> Value {
         json!({"name":"cmp.write","description":"Write a legacy board trace file listing every placed pad position in mils with a front or back layer code and every net's pad membership, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"report.write","description":"Write a plain-text design report summarizing the board, every component with its package and placement, and every net with its pins, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ipc2581.write","description":"Write a single-file IPC-2581 style assembly exchange XML with the board outline, nets and their pins, placed components, drill holes and copper by layer, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"idf.write","description":"Write a board-level mechanical drawing (board size plus every placed part's position, side and rotation, with default component heights) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"idf.write","description":"Write IDF version 3 board and library files (board outline and placements plus one outline and height per distinct footprint) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"wrl.write","description":"Write a VRML 2.0 scene extruding the board outline and every placed pad into solid prisms into a directory for mechanical viewers, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"hyperlynx.write","description":"Write a simulation netlist CSV, one line per net naming the net and every reference.pin on it, into a directory for circuit simulators, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gencad.write","description":"Write a legacy board interchange text listing components, pins in whole mils with shape and layer, and nets by component and pad index, into a directory for EDA bridges, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -283,8 +317,12 @@ pub(crate) fn invoke_session(
         let s = session
             .lock()
             .map_err(|_| "session unavailable after internal failure".to_string())?;
-        return pcbcraft_engine::library::list_with_project(args, Some(&s.project))
-            .map(text_result);
+        return pcbcraft_engine::library::list_with_project(
+            session.config(),
+            args,
+            Some(&s.project),
+        )
+        .map(text_result);
     }
     if [
         "design.recents",
@@ -300,7 +338,7 @@ pub(crate) fn invoke_session(
     ]
     .contains(&name)
     {
-        return pcbcraft_engine::library::read_tool(name, args).map(text_result);
+        return pcbcraft_engine::library::read_tool(session.config(), name, args).map(text_result);
     }
     let mut s = session
         .lock()
@@ -433,15 +471,26 @@ pub(crate) fn invoke_session(
         }
         "idf.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::idf_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.idf"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.idf","bytes":text.len()})
+            let board = pcbcraft_io::idf_board(&s.project)?;
+            let library = pcbcraft_io::idf_library(&s.project)?;
+            pcbcraft_io::atomic_write(&Path::new(directory).join("board.idf"), board.as_bytes())?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("library.idf"),
+                library.as_bytes(),
+            )?;
+            json!({"directory":directory,"files":["board.idf","library.idf"],"bytes":board.len() + library.len()})
         }
         "step.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::step_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.step"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.step","bytes":text.len()})
+            let base = Path::new(&directory);
+            let loader = pcbcraft_io::project_step_loader(&s.project, Some(base));
+            let export = pcbcraft_io::step_board_with_models(&s.project, &loader)
+                .map_err(|e| e.to_string())?;
+            pcbcraft_io::atomic_write(
+                &base.join("board.step"),
+                export.text.as_bytes(),
+            )?;
+            json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
         }
         "wrl.write" => {
             let directory = string(args, "path")?;
@@ -528,7 +577,12 @@ pub(crate) fn invoke_session(
             let directory = string(args, "path")?;
             let text = pcbcraft_io::ipc356_netlist(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("test.brd"), text.as_bytes())?;
-            json!({"directory":directory,"file":"test.brd"})
+            let csv = pcbcraft_io::testpoints_csv(&s.project)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("testpoints.csv"),
+                csv.as_bytes(),
+            )?;
+            json!({"directory":directory,"files":["test.brd","testpoints.csv"]})
         }
         "netlist.write" => {
             let directory = string(args, "path")?;
@@ -597,14 +651,16 @@ pub(crate) fn invoke_session(
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                const COPPER: [&str; 7] = [
+                const COPPER: [&str; 8] = [
                     "clearance",
                     "copper_short",
                     "track_width",
                     "stub_length",
+                    "acute_angle",
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
+                    "diffpair_impedance",
                 ];
                 let keep = |key: &str| {
                     report[key]
@@ -619,7 +675,7 @@ pub(crate) fn invoke_session(
                     "erc": keep("erc"),
                     "drc": keep("drc"),
                     "airwires": report["airwires"],
-                    "scope": "Quick copper-only pass: clearance, track width, stub length, unrouted copper and differential-pair checks; ERC findings are omitted. See checks.scope for the full rule set.",
+                    "scope": "Quick copper-only pass: clearance, track width, stub length, unrouted copper and differential-pair gap, skew and impedance checks; ERC findings are omitted. See checks.scope for the full rule set.",
                 })));
             }
             report
@@ -776,7 +832,12 @@ fn validate_schema(value: &Value, schema: &Value, path: &str) -> Result<(), Stri
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
-pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> Option<Value> {
+pub fn handle_rpc(
+    hub: &DocumentHub,
+    request: Value,
+    connect: Option<&str>,
+    bridge_token: Option<&str>,
+) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str);
     if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
@@ -847,7 +908,7 @@ pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> O
             if let Some(address) = connect {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    match forward(address, &request) {
+                    match forward(address, &request, bridge_token) {
                         Ok(response) => return Some(response),
                         Err(e) => error_result(e),
                     }
@@ -928,6 +989,7 @@ pub fn serve(
     writer: &mut impl Write,
     hub: &DocumentHub,
     connect: Option<&str>,
+    bridge_token: Option<&str>,
 ) -> Result<(), String> {
     let mut initialized = false;
     while let Some(line) = read_message(reader)? {
@@ -940,7 +1002,7 @@ pub fn serve(
                         .map(|id| rpc_error(id.clone(), -32002, "initialize the MCP session first"))
                 } else {
                     let initialize = method == Some("initialize");
-                    let response = handle_rpc(hub, request, connect);
+                    let response = handle_rpc(hub, request, connect, bridge_token);
                     if initialize && response.as_ref().is_some_and(|r| r.get("result").is_some()) {
                         initialized = true;
                     }
@@ -968,7 +1030,18 @@ fn loopback(address: &str) -> Result<std::net::SocketAddr, String> {
     Ok(address)
 }
 #[cfg(not(target_arch = "wasm32"))]
-pub fn forward(address: &str, request: &Value) -> Result<Value, String> {
+pub fn forward(
+    address: &str,
+    request: &Value,
+    bridge_token: Option<&str>,
+) -> Result<Value, String> {
+    let mut payload = request.clone();
+    if let Some(token) = bridge_token {
+        if let Some(obj) = payload.as_object_mut() {
+            obj.entry("token".into())
+                .or_insert_with(|| Value::String(token.to_string()));
+        }
+    }
     let mut stream = std::net::TcpStream::connect_timeout(
         &loopback(address)?,
         std::time::Duration::from_secs(3),
@@ -980,7 +1053,7 @@ pub fn forward(address: &str, request: &Value) -> Result<Value, String> {
     stream
         .set_write_timeout(Some(std::time::Duration::from_secs(3)))
         .map_err(|e| e.to_string())?;
-    serde_json::to_writer(&mut stream, request).map_err(|e| e.to_string())?;
+    serde_json::to_writer(&mut stream, &payload).map_err(|e| e.to_string())?;
     stream.write_all(b"\n").map_err(|e| e.to_string())?;
     let text =
         read_message(&mut BufReader::new(stream))?.ok_or("bridge closed without a response")?;
@@ -1003,7 +1076,7 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
                     let mut reader = BufReader::new(reader);
                     if let Ok(Some(line)) = read_message(&mut reader) {
                         let response = match serde_json::from_str(&line) {
-                            Ok(request) => handle_rpc(&hub, request, None),
+                            Ok(request) => handle_rpc(&hub, request, None, None),
                             Err(_) => Some(rpc_error(Value::Null, -32700, "parse error")),
                         };
                         if let Some(response) = response {
@@ -1018,6 +1091,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bridge_tests;
 #[cfg(test)]
 mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1031,7 +1106,7 @@ mod tests {
         let hub = DocumentHub::new(Session::default(), None)?;
         let input: String = lines.iter().map(|line| format!("{line}\n")).collect();
         let mut output = vec![];
-        serve(&mut input.as_bytes(), &mut output, &hub, None)?;
+        serve(&mut input.as_bytes(), &mut output, &hub, None, None)?;
         String::from_utf8(output)
             .map_err(|e| e.to_string())?
             .lines()
@@ -1083,6 +1158,23 @@ mod tests {
             .ok_or_else(|| "tools is an array".to_string())
     }
     #[test]
+fn every_listed_tool_name_is_unique() -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            if !seen.insert(name.to_string()) {
+                return Err(format!("tool {name} is listed twice"));
+            }
+        }
+        Ok(())
+    }
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            if !seen.insert(name.to_string()) {
+                return Err(format!("tool {name} is listed twice"));
+            }
+#[test]
     fn every_listed_tool_name_is_unique() -> Result<(), String> {
         let mut seen = std::collections::BTreeSet::new();
         for tool in listed_tools()? {
@@ -1090,6 +1182,9 @@ mod tests {
             if !seen.insert(name.to_string()) {
                 return Err(format!("tool {name} is listed twice"));
             }
+        }
+        Ok(())
+    }
         }
         Ok(())
     }
@@ -2188,21 +2283,27 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         let export = call_tool(&session, "idf.write", &json!({"path":directory.path()}));
         assert_eq!(export.get("isError"), Some(&json!(false)));
-        let text = std::fs::read_to_string(directory.path().join("board.idf"))
+        let board = std::fs::read_to_string(directory.path().join("board.idf"))
+            .map_err(|e| e.to_string())?;
+        let library = std::fs::read_to_string(directory.path().join("library.idf"))
             .map_err(|e| e.to_string())?;
         assert!(
-            text.starts_with(".FILE_IDF\n.3DIDF VERSION: 2.0\n"),
-            "the mechanical drawing declares itself"
+            board.starts_with(".HEADER\nBOARD_FILE 3.0"),
+            "the board file declares IDF version 3"
         );
         assert!(
-            text.contains(".END_BODY R1\t") && text.contains(".END_BODY R2\t"),
-            "every placed part is listed with its position"
+            board.contains(".PLACEMENT\n") && board.contains(" R1\n") && board.contains(" R2\n"),
+            "every placed part is listed with its reference"
+        );
+        assert!(board.ends_with(".END_PLACEMENT\n"), "the board file closes");
+        assert!(
+            library.starts_with(".HEADER\nLIBRARY_FILE 3.0"),
+            "the library file declares IDF version 3"
         );
         assert!(
-            text.contains(".PIN 2\n"),
-            "the embedded pin file counts every part"
+            library.contains(".ELECTRICAL\n") && library.contains(".END_ELECTRICAL\n"),
+            "the library carries at least one footprint outline"
         );
-        assert!(text.ends_with(".END_FILE_IDF\n"), "the file closes");
         assert_eq!(
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
@@ -2235,6 +2336,10 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         let export = call_tool(&session, "ipc356.write", &json!({"path":directory.path()}));
         assert_eq!(export.get("isError"), Some(&json!(false)));
+        assert!(
+            directory.path().join("testpoints.csv").exists(),
+            "test netlist export should include testpoints.csv"
+        );
         let text = std::fs::read_to_string(directory.path().join("test.brd"))
             .map_err(|e| e.to_string())?;
         let rows: Vec<&str> = text.lines().filter(|l| !l.starts_with('*')).collect();
@@ -2822,6 +2927,7 @@ mod tests {
             &hub,
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}),
             None,
+            None,
         );
         assert_eq!(
             response
@@ -2833,7 +2939,8 @@ mod tests {
             handle_rpc(
                 &hub,
                 json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
-                None
+                None,
+                None,
             )
             .is_none()
         );
@@ -2852,7 +2959,8 @@ mod tests {
                 &mut BufReader::new(messages.as_bytes()),
                 &mut output,
                 &hub,
-                None
+                None,
+                None,
             )
             .is_ok()
         );
