@@ -944,6 +944,7 @@ mod tests {
                     graphics,
                     model: None,
                     rules,
+                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
                     retained: vec![],

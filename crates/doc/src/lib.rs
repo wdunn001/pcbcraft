@@ -3853,6 +3853,9 @@ pub struct Project {
     /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sheets: Vec<Sheet>,
+    /// Display name for schematic page 0 when the designer sets one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_sheet_name: Option<String>,
     /// Per-page title block fields and drawing defaults; a page without a
     /// record uses [`PageSettings::new`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -4099,6 +4102,7 @@ impl Default for Project {
             net_classes: vec![],
             class_pairs: vec![],
             sheets: vec![],
+            root_sheet_name: None,
             page_settings: vec![],
             ports: vec![],
             bom_fields: vec![],
@@ -5344,6 +5348,14 @@ self.validate_manufacturers()?;
             }
         }
         let mut sheet_names = BTreeSet::new();
+        if let Some(name) = &self.root_sheet_name {
+            if name.is_empty() || name.len() > 128 {
+                return Err("sheet name must be 1 to 128 bytes".into());
+            }
+            if !sheet_names.insert(name) {
+                return Err("duplicate sheet name".into());
+            }
+        }
         for s in &self.sheets {
             if s.name.is_empty() || s.name.len() > 128 {
                 return Err("sheet name must be 1–128 bytes".into());
@@ -6933,6 +6945,7 @@ mod drill_tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
             retained: vec![],
@@ -7680,11 +7693,29 @@ mod drill_tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
             retained: vec![],
         };
         validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
+    #[test]
+    fn project_validate_rejects_root_sheet_name_that_matches_another_page() -> Result<(), String> {
+        let mut p = Project::default();
+        p.root_sheet_name = Some("Main".into());
+        p.sheets.push(Sheet {
+            id: 1,
+            name: "Main".into(),
+            parent: None,
+            entry: None,
+        });
+        assert!(
+            p.validate()
+                .is_err_and(|e| e.contains("duplicate sheet name"))
+        );
         Ok(())
     }
 
@@ -7699,6 +7730,7 @@ mod drill_tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
             retained: vec![],
