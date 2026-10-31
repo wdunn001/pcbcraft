@@ -56,6 +56,15 @@ pub const MORE: Icon = Icon(|p, r, c| {
     }
 });
 
+/// A push pin, for keeping an item at the top of a list.
+pub const PIN: Icon = Icon(|p, r, c| {
+    line(p, r, c, &[(6.0, 2.5), (10.0, 2.5)]);
+    line(p, r, c, &[(6.5, 2.5), (6.5, 8.0)]);
+    line(p, r, c, &[(9.5, 2.5), (9.5, 8.0)]);
+    line(p, r, c, &[(4.5, 8.0), (11.5, 8.0)]);
+    line(p, r, c, &[(8.0, 8.0), (8.0, 14.0)]);
+});
+
 /// A cross.
 pub const CLOSE: Icon = Icon(|p, r, c| {
     line(p, r, c, &[(4.0, 4.0), (12.0, 12.0)]);

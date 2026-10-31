@@ -1,3 +1,5 @@
+# Source: Snapmaker Artisan CNC module specs and published CNC defaults.
+# Retrieved: 2026-10-28
 id = "snapmaker-artisan-200w-cnc"
 name = "Snapmaker Artisan 200W CNC"
 kind = "cnc_mill"

@@ -242,7 +242,7 @@ fn solid_id(exchange: &Exchange) -> Option<u32> {
 
 /// Append a vendor body to a board [`StepWriter`] and return product links.
 pub fn append_body(
-    doc: &mut StepWriter,
+    doc: &mut impl StepWriter,
     exchange: Exchange,
     part_name: &str,
 ) -> Result<VendorLinks, String> {
@@ -311,7 +311,7 @@ pub fn append_body(
 
 /// Write one placed-part occurrence under the board assembly.
 pub fn write_occurrence(
-    doc: &mut StepWriter,
+    doc: &mut impl StepWriter,
     board_product_definition: u32,
     links: &VendorLinks,
     matrix: &[f64; 16],
@@ -343,7 +343,7 @@ pub fn write_occurrence(
     Ok(())
 }
 
-fn placement_from_matrix(doc: &mut StepWriter, matrix: &[f64; 16]) -> Result<u32, String> {
+fn placement_from_matrix(doc: &mut impl StepWriter, matrix: &[f64; 16]) -> Result<u32, String> {
     let origin = apply_matrix(matrix, [0.0, 0.0, 0.0]);
     let x = apply_matrix(matrix, [1.0, 0.0, 0.0]);
     let z = apply_matrix(matrix, [0.0, 0.0, 1.0]);
@@ -371,6 +371,9 @@ fn normalize(v: [f64; 3]) -> (f64, f64, f64) {
 }
 
 /// Minimal STEP writer surface used by [`append_body`] and [`write_occurrence`].
+///
+/// # Implementations
+/// - crates/io/src/lib.rs `impl StepWriter for StepDoc`.
 pub trait StepWriter {
     fn next_id(&self) -> u32;
     fn add(&mut self, body: &str) -> Result<u32, String>;
@@ -384,17 +387,22 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    fn read_fixture(name: &str) -> String {
+    fn read_fixture(name: &str) -> Result<String, String> {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
             .join(name);
-        std::fs::read_to_string(path).expect("fixture")
+        std::fs::read_to_string(path).map_err(|_| format!("fixture {name}"))
     }
 
     #[test]
     fn step_merge_renumbers_without_clashing_ids() -> Result<(), String> {
-        let exchange = parse_exchange(&read_fixture("box.step"))?;
-        let high = exchange.entities.iter().map(|(id, _)| *id).max().unwrap_or(0);
+        let exchange = parse_exchange(&read_fixture("box.step")?)?;
+        let high = exchange
+            .entities
+            .iter()
+            .map(|(id, _)| *id)
+            .max()
+            .unwrap_or(0);
         let shifted = renumber(exchange, 1000);
         assert!(shifted.entities.iter().all(|(id, _)| *id > 1000));
         assert!(shifted.entities.iter().any(|(id, _)| *id == high + 1000));
@@ -410,16 +418,17 @@ mod tests {
 
     #[test]
     fn step_merge_keeps_each_bodys_own_unit() -> Result<(), String> {
-        let mm = parse_exchange(&read_fixture("box.step"))?;
+        let mm = parse_exchange(&read_fixture("box.step")?)?;
         assert!((unit_scale_to_mm(&mm) - 1.0).abs() < 1e-9);
-        let inch = parse_exchange(&read_fixture("inch_box.step"))?;
+        let inch = parse_exchange(&read_fixture("inch_box.step")?)?;
         assert!((unit_scale_to_mm(&inch) - 25.4).abs() < 1e-9);
         Ok(())
     }
 
     #[test]
     fn step_merge_refuses_oversized_files() {
-        let huge = "ISO-10303-21;\nDATA;\n".to_string() + &"#1=CARTESIAN_POINT('',(0,0,0));\n".repeat(500_000);
+        let huge = "ISO-10303-21;\nDATA;\n".to_string()
+            + &"#1=CARTESIAN_POINT('',(0,0,0));\n".repeat(500_000);
         assert!(parse_exchange(&huge).is_err());
     }
 }
