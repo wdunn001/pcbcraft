@@ -21,12 +21,12 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-    PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, drill_chart_csv, dxf_board,
-    gencad_text, gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text,
-    netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
-    postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, testpoints_csv,
-    vrml_board,impedance_table_csv, fab_drawing_pdf, si_net_results_csv, spice_netlist, touchstone_text,
-    bundled_placement_flavours, placement_flavoured
+bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
+    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
+    pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
+    stats_text, step_board, svg, testpoints_csv, vrml_board, impedance_table_csv, fab_drawing_pdf,
+    si_net_results_csv, spice_netlist, touchstone_text, bundled_placement_flavours, placement_flavoured,
+    PlacementOptions
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
