@@ -13,22 +13,16 @@ pcbcraft-ui-egui.workspace = true
 pcbcraft-engine.workspace = true
 pcbcraft-mcp.workspace = true
 pcbcraft-text.workspace = true
-<<<<<<< HEAD
 pcbcraft-library.workspace = true
 
-=======
-# Use minimal eframe without desktop features for wasm
->>>>>>> df904ce8 (fix wasm32-unknown-unknown build with web-time dependency)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# Use minimal eframe without desktop features for wasm
 eframe = { version = "0.36", default-features = false, features = ["default_fonts"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-<<<<<<< HEAD
 js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Request", "Response", "console", "Element", "Navigator", "Headers", "RequestInit", "RequestMode", "RequestCredentials"] }
-=======
-web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "console", "Element"] }
+
 # Desktop eframe features
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "x11", "wayland", "persistence", "accesskit"] }
->>>>>>> df904ce8 (fix wasm32-unknown-unknown build with web-time dependency)
