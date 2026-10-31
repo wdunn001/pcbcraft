@@ -3666,11 +3666,16 @@ fn command_triggers_board_sync(command: &str) -> bool {
         command,
         "component.add"
             | "component.place_library"
+            | "component.place_custom"
             | "footprint.assign"
             | "footprint.assign_pattern"
             | "footprint.assign_table"
             | "footprint.assign_file"
             | "footprint.assign_custom"
+            | "footprint.refresh"
+            | "symbol.refresh"
+            | "variant.set_footprint"
+            | "variant.clear_footprint"
             | "net.create"
             | "net.rename"
             | "net.swap"
@@ -22424,6 +22429,31 @@ mod tests {
             rev0 + 1,
             "one undo step covers schematic and board"
         );
+        assert_eq!(s.project.board.footprints.len(), 1);
+        assert_eq!(s.project.board.footprints[0].component, id);
+        s.undo()?;
+        assert!(s.project.components.is_empty());
+        assert!(s.project.board.footprints.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn placing_a_custom_library_part_with_auto_sync_creates_its_board_footprint()
+    -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut symbol = library::symbol(
+            std::path::Path::new(&library_fixture("device.kicad_sym")),
+            "R",
+        )?;
+        symbol.name = "AutoSyncR".into();
+        s.execute("library.symbol.upsert", json!({"definition": symbol}), None)?;
+        let id = s.execute(
+            "component.place_custom",
+            json!({"name":"AutoSyncR","position":{"x":12.0,"y":14.0},"reference":"R9"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
         assert_eq!(s.project.board.footprints.len(), 1);
         assert_eq!(s.project.board.footprints[0].component, id);
         s.undo()?;
