@@ -1,7 +1,8 @@
 use pcbcraft_doc::{
-    Compliance, CountryOfOrigin, Declaration, DeclarationSource, DeclarationSourceKind,
-    DeclarationStatus, ManufacturerRecord, PartRole, Project, Sourcing, apply_listing_declarations,
-    normalize_manufacturer_name, MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS,
+    Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings, CountryOfOrigin,
+    Declaration, DeclarationSource, DeclarationSourceKind, DeclarationStatus, ManufacturerRecord,
+    PartRole, Project, Sourcing, apply_listing_declarations, normalize_manufacturer_name,
+    MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS,
 };
 
 #[test]
@@ -170,5 +171,43 @@ fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -
         compliance.declarations[0].source.kind,
         DeclarationSourceKind::Distributor
     );
+    Ok(())
+}
+
+#[test]
+fn compliance_settings_and_mutes_round_trip() -> Result<(), String> {
+    let mut p = Project::default();
+    p.compliance_settings = ComplianceProjectSettings {
+        rule_sets: vec!["synthetic_demo".into()],
+        org_role: Some(ComplianceOrgRole::Buyer),
+        target_markets: vec!["demo-market".into()],
+    };
+    p.compliance_mutes.push(ComplianceFindingMute {
+        rule: "demo.declaration_required".into(),
+        component: Some(1),
+        manufacturer: None,
+        reason: "prototype waiver".into(),
+    });
+    p.components.push(pcbcraft_doc::Component {
+        id: 1,
+        reference: "R1".into(),
+        value: "1k".into(),
+        kind: "resistor".into(),
+        position: pcbcraft_geom::Point::default(),
+        rotation: 0.0,
+        pins: vec![],
+        units: vec![],
+        library_symbol: None,
+        library_footprint: None,
+        fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
+        sheet: 0,
+    });
+    p.validate()?;
+    let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
+    let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    assert_eq!(back.compliance_settings.org_role, Some(ComplianceOrgRole::Buyer));
+    assert_eq!(back.compliance_mutes[0].reason, "prototype waiver");
     Ok(())
 }

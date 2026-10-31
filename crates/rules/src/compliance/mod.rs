@@ -1,16 +1,17 @@
-//! Regulatory compliance rule sets driven by bundled TOML data.
-mod eu_market;
-mod lists;
+//! Regulatory compliance checks driven by bundled rule set TOML.
+mod entity_match;
+mod evaluate;
+mod list_load;
 mod ruleset;
 
-pub use eu_market::EU_MARKET_RULE_SET;
-pub use lists::{load_list_snapshot, ListSnapshot};
-pub use ruleset::{ComplianceRuleSet, ComplianceRuleSpec, load_rule_set};
+pub use evaluate::{evaluate_ruleset, EVAL_DAY};
+pub use ruleset::{load_rule_set, ComplianceRuleSet, ComplianceRuleSpec};
 
-use pcbcraft_doc::{
-    ComplianceProjectSettings, Declaration, DeclarationStatus, Project, date_le, valid_date,
-};
+use pcbcraft_doc::Project;
 use serde::Serialize;
+
+const SYNTHETIC_DEMO_RULE_SET: &str =
+    include_str!("../../data/compliance/rulesets/synthetic_demo.toml");
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct ComplianceFinding {
@@ -22,151 +23,54 @@ pub struct ComplianceFinding {
     pub evidence: String,
     pub citation: String,
     pub objects: Vec<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manufacturer: Option<String>,
 }
 
-/// Run every rule set named in the project compliance settings.
-pub fn check(project: &Project) -> Vec<ComplianceFinding> {
+fn bundled_ruleset_text(id: &str) -> Option<&'static str> {
+    match id {
+        "synthetic_demo" => Some(SYNTHETIC_DEMO_RULE_SET),
+        _ => None,
+    }
+}
+
+/// Run compliance rule sets named in the project settings.
+pub fn compliance_check(project: &Project) -> Vec<ComplianceFinding> {
     let mut out = Vec::new();
     for id in &project.compliance_settings.rule_sets {
-        if id == "eu_market" {
-            out.extend(eu_market::evaluate(project));
-        }
+        let Some(text) = bundled_ruleset_text(id) else {
+            out.push(ComplianceFinding {
+                code: format!("{id}_missing"),
+                state: "hit".into(),
+                severity: "error".into(),
+                message: format!("Unknown compliance rule set {id}."),
+                rule: id.clone(),
+                evidence: "Rule set id is not bundled with this release.".into(),
+                citation: "PCBCraft compliance engine".into(),
+                objects: vec![],
+                manufacturer: None,
+            });
+            continue;
+        };
+        let set = match load_rule_set(text) {
+            Ok(s) => s,
+            Err(e) => {
+                out.push(ComplianceFinding {
+                    code: format!("{id}_load"),
+                    state: "hit".into(),
+                    severity: "error".into(),
+                    message: format!("Rule set {id} failed to load."),
+                    rule: id.clone(),
+                    evidence: e,
+                    citation: "PCBCraft compliance engine".into(),
+                    objects: vec![],
+                    manufacturer: None,
+                });
+                continue;
+            }
+        };
+        out.extend(evaluate_ruleset(project, &set));
     }
+    evaluate::apply_mutes(project, &mut out);
     out
-}
-
-pub(crate) fn is_unknown(d: &Declaration) -> bool {
-    d.status == DeclarationStatus::Unknown
-}
-
-pub(crate) fn is_exempt(d: &Declaration) -> bool {
-    d.status == DeclarationStatus::DeclaredExempt
-}
-
-pub(crate) fn exemption_number(d: &Declaration) -> Option<&str> {
-    if is_exempt(d) && !d.detail.is_empty() {
-        Some(d.detail.as_str())
-    } else {
-        None
-    }
-}
-
-pub(crate) fn list_version_stale(
-    declared_version: &str,
-    snapshot_version: &str,
-    snapshot_retrieved: &str,
-    declaration_date: &str,
-) -> bool {
-    if declared_version != snapshot_version {
-        return true;
-    }
-    if valid_date(declaration_date) && valid_date(snapshot_retrieved) {
-        return date_le(snapshot_retrieved, declaration_date);
-    }
-    false
-}
-
-pub(crate) fn finish_is_leaded(project: &Project) -> bool {
-    let finish = project.board.finish.to_ascii_lowercase();
-    if finish.contains("leaded") || finish.contains("lead tin") || finish.contains("sn/pb") {
-        return true;
-    }
-    if let Some(rules) = &project.board.rules {
-        if rules
-            .solder
-            .as_ref()
-            .is_some_and(|s| s.eq_ignore_ascii_case("leaded"))
-        {
-            return true;
-        }
-    }
-    false
-}
-
-pub(crate) fn push_unverified(
-    out: &mut Vec<ComplianceFinding>,
-    rule: &ComplianceRuleSpec,
-    component_id: u64,
-    reference: &str,
-    message: &str,
-) {
-    out.push(ComplianceFinding {
-        code: rule.id.clone(),
-        state: "unverified".into(),
-        severity: rule.severity_unverified.clone(),
-        message: message.to_string(),
-        rule: rule.id.clone(),
-        evidence: format!("Part {reference} has no matching declaration."),
-        citation: rule.citation.clone(),
-        objects: vec![component_id],
-    });
-}
-
-pub(crate) fn push_stale(
-    out: &mut Vec<ComplianceFinding>,
-    rule: &ComplianceRuleSpec,
-    component_id: u64,
-    reference: &str,
-    evidence: &str,
-    message: &str,
-) {
-    out.push(ComplianceFinding {
-        code: rule.id.clone(),
-        state: "stale".into(),
-        severity: rule
-            .severity_stale
-            .clone()
-            .unwrap_or_else(|| rule.severity_hit.clone()),
-        message: message.to_string(),
-        rule: rule.id.clone(),
-        evidence: format!("Part {reference}: {evidence}"),
-        citation: rule.citation.clone(),
-        objects: vec![component_id],
-    });
-}
-
-pub(crate) fn push_hit(
-    out: &mut Vec<ComplianceFinding>,
-    rule: &ComplianceRuleSpec,
-    component_id: u64,
-    reference: &str,
-    evidence: &str,
-    message: &str,
-) {
-    out.push(ComplianceFinding {
-        code: rule.id.clone(),
-        state: "hit".into(),
-        severity: rule.severity_hit.clone(),
-        message: message.to_string(),
-        rule: rule.id.clone(),
-        evidence: format!("Part {reference}: {evidence}"),
-        citation: rule.citation.clone(),
-        objects: vec![component_id],
-    });
-}
-
-pub(crate) fn push_board_hit(
-    out: &mut Vec<ComplianceFinding>,
-    rule: &ComplianceRuleSpec,
-    evidence: &str,
-    message: &str,
-) {
-    out.push(ComplianceFinding {
-        code: rule.id.clone(),
-        state: "hit".into(),
-        severity: rule.severity_hit.clone(),
-        message: message.to_string(),
-        rule: rule.id.clone(),
-        evidence: evidence.to_string(),
-        citation: rule.citation.clone(),
-        objects: vec![],
-    });
-}
-
-pub fn settings_valid(settings: &ComplianceProjectSettings) -> bool {
-    settings.rule_sets.len() <= 16
-        && settings
-            .rule_sets
-            .iter()
-            .all(|s| !s.is_empty() && s.len() <= 64)
 }

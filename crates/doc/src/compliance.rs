@@ -9,7 +9,9 @@
 //!
 //! # Dependencies
 //! - `crates/doc/src/lib.rs` for `Component` and `Project`.
-//! - `crates/engine/src/lib.rs` for `component.set_compliance` and `manufacturer.set`.
+//! - `crates/engine/src/lib.rs` for `component.set_compliance`, `manufacturer.set`,
+//!   `project.compliance.set`, `compliance.check` and `compliance.finding.mute`.
+//! - `crates/rules/src/compliance/` for bundled rule set evaluation.
 
 use crate::{Component, Project, Sourcing};
 use serde::{Deserialize, Serialize};
@@ -159,6 +161,7 @@ fn valid_iso3166_alpha2(code: &str) -> bool {
             .all(|b| b.is_ascii_uppercase() || b.is_ascii_lowercase())
 }
 
+/// True when `date` is empty or a calendar date in `YYYY-MM-DD` form.
 pub fn valid_date(date: &str) -> bool {
     date.is_empty()
         || (date.len() == 10
@@ -167,36 +170,59 @@ pub fn valid_date(date: &str) -> bool {
             && date.chars().all(|c| c.is_ascii_digit() || c == '-'))
 }
 
-pub fn date_le(a: &str, b: &str) -> bool {
-    valid_date(a) && valid_date(b) && a <= b
+/// True when `left` is on or before `right` as calendar dates.
+pub fn date_le(left: &str, right: &str) -> bool {
+    if !valid_date(left) || !valid_date(right) {
+        return false;
+    }
+    compliance_day_number(left) <= compliance_day_number(right)
 }
 
-/// Which regulatory rule bundles run against the bill of materials.
+fn compliance_day_number(text: &str) -> i64 {
+    let y: i64 = text.get(0..4).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let m: i64 = text.get(5..7).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let d: i64 = text.get(8..10).and_then(|s| s.parse().ok()).unwrap_or(0);
+    y * 372 + m * 31 + d
+}
+
+pub const MAX_COMPLIANCE_RULE_SETS: usize = 16;
+pub const MAX_COMPLIANCE_MARKETS: usize = 16;
+pub const MAX_COMPLIANCE_MUTES: usize = 256;
+pub const MAX_COMPLIANCE_MUTE_REASON: usize = 512;
+
+/// How the project team relates to the product for compliance rule sets.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ComplianceOrgRole {
+    MakerSeller,
+    Integrator,
+    Buyer,
+    #[default]
+    Unset,
+}
+
+/// Rule sets, role and markets chosen for this design.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ComplianceProjectSettings {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_sets: Vec<String>,
-    /// RoHS exemption number applied at board level when a leaded finish is chosen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub board_rohs_exemption: Option<String>,
+    pub org_role: Option<ComplianceOrgRole>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub target_markets: Vec<String>,
 }
 
-impl ComplianceProjectSettings {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.rule_sets.len() > 16 {
-            return Err("a project selects at most 16 compliance rule sets".into());
-        }
-        for id in &self.rule_sets {
-            if id.is_empty() || id.len() > 64 {
-                return Err("compliance rule set ids must be 1 to 64 bytes".into());
-            }
-        }
-        if let Some(ex) = &self.board_rohs_exemption {
-            bounded("board RoHS exemption", ex, MAX_COMPLIANCE_TEXT)?;
-        }
-        Ok(())
-    }
+/// A muted compliance finding with a reason stored on the project.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ComplianceFindingMute {
+    pub rule: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manufacturer: Option<String>,
+    pub reason: String,
 }
 
 /// Lowercase letters and digits only, for alias lookup.
@@ -259,15 +285,66 @@ impl DeclaredSubstance {
     }
 }
 
-impl Compliance {
+impl ComplianceProjectSettings {
     pub fn is_empty(&self) -> bool {
-        *self == Self::default()
+        self.rule_sets.is_empty()
+            && self.org_role.is_none()
+            && self.target_markets.is_empty()
     }
 
+    pub fn validate(&self) -> Result<(), String> {
+        if self.rule_sets.len() > MAX_COMPLIANCE_RULE_SETS {
+            return Err(format!(
+                "a project selects at most {MAX_COMPLIANCE_RULE_SETS} compliance rule sets"
+            ));
+        }
+        let mut seen = BTreeSet::new();
+        for id in &self.rule_sets {
+            if id.trim().is_empty() || id.len() > 64 {
+                return Err("each rule set id must be 1 to 64 bytes".into());
+            }
+            if !seen.insert(id.clone()) {
+                return Err("rule set ids must be unique".into());
+            }
+        }
+        if self.target_markets.len() > MAX_COMPLIANCE_MARKETS {
+            return Err(format!(
+                "a project lists at most {MAX_COMPLIANCE_MARKETS} target markets"
+            ));
+        }
+        for market in &self.target_markets {
+            bounded("target market", market, MAX_COMPLIANCE_TEXT)?;
+        }
+        Ok(())
+    }
+}
+
+impl ComplianceFindingMute {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.rule.trim().is_empty() || self.rule.len() > 64 {
+            return Err("mute rule id must be 1 to 64 bytes".into());
+        }
+        if self.reason.trim().is_empty() {
+            return Err("muting a compliance finding needs a reason".into());
+        }
+        bounded("mute reason", &self.reason, MAX_COMPLIANCE_MUTE_REASON)?;
+        if let Some(name) = &self.manufacturer {
+            bounded("mute manufacturer", name, MAX_MANUFACTURER_NAME)?;
+        }
+        Ok(())
+    }
+}
+
+impl Compliance {
     pub fn declaration_for(&self, regime: &str) -> Option<&Declaration> {
+        let key = regime.trim().to_ascii_lowercase();
         self.declarations
             .iter()
-            .find(|d| d.regime.trim().eq_ignore_ascii_case(regime.trim()))
+            .find(|d| d.regime.trim().eq_ignore_ascii_case(&key))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -362,6 +439,40 @@ impl Project {
         self.manufacturers
             .iter()
             .find(|record| record.matches_name(name))
+    }
+
+    pub fn validate_compliance_mutes(&self) -> Result<(), String> {
+        if self.compliance_mutes.len() > MAX_COMPLIANCE_MUTES {
+            return Err(format!(
+                "a project stores at most {MAX_COMPLIANCE_MUTES} compliance mutes"
+            ));
+        }
+        for mute in &self.compliance_mutes {
+            mute.validate()?;
+            if let Some(id) = mute.component {
+                if !self.components.iter().any(|c| c.id == id) {
+                    return Err(format!("mute references missing component {id}"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn compliance_muted(&self, rule: &str, component: u64, manufacturer: Option<&str>) -> bool {
+        self.compliance_mutes.iter().any(|m| {
+            if m.rule != rule {
+                return false;
+            }
+            if let Some(id) = m.component {
+                return id == component;
+            }
+            if let Some(name) = m.manufacturer.as_deref() {
+                return manufacturer.is_some_and(|maker| {
+                    normalize_manufacturer_name(maker) == normalize_manufacturer_name(name)
+                });
+            }
+            false
+        })
     }
 
     pub fn upsert_manufacturer(&mut self, record: ManufacturerRecord) -> Result<bool, String> {
