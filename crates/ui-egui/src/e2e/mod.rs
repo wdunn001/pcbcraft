@@ -38,6 +38,7 @@ mod settings;
 mod sheet_rows;
 mod shell;
 mod showcase;
+mod showcase_schematic_layout;
 mod sourcing;
 mod toolbar;
 mod tree_rows;
