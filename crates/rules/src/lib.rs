@@ -273,6 +273,9 @@ push_on_copper_layers(project, item, &mut result);
                             copy.layer = layer;
                             result.push(copy);
                         }
+                        let mut layer_item = item.clone();
+                        layer_item.layer = layer;
+                        result.push(layer_item);
                     }
                     result.push(item);
                 }
@@ -363,6 +366,18 @@ push_on_copper_layers(project, item, &mut result);
         };
         // One pad per copper layer in the via's span; it conducts nowhere else.
         for layer in project.via_span_layers(v) {
+            if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer) {
+                if !pcbcraft_doc::fill::plated_item_connected_on_layer(
+                    project,
+                    v.net,
+                    v.position,
+                    v.diameter / 2.0,
+                    layer,
+                    pcbcraft_doc::fill::PlatedConnectKind::Via,
+                ) {
+                    continue;
+                }
+            }
             let mut pad = item.clone();
             pad.layer = layer;
             result.push(pad);
