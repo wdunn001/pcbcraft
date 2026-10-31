@@ -72,11 +72,12 @@ pub(crate) struct View3d {
     pub(crate) notes_open: bool,
     /// Where the viewport was painted last frame, so tests and picking agree.
     pub rect: Rect,
-<<<<<<< ours
     /// The last rendered picture and what it was made from.
     frame: Option<Held>,
     /// An angle a capture asked for; applied once the first fit has run.
     pub(crate) start_angle: Option<(f64, f64)>,
+    /// Keep the camera when the mesh is rebuilt after an edit, instead of fitting it again.
+    pub keep_camera: bool,
 }
 
 /// A rendered picture with its key; `TextureHandle` has no `Debug`.
@@ -100,10 +101,6 @@ struct FrameKey {
     gold: bool,
     mask: [u8; 3],
     silk: [u8; 3],
-=======
-    /// Keep the camera when the mesh is rebuilt after an edit, instead of fitting it again.
-    pub keep_camera: bool,
->>>>>>> theirs
 }
 impl Default for View3d {
     fn default() -> Self {
@@ -119,12 +116,9 @@ impl Default for View3d {
             error: None,
             notes_open: false,
             rect: Rect::NOTHING,
-<<<<<<< ours
             frame: None,
             start_angle: None,
-=======
             keep_camera: false,
->>>>>>> theirs
         }
     }
 }

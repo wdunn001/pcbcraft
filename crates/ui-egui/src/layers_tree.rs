@@ -195,7 +195,6 @@ pub(crate) enum Action {
     ExportBom { selection: bool },
     /// Leave a part off the bill of materials, or put it back.
     ToggleBomExclude(Id),
-<<<<<<< ours
     /// Show or hide one fixed row of a page (`symbols`, `power`, `drawing`, `title`).
     SetPageRowShown {
         page: Id,
@@ -210,8 +209,6 @@ pub(crate) enum Action {
     TitleShown { page: Id, on: bool },
     /// Place a power port on a page, tied to the first power net.
     AddPowerPort(Id),
-=======
->>>>>>> theirs
 }
 
 /// The read-only inputs of one frame.
@@ -229,11 +226,8 @@ pub(crate) struct Env<'a> {
     pub revision: u64,
     /// How many parts are selected, for the Export BOM for selection entry.
     pub parts_selected: usize,
-<<<<<<< ours
     /// Show the fixed rows of a page even when they hold nothing.
     pub show_empty: bool,
-=======
->>>>>>> theirs
 }
 
 /// The canvas toggles each tab's layer rows may switch.
@@ -2881,7 +2875,6 @@ enum RowAct {
     ExportBom,
     ExportBomSelection,
     ToggleBomExclude,
-<<<<<<< ours
     PageAdd,
     PageRemove,
     SelectAll,
@@ -2889,8 +2882,6 @@ enum RowAct {
     TitleToggle,
     /// Remove on a fixed row of a page; the menu always shows it disabled.
     Remove,
-=======
->>>>>>> theirs
 }
 
 /// The kind name capture mode uses to open the first menu of this kind.
@@ -3761,10 +3752,7 @@ impl crate::App {
                 target: self.current_target(),
                 revision: self.revision,
                 parts_selected: self.selected_part_components().len(),
-<<<<<<< ours
                 show_empty: self.tree.show_empty,
-=======
->>>>>>> theirs
             };
             show(ui, &env, &mut self.tree)
         };
@@ -4136,10 +4124,7 @@ mod tests {
             target: Target::Copper(Layer::Front),
             revision: 1,
             parts_selected: 0,
-<<<<<<< ours
             show_empty: false,
-=======
->>>>>>> theirs
         }
     }
 

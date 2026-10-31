@@ -120,10 +120,6 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
 fn a_newcomer_locks_a_layer_row_and_clicks_pass_through_it() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
     app.project.board.tracks.push(pcbcraft_doc::Track {
-<<<<<<< ours
-        preserved: pcbcraft_doc::PreservedSource::default(),
-=======
->>>>>>> theirs
         id: 9_998,
         net: app.project.nets[0].id,
         start: Point::new(10.0, 10.0),
@@ -131,10 +127,7 @@ fn a_newcomer_locks_a_layer_row_and_clicks_pass_through_it() -> Result<(), Strin
         width: 0.25,
         layer: pcbcraft_doc::Layer::Front,
         arc: None,
-<<<<<<< ours
         preserved: pcbcraft_doc::PreservedSource::default(),
-=======
->>>>>>> theirs
     });
     let (spot, lo, hi) = (
         Point::new(15.0, 10.0),
@@ -522,7 +515,6 @@ fn a_silkscreen_line_drawn_on_the_layout_is_kept_for_the_capture() -> Result<(),
     Ok(())
 }
 
-<<<<<<< ours
 #[test]
 fn a_newcomer_draws_on_bottom_copper_of_a_four_layer_board() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
@@ -575,11 +567,7 @@ fn a_newcomer_draws_on_bottom_copper_of_a_four_layer_board() -> Result<(), Strin
     );
     Ok(())
 }
-<<<<<<< ours
-<<<<<<< ours
 
-=======
->>>>>>> theirs
 /// Type `text` over what the focused field holds.
 fn type_over(ctx: &egui::Context, app: &mut App, text: &str) {
     frame(
@@ -643,10 +631,6 @@ fn a_newcomer_presses_f2_to_rename_a_net_and_a_layer() -> Result<(), String> {
     );
     Ok(())
 }
-<<<<<<< ours
-=======
->>>>>>> theirs
-=======
 
 #[test]
 fn a_newcomer_saves_a_four_layer_board_and_the_file_names_the_bottom_layer() -> Result<(), String> {
@@ -688,6 +672,3 @@ fn a_newcomer_saves_a_four_layer_board_and_the_file_names_the_bottom_layer() -> 
     assert_eq!(first, second, "saving again changes nothing");
     Ok(())
 }
->>>>>>> theirs
-=======
->>>>>>> theirs

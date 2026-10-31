@@ -160,8 +160,6 @@ pub(super) struct Sheet {
     pub rows: usize,
     pub size: String,
     pub title: String,
-    /// The revision typed in Project settings, empty when none.
-    pub revision: String,
     pub date: String,
     pub revision: String,
     pub company: String,
@@ -222,11 +220,7 @@ fn title_block_width(sheet_width: f64) -> f64 {
 
 /// Today's date as `YYYY-MM-DD` in UTC, for a project that records none.
 fn today() -> String {
-<<<<<<< ours
     let secs = crate::wall_clock::unix_secs_now();
-=======
-    let secs = pcbcraft_clock::unix_secs();
->>>>>>> theirs
     let z = (secs / 86_400) as i64 + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -304,7 +298,6 @@ pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
         rows: ((h / 50.0).round() as usize).clamp(3, 16),
         size: size.to_string(),
         title,
-<<<<<<< ours
         date: Some(settings.date.clone())
             .filter(|d| !d.is_empty())
             .or_else(|| p.meta.get("date").cloned())
@@ -314,15 +307,6 @@ pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
         drawn_by: settings.drawn_by.clone(),
         title_shown: !settings.title_hidden,
         page: number,
-=======
-        revision: p
-            .meta
-            .get("revision")
-            .map(|r| r.trim().to_owned())
-            .unwrap_or_default(),
-        date: p.meta.get("date").cloned().unwrap_or_else(today),
-        page: 1,
->>>>>>> theirs
         pages: p.sheets.len() + 1,
     }
 }
@@ -526,15 +510,6 @@ fn paint_title_block(
         &sheet.title,
         &FontId::monospace((height * 0.22).clamp(9.0, 19.0)),
     );
-    if !sheet.revision.is_empty() {
-        painter.text(
-            block.right_top() + Vec2::new(-pad, pad * 0.6),
-            Align2::RIGHT_TOP,
-            format!("{} {}", t!("schematic.sheet.revision"), sheet.revision),
-            caption.clone(),
-            sc.muted,
-        );
-    }
     place(
         Pos2::new(cells[0], split),
         t!("schematic.sheet.sheet").to_uppercase(),

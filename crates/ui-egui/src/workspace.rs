@@ -256,37 +256,24 @@ impl Workspace for ManufactureWorkspace {
         &MANUFACTURE_TABS
     }
     fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
-<<<<<<< ours
-        let words = match tab {
-            "outputs" => t!("workspace.outputs_hint"),
-            "machines" => t!("workspace.machines_hint"),
-            _ => return,
-        };
-        ui.label(egui::RichText::new(words).color(app.muted()));
-        if tab == "outputs" {
-            app.bom_outputs_ui(ui);
-=======
         match tab {
             "outputs" => {
                 ui.label(egui::RichText::new(t!("workspace.outputs_hint")).color(app.muted()));
+                app.bom_outputs_ui(ui);
             }
             "machines" => app.machines_left(ui),
             _ => {}
->>>>>>> theirs
         }
     }
     fn center(&self, app: &mut App, ui: &mut egui::Ui) {
         let machines = app.region().left_tab == "machines";
         egui::ScrollArea::vertical().show(ui, |ui| {
             App::margined(ui, |ui| {
-<<<<<<< ours
-                app.drill_table_section(ui);
-                ui.add_space(12.0);
-=======
                 if machines && app.machine_view(ui) {
                     return;
                 }
->>>>>>> theirs
+                app.drill_table_section(ui);
+                ui.add_space(12.0);
                 let theme = plot_viewer::Theme {
                     surface: app.surface(),
                     muted: app.muted(),
