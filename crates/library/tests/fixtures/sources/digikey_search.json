@@ -1,0 +1,18 @@
+{
+  "ProductsCount": 1,
+  "Products": [
+    {
+      "ManufacturerProductNumber": "RC0603FR-0710KL",
+      "Manufacturer": {"Name": "YAGEO"},
+      "Description": {"ProductDescription": "RES 10K OHM 1% 1/10W 0603"},
+      "QuantityAvailable": 450000,
+      "ProductUrl": "https://www.digikey.com/en/products/detail/sample/123",
+      "DatasheetUrl": "https://example.invalid/datasheets/rc0603.pdf",
+      "ProductStatus": {"Status": "Active"},
+      "StandardPricing": [
+        {"BreakQuantity": 1, "UnitPrice": 0.1, "Currency": "USD"},
+        {"BreakQuantity": 100, "UnitPrice": 0.02, "Currency": "USD"}
+      ]
+    }
+  ]
+}

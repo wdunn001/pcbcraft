@@ -60,6 +60,29 @@ fn chord_count(arc: &Arc, max_error: f64) -> usize {
 ///
 /// # Do not
 /// - Do not read the arcs as chords; use this for any polygon-only reader.
+/// Sample one circular arc into a polyline with the same chord budget as
+/// `flatten_outline` uses on board edges.
+pub fn arc_polyline(arc: &Arc, max_error: f64) -> Vec<Point> {
+    let n = chord_count(arc, max_error);
+    (0..=n).map(|k| arc.point_at(k as f64 / n as f64)).collect()
+}
+
+/// Largest gap between the arc and a chord approximation at `max_error`.
+pub fn arc_chord_worst_error(arc: &Arc, max_error: f64) -> f64 {
+    let n = chord_count(arc, max_error);
+    let mut worst = 0.0;
+    for k in 0..n {
+        let t0 = k as f64 / n as f64;
+        let t1 = (k + 1) as f64 / n as f64;
+        let a = arc.point_at(t0);
+        let b = arc.point_at(t1);
+        let mid_arc = arc.point_at((t0 + t1) / 2.0);
+        let mid_chord = Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
+        worst = worst.max(mid_arc.distance(mid_chord));
+    }
+    worst
+}
+
 pub fn flatten_outline(points: &[Point], arcs: &[Option<Point>], max_error: f64) -> Vec<Point> {
     let mut ring = Vec::with_capacity(points.len());
     for (i, &p) in points.iter().enumerate() {

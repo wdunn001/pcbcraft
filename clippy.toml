@@ -1,0 +1,6 @@
+# The browser build has no standard-library clock: these calls panic there and
+# blank the page (issue 750). Read time through crates/clock instead.
+disallowed-methods = [
+  { path = "std::time::SystemTime::now", reason = "panics in the browser; use pcbcraft_clock::system_now or pcbcraft_clock::unix_secs" },
+  { path = "std::time::Instant::now", reason = "panics in the browser; use pcbcraft_clock::instant_now" },
+]

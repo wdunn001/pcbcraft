@@ -53,6 +53,14 @@ pub(super) fn commands() -> Vec<CommandSpec> {
                 &["track", "target"],
             ),
         },
+        CommandSpec {
+            id: "track.tune_skew",
+            description: "On a declared differential pair with a length tolerance, replace straight runs on the shorter net with serpentines until routed skew is within that tolerance. Bumps rise on the side away from the partner net so the coupling gap is preserved. Refuses when either net has no copper on the chosen layer, no straight segment fits a meander, or too many passes would be needed",
+            input_schema: schema(
+                json!({"id":id_schema(),"name":{"type":"string","maxLength":64},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &[],
+            ),
+        },
     ]
 }
 
@@ -160,6 +168,12 @@ struct GroupParams {
     nets: Vec<Id>,
     tolerance: f64,
     #[serde(default)]
+    reference: Option<Id>,
+    #[serde(default)]
+    same_layer: bool,
+    #[serde(default)]
+    profile: Option<String>,
+    #[serde(default)]
     id: Option<Id>,
 }
 #[derive(Deserialize)]
@@ -182,6 +196,30 @@ struct TuneParams {
     #[serde(default)]
     style: Option<String>,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TuneSkewParams {
+    #[serde(default)]
+    id: Option<Id>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default = "skew_default_layer")]
+    layer: Layer,
+}
+fn skew_default_layer() -> Layer {
+    Layer::Front
+}
+struct MeanderOpts {
+    track: Id,
+    target: f64,
+    tolerance: f64,
+    amplitude_max: Option<f64>,
+    spacing: Option<f64>,
+    corner: Corner,
+    fixed_side: Option<i8>,
+}
+
+const MAX_SKEW_MEANDERS: usize = 32;
 
 pub(super) fn run(
     p: &mut Project,
@@ -196,6 +234,7 @@ pub(super) fn run(
         "board.remove_length_group" => remove_group(p, params),
         "net.length_groups" => group_report(p, params),
         "track.tune_length" => tune(p, next, params),
+        "track.tune_skew" => tune_skew(p, next, params),
         _ => return None,
     })
 }
@@ -362,18 +401,21 @@ fn set_group(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
         return Err(refuse("a length-match group needs a name of 1 to 64 bytes"));
     }
     let distinct: BTreeSet<Id> = a.nets.iter().copied().collect();
-    if !(2..=32).contains(&a.nets.len()) || distinct.len() != a.nets.len() {
-        return Err(refuse("a group holds two to 32 different nets"));
+    if !(2..=256).contains(&a.nets.len()) || distinct.len() != a.nets.len() {
+        return Err(refuse("a group holds two to 256 different nets"));
     }
     for net in &a.nets {
         if !p.nets.iter().any(|n| n.id == *net) {
             return Err(missing());
         }
     }
-    if !a.tolerance.is_finite() || !(0.0..=100.0).contains(&a.tolerance) {
-        return Err(refuse("the tolerance must be 0 to 100 millimetres"));
+    if !a.tolerance.is_finite() || !(0.0..=1000.0).contains(&a.tolerance) {
+        return Err(refuse("the tolerance must be 0 to 1000 millimetres"));
     }
-    let groups = &mut p.board.length_groups;
+    if a.reference.is_some_and(|r| r == 0 || !a.nets.contains(&r)) {
+        return Err(refuse("the reference net must be a member of the group"));
+    }
+    let groups = &mut p.length_groups;
     let target = match a.id {
         Some(id) => {
             if !groups.iter().any(|g| g.id == id) {
@@ -392,27 +434,43 @@ fn set_group(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
         let group = &mut groups[index];
         group.name = name.clone();
         group.nets = a.nets;
+        group.reference = a.reference;
         group.tolerance = a.tolerance;
+        group.same_layer = a.same_layer;
+        group.profile = a
+            .profile
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
         return Ok(json!({"id": group.id, "name": name}));
     }
     if groups.len() >= 64 {
-        return Err(refuse("a board carries at most 64 length-match groups"));
+        return Err(refuse("a project carries at most 64 length-match groups"));
     }
     let id = allocate(next)?;
     groups.push(LengthGroup {
         id,
         name: name.clone(),
         nets: a.nets,
+        reference: a.reference,
         tolerance: a.tolerance,
+        same_layer: a.same_layer,
+        profile: a
+            .profile
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
     });
     Ok(json!({"id": id, "name": name}))
 }
 
 fn remove_group(p: &mut Project, params: &Value) -> Result<Value, Error> {
     let a: IdParams = parse(params)?;
-    let before = p.board.length_groups.len();
-    p.board.length_groups.retain(|g| g.id != a.id);
-    if p.board.length_groups.len() == before {
+    let before = p.length_groups.len();
+    p.length_groups.retain(|g| g.id != a.id);
+    if p.length_groups.len() == before {
         return Err(missing());
     }
     Ok(json!({"id": a.id}))
@@ -421,12 +479,12 @@ fn remove_group(p: &mut Project, params: &Value) -> Result<Value, Error> {
 fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
     let a: GroupQuery = parse(params)?;
     if a.id
-        .is_some_and(|id| !p.board.length_groups.iter().any(|g| g.id == id))
+        .is_some_and(|id| !p.length_groups.iter().any(|g| g.id == id))
     {
         return Err(missing());
     }
     let mut rows = vec![];
-    for group in &p.board.length_groups {
+    for group in &p.length_groups {
         if a.id.is_some_and(|id| id != group.id) {
             continue;
         }
@@ -476,7 +534,7 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
 /// Remove a net from every length group, or swap it for another net, and
 /// drop groups left with fewer than two nets.
 pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
-    for group in p.board.length_groups.iter_mut() {
+    for group in p.length_groups.iter_mut() {
         if !group.nets.contains(&net) {
             continue;
         }
@@ -487,7 +545,7 @@ pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
         group.nets.sort_unstable();
         group.nets.dedup();
     }
-    p.board.length_groups.retain(|g| g.nets.len() >= 2);
+    p.length_groups.retain(|g| g.nets.len() >= 2);
 }
 
 fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Track>, Error> {
@@ -501,6 +559,7 @@ fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Tr
             Seg::Arc(a, m, b) => (a, b, Some(m)),
         };
         out.push(Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: allocate(probe)?,
             net: original.net,
             start,
@@ -508,7 +567,9 @@ fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Tr
             width: original.width,
             layer: original.layer,
             arc,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
     }
     Ok(out)
 }
@@ -529,6 +590,98 @@ fn new_conflicts(
                 .any(|o| !ids.contains(o) && inherited.contains(o))
         })
         .collect()
+}
+
+fn diff_pair_by_ref(p: &Project, id: Option<Id>, name: Option<&str>) -> Result<&DiffPair, Error> {
+    match (id, name.map(str::trim).filter(|s| !s.is_empty())) {
+        (Some(id), None) => p
+            .board
+            .diff_pairs
+            .iter()
+            .find(|pair| pair.id == id)
+            .ok_or_else(missing),
+        (None, Some(name)) => p
+            .board
+            .diff_pairs
+            .iter()
+            .find(|pair| pair.name == name)
+            .ok_or_else(missing),
+        (Some(id), Some(name)) => {
+            let by_id = p.board.diff_pairs.iter().find(|pair| pair.id == id);
+            let by_name = p
+                .board
+                .diff_pairs
+                .iter()
+                .find(|pair| pair.name == name);
+            match (by_id, by_name) {
+                (Some(a), Some(b)) if a.id == b.id => Ok(a),
+                _ => Err(Error::Invalid(
+                    "id and name must refer to the same differential pair".into(),
+                )),
+            }
+        }
+        (None, None) => Err(Error::Invalid(
+            "give the differential pair id or name".into(),
+        )),
+    }
+}
+
+fn partner_center_on_layer(p: &Project, net: Id, layer: Layer) -> Option<Point> {
+    let mut count = 0usize;
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    for t in p
+        .board
+        .tracks
+        .iter()
+        .filter(|t| t.net == net && t.layer == layer)
+    {
+        let mid = Point::new(
+            (t.start.x + t.end.x) / 2.0,
+            (t.start.y + t.end.y) / 2.0,
+        );
+        sum_x += mid.x;
+        sum_y += mid.y;
+        count += 1;
+    }
+    if count == 0 {
+        return None;
+    }
+    Some(Point::new(sum_x / count as f64, sum_y / count as f64))
+}
+
+fn pick_longest_straight_track(p: &Project, net: Id, layer: Layer) -> Option<(usize, Track)> {
+    p.board
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.net == net && t.layer == layer && t.arc.is_none())
+        .max_by(|(_, a), (_, b)| {
+            a.length()
+                .partial_cmp(&b.length())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(i, t)| (i, t.clone()))
+}
+
+fn side_away_from_partner(track: &Track, partner: Point) -> Result<i8, Error> {
+    let mid = Point::new(
+        (track.start.x + track.end.x) / 2.0,
+        (track.start.y + track.end.y) / 2.0,
+    );
+    let dx = track.end.x - track.start.x;
+    let dy = track.end.y - track.start.y;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len <= 1e-6 {
+        return Err(refuse(
+            "meander needs a straight track with positive length",
+        ));
+    }
+    let (ux, uy) = (dx / len, dy / len);
+    let left = (-uy, ux);
+    let away = (mid.x - partner.x, mid.y - partner.y);
+    let dot = left.0 * away.0 + left.1 * away.1;
+    Ok(if dot >= 0.0 { 1 } else { -1 })
 }
 
 fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> {
@@ -581,8 +734,42 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
             "this net belongs to a differential pair; tuning one side alone would not keep the coupling gap, so pair tuning is not supported yet",
         ));
     }
+    meander_one_track(
+        p,
+        next,
+        MeanderOpts {
+            track: a.track,
+            target: a.target,
+            tolerance,
+            amplitude_max: a.amplitude_max,
+            spacing: a.spacing,
+            corner,
+            fixed_side: None,
+        },
+    )
+}
+
+fn meander_one_track(p: &mut Project, next: &mut Id, opts: MeanderOpts) -> Result<Value, Error> {
+    let index = p
+        .board
+        .tracks
+        .iter()
+        .position(|t| t.id == opts.track)
+        .ok_or_else(missing)?;
+    let track = p.board.tracks[index].clone();
+    if track.arc.is_some() {
+        return Err(refuse(
+            "curved tracks cannot be tuned; straighten them first",
+        ));
+    }
+    if track.net == 0 {
+        return Err(refuse(
+            "the track belongs to no net, so it has no length target",
+        ));
+    }
     let before = net_length(p, track.net);
-    let extra = a.target - before;
+    let extra = opts.target - before;
+    let tolerance = opts.tolerance;
     if extra < -tolerance {
         return Err(Error::Invalid(format!(
             "this net is already {:.3} mm longer than its target; shorten the route instead",
@@ -601,13 +788,13 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
         .map_or(p.board.clearance, |c| c.clearance.max(p.board.clearance));
     let default_spacing = (3.0 * height).max(clearance + track.width);
     let floor = (3.0 * track.width).max(clearance);
-    let spacing = a.spacing.unwrap_or(default_spacing);
+    let spacing = opts.spacing.unwrap_or(default_spacing);
     if spacing + 1e-9 < floor {
         return Err(Error::Invalid(format!(
             "spacing must be at least {floor:.3} mm here: three track widths and the required clearance"
         )));
     }
-    let amp_max = a.amplitude_max.unwrap_or(10.0).min(15.0 * height);
+    let amp_max = opts.amplitude_max.unwrap_or(10.0).min(15.0 * height);
     if amp_max < meander::MIN_AMPLITUDE {
         return Err(refuse(
             "the dielectric is too thin to allow any bump height",
@@ -620,6 +807,7 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
             3.0 * height
         ));
     }
+    let corner = opts.corner;
     let base = Run {
         start: track.start,
         end: track.end,
@@ -646,8 +834,12 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
             (low > extra && low - extra <= tolerance).then_some(meander::MIN_AMPLITUDE)
         })
     };
+    let sides: &[i8] = match opts.fixed_side {
+        Some(s) => std::slice::from_ref(s),
+        None => &[1, -1],
+    };
     for n in 1..=nmax {
-        for side in [1i8, -1i8] {
+        for &side in sides {
             let run = Run { side, ..base };
             let Some(amplitude) = pick(&run, n) else {
                 continue;
@@ -656,7 +848,7 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
                 continue;
             };
             let added = meander::path_length(&path) - run_len;
-            if (before + added - a.target).abs() > tolerance + 1e-9 {
+            if (before + added - opts.target).abs() > tolerance + 1e-9 {
                 continue;
             }
             let mut probe = *next;
@@ -675,10 +867,10 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
             return Ok(json!({
                 "before": r3(before),
                 "after": r3(after),
-                "target": a.target,
+                "target": opts.target,
                 "tolerance": tolerance,
                 "ids": ids,
-                "removed": a.track,
+                "removed": opts.track,
                 "bumps": n,
                 "amplitude": r3(amplitude),
                 "spacing": spacing,
@@ -696,7 +888,7 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
     let mut tries = vec![1, (nmax / 2).max(1), nmax];
     tries.dedup();
     for n in tries {
-        for side in [1i8, -1i8] {
+        for side in sides {
             let run = Run { side, ..base };
             let clean = |amplitude: f64| -> Result<Option<f64>, Error> {
                 let Some(path) = meander::shape(&run, n, amplitude) else {
@@ -738,6 +930,106 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
         "no clear room for the meander: the best clean fit adds {best:.3} mm of the {extra:.3} mm needed, short by {:.3} mm",
         (extra - best).max(0.0)
     )))
+}
+
+fn tune_skew(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> {
+    let a: TuneSkewParams = parse(params)?;
+    let pair = diff_pair_by_ref(p, a.id, a.name.as_deref())?;
+    let Some(tolerance) = pair.length_tolerance else {
+        return Err(refuse(
+            "the pair needs a length tolerance before skew can be tuned",
+        ));
+    };
+    if tolerance <= 0.0 {
+        return Err(refuse(
+            "the pair length tolerance must be greater than zero",
+        ));
+    }
+    let (pair_id, net_p, net_n) = (pair.id, pair.net_p, pair.net_n);
+    let layer = a.layer;
+    let len_p = net_length(p, net_p);
+    let len_n = net_length(p, net_n);
+    let skew_before = (len_p - len_n).abs();
+    if skew_before <= tolerance + 1e-9 {
+        return Ok(json!({
+            "pair": pair_id,
+            "net_p": net_p,
+            "net_n": net_n,
+            "length_p": r3(len_p),
+            "length_n": r3(len_n),
+            "skew": r3(skew_before),
+            "tolerance": tolerance,
+            "bumps": 0,
+            "ids": [],
+        }));
+    }
+    if partner_center_on_layer(p, net_p, layer).is_none()
+        && partner_center_on_layer(p, net_n, layer).is_none()
+    {
+        return Err(refuse(
+            "both nets need routed copper on the chosen layer",
+        ));
+    }
+    let fit_tolerance = tolerance.clamp(0.01, 0.1);
+    let mut bump_ids: Vec<Id> = vec![];
+    let mut bump_count = 0usize;
+    let mut passes = 0usize;
+    while (net_length(p, net_p) - net_length(p, net_n)).abs() > tolerance + 1e-9 {
+        if passes >= MAX_SKEW_MEANDERS {
+            return Err(refuse(
+                "skew tuning stopped after too many meander passes",
+            ));
+        }
+        let len_p_now = net_length(p, net_p);
+        let len_n_now = net_length(p, net_n);
+        let (short_net, partner_net) = if len_p_now <= len_n_now {
+            (net_p, net_n)
+        } else {
+            (net_n, net_p)
+        };
+        let target = len_p_now.max(len_n_now) - tolerance;
+        let (_, track) = pick_longest_straight_track(p, short_net, layer).ok_or_else(|| {
+            refuse("the shorter net needs a straight track on the chosen layer")
+        })?;
+        let partner_center = partner_center_on_layer(p, partner_net, layer)
+            .ok_or_else(|| refuse("the partner net needs routed copper on the chosen layer"))?;
+        let side = side_away_from_partner(&track, partner_center)?;
+        let pass = meander_one_track(
+            p,
+            next,
+            MeanderOpts {
+                track: track.id,
+                target,
+                tolerance: fit_tolerance,
+                amplitude_max: None,
+                spacing: None,
+                corner: Corner::Mitre,
+                fixed_side: Some(side),
+            },
+        )?;
+        if let Some(ids) = pass["ids"].as_array() {
+            for id in ids {
+                if let Some(v) = id.as_u64() {
+                    bump_ids.push(v);
+                }
+            }
+        }
+        bump_count += pass["bumps"].as_u64().map_or(1, |n| n as usize);
+        passes += 1;
+    }
+    let len_p_after = net_length(p, net_p);
+    let len_n_after = net_length(p, net_n);
+    Ok(json!({
+        "pair": pair_id,
+        "net_p": net_p,
+        "net_n": net_n,
+        "length_p": r3(len_p_after),
+        "length_n": r3(len_n_after),
+        "skew": r3((len_p_after - len_n_after).abs()),
+        "tolerance": tolerance,
+        "bumps": bump_count,
+        "ids": bump_ids,
+    }))
 }
 
 #[cfg(test)]
@@ -1122,7 +1414,7 @@ mod tests {
         assert_eq!(g, again, "the same name updates the group");
         assert!(!codes(&s).contains(&"length_group_skew"));
         s.execute("board.remove_length_group", json!({"id":g}), None)?;
-        assert!(s.project.board.length_groups.is_empty());
+        assert!(s.project.length_groups.is_empty());
         assert!(
             s.execute("board.remove_length_group", json!({"id":g}), None)
                 .is_err()
@@ -1165,10 +1457,10 @@ mod tests {
             None,
         )?;
         s.execute("net.tie", json!({"source":c,"target":b}), None)?;
-        assert_eq!(s.project.board.length_groups[0].nets.len(), 2);
+        assert_eq!(s.project.length_groups[0].nets.len(), 2);
         s.execute("object.delete", json!({"id":b}), None)?;
         assert!(
-            s.project.board.length_groups.is_empty(),
+            s.project.length_groups.is_empty(),
             "a group of one net is dropped"
         );
         Ok(())
