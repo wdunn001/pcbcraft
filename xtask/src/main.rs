@@ -453,6 +453,16 @@ fn lint_policy() -> Result<(), String> {
             ));
         }
     }
+    // The browser has no standard-library clock (issue 750): clippy.toml must
+    // keep banning the two calls that panic there, and only crates/clock may opt out.
+    let clippy_config = std::fs::read_to_string(root.join("clippy.toml")).unwrap_or_default();
+    for banned in ["std::time::SystemTime::now", "std::time::Instant::now"] {
+        if !clippy_config.contains(banned) {
+            return Err(format!(
+                "clippy.toml must keep banning {banned} in disallowed-methods (it panics in the browser)"
+            ));
+        }
+    }
     let metadata = workspace_metadata()?;
     let packages = metadata
         .get("packages")
@@ -487,7 +497,11 @@ fn lint_policy() -> Result<(), String> {
                     || REQUIRED_DENY
                         .iter()
                         .any(|lint| compact.contains(&format!("clippy::{lint}"))));
-            if opts_out {
+            let clock_opt_out = attribute
+                && compact.contains("allow(")
+                && compact.contains("clippy::disallowed_methods")
+                && !file.ends_with("crates/clock/src/lib.rs");
+            if opts_out || clock_opt_out {
                 problems.push(format!(
                     "{}:{}: lint opt-out is not allowed: {}",
                     file.strip_prefix(&root).unwrap_or(&file).display(),
