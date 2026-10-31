@@ -7,18 +7,19 @@
 //!
 //! # Rules
 //! - File names follow the IPC-356 naming convention.
-//! - All coordinates are in millimetres with 4 decimal places.
+//! - All coordinates use 4.6 fixed-point integers (millionths of a millimetre).
+//! - Aperture definitions use 3 decimal places (thousandths of a millimetre).
 //! - X2 extended attributes are written for designators and layer names.
 //!
 //! # Dependencies
-//! - crates/doc/src/lib.rs Board, Layer, Project, Via, ViaCovering
+//! - crates/doc/src/lib.rs Board, Layer, Project, Via, ViaCovering, ViaProtectionType
 //! - crates/geom/src/lib.rs Point
 //! - crates/library/src/lib.rs FootprintRules
-//! - crates/io/src/gerber.rs GerberWriter, Aperture, Operation
+//! - crates/io/src/gerber.rs coordinate, GerberWriter, Aperture, Operation
 //! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
 //! - crates/io/src/lib.rs PickPlaceWriter
-use crate::layers::{fabrication_point, fabrication_xy};
-use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering};
+use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering, ViaGerberDrill, ViaProtectionType};
+use crate::gerber::coordinate;
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
 use std::collections::BTreeMap;
@@ -29,14 +30,66 @@ const MAX_HITS: usize = 50_000;
 const MAX_TOOLS: usize = 64;
 const DEFAULT_MASK_MARGIN_MM: f64 = 0.05;
 
-/// Whether a via gets a solder-mask opening on top and bottom plots.
+use pcbcraft_doc::{Board, Layer, Project, Via, ViaProtectionType};
+use pcbcraft_geom::Point;
+use pcbcraft_library::FootprintRules;
+use std::collections::BTreeMap;
+
+const MAX_OPS: usize = 100_000;
+const MAX_APERTURES: usize = 64;
+const MAX_HITS: usize = 50_000;
+const MAX_TOOLS: usize = 64;
+const DEFAULT_MASK_MARGIN_MM: f64 = 0.05;
+
+/// Whether a via gets a solder-mask opening on one outer face.
+pub fn via_mask_opening_on_face(v: &Via, board: &Board, top: bool) -> bool {
+    if v.drill <= 0.0 {
+        return false;
+    }
+    v.effective_covering(board).mask_open_on_face(v.effective_covering_scope(), top)
+}
+
+/// Whether a via gets a solder-mask opening on at least one face.
 ///
-/// The covering is the via's own, else the board default. Only an open via
-/// keeps its opening; tented, plugged and filled types close the hole, so the
-/// mask plots leave the opening out. A via without a drilled hole has nothing
-/// to open.
+/// See `via_mask_opening_on_face` for the per-face rule.
 pub fn via_mask_opening(v: &Via, board: &Board) -> bool {
-    v.drill > 0.0 && v.effective_covering(board).keeps_mask_opening()
+    via_mask_opening_on_face(v, board, true) || via_mask_opening_on_face(v, board, false)
+}
+
+/// Whether a via gets a solder-mask opening on one face.
+///
+/// The covering of that face is the via's own, else the board default. Only
+/// an open face keeps its opening; tented, plugged and filled types close the
+/// hole, so the mask plot of that face leaves the opening out. A via without
+/// a drilled hole has nothing to open.
+///
+/// # Rules
+/// - `top` picks the face; the top face uses `Via::effective_covering`, the bottom face `Via::effective_covering_bottom`.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` `Via`, `Board`.
+///
+/// # Do not
+/// - Test whether the span reaches the face here; the caller knows the layer it plots.
+pub fn via_mask_opening_on_face(v: &Via, board: &Board, top: bool) -> bool {
+    let covering = if top {
+        v.effective_covering(board)
+    } else {
+        v.effective_covering_bottom(board)
+    };
+    v.drill > 0.0 && covering.keeps_mask_opening()
+}
+
+/// What a drilled hole is for, in the order the drill table lists them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DrillFunction {
+    /// A via barrel.
+    Via,
+    /// The hole of a component pad.
+    ComponentPad,
+    /// A mounting or tooling hole.
+    Mounting,
+
 }
 
 #[derive(Clone, Copy)]
@@ -46,8 +99,30 @@ pub(crate) struct DrillHit {
     pub d_um: u64,
     pub span_um: u64,
     pub plated: bool,
-    /// Covering of the via this hit drills, `None` for pad and mounting holes.
-    pub via: Option<ViaCovering>,
+    /// Gerber via protection for this hit, `None` for pad and mounting holes.
+    pub via_drill: Option<ViaGerberDrill>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct DrillHit {
+    /// Copper span (upper, lower layer index) of a blind or buried via.
+    pub via_span: Option<(u8, u8)>,
+    pub d_um: u64,
+    pub span_um: u64,
+    pub plated: bool,
+/// Gerber via protection for this hit, `None` for pad and mounting holes.
+    pub via_drill: Option<ViaGerberDrill>,
+    /// Protection type of the via this hit drills, `None` for pad and mounting holes.
+    pub via: Option<ViaProtectionType>,
+    /// Copper span (upper, lower layer index) of a blind or buried via.
+    pub via_span: Option<(u8, u8)>,
+    /// Copper span (upper, lower layer index) the hole runs through; top to bottom for pad and mounting holes.
+    pub span: (u8, u8),
+    /// What the hole is for.
+    pub function: DrillFunction,
+    pub d_um: u64,
+    pub span_um: u64,
+    pub plated: bool,
     pub x: f64,
     pub y: f64,
     pub ux: f64,
@@ -74,6 +149,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
     let push = |hits: &mut Vec<DrillHit>, hit: DrillHit| {
         hits.push(hit);
     };
+    let through = (0u8, p.copper_layer_count().saturating_sub(1));
     for v in &p.board.vias {
         if v.drill > 0.0 {
             push(
@@ -83,7 +159,15 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                     d_um: (v.drill * 1_000.0).round() as u64,
                     span_um: 0,
                     plated: true,
-                    via: Some(v.effective_covering(&p.board)),
+via_drill: Some(v.gerber_via_drill(&p.board)),
+                    via: Some(p.via_protection_type(v)),
+                    span: {
+                        let (a, b) = p.via_span(v);
+                        (a.index(), b.index())
+                    },
+                    function: DrillFunction::Via,
+                    span_um: 0,
+                    plated: true,
                     x: v.position.x,
                     y: v.position.y,
                     ux: 0.0,
@@ -117,6 +201,8 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                 span_um,
                 plated: false,
                 via: None,
+                span: through,
+                function: DrillFunction::Mounting,
                 x,
                 y,
                 ux,
@@ -161,7 +247,14 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                     d_um,
                     span_um,
                     plated: g.pad_type == "thru_hole",
-                    via: None,
+via: None,
+                    via_drill: None,
+                    span: through,
+                    function: if g.pad_type == "thru_hole" {
+                        DrillFunction::ComponentPad
+                    } else {
+                        DrillFunction::Mounting
+                    },
                     x: world.x,
                     y: world.y,
                     ux,
@@ -258,9 +351,9 @@ impl GerberLayer {
         }
         self.select(code);
         self.body.push_str(&format!(
-            "X{:.6}Y{:.6}D03*\n",
-            x * self.scale,
-            y * self.scale
+            "X{}Y{}D03*\n",
+            coordinate(x * self.scale),
+            coordinate(y * self.scale)
         ));
         Ok(())
     }
@@ -273,17 +366,17 @@ impl GerberLayer {
         self.select(code);
         for (i, (x, y)) in points.iter().enumerate() {
             self.body.push_str(&format!(
-                "X{:.6}Y{:.6}D0{}*\n",
-                x * self.scale,
-                y * self.scale,
+                "X{}Y{}D0{}*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale),
                 if i == 0 { 2 } else { 1 }
             ));
         }
         if closed && let Some((x, y)) = points.first() {
             self.body.push_str(&format!(
-                "X{:.6}Y{:.6}D01*\n",
-                x * self.scale,
-                y * self.scale
+                "X{}Y{}D01*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale)
             ));
         }
         Ok(())
@@ -298,20 +391,13 @@ impl GerberLayer {
         self.body.push_str("G36*\nD02*\n");
         for (i, (x, y)) in points.iter().enumerate() {
             self.body.push_str(&format!(
-                "X{:.6}Y{:.6}D0{}*\n",
-                x * self.scale,
-                y * self.scale,
+                "X{}Y{}D0{}*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale),
                 if i == 0 { 2 } else { 1 }
             ));
         }
         self.body.push_str("G37*\n");
-        Ok(())
-    }
-
-    fn clear_fill(&mut self, code: u32, points: &[(f64, f64)]) -> Result<(), String> {
-        self.body.push_str("%LPC*%\n");
-        self.fill(code, points)?;
-        self.body.push_str("%LPD*%\n");
         Ok(())
     }
 
@@ -334,13 +420,13 @@ impl GerberLayer {
         self.select(code);
         self.body.push_str("G75*\n");
         self.body.push_str(&format!(
-            "X{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\n",
-            sx * self.scale,
-            sy * self.scale,
-            ex * self.scale,
-            ey * self.scale,
-            (cx - sx) * self.scale,
-            (cy - sy) * self.scale,
+            "X{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\n",
+            coordinate(sx * self.scale),
+            coordinate(sy * self.scale),
+            coordinate(ex * self.scale),
+            coordinate(ey * self.scale),
+            coordinate((cx - sx) * self.scale),
+            coordinate((cy - sy) * self.scale),
             if clockwise { 2 } else { 3 }
         ));
         Ok(())
@@ -368,23 +454,23 @@ impl GerberLayer {
         for (ap, code) in &self.apertures {
             match *ap {
                 Ap::Circle(d) => out.push_str(&format!(
-                    "%ADD{code}C,{:.6}*%\n",
+                    "%ADD{code}C,{:.3}*%\n",
                     d as f64 / 1000.0 * self.scale
                 )),
                 Ap::Rect(w, h) => out.push_str(&format!(
-                    "%ADD{code}R,{:.6}X{:.6}*%\n",
+                    "%ADD{code}R,{:.3}X{:.3}*%\n",
                     w as f64 / 1000.0 * self.scale,
                     h as f64 / 1000.0 * self.scale
                 )),
                 Ap::Obround(w, h) => out.push_str(&format!(
-                    "%ADD{code}O,{:.6}X{:.6}*%\n",
+                    "%ADD{code}O,{:.3}X{:.3}*%\n",
                     w as f64 / 1000.0 * self.scale,
                     h as f64 / 1000.0 * self.scale
                 )),
                 Ap::Round(w, h, r) => {
                     let r_mm = r as f64 / 1000.0 * self.scale;
                     out.push_str(&format!(
-                        "%ADD{code}R,{:.6}X{:.6}*%\n",
+                        "%ADD{code}R,{:.3}X{:.3}*%\n",
                         w as f64 / 1000.0 * self.scale,
                         h as f64 / 1000.0 * self.scale
                     ));
@@ -493,20 +579,48 @@ fn outline_ring(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
     }
 }
 
+/// The drill tolerance the board records, in millimetres, plus or minus.
+fn drill_tolerance(p: &Project) -> Option<f64> {
+    p.board
+        .machining
+        .as_ref()
+        .and_then(|m| m.drill_tolerance)
+        .filter(|t| *t > 0.0)
+}
+
+/// One Excellon drill file with X2 tool attributes.
+///
+/// Each tool is written under `TA.DrillTolerance` when the board records a
+/// drill tolerance, and under `TA.AperFunction,Plated,PTH,ViaDrill,<type>`
+/// when it drills vias, so a fab reads both from the file itself. Via hits
+/// get their own tools per protection type.
+///
+/// # Rules
+/// - The tolerance is written in the file's unit, plus and minus equal.
+/// - A tool with no attribute writes no `TD` line.
+///
+/// # Dependencies
+/// - `crates/io/src/fab_export.rs` `DrillHit`, `drill_tolerance`.
+///
+/// # Do not
+/// - Write a comment line for the protection; the attribute carries it.
 fn write_excellon(
-    p: &Project,
     hits: &[DrillHit],
     plating_line: &str,
     scale: f64,
+    origin: Point,
     inch: bool,
+    tolerance: Option<f64>,
 ) -> Result<String, String> {
     let round: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um == 0).collect();
-    // Via hits get their own tools per covering so each tool can carry the
+// Via hits get their own tools per covering so each tool can carry the
     // via drill attribute and name its covering.
-    let mut by_tool: BTreeMap<(u64, u64, Option<ViaCovering>), Vec<&DrillHit>> = BTreeMap::new();
+    let mut by_tool: BTreeMap<(u64, u64, Option<ViaGerberDrill>), Vec<&DrillHit>> =
+        BTreeMap::new();
+        BTreeMap::new();
     for hit in round {
         by_tool
-            .entry((hit.d_um, hit.span_um, hit.via))
+            .entry((hit.d_um, hit.span_um, hit.via_drill))
             .or_default()
             .push(hit);
     }
@@ -521,11 +635,31 @@ fn write_excellon(
     let mut out = format!("M48\n{plating_line}\nFMAT,2\n{unit_line}\n");
     for (n, key) in by_tool.keys().enumerate() {
         let d = key.0;
-        if let Some(covering) = key.2 {
+let mut attributed = false;
+        if let Some(t) = tolerance {
             out.push_str(&format!(
-                "; #@! TA.AperFunction,Plated,PTH,ViaDrill\n; via protection: {}\n",
-                covering.label()
+                "; #@! TA.DrillTolerance,{t:.prec$},{t:.prec$}\n",
+                t = t * scale,
+                prec = prec
             ));
+            attributed = true;
+        }
+        if let Some(kind) = key.2 {
+            out.push_str(&format!(
+                "; #@! TA.AperFunction,Plated,PTH,ViaDrill,{}\n",
+                kind.gerber_token()
+            ));
+            attributed = true;
+        }
+            ));
+            attributed = true;
+        }
+        if let Some(kind) = key.2 {
+            out.push_str(&format!(
+                "; #@! TA.AperFunction,Plated,PTH,ViaDrill,{}\n",
+                kind.gerber_token()
+            ));
+            attributed = true;
         }
         out.push_str(&format!(
             "T{}C{:.prec$}\n",
@@ -533,7 +667,7 @@ fn write_excellon(
             d as f64 / 1000.0 * scale,
             prec = prec
         ));
-        if key.2.is_some() {
+        if attributed {
             out.push_str("; #@! TD\n");
         }
     }
@@ -541,20 +675,16 @@ fn write_excellon(
     for (n, (_key, group)) in by_tool.iter().enumerate() {
         out.push_str(&format!("T{}\n", n + 1));
         for hit in group {
-            let (x, y) = fabrication_xy(p, hit.x, hit.y);
-            out.push_str(&format!(
-                "X{x:.prec$}Y{y:.prec$}\n",
-                x = x * scale,
-                y = y * scale,
-                prec = prec
-            ));
+            let x = (hit.x - origin.x) * scale;
+            let y = (hit.y - origin.y) * scale;
+            out.push_str(&format!("X{x:.prec$}Y{y:.prec$}\n", prec = prec));
         }
     }
     out.push_str("M30\n");
     Ok(out)
 }
 
-fn write_rout(p: &Project, hits: &[DrillHit], scale: f64, inch: bool) -> Result<String, String> {
+fn write_rout(hits: &[DrillHit], scale: f64, origin: Point, inch: bool) -> Result<String, String> {
     let slots: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um > 0).collect();
     if slots.is_empty() {
         return Ok(String::new());
@@ -584,14 +714,16 @@ fn write_rout(p: &Project, hits: &[DrillHit], scale: f64, inch: bool) -> Result<
     for (n, (_d, group)) in by_tool.iter().enumerate() {
         out.push_str(&format!("T{}\n", n + 1));
         for hit in group {
-            let (ax, ay) = fabrication_xy(p, hit.x - hit.ux, hit.y - hit.uy);
-            let (bx, by) = fabrication_xy(p, hit.x + hit.ux, hit.y + hit.uy);
+            let x = (hit.x - origin.x) * scale;
+            let y = (hit.y - origin.y) * scale;
+            let ux = hit.ux * scale;
+            let uy = hit.uy * scale;
             out.push_str(&format!(
                 "X{a:.prec$}Y{b:.prec$}G85X{c:.prec$}Y{d:.prec$}\n",
-                a = ax * scale,
-                b = ay * scale,
-                c = bx * scale,
-                d = by * scale,
+                a = x - ux,
+                b = y - uy,
+                c = x + ux,
+                d = y + uy,
                 prec = prec
             ));
         }
@@ -605,9 +737,21 @@ pub fn drill_map_plot(p: &Project) -> Result<String, String> {
     p.validate()?;
     let inch = p.unit == "inch";
     let scale = if inch { 1.0 / 25.4 } else { 1.0 };
+    let origin = p.board.drill_origin;
     let hits = collect_drill_hits(p)?;
     let counts = drill_tool_counts(p)?;
     let mut layer = GerberLayer::new(scale);
+    // The drill table, as comments, in the same lines the readme prints.
+    for (n, line) in crate::drill_table::drill_table_lines(&crate::drill_table::drill_table(p)?)
+        .iter()
+        .enumerate()
+    {
+        layer.body.push_str(&format!(
+            "G04 DRILL TABLE {}{} *\n",
+            if n == 0 { "" } else { "ROW " },
+            line
+        ));
+    }
     let mut tool_index = 0usize;
     for ((d_um, span_um, plated), count) in &counts {
         tool_index += 1;
@@ -624,13 +768,15 @@ pub fn drill_map_plot(p: &Project) -> Result<String, String> {
             .iter()
             .filter(|h| h.d_um == *d_um && h.span_um == *span_um && h.plated == *plated)
         {
-            let center = fabrication_point(p, Point::new(hit.x, hit.y));
+            let (x, y) = (hit.x - origin.x, hit.y - origin.y);
             if hit.span_um == 0 {
-                layer.flash(code, center.x, center.y)?;
+                layer.flash(code, x, y)?;
             } else {
-                let a = fabrication_point(p, Point::new(hit.x - hit.ux, hit.y - hit.uy));
-                let b = fabrication_point(p, Point::new(hit.x + hit.ux, hit.y + hit.uy));
-                layer.stroke(code, &[(a.x, a.y), (b.x, b.y)], false)?;
+                layer.stroke(
+                    code,
+                    &[(x - hit.ux, y - hit.uy), (x + hit.ux, y + hit.uy)],
+                    false,
+                )?;
             }
         }
     }
@@ -693,6 +839,11 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     out.push_str(
         "Drill tool numbers restart in each Excellon file; the CSV chart may use different indices.\n",
     );
+    out.push_str("\nDRILL TABLE\n");
+    for line in crate::drill_table::drill_table_lines(&crate::drill_table::drill_table(p)?) {
+        out.push_str(&line);
+        out.push('\n');
+    }
     let meta_keys = [
         "contact",
         "company",
@@ -728,24 +879,12 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     Ok(out)
 }
 
-fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
-    match &p.board.outline {
-        Some(o) => o.iter().map(|pt| (pt.x, pt.y)).collect(),
-        None => vec![
-            (0.0, 0.0),
-            (p.board.width, 0.0),
-            (p.board.width, p.board.height),
-            (0.0, p.board.height),
-        ],
-    }
-}
-
 /// RS-274X fabrication bundle with X2 attributes, split drills, mask and paste.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     let inch = p.unit == "inch";
     let scale = if inch { 1.0 / 25.4 } else { 1.0 };
-    let fab = |x: f64, y: f64| fabrication_xy(p, x, y);
+    let mirror = |x: f64, y: f64, back: bool| -> (f64, f64) { if back { (-x, y) } else { (x, y) } };
 
     let mut front = GerberLayer::new(scale);
     let mut back = GerberLayer::new(scale);
@@ -754,29 +893,9 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     let mut paste_front = GerberLayer::new(scale);
     let mut paste_back = GerberLayer::new(scale);
 
-    for z in &p.board.zones {
-        if !z.filled {
-            continue;
-        }
-        let is_back = z.layer == Layer::Back;
-        let file = if is_back { &mut back } else { &mut front };
-        let code = file.code(Ap::Circle(1))?;
-        let outline: Vec<(f64, f64)> = z
-            .outline
-            .iter()
-            .map(|q| fab(q.x, q.y))
-            .collect();
-        file.push_attrs(net_name(p, z.net), None);
-        file.fill(code, &outline)?;
-        for cutout in &z.cutouts {
-            if cutout.len() < 3 {
-                continue;
-            }
-            let ring: Vec<(f64, f64)> = cutout.iter().map(|q| fab(q.x, q.y)).collect();
-            file.clear_fill(code, &ring)?;
-        }
-    }
-
+    // Poured copper ships from `gerber_files_report` in lib.rs, which writes
+    // the computed fill. The copper files built here are not shipped, so zones
+    // are not written again as raw outlines.
     for t in &p.board.tracks {
         let is_back = t.layer == Layer::Back;
         let file = if is_back { &mut back } else { &mut front };
@@ -784,15 +903,22 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         let code = file.code(Ap::Circle(w.max(1)))?;
         file.push_attrs(net_name(p, t.net), None);
         if let Some(arc) = t.curve() {
-            let (sx, sy) = fab(t.start.x, t.start.y);
-            let (ex, ey) = fab(t.end.x, t.end.y);
-            let (cx, cy) = fab(arc.center.x, arc.center.y);
-            let clockwise = arc.sweep < 0.0;
+            let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
+            let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
+            let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
+            let clockwise = if is_back {
+                arc.sweep > 0.0
+            } else {
+                arc.sweep < 0.0
+            };
             file.arc_segment(code, sx, sy, ex, ey, cx, cy, clockwise)?;
         } else {
             file.stroke(
                 code,
-                &[fab(t.start.x, t.start.y), fab(t.end.x, t.end.y)],
+                &[
+                    mirror(t.start.x, t.start.y, is_back),
+                    mirror(t.end.x, t.end.y, is_back),
+                ],
                 false,
             )?;
         }
@@ -820,14 +946,14 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             } else {
                 (front.code(ap.clone())?, 0)
             };
-            let (wx, wy) = fab(world.x, world.y);
             if front_code != 0 {
                 front.push_attrs(net, part);
-                front.flash(front_code, wx, wy)?;
+                front.flash(front_code, world.x, world.y)?;
             }
             if back_code != 0 {
+                let (x, y) = mirror(world.x, world.y, true);
                 back.push_attrs(net, part);
-                back.flash(back_code, wx, wy)?;
+                back.flash(back_code, x, y)?;
             }
 
             let local_outline: Vec<(f64, f64)> = pad
@@ -849,25 +975,26 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             let mask_on_back = through || is_back;
             if mask_on_front && !mask_ring.is_empty() {
                 let code = mask_front.code(Ap::Circle(1))?;
-                let fab_ring: Vec<(f64, f64)> =
-                    mask_ring.iter().map(|(x, y)| fab(*x, *y)).collect();
-                mask_front.fill(code, &outline_ring(&fab_ring))?;
+                mask_front.fill(code, &outline_ring(&mask_ring))?;
             }
             if mask_on_back && !mask_ring.is_empty() {
                 let code = mask_back.code(Ap::Circle(1))?;
-                let fab_ring: Vec<(f64, f64)> =
-                    mask_ring.iter().map(|(x, y)| fab(*x, *y)).collect();
-                mask_back.fill(code, &outline_ring(&fab_ring))?;
+                let mirrored: Vec<(f64, f64)> = mask_ring
+                    .iter()
+                    .map(|(x, y)| mirror(*x, *y, true))
+                    .collect();
+                mask_back.fill(code, &outline_ring(&mirrored))?;
             }
 
             if pad_is_smd(pad) {
                 if !is_back && !paste_ring.is_empty() {
                     let code = paste_front.code(pad_ap(pad))?;
-                    paste_front.flash(code, wx, wy)?;
+                    paste_front.flash(code, world.x, world.y)?;
                 }
                 if is_back && !paste_ring.is_empty() {
+                    let (x, y) = mirror(world.x, world.y, true);
                     let code = paste_back.code(pad_ap(pad))?;
-                    paste_back.flash(code, wx, wy)?;
+                    paste_back.flash(code, x, y)?;
                 }
             }
         }
@@ -879,17 +1006,19 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         let front_code = front.code(ap.clone())?;
         let back_code = back.code(ap)?;
         let (reaches_top, reaches_bottom) = via_reaches_outer(p, v);
-        let (vx, vy) = fab(v.position.x, v.position.y);
         if reaches_top {
             front.push_attrs(net_name(p, v.net), None);
-            front.flash(front_code, vx, vy)?;
+            front.flash(front_code, v.position.x, v.position.y)?;
         }
         if reaches_bottom {
+            let (x, y) = mirror(v.position.x, v.position.y, true);
             back.push_attrs(net_name(p, v.net), None);
-            back.flash(back_code, vx, vy)?;
+            back.flash(back_code, x, y)?;
         }
 
-        if via_mask_opening(v, &p.board) && (reaches_top || reaches_bottom) {
+let open_top = reaches_top && via_mask_opening_on(v, &p.board, false);
+        let open_bottom = reaches_bottom && via_mask_opening_on(v, &p.board, true);
+        if open_top || open_bottom {
             let margin = DEFAULT_MASK_MARGIN_MM;
             let r = v.drill / 2.0 + margin;
             let n = 16usize;
@@ -898,26 +1027,29 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 let a = std::f64::consts::TAU * i as f64 / n as f64;
                 ring.push((v.position.x + r * a.cos(), v.position.y + r * a.sin()));
             }
-            if reaches_top {
+            if open_top {
                 let code_f = mask_front.code(Ap::Circle(1))?;
-                let fab_ring: Vec<(f64, f64)> = ring.iter().map(|(x, y)| fab(*x, *y)).collect();
-                mask_front.fill(code_f, &outline_ring(&fab_ring))?;
+                mask_front.fill(code_f, &outline_ring(&ring))?;
             }
-            if reaches_bottom {
-                let fab_ring: Vec<(f64, f64)> = ring.iter().map(|(x, y)| fab(*x, *y)).collect();
+            if open_bottom {
+                let mirrored: Vec<(f64, f64)> =
+                    ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
                 let code_b = mask_back.code(Ap::Circle(1))?;
-                mask_back.fill(code_b, &outline_ring(&fab_ring))?;
+                mask_back.fill(code_b, &outline_ring(&mirrored))?;
             }
+        }
         }
     }
 
     let mut outline = GerberLayer::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
-    let edge_points: Vec<(f64, f64)> = board_edge_points(p)
-        .into_iter()
-        .map(|(x, y)| fab(x, y))
-        .collect();
-    outline.stroke(edge_code, &edge_points, true)?;
+    outline.select(edge_code);
+    let (edge_body, edge_ops) = crate::board_edge::gerber_body(scale, p)?;
+    outline.ops += edge_ops;
+    if outline.ops > MAX_OPS {
+        return Err("gerber export exceeds the object limit".into());
+    }
+    outline.body.push_str(&edge_body);
     for c in &p.board.cutouts {
         outline.ops += 1;
         if outline.ops > MAX_OPS {
@@ -925,17 +1057,18 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         }
         outline.select(edge_code);
         outline.body.push_str("G75*\n");
-        let (cx, cy) = fab(c.center.x, c.center.y);
         outline.body.push_str(&format!(
             "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
-            (cx - c.radius) * scale,
-            cy * scale,
+            (c.center.x - c.radius) * scale,
+            c.center.y * scale,
             c.radius * scale,
             0.0
         ));
     }
 
     let hits = collect_drill_hits(p)?;
+    let origin = p.board.drill_origin;
+    let tolerance = drill_tolerance(p);
     let plated: Vec<DrillHit> = hits
         .iter()
         .copied()
@@ -1016,13 +1149,20 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     if !plated.is_empty() {
         files.insert(
             "pcb-Plated.drl".into(),
-            write_excellon(p, &plated, "Plated,1,2,PTH", scale, inch)?,
+            write_excellon(&plated, "Plated,1,2,PTH", scale, origin, inch, tolerance)?,
         );
     }
     if !unplated.is_empty() {
         files.insert(
             "pcb-NPTH.drl".into(),
-            write_excellon(p, &unplated, "NonPlated,1,2,NPTH", scale, inch)?,
+            write_excellon(
+                &unplated,
+                "NonPlated,1,2,NPTH",
+                scale,
+                origin,
+                inch,
+                tolerance,
+            )?,
         );
     }
     // Blind and buried vias drill in their own passes: one file per span.
@@ -1042,15 +1182,16 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         files.insert(
             format!("pcb-Drill-L{}-L{}.drl", a + 1, b + 1),
             write_excellon(
-                p,
                 &span_hits,
                 &format!("Plated,{},{},{kind}", a + 1, b + 1),
                 scale,
+                origin,
                 inch,
+                tolerance,
             )?,
         );
     }
-    let rout = write_rout(p, &hits, scale, inch)?;
+    let rout = write_rout(&hits, scale, origin, inch)?;
     if !rout.is_empty() {
         files.insert("pcb-Rout.drl".into(), rout);
     }

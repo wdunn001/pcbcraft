@@ -220,10 +220,7 @@ fn title_block_width(sheet_width: f64) -> f64 {
 
 /// Today's date as `YYYY-MM-DD` in UTC, for a project that records none.
 fn today() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let secs = pcbcraft_clock::unix_secs();
     let z = (secs / 86_400) as i64 + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -683,6 +680,7 @@ pub(super) fn run_point(run: (Point, Point), fraction: f64) -> Point {
 ///
 /// # Do not
 /// - Draw a wire the caller still paints.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_power(
     painter: &egui::Painter,
     rect: Rect,
@@ -691,12 +689,17 @@ pub(super) fn paint_power(
     kinds: &HashMap<Id, PowerKind>,
     sc: &SheetColours,
     show_wires: bool,
+    page: Id,
 ) {
     let stub = Stroke::new(2.5, sc.wire);
     let mut ends: HashMap<(i64, i64), usize> = HashMap::new();
     let key = |q: Point| ((q.x * 100.0).round() as i64, (q.y * 100.0).round() as i64);
     let mut ruled: Vec<Id> = Vec::new();
-    for w in p.wires.iter().filter(|_| show_wires) {
+    for w in p
+        .wires
+        .iter()
+        .filter(|w| show_wires && p.on_schematic_page(page, w.id))
+    {
         match kinds.get(&w.net) {
             Some(PowerKind::Ground) => {
                 let name = p.net_name(w.net);
@@ -758,7 +761,11 @@ pub(super) fn paint_power(
             );
         }
     }
-    for l in p.labels.iter().filter(|l| l.kind == "power") {
+    for l in p
+        .labels
+        .iter()
+        .filter(|l| l.kind == "power" && p.on_schematic_page(page, l.id))
+    {
         let name = p.net_name(l.net);
         match kinds.get(&l.net) {
             Some(PowerKind::Ground) => ground_symbol(painter, rect, camera, l.position, name, sc),
