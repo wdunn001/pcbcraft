@@ -20,8 +20,8 @@ use pcbcraft_io::{GeneratedOutput, generate, output_hash, write_generated};
 use serde_json::{Value, json};
 use std::path::Path;
 
-/// True for the artifact commands that only read, so the session runs them
-/// without a commit.
+/// True for the commands that only read (the artifact queries and `design.summary`), so the
+/// session runs them without a commit.
 ///
 /// # Rules
 /// - Keep in step with `commands()` in `./lib.rs`.
@@ -32,10 +32,10 @@ use std::path::Path;
 /// # Do not
 /// - List a command that mutates the project.
 pub fn command_is_read_only(id: &str) -> bool {
-    matches!(
-        id,
-        "artifact.generate" | "artifact.stale" | "selection.copy_text"
-    )
+matches!(
+    id,
+    "artifact.generate" | "artifact.stale" | "selection.copy_text" | "design.summary"
+)
 }
 
 /// An artifact is stale when it was never generated or its live output hash

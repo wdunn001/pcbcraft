@@ -1,0 +1,2 @@
+# In-app tour structure for English. Title, body and list labels are catalog keys
+# in strings/en.txt (each needs a matching .tip line). Real tours land in #775.
