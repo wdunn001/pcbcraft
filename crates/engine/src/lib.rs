@@ -1,6 +1,7 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod artifacts;
 mod authoring;
+pub mod collab;
 mod dry_run;
 mod images;
 pub mod library;
@@ -14,6 +15,10 @@ pub mod wirelength;
 pub mod library;
 pub mod profiles;
 pub mod recents;
+pub use collab::{
+    CollabSnapshot, OrderedRoomApply, RoomOp, apply_room_command, command_lock_scope,
+    shareable_room_command,
+};
 pub use dry_run::{ChangeSummary, DryRun};
 mod datasheet_annotations;
 mod route;
@@ -2555,6 +2560,21 @@ impl Session {
         }
         Ok(())
     }
+    /// Next id the session would allocate. Exposed for collab parity checks.
+    pub fn collab_next_id(&self) -> Id {
+        self.next_id
+    }
+
+    /// Apply one relay-ordered room edit (`expected` is always [`None`]).
+    pub fn apply_room_command(&mut self, id: &str, params: Value) -> Result<Value, Error> {
+        collab::apply_room_command(self, id, params)
+    }
+
+    /// Revision, next id and canonical project bytes for collab parity tests.
+    pub fn collab_snapshot(&self) -> Result<CollabSnapshot, Error> {
+        CollabSnapshot::from_session(self)
+    }
+
     pub fn execute(
         &mut self,
         id: &str,
