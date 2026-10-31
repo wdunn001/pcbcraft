@@ -10134,6 +10134,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 }],
                 units: vec![],
                 library_symbol: None,
@@ -10529,6 +10530,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             }],
             units: vec![],
             library_symbol: Some(pcbcraft_doc::LibrarySymbol {

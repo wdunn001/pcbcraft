@@ -180,6 +180,7 @@ fn random_board(seed: u64) -> Result<Project, String> {
             electrical_type: p.electrical_type.clone(),
             direction: Some(p.angle),
             unit: p.unit,
+            appearances: Default::default(),
         })
         .collect();
     let mut project = Project::default();

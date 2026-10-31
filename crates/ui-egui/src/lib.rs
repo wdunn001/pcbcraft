@@ -9275,6 +9275,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 });
                 pads.push(pcbcraft_doc::Pad {
                     number,

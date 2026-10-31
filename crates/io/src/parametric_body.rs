@@ -886,6 +886,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 })
                 .collect(),
             units: vec![],
