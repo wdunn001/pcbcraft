@@ -20,7 +20,8 @@ Free graphics: line, rectangle, circle, arc, polygon, text. Multi-unit symbols
 share one reference and footprint; units move independently.
 
 Parts table graphics, dimensions, barcodes (Code 39), find-and-replace across
-the project, named component properties, bill of materials grouping.
+the project, named component properties, per-part parts-list and placement
+inclusion flags, bill of materials grouping.
 
 ## Board
 
@@ -53,7 +54,8 @@ Initial ERC and DRC with object IDs: shorts, clearance, board edge, cutout,
 unrouted nets, pin assignment. Findings can be re-levelled or silenced per
 code, per object, or per rectangle. Pad table, drill chart, board statistics,
 impedance estimates from recorded stackup, net chain walk, library part
-compare.
+compare. Compliance data report export (CSV, Markdown, HTML or PDF) summarises
+part declarations and supplier questions; it is not a product certification.
 
 ## Export
 

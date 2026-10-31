@@ -44,7 +44,12 @@ pub struct Preset {
     pub base_url: &'static str,
     /// The wire format it uses.
     pub protocol: Protocol,
+    /// Shown under the preset when it is chosen; empty when there is nothing extra to say.
+    pub note: &'static str,
 }
+
+const NOTE_OLLAMA: &str = "Set the context size in a Modelfile (PARAMETER num_ctx); this route cannot. A long tool list is cut off silently otherwise.";
+const NOTE_LLAMA_CPP: &str = "Start the server with a model whose chat template supports tools. Tool calls use the server's template engine.";
 
 /// Local servers first, then a custom address of each protocol.
 pub const PRESETS: &[Preset] = &[
@@ -52,21 +57,25 @@ pub const PRESETS: &[Preset] = &[
         name: "Local model server",
         base_url: "http://localhost:11434/v1",
         protocol: Protocol::OpenAi,
+        note: NOTE_OLLAMA,
     },
     Preset {
         name: "Second local server",
-        base_url: "http://localhost:1234/v1",
+        base_url: "http://localhost:8080/v1",
         protocol: Protocol::OpenAi,
+        note: NOTE_LLAMA_CPP,
     },
     Preset {
         name: "Custom OpenAI-compatible address",
         base_url: "",
         protocol: Protocol::OpenAi,
+        note: "",
     },
     Preset {
         name: "Custom Anthropic-compatible address",
         base_url: "",
         protocol: Protocol::Anthropic,
+        note: "",
     },
 ];
 
@@ -112,6 +121,7 @@ pub fn config_for(connection: &Connection, key: Option<String>, system_note: Str
         model: connection.model.clone(),
         key,
         system_note,
+        retrieval: None,
     }
 }
 
@@ -152,6 +162,26 @@ mod tests {
             images: false,
         };
         assert_eq!(new_id(&[c("api-1"), c("api-2")], "api"), "api-3");
+    }
+
+    #[test]
+    fn presets_for_local_servers_use_the_openai_protocol_and_a_loopback_address() {
+        use crate::api::key_safe_for;
+        for p in PRESETS.iter().take(2) {
+            assert_eq!(p.protocol, Protocol::OpenAi);
+            assert!(key_safe_for(p.base_url));
+        }
+    }
+
+    #[test]
+    fn every_preset_has_a_note_or_an_empty_note_on_purpose() {
+        for p in PRESETS {
+            if p.name.starts_with("Custom") {
+                assert!(p.note.is_empty(), "{} should not carry a preset note", p.name);
+            } else if p.base_url.contains("localhost") {
+                assert!(!p.note.is_empty(), "{} should explain a local trap", p.name);
+            }
+        }
     }
 
     #[test]
