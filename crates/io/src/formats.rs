@@ -455,6 +455,14 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Fabrication,
         Run::Kind("ipc356"),
     ),
+    output(
+        "bring_up",
+        "Bring-up test plan",
+        "Markdown and CSV checklist of rails, headers, continuity and nets missing a probe pad.",
+        &["md", "csv"],
+        Group::Documentation,
+        Run::Kind("bring_up"),
+    ),
     common(output(
         "pdf",
         "Drawing (PDF)",
