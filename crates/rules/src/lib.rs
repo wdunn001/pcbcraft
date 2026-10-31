@@ -993,12 +993,11 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
     airwires_from(&copper(project))
 }
 
-const DECOUPLING_EXCLUDED_KINDS: &[&str] = &["resistor", "capacitor", "connector", "led"];
-fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
+fn net_has_capacitor(project: &Project, net: Id) -> bool {
     project
-        .no_connects
+        .components
         .iter()
-        .any(|f| f.pin.component == component && f.pin.pin == pin)
+        .any(|c| c.kind == "capacitor" && c.pins.iter().any(|p| p.net == Some(net)))
 }
 
 fn net_has_power_driver(project: &Project, net: Id) -> bool {
@@ -1020,7 +1019,8 @@ fn net_has_power_driver(project: &Project, net: Id) -> bool {
 }
 
 fn is_ic_like(component: &pcbcraft_doc::Component) -> bool {
-    !DECOUPLING_EXCLUDED_KINDS.contains(&component.kind.as_str())
+    !["resistor", "capacitor", "connector", "led"]
+        .contains(&component.kind.as_str())
         && component
             .pins
             .iter()
@@ -1064,11 +1064,11 @@ fn net_has_schematic_wiring(project: &Project, net: Id) -> bool {
     project.ports.iter().any(|p| p.net == net)
 }
 
-fn capacitor_on_net(project: &Project, net: Id) -> bool {
+fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
     project
-        .components
+        .no_connects
         .iter()
-        .any(|c| c.kind == "capacitor" && c.pins.iter().any(|p| p.net == Some(net)))
+        .any(|f| f.pin.component == component && f.pin.pin == pin)
 }
 
 fn decoupling_distance_ok(project: &Project, ic: Id, power_pin: &str, net: Id) -> bool {
@@ -1113,7 +1113,50 @@ fn net_needs_power_not_driven(
             && !pin_flagged_no_connect(project, *component, &pin.number)
     })
 }
-    })
+
+fn missing_decoupling_findings(project: &Project) -> Vec<Finding> {
+    let mut result = vec![];
+    for c in &project.components {
+        if !is_ic_like(c) {
+            continue;
+        }
+        for p in &c.pins {
+            if p.electrical_type != "power_in" {
+                continue;
+            }
+            let Some(net) = p.net else {
+                continue;
+            };
+            if pin_flagged_no_connect(project, c.id, &p.number) {
+                continue;
+            }
+            if net_has_pullup_to_power(project, net) {
+                continue;
+            }
+            if net_has_schematic_wiring(project, net) {
+                continue;
+            }
+            if decoupling_distance_ok(project, c.id, &p.number, net) {
+                continue;
+            }
+            if net_has_capacitor(project, net) {
+                continue;
+            }
+            result.push(Finding {
+                code: "missing_decoupling",
+                severity: project.rule_severity("missing_decoupling", "warning"),
+                message: format!(
+                    "{} pin {} on {} needs a decoupling capacitor on the same net",
+                    c.reference,
+                    p.number,
+                    project.net_name(net)
+                ),
+                objects: vec![c.id],
+            });
+        }
+    }
+    result
+}
 }
 
 pub fn erc(project: &Project) -> Vec<Finding> {
@@ -1122,6 +1165,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
         return vec![];
     }
     let mut result = vec![];
+    result.extend(missing_decoupling_findings(project));
     for c in &project.components {
         for p in &c.pins {
             if p.net.is_none() && !pin_flagged_no_connect(project, c.id, &p.number) {

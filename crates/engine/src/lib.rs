@@ -376,7 +376,15 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-"component.set_compliance",
+"component.set_kind",
+            "Set the closed component kind slug used by profile and companion rules",
+            schema(
+                json!({"id":id_schema(),"kind":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id", "kind"],
+            ),
+        ),
+        (
+            "component.set_compliance",
             "Set typed compliance on a placed part: country of origin, product role, declarations and substances",
             schema(
                 json!({"id":id_schema(),"compliance":{"type":"object"}}),
@@ -412,39 +420,6 @@ pub fn commands() -> Vec<CommandSpec> {
             "Find placed footprints by component reference wildcard, exact component value, or lock state; * matches any run of characters and ? matches one",
             schema(
                 json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"locked":{"type":"boolean"}}),
-                &[],
-            ),
-        ),
-        (
-            "manufacturer.set",
-            "Add or replace one row in the project manufacturer table, including aliases and country",
-            schema(
-                json!({"name":{"type":"string","maxLength":128},"aliases":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":128}},"country":{"type":"string","maxLength":2},"parent":{"type":["string","null"],"maxLength":128},"supplier_responsibility_on_file":{"type":"boolean"}}),
-                &["name"],
-            ),
-        ),
-        (
-            "project.compliance.set",
-            "Choose compliance rule sets, organisation role and target markets for this design",
-            schema(
-                json!({"rule_sets":{"type":"array","maxItems":16,"items":{"type":"string","maxLength":64}},"org_role":{"type":["string","null"],"enum":["maker_seller","integrator","buyer",null]},"target_markets":{"type":"array","maxItems":16,"items":{"type":"string","maxLength":256}}}),
-                &[],
-            ),
-        ),
-        (
-            "compliance.finding.mute",
-            "Mute one compliance finding for a rule and component or manufacturer, storing a reason on the project",
-            schema(
-                json!({"rule":{"type":"string","maxLength":64},"component":{"type":["integer","null"]},"manufacturer":{"type":["string","null"],"maxLength":128},"reason":{"type":"string","maxLength":512}}),
-                &["rule", "reason"],
-            ),
-        ),
-        (
-            "compliance.check",
-            "Run bundled compliance rule sets against the bill of materials and return findings with rule, evidence and citation",
-            schema(json!({}), &[]),
-        ),
-        (
             "component.find",
             "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
             schema(
@@ -3764,6 +3739,9 @@ fn assign_to(
         library,
         definition: definition.clone(),
     });
+    if let Some(symbol) = &c.library_symbol {
+        c.kind = pcbcraft_doc::assign_kind_from_library(&symbol.definition, Some(definition));
+    }
     Some(())
 }
 #[derive(Deserialize)]
@@ -3785,6 +3763,12 @@ struct Rotate {
 struct ValueParams {
     id: Id,
     value: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetKindParams {
+    id: Id,
+    kind: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6300,7 +6284,10 @@ fn filter_matches(filter: &ComponentFilter, c: &Component) -> bool {
         .as_deref()
         .is_none_or(|r| class_pattern_matches(r, &c.reference))
         && filter.value.as_deref().is_none_or(|v| c.value == v)
-        && filter.kind.as_deref().is_none_or(|k| c.kind == k)
+        && filter
+            .kind
+            .as_deref()
+            .is_none_or(|k| pcbcraft_doc::kind_matches(&c.kind, k))
 }
 /// Center of an align item's bounding box on the requested axis.
 /// True when any design object (component, net, wire, footprint, track, via,
@@ -8801,6 +8788,17 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 put(key, &a.sku)?;
             }
             Ok(json!({"id": a.id, "fields": written}))
+        }
+        "component.set_kind" => {
+            let a: SetKindParams = parse(params)?;
+            let kind = pcbcraft_doc::parse_component_kind(&a.kind).map_err(Error::Invalid)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.kind = kind.clone();
+            Ok(json!({"id": a.id, "kind": kind}))
         }
         "component.find" => {
             let a: FindParams = parse(params)?;

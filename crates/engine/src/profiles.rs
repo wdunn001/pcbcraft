@@ -51,6 +51,7 @@ pub static BUILT_INS: &[BuiltInProfile] = &[
     builtin!("power-12v", "power-12v.toml"),
     builtin!("analog-audio", "analog-audio.toml"),
     builtin!("rf-50ohm", "rf-50ohm.toml"),
+    builtin!("component-kinds", "component-kinds.toml"),
 ];
 
 pub fn manifest_slugs() -> &'static [&'static str] {
@@ -81,6 +82,7 @@ pub fn manifest_slugs() -> &'static [&'static str] {
         "power-12v",
         "analog-audio",
         "rf-50ohm",
+        "component-kinds",
     ]
 }
 
