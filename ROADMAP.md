@@ -109,7 +109,7 @@ for in-house machines.
 - [ ] Assembly and fabrication drawings (#327)
 - [x] Fabrication-layer PNG rasters via output jobs (#328 subset on fork main; UV-specific workflows and drawn-layer BMP export remain open)
 - [ ] CNC isolation G-code (#329)
-- [ ] CNC drilling and outline G-code (#330)
+- [x] CNC drilling and outline G-code (#154 on fork main via #74)
 - [ ] Paste stencil and laser cut paths (#331)
 - [x] Plot drawn layers for laser, mill and printer output (#276 on fork main)
 - [x] Panel fabrication export with breakaway and tooling holes (#338 subset on fork main; interactive panel UI #417-#419 remain open)
