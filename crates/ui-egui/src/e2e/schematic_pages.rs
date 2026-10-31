@@ -4,6 +4,7 @@
 use super::super::*;
 use super::board::right_click;
 use super::support::*;
+use crate::schematic_port;
 
 fn start() -> App {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -355,6 +356,97 @@ fn a_newcomer_sees_which_pages_a_highlighted_connection_reaches() -> Result<(), 
         app.highlight_net,
         Some(net),
         "switching pages keeps the connection highlighted"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_adds_a_second_page_and_carries_a_net_across() -> Result<(), String> {
+    let mut app = start();
+    app.tool_call("net.create", json!({"name":"SDA"}));
+    let ctx = egui::Context::default();
+    super::support::tap_strip(&ctx, &mut app, "icon:tool-port")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.port_pick_name == "SDA",
+        "the port picker follows the new connection: {}",
+        app.port_pick_name
+    );
+    app.canvas_click(Point::new(12.0, 12.0), app.schematic.zoom);
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    let child = app.project.sheets[0].id;
+    app.tool_call(
+        "component.add",
+        json!({"kind":"resistor","reference":"R_CHILD","position":{"x":40.0,"y":40.0}}),
+    );
+    super::support::tap_strip(&ctx, &mut app, "icon:tool-port")?;
+    app.canvas_click(Point::new(45.0, 45.0), app.schematic.zoom);
+    assert_eq!(
+        app.project
+            .nets
+            .iter()
+            .filter(|n| n.name == "SDA")
+            .count(),
+        1,
+        "both ports share one connection"
+    );
+    assert_eq!(
+        app.project.ports.iter().filter(|p| p.name == "SDA").count(),
+        2,
+        "each page gets its own port: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Main")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let labels = canvas_labels(&app);
+    assert!(
+        !labels.iter().any(|t| t.contains("R_CHILD")),
+        "Main hides the child page part: {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|t| t.contains("[SDA]")),
+        "Main shows the port placed here: {labels:?}"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Page 1")?;
+    let labels = canvas_labels(&app);
+    assert!(
+        labels.iter().any(|t| t.contains("R_CHILD")),
+        "the child page shows its part: {labels:?}"
+    );
+    assert_eq!(app.schematic_page(), child);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_a_child_page_from_its_box() -> Result<(), String> {
+    let mut app = start();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    let child = app.project.sheets[0].id;
+    let entry = app.project.sheets[0]
+        .entry
+        .ok_or("a new page should sit in a box on its parent")?;
+    authoring::tests::tap(&ctx, &mut app, "Main")?;
+    assert_eq!(app.schematic_page(), 0, "the parent page is showing");
+    let inside = Point::new(
+        entry.x + schematic_port::CHILD_BOX_W / 2.0,
+        entry.y + schematic_port::CHILD_BOX_H / 2.0,
+    );
+    let labels = canvas_labels(&app);
+    assert!(
+        labels.iter().any(|t| t.contains("Page 1")),
+        "the child box shows the page name on Main: {labels:?}"
+    );
+    app.schematic_double_click(inside, app.schematic.zoom);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.schematic_page(),
+        child,
+        "double-clicking the box opens the child page"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Page 1")?,
+        "the child tab stays selected"
     );
     Ok(())
 }

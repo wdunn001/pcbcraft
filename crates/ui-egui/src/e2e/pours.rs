@@ -90,6 +90,7 @@ fn pour_app(wall: bool, blocked: bool) -> Result<(App, egui::Context, Id), Strin
         });
         p.components.push(part);
         p.board.footprints.push(pcbcraft_doc::Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: part_id + 1,
             component: part_id,
             position: at,

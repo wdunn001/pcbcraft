@@ -4,6 +4,8 @@ use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 
 #[derive(Default)]
 pub(super) struct Browser {
+    /// The settings folder library requests read the source list from.
+    pub(super) config: pcbcraft_engine::user_config::UserConfig,
     pub(super) editor: super::authoring::Editor,
     pub(super) preview_unit: u32,
     pub(super) catalog: Option<Value>,
@@ -22,7 +24,7 @@ pub(super) struct Browser {
     pub(super) quality: super::library_quality::Quality,
 }
 impl Browser {
-    fn request(&mut self, ctx: &egui::Context, name: &str, args: Value) {
+    pub(super) fn request(&mut self, ctx: &egui::Context, name: &str, args: Value) {
         if self.pending.is_some() {
             return;
         }
@@ -34,10 +36,11 @@ impl Browser {
             let (tx, rx) = std::sync::mpsc::channel();
             let ctx = ctx.clone();
             let name = name.to_owned();
+            let config = self.config.clone();
             match std::thread::Builder::new()
                 .name("pcbcraft-library".into())
                 .spawn(move || {
-                    let result = pcbcraft_engine::library::read_tool(&name, &args);
+                    let result = pcbcraft_engine::library::read_tool(&config, &name, &args);
                     let _ = tx.send((name, result));
                     ctx.request_repaint();
                 }) {
@@ -59,7 +62,7 @@ impl Browser {
         self.preview = None;
         self.request(ctx,"library.search",json!({"path":self.path,"kind":if self.kind {"footprint"} else {"symbol"},"query":self.query,"limit":100}));
     }
-    fn poll(&mut self) {
+    pub(super) fn poll(&mut self) {
         let response = self.pending.as_ref().and_then(|rx| rx.try_recv().ok());
         if let Some((name, result)) = response {
             self.pending = None;
@@ -520,6 +523,7 @@ impl App {
         let camera = Camera {
             mirror: false,
             turns: 0,
+            up: false,
             center,
             zoom: ((response.rect.width() - 24.0) / extent.x as f32)
                 .min(150.0 / extent.y as f32)

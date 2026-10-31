@@ -211,6 +211,7 @@ pub(crate) fn silk_findings(project: &Project) -> Vec<Finding> {
                         ink.what
                     ),
                     objects: vec![ink.id, f.id],
+                    hint: None,
                 });
             } else if nearest + 1e-9 < limit {
                 result.push(Finding {
@@ -221,7 +222,8 @@ pub(crate) fn silk_findings(project: &Project) -> Vec<Finding> {
                         ink.what
                     ),
                     objects: vec![ink.id, f.id],
-                });
+            hint: None,
+        });
             }
         }
     }
@@ -240,6 +242,7 @@ mod tests {
             p.components.push(c);
         }
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 12,
             component: 2,
             position: Point::new(10.0, 10.0),
