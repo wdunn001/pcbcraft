@@ -23610,7 +23610,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn library_footprint_model_auto_align_recovers_pad_shift() -> Result<(), Error> {
+fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error> {
         let mut s = Session::default();
         let pitch = 3.0;
         let half = pitch / 2.0;
@@ -23661,9 +23661,69 @@ mod tests {
         )?;
         s.execute(
             "library.footprint.set_model",
-            json!({"name":"AlignChip","path":"chip.wrl"}),
+            json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]}),
             None,
         )?;
+        s.execute(
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_model",
+json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_model_transform",
+            json!({"name":"R_0805_2012Metric","offset":[1,2,3]}),
+            None,
+        )?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["offset"],
+            json!([1.0, 2.0, 3.0])
+        );
+        s.execute(
+            "library.footprint.set_model_transform",
+            json!({"name":"R_0805_2012Metric","preset":"rotate_90"}),
+            None,
+        )?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["rotate"][2].as_f64(),
+            Some(90.0),
+            "rotate_90 turns the model about Z"
+        );
+        s.execute(
+            "library.footprint.set_model_transform",
+            json!({"name":"R_0805_2012Metric","preset":"mirror"}),
+            None,
+        )?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["scale"][0].as_f64(),
+            Some(-1.0),
+            "mirror negates X scale for a vertical-axis flip"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["offset"],
+            json!([1.0, 2.0, 3.0])
+        );
+        assert!(
+            commands()
+                .iter()
+                .any(|c| c.id == "library.footprint.set_model_transform"),
+            "typed command surface lists set_model_transform"
+        );
+        assert!(
+            s.execute(
+                "library.footprint.set_model_transform",
+                json!({"name":"R_0805_2012Metric","preset":"nope"}),
+                None
+            )
+            .is_err(),
+            "unknown presets are refused"
+        );
         let mesh = pcbcraft_io::shift_mesh(&pcbcraft_io::test_chip_mesh(pitch), 0.3, -0.15, 0.0);
         let flat: Vec<f64> = mesh.positions.iter().flat_map(|p| p.iter().copied()).collect();
         let out = s.execute(
