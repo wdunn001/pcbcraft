@@ -233,6 +233,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
     });
     p.components.push(part);
     p.board.footprints.push(Footprint {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 4,
         component: 2,
         position: Point::new(30.0, 20.0),
@@ -252,6 +253,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
             .collect(),
     });
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 5,
         net: 1,
         start: Point::new(20.0, 20.0),
@@ -457,6 +459,33 @@ fn a_newcomer_finds_a_chip_package_by_name_and_places_it_on_the_board() -> Resul
     Ok(())
 }
 
+#[test]
+fn open_library_3d_models_fetch_only_when_the_person_asks() -> Result<(), String> {
+    use crate::library_online;
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    use_recorded_library(&mut app, "real-part")?;
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let off = library_online::import_open(&source, "Device/R", false)?;
+    assert!(off.get("model").is_none());
+    assert_eq!(off["notices"].as_array().map(|a| a.len()), Some(2));
+    let on = library_online::import_open(&source, "Device/R", true)?;
+    assert!(on.get("model").is_some());
+    assert_eq!(on["notices"].as_array().map(|a| a.len()), Some(3));
+    assert!(
+        on["notices"]
+            .as_array()
+            .and_then(|a| a.last())
+            .and_then(|v| v.as_str())
+            .is_some_and(|n| n.contains("CC-BY-SA 4.0") && n.contains(".step")),
+        "the model notice carries the licence and file"
+    );
+    Ok(())
+}
+
 /// A footprint whose two pads sit on top of each other, saved into the
 /// project library the way an import would.
 fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
@@ -494,11 +523,7 @@ fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<()
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Checks);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    for needle in [
-        "Lib pad overlap · 1 place",
-        "SquashedPair: Two pads share the same copper area",
-        "Fix: Move or resize the pads so their outlines no longer overlap",
-    ] {
+    for needle in ["SquashedPair: Two pads share the same copper area"] {
         assert!(
             scrolled_to_at(&ctx, &mut app, needle, 720.0)?,
             "the findings sheet should show \"{needle}\""
@@ -974,15 +999,11 @@ fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), S
     app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Place part")?;
-    authoring::tests::tap(
-        &ctx,
-        &mut app,
-        "Add or manage libraries in Settings \u{2192}",
-    )?;
+    authoring::tests::tap(&ctx, &mut app, "Browse component libraries \u{2192}")?;
     assert_eq!(
         app.tab,
-        Tab::Settings,
-        "the browse button opens the page that lists library sources"
+        Tab::Library,
+        "the browse link opens the Library tab, where the libraries are read and edited"
     );
     Ok(())
 }

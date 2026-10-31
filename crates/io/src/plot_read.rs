@@ -1,4 +1,16 @@
 //! Read fabrication plot and drill files for inspection (bounded, read-only).
+//!
+//! Parsed Gerber layers and Excellon drill data are returned as plain structs
+//! so callers can preview fabrication output without editing the project.
+//!
+//! # Rules
+//! - Plot operations, apertures and drill hits are capped (`MAX_OPS`, `MAX_APERTURES`, `MAX_HITS`).
+//! - Zip archives use the same byte budget as one on-disk file (`MAX_PLOT_ZIP_BYTES`).
+//!
+//! # Dependencies
+//! - crates/geom/src/lib.rs
+//! - crates/io/src/lib.rs
+//! - crates/io/tests/fixtures/shaped_pads_F_Cu.gbr
 
 use pcbcraft_geom::Point;
 use std::collections::BTreeMap;
@@ -9,7 +21,9 @@ use crate::{MAX_FILE_BYTES, read_text};
 /// Total extracted bytes allowed when reading a plot zip (same budget as one file).
 pub const MAX_PLOT_ZIP_BYTES: u64 = MAX_FILE_BYTES;
 
-const MAX_OPS: usize = 100_000;
+/// Operations one plot layer may carry. Sized to the writer's per-layer
+/// budget (`MAX_COPPER_LAYER_OPS`) so a file this crate writes also loads.
+const MAX_OPS: usize = 1_000_000;
 const MAX_APERTURES: usize = 64;
 const MAX_HITS: usize = 50_000;
 
@@ -63,32 +77,81 @@ pub struct PlotLayer {
     pub flashes: Vec<PlotFlash>,
     pub strokes: Vec<PlotStroke>,
     pub regions: Vec<Vec<(f64, f64)>>,
+    /// Per region, true when it was written with clear polarity (`%LPC*%`),
+    /// that is a hole cut out of copper drawn before it.
+    pub region_clear: Vec<bool>,
     pub flash_count: usize,
     pub draw_count: usize,
     pub hints: Vec<PlotHint>,
 }
 
+impl PlotLayer {
+    /// Copper area of the regions in square millimetres: dark contours less
+    /// clear-polarity contours (holes), each by its own absolute area.
+    ///
+    /// # Rules
+    /// - Assumes each clear contour lies inside dark copper written before it,
+    ///   which is how this crate writes pours.
+    pub fn region_area_mm2(&self) -> f64 {
+        self.regions
+            .iter()
+            .zip(&self.region_clear)
+            .map(|(ring, clear)| {
+                let points: Vec<Point> = ring.iter().map(|(x, y)| Point::new(*x, *y)).collect();
+                let area = pcbcraft_geom::polygon_area(&points).abs();
+                if *clear { -area } else { area }
+            })
+            .sum()
+    }
+}
 #[derive(Clone, Debug)]
 pub struct PlotDrillTool {
+    /// Tool index from `T` lines in the drill body.
     pub number: u32,
+    /// Cutter diameter in millimetres from the header `T<n>C<diameter>` definition.
     pub diameter_mm: f64,
+    /// Plated versus unplated when the drill file states it; otherwise unset.
     pub plated: Option<bool>,
+    /// How many hits in the file used this tool number.
     pub hit_count: usize,
 }
 
+/// One drilled hole or slot start from an Excellon body line.
+///
+/// # Rules
+/// - Round holes set `slot_end` to none; `G85` slot lines store the far end in millimetres.
+///
+/// # Dependencies
+/// - crates/io/src/plot_read.rs
 #[derive(Clone, Debug)]
 pub struct PlotDrillHit {
+    /// Tool number active when this hit was written.
     pub tool: u32,
+    /// Hole or slot start x in millimetres.
     pub x_mm: f64,
+    /// Hole or slot start y in millimetres.
     pub y_mm: f64,
+    /// Far end of a routed slot in millimetres, or none for a round hit.
     pub slot_end: Option<(f64, f64)>,
 }
 
+/// Every Gerber layer and drill record loaded from one folder or zip archive.
+///
+/// # Rules
+/// - `layers` includes a synthetic drill overlay when any hits were read.
+/// - `hints` collects non-fatal parse notes from individual Gerber layers.
+///
+/// # Dependencies
+/// - crates/io/src/plot_read.rs
 #[derive(Clone, Debug)]
 pub struct PlotPackage {
+    /// Gerber layers in filename order, plus an optional drill overlay layer.
     pub layers: Vec<PlotLayer>,
+    /// Drill tools merged from every `.drl` file, with renumbered indices.
     pub drill_tools: Vec<PlotDrillTool>,
+    /// Drill and slot hits merged from every `.drl` file.
     pub drill_hits: Vec<PlotDrillHit>,
+    /// Parse hints surfaced while loading Gerber files in the package.
     pub hints: Vec<PlotHint>,
 }
 
@@ -420,6 +483,8 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
     let mut flashes = Vec::new();
     let mut strokes = Vec::new();
     let mut regions: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut region_clear: Vec<bool> = Vec::new();
+    let mut clear_polarity = false;
     let mut current_ap: u32 = 10;
     let mut ops = 0usize;
     let mut in_region = false;
@@ -436,6 +501,10 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
             } else if s.starts_with("TF.FilePolarity,Negative") {
                 polarity_negative = true;
                 saw_x2 = true;
+            } else if s == "LPC" {
+                clear_polarity = true;
+            } else if s == "LPD" {
+                clear_polarity = false;
             } else if s.starts_with("TF.") {
                 saw_x2 = true;
             } else if let Some(rest) = s.strip_prefix("TA.AperFunction,") {
@@ -471,6 +540,7 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
             Some(37) => {
                 if contour.len() >= 3 {
                     regions.push(std::mem::take(&mut contour));
+                    region_clear.push(clear_polarity);
                 }
                 contour.clear();
                 in_region = false;
@@ -487,7 +557,9 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
         );
         ops += 1;
         if ops > MAX_OPS {
-            return Err("plot layer exceeds the object limit".into());
+            return Err(format!(
+                "plot layer {source_name} exceeds the object limit of {MAX_OPS} operations"
+            ));
         }
         match op {
             3 => flashes.push(PlotFlash {
@@ -498,6 +570,7 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
             2 => {
                 if in_region && contour.len() >= 3 {
                     regions.push(std::mem::take(&mut contour));
+                    region_clear.push(clear_polarity);
                 }
                 contour.clear();
                 if in_region {
@@ -546,6 +619,7 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
         flashes,
         strokes,
         regions,
+        region_clear,
         flash_count,
         draw_count,
         hints,
@@ -761,6 +835,7 @@ fn drill_overlay_layer(hits: &[PlotDrillHit]) -> PlotLayer {
             })
             .collect(),
         regions: Vec::new(),
+        region_clear: Vec::new(),
         flash_count: hits.iter().filter(|h| h.slot_end.is_none()).count(),
         draw_count: hits.iter().filter(|h| h.slot_end.is_some()).count(),
         hints: Vec::new(),
@@ -860,6 +935,13 @@ pub fn load_plot_zip(bytes: &[u8]) -> Result<PlotPackage, String> {
     })
 }
 
+/// Bounding box of every flash and stroke in a plot package, as (min_x, min_y, max_x, max_y) in millimetres.
+///
+/// # Rules
+/// - Returns `None` when the package has no flashes and no strokes.
+///
+/// # Dependencies
+/// - crates/io/src/plot_read.rs
 pub fn layer_bounds(package: &PlotPackage) -> Option<(f64, f64, f64, f64)> {
     let mut min_x = f64::INFINITY;
     let mut min_y = f64::INFINITY;
@@ -891,6 +973,10 @@ pub fn layer_bounds(package: &PlotPackage) -> Option<(f64, f64, f64, f64)> {
     }
 }
 
+/// Straight-line distance between two board points in millimetres.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
 pub fn distance_mm(a: Point, b: Point) -> f64 {
     ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
 }
