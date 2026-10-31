@@ -878,7 +878,7 @@ mod tests {
             id: 11,
             reference: "U1".into(),
             value: String::new(),
-            kind: "ic".into(),
+            kind: "library".into(),
             position: Point::new(0.0, 0.0),
             rotation: 0.0,
             pins: pads
@@ -895,7 +895,38 @@ mod tests {
                 })
                 .collect(),
             units: vec![],
-            library_symbol: None,
+            library_symbol: Some(pcbcraft_doc::LibrarySymbol {
+                library: "g".into(),
+                unit: 1,
+                definition: pcbcraft_library::SymbolDefinition {
+                    name: "U".into(),
+                    reference: "U".into(),
+                    value: String::new(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    footprint: String::new(),
+                    set: String::new(),
+                    pins: pads
+                        .iter()
+                        .map(|pad| pcbcraft_library::SymbolPin {
+                            number: pad.number.clone(),
+                            name: pad.number.clone(),
+                            position: Point::new(0.0, 0.0),
+                            angle: 0.0,
+                            length: 2.54,
+                            electrical_type: "passive".into(),
+                            unit: 1,
+                            body_style: 1,
+                            graphical_style: "line".into(),
+                            visible: true,
+                        })
+                        .collect(),
+                    graphics: vec![],
+                    extends: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            }),
             library_footprint: Some(pcbcraft_doc::LibraryFootprint {
                 library: "g".into(),
                 definition: def.clone(),
@@ -904,6 +935,12 @@ mod tests {
             sourcing: Default::default(),
             sheet: 0,
         });
+        if let Some(c) = p.components.last_mut()
+            && let Some(sym) = &c.library_symbol
+            && let Ok(rows) = pcbcraft_doc::collapse_symbol_pins(&sym.definition)
+        {
+            c.pins = rows;
+        }
         p.board.footprints.push(footprint(pads));
         p
     }
@@ -1075,7 +1112,7 @@ mod tests {
         let body2 = resolve(
             &footprint(vec![
                 pad_at("1", 0.0, 0.0, 1.0, 1.0, "rect"),
-                pad_at("2", 5.0, 0.0, 1.0, 1.0, "rect"),
+                pad_at("2", 0.1, 0.0, 1.0, 1.0, "rect"),
             ]),
             Some(&comp),
         )

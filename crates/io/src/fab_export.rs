@@ -1179,7 +1179,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 #[cfg(test)]
 mod fab_export_tests {
     use super::*;
-    use pcbcraft_doc::{Hole, Project, Via, ViaCovering};
+    use pcbcraft_doc::{Hole, Net, Project, Via, ViaCovering};
 
     #[test]
     fn tented_via_has_no_mask_opening() -> Result<(), String> {
@@ -1210,6 +1210,11 @@ mod fab_export_tests {
     #[test]
     fn drill_tool_counts_groups_by_diameter_and_plating() -> Result<(), String> {
         let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "N1".into(),
+            ..Default::default()
+        });
         p.board.vias.push(Via {
             id: 10,
             net: 1,

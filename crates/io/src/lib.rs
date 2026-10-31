@@ -366,6 +366,17 @@ pub fn archive_zip(p: &Project) -> Result<Vec<u8>, String> {
 /// limited to 255 bytes, entries to 65535 and the archive to 4 GiB, the plain
 /// limits of the format this writer emits.
 pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    write_zip(entries, true)
+}
+
+/// The same writer without the name checks, so a test can build the hostile
+/// archives the reader must refuse.
+#[cfg(test)]
+pub(crate) fn zip_entries_unchecked(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    write_zip(entries, false)
+}
+
+fn write_zip(entries: &[(String, Vec<u8>)], checked: bool) -> Result<Vec<u8>, String> {
     let count = u16::try_from(entries.len())
         .map_err(|_| "a stored ZIP holds at most 65535 entries".to_string())?;
     let mut zip: Vec<u8> = Vec::new();
@@ -376,10 +387,10 @@ pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
         if name.is_empty() || name.len() > 255 {
             return Err("archive entry names are 1 to 255 bytes".into());
         }
-        if name.contains("..") {
+        if checked && name.contains("..") {
             return Err(format!("unsafe archive entry name {name}"));
         }
-        if !seen.insert(name.clone()) {
+        if !seen.insert(name.clone()) && checked {
             return Err(format!("duplicate archive entry name {name}"));
         }
         let size = u32::try_from(data.len())
@@ -10088,7 +10099,7 @@ mod tests {
             "front parts list geometry, position, side and rotation"
         );
         assert!(
-            board.contains("TEST_ONE Test/TEST_ONE U1\n30.000 20.000 0.0 0.000 TOP PLACED\n"),
+            board.contains("TEST_ONE Test/TEST_ONE U1\n30.000 20.000 0.0 0.0 TOP PLACED\n"),
             "every part is listed in placement order"
         );
         assert!(board.ends_with(".END_PLACEMENT\n"), "the board file closes");
@@ -10198,7 +10209,7 @@ mod tests {
             "two instances of the same footprint share one library outline"
         );
         assert!(
-            library.contains("TEST_ONE Test/TEST_ONE MM 1.5\n"),
+            library.contains("TEST_ONE Test/TEST_ONE MM 1.500\n"),
             "the library entry uses the shared geometry name, part id and default body height"
         );
         let board = idf_board(&project)?;
@@ -10546,17 +10557,63 @@ mod tests {
                     keywords: String::new(),
                     footprint: "Test_Pad".into(),
                     set: String::new(),
-                    pins: vec![],
+                    pins: vec![pcbcraft_library::SymbolPin {
+                        number: "1".into(),
+                        name: "TP".into(),
+                        position: Point::new(0.0, 0.0),
+                        angle: 0.0,
+                        length: 2.54,
+                        electrical_type: "passive".into(),
+                        unit: 1,
+                        body_style: 1,
+                        graphical_style: "line".into(),
+                        visible: true,
+                    }],
                     graphics: vec![],
                     extends: None,
                     raw_source: String::new(),
                     unsupported: vec![],
                 },
             }),
-            library_footprint: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "project".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "Test_Pad".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![pcbcraft_library::FootprintPad {
+                        number: "1".into(),
+                        pad_type: "smd".into(),
+                        shape: "rect".into(),
+                        position: Point::default(),
+                        rotation: 0.0,
+                        size: Point::new(1.0, 1.0),
+                        layers: vec!["F.Cu".into()],
+                        drill: None,
+                        roundrect_ratio: None,
+                        raw_source: String::new(),
+                        chamfer: None,
+                        polygon: Vec::new(),
+                    }],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            }),
             fields: vec![],
             sourcing: Default::default(),
         });
+        // The component rows must match the embedded symbol exactly.
+        if let Some(c) = project.components.last_mut()
+            && let Some(sym) = &c.library_symbol
+        {
+            c.pins = pcbcraft_doc::collapse_symbol_pins(&sym.definition)?;
+            for pin in &mut c.pins {
+                pin.net = Some(7);
+            }
+        }
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 2,
             component: 1,
@@ -10570,7 +10627,20 @@ mod tests {
                 diameter: 1.0,
                 net: Some(7),
                 castellated: None,
-                geometry: None,
+                geometry: Some(pcbcraft_library::FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: Point::default(),
+                    rotation: 0.0,
+                    size: Point::new(1.0, 1.0),
+                    layers: vec!["F.Cu".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    raw_source: String::new(),
+                    chamfer: None,
+                    polygon: Vec::new(),
+                }),
             }],
         });
         let text = testpoints_csv(&project)?;

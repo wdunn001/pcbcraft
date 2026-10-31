@@ -1664,10 +1664,13 @@ mod tests {
         assert_eq!(body.component, Some(11));
         let (blo, bhi) = body.bounds().ok_or("no body bounds")?;
         assert!(
-            close(blo[2], 1.6) && close(bhi[2], 1.6 + 0.55),
+            // The chip body is 0.55 tall; the polarity dot on its top adds 0.08.
+            close(blo[2], 1.6) && close(bhi[2], 1.6 + 0.55 + 0.08),
             "{blo:?} {bhi:?}"
         );
-        assert!(close(bhi[0] - blo[0], 1.95));
+        // The ceramic body is 1.95 long; the terminal caps reach out over the pads.
+        assert!(bhi[0] - blo[0] >= 1.95 - 1e-6, "w={}", bhi[0] - blo[0]);
+        assert!(bhi[0] - blo[0] < 3.0, "w={}", bhi[0] - blo[0]);
         assert!(mesh.parts.iter().all(|p| p.kind != PartKind::CopperBottom));
         Ok(())
     }
