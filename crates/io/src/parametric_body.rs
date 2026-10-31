@@ -45,26 +45,34 @@ impl ParametricBody {
     }
 }
 
-/// Resolve a parametric body. Priority: stored `body` field on the component,
-/// footprint name grammar, then pad-pattern inference.
+/// Resolve a parametric body. Loaded model files replace the mesh later in
+/// [`crate::board_mesh`]. Otherwise: stored `body` field, footprint name
+/// grammar, then pad-pattern inference.
 pub(crate) fn resolve(fp: &Footprint, component: Option<&Component>) -> Option<ParametricBody> {
     let name = component
         .and_then(|c| c.library_footprint.as_ref())
         .map(|l| l.definition.name.as_str());
-    let mut body = if let Some(over) = component.and_then(stored_body) {
-        infer_from_pads(fp, component).map(|mut b| {
-            if let Some(f) = over.family {
-                b.family = f;
+    let stored = component.and_then(stored_body);
+    let mut body = infer_from_pads(fp, component)?;
+    if let Some(over) = stored {
+        if let Some(f) = over.family {
+            body.family = f;
+            body.height = over
+                .height
+                .unwrap_or_else(|| default_height(f, &body.ring));
+        } else {
+            let height_override = over.height;
+            if let Some(h) = height_override {
+                body.height = h;
             }
-            if let Some(h) = over.height {
-                b.height = h;
+            if let Some(hint) = name.and_then(family_from_footprint_name) {
+                body = apply_name_family(body, hint);
+                if let Some(h) = height_override {
+                    body.height = h;
+                }
             }
-            b
-        })?
-    } else {
-        infer_from_pads(fp, component)?
-    };
-    if let Some(hint) = name.and_then(family_from_footprint_name) {
+        }
+    } else if let Some(hint) = name.and_then(family_from_footprint_name) {
         body = apply_name_family(body, hint);
     }
     finish_body(body, fp, component)
@@ -787,7 +795,8 @@ pub(crate) fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Component, Footprint, Pad};
+    use crate::board_mesh::{board_mesh, MeshLayers, PartKind};
+    use pcbcraft_doc::{Component, Footprint, Pad, Project};
     use pcbcraft_library::{
         FootprintDefinition, FootprintPad, LandPatternDensity, LandPatternParams,
         generate_footprint,
@@ -853,6 +862,78 @@ mod tests {
 
     fn close(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-6
+    }
+
+    fn project_for_def(def: &FootprintDefinition) -> Project {
+        let pads = pads_from_def(def);
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 30.0;
+        p.board.thickness = 1.6;
+        p.components.push(Component {
+            id: 11,
+            reference: "U1".into(),
+            value: String::new(),
+            kind: "ic".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            pins: pads
+                .iter()
+                .map(|pad| pcbcraft_doc::Pin {
+                    number: pad.number.clone(),
+                    name: pad.number.clone(),
+                    offset: Point::new(0.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                })
+                .collect(),
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "g".into(),
+                definition: def.clone(),
+            }),
+            fields: vec![],
+            sheet: 0,
+        });
+        p.board.footprints.push(footprint(pads));
+        p
+    }
+
+    fn mesh_has_no_degenerate_triangles(project: &Project) -> Result<(), String> {
+        let mesh = board_mesh(
+            project,
+            MeshLayers {
+                copper: false,
+                mask: false,
+                silk: false,
+                ..MeshLayers::default()
+            },
+        )?;
+        let body = mesh
+            .parts
+            .iter()
+            .find(|part| part.kind == PartKind::Body)
+            .ok_or_else(|| "no body mesh".to_string())?;
+        for chunk in body.indices.chunks(3) {
+            let a = body.positions[chunk[0] as usize];
+            let b = body.positions[chunk[1] as usize];
+            let c = body.positions[chunk[2] as usize];
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let cross = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            let area2 = (cross[0].powi(2) + cross[1].powi(2) + cross[2].powi(2)).sqrt();
+            if area2 <= 1e-12 {
+                return Err(format!("degenerate triangle {chunk:?}"));
+            }
+        }
+        Ok(())
     }
 
     fn nominal_params() -> LandPatternParams {
@@ -994,6 +1075,39 @@ mod tests {
     }
 
     #[test]
+    fn stored_body_family_beats_footprint_name() -> Result<(), String> {
+        let mut gen = nominal_params();
+        gen.name = "SOIC-8_3.9x4.9mm_P1.27mm".into();
+        gen.body_width = 3.9;
+        let def = generate_footprint("soic", LandPatternDensity::Nominal, &gen)?;
+        let pads = pads_from_def(&def);
+        let comp = Component {
+            id: 1,
+            reference: "U1".into(),
+            value: String::new(),
+            kind: "ic".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            pins: vec![],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "g".into(),
+                definition: def,
+            }),
+            fields: vec![pcbcraft_doc::ComponentField {
+                key: "body".into(),
+                value: r#"{"family":"chip","height":0.5}"#.into(),
+            }],
+            sheet: 0,
+        };
+        let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
+        assert_eq!(body.family, "chip");
+        assert!(close(body.height, 0.5));
+        Ok(())
+    }
+
+    #[test]
     fn stored_body_field_sets_family_and_height() -> Result<(), String> {
         let pads = vec![
             pad_at("1", -0.9, 0.0, 1.025, 1.4, "roundrect"),
@@ -1108,6 +1222,7 @@ mod tests {
                 );
             }
             assert!(z1 > z0, "{family}: flat body");
+            mesh_has_no_degenerate_triangles(&project_for_def(&def))?;
             let _ = body;
         }
         Ok(())
