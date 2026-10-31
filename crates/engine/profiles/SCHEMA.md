@@ -8,6 +8,7 @@ Known `value_source.field` keys:
 - `net_class.max_width`
 - `net_class.target_length`
 - `net_class.length_tolerance`
+- `net_class.rise_time`
 - `pair.gap`
 - `pair.length_tolerance`
 - `pair_rule.clearance`
