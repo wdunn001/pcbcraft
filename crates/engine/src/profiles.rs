@@ -1,20 +1,14 @@
-//! Built-in interface rule profiles (TOML) and apply/list/read commands.
-use pcbcraft_doc::{DiffPair, Id, NetClass, NetPairRule, RuleArea, RuleRegion};
+//! Built-in interface rule profiles (TOML) and apply/list commands.
 use pcbcraft_doc::{
-    InterfaceProfileDocument, NetClassSpec, Project, collect_unsupported, companion_plan,
+    DiffPair, Id, NetClass, NetPairRule, Project, RuleArea, RuleForbid, RuleRegion,
 };
-use pcbcraft_io::{interface_profile_content_hash, interface_profile_from_toml};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::path::Path;
 
 const MAX_PROFILE_ID: usize = 64;
 const MAX_PATH: usize = 4096;
-
-pub static USER_PROFILES_DIR_TEST: Mutex<Option<PathBuf>> = Mutex::new(None);
-pub static USER_PROFILES_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 pub struct BuiltInProfile {
     pub id: &'static str,
@@ -57,6 +51,7 @@ pub static BUILT_INS: &[BuiltInProfile] = &[
     builtin!("power-12v", "power-12v.toml"),
     builtin!("analog-audio", "analog-audio.toml"),
     builtin!("rf-50ohm", "rf-50ohm.toml"),
+    builtin!("component-kinds", "component-kinds.toml"),
 ];
 
 pub fn manifest_slugs() -> &'static [&'static str] {
@@ -87,11 +82,167 @@ pub fn manifest_slugs() -> &'static [&'static str] {
         "power-12v",
         "analog-audio",
         "rf-50ohm",
+        "component-kinds",
     ]
 }
 
 pub fn known_value_source_fields() -> &'static [&'static str] {
-    pcbcraft_doc::known_value_source_fields()
+    &[
+        "net_class.clearance",
+        "net_class.width",
+        "net_class.min_width",
+        "net_class.max_width",
+        "net_class.target_length",
+        "net_class.length_tolerance",
+        "net_class.target_impedance",
+        "pair.gap",
+        "pair.length_tolerance",
+        "pair.impedance",
+        "pair_rule.clearance",
+        "rule_area.clearance",
+    ]
+}
+
+#[derive(Debug, Deserialize)]
+struct ProfileMeta {
+    id: String,
+    name: String,
+    category: String,
+    summary: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ClassLimits {
+    max_routed_length: Option<f64>,
+    max_stub: Option<f64>,
+    max_vias: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NetClassToml {
+    name: String,
+    #[serde(default)]
+    clearance: Option<f64>,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default)]
+    min_width: Option<f64>,
+    #[serde(default)]
+    max_width: Option<f64>,
+    #[serde(default)]
+    target_length: Option<f64>,
+    #[serde(default)]
+    length_tolerance: Option<f64>,
+    #[serde(default)]
+    target_impedance: Option<f64>,
+    #[serde(default)]
+    max_length: Option<f64>,
+    #[serde(default)]
+    patterns: Vec<String>,
+    #[serde(default)]
+    nets: Vec<String>,
+    #[serde(default)]
+    limits: Option<ClassLimits>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PairImpedanceToml {
+    target: f64,
+    #[serde(default)]
+    tolerance: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PairToml {
+    name: String,
+    net_p: String,
+    net_n: String,
+    gap: f64,
+    #[serde(default)]
+    length_tolerance: Option<f64>,
+    #[serde(default)]
+    impedance: Option<PairImpedanceToml>,
+    #[serde(default)]
+    equal_vias: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PairRuleToml {
+    net_a: String,
+    net_b: String,
+    clearance: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RuleAreaToml {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    net: Option<String>,
+    #[serde(default)]
+    layer: Option<String>,
+    #[serde(default)]
+    forbid: Option<String>,
+    #[serde(default)]
+    footprint_ref: Option<String>,
+    clearance: f64,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct KeepoutRowToml {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    net: Option<String>,
+    #[serde(default)]
+    layer: Option<String>,
+    forbid: String,
+    #[serde(default)]
+    footprint_ref: Option<String>,
+    clearance: f64,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct ValueSourceToml {
+    field: String,
+    #[serde(default)]
+    source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProfileDocument {
+    schema: u32,
+    profile: ProfileMeta,
+    #[serde(default)]
+    net_class: Vec<NetClassToml>,
+    #[serde(default)]
+    pair: Vec<PairToml>,
+    #[serde(default)]
+    pair_rule: Vec<PairRuleToml>,
+    #[serde(default)]
+    rule_area: Vec<RuleAreaToml>,
+    #[serde(default)]
+    keepout: Vec<KeepoutRowToml>,
+    #[serde(default)]
+    placement: Vec<KeepoutRowToml>,
+    #[serde(default)]
+    value_source: Vec<ValueSourceToml>,
+    #[serde(default)]
+    length_group: Vec<toml::Value>,
+    #[serde(default)]
+    companion: Vec<toml::Value>,
+}
+
+fn parse_toml(text: &str) -> Result<ProfileDocument, String> {
+    toml::from_str(text).map_err(|e| format!("TOML profile: {e}"))
 }
 
 fn validate_profile_id(id: &str) -> Result<(), String> {
@@ -101,384 +252,139 @@ fn validate_profile_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn user_profiles_dir() -> Result<PathBuf, String> {
-    if let Some(path) = USER_PROFILES_DIR_TEST
-        .lock()
-        .ok()
-        .and_then(|locked| locked.as_ref().cloned())
-    {
-        return Ok(path);
-    }
-    let directory = |key: &str| {
-        std::env::var(key)
-            .ok()
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
+fn pair_impedance_fields(pair: &PairToml) -> Result<(Option<f64>, Option<f64>), String> {
+    let Some(spec) = &pair.impedance else {
+        return Ok((None, None));
     };
-    directory("XDG_CONFIG_HOME")
-        .or_else(|| directory("APPDATA"))
-        .or_else(|| directory("HOME").map(|home| home.join(".config")))
-        .map(|base| base.join("pcbcraft").join("interface-profiles"))
-        .ok_or_else(|| "no user configuration folder was found".into())
+    if !spec.target.is_finite() || !(1.0..=2000.0).contains(&spec.target) {
+        return Err(format!("invalid impedance target on pair {}", pair.name));
+    }
+    let tolerance = spec.tolerance.unwrap_or(0.0);
+    if !tolerance.is_finite() || !(0.0..=1.0).contains(&tolerance) {
+        return Err(format!("invalid impedance tolerance on pair {}", pair.name));
+    }
+    Ok((Some(spec.target), Some(tolerance)))
 }
 
-fn resolve_profile_by_id(p: &Project, id: &str) -> Result<(String, String), String> {
-    validate_profile_id(id)?;
-    if let Some(entry) = p
-        .library
-        .interface_profiles
-        .iter()
-        .find(|entry| entry.id == id)
-    {
-        return Ok((entry.toml.clone(), "project".into()));
+fn collect_unsupported(doc: &ProfileDocument) -> Vec<String> {
+    let mut out = Vec::new();
+    if !doc.length_group.is_empty() {
+        out.push("length_group".into());
     }
-    if let Ok(dir) = user_profiles_dir() {
-        let path = dir.join(format!("{id}.toml"));
-        if path.is_file() {
-            let text = std::fs::read_to_string(&path)
-                .map_err(|e| format!("read user profile {id}: {e}"))?;
-            return Ok((text, "user".into()));
-        }
+    if !doc.companion.is_empty() {
+        out.push("companion".into());
     }
-    let builtin = BUILT_INS
-        .iter()
-        .find(|b| b.id == id)
-        .ok_or_else(|| format!("unknown profile {id}"))?;
-    Ok((builtin.toml.to_string(), "builtin".into()))
-}
-
-fn preview_json(doc: &InterfaceProfileDocument, text: &str) -> Value {
-    let unsupported = collect_unsupported(doc);
-    let companions: Vec<Value> = companion_plan(doc)
-        .into_iter()
-        .map(|(role, source)| json!({"role": role, "source": source}))
-        .collect();
-    let bus = doc.bus.as_ref().map(|bus| {
-        json!({
-            "name": bus.name,
-            "schematic_type": bus.schematic_type,
-        })
-    });
-    json!({
-        "schema": doc.schema,
-        "id": doc.profile.id,
-        "name": doc.profile.name,
-        "category": doc.profile.category,
-        "summary": doc.profile.summary,
-        "bus": bus,
-        "unsupported": unsupported,
-        "companions": companions,
-        "content_hash": interface_profile_content_hash(text),
-    })
-}
-
-pub fn profile_list() -> Value {
-    let profiles: Vec<Value> = BUILT_INS
-        .iter()
-        .filter_map(|b| {
-            let doc = interface_profile_from_toml(b.toml).ok()?;
-            let bus_name = doc.bus.as_ref().map(|bus| bus.name.as_str());
-            Some(json!({
-                "id": doc.profile.id,
-                "name": doc.profile.name,
-                "category": doc.profile.category,
-                "summary": doc.profile.summary,
-                "schema": doc.schema,
-                "bus_name": bus_name,
-            }))
-        })
-        .collect();
-    json!({"profiles": profiles})
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProfileIdOrPathParams {
-    #[serde(default)]
-    pub id: Option<String>,
-    #[serde(default)]
-    pub path: Option<String>,
-}
-
-/// Reads one profile by built-in id, library id, user file, or path.
-pub fn profile_read(p: &Project, params: &Value) -> Result<Value, String> {
-    let a: ProfileIdOrPathParams = serde_json::from_value(params.clone())
-        .map_err(|e| format!("profile read parameters: {e}"))?;
-    let has_id = a.id.as_ref().is_some_and(|s| !s.is_empty());
-    let has_path = a.path.as_ref().is_some_and(|s| !s.is_empty());
-    if has_id == has_path {
-        return Err("give exactly one of id or path".into());
-    }
-    let (text, origin) = if let Some(id) = a.id.filter(|s| !s.is_empty()) {
-        let (text, origin) = resolve_profile_by_id(p, &id)?;
-        (text, origin)
-    } else {
-        let path = a.path.as_ref().ok_or_else(|| "missing path".to_string())?;
-        if path.len() > MAX_PATH {
-            return Err("profile path is too long".into());
-        }
-        let text =
-            std::fs::read_to_string(Path::new(path)).map_err(|e| format!("read profile: {e}"))?;
-        (text, "path".into())
-    };
-    let doc = interface_profile_from_toml(&text)?;
-    let mut preview = preview_json(&doc, &text);
-    if let Some(obj) = preview.as_object_mut() {
-        obj.insert("origin".into(), json!(origin));
-    }
-    Ok(preview)
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProfileApplyParams {
-    #[serde(default)]
-    pub id: Option<String>,
-    #[serde(default)]
-    pub path: Option<String>,
-    #[serde(default)]
-    pub nets_override: Vec<String>,
-    #[serde(default)]
-    pub dry_run: bool,
-}
-
-pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, String> {
-    let a: ProfileApplyParams = serde_json::from_value(params.clone())
-        .map_err(|e| format!("profile apply parameters: {e}"))?;
-    let has_id = a.id.as_ref().is_some_and(|s| !s.is_empty());
-    let has_path = a.path.as_ref().is_some_and(|s| !s.is_empty());
-    if has_id == has_path {
-        return Err("give exactly one of id or path".into());
-    }
-    if a.nets_override.len() > 128 {
-        return Err("nets_override lists at most 128 names".into());
-    }
-    for name in &a.nets_override {
-        if name.is_empty() || name.len() > 128 {
-            return Err("nets_override names must be 1 to 128 bytes".into());
-        }
-    }
-    let (text, profile_id, origin) = if let Some(id) = a.id.filter(|s| !s.is_empty()) {
-        let (text, origin) = resolve_profile_by_id(p, &id)?;
-        (text, id, origin)
-    } else {
-        let path = a.path.as_ref().ok_or_else(|| "missing path".to_string())?;
-        if path.len() > MAX_PATH {
-            return Err("profile path is too long".into());
-        }
-        let text =
-            std::fs::read_to_string(Path::new(path)).map_err(|e| format!("read profile: {e}"))?;
-        let doc = interface_profile_from_toml(&text)?;
-        validate_profile_id(&doc.profile.id)?;
-        (text, doc.profile.id, "path".into())
-    };
-    let doc = interface_profile_from_toml(&text)?;
-    if doc.profile.id != profile_id {
-        return Err("profile id mismatch between parameter and file".into());
-    }
-    let unsupported = collect_unsupported(&doc);
-    let companions: Vec<Value> = companion_plan(&doc)
-        .into_iter()
-        .map(|(role, source)| json!({"role": role, "source": source}))
-        .collect();
-    let override_slice = if a.nets_override.is_empty() {
-        None
-    } else {
-        Some(a.nets_override.as_slice())
-    };
-    let mut plan_classes = Vec::new();
     for class in &doc.net_class {
-        let (nets, unmatched) = resolve_nets_for_class(p, class, override_slice);
-        plan_classes.push(json!({
-            "name": class.name,
-            "nets": nets,
-            "unmatched_patterns": unmatched,
-        }));
-    }
-    let value_sources: Vec<Value> = doc
-        .value_source
-        .iter()
-        .map(|v| {
-            json!({
-                "field": v.field,
-                "source": v.source,
-            })
-        })
-        .collect();
-    let bus = doc.bus.as_ref().map(|bus| {
-        json!({
-            "name": bus.name,
-            "schematic_type": bus.schematic_type,
-        })
-    });
-    let plan = json!({
-        "profile": profile_id,
-        "origin": origin,
-        "schema": doc.schema,
-        "bus": bus,
-        "classes": plan_classes,
-        "pairs": doc.pair.len(),
-        "pair_rules": doc.pair_rule.len(),
-        "rule_areas": doc.rule_area.len(),
-        "unsupported": unsupported,
-        "companions": companions,
-        "value_source": value_sources,
-        "content_hash": interface_profile_content_hash(&text),
-    });
-    if a.dry_run {
-        return Ok(json!({"dry_run": true, "plan": plan}));
-    }
-    let snapshot = p.clone();
-    let apply_result = (|| -> Result<Value, String> {
-        for class in &doc.net_class {
-            let (net_ids, _) = resolve_nets_for_class(p, class, override_slice);
-            let handle = find_or_create_class(p, next, &profile_id, class)?;
-            let class_id = handle.id;
-            apply_class_fields(handle, class);
-            handle.profile = Some(profile_id.clone());
-            if !net_ids.is_empty() {
-                assign_nets_to_class(p, class_id, &net_ids)?;
-            }
+        if class.max_length.is_some() {
+            out.push(format!("net_class.{}.max_length", class.name));
         }
-        for pair in &doc.pair {
-            let net_p = net_id_by_name(p, &pair.net_p)
-                .ok_or_else(|| format!("pair {} needs net {}", pair.name, pair.net_p))?;
-            let net_n = net_id_by_name(p, &pair.net_n)
-                .ok_or_else(|| format!("pair {} needs net {}", pair.name, pair.net_n))?;
-            if !pair.gap.is_finite() || !(0.02..=10.0).contains(&pair.gap) {
-                return Err("invalid pair gap".into());
+        if let Some(limits) = &class.limits {
+            if limits.max_routed_length.is_some() {
+                out.push(format!("net_class.{}.limits.max_routed_length", class.name));
             }
-            let tolerance = pair.length_tolerance;
-            if tolerance.is_some_and(|t| !t.is_finite() || !(0.0..=100.0).contains(&t)) {
-                return Err("invalid pair length tolerance".into());
+            if limits.max_stub.is_some() {
+                out.push(format!("net_class.{}.limits.max_stub", class.name));
             }
-            let pairs = &mut p.board.diff_pairs;
-            if let Some(existing) = pairs.iter_mut().find(|d| {
-                d.name == pair.name && d.profile.as_deref().is_some_and(|t| t == profile_id)
-            }) {
-                existing.net_p = net_p;
-                existing.net_n = net_n;
-                existing.gap = pair.gap;
-                existing.length_tolerance = tolerance;
-                existing.profile = Some(profile_id.clone());
-            } else if let Some(existing) = pairs.iter_mut().find(|d| d.name == pair.name) {
-                existing.net_p = net_p;
-                existing.net_n = net_n;
-                existing.gap = pair.gap;
-                existing.length_tolerance = tolerance;
-                existing.profile = Some(profile_id.clone());
-            } else {
-                if pairs.len() >= 64 {
-                    return Err("a board carries at most 64 differential pairs".into());
-                }
-                let id = allocate(next)?;
-                pairs.push(DiffPair {
-                    id,
-                    name: pair.name.clone(),
-                    net_p,
-                    net_n,
-                    gap: pair.gap,
-                    length_tolerance: tolerance,
-                    profile: Some(profile_id.clone()),
-                });
+            if limits.max_vias.is_some() {
+                out.push(format!("net_class.{}.limits.max_vias", class.name));
             }
-        }
-        for rule in &doc.pair_rule {
-            let a_id = net_id_by_name(p, &rule.net_a)
-                .ok_or_else(|| format!("pair rule needs net {}", rule.net_a))?;
-            let b_id = net_id_by_name(p, &rule.net_b)
-                .ok_or_else(|| format!("pair rule needs net {}", rule.net_b))?;
-            if a_id == b_id {
-                return Err("pair rule needs two different nets".into());
-            }
-            if !rule.clearance.is_finite() || rule.clearance <= 0.0 || rule.clearance > 100.0 {
-                return Err("invalid pair rule clearance".into());
-            }
-            let key = (a_id.min(b_id), a_id.max(b_id));
-            let rules = &mut p.board.pair_rules;
-            if let Some(existing) = rules.iter_mut().find(|r| (r.a, r.b) == key) {
-                existing.clearance = rule.clearance;
-                existing.profile = Some(profile_id.clone());
-            } else {
-                if rules.len() >= 64 {
-                    return Err("a board carries at most 64 net pair clearance rules".into());
-                }
-                rules.push(NetPairRule {
-                    a: key.0,
-                    b: key.1,
-                    clearance: rule.clearance,
-                    profile: Some(profile_id.clone()),
-                });
-                rules.sort_by_key(|r| (r.a, r.b));
-            }
-        }
-        for area in &doc.rule_area {
-            let layer = area.layer.as_deref().map(parse_layer).transpose()?;
-            let net = if let Some(name) = &area.net {
-                Some(net_id_by_name(p, name).ok_or_else(|| format!("rule area needs net {name}"))?)
-            } else {
-                None
-            };
-            if !area.clearance.is_finite() || area.clearance <= 0.0 || area.clearance > 100.0 {
-                return Err("invalid rule area clearance".into());
-            }
-            if area.width <= 0.0 || area.height <= 0.0 {
-                return Err("invalid rule area size".into());
-            }
-            let areas = &mut p.board.rule_areas;
-            let name_key = area.name.as_deref().unwrap_or("");
-            if let Some(existing) = areas.iter_mut().find(|a| {
-                a.profile.as_deref() == Some(profile_id.as_str())
-                    && a.name.as_deref().unwrap_or("") == name_key
-            }) {
-                existing.net = net;
-                existing.layer = layer;
-                existing.clearance = area.clearance;
-                existing.region = RuleRegion {
-                    x: area.x,
-                    y: area.y,
-                    width: area.width,
-                    height: area.height,
-                };
-                existing.profile = Some(profile_id.clone());
-            } else {
-                if areas.len() >= 64 {
-                    return Err("a board carries at most 64 rule areas".into());
-                }
-                let id = allocate(next)?;
-                areas.push(RuleArea {
-                    id,
-                    name: area.name.clone(),
-                    net,
-                    layer,
-                    clearance: area.clearance,
-                    keepout: None,
-                    max_height: None,
-                    region: RuleRegion {
-                        x: area.x,
-                        y: area.y,
-                        width: area.width,
-                        height: area.height,
-                    },
-                    profile: Some(profile_id.clone()),
-                });
-            }
-        }
-        p.validate()?;
-        Ok(json!({"applied": true, "plan": plan}))
-    })();
-    match apply_result {
-        Ok(v) => Ok(v),
-        Err(e) => {
-            *p = snapshot;
-            Err(e)
         }
     }
+    for pair in &doc.pair {
+        if pair.equal_vias.is_some() {
+            out.push(format!("pair.{}.equal_vias", pair.name));
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 fn net_id_by_name(p: &Project, name: &str) -> Option<Id> {
     p.nets.iter().find(|n| n.name == name).map(|n| n.id)
+}
+
+struct RuleAreaRow<'a> {
+    name: Option<String>,
+    net: Option<String>,
+    layer: Option<String>,
+    forbid: Option<&'a str>,
+    footprint_ref: Option<String>,
+    clearance: f64,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+fn apply_rule_area_row(
+    p: &mut Project,
+    next: &mut Id,
+    profile_id: &str,
+    row: RuleAreaRow<'_>,
+) -> Result<(), String> {
+    let layer = row.layer.as_deref().map(parse_layer).transpose()?;
+    let net = if let Some(name) = &row.net {
+        Some(net_id_by_name(p, name).ok_or_else(|| format!("rule area needs net {name}"))?)
+    } else {
+        None
+    };
+    if !row.clearance.is_finite() || row.clearance <= 0.0 || row.clearance > 100.0 {
+        return Err("invalid rule area clearance".into());
+    }
+    if row.width <= 0.0 || row.height <= 0.0 {
+        return Err("invalid rule area size".into());
+    }
+    let forbid = if let Some(raw) = row.forbid {
+        Some(RuleForbid::parse(raw)?)
+    } else {
+        None
+    };
+    let footprint_ref = row.footprint_ref;
+    if footprint_ref
+        .as_ref()
+        .is_some_and(|r| r.is_empty() || r.len() > 64)
+    {
+        return Err("footprint reference must be 1 to 64 bytes".into());
+    }
+    let areas = &mut p.board.rule_areas;
+    let name_key = row.name.as_deref().unwrap_or("");
+    let region = RuleRegion {
+        x: row.x,
+        y: row.y,
+        width: row.width,
+        height: row.height,
+    };
+    if let Some(existing) = areas.iter_mut().find(|a| {
+        a.profile.as_deref() == Some(profile_id) && a.name.as_deref().unwrap_or("") == name_key
+    }) {
+        existing.net = net;
+        existing.layer = layer;
+        existing.clearance = row.clearance;
+        existing.region = region;
+        existing.forbid = forbid;
+        existing.footprint_ref = footprint_ref;
+        existing.profile = Some(profile_id.to_string());
+    } else {
+        if areas.len() >= 64 {
+            return Err("a board carries at most 64 rule areas".into());
+        }
+        let id = allocate(next)?;
+        areas.push(RuleArea {
+            id,
+            name: row.name,
+            net,
+            layer,
+            clearance: row.clearance,
+            keepout: None,
+            max_height: None,
+            region,
+            profile: Some(profile_id.to_string()),
+            forbid,
+            footprint_ref,
+        });
+    }
+    Ok(())
 }
 
 pub fn class_pattern_matches(pattern: &str, name: &str) -> bool {
@@ -512,7 +418,7 @@ pub fn class_pattern_matches(pattern: &str, name: &str) -> bool {
 
 fn resolve_nets_for_class(
     p: &Project,
-    class: &NetClassSpec,
+    class: &NetClassToml,
     nets_override: Option<&[String]>,
 ) -> (Vec<Id>, Vec<String>) {
     let mut ids = BTreeSet::new();
@@ -556,7 +462,7 @@ fn find_or_create_class<'a>(
     p: &'a mut Project,
     next: &mut Id,
     profile_id: &str,
-    spec: &NetClassSpec,
+    spec: &NetClassToml,
 ) -> Result<&'a mut NetClass, String> {
     if spec.name.is_empty() || spec.name.len() > 128 {
         return Err("net class name must be 1 to 128 bytes".into());
@@ -599,19 +505,23 @@ fn find_or_create_class<'a>(
         target_length: None,
         length_tolerance: None,
         max_stub: None,
+        target_impedance: None,
+        impedance_tolerance_pct: None,
         via_diameter: None,
         via_drill: None,
         pair_width: None,
         pair_gap: None,
+        target_impedance: None,
         nets: Vec::new(),
         profile: Some(profile_id.to_string()),
+        fast: false,
     });
     p.net_classes
         .last_mut()
         .ok_or_else(|| "class push".to_string())
 }
 
-fn apply_class_fields(class: &mut NetClass, spec: &NetClassSpec) {
+fn apply_class_fields(class: &mut NetClass, spec: &NetClassToml) {
     if let Some(c) = spec.clearance {
         class.clearance = c;
     }
@@ -622,6 +532,11 @@ fn apply_class_fields(class: &mut NetClass, spec: &NetClassSpec) {
     class.max_width = spec.max_width;
     class.target_length = spec.target_length;
     class.length_tolerance = spec.length_tolerance;
+    if let Some(z) = spec.target_impedance {
+        if z.is_finite() && (1.0..=2000.0).contains(&z) {
+            class.target_impedance = Some(z);
+        }
+    }
 }
 
 fn assign_nets_to_class(p: &mut Project, class_id: Id, nets: &[Id]) -> Result<(), String> {
@@ -652,6 +567,257 @@ fn assign_nets_to_class(p: &mut Project, class_id: Id, nets: &[Id]) -> Result<()
         }
     }
     Ok(())
+}
+
+pub fn profile_list() -> Value {
+    let profiles: Vec<Value> = BUILT_INS
+        .iter()
+        .filter_map(|b| {
+            let doc = parse_toml(b.toml).ok()?;
+            Some(json!({
+                "id": doc.profile.id,
+                "name": doc.profile.name,
+                "category": doc.profile.category,
+                "summary": doc.profile.summary,
+            }))
+        })
+        .collect();
+    json!({"profiles": profiles})
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileApplyParams {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub nets_override: Vec<String>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, String> {
+    let a: ProfileApplyParams = serde_json::from_value(params.clone())
+        .map_err(|e| format!("profile apply parameters: {e}"))?;
+    let has_id = a.id.as_ref().is_some_and(|s| !s.is_empty());
+    let has_path = a.path.as_ref().is_some_and(|s| !s.is_empty());
+    if has_id == has_path {
+        return Err("give exactly one of id or path".into());
+    }
+    if a.nets_override.len() > 128 {
+        return Err("nets_override lists at most 128 names".into());
+    }
+    for name in &a.nets_override {
+        if name.is_empty() || name.len() > 128 {
+            return Err("nets_override names must be 1 to 128 bytes".into());
+        }
+    }
+    let (text, profile_id) = if let Some(id) = a.id {
+        validate_profile_id(&id)?;
+        let builtin = BUILT_INS
+            .iter()
+            .find(|b| b.id == id)
+            .ok_or_else(|| format!("unknown built-in profile {id}"))?;
+        (builtin.toml.to_string(), id)
+    } else {
+        let path = a.path.as_ref().ok_or_else(|| "missing path".to_string())?;
+        if path.len() > MAX_PATH {
+            return Err("profile path is too long".into());
+        }
+        let text =
+            std::fs::read_to_string(Path::new(path)).map_err(|e| format!("read profile: {e}"))?;
+        let doc = parse_toml(&text)?;
+        validate_profile_id(&doc.profile.id)?;
+        (text, doc.profile.id)
+    };
+    let doc = parse_toml(&text)?;
+    if doc.schema != 1 {
+        return Err(format!("unsupported profile schema {}", doc.schema));
+    }
+    if doc.profile.id != profile_id {
+        return Err("profile id mismatch between parameter and file".into());
+    }
+    if doc.net_class.len() > 64 || doc.pair.len() > 64 || doc.rule_area.len() > 64 {
+        return Err("a profile defines at most 64 classes, pairs and areas each".into());
+    }
+    let unsupported = collect_unsupported(&doc);
+    let override_slice = if a.nets_override.is_empty() {
+        None
+    } else {
+        Some(a.nets_override.as_slice())
+    };
+    let mut plan_classes = Vec::new();
+    for class in &doc.net_class {
+        let (nets, unmatched) = resolve_nets_for_class(p, class, override_slice);
+        plan_classes.push(json!({
+            "name": class.name,
+            "nets": nets,
+            "unmatched_patterns": unmatched,
+        }));
+    }
+    let value_sources: Vec<Value> = doc
+        .value_source
+        .iter()
+        .map(|v| {
+            json!({
+                "field": v.field,
+                "source": v.source,
+            })
+        })
+        .collect();
+    let plan = json!({
+        "profile": profile_id,
+        "classes": plan_classes,
+        "pairs": doc.pair.len(),
+        "pair_rules": doc.pair_rule.len(),
+        "rule_areas": doc.rule_area.len() + doc.keepout.len() + doc.placement.len(),
+        "unsupported": unsupported,
+        "value_source": value_sources,
+    });
+    if a.dry_run {
+        return Ok(json!({"dry_run": true, "plan": plan}));
+    }
+    let snapshot = p.clone();
+    let apply_result = (|| -> Result<Value, String> {
+        for class in &doc.net_class {
+            let (net_ids, _) = resolve_nets_for_class(p, class, override_slice);
+            let handle = find_or_create_class(p, next, &profile_id, class)?;
+            let class_id = handle.id;
+            apply_class_fields(handle, class);
+            handle.profile = Some(profile_id.clone());
+            if !net_ids.is_empty() {
+                assign_nets_to_class(p, class_id, &net_ids)?;
+            }
+        }
+        for pair in &doc.pair {
+            let net_p = net_id_by_name(p, &pair.net_p)
+                .ok_or_else(|| format!("pair {} needs net {}", pair.name, pair.net_p))?;
+            let net_n = net_id_by_name(p, &pair.net_n)
+                .ok_or_else(|| format!("pair {} needs net {}", pair.name, pair.net_n))?;
+            if !pair.gap.is_finite() || !(0.02..=10.0).contains(&pair.gap) {
+                return Err("invalid pair gap".into());
+            }
+            let tolerance = pair.length_tolerance;
+            if tolerance.is_some_and(|t| !t.is_finite() || !(0.0..=100.0).contains(&t)) {
+                return Err("invalid pair length tolerance".into());
+            }
+            let (target_z, z_tol) = pair_impedance_fields(pair)?;
+            let pairs = &mut p.board.diff_pairs;
+            if let Some(existing) = pairs.iter_mut().find(|d| {
+                d.name == pair.name && d.profile.as_deref().is_some_and(|t| t == profile_id)
+            }) {
+                existing.net_p = net_p;
+                existing.net_n = net_n;
+                existing.gap = pair.gap;
+                existing.length_tolerance = tolerance;
+                existing.target_impedance = target_z;
+                existing.impedance_tolerance = z_tol;
+                existing.profile = Some(profile_id.clone());
+            } else if let Some(existing) = pairs.iter_mut().find(|d| d.name == pair.name) {
+                existing.net_p = net_p;
+                existing.net_n = net_n;
+                existing.gap = pair.gap;
+                existing.length_tolerance = tolerance;
+                existing.target_impedance = target_z;
+                existing.impedance_tolerance = z_tol;
+                existing.profile = Some(profile_id.clone());
+            } else {
+                if pairs.len() >= 64 {
+                    return Err("a board carries at most 64 differential pairs".into());
+                }
+                let id = allocate(next)?;
+                pairs.push(DiffPair {
+                    id,
+                    name: pair.name.clone(),
+                    net_p,
+                    net_n,
+                    gap: pair.gap,
+                    length_tolerance: tolerance,
+                    profile: Some(profile_id.clone()),
+                    target_impedance: target_z,
+                    impedance_tolerance: z_tol,
+                });
+            }
+        }
+        for rule in &doc.pair_rule {
+            let a_id = net_id_by_name(p, &rule.net_a)
+                .ok_or_else(|| format!("pair rule needs net {}", rule.net_a))?;
+            let b_id = net_id_by_name(p, &rule.net_b)
+                .ok_or_else(|| format!("pair rule needs net {}", rule.net_b))?;
+            if a_id == b_id {
+                return Err("pair rule needs two different nets".into());
+            }
+            if !rule.clearance.is_finite() || rule.clearance <= 0.0 || rule.clearance > 100.0 {
+                return Err("invalid pair rule clearance".into());
+            }
+            let key = (a_id.min(b_id), a_id.max(b_id));
+            let rules = &mut p.board.pair_rules;
+            if let Some(existing) = rules.iter_mut().find(|r| (r.a, r.b) == key) {
+                existing.clearance = rule.clearance;
+                existing.profile = Some(profile_id.clone());
+            } else {
+                if rules.len() >= 64 {
+                    return Err("a board carries at most 64 net pair clearance rules".into());
+                }
+                rules.push(NetPairRule {
+                    a: key.0,
+                    b: key.1,
+                    clearance: rule.clearance,
+                    profile: Some(profile_id.clone()),
+                });
+                rules.sort_by_key(|r| (r.a, r.b));
+            }
+        }
+        for area in &doc.rule_area {
+            apply_rule_area_row(
+                p,
+                next,
+                &profile_id,
+                RuleAreaRow {
+                    name: area.name.clone(),
+                    net: area.net.clone(),
+                    layer: area.layer.clone(),
+                    forbid: area.forbid.as_deref(),
+                    footprint_ref: area.footprint_ref.clone(),
+                    clearance: area.clearance,
+                    x: area.x,
+                    y: area.y,
+                    width: area.width,
+                    height: area.height,
+                },
+            )?;
+        }
+        for row in doc.keepout.iter().chain(doc.placement.iter()) {
+            apply_rule_area_row(
+                p,
+                next,
+                &profile_id,
+                RuleAreaRow {
+                    name: row.name.clone(),
+                    net: row.net.clone(),
+                    layer: row.layer.clone(),
+                    forbid: Some(row.forbid.as_str()),
+                    footprint_ref: row.footprint_ref.clone(),
+                    clearance: row.clearance,
+                    x: row.x,
+                    y: row.y,
+                    width: row.width,
+                    height: row.height,
+                },
+            )?;
+        }
+        p.validate()?;
+        Ok(json!({"applied": true, "plan": plan}))
+    })();
+    match apply_result {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            *p = snapshot;
+            Err(e)
+        }
+    }
 }
 
 fn parse_layer(name: &str) -> Result<pcbcraft_doc::Layer, String> {
