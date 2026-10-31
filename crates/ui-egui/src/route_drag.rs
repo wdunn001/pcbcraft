@@ -268,7 +268,7 @@ impl App {
 /// The "Push other tracks aside" checkbox of the Settings tab.
 ///
 /// Why: the router can push other nets' tracks, but only with 45 degree routes,
-/// so the box is disabled, and says why, while Chamfer corners is off.
+/// so the box is disabled, and says why, while 90 degree corners are selected.
 ///
 /// # Dependencies
 /// - `crates/ui-egui/src/lib.rs` for `Preferences::route_shove` and `chamfer_corners`.
