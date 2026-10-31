@@ -777,6 +777,7 @@ pub(crate) fn invoke_session(
                     "clearance",
                     "copper_short",
                     "track_width",
+                    "track_radius",
                     "stub_length",
                     "acute_angle",
                     "unrouted",
