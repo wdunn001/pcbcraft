@@ -5,7 +5,7 @@
 //! Local rules: every request has a deadline, the reply body has a size cap, a redirect
 //! is returned as its status and never followed, no panics.
 
-use crate::backend::{HttpFn, HttpRequest};
+use crate::backend::{HttpFn, HttpRequest, deliver_streamed_body};
 use pcbcraft_clock::Instant;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -69,7 +69,11 @@ pub fn plain_request(req: &HttpRequest) -> Result<(u16, Vec<u8>), String> {
         .and_then(|_| stream.write_all(body))
         .map_err(|e| io_text(&e, "send the request"))?;
     let raw = read_all(&mut stream, deadline)?;
-    parse_reply(&raw)
+    let (status, body) = parse_reply(&raw)?;
+    if let Some(out) = &req.stream_out {
+        return deliver_streamed_body(out, status, &body);
+    }
+    Ok((status, body))
 }
 
 fn split_url(url: &str) -> Result<(String, u16, String), String> {
