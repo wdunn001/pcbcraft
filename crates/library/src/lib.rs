@@ -2,6 +2,7 @@
 pub mod cad;
 pub mod cad_cache;
 pub mod datasheet;
+pub mod datasheet_annotations;
 pub mod connector_catalog;
 mod footprint_check;
 mod footprint_generate;

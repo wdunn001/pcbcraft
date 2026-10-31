@@ -26,6 +26,8 @@ pub const MAX_ITEMS: usize = 2048;
 mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
+mod via_protection;
+mod sourcing;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub mod fill;
 pub use fill::{
