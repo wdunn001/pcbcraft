@@ -1,0 +1,19 @@
+[part]
+manufacturer = "CUI Devices"
+mpn = "PJ-002A"
+datasheet_path = "research/sources/library/datasheets/cui/pj-002a.pdf"
+datasheet_url = "https://www.cuidevices.com/product/resource/pj-002a.pdf"
+
+package = "Through-hole barrel jack"
+pin_count = 3
+land_pattern_ref = "See mechanical drawing"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[requirement]]
+type = "decoupling"
+text = "Follow manufacturer decoupling and layout guidance in the datasheet."
+page = 1
+confirmed = false

@@ -1,4 +1,5 @@
-//! Reference-project parity suite (#293).
+//! Reference-project parity suite (#293). M6 artifact goldens live in
+//! `m6_artifact_goldens.rs` (`reference_board_generates_all_m6_artifacts`, #301).
 //!
 //! Each case builds or loads a project, then snapshots stable outputs and
 //! compares them with goldens under `tests/parity/<case>/`. Text outputs are
@@ -259,13 +260,16 @@ fn parity_led_indicator_unrouted_reports_airwires() -> Result<(), String> {
     Ok(())
 }
 
+mod support;
+
 #[test]
 fn parity_dual_amplifier_matches_goldens() -> Result<(), String> {
     check_case(
         "dual-amplifier",
         &load_example("dual-amplifier.pcbcraft")?,
         vec![],
-    )
+    )?;
+    support::m6_artifact_goldens::run_reference_board_m6_artifact_goldens()
 }
 
 #[test]
