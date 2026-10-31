@@ -89,10 +89,8 @@ impl Default for Limits {
 /// # Dependencies
 /// - crates/library/src/sexpr.rs none outside this file
 ///
-/// # Do not
-/// - Expose this type publicly; it is an internal parser result.
 #[derive(Clone, Debug)]
-pub(crate) struct Node {
+pub struct Node {
     /// Atom text, or None for lists.
     pub atom: Option<String>,
     /// Child nodes for lists; empty for atoms.
@@ -176,7 +174,7 @@ impl Node {
 ///
 /// # Do not
 /// - Allow multiple top-level expressions; that is a KiCad format error.
-pub(crate) fn parse(text: &str) -> Result<Node, Error> {
+pub fn parse(text: &str) -> Result<Node, Error> {
     parse_limits(text, Limits::default())
 }
 
@@ -192,7 +190,7 @@ pub(crate) fn parse(text: &str) -> Result<Node, Error> {
 ///
 /// # Do not
 /// - Silently truncate input; always error on limit violations.
-pub(crate) fn parse_limits(text: &str, limits: Limits) -> Result<Node, Error> {
+pub fn parse_limits(text: &str, limits: Limits) -> Result<Node, Error> {
     if text.len() > limits.bytes {
         return Err(Error::Limit("source byte limit"));
     }
@@ -327,6 +325,16 @@ impl Parser<'_> {
             }
         }
     }
+}
+
+/// Line number (1-based) for a byte offset in interchange text.
+pub fn line_number_at_offset(text: &str, offset: usize) -> u32 {
+    let capped = offset.min(text.len());
+    (text.as_bytes()[..capped]
+        .iter()
+        .filter(|b| **b == b'\n')
+        .count() as u32)
+        .saturating_add(1)
 }
 
 #[cfg(test)]
