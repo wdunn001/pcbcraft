@@ -1,5 +1,7 @@
 use pcbcraft_library::sources::{
-    FixtureSource, PartResult, PartSource, ResponseCache, SourceError,
+    DISTRIBUTOR_KEY_HINT, FixtureSource, PartResult, PartSource, ResponseCache, SourceError,
+    distributor_network_allowed, join_distributor_into_cards, merge_distributor_fields,
+    part_match_key,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -82,5 +84,69 @@ fn empty_and_oversized_queries_are_refused() -> Result<(), SourceError> {
     let s = source()?;
     assert!(s.search("   ").is_err());
     assert!(s.search(&"x".repeat(200)).is_err());
+    Ok(())
+}
+
+fn cad_card(mpn: &str) -> PartResult {
+    PartResult {
+        source: "Open library".into(),
+        mpn: mpn.into(),
+        manufacturer: String::new(),
+        description: "Symbol in Device. Licence: CC-BY-SA 4.0.".into(),
+        kind: String::new(),
+        distributor: String::new(),
+        sku: format!("Device/{mpn}"),
+        stock: 0,
+        price_breaks: vec![],
+        lifecycle: String::new(),
+        datasheet_url: String::new(),
+        product_url: "https://example.invalid/cad".into(),
+        retrieved_at: 1,
+    }
+}
+
+#[test]
+fn join_matches_by_part_number_ignoring_case() -> Result<(), SourceError> {
+    let distributor = source()?;
+    let dist = distributor.fetch("sample-r-10k")?;
+    assert_eq!(
+        part_match_key("SAMPLE-R-10K"),
+        part_match_key("sample-r-10k")
+    );
+    let merged = merge_distributor_fields(cad_card("SAMPLE-R-10K"), &dist);
+    assert_eq!(merged.stock, dist.stock);
+    assert!(!merged.price_breaks.is_empty());
+    assert_eq!(merged.distributor, dist.distributor);
+    assert_eq!(
+        merged.sku, "Device/SAMPLE-R-10K",
+        "the open-library sku stays"
+    );
+    assert_eq!(
+        merged.description, "Symbol in Device. Licence: CC-BY-SA 4.0.",
+        "the licence line stays on the card"
+    );
+    let mut cache = ResponseCache::default();
+    let joined = join_distributor_into_cards(
+        vec![cad_card("sample-r-10k")],
+        Some(&distributor),
+        &mut cache,
+        2000,
+        true,
+    )?;
+    assert_eq!(joined.len(), 1);
+    assert!(joined[0].stock > 0);
+    let no_key = join_distributor_into_cards(
+        vec![cad_card("sample-r-10k")],
+        Some(&distributor),
+        &mut cache,
+        2000,
+        false,
+    )?;
+    assert_eq!(no_key[0].stock, 0, "without a key the card stays CAD-only");
+    assert_eq!(DISTRIBUTOR_KEY_HINT, "Add a key to see stock");
+    assert!(
+        !distributor_network_allowed(),
+        "live distributor network stays off by default"
+    );
     Ok(())
 }
