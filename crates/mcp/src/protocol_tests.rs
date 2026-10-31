@@ -70,6 +70,26 @@ fn a_notification_never_gets_a_reply() -> Result<(), String> {
 }
 
 #[test]
+fn cancelled_notification_for_an_unknown_request_is_ignored() -> Result<(), String> {
+    let hub = hub()?;
+    let cancel = json!({
+        "jsonrpc":"2.0",
+        "method":"notifications/cancelled",
+        "params":{"requestId":424242}
+    });
+    assert!(handle_rpc(&hub, cancel.clone(), None).is_none());
+    let initialize = initialize("2025-11-25");
+    let ping = json!({"jsonrpc":"2.0","id":2,"method":"ping"});
+    let input = format!("{initialize}\n{cancel}\n{ping}\n");
+    let (replies, outcome) = serve_lines(input.as_bytes())?;
+    assert!(outcome.is_ok(), "{outcome:?}");
+    assert_eq!(replies.len(), 2, "cancel must not produce stdout");
+    assert_eq!(replies[0]["result"]["protocolVersion"], "2025-11-25");
+    assert_eq!(replies[1]["result"], json!({}));
+    Ok(())
+}
+
+#[test]
 fn ping_returns_an_empty_object() -> Result<(), String> {
     let reply = call(&hub()?, json!({"jsonrpc":"2.0","id":7,"method":"ping"}))?;
     assert_eq!(reply["id"], 7);

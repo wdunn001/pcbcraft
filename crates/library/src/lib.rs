@@ -1,6 +1,7 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod connector_partnumber;
 pub mod credentials;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod digikey;
@@ -11,11 +12,18 @@ pub mod cad_cache;
 pub mod datasheet;
 pub mod datasheet_annotations;
 pub mod connector_catalog;
+pub use connector_partnumber::{
+    BuildOptions, Constraint, FieldError, FieldKind, FieldSpec, FieldValue, ParsedPart,
+    PartNumber, SeriesLimits, SeriesSpec, build, first_slice_specs, load_embedded_series,
+    parse, parse_partial,
+};
 mod footprint_check;
 mod footprint_generate;
 pub mod model_transform;
 mod footprint_pad_outline;
+pub mod firmware_design;
 pub mod listing;
+pub mod mcu;
 pub mod listing_adapters;
 pub mod listing_search;
 pub mod online_import;
@@ -38,6 +46,7 @@ pub mod mouser;
 pub mod part_fields;
 pub mod online_import;
 pub mod open_library;
+pub mod part_sidecar;
 mod paths;
 pub mod rate_limit;
 mod reader;
@@ -92,6 +101,11 @@ pub use datasheet::{
     MAX_REDIRECTS, MAX_URL_BYTES,
 };
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+pub use part_sidecar::{
+    PART_SIDECAR_EXTENSION, PART_SIDECAR_FORMAT, PART_SIDECAR_VERSION, PartAlternate,
+    PartProvenance, PartSidecar, PartSidecarField, read_part_sidecar, sidecar_path_in_folder,
+    write_part_sidecar,
+};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
@@ -555,6 +569,9 @@ pub struct Model3D {
     pub scale: [f64; 3],
     #[serde(default)]
     pub rotate: [f64; 3],
+    /// Component name inside a SolidCraft project, when the file holds more than one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cad_part: Option<String>,
     pub raw_source: String,
 }
 fn unit_scale() -> [f64; 3] {

@@ -198,6 +198,7 @@ fn model_offset_unit_mismatch_is_reported() {
         offset: [50.8, 0.0, 0.0],
         scale: [1.0, 1.0, 1.0],
         rotate: [0.0, 0.0, 0.0],
+        cad_part: None,
         raw_source: "(offset (xyz 50.8 0 0))".into(),
     });
     assert!(has_code(

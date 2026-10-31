@@ -165,6 +165,9 @@ thread_local! {
     /// When set, `frame` paints on a screen tall enough to show a whole page,
     /// so the tooltip walk can hover controls that sit below the usual fold.
     pub(crate) static TALL_SCREEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// When set, `frame` uses this width and height for tour replay (#774).
+    pub(crate) static REPLAY_SCREEN: std::cell::Cell<Option<(f32, f32)>> =
+        const { std::cell::Cell::new(None) };
 }
 pub(crate) fn frame(
     ctx: &egui::Context,
@@ -193,18 +196,19 @@ pub(crate) fn frame(
     }
     super::audit::record_touches(ctx, app, &events);
     events.insert(0, egui::Event::ModifiersChanged(modifiers));
+    let (width, height) = REPLAY_SCREEN.with(|cell| cell.get()).unwrap_or((
+        1440.0,
+        if TALL_SCREEN.with(std::cell::Cell::get) {
+            6000.0
+        } else {
+            940.0
+        },
+    ));
     let mut output = ctx.run_ui(
         egui::RawInput {
             screen_rect: Some(Rect::from_min_size(
                 egui::Pos2::ZERO,
-                Vec2::new(
-                    1440.0,
-                    if TALL_SCREEN.with(std::cell::Cell::get) {
-                        6000.0
-                    } else {
-                        940.0
-                    },
-                ),
+                Vec2::new(width, height),
             )),
             events,
             ..Default::default()
@@ -213,6 +217,34 @@ pub(crate) fn frame(
     );
     super::audit::remember_labels(&output);
     // This input test has no GPU renderer; intentionally discard texture uploads.
+    output.textures_delta.clear();
+    output
+}
+
+/// One frame at a tour replay size, then optional extra painting on top.
+pub(crate) fn replay_frame(
+    ctx: &egui::Context,
+    app: &mut App,
+    width: f32,
+    height: f32,
+    paint: impl FnOnce(&mut egui::Ui),
+) -> egui::FullOutput {
+    REPLAY_SCREEN.with(|cell| cell.set(Some((width, height))));
+    ctx.enable_accesskit();
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(width, height),
+            )),
+            ..Default::default()
+        },
+        |ui| {
+            app.show(ui);
+            paint(ui);
+        },
+    );
+    REPLAY_SCREEN.with(|cell| cell.set(None));
     output.textures_delta.clear();
     output
 }

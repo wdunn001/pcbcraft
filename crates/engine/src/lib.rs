@@ -1,16 +1,15 @@
-//! Command registry and shared helpers for every design mutation.
-//!
-//! Context: handlers deserialize params, edit a project clone, validate, then
-//! commit one undo step. This file holds the registry, session type, param
-//! structs and private helpers the handlers call.
+//! The single mutation boundary used by UI, CLI and MCP. Every edit runs as a
+//! named command on a cloned project, then validation and revision rules apply.
 //!
 //! # Rules
-//! - Bounded validation and plain error strings; session invariants live in AGENTS.md.
+//! - Command handlers live in `run_command`; read a struct's doc block for the
+//!   rules that arm enforces.
+//! - Global invariants (revision, undo, validation) live in AGENTS.md.
 //!
 //! # Dependencies
 //! - crates/doc/src/lib.rs
-//! - crates/io/src/lib.rs
-//! - crates/library/src/lib.rs
+//! - crates/engine/src/route/mod.rs
+//! - crates/geom/src/lib.rs
 mod artifacts;
 mod authoring;
 pub mod collab;
@@ -20,6 +19,7 @@ pub mod design_document;
 pub mod library;
 mod online;
 mod outline;
+mod packages;
 pub mod profiles;
 pub mod recents;
 pub mod scope;
@@ -374,10 +374,26 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "part.attach_source",
-            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU)",
+            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU), and copied component and orderable records are stored on the project library",
             schema(
                 json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256}}),
                 &["id", "manufacturer", "mpn"],
+            ),
+        ),
+        (
+            "part.make_orderable",
+            "Point a placed generic part at an orderable part record already stored on the project library in one undo step; schematic and board geometry stay unchanged while Manufacturer, MPN and related properties follow the record",
+            schema(
+                json!({"id":id_schema(),"orderable_id":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id", "orderable_id"],
+            ),
+        ),
+        (
+            "part.make_generic",
+            "Clear the active orderable binding on a placed part in one undo step, remove distributor-specific properties, and leave schematic and board geometry unchanged",
+            schema(
+                json!({"id":id_schema()}),
+                &["id"],
             ),
         ),
         (
@@ -1897,6 +1913,24 @@ schema(
             schema(json!({}), &[]),
         ),
         (
+            "board.set_conformal_coat_keepout",
+            "Point conformal coating keep-out export at one drawn layer and record the Gerber plot name, assembly side and image polarity",
+            schema(
+                json!({
+                    "layer": id_schema(),
+                    "plot_name": {"type":"string","minLength":1,"maxLength":48},
+                    "side": {"type":"string","enum":["top","bottom"]},
+                    "polarity": {"type":"string","enum":["positive","negative"]},
+                }),
+                &["layer", "plot_name", "side", "polarity"],
+            ),
+        ),
+        (
+            "board.clear_conformal_coat_keepout",
+            "Stop exporting a conformal coating keep-out plot from the board",
+            schema(json!({}), &[]),
+        ),
+        (
             "board.set_pair_rule",
             "Require a minimum clearance in millimetres between two named nets, stricter than class or board default when larger; the same pair replaces its earlier rule",
             schema(
@@ -2602,6 +2636,7 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
         .chain(authoring::commands())
         .chain(online::commands())
         .chain(images::commands())
+        .chain(packages::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
 .into_iter()
@@ -3145,6 +3180,10 @@ fn render_kind(
             }
             skipped.extend(plots.skipped);
         }
+        "conformal_coat" => out.push((
+            "conformal-coat-keepout.gbr".into(),
+            pcbcraft_io::conformal_coat_keepout_gerber(p)?.into_bytes(),
+        )),
         "raster" => out.extend(pcbcraft_io::raster_job_pngs(p)?),
         "spice" => out.push((
             "schematic.cir".into(),
@@ -3353,6 +3392,7 @@ fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Resul
             pins.push(PinRef {
                 component: component.id,
                 pin: listed.pin.clone(),
+                unit: None,
             });
         }
         plan.push((&entry.name, pins));
@@ -3411,6 +3451,15 @@ struct PlaceLibrary {
     #[serde(default)]
     rotation: Option<f64>,
 }
+/// Parameters of `footprint.set_pad`: change one pad offset and/or diameter on a placed footprint.
+///
+/// # Rules
+/// - At least one of `offset` or `diameter` must be present.
+/// - Pad number is 1 to 32 bytes; offset must be in range; diameter is 0 to 100 mm.
+/// - Shaped pads accept offset only; unchanged offset and diameter is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PadSetParams {
@@ -3421,6 +3470,13 @@ struct PadSetParams {
     #[serde(default)]
     diameter: Option<f64>,
 }
+/// Parameters of `footprint.set_castellated`: mark one pad castellated or clear the flag.
+///
+/// # Rules
+/// - Pad number is 1 to 32 bytes; the footprint and pad must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PadCastellateParams {
@@ -3428,12 +3484,27 @@ struct PadCastellateParams {
     pad: String,
     on: bool,
 }
+/// Parameters of `footprint.dock_edge`: shift a footprint until its pad bounds touch a board edge.
+///
+/// # Rules
+/// - `edge` is `left`, `right`, `top` or `bottom`; locked footprints are refused.
+/// - The footprint needs drawable pad copper; already flush with that edge is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DockEdgeParams {
     id: Id,
     edge: String,
 }
+/// Parameters of `footprint.set_locked`: lock or unlock placement edits on one footprint.
+///
+/// # Rules
+/// - The footprint id must exist on the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LockParams {
@@ -5351,6 +5422,14 @@ struct MachiningParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ConformalCoatKeepoutParams {
+    layer: Id,
+    plot_name: String,
+    side: String,
+    polarity: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DiffPairParams {
     name: String,
     net_p: Id,
@@ -5791,6 +5870,20 @@ struct AttachSourceParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct MakeOrderableParams {
+    id: Id,
+    orderable_id: String,
+}
+fn bounded_record_id(id: &str) -> Result<(), Error> {
+    if id.is_empty() || id.len() > 64 || id.chars().any(char::is_control) {
+        return Err(Error::Invalid(
+            "record id must be 1 to 64 bytes without control characters".into(),
+        ));
+    }
+    Ok(())
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FieldParams {
     id: Id,
     key: String,
@@ -5953,6 +6046,15 @@ struct WirePointParams {
     index: u32,
     position: Point,
 }
+/// Parameters of `track.chamfer`: replace a right-angle corner with a straight chamfer segment.
+///
+/// # Rules
+/// - Tracks must differ, share net and layer, meet at one endpoint, and be straight.
+/// - Chamfer size is positive and at most half the shorter leg; shallow corners are refused.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ChamferParams {
@@ -5960,6 +6062,13 @@ struct ChamferParams {
     b: Id,
     size: f64,
 }
+/// Parameters of `track.set_width`: set copper width on one track segment.
+///
+/// # Rules
+/// - Width must be positive and at most 100 mm; the track id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackWidthParams {
@@ -5971,6 +6080,14 @@ struct TrackWidthParams {
 struct IdParams {
     id: Id,
 }
+/// Parameters of `track.add_arc`: add a curved track through three points on one layer.
+///
+/// # Rules
+/// - Start, mid and end must be in range and define a proper arc; width defaults from the net class.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackArcParams {
@@ -5983,18 +6100,40 @@ struct TrackArcParams {
     #[serde(default = "front")]
     layer: Layer,
 }
+/// Parameters of `track.set_arc`: bend an existing straight track through a new midpoint.
+///
+/// # Rules
+/// - Midpoint must be in range and lie on a proper arc through the track ends.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackSetArcParams {
     id: Id,
     mid: Point,
 }
+/// Parameters of `track.set_width_net`: set width on every track on one net.
+///
+/// # Rules
+/// - Width must be positive and at most 100 mm; the net must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackNetWidthParams {
     net: Id,
     width: f64,
 }
+/// Parameters of `track.set_layer_net`: move tracks on one net to another copper layer.
+///
+/// # Rules
+/// - Optional `from_layer` limits which tracks move; the net must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackNetLayerParams {
@@ -6003,12 +6142,26 @@ struct TrackNetLayerParams {
     #[serde(default)]
     from_layer: Option<Layer>,
 }
+/// Parameters of `track.set_layer`: move one track to another copper layer.
+///
+/// # Rules
+/// - The track must exist and not already be on the target layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackLayerParams {
     id: Id,
     layer: Layer,
 }
+/// Parameters of `track.set_end`: move one endpoint of a track and clear any arc.
+///
+/// # Rules
+/// - Position must be in range and not coincide with the other end.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackEndParams {
@@ -6035,6 +6188,13 @@ enum TrackEnd {
     Start,
     End,
 }
+/// Parameters of `via.set_covering`: set or clear tent, plug or fill on one via.
+///
+/// # Rules
+/// - A via without a drilled hole cannot be tented, plugged or filled.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaCoveringParams {
@@ -6042,11 +6202,26 @@ struct ViaCoveringParams {
     #[serde(default)]
     covering: Option<pcbcraft_doc::ViaCovering>,
 }
+/// Parameters of `board.set_via_covering_default`: default covering for new vias on the board.
+///
+/// # Rules
+/// - Stored on the board model and used when a via omits an explicit covering.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaCoveringDefaultParams {
     covering: pcbcraft_doc::ViaCovering,
 }
+/// Parameters of `via.set_size`: change pad diameter and optional drill on one via.
+///
+/// # Rules
+/// - Diameter is positive and at most 100 mm; drill is smaller than the pad and non-negative.
+/// - Tented, plugged or filled coverings require a drilled hole.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaSizeParams {
@@ -6337,6 +6512,13 @@ struct LabelMoveParams {
     id: Id,
     position: Point,
 }
+/// Parameters of `text.place`: add a silk or copper text label on the board.
+///
+/// # Rules
+/// - Text is 1 to 128 bytes; size is 0.1 to 50 mm; at most 256 board texts.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextPlaceParams {
@@ -6372,12 +6554,26 @@ fn expand_tokens(text: &str, component: &pcbcraft_doc::Component) -> String {
 fn text_size() -> f64 {
     1.0
 }
+/// Parameters of `text.move`: reposition one board text label.
+///
+/// # Rules
+/// - Position coordinates must be finite; the text id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextMoveParams {
     id: Id,
     position: Point,
 }
+/// Parameters of `text.set`: change string, size, layer and/or rotation on one board text.
+///
+/// # Rules
+/// - At least one field to change must be present; text length and size bounds match `text.place`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextSetParams {
@@ -6391,30 +6587,65 @@ struct TextSetParams {
     #[serde(default)]
     rotation: Option<f64>,
 }
+/// Parameters of `text.rotate`: set absolute rotation on one board text.
+///
+/// # Rules
+/// - Degrees must be finite and within a generous bound; the text id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextRotateParams {
     id: Id,
     degrees: f64,
 }
+/// Parameters of `text.bind`: attach or detach a board text to a schematic component for tokens.
+///
+/// # Rules
+/// - When `component` is set it must exist; `null` clears the binding.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextBindParams {
     id: Id,
     component: Option<Id>,
 }
+/// Parameters of `text.expand`: replace `${REFERENCE}` and related tokens from bound components.
+///
+/// # Rules
+/// - Optional `id` limits the pass; bound texts with a missing component are refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextExpandParams {
     #[serde(default)]
     id: Option<Id>,
 }
+/// Parameters of `object.snap`: round schematic parts and board footprints to a grid.
+///
+/// # Rules
+/// - Accepts 1 to 128 unique ids; grid is 0.05 to 25 mm; each id must be a component or footprint.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SnapParams {
     ids: Vec<Id>,
     grid: f64,
 }
+/// Parameters of `object.nudge`: move one editable object by a small delta in millimetres.
+///
+/// # Rules
+/// - Delta must be finite, non-zero, and within 1000 mm per axis; locked objects are refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NudgeParams {
@@ -6422,6 +6653,13 @@ struct NudgeParams {
     dx: f64,
     dy: f64,
 }
+/// Parameters of `object.duplicate`: clone up to 64 components with optional board footprints.
+///
+/// # Rules
+/// - Each duplicate gets a unique reference and new ids; offset positions must stay in range.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DuplicateParams {
@@ -6471,6 +6709,13 @@ struct SplitParams {
     id: Id,
     at: Point,
 }
+/// Parameters of `align.distribute`: align or evenly space schematic parts or footprints.
+///
+/// # Rules
+/// - Needs at least two items from `ids`, a filter, or both; `mode` names edge, centre or distribute axes.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AlignParams {
@@ -6770,18 +7015,39 @@ struct Cut {
     center: Point,
     radius: f64,
 }
+/// Parameters of `board.cutout.move`: reposition a circular board cutout.
+///
+/// # Rules
+/// - Centre must be in range and keep the full circle strictly inside the board outline.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CutoutMoveParams {
     id: Id,
     center: Point,
 }
+/// Parameters of `board.cutout.resize`: change the radius of a circular board cutout.
+///
+/// # Rules
+/// - Radius is positive and at most 1000 mm; the resized circle must stay strictly inside the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CutoutSizeParams {
     id: Id,
     radius: f64,
 }
+/// Parameters of `track.add`: add one straight copper segment between two points.
+///
+/// # Rules
+/// - Width defaults from the net class; layer resolves through the board stackup rules.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackParams {
@@ -6793,6 +7059,13 @@ struct TrackParams {
     #[serde(default = "front")]
     layer: Layer,
 }
+/// Parameters of `footprint.array`: step-and-repeat one footprint into a grid of parts.
+///
+/// # Rules
+/// - Grid is 1 to 64 by 1 to 64 with positive spacing; at least two copies; project id cap applies.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArrayParams {
@@ -6823,6 +7096,15 @@ struct PadRef {
     footprint: Id,
     pad: String,
 }
+/// Parameters of `track.route`: autoroute copper between two pads or points on one net.
+///
+/// # Rules
+/// - Endpoints must resolve to distinct pads on the same net with positive width.
+/// - Non-orthogonal modes delegate to the router; orthogonal mode adds one or two straight segments.
+///
+/// # Dependencies
+/// - crates/engine/src/route/mod.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Route {
@@ -6838,6 +7120,15 @@ struct Route {
     mode: route::Mode,
     net: Option<Id>,
 }
+/// Parameters of `track.route_pair`: route both legs of a declared differential pair together.
+///
+/// # Rules
+/// - Pads must stay on their net on each side; the two nets must differ and be a registered pair.
+/// - Octilinear or orthogonal coupling only; clearance checks run before tracks are kept.
+///
+/// # Dependencies
+/// - crates/engine/src/route/mod.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RoutePairParams {
@@ -6857,6 +7148,14 @@ struct RoutePairParams {
 fn pair_mode() -> route::Mode {
     route::Mode::Octilinear
 }
+/// Parameters of `object.delete`: remove one project object and detach dependents.
+///
+/// # Rules
+/// - The id must exist; nets still wired to pins or tracks cannot be deleted.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+/// - crates/engine/src/tuning.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Object {
@@ -8255,6 +8554,9 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
     if let Some(result) = images::run(p, next, command, params) {
         return result;
     }
+    if let Some(result) = packages::run(p, command, params, record_revision, mutating) {
+        return result;
+    }
     if let Some(result) = outline::run(p, next, command, params) {
         return result;
     }
@@ -8836,20 +9138,11 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                         continue;
                     }
                 };
-                let pins: Vec<pcbcraft_doc::Pin> = definition
-                    .pins
-                    .iter()
-                    .filter(|s| s.body_style <= 1)
-                    .map(|s| pcbcraft_doc::Pin {
-                        number: s.number.clone(),
-                        name: s.name.clone(),
-                        offset: s.position,
-                        net: old_nets.get(s.number.as_str()).copied().flatten(),
-                        electrical_type: s.electrical_type.clone(),
-                        direction: Some(s.angle),
-                        unit: s.unit.max(1),
-                    })
-                    .collect();
+                let mut pins = pcbcraft_doc::collapse_symbol_pins(&definition)
+                    .map_err(Error::Invalid)?;
+                for pin in &mut pins {
+                    pin.net = old_nets.get(pin.number.as_str()).copied().flatten();
+                }
                 let new_numbers: std::collections::BTreeSet<&str> =
                     pins.iter().map(|p| p.number.as_str()).collect();
                 let old_numbers: std::collections::BTreeSet<&str> =
@@ -9287,32 +9580,95 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             bounded("datasheet", &a.datasheet, 256)?;
             bounded("distributor", &a.distributor, 48)?;
             bounded("sku", &a.sku, 256)?;
-            let component = p
-                .components
-                .iter_mut()
-                .find(|c| c.id == a.id)
-                .ok_or_else(missing)?;
-            let mut written: Vec<String> = vec![];
-            let mut put = |key: String, value: &str| -> Result<(), Error> {
-                if value.is_empty() {
-                    return Ok(());
-                }
-                set_component_field(component, &key, Some(value))?;
-                written.push(key);
-                Ok(())
-            };
-            put("Manufacturer".into(), a.manufacturer.trim())?;
-            put("MPN".into(), a.mpn.trim())?;
-            put("Datasheet".into(), &a.datasheet)?;
-            if !a.sku.is_empty() {
-                let key = if a.distributor.trim().is_empty() {
-                    "SKU".to_string()
-                } else {
-                    format!("{} SKU", a.distributor.trim())
+            let written = {
+                let component = p
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == a.id)
+                    .ok_or_else(missing)?;
+                let mut written: Vec<String> = vec![];
+                let mut put = |key: String, value: &str| -> Result<(), Error> {
+                    if value.is_empty() {
+                        return Ok(());
+                    }
+                    set_component_field(component, &key, Some(value))?;
+                    written.push(key);
+                    Ok(())
                 };
-                put(key, &a.sku)?;
+                put("Manufacturer".into(), a.manufacturer.trim())?;
+                put("MPN".into(), a.mpn.trim())?;
+                put("Datasheet".into(), &a.datasheet)?;
+                if !a.sku.is_empty() {
+                    let key = if a.distributor.trim().is_empty() {
+                        "SKU".to_string()
+                    } else {
+                        format!("{} SKU", a.distributor.trim())
+                    };
+                    put(key, &a.sku)?;
+                }
+                written
+            };
+            let records = part_records::attach_source_records(
+                p,
+                a.id,
+                a.manufacturer.trim(),
+                a.mpn.trim(),
+                &a.datasheet,
+                &a.distributor,
+                &a.sku,
+            )?;
+            Ok(json!({
+                "id": a.id,
+                "fields": written,
+                "component_record": records.component.id,
+                "orderable_record": records.orderable.id,
+            }))
+        }
+        "part.make_orderable" => {
+            let a: MakeOrderableParams = parse(params)?;
+            bounded_record_id(&a.orderable_id)?;
+            let orderable = p
+                .library
+                .orderable_parts
+                .iter()
+                .find(|o| o.id == a.orderable_id)
+                .ok_or_else(|| Error::Invalid("no such orderable part record".into()))?
+                .clone();
+            {
+                let component = p
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == a.id)
+                    .ok_or_else(missing)?;
+                part_records::apply_orderable_fields(component, &orderable)?;
             }
-            Ok(json!({"id": a.id, "fields": written}))
+            p.part_links.insert(
+                a.id,
+                PlacedPartLink {
+                    component_id: orderable.component_id.clone(),
+                    orderable_part_id: Some(orderable.id.clone()),
+                },
+            );
+            Ok(json!({
+                "id": a.id,
+                "orderable_id": orderable.id,
+                "component_record": orderable.component_id,
+            }))
+        }
+        "part.make_generic" => {
+            let a: IdParams = parse(params)?;
+            {
+                let component = p
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == a.id)
+                    .ok_or_else(missing)?;
+                part_records::clear_orderable_fields(component)?;
+            }
+            if let Some(link) = p.part_links.get_mut(&a.id) {
+                link.orderable_part_id = None;
+            }
+            Ok(json!({"id": a.id, "generic": true}))
         }
         "component.set_kind" => {
             let a: SetKindParams = parse(params)?;
@@ -9592,6 +9948,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                     pin: PinRef {
                         component: a.component,
                         pin: number,
+                        unit: None,
                     },
                 });
                 flagged += 1;
@@ -16515,6 +16872,37 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             p.board.machining = None;
             Ok(json!({"removed": had}))
         }
+        "board.set_conformal_coat_keepout" => {
+            let a: ConformalCoatKeepoutParams = parse(params)?;
+            let plot_name = a.plot_name.trim();
+            let cfg = pcbcraft_doc::ConformalCoatKeepout {
+                layer: a.layer,
+                plot_name: plot_name.into(),
+                side: a.side,
+                polarity: a.polarity,
+            };
+            if !cfg.valid() {
+                return Err(Error::Invalid(
+                    "conformal coat keep-out needs a known drawn layer, plot name, side and polarity"
+                        .into(),
+                ));
+            }
+            if !p.board.user_layers.iter().any(|l| l.id == cfg.layer) {
+                return Err(Error::Invalid("unknown drawn layer".into()));
+            }
+            p.board.conformal_coat_keepout = Some(cfg.clone());
+            Ok(json!({"conformal_coat_keepout": cfg}))
+        }
+        "board.clear_conformal_coat_keepout" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "board.clear_conformal_coat_keepout takes an empty object".into(),
+                ));
+            }
+            let had = p.board.conformal_coat_keepout.is_some();
+            p.board.conformal_coat_keepout = None;
+            Ok(json!({"removed": had}))
+        }
         "board.set_pair_rule" => {
             let a: PairRuleParams = parse(params)?;
             let Some(clearance) = a.clearance else {
@@ -22126,6 +22514,70 @@ mod tests {
                 .ok_or_else(|| Error::Invalid("temp folder has no parent".into()))?,
         )
         .map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn symbol_refresh_preserves_nets_when_common_pins_collapsed() -> Result<(), Error> {
+        let folder = std::env::temp_dir().join(format!(
+            "pcbcraft-commonpins-{}-{}",
+            std::process::id(),
+            SYM_REFRESH_SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
+        let file = folder.join("parts.kicad_sym");
+        let fixture = library_fixture("dual-common-supply.kicad_sym");
+        std::fs::copy(&fixture, &file).map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut s = Session::default();
+        s.execute(
+            "library.link",
+            json!({"name":"parts","path":folder.to_string_lossy().to_string()}),
+            None,
+        )?;
+        let chip = s.execute(
+            "component.place_library",
+            json!({"path":"parts/parts.kicad_sym","symbol":"DualCommon","position":{"x":20.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            s.project.components[0].pins.len(),
+            4,
+            "placement collapses repeated supply pins"
+        );
+        let net = s.execute("net.create", json!({"name":"V+"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":chip,"pin":"4"}]}),
+            None,
+        )?;
+        let text = std::fs::read_to_string(&file).map_err(|e| Error::Invalid(e.to_string()))?;
+        std::fs::write(&file, text.replace("V+", "VCC"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let refreshed = s.execute(
+            "symbol.refresh",
+            json!({"path":"parts/parts.kicad_sym","symbol":"DualCommon"}),
+            None,
+        )?;
+        assert_eq!(
+            refreshed["result"]["assigned"].as_array().map(Vec::len),
+            Some(1)
+        );
+        let supply = s.project.components[0]
+            .pins
+            .iter()
+            .find(|p| p.number == "4")
+            .ok_or_else(|| Error::Invalid("missing collapsed supply pin".into()))?;
+        assert_eq!(supply.net, Some(net), "net binding survives refresh");
+        assert_eq!(
+            supply.name, "VCC",
+            "refreshed pin name comes from the library"
+        );
+        assert_eq!(supply.appearances.len(), 1);
+        std::fs::remove_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
         Ok(())
     }
 
@@ -29569,6 +30021,13 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         assert_eq!(c.field("MPN"), Some("SAMPLE-R-10K"));
         assert_eq!(c.field("Datasheet"), Some("https://example.invalid/d.pdf"));
         assert_eq!(c.field("Sample Shop SKU"), Some("SS-1"));
+        assert_eq!(s.project.library.orderable_parts.len(), 1);
+        assert!(s.project.part_links.contains_key(&r1));
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let back: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        back.validate().map_err(Error::Invalid)?;
+        assert_eq!(back.library.orderable_parts[0].mpn, "SAMPLE-R-10K");
         assert!(
             s.execute(
                 "part.attach_source",
@@ -29585,6 +30044,47 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
                 .fields
                 .is_empty()
         );
+        assert!(s.project.library.orderable_parts.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn make_orderable_and_generic_leave_geometry_and_use_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "part.attach_source",
+            json!({"id":r1,"manufacturer":"Example Components","mpn":"SAMPLE-R-10K"}),
+            None,
+        )?;
+        let orderable_id = s.project.library.orderable_parts[0].id.clone();
+        s.execute(
+            "part.make_generic",
+            json!({"id":r1}),
+            None,
+        )?;
+        assert!(s.project.component(r1).ok_or_else(missing)?.field("MPN").is_none());
+        let before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        s.execute(
+            "part.make_orderable",
+            json!({"id":r1,"orderable_id":orderable_id}),
+            None,
+        )?;
+        let after = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        assert_eq!(after, before + 1);
+        assert_eq!(
+            s.project.component(r1).ok_or_else(missing)?.field("MPN"),
+            Some("SAMPLE-R-10K")
+        );
+        let pos = s.project.component(r1).ok_or_else(missing)?.position;
+        s.execute("part.make_generic", json!({"id":r1}), None)?;
+        assert_eq!(s.project.component(r1).ok_or_else(missing)?.position, pos);
         Ok(())
     }
 
@@ -38680,6 +39180,77 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             entities.len(),
             2,
             "the outline and the label read back from the mill path"
+        );
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn conformal_coat_export_writes_gerber_and_artifact() -> Result<(), Error> {
+        let mut s = Session::default();
+        let layer = s.execute(
+            "board.layer_add",
+            json!({"name":"No Coat","kind":"other"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "board.layer_rect_add",
+            json!({"layer":layer,"x":2.0,"y":2.0,"width":20.0,"height":15.0}),
+            None,
+        )?;
+        s.execute(
+            "board.set_conformal_coat_keepout",
+            json!({
+                "layer": layer,
+                "plot_name": "CoatKeepout-F",
+                "side": "bottom",
+                "polarity": "positive",
+            }),
+            None,
+        )?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"coat","kinds":["conformal_coat"]}),
+            None,
+        )?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-conformal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"coat","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let text = std::fs::read_to_string(directory.join("conformal-coat-keepout.gbr"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(
+            text.contains("ConformalCoatingKeepout,Bot"),
+            "the export kind writes a bottom-side keep-out plot"
+        );
+        let artifact = s.execute(
+            "artifact.add",
+            json!({
+                "name": "conformal keep-out",
+                "kind": "conformal_coat_plot",
+                "path": "conformal-coat-keepout.gbr",
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let gen = s.query(
+            "artifact.generate",
+            json!({"id": artifact}),
+            None,
+        )?["result"]["payload"]
+            .as_str()
+            .ok_or_else(missing)?;
+        assert!(
+            gen.contains("%TF.FilePolarity,Positive*%"),
+            "artifact generate matches the configured polarity"
         );
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())

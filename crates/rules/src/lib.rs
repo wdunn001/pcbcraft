@@ -3093,7 +3093,11 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         assert!(erc(&p).iter().any(|f| f.code == "unassigned_pin"));
         p.no_connects.push(NoConnectFlag {
             id: 9,
-            pin: PinRef { component, pin },
+            pin: PinRef {
+                component,
+                pin,
+                unit: None,
+            },
         });
         p.validate()?;
         assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
@@ -3124,6 +3128,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: electrical_type.into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             });
         }
         Ok(())

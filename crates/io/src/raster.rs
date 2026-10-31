@@ -616,6 +616,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -625,6 +626,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
