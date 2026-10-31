@@ -1836,7 +1836,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, acute_angle, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
         ),
@@ -2770,6 +2770,7 @@ fn render_kind(
     creation: Option<&str>,
     variant: Option<&str>,
     skipped: &mut Vec<String>,
+    model_base: Option<&std::path::Path>,
 ) -> Result<Vec<(String, Vec<u8>)>, Error> {
     let mut out: Vec<(String, Vec<u8>)> = Vec::new();
     match kind {
@@ -2796,12 +2797,22 @@ fn render_kind(
         )),
         "dxf" => out.push(("pcb.dxf".into(), pcbcraft_io::dxf_board(p)?.into_bytes())),
         "cmp" => out.push(("pcb.cmp".into(), pcbcraft_io::cmp_text(p)?.into_bytes())),
-        "idf" => out.push(("board.idf".into(), pcbcraft_io::idf_board(p)?.into_bytes())),
+        "idf" => {
+            out.push(("board.idf".into(), pcbcraft_io::idf_board(p)?.into_bytes()));
+            out.push((
+                "library.idf".into(),
+                pcbcraft_io::idf_library(p)?.into_bytes(),
+            ));
+        }
         "vrml" => out.push(("board.wrl".into(), pcbcraft_io::vrml_board(p)?.into_bytes())),
-        "step" => out.push((
-            "board.step".into(),
-            pcbcraft_io::step_board(p)?.into_bytes(),
-        )),
+        "step" => {
+            let loader = pcbcraft_io::project_step_loader(p, model_base);
+            let export = pcbcraft_io::step_board_with_models(p, &loader).map_err(Error::Invalid)?;
+            for note in export.notes {
+                skipped.push(note);
+            }
+            out.push(("board.step".into(), export.text.into_bytes()));
+        }
         "pdf" => out.push(("board.pdf".into(), pcbcraft_io::pdf_document(p, "pcb")?)),
         "svg" => out.push(("board.svg".into(), pcbcraft_io::svg(p, "pcb")?.into_bytes())),
         "ipc2581" => out.push((
@@ -15855,7 +15866,9 @@ fn run_command(
 
                         continue;
                     }
-                    for (name, bytes) in render_kind(p, kind, None, None, &mut skipped)? {
+                    for (name, bytes) in
+                        render_kind(p, kind, None, None, &mut skipped, Some(directory))?
+                    {
                         pcbcraft_io::atomic_write(&directory.join(&name), &bytes)
                             .map_err(Error::Invalid)?;
                         written.push(name);
@@ -15939,6 +15952,7 @@ fn run_command(
                     Some(pcbcraft_io::PACKAGE_CREATION_DATE),
                     variant.as_deref(),
                     &mut skipped,
+                    None,
                 )? {
                     entries.push(pcbcraft_io::PackageEntry {
                         name,
@@ -31528,6 +31542,118 @@ mod tests {
     }
 
     #[test]
+    fn export_step_reports_a_model_that_could_not_be_read() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = pcbcraft_library::read_footprint(
+            "(footprint M (layer F.Cu)\
+             (model \"parts/body.step\" (at (xyz 0 0 0)))\
+             (pad 1 smd rect (at -1 0) (size 1 1) (layers F.Cu))\
+             (pad 2 smd rect (at 1 0) (size 1 1) (layers F.Cu)))",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("missing id".into()))?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":id,"name":"M"}),
+            None,
+        )?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-step-note-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"step-only","kinds":["step"]}),
+            None,
+        )?;
+        let out = s.execute(
+            "output_job.run",
+            json!({"name":"step-only","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let skipped = out["result"]["skipped"]
+            .as_array()
+            .ok_or_else(|| Error::Invalid("expected skipped notes".into()))?;
+        assert!(
+            skipped.iter().any(|v| {
+                v.as_str()
+                    .is_some_and(|line| line.starts_with("R1:") && line.contains("body.step"))
+            }),
+            "the export names the part and the missing model: {skipped:?}"
+        );
+        assert!(directory.join("board.step").exists());
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn export_step_reports_a_model_that_could_not_be_read() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = pcbcraft_library::read_footprint(
+            "(footprint M (layer F.Cu)\
+             (model \"parts/body.step\" (at (xyz 0 0 0)))\
+             (pad 1 smd rect (at -1 0) (size 1 1) (layers F.Cu))\
+             (pad 2 smd rect (at 1 0) (size 1 1) (layers F.Cu)))",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("missing id".into()))?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":id,"name":"M"}),
+            None,
+        )?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-step-note-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"step-only","kinds":["step"]}),
+            None,
+        )?;
+        let out = s.execute(
+            "output_job.run",
+            json!({"name":"step-only","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let skipped = out["result"]["skipped"]
+            .as_array()
+            .ok_or_else(|| Error::Invalid("expected skipped notes".into()))?;
+        assert!(
+            skipped.iter().any(|v| {
+                v.as_str()
+                    .is_some_and(|line| line.starts_with("R1:") && line.contains("body.step"))
+            }),
+            "the export names the part and the missing model: {skipped:?}"
+        );
+        assert!(directory.join("board.step").exists());
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
     fn output_jobs_write_mechanical_and_drawing_kinds() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let directory =
@@ -31546,6 +31672,7 @@ mod tests {
         for name in [
             "pcb.cmp",
             "board.idf",
+            "library.idf",
             "board.wrl",
             "board.step",
             "board.pdf",

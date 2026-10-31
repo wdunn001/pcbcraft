@@ -120,7 +120,7 @@ fn rewrite_refs(body: &str, map: &BTreeMap<u32, u32>) -> String {
                 }
             }
         }
-        out.push(bytes[index] as char);
+        out.push(body[index] as char);
         index += 1;
     }
     out
@@ -220,7 +220,10 @@ fn scale_point_tuple(inside: &str, scale: f64) -> String {
                 .unwrap_or_else(|_| (*p).to_string())
         })
         .collect();
-    format!("{name},({},{},{})", scaled[0], scaled[1], scaled[2])
+    format!(
+        "{name},({},{},{})",
+        scaled[0], scaled[1], scaled[2]
+    )
 }
 
 fn entity_named<'a>(exchange: &'a Exchange, prefix: &str) -> Option<(u32, &'a str)> {
@@ -289,7 +292,9 @@ pub fn append_body(
         id
     } else {
         let solid = solid.ok_or("the model file holds no solid the export can place")?;
-        let rep = doc.add(&format!("SHAPE_REPRESENTATION('{safe}',(#{solid}),#7)"))?;
+        let rep = doc.add(&format!(
+            "SHAPE_REPRESENTATION('{safe}',(#{solid}),#7)"
+        ))?;
         doc.add(&format!(
             "SHAPE_DEFINITION_REPRESENTATION(#{product_definition_shape},#{rep})"
         ))?;
@@ -347,7 +352,9 @@ fn placement_from_matrix(doc: &mut impl StepWriter, matrix: &[f64; 16]) -> Resul
     let point = doc.point((origin[0], origin[1], origin[2]))?;
     let z_id = doc.direction(z_dir)?;
     let x_id = doc.direction(x_dir)?;
-    doc.add(&format!("AXIS2_PLACEMENT_3D('',#{point},#{z_id},#{x_id})"))
+    doc.add(&format!(
+        "AXIS2_PLACEMENT_3D('',#{point},#{z_id},#{x_id})"
+    ))
 }
 
 fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
