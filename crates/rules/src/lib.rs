@@ -1633,6 +1633,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(courtyard::courtyard_findings(project));
     result.extend(silk::silk_findings(project));
     result.extend(drill::drill_findings(project));
+    result.extend(drill::drill_spacing_findings(project));
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
     // pad, and no figure may leave the board. Drawn silk and reference art are
