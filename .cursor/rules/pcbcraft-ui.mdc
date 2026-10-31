@@ -1,0 +1,19 @@
+---
+description: PCBCraft UI layer constraints for crates/ui-egui
+globs: crates/ui-egui/**
+alwaysApply: false
+---
+
+# UI layer
+
+The design lives in `docs/design-system.md` (tokens, components, menus, Layers tree) and `docs/page-layouts.md` (each tab). Read the part you touch; do not copy it here or into code.
+
+- Navigation is tabs at the top of a region. Never add a left rail, a tab for an action, or a settings tab.
+- Each tab fills its regions through the `Workspace` trait in `crates/ui-egui/src/workspace.rs`. Plug in with a region tab id; never edit the shell.
+- Build with the widgets in `crates/ui-egui/src/ui_kit/`. Right-click menus only through `ui_kit/menu.rs`. A choice between a few settings is `ui_kit/segmented.rs`.
+- Colours, sizes and radii come from `crates/ui-egui/src/theme.rs`, never literals.
+- Text comes from `crates/text/strings/en.txt`. Every control has a tooltip (`docs/tooltips.md`).
+- Status dots, arrows and ticks are painted shapes or icons, never text glyphs.
+- The layer is picked in the Layers tree only: no toolbar layer picker, no selection-filter chips.
+- A UI change needs before and after screenshots in the pull request body, and an `a_newcomer_*` story (`pcbcraft-tests.mdc`).
+- A UI change updates `docs/design-system.md` or `docs/page-layouts.md` when it changes a documented rule, or states `docs: n/a: <reason>` in its changeset.

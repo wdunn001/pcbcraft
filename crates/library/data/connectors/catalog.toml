@@ -1,0 +1,28 @@
+manufacturer = "Samtec"
+source_id = "Samtec connectors"
+verify_note = "Generated from the series table; verify against the manufacturer drawing."
+permission_status = "not_requested"
+
+[[series]]
+id = "tsw"
+prefix = "TSW"
+description = "Classic 0.100 inch through-hole pin header strip"
+family = "through_hole_header"
+pitch_mm = 2.54
+drawing_url = "https://www.samtec.com/products/tsw/"
+
+[[series]]
+id = "ssw"
+prefix = "SSW"
+description = "Classic 0.100 inch through-hole socket strip"
+family = "through_hole_socket"
+pitch_mm = 2.54
+drawing_url = "https://www.samtec.com/products/ssw/"
+
+[[series]]
+id = "bth"
+prefix = "BTH"
+description = "0.5 mm surface-mount board-to-board header"
+family = "board_to_board"
+pitch_mm = 0.5
+drawing_url = "https://www.samtec.com/products/bth/"

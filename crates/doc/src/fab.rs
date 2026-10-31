@@ -57,6 +57,9 @@ pub struct FabRules {
     pub source_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrieved: Option<String>,
+    /// When set, fabrication export writes true Gerber arcs by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arcs: Option<bool>,
 }
 
 impl FabRules {
@@ -176,6 +179,7 @@ static FAB_PRESETS: LazyLock<Vec<FabPreset>> = LazyLock::new(|| {
                 "https://jlcpcb.com/capabilities/Capabilities",
                 "2026-03-28",
                 FabRules {
+                    arcs: Some(true),
                     min_track: Some(0.127),
                     min_space: Some(0.127),
                     min_drill: Some(0.3),
