@@ -29,6 +29,7 @@ mod library_dock;
 mod minimap;
 mod modifiers;
 mod nets;
+mod online;
 mod pairs;
 mod pours;
 mod route_drag;

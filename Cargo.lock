@@ -3208,6 +3208,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "web-time",
 ]
 
 [[package]]
@@ -3276,6 +3277,7 @@ dependencies = [
  "eframe",
  "js-sys",
  "pcbcraft-engine",
+ "pcbcraft-library",
  "pcbcraft-mcp",
  "pcbcraft-text",
  "pcbcraft-ui-egui",

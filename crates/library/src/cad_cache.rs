@@ -34,6 +34,30 @@ const LATEST: &str = "LATEST";
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// What the cache holds, for the line the Library tab shows next to the Online source.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CacheStats {
+    /// Stored files.
+    pub files: usize,
+    /// Bytes of stored files.
+    pub bytes: u64,
+    /// Bytes of stored listings.
+    pub listing_bytes: u64,
+    /// The cap on stored file bytes.
+    pub cap: u64,
+    /// Stored listings.
+    pub listings: usize,
+    /// Second the oldest stored listing was saved, when there is one.
+    pub oldest_listing: Option<u64>,
+}
+
+impl CacheStats {
+    /// Whole seconds since the oldest listing was saved, or `None` with no listings.
+    pub fn oldest_age_secs(&self, now: u64) -> Option<u64> {
+        self.oldest_listing.map(|t| now.saturating_sub(t))
+    }
+}
+
 /// A stored answer to a listing request, with the second it was stored.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredListing {
@@ -420,6 +444,50 @@ impl CadCache {
             .unwrap_or(0)
     }
 
+    /// Count what is stored. Reads file sizes and the first line of each listing, never a file body.
+    ///
+    /// # Rules
+    /// - Memory-only caches report their own copy, which is bounded by [`MEMORY_CAP_BYTES`].
+    pub fn stats(&self) -> CacheStats {
+        let mut out = CacheStats {
+            cap: self.cap,
+            ..CacheStats::default()
+        };
+        let mut stamps: Vec<u64> = Vec::new();
+        let mut listing_bytes = 0u64;
+        if let Some(root) = &self.root {
+            let files = stored_files(&root.join("files"));
+            out.files = files.len();
+            out.bytes = files.iter().map(|f| f.size).sum();
+            let mut stack = vec![root.join("listings")];
+            while let Some(dir) = stack.pop() {
+                let Ok(entries) = fs::read_dir(&dir) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                    } else if let Some(t) = listing_stamp(&path) {
+                        listing_bytes += entry.metadata().map_or(0, |m| m.len());
+                        stamps.push(t);
+                    }
+                }
+            }
+        } else if let Ok(m) = self.memory.lock() {
+            out.files = m.files.len();
+            out.bytes = m.bytes as u64;
+            for l in m.listings.values() {
+                listing_bytes += l.body.len() as u64;
+                stamps.push(l.stored_at);
+            }
+        }
+        out.listing_bytes = listing_bytes;
+        out.listings = stamps.len();
+        out.oldest_listing = stamps.into_iter().min();
+        out
+    }
+
     /// Remove the least recently used files until the cache fits its cap.
     fn evict(&self) {
         let Some(root) = &self.root else {
@@ -442,6 +510,14 @@ impl CadCache {
             total = total.saturating_sub(f.size);
         }
     }
+}
+
+/// The save time on the first line of a listing file.
+fn listing_stamp(path: &Path) -> Option<u64> {
+    let mut head = [0u8; 24];
+    let n = std::io::Read::read(&mut fs::File::open(path).ok()?, &mut head).ok()?;
+    let text = std::str::from_utf8(head.get(..n)?).ok()?;
+    text.split('\n').next()?.parse().ok()
 }
 
 struct StoredFile {
