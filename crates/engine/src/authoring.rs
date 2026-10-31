@@ -11,8 +11,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.remove","Remove a project-library symbol; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.remove","Remove a project-library footprint; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.load","Load and validate a .pcbcraft-lib collection into the project as one undoable transaction",schema(json!({"path":{"type":"string"}}),&["path"])),
-        ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
-        ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
+        ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction; an optional notice is kept with the project library",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024},"notice":{"type":"string"}}),&["path"])),
+        ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction; an optional notice is kept with the project library",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024},"notice":{"type":"string"}}),&["path"])),
         ("library.import_footprint_dir","Read every footprint library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_symbol_dir","Read every symbol library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor symbol folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_part","Copy a part's symbol and, when it has one, its footprint into the project library as one undoable step, keeping the licence notice; the symbol is linked to the footprint by name",schema(json!({"symbol":{"type":"object","description":"a symbol definition as library readers emit it"},"footprint":{"type":"object","description":"a footprint definition as library readers emit it"},"notice":{"type":"string","description":"licence or attribution line kept with the project library"}}),&["symbol"])),
@@ -197,6 +197,12 @@ struct FootprintParams {
 #[serde(deny_unknown_fields)]
 struct PathParams {
     path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportFileParams {
+    path: String,
+    notice: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -907,7 +913,7 @@ pub(super) fn run(
             Ok(json!({"symbols":p.library.symbols.len(),"footprints":p.library.footprints.len()}))
         }
         "library.import_footprint_file" | "library.import_symbol_file" => {
-            let a: PathParams = parse(params)?;
+            let a: ImportFileParams = parse(params)?;
             let text =
                 pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
             let mut imported: Vec<String> = Vec::new();
@@ -928,6 +934,11 @@ pub(super) fn run(
                     imported.push(def.name.clone());
                     import_symbol(p, def);
                 }
+            }
+            if let Some(notice) = a.notice
+                && !p.library.notices.contains(&notice)
+            {
+                p.library.notices.push(notice);
             }
             p.library.validate()?;
             Ok(json!({"names": imported}))
