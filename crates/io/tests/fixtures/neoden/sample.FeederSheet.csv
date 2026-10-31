@@ -1,0 +1,4 @@
+FeederNo,Comment,Footprint,TapeWidth_mm,Nozzle,Quantity,Load
+53,Green LED,led,,CN400,1,
+54,5V input,connector,,CN400,1,
+55,330 Ω,resistor,,CN400,1,
