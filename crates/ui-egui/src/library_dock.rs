@@ -17,6 +17,8 @@
 //! - Footprint pictures are drawn once into a cached texture, top view, in
 //!   theme colours; the cache is dropped when the theme changes.
 //! - Favourites live in the preferences, by card key.
+//! - Once a search is typed the cards are ranked and repeats removed by
+//!   `library_rank` (exact part number, package, name); an empty search keeps the order.
 //!
 //! # Dependencies
 //! - crates/engine/src/library.rs#list_over
@@ -26,6 +28,8 @@
 //! - crates/ui-egui/src/library.rs#library_geometry_paths
 //! - crates/ui-egui/src/icons.rs
 //! - crates/ui-egui/src/sources.rs#online_parts
+//! - crates/ui-egui/src/library_rank.rs
+//! - crates/library/src/listing_search.rs
 //! - crates/text/strings/en.txt
 
 use super::*;
@@ -254,6 +258,83 @@ impl Card {
     }
 }
 
+/// The cards in the order the library crate ranks one search for `query`
+/// (exact part number, package, name), a part held by two sources once.
+/// An empty query leaves the list as it is.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/library_rank.rs
+/// - crates/library/src/listing_search.rs
+fn ranked(query: &str, cards: Vec<Card>) -> Vec<Card> {
+    use crate::library_rank::{CardFacts, found_for, order};
+    use pcbcraft_library::listing::ListingSource;
+    let found = cards
+        .iter()
+        .map(|card| match card {
+            Card::BuiltIn(kind, label) => found_for(
+                &CardFacts {
+                    source: ListingSource::Fixture,
+                    source_id: "built-in",
+                    source_ref: kind,
+                    mpn: label,
+                    manufacturer: "",
+                    description: "",
+                    package: "",
+                },
+                None,
+            ),
+            Card::Project(d) => found_for(
+                &CardFacts {
+                    source: ListingSource::Project,
+                    source_id: "project",
+                    source_ref: &d.name,
+                    mpn: &d.name,
+                    manufacturer: "",
+                    description: &d.description,
+                    package: d.footprint.trim(),
+                },
+                None,
+            ),
+            Card::Installed(i) => found_for(
+                &CardFacts {
+                    source: ListingSource::Installed,
+                    source_id: &i.path,
+                    source_ref: &i.name,
+                    mpn: &i.name,
+                    manufacturer: "",
+                    description: &i.description,
+                    package: &i.package,
+                },
+                None,
+            ),
+            Card::Online(p, _) => {
+                let open = p.source == pcbcraft_library::open_library::SOURCE_NAME;
+                found_for(
+                    &CardFacts {
+                        source: if open {
+                            ListingSource::OpenLibrary
+                        } else {
+                            ListingSource::Distributor
+                        },
+                        source_id: &p.source,
+                        source_ref: &p.sku,
+                        mpn: &p.mpn,
+                        manufacturer: &p.manufacturer,
+                        description: &p.description,
+                        package: "",
+                    },
+                    Some(p),
+                )
+            }
+        })
+        .collect();
+    let mut slots: Vec<Option<Card>> = cards.into_iter().map(Some).collect();
+    order(query, found)
+        .into_iter()
+        .filter_map(|i| slots.get_mut(i).and_then(Option::take))
+        .collect()
+}
+
 /// What a card's menu or buttons asked for.
 #[derive(Clone, Debug)]
 enum CardAction {
@@ -472,6 +553,7 @@ impl App {
                 cards.push(Card::Online(Box::new(part), credit));
             }
         }
+        cards = ranked(&query, cards);
         let favourites = self.preferences.library_favourites.clone();
         if self.dock.favourites_only {
             cards.retain(|c| favourites.contains(&c.key()));
