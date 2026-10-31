@@ -1,4 +1,4 @@
-﻿MPN,Reference Designators,Description,Value,Quantity,Package,Manufacturer,Supplier,Supplier Part Number
+MPN,Reference Designators,Description,Value,Quantity,Package,Manufacturer,Supplier,Supplier Part Number
 MP-100nF,C10,Analog supply filter,100nF,1,project:Chip_0402,Maker,Shop,S-100nF
 MP-100nF,C13,Flash decoupling,100nF,1,project:Chip_0402,Maker,Shop,S-100nF
 MP-100nF,"C14, C15, C16",Sensor decoupling,100nF,3,project:Chip_0402,Maker,Shop,S-100nF

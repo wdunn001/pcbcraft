@@ -1,4 +1,4 @@
-﻿Quantity,Designators,Manufacturer,MPN,Description,Value,Package,Supplier,Supplier Part Number
+Quantity,Designators,Manufacturer,MPN,Description,Value,Package,Supplier,Supplier Part Number
 1,C10,Maker,MP-100nF,Analog supply filter,100nF,project:Chip_0402,Shop,S-100nF
 1,C13,Maker,MP-100nF,Flash decoupling,100nF,project:Chip_0402,Shop,S-100nF
 3,"C14, C15, C16",Maker,MP-100nF,Sensor decoupling,100nF,project:Chip_0402,Shop,S-100nF
