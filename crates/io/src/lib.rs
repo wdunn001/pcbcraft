@@ -28,6 +28,7 @@ mod neoden_yy1;
 mod package;
 mod panel_export;
 mod part_bodies;
+mod placement_flavour;
 mod plot_read;
 #[cfg(feature = "plugin-firmware-target")]
 pub mod plugins;
@@ -128,6 +129,14 @@ pub use panel_export::{panel_fabrication_files, panel_placement_text};
 /// # Dependencies
 /// - crates/doc/src/lib.rs
 pub use pcbcraft_doc::Layer;
+/// Placement list flavours: layouts of the pick-and-place file as data.
+/// # Dependencies
+/// - crates/io/src/placement_flavour.rs
+pub use placement_flavour::{
+    AngleRange, BottomRotation, ColumnField, DnpRule, PlacementColumn, PlacementFlavour,
+    PlacementOptions, PlacementOrigin, PlacementOutput, PlacementUnits, RotationOffset,
+    bundled_placement_flavours, flavour_rotation, placement_flavour_from_toml, placement_flavoured,
+};
 /// Plot file reading types and functions for parsing Gerber and Excellon files.
 /// # Dependencies
 /// - crates/io/src/plot_read.rs
