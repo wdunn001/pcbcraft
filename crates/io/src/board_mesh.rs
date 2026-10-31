@@ -1046,6 +1046,15 @@ fn parse_height(text: &str) -> Option<f64> {
 
 /// Build the whole mesh for a validated project.
 pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> {
+    board_mesh_with_dir(p, layers, None)
+}
+
+/// Like [`board_mesh`], with `design_dir` used to resolve relative model paths.
+pub fn board_mesh_with_dir(
+    p: &Project,
+    layers: MeshLayers,
+    design_dir: Option<&std::path::Path>,
+) -> Result<BoardMesh, String> {
     p.validate()?;
     let thickness = p.board.thickness;
     let mut budget = Budget { triangles: 0 };
@@ -1357,8 +1366,24 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 .and_then(|c| c.library_footprint.as_ref())
                 .and_then(|l| l.definition.model.as_ref())
             {
-                part.model = Some(ModelPlacement {
-                    path: model.path.clone(),
+part.model = Some(ModelPlacement {
+                    path: crate::model_resolve::resolve_model_path(
+                        p,
+                        &model.path,
+                        component
+                            .and_then(|c| c.library_footprint.as_ref())
+                            .map(|l| l.library.as_str()),
+                        design_dir,
+                    ),
+                    matrix: model_matrix(
+                        model,
+                        fp.position,
+                        fp.rotation,
+                        bottom,
+                        thickness,
+                    ),
+                    loaded: false,
+                });
                     matrix: model_matrix(
                         model,
                         fp.position,
@@ -1600,6 +1625,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
@@ -1726,6 +1752,8 @@ mod tests {
                 definition,
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
 instance: None,
             prototype: None,

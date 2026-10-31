@@ -534,6 +534,7 @@ fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Tr
             Seg::Arc(a, m, b) => (a, b, Some(m)),
         };
         out.push(Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: allocate(probe)?,
             net: original.net,
             start,

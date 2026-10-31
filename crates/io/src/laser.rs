@@ -858,6 +858,8 @@ pub mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
         }
     sourcing: Default::default(),
