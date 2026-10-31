@@ -1,5 +1,6 @@
-# Nightly: platform packages from main as workflow artifacts, plus an advisory
-# scan that catches new security advisories without a code change.
+# Nightly: platform packages from main, a published GitHub pre-release with
+# checksums when main changed (schedule only), workflow artifacts for 14 days,
+# plus an advisory scan that catches new security advisories without a code change.
 name: Nightly
 
 on:
@@ -33,7 +34,15 @@ jobs:
         run: |
           sha=$(git rev-parse HEAD)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "version=nightly-$(date -u +%Y%m%d)-$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' Cargo.toml)
+          # Unique SemVer without committing daily version bumps to main.
+          version="${version}-nightly.$(TZ=America/New_York date +%Y%m%d).${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          if ! printf '%s' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?$'; then
+            echo "::error::Cargo.toml must contain a version like 1.2.3 or 1.2.3-rc.1"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "### PCBCraft v$version (\`${sha:0:9}\`)" >> "$GITHUB_STEP_SUMMARY"
           # Scheduled runs skip packaging when main has not moved for a day.
           age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
           if [ "$EVENT" = workflow_dispatch ] || [ "$age" -lt 90000 ]; then
@@ -53,6 +62,53 @@ jobs:
       version: ${{ needs.stamp.outputs.version }}
       ref: ${{ needs.stamp.outputs.sha }}
       retention-days: 14
+
+  publish:
+    name: Nightly pre-release
+    needs: [stamp, dist]
+    if: >-
+      needs.stamp.outputs.changed == 'true' && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.stamp.outputs.version }}
+      SHA: ${{ needs.stamp.outputs.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * | tee SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Release notes
+        run: |
+          {
+            echo "Automated nightly pre-release for commit \`${SHA:0:9}\`."
+            echo
+            echo "Binaries are not code-signed yet. Verify downloads against SHA256SUMS.txt."
+            echo "This build is not marked as latest; use a tagged release for stable downloads."
+          } > notes.md
+          cat notes.md
+      - name: Publish nightly pre-release
+        working-directory: dist
+        run: |
+          tag="v$VERSION"
+          sha256sum --check SHA256SUMS.txt
+          # Stage all packages before publishing. Published tags are never replaced.
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --prerelease --latest=false \
+            --title "PCBCraft v$VERSION (nightly)" --target "$SHA" \
+            --notes-file ../notes.md -- *
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false
+          echo "### Published nightly: $tag (\`${SHA:0:9}\`)" >> "$GITHUB_STEP_SUMMARY"
 
   advisories:
     name: Security advisories

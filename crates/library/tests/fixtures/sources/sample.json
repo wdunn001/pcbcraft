@@ -36,6 +36,24 @@
       "datasheet_url": "https://example.invalid/datasheets/sample-c-100n.pdf",
       "product_url": "https://example.invalid/parts/sample-c-100n",
       "retrieved_at": 1790000000
+    },
+    {
+      "source": "Sample parts",
+      "mpn": "SAMPLE-L-10U",
+      "manufacturer": "Example Components",
+      "description": "10 uH inductor, 0805",
+      "kind": "inductor",
+      "distributor": "Sample Shop",
+      "sku": "SS-10U-0805",
+      "stock": 4200,
+      "price_breaks": [
+        {"quantity": 1, "unit_price": 0.15, "currency": "USD"}
+      ],
+      "lifecycle": "Active",
+      "datasheet_url": "https://example.invalid/datasheets/sample-l-10u.pdf",
+      "product_url": "https://example.invalid/parts/sample-l-10u",
+      "retrieved_at": 1790000000
     }
   ]
 }
+

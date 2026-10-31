@@ -1,0 +1,35 @@
+Comment,Designator,Footprint,Supplier Part #
+100nF,"C10,C13,C14,C15,C16,C7,C8,C9",project:Chip_0402,S-100nF
+10k,R5,project:Chip_0402,S-10k
+10uF,C1,project:Chip_0603,S-10uF
+16 MHz,Y1,project:Crystal_3225,S-16MHz
+18pF,"C5,C6",project:Chip_0402,S-18pF
+1k,R4,project:Chip_0402,S-1k
+1k,"R10,R11,R12,R13,R14,R15",project:Chip_0603,S-1k
+1uF,C12,project:Chip_0402,S-1uF
+1uF,C17,project:Chip_0603,S-1uF
+2.2uF,"C3,C4",project:Chip_0603,S-22uF
+2k,R3,project:Chip_0402,S-2k
+3V3,TP2,project:Test_Pad,S-3V3
+4.7k,"R8,R9",project:Chip_0402,S-47k
+4.7uF,"C11,C2",project:Chip_0603,S-47uF
+5.1k,"R1,R2",project:Chip_0402,S-51k
+500 mA,F1,project:Chip_1206,S-500mA
+Amber,"D1,D6,D7",project:LED_0603,S-Amber
+Battery,J2,project:Battery_2P,S-Battery
+Charger,U1,project:SOT-23-5,S-Charger
+Climate,U5,project:DFN-8,S-Climate
+Debug,J3,project:Header_1x7_1.27,S-Debug
+Flash,U4,project:SOIC-8,S-Flash
+Green,"D3,D4,D5",project:LED_0603,S-Green
+LDO 3V3,U2,project:SOT-23-5,S-LDO3V3
+Light,U6,project:SOT-23-6,S-Light
+MCU,U3,project:QFN-32,S-MCU
+Red,D8,project:LED_0603,S-Red
+Reset,SW1,project:Tact_4p5,S-Reset
+Switch,U7,project:SOT-23-5,S-Switch
+TVS,D2,project:SOD-323,S-TVS
+USB-C,J1,project:USB_C_Receptacle,S-USBC
+User 1,SW2,project:Tact_4p5,S-User1
+User 2,SW3,project:Tact_4p5,S-User2
+VBAT,TP1,project:Test_Pad,S-VBAT
