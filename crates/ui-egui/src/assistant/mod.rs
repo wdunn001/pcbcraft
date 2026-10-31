@@ -7,15 +7,17 @@
 //! the design, the transcript or any log; reads run at once, everything else waits for an answer.
 //! Keep the pane body in `pane.rs` a self-contained function so the dock work can move it.
 
+mod capture;
 mod cards;
 pub(crate) mod pane;
 pub(crate) mod settings;
+mod steps;
 mod text;
 
 use super::{App, Tab};
 use pcbcraft_assistant::{
-    ApiBackend, ChatBackend, Event, HttpFn, Item, PromptPart, Secrets, StartContext, ToolRequest,
-    Transcript, Turn, Verdict,
+    ApiBackend, ChatBackend, Event, HttpFn, Item, PromptPart, Secrets, StartContext, StepState,
+    ToolRequest, Transcript, Turn, Verdict,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -45,6 +47,8 @@ struct Waiting {
     id: u64,
     key: String,
     request: ToolRequest,
+    /// Set while a batch is applied one command at a time.
+    each: Option<steps::Stepwise>,
 }
 
 /// Everything the pane keeps between frames.
@@ -87,6 +91,10 @@ pub(crate) struct State {
     pub(crate) row_test: Option<(String, settings::SharedTest)>,
     /// History length right after the last message's changes were merged into one undo step.
     undo_len: Option<usize>,
+    /// First step ids of the runs the user opened (a finished run is one line until opened).
+    pub(crate) open_runs: std::collections::HashSet<u64>,
+    /// Show the name of every changed object on the review card.
+    pub(crate) list_all: bool,
 }
 
 impl Default for State {
@@ -117,6 +125,8 @@ impl Default for State {
             dialog: None,
             row_test: None,
             undo_len: None,
+            open_runs: std::collections::HashSet::new(),
+            list_all: false,
         }
     }
 }
@@ -446,6 +456,17 @@ impl App {
             return;
         };
         let held = self.assistant.waiting.remove(at);
+        if held.each.is_some() {
+            for item in &mut self.assistant.transcript.items {
+                if let Item::Approval { id: x, answer, .. } = item
+                    && *x == id
+                {
+                    *answer = Some(allow);
+                }
+            }
+            self.stepwise_answer(held, allow);
+            return;
+        }
         if allow && always {
             let id = self.assistant.active.clone().unwrap_or_default();
             let keys = self
@@ -466,25 +487,51 @@ impl App {
         }
         if allow {
             let change = pcbcraft_assistant::edits_design(&held.request.name, &held.request.args);
-            self.assistant_admit_and_run(held.request, change);
+            self.assistant_admit_and_run(held.request, change, held.id);
         } else {
+            self.step_failed(
+                held.id,
+                &held.request.name,
+                &held.request.args,
+                text::digest_declined(),
+            );
             let _ = held.request.reply.send(error_result(&text::denied_note()));
         }
     }
 
     /// Count the call against the turn's limits, then run it, or tell the model to stop.
-    fn assistant_admit_and_run(&mut self, request: ToolRequest, change: bool) {
+    fn assistant_admit_and_run(&mut self, request: ToolRequest, change: bool, call: u64) {
         let limit = self.preferences.assistant_turn_limit;
         let admitted = match self.assistant.turn.as_mut() {
             Some(turn) => turn.admit(change, limit),
             None => Ok(()),
         };
         if let Err(stop) = admitted {
+            self.step_failed(call, &request.name, &request.args, stop.to_string());
             let _ = request.reply.send(error_result(stop));
             return;
         }
+        let known = self
+            .assistant
+            .transcript
+            .items
+            .iter()
+            .any(|i| matches!(i, Item::Step { id, .. } if *id == call));
+        if known {
+            self.step_set(call, StepState::Running, 0, String::new());
+        } else {
+            self.step_push(call, &request.name, &request.args, StepState::Running);
+        }
+        let summary = if change {
+            self.assistant_summary(&request)
+        } else {
+            None
+        };
+        let started = std::time::Instant::now();
         let result = pcbcraft_mcp::call_tool(&self.session, &request.name, &request.args);
+        let took = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         self.refresh();
+        self.step_done(call, &request.name, &result, took, summary.as_ref());
         let _ = request.reply.send(result);
     }
 
@@ -511,52 +558,56 @@ impl App {
             .unwrap_or_default();
         let verdict =
             pcbcraft_assistant::request(&request.name, &request.args, mode, undo_left, &always);
-        let word = match &verdict {
-            Verdict::Run { .. } => "runs",
-            Verdict::Ask(_) => "asks",
-            Verdict::Refuse(_) => "refused",
-        };
-        self.assistant.transcript.push(Item::Note {
-            text: format!("{key}: {word}"),
-            error: false,
-        });
+        let call = self.assistant.next_id;
+        self.assistant.next_id += 1;
         match verdict {
-            Verdict::Run { change } => self.assistant_admit_and_run(request, change),
+            Verdict::Run { change } => self.assistant_admit_and_run(request, change, call),
             Verdict::Refuse(reason) => {
                 self.assistant.transcript.push(Item::Note {
                     text: reason.clone(),
                     error: true,
                 });
+                self.step_failed(call, &request.name, &request.args, reason.clone());
                 let _ = request.reply.send(error_result(&reason));
             }
             Verdict::Ask(_) => {
-                let detail = match self.assistant_preview(&request) {
-                    Ok(detail) => detail,
+                let (detail, summary) = match self.assistant_preview(&request) {
+                    Ok(preview) => preview,
                     Err(reason) => {
                         self.assistant.transcript.push(Item::Note {
                             text: reason.clone(),
                             error: true,
                         });
+                        self.step_failed(call, &request.name, &request.args, reason.clone());
                         let _ = request.reply.send(error_result(&reason));
                         return;
                     }
                 };
-                let id = self.assistant.next_id;
-                self.assistant.next_id += 1;
+                let id = call;
                 self.assistant.transcript.push(Item::Approval {
                     id,
                     title: pcbcraft_assistant::describe(&request.name, &request.args),
                     detail,
+                    summary,
                     answer: None,
                 });
-                self.assistant.waiting.push(Waiting { id, key, request });
+                self.step_push(id, &request.name, &request.args, StepState::Waiting);
+                self.assistant.waiting.push(Waiting {
+                    id,
+                    key,
+                    request,
+                    each: None,
+                });
             }
         }
     }
 
     /// For `execute` and `batch`: run them on a copy and say what they would change.
     /// A call the engine refuses on the copy is refused with its reason.
-    fn assistant_preview(&self, request: &ToolRequest) -> Result<String, String> {
+    fn assistant_preview(
+        &self,
+        request: &ToolRequest,
+    ) -> Result<(String, Option<pcbcraft_engine::ChangeSummary>), String> {
         let commands: Vec<pcbcraft_engine::Command> = match request.name.as_str() {
             "execute" => vec![pcbcraft_engine::Command {
                 command: request
@@ -571,7 +622,7 @@ impl App {
                 serde_json::from_value(request.args.get("commands").cloned().unwrap_or(Value::Null))
                     .map_err(|e| e.to_string())?
             }
-            _ => return Ok(String::new()),
+            _ => return Ok((String::new(), None)),
         };
         let expected = request
             .args
@@ -584,10 +635,8 @@ impl App {
         let dry = session
             .dry_run(&commands, expected)
             .map_err(|e| e.to_string())?;
-        Ok(pcbcraft_assistant::summary_text(
-            &dry.summary,
-            session.revision,
-        ))
+        let line = pcbcraft_assistant::summary_text(&dry.summary, session.revision);
+        Ok((line, Some(dry.summary)))
     }
 
     /// End the message: merge what it changed into one undo step and show the Undo row.
@@ -608,6 +657,7 @@ impl App {
                 undone: false,
             });
         }
+        self.assistant_suggestions();
         self.assistant_save();
     }
 
@@ -669,7 +719,7 @@ impl App {
     }
 
     fn transcript_file(&self) -> Option<std::path::PathBuf> {
-        pcbcraft_assistant::transcript_path(Some(self.path.as_str()))
+        pcbcraft_assistant::transcript_path(&self.user_config(), Some(self.path.as_str()))
     }
 
     /// Write this design's conversation outside the design file. Does nothing for a design
@@ -714,9 +764,7 @@ impl App {
     /// design has no path yet) and say where it went.
     pub(crate) fn assistant_export(&mut self) {
         let name = self.project.name.clone();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
+let now = pcbcraft_clock::unix_secs();
         let markdown =
             pcbcraft_assistant::export_markdown(&self.assistant.transcript.items, &name, now);
         let folder = std::path::Path::new(&self.path)

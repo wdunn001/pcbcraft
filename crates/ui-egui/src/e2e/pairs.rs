@@ -1,5 +1,5 @@
 //! Differential pair routing: one drag lays both sides, bending at 45 degrees
-//! unless "Chamfer corners" is off.
+//! unless 90 degree corners are selected in the Route tool.
 
 use super::super::*;
 use super::support::*;
@@ -139,7 +139,7 @@ fn a_newcomer_routes_a_pair_in_one_drag() -> Result<(), String> {
 #[test]
 fn a_newcomer_sees_a_pair_bend_at_45_degrees_by_default() -> Result<(), String> {
     let (mut app, from, to) = pair_board(false)?;
-    assert!(app.preferences.chamfer_corners, "Chamfer corners starts on");
+    assert!(app.preferences.chamfer_corners, "45 degree corners start on");
     drag_pair(&mut app, from, to)?;
     let tracks = &app.project.board.tracks;
     assert!(!tracks.is_empty(), "the pair was routed: {}", app.message);
@@ -165,16 +165,15 @@ fn a_newcomer_sees_a_pair_bend_at_45_degrees_by_default() -> Result<(), String> 
 #[test]
 fn a_newcomer_turns_chamfer_corners_off_for_right_angles() -> Result<(), String> {
     let (mut app, from, to) = pair_board(true)?;
-    app.change_tab(Tab::Settings);
+    app.tool = Tool::Route(None);
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    super::toolbar::tap_toolbar_corner(&ctx, &mut app, false)?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "Chamfer corners", 700.0)?,
-        "the setting is on screen"
+        !app.preferences.chamfer_corners,
+        "the 90 choice switches to right angles"
     );
-    authoring::tests::tap(&ctx, &mut app, "Chamfer corners")?;
-    assert!(!app.preferences.chamfer_corners, "one tap switches it off");
     drag_pair(&mut app, from, to)?;
     let tracks = &app.project.board.tracks;
     assert!(!tracks.is_empty(), "the pair was routed: {}", app.message);

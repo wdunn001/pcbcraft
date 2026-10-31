@@ -64,8 +64,14 @@ fn finding_counts_split_by_loudness() {
         "erc": [{"severity":"error"},{"severity":"warning"}],
         "drc": [{"severity":"error"},{"severity":"info"},{}]
     });
-    assert_eq!(App::finding_counts(&checks), (2, 1, 2));
-    assert_eq!(App::finding_counts(&json!({})), (0, 0, 0));
+    let counts = finding_set::FindingSet::build(&checks, &[]).counts();
+    assert_eq!((counts.errors, counts.warnings, counts.notes), (2, 1, 2));
+    assert_eq!(
+        finding_set::FindingSet::build(&json!({}), &[])
+            .counts()
+            .total(),
+        0
+    );
 }
 
 #[test]
@@ -434,20 +440,85 @@ fn a_newcomer_turns_the_3d_view_from_the_layout_toolbar() -> Result<(), String> 
     app.change_tab(Tab::Board3d);
     settled(&ctx, &mut app);
     let before = app.view3d.yaw;
-    super::support::tap_id(&ctx, &mut app, "button:Turn")?;
+    super::support::tap_id(
+        &ctx,
+        &mut app,
+        "button:Turn. Turn the board a quarter turn.",
+    )?;
     assert!(
         (app.view3d.yaw - before).abs() > 1e-9,
         "Turn rotates the view"
     );
-    super::support::tap_id(&ctx, &mut app, "button:Front")?;
+    super::support::tap_id(
+        &ctx,
+        &mut app,
+        "button:Front. Look at the board from the front edge.",
+    )?;
     assert!(
         app.view3d.pitch.abs() < 1e-9,
         "Front looks level at the board"
     );
-    super::support::tap_id(&ctx, &mut app, "button:Side")?;
+    super::support::tap_id(
+        &ctx,
+        &mut app,
+        "button:Side. Look at the board from the side edge.",
+    )?;
     assert!(
         app.view3d.yaw.abs() < 1e-9,
         "Side looks along the long edge"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sets_up_a_four_layer_board_with_the_wizard() -> Result<(), String> {
+    let mut app = fresh();
+    app.home_open = true;
+    app.preferences.setup_wizard_seen = false;
+    let ctx = egui::Context::default();
+    settled(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "New design")?;
+    settled(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Design setup")?,
+        "a new design opens the setup wizard"
+    );
+    for _ in 0..5 {
+        authoring::tests::tap(&ctx, &mut app, "Next")?;
+        settled(&ctx, &mut app);
+    }
+    authoring::tests::tap(&ctx, &mut app, "Finish")?;
+    settled(&ctx, &mut app);
+    assert_eq!(
+        app.project.copper_layer_count(),
+        4,
+        "the wizard leaves four copper layers: {}",
+        app.message
+    );
+    assert!(
+        app.project.net_classes.iter().any(|c| c.name == "Power")
+            && app.project.net_classes.iter().any(|c| c.name == "Signal"),
+        "Power and Signal classes exist"
+    );
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
+    settled(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Min track 0.127 mm")?,
+        "the preset minimums show on the Rules tab"
+    );
+    let layers_before = app.project.board.layer_records.len();
+    let classes_before = app.project.net_classes.len();
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    assert!(
+        app.project.board.layer_records.len() < layers_before
+            && app.project.net_classes.len() < classes_before,
+        "one undo reverts the whole wizard step: {}",
+        app.message
+    );
+    assert!(
+        app.project.board.rules.is_none(),
+        "fabrication rules are cleared by undo"
     );
     Ok(())
 }

@@ -39,7 +39,7 @@ impl App {
     pub(crate) fn properties_header(&self, ui: &mut egui::Ui, title: &str, caption: &str) {
         let t = theme::tokens(ui.ctx());
         egui::Frame::NONE
-            .inner_margin(egui::Margin::symmetric(16, 10))
+            .inner_margin(egui::Margin::ZERO)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.label(fonts::title(title).color(t.text));
@@ -347,9 +347,18 @@ impl App {
                 });
             },
         );
+if self
+            .project
+            .board
+            .footprints
+            .iter()
+            .any(|f| f.component == c.id)
+        {
+            self.placement_machine_section(ui, c.id);
+        }
         self.sourcing_section(ui, c);
         egui::Frame::NONE
-            .inner_margin(egui::Margin::symmetric(16, 12))
+            .inner_margin(egui::Margin::ZERO)
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     if secondary_button(
@@ -525,7 +534,7 @@ impl App {
             },
         );
         egui::Frame::NONE
-            .inner_margin(egui::Margin::symmetric(16, 0))
+            .inner_margin(egui::Margin::ZERO)
             .show(ui, |ui| {
                 ui.label(fonts::caption(t!("props.board_more")).color(t.muted));
                 self.holes_section(ui);

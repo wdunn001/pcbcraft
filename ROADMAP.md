@@ -3,7 +3,7 @@
 The target is a complete Rust EDA application with MCP access to every feature.
 This checklist records implementation, not an estimated parity percentage.
 Each open line names the tracker issue that carries it. The program status epic,
-tangency-labs/pcbcraft#352, mirrors this list with what is in flight and the open
+wdunn001/pcbcraft#95 (issue numbers below are from the old tracker; a migrated issue's body says `Migrated from tangency-labs/pcbcraft#N`), mirrors this list with what is in flight and the open
 owner decisions. Milestone names here match the `milestone:` tags described in
 CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 `milestone:m5`, M6 is `milestone:m6`.
@@ -43,7 +43,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [ ] General import of boards and schematics with unknown-field preservation and round-trip fixtures (#309, #310, #311) (#309 subset on fork main; #310, #311, #458, #463 remain open)
 - [ ] Complete pin-type electrical rules (#312) and project/net-class rules with fabrication presets (#313) (#312 subset on fork main; #381, #382, #384, #466, #467 remain open)
 - [ ] Browser download/upload and project recovery (#314) (#314 subset on fork main; #438, #440 remain open)
-- [ ] Configurable shortcut profiles and a complete default keymap (#315)
+- [x] Configurable shortcut profiles and a complete default keymap (#315)
 - [ ] Schematic and board stay in sync automatically (#332)
 
 ## M2: Serious board layout
@@ -59,7 +59,8 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [x] Checks on drawn machine layers against the copper and vias they cross (#277)
 - [ ] Design-intent electrical checks: power pins, decoupling and pull-ups (#334) (#334 subset on fork main; #492, #498, #499, #501 remain open)
 - [x] Many fabrication plots, drill, placement, BOM and named output jobs (#286 subset on fork main; fabrication-valid copper gerbers #351 remain open)
-- [ ] Everyday editing: copy and paste, box select, measure, groups and track cleanup (#342) (#342 subset on fork main; #427, #428 remain open)
+- [ ] Everyday editing: copy and paste, box select, measure, groups and track cleanup (#166) (#166 subset on fork main; #254, #255, #256, #257, #258 remain open)
+- [x] Teardrop copper at pad and via junctions (`teardrop.add`, `teardrop.remove`)
 - [x] Logos and reference images placed as bitmaps and traced to silk, mask or copper (#343)
 - [x] Initial Gerber copper layer writer (pad flashes and tracks)
 
@@ -109,7 +110,7 @@ for in-house machines.
 - [ ] Assembly and fabrication drawings (#327)
 - [x] Fabrication-layer PNG rasters via output jobs (#328 subset on fork main; UV-specific workflows and drawn-layer BMP export remain open)
 - [ ] CNC isolation G-code (#329)
-- [ ] CNC drilling and outline G-code (#330)
+- [x] CNC drilling and outline G-code (#154 on fork main via #74)
 - [ ] Paste stencil and laser cut paths (#331)
 - [x] Plot drawn layers for laser, mill and printer output (#276 on fork main)
 - [x] Panel fabrication export with breakaway and tooling holes (#338 subset on fork main; interactive panel UI #417-#419 remain open)
@@ -127,6 +128,7 @@ User-interface work that cuts across milestones. These lines carry
 - [x] Right-click context menu on the canvas (#279)
 - [ ] Library browser with filters in the left dock (#280)
 - [x] Online part sources: search distributor catalogs from the library (#333)
+- [x] Find and place open-library footprints by name (#76)
 - [x] Generate IPC-style land patterns from package parameters and read-only footprint checks (#344 subset on fork main)
 - [ ] Parts table: edit every part's fields in one grid (#345) (#345 subset on fork main; #435, #436 remain open)
 - [ ] Schematic tool strip: wiring, labels, shapes, text and tables drawn on the sheet (#346) (#346 subset on fork main; #443, #444, #445, #475 remain open)

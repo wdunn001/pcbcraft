@@ -133,6 +133,19 @@ pub fn listing_from_symbol(
 /// [`listing_from_symbol`] in this file.
 /// # Do not
 /// Read files or skip symbols silently.
+/// Convert multiple symbols to listings with clipping.
+///
+/// # Rules
+/// - Takes at most `room` symbols, clipped to [`MAX_LISTINGS`]
+/// - Reports `total_known` as the original symbol count
+/// - Each symbol is converted via [`listing_from_symbol`]
+///
+/// # Dependencies
+/// - crates/library/src/listing_adapters.rs [`listing_from_symbol`] for per-symbol conversion
+/// - crates/library/src/listing_adapters.rs [`SymbolListings`] for return structure
+///
+/// # Do not
+/// - Assume room is honored if it exceeds MAX_LISTINGS
 pub fn listings_from_symbols(
     symbols: &[SymbolDefinition],
     source: ListingSource,

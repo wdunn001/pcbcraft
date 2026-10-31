@@ -107,7 +107,12 @@ const LIBRARY_TAB: RegionTab = RegionTab {
     tip: || t!("library.browser.tab_library.tip"),
 };
 const DRAWING_TABS: [RegionTab; 2] = [LAYERS_TAB, LIBRARY_TAB];
-const LIBRARY_ONLY: [RegionTab; 1] = [LIBRARY_TAB];
+const FILES_TAB: RegionTab = RegionTab {
+    id: "files",
+    label: || t!("files.nav.tab"),
+    tip: || t!("files.nav.tab.tip"),
+};
+const FILES_ONLY: [RegionTab; 1] = [FILES_TAB];
 const MANUFACTURE_TABS: [RegionTab; 2] = [
     RegionTab {
         id: "outputs",
@@ -148,16 +153,18 @@ impl Workspace for FilesWorkspace {
     }
     fn toolbar(&self, _app: &mut App, _ui: &mut egui::Ui) {}
     fn left_tabs(&self) -> &'static [RegionTab] {
-        &LIBRARY_ONLY
+        &FILES_ONLY
     }
     fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
-        drawing_left(app, tab, ui);
+        if tab == "files" {
+            app.files_commands(ui);
+        }
     }
     fn center(&self, app: &mut App, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().show(ui, |ui| App::padded(ui, |ui| app.files_tab(ui)));
+        app.files_center(ui);
     }
     fn default_layout(&self) -> RegionLayout {
-        RegionLayout::new("library", "findings")
+        RegionLayout::new("files", "findings")
     }
 }
 
@@ -249,19 +256,29 @@ impl Workspace for ManufactureWorkspace {
         &MANUFACTURE_TABS
     }
     fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
-        let words = match tab {
-            "outputs" => t!("workspace.outputs_hint"),
-            "machines" => t!("workspace.machines_hint"),
-            _ => return,
-        };
-        ui.label(egui::RichText::new(words).color(app.muted()));
-        if tab == "outputs" {
-            app.bom_outputs_ui(ui);
+match tab {
+            "outputs" => {
+                ui.label(egui::RichText::new(t!("workspace.outputs_hint")).color(app.muted()));
+                app.bom_outputs_ui(ui);
+            }
+            "machines" => {
+                app.machines_left(ui);
+                ui.label(egui::RichText::new(t!("workspace.machines_hint")).color(app.muted()));
+            }
+            _ => {}
+        }
+    }
         }
     }
     fn center(&self, app: &mut App, ui: &mut egui::Ui) {
+        let machines = app.region().left_tab == "machines";
         egui::ScrollArea::vertical().show(ui, |ui| {
             App::margined(ui, |ui| {
+if machines && app.machine_view(ui) {
+                    return;
+                }
+                app.drill_table_section(ui);
+                ui.add_space(12.0);
                 let theme = plot_viewer::Theme {
                     surface: app.surface(),
                     muted: app.muted(),
@@ -363,7 +380,11 @@ impl App {
     fn layout_view_toggles(&mut self, ctx: &egui::Context, rect: Rect) {
         use crate::ui_kit::segmented::{Segment, segmented};
         let view_3d = self.tab == Tab::Board3d;
-        let bottom = self.region().bottom_side;
+        let bottom = if view_3d {
+            self.view3d.pitch < 0.0
+        } else {
+            self.pcb.mirror
+        };
         let (mut view_idx, mut side_idx) = (usize::from(view_3d), usize::from(bottom));
         let (was_view, was_side) = (view_idx, side_idx);
         let (view_2d_label, view_3d_label) = (t!("workspace.view_2d"), t!("workspace.view_3d"));
@@ -373,6 +394,18 @@ impl App {
             t!("workspace.side_top.tip"),
             t!("workspace.side_bottom.tip"),
         );
+        let (rotate_left_tip, rotate_right_tip, reset_tip) = (
+            t!("view.rotate_left.tip"),
+            t!("view.rotate_right.tip"),
+            t!("view.reset.tip"),
+        );
+        let (mut turn, mut reset, mut unpin) = (0i8, false, false);
+        let pinned_name = self.pinned_view.map(|target| {
+            let saved = std::mem::replace(&mut self.target, target);
+            let name = self.target_label();
+            self.target = saved;
+            name
+        });
         let tokens = crate::theme::tokens(ctx);
         let inset = crate::canvas::RULER_SIZE + crate::theme::SPACE[2];
         egui::Area::new(egui::Id::new("layout-view-toggles"))
@@ -402,30 +435,112 @@ impl App {
                                     },
                                 ],
                             );
+                            segmented(
+                                ui,
+                                "layout-view-side",
+                                &mut side_idx,
+                                &[
+                                    Segment {
+                                        label: &top_label,
+                                        tip: &top_tip,
+                                    },
+                                    Segment {
+                                        label: &bottom_label,
+                                        tip: &bottom_tip,
+                                    },
+                                ],
+                            );
                             if view_idx == 0 {
-                                segmented(
+                                if crate::icons::icon_button(
                                     ui,
-                                    "layout-view-side",
-                                    &mut side_idx,
-                                    &[
-                                        Segment {
-                                            label: &top_label,
-                                            tip: &top_tip,
-                                        },
-                                        Segment {
-                                            label: &bottom_label,
-                                            tip: &bottom_tip,
-                                        },
-                                    ],
-                                );
+                                    "rotate-ccw",
+                                    &rotate_left_tip,
+                                    false,
+                                )
+                                .clicked()
+                                {
+                                    turn = -1;
+                                }
+                                if crate::icons::icon_button(ui, "rotate", &rotate_right_tip, false)
+                                    .clicked()
+                                {
+                                    turn = 1;
+                                }
+                                if crate::icons::icon_button(ui, "fit", &reset_tip, false).clicked()
+                                {
+                                    reset = true;
+                                }
+                                if let Some(pinned) = pinned_name.as_deref() {
+                                    let chip = t!("view.viewing", layer = pinned);
+                                    ui.label(crate::fonts::caption(chip).color(tokens.muted));
+                                    if crate::icons::icon_button(
+                                        ui,
+                                        "close",
+                                        &t!("view.unpin"),
+                                        false,
+                                    )
+                                    .clicked()
+                                    {
+                                        unpin = true;
+                                    }
+                                }
                             }
                         });
                     });
             });
+        if self.tab == Tab::Pcb && self.board_behind() {
+            let mut update = false;
+            egui::Area::new(egui::Id::new("layout-sync-notice"))
+                .pivot(egui::Align2::CENTER_TOP)
+                .fixed_pos(egui::pos2(rect.center().x, rect.top() + inset))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(tokens.panel)
+                        .stroke(Stroke::new(crate::theme::BORDER, tokens.edge))
+                        .corner_radius(egui::CornerRadius::same(crate::theme::RADIUS_CARD))
+                        .inner_margin(egui::Margin::same(6))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(t!("board.behind"));
+                                ui.label("·");
+                                use crate::ui_kit::button::{Size, secondary_button};
+                                update = secondary_button(
+                                    ui,
+                                    None,
+                                    &t!("board.behind.update"),
+                                    &t!("board.behind.update.tip"),
+                                    Size::Normal,
+                                    true,
+                                )
+                                .clicked();
+                            });
+                        });
+                });
+            if update {
+                self.run("board.sync", json!({}));
+            }
+        }
+        if turn != 0 {
+            self.rotate_view(turn);
+        }
+        if reset {
+            self.reset_view();
+        }
+        if unpin {
+            self.pinned_view = None;
+        }
         if view_idx != was_view || side_idx != was_side {
             let r = self.region();
             r.view_3d = view_idx == 1;
-            r.bottom_side = side_idx == 1;
+            if side_idx != was_side {
+                if view_idx == 1 {
+                    // In 3D, the other side means the camera goes below the board.
+                    self.view3d.pitch = if side_idx == 1 { -0.6 } else { 0.6 };
+                } else {
+                    self.set_view_side(side_idx == 1);
+                }
+            }
             if view_idx != was_view {
                 self.change_tab(if view_idx == 1 {
                     Tab::Board3d
@@ -436,7 +551,11 @@ impl App {
         }
     }
 
-    /// The 3D controls that replace the Layout toolbar in 3D.
+    /// The 3D controls that replace the Layout toolbar in 3D: icon buttons like
+    /// the 2D rotate buttons, each with a tooltip.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/icons.rs (`icon_button`; icons `rotate`, `view-top`, `view-front`, `view-side`, `fit`)
     fn view3d_controls(&mut self, ui: &mut egui::Ui) {
         use std::f64::consts::FRAC_PI_2;
         // Like the tool strip, it scrolls sideways in a narrow window.
@@ -446,51 +565,28 @@ impl App {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.add_space(Self::PAGE_GUTTER);
-                    let v = &mut self.view3d;
-                    use crate::ui_kit::button::{Size, secondary_button};
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    if secondary_button(
-                        ui,
-                        None,
-                        &t!("workspace.turn"),
-                        &t!("workspace.turn.tip"),
-                        Size::Normal,
-                        true,
-                    )
-                    .clicked()
-                    {
+                    let v = &mut self.view3d;
+                    let icon = crate::icons::icon_button;
+                    if icon(ui, "rotate", &t!("workspace.turn.tip"), false).clicked() {
                         v.yaw += FRAC_PI_2;
                     }
-                    for (label, tip, yaw, pitch) in [
+                    for (name, tip, yaw, pitch) in [
                         (
-                            t!("board.board3d.top_view"),
+                            "view-top",
                             t!("board.board3d.top_view.tip"),
                             -FRAC_PI_2,
                             1.5,
                         ),
-                        (
-                            t!("workspace.front"),
-                            t!("workspace.front.tip"),
-                            -FRAC_PI_2,
-                            0.0,
-                        ),
-                        (t!("workspace.side"), t!("workspace.side.tip"), 0.0, 0.0),
+                        ("view-front", t!("workspace.front.tip"), -FRAC_PI_2, 0.0),
+                        ("view-side", t!("workspace.side.tip"), 0.0, 0.0),
                     ] {
-                        if secondary_button(ui, None, &label, &tip, Size::Normal, true).clicked() {
+                        if icon(ui, name, &tip, false).clicked() {
                             v.yaw = yaw;
                             v.pitch = pitch;
                         }
                     }
-                    if secondary_button(
-                        ui,
-                        None,
-                        &t!("board.board3d.reset_view"),
-                        &t!("board.board3d.reset_view.tip"),
-                        Size::Normal,
-                        true,
-                    )
-                    .clicked()
-                    {
+                    if icon(ui, "fit", &t!("board.board3d.reset_view.tip"), false).clicked() {
                         v.fit();
                     }
                 });

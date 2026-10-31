@@ -1,29 +1,164 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod connector_partnumber;
+pub mod credentials;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
 pub mod datasheet;
+//! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
+pub mod cad;
+pub mod cad_cache;
+pub mod datasheet;
+pub mod datasheet_annotations;
+pub mod connector_catalog;
+pub use connector_partnumber::{
+    BuildOptions, Constraint, FieldError, FieldKind, FieldSpec, FieldValue, ParsedPart,
+    PartNumber, SeriesLimits, SeriesSpec, build, first_slice_specs, load_embedded_series,
+    parse, parse_partial,
+};
+mod footprint_check;
+mod footprint_generate;
+pub mod model_transform;
+mod footprint_pad_outline;
+pub mod firmware_design;
+pub mod listing;
+pub mod mcu;
+pub mod listing_adapters;
+pub mod listing_search;
+pub mod online_import;
+pub mod open_library;
+pub mod part_validation;
+pub mod pin_pad_map;
+mod paths;
+mod reader;
+pub mod samtec;
+mod sexpr;
+pub mod credentials;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
+pub mod http_client;
 pub mod listing;
 pub mod listing_adapters;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
+pub mod part_fields;
+pub mod online_import;
+pub mod open_library;
+pub mod credentials;
+mod footprint_check;
+mod footprint_generate;
+mod footprint_pad_outline;
+pub mod http_client;
+pub mod listing;
+pub mod listing_adapters;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
+pub mod part_fields;
+pub mod part_params;
+pub mod part_sidecar;
 pub mod online_import;
 pub mod open_library;
 mod paths;
+pub mod rate_limit;
 mod reader;
+pub mod samtec;
 mod sexpr;
+pub mod source_log;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod element14;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+pub mod source_errors;
+pub mod source_hosts;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
+pub mod element14;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+pub mod source_errors;
+pub mod source_hosts;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
+pub mod sources;
+mod symbol_check;
+mod validation;
+mod wall_clock;
+pub use footprint_check::{
+    FindingSeverity, FootprintFinding, check_footprint, courtyard_half_extents,
+};
+pub use part_validation::{
+    PartCatalogFields, PartValidationFinding, PartValidationResult, ReplacementCheckResult,
+    replacement_check, validate_catalog_fields, validate_part,
+};
+pub use pin_pad_map::{
+    PadRole, PinPadFinding, PinPadMap, PinPadRow, auto_fill, footprint_pad_labels, pad_label,
+    validate_pin_pad_map,
+};
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use datasheet::{
+    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
+    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
+    MAX_REDIRECTS, MAX_URL_BYTES,
+};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+pub use part_sidecar::{
+    PART_SIDECAR_EXTENSION, PART_SIDECAR_FORMAT, PART_SIDECAR_VERSION, PartAlternate,
+    PartProvenance, PartSidecar, PartSidecarField, read_part_sidecar, sidecar_path_in_folder,
+    write_part_sidecar,
+};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
 pub use sexpr::{Error, Limits};
 pub use symbol_check::check_symbol;
+pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use datasheet::{
+    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
+    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
+    MAX_REDIRECTS, MAX_URL_BYTES,
+};
+pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+use pcbcraft_geom::Point;
+pub use reader::{read_footprint, read_specctra_session, read_symbols};
+use serde::{Deserialize, Serialize};
+pub use sexpr::{Error, Limits, Node, parse as parse_sexpr, parse_limits as parse_sexpr_limits};
+pub use symbol_check::check_symbol;
+pub use model_transform::{
+    model_mirror_y, model_pin1_cycle, model_rotate_z_90, normalize_degrees,
+    refresh_model_raw_source,
+};
 pub use validation::custom_polygon_error;
+pub use part_fields::{
+    DESCRIPTION, MANUFACTURER, MPN, PARTS_TABLE_SUGGESTED_KEYS, STANDARD_SOURCING_KEYS,
+    SUPPLIER_KEY_PREFIX, SUPPLIERS, is_standard_sourcing_key,
+};
 
+/// A schematic symbol definition parsed from the interchange format.
+///
+/// # Rules
+/// - `name` must be unique within its library.
+/// - Pin numbers must be unique within a unit.
+/// - Pin positions are in y-down millimetres.
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` parses this from .kicad_sym files.
+/// - `crates/library/src/symbol_check.rs` validates this struct.
+///
+/// # Do not
+/// - Add render-specific fields; this crate is a bounded reader.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SymbolDefinition {
@@ -42,7 +177,23 @@ pub struct SymbolDefinition {
     pub extends: Option<String>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+    /// Unknown S-expression snippets from the source file, re-emitted on export.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
 }
+/// A single pin of a schematic symbol.
+///
+/// # Rules
+/// - `position` is the connection point in y-down millimetres.
+/// - `angle` is in KiCad convention (counterclockwise, y-up).
+/// - `graphical_style` must be one of `PIN_GRAPHICAL_STYLES` or "line".
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` parses pins from .kicad_sym files.
+/// - `crates/library/src/symbol_check.rs` validates pin placement.
+///
+/// # Do not
+/// - Use `position` for rendering; convert to screen coordinates first.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SymbolPin {
@@ -105,6 +256,17 @@ impl SymbolPin {
         Point::new(v.x * scale, v.y * scale)
     }
     const DECO_RADIUS: f64 = 0.635;
+    /// 16 points approximating a circle at `center` with `radius`.
+    ///
+    /// # Rules
+    /// - Points are in y-down millimetres.
+    /// - Returns 16 points regardless of radius.
+    ///
+    /// # Dependencies
+    /// - crates/library/src/lib.rs `Point` from `pcbcraft_geom`.
+    ///
+    /// # Do not
+    /// - Use for rendering; this is a geometry utility.
     pub fn circle_points(center: Point, radius: f64) -> Vec<Point> {
         (0..16)
             .map(|i| {
@@ -152,9 +314,30 @@ impl SymbolPin {
         ]
     }
     /// Filled outline circles for bubble-style decorations at the connection.
+    ///
+    /// # Rules
+    /// - Returns empty if the pin is not visible.
+    /// - Returns empty for non-inverted and non-clock pins.
+    ///
+    /// # Dependencies
+    /// - crates/library/src/lib.rs `decoration_bubbles_draw()` for the implementation.
+    ///
+    /// # Do not
+    /// - Use for rendering; this is a geometry query.
     pub fn decoration_bubbles(&self) -> Vec<(Point, f64)> {
         self.decoration_bubbles_draw(true)
     }
+    /// Bubbles at the connection for inverted and clock pins.
+    ///
+    /// # Rules
+    /// - Returns empty if `require_visible` is true and the pin is not visible.
+    /// - Returns empty for non-inverted and non-clock pins.
+    ///
+    /// # Dependencies
+    /// - crates/library/src/lib.rs `decoration_bubbles()` for the visible-only variant.
+    ///
+    /// # Do not
+    /// - Use for rendering; this is a geometry query.
     pub fn decoration_bubbles_draw(&self, require_visible: bool) -> Vec<(Point, f64)> {
         if require_visible && !self.visible {
             return Vec::new();
@@ -168,9 +351,32 @@ impl SymbolPin {
         }
     }
     /// Closed or open polylines for non-circle pin decorations in y-down mm.
+    ///
+    /// # Rules
+    /// - Returns empty if the pin is not visible.
+    /// - Returns empty for plain "line" pins.
+    /// - Paths are in y-down millimetres.
+    ///
+    /// # Dependencies
+    /// - crates/library/src/lib.rs `decoration_paths_draw()` for the implementation.
+    ///
+    /// # Do not
+    /// - Use for rendering; this is a geometry query.
     pub fn decoration_paths(&self) -> Vec<Vec<Point>> {
         self.decoration_paths_draw(true)
     }
+    /// Non-circle decoration paths for clock and active-low pins.
+    ///
+    /// # Rules
+    /// - Returns empty if `require_visible` is true and the pin is not visible.
+    /// - Returns empty for plain "line" pins.
+    /// - Paths are in y-down millimetres.
+    ///
+    /// # Dependencies
+    /// - crates/library/src/lib.rs `decoration_paths()` for the visible-only variant.
+    ///
+    /// # Do not
+    /// - Use for rendering; this is a geometry query.
     pub fn decoration_paths_draw(&self, require_visible: bool) -> Vec<Vec<Point>> {
         if (require_visible && !self.visible) || self.graphical_style == "line" {
             return Vec::new();
@@ -199,6 +405,18 @@ impl SymbolPin {
         paths
     }
 }
+/// A graphic primitive associated with a symbol unit.
+///
+/// # Rules
+/// - `unit` indexes the symbol unit this graphic belongs to.
+/// - `body_style` indexes the alternate body within that unit.
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` parses unit graphics.
+/// - `crates/library/src/symbol_check.rs` validates unit indexing.
+///
+/// # Do not
+/// - Treat `body_style` as a pin body style; those are separate.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UnitGraphic {
@@ -206,6 +424,19 @@ pub struct UnitGraphic {
     pub body_style: u32,
     pub primitive: Graphic,
 }
+/// A bounded graphic primitive from a symbol or footprint.
+///
+/// # Rules
+/// - All coordinates are in y-down millimetres.
+/// - `layer` is the KiCad layer name as a string.
+/// - `fill` is one of "none", "default", "solid", "hatched".
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` parses graphics.
+/// - `crates/library/src/symbol_check.rs` validates graphic bounds.
+///
+/// # Do not
+/// - Add render-specific primitives; this crate is a bounded reader.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Graphic {
@@ -252,11 +483,34 @@ pub enum Graphic {
 }
 /// One net of a Specctra design session and the component pins it names,
 /// each pin given as a (reference, pin number) pair.
+///
+/// # Rules
+/// - `name` is the net name from the session file.
+/// - `pins` lists (reference, pin_number) pairs for each pin on the net.
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` parses session nets.
+///
+/// # Do not
+/// - Assume pin order is meaningful; nets are unordered.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionNet {
     pub name: String,
     pub pins: Vec<(String, String)>,
 }
+/// A footprint definition parsed from the interchange format.
+///
+/// # Rules
+/// - `name` must be unique within its library.
+/// - Pad numbers must be unique.
+/// - All coordinates are in y-down millimetres.
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` parses this from .kicad_mod files.
+/// - `crates/library/src/footprint_check.rs` validates this struct.
+///
+/// # Do not
+/// - Add render-specific fields; this crate is a bounded reader.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FootprintDefinition {
@@ -275,11 +529,63 @@ pub struct FootprintDefinition {
     /// clearance tightens checks; the margins are recorded and exported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<FootprintRules>,
+    /// Explicit 3D box body size in footprint-local millimetres, centred on the
+    /// footprint origin. When set, the 3D view and mechanical exports use this
+    /// width, depth and height instead of pad-derived defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub box_body: Option<FootprintBoxBody>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+    /// Unknown S-expression snippets from the source file, re-emitted on export.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
+}
+/// Width, depth and height of a simple box body for 3D preview and export.
+///
+/// # Rules
+/// - All sizes are in millimetres and must be between 0.05 and 100.
+/// - The outline is centred on the footprint origin in the board plane.
+///
+/// # Dependencies
+/// - `library.footprint.set_box_body` stores this on a project-library footprint.
+/// - `crates/io` reads it when building meshes and STEP bodies.
+///
+/// # Do not
+/// - Use this for 2D courtyard or fab outlines; those stay in footprint graphics.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FootprintBoxBody {
+    pub width: f64,
+    pub depth: f64,
+    pub height: f64,
+}
+impl FootprintBoxBody {
+    /// Counter-clockwise rectangle centred on the footprint origin.
+    pub fn outline(&self) -> Vec<Point> {
+        let hx = self.width / 2.0;
+        let hy = self.depth / 2.0;
+        vec![
+            Point::new(-hx, -hy),
+            Point::new(hx, -hy),
+            Point::new(hx, hy),
+            Point::new(-hx, hy),
+        ]
+    }
 }
 /// Per-footprint design rule overrides. Each value is a millimetre amount;
 /// a negative margin shrinks the paste or mask opening.
+///
+/// # Rules
+/// - `clearance` overrides the global copper clearance for this footprint.
+/// - `mask_margin` and `paste_margin` shift the solder mask and paste openings.
+/// - All values are optional; absent fields use the global defaults.
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` parses footprint rules.
+/// - `crates/library/src/footprint_check.rs` applies these overrides.
+///
+/// # Do not
+/// - Use negative clearance values; that would invert the check.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FootprintRules {
@@ -292,6 +598,17 @@ pub struct FootprintRules {
 }
 /// A reference to a 3D model file attached to a footprint, with the
 /// placement transform from the source file's coordinate frame.
+///
+/// # Rules
+/// - `path` is the file path as recorded in the source.
+/// - `scale` defaults to [1, 1, 1] if not specified.
+/// - Transform fields are in the source file's coordinate frame.
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` parses model references.
+///
+/// # Do not
+/// - Assume the model file exists; this is a reference only.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Model3D {
@@ -302,11 +619,28 @@ pub struct Model3D {
     pub scale: [f64; 3],
     #[serde(default)]
     pub rotate: [f64; 3],
+    /// Component name inside a SolidCraft project, when the file holds more than one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cad_part: Option<String>,
     pub raw_source: String,
 }
 fn unit_scale() -> [f64; 3] {
     [1.0, 1.0, 1.0]
 }
+/// A single pad of a footprint.
+///
+/// # Rules
+/// - `position` is the pad centre in y-down millimetres.
+/// - `size` is (x, y) in millimetres; both must be positive.
+/// - `shape` must be one of the supported pad shapes.
+/// - `polygon` is only populated for `custom` pads.
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` parses pads from .kicad_mod files.
+/// - `crates/library/src/footprint_pad_outline.rs` computes pad outlines.
+///
+/// # Do not
+/// - Use `position` for rendering; convert to screen coordinates first.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FootprintPad {
@@ -329,8 +663,29 @@ pub struct FootprintPad {
     pub raw_source: String,
 }
 /// Most vertices accepted in a custom pad polygon.
+///
+/// # Rules
+/// - Used by `footprint_pad_outline.rs` to bound custom pad outlines.
+/// - Values above this are rejected during footprint parsing.
+///
+/// # Dependencies
+/// - `crates/library/src/footprint_pad_outline.rs` enforces this limit.
+///
+/// # Do not
+/// - Change this without updating the footprint parser's validation.
 pub const MAX_PAD_POLYGON_VERTICES: usize = 256;
 /// Corners removed from a chamfered pad, named in pad-local y-down coordinates.
+///
+/// # Rules
+/// - Each field is a boolean indicating whether that corner is chamfered.
+/// - `ALL` constant represents all four corners chamfered.
+/// - `any()` returns true if at least one corner is chamfered.
+///
+/// # Dependencies
+/// - `crates/library/src/footprint_pad_outline.rs` uses this to compute outlines.
+///
+/// # Do not
+/// - Change the field names; they map to the source file's corner flags.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChamferCorners {
@@ -340,12 +695,14 @@ pub struct ChamferCorners {
     pub bottom_right: bool,
 }
 impl ChamferCorners {
+    /// All four corners selected for chamfering.
     pub const ALL: Self = Self {
         top_left: true,
         top_right: true,
         bottom_left: true,
         bottom_right: true,
     };
+    /// True if at least one corner is selected.
     pub fn any(self) -> bool {
         self.top_left || self.top_right || self.bottom_left || self.bottom_right
     }
@@ -370,6 +727,17 @@ pub enum PadShape<'a> {
     Unsupported,
 }
 impl FootprintPad {
+    /// Typed view of this pad's copper shape.
+    ///
+    /// # Rules
+    /// - Returns `PadShape::Unsupported` for unknown shape strings.
+    /// - Returns `PadShape::Custom` only if `polygon` is non-empty.
+    ///
+    /// # Dependencies
+    /// - crates/library/src/lib.rs `PadShape` enum for the return type.
+    ///
+    /// # Do not
+    /// - Use for rendering; this is a classification query.
     pub fn shape_kind(&self) -> PadShape<'_> {
         match (self.shape.as_str(), self.chamfer) {
             ("circle", _) => PadShape::Circle,
@@ -386,6 +754,18 @@ impl FootprintPad {
         }
     }
 }
+/// Drill specification for a pad hole.
+///
+/// # Rules
+/// - `size` is (x, y) in millimetres; circular holes have equal values.
+/// - `offset` is relative to the pad centre in y-down millimetres.
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` parses drill specs.
+/// - `crates/library/src/footprint_check.rs` validates drill sizes.
+///
+/// # Do not
+/// - Treat `size` as radius; it is diameter.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Drill {

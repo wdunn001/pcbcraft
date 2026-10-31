@@ -13,6 +13,17 @@ const SILK_LAYER: &str = "F.SilkS";
 const FAB_LAYER: &str = "F.Fab";
 const REFDES_LAYER: &str = "F.Fab";
 
+/// Severity of a footprint validation finding.
+///
+/// # Rules
+/// - `Error` findings must be fixed before the footprint can be published.
+/// - `Warning` findings are advisory and may be accepted by the library owner.
+///
+/// # Dependencies
+/// - crates/library/src/footprint_check.rs None.
+///
+/// # Do not
+/// - Add intermediate severity levels; the two-tier model is intentional.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FindingSeverity {
@@ -20,6 +31,19 @@ pub enum FindingSeverity {
     Warning,
 }
 
+/// A single validation finding for a footprint.
+///
+/// # Rules
+/// - `code` is a stable machine-readable identifier (e.g. `lib_pad_overlap`).
+/// - `severity` indicates how critical the issue is.
+/// - `message` describes the problem in human-readable form.
+/// - `hint` suggests how to fix the issue.
+///
+/// # Dependencies
+/// - crates/library/src/footprint_check.rs `FindingSeverity`
+///
+/// # Do not
+/// - Change `code` values without updating all callers.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FootprintFinding {
     pub code: String,
@@ -29,6 +53,22 @@ pub struct FootprintFinding {
 }
 
 /// Run library-quality checks on a footprint definition.
+///
+/// # Rules
+/// - Returns a vector of findings; an empty vector means the footprint passes all checks.
+/// - Checks run in a fixed order: pad overlap, duplicate pad numbers, pad sequence,
+///   pin 1 marking, courtyard, silkscreen, fabrication, origin, drill, layers, text, model.
+/// - Early returns on error findings within each check category.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs `FootprintDefinition`
+/// - crates/library/src/footprint_check.rs `FootprintFinding`
+/// - crates/library/src/footprint_check.rs `FindingSeverity`
+/// - crates/library/src/footprint_pad_outline.rs `pad_outline_closed`, `pad_outlines_overlap` from `footprint_pad_outline`
+///
+/// # Do not
+/// - Change the order of checks without updating the test suite.
+/// - Add checks that mutate the definition; this function is read-only.
 pub fn check_footprint(def: &FootprintDefinition) -> Vec<FootprintFinding> {
     let mut findings = Vec::new();
     check_pad_overlap(def, &mut findings);
@@ -248,6 +288,24 @@ fn check_courtyard_grid(def: &FootprintDefinition, findings: &mut Vec<FootprintF
             return;
         }
     }
+}
+
+/// Half width and half height of the courtyard rectangle in millimetres, when one is drawn.
+///
+/// # Rules
+/// - Uses the `pcbcraft.courtyard` rectangle when present.
+///
+/// # Dependencies
+/// - crates/library/src/footprint_check.rs `courtyard_rectangle`
+///
+/// # Do not
+/// - Include silk or fab bounds; courtyard layer only.
+pub fn courtyard_half_extents(def: &FootprintDefinition) -> Option<(f64, f64)> {
+    let (min, max) = courtyard_rectangle(def)?;
+    Some((
+        min.x.abs().max(max.x.abs()),
+        min.y.abs().max(max.y.abs()),
+    ))
 }
 
 fn courtyard_rectangle(def: &FootprintDefinition) -> Option<(Point, Point)> {
@@ -753,8 +811,10 @@ mod tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         let codes: Vec<_> = check_footprint(&def).into_iter().map(|f| f.code).collect();
         assert!(codes.iter().any(|c| c == "lib_name_not_ipc"));
@@ -773,11 +833,14 @@ mod tests {
                 offset: [25.4, 0.0, 0.0],
                 scale: [1.0, 1.0, 1.0],
                 rotate: [0.0, 0.0, 0.0],
+                cad_part: None,
                 raw_source: "(offset (xyz 25.4 0 0))".into(),
             }),
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         assert!(
             check_footprint(&def)
@@ -801,8 +864,10 @@ mod tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         assert!(
             check_footprint(&def)

@@ -10,7 +10,6 @@
 //! - crates/ui-egui/src/theme.rs
 //! - crates/ui-egui/src/ui_kit/segmented.rs, button.rs, checkbox.rs
 //! - crates/ui-egui/src/icons.rs (tool icons)
-//! - crates/ui-egui/src/draw_target.rs (`layer_field`)
 //!
 //! # Do not
 //! - Add a tool button anywhere else; add an `Item` here.
@@ -30,6 +29,7 @@ enum Act {
     PlacePart,
     Wire,
     NoConnect,
+    Port,
     Route,
     Via,
     Keepout,
@@ -39,8 +39,6 @@ enum Act {
     Hole,
     Fiducial,
     Measure,
-    /// A pick filter chip: the label of the flag it flips.
-    Pick(&'static str),
 }
 
 /// One entry of the bar.
@@ -72,11 +70,7 @@ fn label_width(ui: &egui::Ui, text: &str) -> f32 {
 
 impl Item {
     fn width(&self, ui: &egui::Ui) -> f32 {
-        let icon = if matches!(self.act, Act::Pick(_)) {
-            0.0
-        } else {
-            16.0 + ICON_GAP
-        };
+        let icon = 16.0 + ICON_GAP;
         let gap = if self.divider {
             2.0 * GROUP_GAP + 1.0
         } else {
@@ -90,7 +84,6 @@ impl App {
     /// The toolbar button look: copper tint when active, raised on hover.
     fn toolbar_button(&self, ui: &mut egui::Ui, item: &Item) -> egui::Response {
         let t = theme::tokens(ui.ctx());
-        let pick = matches!(item.act, Act::Pick(_));
         let size = Vec2::new(
             item.width(ui)
                 - if item.divider {
@@ -119,11 +112,9 @@ impl App {
             t.text
         };
         let mut x = rect.min.x + PAD;
-        if !pick {
-            let r = Rect::from_min_size(pos2(x, rect.center().y - 8.0), Vec2::splat(16.0));
-            crate::icons::icon_at(ui, r, item.icon, ink);
-            x += 16.0 + ICON_GAP;
-        }
+        let r = Rect::from_min_size(pos2(x, rect.center().y - 8.0), Vec2::splat(16.0));
+        crate::icons::icon_at(ui, r, item.icon, ink);
+        x += 16.0 + ICON_GAP;
         let font = if item.armed {
             Role::Strong.font()
         } else {
@@ -225,6 +216,15 @@ impl App {
                 ),
                 matches!(self.tool, Tool::NoConnect),
                 Act::NoConnect,
+                false,
+            );
+            push(
+                "tool-port",
+                "port",
+                t!("schematic.port.tool"),
+                command_tip("schematic.place_port"),
+                matches!(self.tool, Tool::Port),
+                Act::Port,
                 false,
             );
         }
@@ -368,38 +368,6 @@ impl App {
             Act::Measure,
             true,
         );
-        let f = self.edit.filter;
-        for (i, (label, flag, tip)) in [
-            (
-                t!("toolbar.pick_parts"),
-                f.parts,
-                t!("toolbar.pick_parts.tip"),
-            ),
-            (
-                t!("toolbar.pick_copper"),
-                f.copper,
-                t!("toolbar.pick_copper.tip"),
-            ),
-            (
-                t!("toolbar.pick_graphics"),
-                f.graphics,
-                t!("toolbar.pick_graphics.tip"),
-            ),
-            (t!("toolbar.pick_text"), f.text, t!("toolbar.pick_text.tip")),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            push(
-                "pick",
-                "select",
-                label,
-                tip,
-                flag,
-                Act::Pick(["Parts", "Copper", "Graphics", "Text"][i]),
-                i == 0,
-            );
-        }
         out
     }
 
@@ -410,6 +378,7 @@ impl App {
             Act::PlacePart => self.open_part_search(),
             Act::Wire => self.tool = Tool::Wire(None),
             Act::NoConnect => self.tool = Tool::NoConnect,
+            Act::Port => self.tool = Tool::Port,
             Act::Route => self.tool = Tool::Route(None),
             Act::Via => self.tool = Tool::Via,
             Act::Keepout => {
@@ -432,16 +401,6 @@ impl App {
             Act::Hole => self.tool = Tool::Hole,
             Act::Fiducial => self.tool = Tool::Fiducial,
             Act::Measure => self.arm_measure(),
-            Act::Pick(which) => {
-                let f = &mut self.edit.filter;
-                let flag = match which {
-                    "Parts" => &mut f.parts,
-                    "Copper" => &mut f.copper,
-                    "Graphics" => &mut f.graphics,
-                    _ => &mut f.text,
-                };
-                *flag = !*flag;
-            }
         }
     }
 
@@ -449,7 +408,8 @@ impl App {
     ///
     /// # Rules
     /// - The row never scrolls or clips; items that do not fit go into More.
-    /// - Options (Keepout toggles, Corners, Layer) and the update button sit at the right.
+    /// - Options (Keepout toggles while that tool is active, Corners while Route is
+    ///   active) sit at the right.
     ///
     /// # Do not
     /// - Draw a tool outside `toolbar_items`.
@@ -461,21 +421,11 @@ impl App {
         let items = self.toolbar_items();
         let pcb = self.tab == Tab::Pcb;
         // Width the right-hand options take; the tools get the rest.
-        let sync_label = t!("toolbar.update");
-        let sync_w = button::measure(
-            ui,
-            &button::Look {
-                kind: Kind::Secondary,
-                size: Size::Normal,
-                icon: None,
-                label: &sync_label,
-            },
-        )
-        .x;
         let keepout_on = pcb && matches!(self.tool, Tool::Keepout);
+        let route_on = pcb && matches!(self.tool, Tool::Route(_));
         let mut right_w = 0.0;
-        if pcb {
-            right_w += sync_w + 16.0 + 40.0 + 150.0 + 16.0 + 56.0 + 110.0 + 24.0;
+        if route_on {
+            right_w += 16.0 + 56.0 + 110.0 + 24.0;
         }
         if keepout_on {
             right_w += 340.0;
@@ -493,6 +443,11 @@ impl App {
                 break;
             }
         }
+        let tool_ws = if self.tab == Tab::Pcb {
+            "layout"
+        } else {
+            "schematic"
+        };
         let mut action = None;
         ui.horizontal_centered(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
@@ -502,10 +457,9 @@ impl App {
                     Self::toolbar_divider(ui, &t);
                 }
                 let r = self.toolbar_button(ui, item);
-                // Pick chips carry no icon; recording them would rename the last chip "icon:pick".
-                if !matches!(item.act, Act::Pick(_)) {
-                    self.record_icon(item.id, r.rect);
-                }
+                let anchor = tour::anchor::tool_id(tool_ws, item.id);
+                tour::anchor::anchor(ui, &anchor, &r);
+                self.record_icon(item.id, r.rect);
                 if r.clicked() {
                     action = Some(item.act);
                 }
@@ -536,24 +490,14 @@ impl App {
                 egui::Popup::menu(&resp).show(|ui| {
                     ui.set_min_width(200.0);
                     for item in rest {
-                        let label = format!(
-                            "{}{}",
-                            if matches!(item.act, Act::Pick(_)) {
-                                t!("toolbar.pick_prefix")
-                            } else {
-                                String::new()
-                            },
-                            item.label
-                        );
+                        let label = item.label.clone();
                         if ui
                             .selectable_label(item.armed, fonts::text(Role::Body, label))
                             .on_hover_text(&item.tip)
                             .clicked()
                         {
                             action = Some(item.act);
-                            if !matches!(item.act, Act::Pick(_)) {
-                                ui.close();
-                            }
+                            ui.close();
                         }
                     }
                 });
@@ -567,52 +511,37 @@ impl App {
         }
     }
 
-    /// The right-hand options: Keepout toggles while that tool is active, Corners, Layer
-    /// and the Update button.
+    /// The right-hand options: Keepout toggles while that tool is active, Corners
+    /// while Route is active.
     fn toolbar_options(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.add_space(16.0);
-            let sync_label = t!("toolbar.update");
-            if button::secondary_button(
-                ui,
-                None,
-                &sync_label,
-                &t!("menu.edit.sync.tip"),
-                Size::Normal,
-                true,
-            )
-            .clicked()
-            {
-                self.run("board.sync", json!({}));
-                self.change_tab(Tab::Pcb);
+            if matches!(self.tool, Tool::Route(_)) {
+                let mut idx = usize::from(!self.preferences.chamfer_corners);
+                let chamfer = t!("toolbar.corners_45");
+                let square = t!("toolbar.corners_90");
+                let (chamfer_tip, square_tip) =
+                    (t!("toolbar.corners_45.tip"), t!("toolbar.corners_90.tip"));
+                segmented(
+                    ui,
+                    "toolbar-corners",
+                    &mut idx,
+                    &[
+                        Segment {
+                            label: &chamfer,
+                            tip: &chamfer_tip,
+                        },
+                        Segment {
+                            label: &square,
+                            tip: &square_tip,
+                        },
+                    ],
+                );
+                ui.label(fonts::caption(t!("toolbar.corners")).color(t.muted))
+                    .on_hover_text(t!("toolbar.corners.tip"));
+                self.preferences.chamfer_corners = idx == 0;
             }
-            ui.add_space(8.0);
-            self.layer_field(ui);
-            ui.add_space(8.0);
-            let mut idx = usize::from(!self.preferences.chamfer_corners);
-            let chamfer = t!("toolbar.corners_45");
-            let square = t!("toolbar.corners_90");
-            let (chamfer_tip, square_tip) =
-                (t!("toolbar.corners_45.tip"), t!("toolbar.corners_90.tip"));
-            segmented(
-                ui,
-                "toolbar-corners",
-                &mut idx,
-                &[
-                    Segment {
-                        label: &chamfer,
-                        tip: &chamfer_tip,
-                    },
-                    Segment {
-                        label: &square,
-                        tip: &square_tip,
-                    },
-                ],
-            );
-            ui.label(fonts::caption(t!("toolbar.corners")).color(t.muted))
-                .on_hover_text(t!("toolbar.corners.tip"));
-            self.preferences.chamfer_corners = idx == 0;
             if matches!(self.tool, Tool::Keepout) {
                 ui.add_space(8.0);
                 self.keepout_options(ui, t);

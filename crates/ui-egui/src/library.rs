@@ -4,6 +4,8 @@ use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 
 #[derive(Default)]
 pub(super) struct Browser {
+    /// The settings folder library requests read the source list from.
+    pub(super) config: pcbcraft_engine::user_config::UserConfig,
     pub(super) editor: super::authoring::Editor,
     pub(super) preview_unit: u32,
     pub(super) catalog: Option<Value>,
@@ -34,10 +36,11 @@ impl Browser {
             let (tx, rx) = std::sync::mpsc::channel();
             let ctx = ctx.clone();
             let name = name.to_owned();
+            let config = self.config.clone();
             match std::thread::Builder::new()
                 .name("pcbcraft-library".into())
                 .spawn(move || {
-                    let result = pcbcraft_engine::library::read_tool(&name, &args);
+                    let result = pcbcraft_engine::library::read_tool(&config, &name, &args);
                     let _ = tx.send((name, result));
                     ctx.request_repaint();
                 }) {
@@ -519,6 +522,8 @@ impl App {
         let (center, extent) = library_paths_extent(&paths);
         let camera = Camera {
             mirror: false,
+            turns: 0,
+            up: false,
             center,
             zoom: ((response.rect.width() - 24.0) / extent.x as f32)
                 .min(150.0 / extent.y as f32)

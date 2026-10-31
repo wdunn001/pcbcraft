@@ -12,6 +12,7 @@
 //! - Pure painting: nothing here reads input or edits the project.
 use super::*;
 use egui::epaint::TextShape;
+use pcbcraft_doc::segment_arc;
 use std::f32::consts::FRAC_PI_2;
 
 /// Colours of the board drawing for one theme, from the design system's
@@ -106,18 +107,24 @@ fn nice_step(zoom: f32, min_px: f32) -> f64 {
 /// Bounding box of the board outline (or plain rectangle) in millimetres.
 fn board_bounds(p: &Project) -> (Point, Point) {
     match &p.board.outline {
-        Some(points) if points.len() >= 3 => points.iter().fold(
-            (
-                Point::new(f64::INFINITY, f64::INFINITY),
-                Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
-            ),
-            |(lo, hi), q| {
-                (
-                    Point::new(lo.x.min(q.x), lo.y.min(q.y)),
-                    Point::new(hi.x.max(q.x), hi.y.max(q.y)),
+        Some(points) if points.len() >= 3 => {
+            if let Some((lo, hi)) = pcbcraft_doc::outline_extent(points, &p.board.outline_arcs) {
+                (lo, hi)
+            } else {
+                points.iter().fold(
+                    (
+                        Point::new(f64::INFINITY, f64::INFINITY),
+                        Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
+                    ),
+                    |(lo, hi), q| {
+                        (
+                            Point::new(lo.x.min(q.x), lo.y.min(q.y)),
+                            Point::new(hi.x.max(q.x), hi.y.max(q.y)),
+                        )
+                    },
                 )
-            },
-        ),
+            }
+        }
         _ => (Point::default(), Point::new(p.board.width, p.board.height)),
     }
 }
@@ -190,9 +197,35 @@ impl App {
                 Point::new(0.0, p.board.height),
             ],
         };
-        let screen: Vec<Pos2> = world.iter().map(|q| camera.screen(*q, rect)).collect();
-        painter.add(pad_shape(screen.clone(), false, art.substrate));
-        painter.add(egui::Shape::closed_line(screen, Stroke::new(1.5, art.edge)));
+        let arcs = &p.board.outline_arcs;
+        let n = world.len();
+        let mut edge_pts: Vec<Pos2> = Vec::new();
+        for i in 0..n {
+            if i == 0 {
+                edge_pts.push(camera.screen(world[i], rect));
+            }
+            if let Some(arc) = segment_arc(&world, arcs, i) {
+                let steps = 32;
+                for k in 1..=steps {
+                    edge_pts.push(camera.screen(arc.point_at(k as f64 / steps as f64), rect));
+                }
+            } else {
+                edge_pts.push(camera.screen(world[(i + 1) % n], rect));
+            }
+        }
+        let fill_ring: Vec<Pos2> = if arcs.iter().any(Option::is_some) {
+            pcbcraft_doc::flatten_outline(&world, arcs, 0.05)
+                .iter()
+                .map(|q| camera.screen(*q, rect))
+                .collect()
+        } else {
+            world.iter().map(|q| camera.screen(*q, rect)).collect()
+        };
+        painter.add(pad_shape(fill_ring, false, art.substrate));
+        painter.add(egui::Shape::closed_line(
+            edge_pts,
+            Stroke::new(1.5, art.edge),
+        ));
     }
 
     /// Rulers along the top and left edges in millimetres. They follow pan and
@@ -209,11 +242,22 @@ impl App {
         let step = nice_step(camera.zoom, 56.0);
         let font = crate::fonts::Role::Mono.font();
         let origin = camera.screen(Point::default(), rect);
-        let first = ((rect.left() - origin.x) as f64 / camera.zoom as f64 / step).floor() as i64;
-        let last = ((rect.right() - origin.x) as f64 / camera.zoom as f64 / step).ceil() as i64;
+        // Which world axis runs along each ruler, and which way, follows the turns.
+        let (ux, uy) = camera.axes();
+        let across = if ux.x != 0.0 { ux.x } else { uy.x };
+        let down = if ux.y != 0.0 { ux.y } else { uy.y };
+        let zoom = camera.zoom as f64;
+        let ends = |a: f32, b: f32, o: f32, f: f32| {
+            let (p, q) = (
+                (a - o) as f64 / (f as f64 * zoom) / step,
+                (b - o) as f64 / (f as f64 * zoom) / step,
+            );
+            (p.min(q).floor() as i64, p.max(q).ceil() as i64)
+        };
+        let (first, last) = ends(rect.left(), rect.right(), origin.x, across);
         for k in first..=last {
-            let x = origin.x + (k as f64 * step) as f32 * camera.zoom;
-            let half = x + step as f32 * camera.zoom / 2.0;
+            let x = origin.x + across * (k as f64 * step) as f32 * camera.zoom;
+            let half = x + across * step as f32 * camera.zoom / 2.0;
             if x >= rect.left() + RULER {
                 painter.line_segment(
                     [Pos2::new(x, top.bottom() - 7.0), Pos2::new(x, top.bottom())],
@@ -237,11 +281,10 @@ impl App {
                 );
             }
         }
-        let first = ((rect.top() - origin.y) as f64 / camera.zoom as f64 / step).floor() as i64;
-        let last = ((rect.bottom() - origin.y) as f64 / camera.zoom as f64 / step).ceil() as i64;
+        let (first, last) = ends(rect.top(), rect.bottom(), origin.y, down);
         for k in first..=last {
-            let y = origin.y + (k as f64 * step) as f32 * camera.zoom;
-            let half = y + step as f32 * camera.zoom / 2.0;
+            let y = origin.y + down * (k as f64 * step) as f32 * camera.zoom;
+            let half = y + down * step as f32 * camera.zoom / 2.0;
             if y >= rect.top() + RULER {
                 painter.line_segment(
                     [Pos2::new(left.right() - 7.0, y), Pos2::new(left.right(), y)],
@@ -281,10 +324,16 @@ impl App {
         camera: Camera,
         p: &Project,
     ) {
+        if !camera.turns.is_multiple_of(4) {
+            // The dimension lines are laid out for an upright board.
+            return;
+        }
         let art = self.art();
         let (lo, hi) = board_bounds(p);
-        let a = camera.screen(lo, rect);
-        let b = camera.screen(hi, rect);
+        // Two opposite corners on screen, whichever way the camera runs y.
+        let (p, q) = (camera.screen(lo, rect), camera.screen(hi, rect));
+        let a = Pos2::new(p.x.min(q.x), p.y.min(q.y));
+        let b = Pos2::new(p.x.max(q.x), p.y.max(q.y));
         let stroke = Stroke::new(1.0, art.muted);
         let font = crate::fonts::Role::Mono.font();
         // Width: below the board.
@@ -324,33 +373,28 @@ impl App {
     }
 
     /// Origin glyph at the lower left of the canvas. The axes are drawn the way
-    /// the camera runs: X to the right, Y down the screen.
-    pub(super) fn paint_axis_glyph(&self, painter: &egui::Painter, rect: Rect) {
+    /// the camera runs them, so it turns with the rotate buttons.
+    pub(super) fn paint_axis_glyph(&self, painter: &egui::Painter, rect: Rect, camera: Camera) {
         let art = self.art();
         let stroke = Stroke::new(1.2, art.muted);
         let o = Pos2::new(rect.left() + RULER + 26.0, rect.bottom() - 40.0);
-        let (x_end, y_end) = (o + Vec2::new(34.0, 0.0), o + Vec2::new(0.0, -34.0));
-        painter.line_segment([o, x_end], stroke);
-        painter.line_segment([o, y_end], stroke);
-        painter.line_segment([x_end, x_end + Vec2::new(-5.0, -3.0)], stroke);
-        painter.line_segment([x_end, x_end + Vec2::new(-5.0, 3.0)], stroke);
-        painter.line_segment([y_end, y_end + Vec2::new(-3.0, 5.0)], stroke);
-        painter.line_segment([y_end, y_end + Vec2::new(3.0, 5.0)], stroke);
+        // World +x and +y as the camera shows them, so the glyph turns with the view.
+        let (ux, uy) = camera.axes();
         let font = crate::fonts::Role::Mono.font();
-        painter.text(
-            x_end + Vec2::new(4.0, 8.0),
-            Align2::LEFT_CENTER,
-            "X",
-            font.clone(),
-            art.muted,
-        );
-        painter.text(
-            y_end + Vec2::new(5.0, -2.0),
-            Align2::LEFT_BOTTOM,
-            "Y",
-            font,
-            art.muted,
-        );
+        for (unit, name) in [(ux, "X"), (uy, "Y")] {
+            let end = o + unit * 34.0;
+            let side = Vec2::new(-unit.y, unit.x);
+            painter.line_segment([o, end], stroke);
+            painter.line_segment([end, end - unit * 5.0 + side * 3.0], stroke);
+            painter.line_segment([end, end - unit * 5.0 - side * 3.0], stroke);
+            painter.text(
+                end + unit * 8.0,
+                Align2::CENTER_CENTER,
+                name,
+                font.clone(),
+                art.muted,
+            );
+        }
     }
 
     /// Faint dashed keepout ring around a mounting hole or cutout.

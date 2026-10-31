@@ -1,5 +1,38 @@
-use super::super::*;
+﻿use super::super::*;
 use super::support::*;
+
+#[test]
+fn a_newcomer_adds_a_part_and_finds_it_on_the_board() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.run(
+        "component.add",
+        json!({"kind":"resistor","reference":"R1","value":"1 k","position":{"x":20.0,"y":30.0}}),
+    );
+    app.refresh();
+    assert_eq!(
+        app.project.components.len(),
+        1,
+        "the resistor sits on the schematic: {}",
+        app.message
+    );
+    assert_eq!(
+        app.project.board.footprints.len(),
+        1,
+        "the board already picked up the part without a separate sync step: {}",
+        app.message
+    );
+    app.change_tab(Tab::Pcb);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "R1")?,
+        "the board view shows the new reference: {}",
+        app.message
+    );
+    Ok(())
+}
 
 #[test]
 fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), String> {
@@ -1535,8 +1568,8 @@ fn sample_on(tab: Tab) -> (App, egui::Context) {
 fn a_newcomer_hides_and_shows_each_kind_of_thing_on_the_board() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Pcb);
     for (row, name) in [
-        ("side:top/copper", "Top copper"),
-        ("side:bottom/copper", "Bottom copper"),
+        ("side:top", "Top copper"),
+        ("side:bottom", "Bottom copper"),
         ("side:top/components", "Pads"),
         ("drills", "Vias"),
         ("edge", "Cutouts"),
@@ -1582,23 +1615,10 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
 }
 
 #[test]
-fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), String> {
+fn a_newcomer_wires_two_pins_and_measures() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Schematic);
     tap_strip(&ctx, &mut app, "icon:tool-wire")?;
     assert!(matches!(app.tool, Tool::Wire(_)), "Wire arms the wire tool");
-    for (id, read) in [
-        (
-            "button:Text",
-            (|a: &App| a.edit.filter.text) as fn(&App) -> bool,
-        ),
-        ("button:Graphics", |a: &App| a.edit.filter.graphics),
-        ("button:Copper", |a: &App| a.edit.filter.copper),
-        ("button:Parts", |a: &App| a.edit.filter.parts),
-    ] {
-        let before = read(&app);
-        tap_strip(&ctx, &mut app, id)?;
-        assert_ne!(read(&app), before, "{id} flips what a click may pick up");
-    }
     tap_strip(&ctx, &mut app, "icon:tool-measure")?;
     assert!(matches!(app.tool, Tool::Measure), "Measure arms the ruler");
     Ok(())
@@ -1649,40 +1669,5 @@ fn a_newcomer_touches_every_stackup_control() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "Tune")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     tap_id(&ctx, &mut app, "spinbutton:Thickness")?;
-    Ok(())
-}
-
-/// A part added on the schematic appears on the board without a separate
-/// sync step, and the board view paints its reference.
-#[test]
-fn a_newcomer_adds_a_part_and_finds_it_on_the_board() -> Result<(), String> {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, None);
-    app.refresh();
-    app.run(
-        "component.add",
-        json!({"kind":"resistor","reference":"R1","value":"1 k","position":{"x":20.0,"y":30.0}}),
-    );
-    app.refresh();
-    assert_eq!(
-        app.project.components.len(),
-        1,
-        "the resistor sits on the schematic: {}",
-        app.message
-    );
-    assert_eq!(
-        app.project.board.footprints.len(),
-        1,
-        "the board already picked up the part without a separate sync step: {}",
-        app.message
-    );
-    app.change_tab(Tab::Pcb);
-    let ctx = egui::Context::default();
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "R1")?,
-        "the board view shows the new reference: {}",
-        app.message
-    );
     Ok(())
 }

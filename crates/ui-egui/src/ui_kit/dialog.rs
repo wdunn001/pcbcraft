@@ -89,6 +89,9 @@ pub fn show(
 ) -> Outcome {
     let t = theme::tokens(ctx);
     let mut outcome = Outcome::Open;
+    // A box that gave up focus this frame because Enter committed it must not also
+    // press the primary button, so what was focused at the start counts as typing.
+    let typing_at_start = ctx.egui_wants_keyboard_input();
     let frame = Frame::new()
         .fill(t.panel)
         .stroke(Stroke::new(theme::BORDER, t.edge))
@@ -158,6 +161,7 @@ pub fn show(
                     tab,
                     dialog.tabs,
                     TabSize::Aside,
+                    None,
                 );
                 ui.painter().hline(
                     row.x_range(),
@@ -169,7 +173,8 @@ pub fn show(
             ScrollArea::vertical()
                 .id_salt(("dialog-body", dialog.id))
                 .max_height(max_body)
-                .auto_shrink([false, true])
+                .min_scrolled_height(max_body)
+                .auto_shrink([false, false])
                 .show(ui, |ui| {
                     Frame::new()
                         .inner_margin(Margin::same(BODY_PADDING))
@@ -222,7 +227,7 @@ pub fn show(
             }
         });
     if outcome == Outcome::Open && !Popup::is_any_open(ctx) {
-        let typing = ctx.egui_wants_keyboard_input();
+        let typing = typing_at_start || ctx.egui_wants_keyboard_input();
         let (esc, enter) = ctx.input_mut(|i| {
             (
                 i.consume_key(Modifiers::NONE, Key::Escape),
