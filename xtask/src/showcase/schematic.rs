@@ -137,7 +137,7 @@ pub const U3_UNITS: &[(u32, f64, f64)] = &[(2, 86.0, 21.0), (3, 90.0, 60.0), (4,
 /// - Total: a reference without a spot gives `None`, never a panic.
 ///
 /// # Dependencies
-/// - `SPOTS` above.
+/// - `xtask/src/showcase/schematic.rs` (`SPOTS`).
 ///
 /// # Do not
 /// - Look a part up by anything but its reference.

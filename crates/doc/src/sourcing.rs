@@ -462,6 +462,27 @@ pub fn bom_value(&self, key: &str) -> String {
             k if k == MPN => self.mpn().to_owned(),
             k if k == LIFECYCLE => s
     pub fn bom_value(&self, key: &str) -> String {
+if matches!(
+            key,
+            "Country of origin"
+                | "Country of origin basis"
+                | "Country of origin date"
+                | "Part role"
+        ) {
+            return self.compliance_bom_value(key).unwrap_or_default();
+        }
+        let yes_no = |v: Option<bool>| match v {
+            Some(true) => "yes".to_owned(),
+            Some(false) => "no".to_owned(),
+            None => String::new(),
+        };
+        let s = &self.sourcing;
+        match key {
+            "Manufacturer" => self.manufacturer().to_owned(),
+            "MPN" => self.mpn().to_owned(),
+            "Description" => self.description().to_owned(),
+            "Suppliers" => s
+                .suppliers
         let yes_no = |v: Option<bool>| match v {
             Some(true) => "yes".to_owned(),
             Some(false) => "no".to_owned(),

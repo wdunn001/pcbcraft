@@ -342,11 +342,20 @@ impl App {
                     .clicked()
                         && let Some(url) = sheet.clone()
                     {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        self.open_datasheet(ui.ctx(), url);
                     }
                 });
             },
         );
+if self
+            .project
+            .board
+            .footprints
+            .iter()
+            .any(|f| f.component == c.id)
+        {
+            self.placement_machine_section(ui, c.id);
+        }
         self.sourcing_section(ui, c);
         egui::Frame::NONE
             .inner_margin(egui::Margin::ZERO)

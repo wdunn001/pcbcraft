@@ -9,6 +9,7 @@
 use crate::board_mesh::graphic_layer;
 use pcbcraft_doc::{Footprint, Project};
 use pcbcraft_geom::Point;
+use pcbcraft_library::FootprintDefinition;
 
 /// Body height in millimetres when a part states none.
 pub const DEFAULT_BODY_HEIGHT_MM: f64 = 1.5;
@@ -39,6 +40,11 @@ pub fn is_bottom_side(fp: &Footprint) -> bool {
     })
 }
 
+/// Nominal body height in millimetres from a component height field.
+pub fn component_body_height(component: Option<&pcbcraft_doc::Component>) -> f64 {
+    body_height(component.and_then(|c| c.field("height")))
+}
+
 fn body_height(text: Option<&str>) -> f64 {
     let Some(text) = text else {
         return DEFAULT_BODY_HEIGHT_MM;
@@ -55,8 +61,42 @@ fn is_courtyard(layer: &str) -> bool {
     matches!(layer, "F.CrtYd" | "B.CrtYd" | "pcbcraft.courtyard")
 }
 
+/// Package geometry and part number strings for a placed footprint.
+pub fn footprint_idf_names(project: &Project, fp: &Footprint) -> Result<(String, String), String> {
+    let component = project
+        .component(fp.component)
+        .ok_or("footprint references an unknown component")?;
+    if let Some(library_footprint) = component.library_footprint.as_ref() {
+        let geometry = library_footprint.definition.name.clone();
+        let part = format!(
+            "{}/{}",
+            library_footprint.library, library_footprint.definition.name
+        );
+        return Ok((geometry, part));
+    }
+    let reference = component.reference.clone();
+    Ok((reference.clone(), reference))
+}
+
+/// Counter-clockwise footprint-local outline ring for mechanical exports.
+pub fn footprint_local_outline(project: &Project, fp: &Footprint) -> Option<Vec<Point>> {
+    let (lo, hi) = local_extent(project, fp)?;
+    Some(vec![
+        Point::new(lo.x, lo.y),
+        Point::new(hi.x, lo.y),
+        Point::new(hi.x, hi.y),
+        Point::new(lo.x, hi.y),
+        Point::new(lo.x, lo.y),
+    ])
+}
+
 /// Footprint-local extent as (low, high) corners.
 fn local_extent(project: &Project, fp: &Footprint) -> Option<(Point, Point)> {
+    if let Some(body) = library_definition(project, fp).and_then(|d| d.box_body.as_ref()) {
+        let hx = body.width / 2.0;
+        let hy = body.depth / 2.0;
+        return Some((Point::new(-hx, -hy), Point::new(hx, hy)));
+    }
     let mut points: Vec<Point> = project
         .component(fp.component)
         .and_then(|c| c.library_footprint.as_ref())
@@ -92,7 +132,7 @@ pub fn part_boxes(project: &Project) -> Vec<PartBox> {
             continue;
         };
         let component = project.component(fp.component);
-        let height = body_height(component.and_then(|c| c.field("height")));
+        let height = component_body_height(component);
         let bottom = is_bottom_side(fp);
         let corners = [
             Point::new(lo.x, lo.y),

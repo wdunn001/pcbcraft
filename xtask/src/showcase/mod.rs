@@ -27,6 +27,7 @@ mod finish;
 mod layout;
 mod parts;
 mod routes;
+mod schematic_layout;
 mod schematic;
 
 use design::{PARTS, PINS, SHEETS};
@@ -476,12 +477,18 @@ pub fn build(g: &mut Gen) -> Res<()> {
     }
     // The other units of the microcontroller sit on their own spots of the page.
     let u3 = g.id_of("U3")?;
+g.cmd(
+        "component.move",
+        json!({"id": u3, "unit": 2, "position": {"x": 195.58, "y": 81.28}}),
+    )?;
     for (unit, x, y) in schematic::U3_UNITS {
         g.cmd(
             "component.move",
             json!({"id": u3, "unit": unit, "position": {"x": x * schematic::GRID, "y": y * schematic::GRID}}),
         )?;
     }
+    // Validate schematic layout: no overlaps, nothing past the frame.
+    schematic_layout::audit_all(PARTS)?;
     // Nets.
     let mut by_net: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
     for (r, pins) in PINS {
@@ -724,7 +731,7 @@ mod tests {
         let text = board_text(shared()?)?;
         assert_eq!(
             (fnv(&text), text.len()),
-            (0xd007_b967_669a_c527, 103_489),
+            (0xa6aa_2d57_13da_c2ca, 103_516),
             "the schematic drawing changed the board"
         );
         Ok(())
@@ -842,6 +849,18 @@ mod tests {
     fn showcase_labels_do_not_overlap() -> Result<(), String> {
         let problems = layout::audit(shared()?);
         assert!(problems.is_empty(), "label problems: {problems:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_schematic_layout_is_clean() -> Result<(), String> {
+        schematic_layout::audit_all(&design::PARTS)?;
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_schematic_labels_do_not_overlap() -> Result<(), String> {
+        schematic_layout::audit_labels(&design::PARTS)?;
         Ok(())
     }
 }

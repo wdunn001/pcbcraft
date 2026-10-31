@@ -25,10 +25,21 @@ requires the feature of a server that offers tools. Functions are in
 | tool `title` | supported | `title_for`, applied in `tool_list` | no | #636 |
 | tool `annotations` | supported | `annotations_for`, applied in `tool_list`; table in [mcp.md](mcp.md) "Tool hints" | no | #636 |
 | tool `outputSchema` | partial | `output_schema_for` in `crates/mcp/src/lib.rs`: `inspect_design` and `checks` only; other tools promise no shape | no | #640 |
+| resources | supported | `crates/mcp/src/resources.rs`: `pcbcraft://design`, `summary`, `commands`, `checks`, template `pcbcraft://design/preview/{view}`; no subscribe | no | #643 |
+| prompts | supported | `crates/mcp/src/prompts.rs`: `review_board`, `fix_findings`, `fix_unrouted_nets`, `prepare_fabrication` | no | #644 |
 | tool name rules | supported | letters, digits, underscore, hyphen and dot, 1 to 128 characters (some model APIs are stricter, see #615) | yes | |
 | tools/call result shape | supported | `text_result` and `error_result`: text content, `structuredContent`, `isError`; image content for `screenshot` | yes | |
 | error model | supported | unknown tool or missing name is -32602; bad arguments (`validate_tool_schema`) and tool failures are `isError` results | yes | |
 | JSON-RPC rules | supported | wrong version, missing method or bad id is -32600; broken JSON is -32700; arrays are rejected because batching left the spec in 2025-06-18 | yes | |
+| multi-document tools | supported | `design.list_open` and `design.activate` in `crates/mcp/src/document_hub.rs`; they only work through the desktop bridge and are refused over plain stdio | no | |
+| resources | supported | `crates/mcp/src/resources.rs`: `pcbcraft://design`, `summary`, `commands`, `checks`, template `pcbcraft://design/preview/{view}`; no subscribe | no | #643 |
+| prompts | supported | `crates/mcp/src/prompts.rs`: `review_board`, `fix_findings`, `fix_unrouted_nets`, `prepare_fabrication` | no | #644 |
+| resources | supported | `crates/mcp/src/resources.rs`: `pcbcraft://design`, `commands`, `checks`, template `pcbcraft://design/preview/{view}`; no subscribe | no | #483 |
+| prompts | supported | `crates/mcp/src/prompts.rs`: `review_board`, `fix_unrouted_nets`, `prepare_fabrication` | no | #484 |
+| logging (`logging/setLevel`) | absent | stdout carries only protocol messages; stderr is free | no | skip: nothing to report yet |
+| completion, sampling, roots, elicitation, tasks | absent | client features or optional | no | skip: no use in the product |
+| icons metadata | absent | optional | no | skip |
+| stdio framing (transports) | supported | `serve` and `read_message`: newline-delimited UTF-8, 1 MiB cap, only JSON on stdout | yes | |
 | multi-document tools | supported | `design.list_open` and `design.activate` in `crates/mcp/src/document_hub.rs`; they only work through the desktop bridge and are refused over plain stdio | no | |
 | resources | supported | `crates/mcp/src/resources.rs`: `pcbcraft://design`, `summary`, `commands`, `checks`, template `pcbcraft://design/preview/{view}`; no subscribe | no | #643 |
 | prompts | supported | `crates/mcp/src/prompts.rs`: `review_board`, `fix_findings`, `fix_unrouted_nets`, `prepare_fabrication` | no | #644 |
@@ -82,3 +93,6 @@ Transport tests in `crates/mcp/src/http_tests.rs` (#641): initialize, tools, res
 sessions, event-stream progress, cancellation, foreign Origin and Host, remote opt-in, and
 `a_http_client_lists_tools_resources_and_prompts`. Output schema tests in `protocol_tests.rs` (#640); resource tests in
 `crates/mcp/src/resources.rs` (#643); prompt tests in `crates/mcp/src/prompts.rs` (#644).
+Transport tests in `crates/mcp/src/http_tests.rs` (#481) and
+`a_http_client_lists_tools_resources_and_prompts`; resource tests in
+`crates/mcp/src/resources.rs` (#483); prompt tests in `crates/mcp/src/prompts.rs` (#484).
