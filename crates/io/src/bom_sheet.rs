@@ -50,8 +50,8 @@ pub fn bom_sheet_rows(p: &Project, params: &BomSheetParams) -> Result<Vec<BomShe
                 .ok_or_else(|| format!("no variant named {name}"))?,
         ),
     };
-    let mut groups: BTreeMap<(String, String, String, Vec<String>, String), Vec<String>> =
-        BTreeMap::new();
+    type BomGroupKey = (String, String, String, Vec<String>, String);
+    let mut groups: BTreeMap<BomGroupKey, Vec<String>> = BTreeMap::new();
     for c in &p.components {
         if !c.in_bom()
             || (!params.ids.is_empty() && !params.ids.contains(&c.id))
@@ -147,11 +147,7 @@ fn csv_cell(text: &str) -> String {
 }
 
 /// Generic CSV matching the default bill flavour: Reference through Quantity, then extra columns.
-pub fn bom_sheet_generic_csv(
-    p: &Project,
-    rows: &[BomSheetRow],
-    keys: &[String],
-) -> String {
+pub fn bom_sheet_generic_csv(p: &Project, rows: &[BomSheetRow], keys: &[String]) -> String {
     let extras = extra_columns(p, keys);
     let mut out = String::from("Reference,Value,Footprint,MPN,Manufacturer,Quantity");
     for (_, label) in &extras {

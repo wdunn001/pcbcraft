@@ -136,7 +136,7 @@ pub(crate) mod audit {
     use egui::accesskit::Role;
 
     /// Roles a person can act on; each must carry a name.
-    fn needs_name(role: Role) -> bool {
+    pub(crate) fn needs_name(role: Role) -> bool {
         matches!(
             role,
             Role::Button
