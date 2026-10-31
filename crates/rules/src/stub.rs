@@ -201,6 +201,7 @@ pub(crate) fn stub_length_findings(project: &Project, items: &[Copper]) -> Vec<F
                             project.net_name(*net),
                         ),
                         objects: ids,
+                        hint: None,
                     });
                 }
             }
@@ -305,6 +306,7 @@ mod tests {
                 castellated: None,
                 geometry: None,
             }],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
     }
     fn track(p: &mut Project, id: Id, a: Point, b: Point) {
@@ -317,6 +319,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
     }
     /// A 20 mm run from a pad at x=10 to a pad at x=30 with a junction at x=20.
@@ -344,12 +347,15 @@ mod tests {
             target_length: None,
             length_tolerance: None,
             max_stub,
+            max_vias: None,
             via_diameter: None,
             via_drill: None,
             pair_width: None,
             pair_gap: None,
+            target_impedance: None,
             nets: vec![1],
             profile: None,
+            fast: false,
         });
         p.validate()
     }

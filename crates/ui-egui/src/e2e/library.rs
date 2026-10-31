@@ -170,8 +170,10 @@ fn a_newcomer_turns_a_pad_into_an_unplated_locating_peg() -> Result<(), String> 
         graphics: vec![],
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     pcbcraft_doc::validate_footprint_support(&definition)?;
 
@@ -216,8 +218,10 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
         graphics: vec![],
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     let mut p = pcbcraft_doc::Project::default();
     p.nets.push(Net {
@@ -251,6 +255,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
                 geometry: Some(g),
             })
             .collect(),
+        preserved: pcbcraft_doc::PreservedSource::default(),
     });
     p.board.tracks.push(Track {
         preserved: pcbcraft_doc::PreservedSource::default(),
@@ -261,6 +266,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
         width: 0.2,
         layer: Layer::Front,
         arc: None,
+        preserved: pcbcraft_doc::PreservedSource::default(),
     });
     p.validate()?;
     Ok(p)
@@ -456,6 +462,33 @@ fn a_newcomer_finds_a_chip_package_by_name_and_places_it_on_the_board() -> Resul
         .ok_or("the part carries the package")?;
     assert_eq!(fp.definition.name, "LQFP-64_10x10mm_P0.5mm");
     assert_eq!(component.pins.len(), 64, "one schematic pin per pad");
+    Ok(())
+}
+
+#[test]
+fn open_library_3d_models_fetch_only_when_the_person_asks() -> Result<(), String> {
+    use crate::library_online;
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    use_recorded_library(&mut app, "real-part")?;
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let off = library_online::import_open(&source, "Device/R", false)?;
+    assert!(off.get("model").is_none());
+    assert_eq!(off["notices"].as_array().map(|a| a.len()), Some(2));
+    let on = library_online::import_open(&source, "Device/R", true)?;
+    assert!(on.get("model").is_some());
+    assert_eq!(on["notices"].as_array().map(|a| a.len()), Some(3));
+    assert!(
+        on["notices"]
+            .as_array()
+            .and_then(|a| a.last())
+            .and_then(|v| v.as_str())
+            .is_some_and(|n| n.contains("CC-BY-SA 4.0") && n.contains(".step")),
+        "the model notice carries the licence and file"
+    );
     Ok(())
 }
 
@@ -978,5 +1011,69 @@ fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), S
         Tab::Library,
         "the browse link opens the Library tab, where the libraries are read and edited"
     );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("symbol-editor")?;
+    authoring::tests::clear_symbol_draft(&mut app);
+    type_into(&ctx, &mut app, "textinput:Name", "EditedExportSymbol")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Default value",
+        "CustomValue",
+    )?;
+    authoring::tests::tap(&ctx, &mut app, "Save symbol to project library")?;
+    {
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        assert_eq!(session.project.library.symbols.len(), 1);
+        assert_eq!(
+            session.project.library.symbols[0].name, "EditedExportSymbol",
+            "the edited symbol lives in the project library"
+        );
+    }
+    authoring::tests::tap(&ctx, &mut app, "Library")?;
+    assert!(
+        paints_text(&ctx, &mut app, "This project's definitions")?,
+        "the project library list is on the Libraries page"
+    );
+    let export_file = std::env::temp_dir().join(format!(
+        "pcbcraft-newcomer-export-{}.kicad_sym",
+        std::process::id()
+    ));
+    let export_path = export_file.to_string_lossy().into_owned();
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Symbol export file",
+        &export_path,
+    )?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    assert!(
+        export_file.exists(),
+        "export wrote a symbol library file to the chosen path"
+    );
+    let mut fresh = pcbcraft_engine::Session::default();
+    fresh
+        .execute(
+            "library.import_symbol_file",
+            json!({"path": export_path}),
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+    let imported = fresh
+        .project
+        .library
+        .symbols
+        .iter()
+        .find(|s| s.name == "EditedExportSymbol")
+        .ok_or("the exported symbol did not come back through import")?;
+    assert_eq!(
+        imported.value, "CustomValue",
+        "import brings back the same default value"
+    );
+    let _ = std::fs::remove_file(&export_file);
     Ok(())
 }

@@ -2,6 +2,8 @@
 
 Machine profiles describe shop equipment used by fabrication artifacts. Each file is one profile. Profiles are copied into a design with `machine.add` or imported with `machine.import`.
 
+Each built-in preset file starts with `# Source:` and `# Retrieved:` comment lines that record where the numbers came from and when they were last checked.
+
 ## Header
 
 | Field | Type | Notes |

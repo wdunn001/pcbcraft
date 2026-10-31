@@ -17,6 +17,8 @@
 //! - Footprint pictures are drawn once into a cached texture, top view, in
 //!   theme colours; the cache is dropped when the theme changes.
 //! - Favourites live in the preferences, by card key.
+//! - Once a search is typed the cards are ranked and repeats removed by
+//!   `library_rank` (exact part number, package, name); an empty search keeps the order.
 //!
 //! # Dependencies
 //! - crates/engine/src/library.rs#list_over
@@ -26,6 +28,8 @@
 //! - crates/ui-egui/src/library.rs#library_geometry_paths
 //! - crates/ui-egui/src/icons.rs
 //! - crates/ui-egui/src/sources.rs#online_parts
+//! - crates/ui-egui/src/library_rank.rs
+//! - crates/library/src/listing_search.rs
 //! - crates/text/strings/en.txt
 
 use super::*;
@@ -254,6 +258,83 @@ impl Card {
     }
 }
 
+/// The cards in the order the library crate ranks one search for `query`
+/// (exact part number, package, name), a part held by two sources once.
+/// An empty query leaves the list as it is.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/library_rank.rs
+/// - crates/library/src/listing_search.rs
+fn ranked(query: &str, cards: Vec<Card>) -> Vec<Card> {
+    use crate::library_rank::{CardFacts, found_for, order};
+    use pcbcraft_library::listing::ListingSource;
+    let found = cards
+        .iter()
+        .map(|card| match card {
+            Card::BuiltIn(kind, label) => found_for(
+                &CardFacts {
+                    source: ListingSource::Fixture,
+                    source_id: "built-in",
+                    source_ref: kind,
+                    mpn: label,
+                    manufacturer: "",
+                    description: "",
+                    package: "",
+                },
+                None,
+            ),
+            Card::Project(d) => found_for(
+                &CardFacts {
+                    source: ListingSource::Project,
+                    source_id: "project",
+                    source_ref: &d.name,
+                    mpn: &d.name,
+                    manufacturer: "",
+                    description: &d.description,
+                    package: d.footprint.trim(),
+                },
+                None,
+            ),
+            Card::Installed(i) => found_for(
+                &CardFacts {
+                    source: ListingSource::Installed,
+                    source_id: &i.path,
+                    source_ref: &i.name,
+                    mpn: &i.name,
+                    manufacturer: "",
+                    description: &i.description,
+                    package: &i.package,
+                },
+                None,
+            ),
+            Card::Online(p, _) => {
+                let open = p.source == pcbcraft_library::open_library::SOURCE_NAME;
+                found_for(
+                    &CardFacts {
+                        source: if open {
+                            ListingSource::OpenLibrary
+                        } else {
+                            ListingSource::Distributor
+                        },
+                        source_id: &p.source,
+                        source_ref: &p.sku,
+                        mpn: &p.mpn,
+                        manufacturer: &p.manufacturer,
+                        description: &p.description,
+                        package: "",
+                    },
+                    Some(p),
+                )
+            }
+        })
+        .collect();
+    let mut slots: Vec<Option<Card>> = cards.into_iter().map(Some).collect();
+    order(query, found)
+        .into_iter()
+        .filter_map(|i| slots.get_mut(i).and_then(Option::take))
+        .collect()
+}
+
 /// What a card's menu or buttons asked for.
 #[derive(Clone, Debug)]
 enum CardAction {
@@ -355,6 +436,10 @@ impl App {
                     .desired_width(f32::INFINITY),
             )
             .on_hover_text(t!("library.browser.search_parts_by_name.tip"));
+        if let Some(ws) = workspace::workspace_for(self.tab) {
+            let id = format!("{}.library.search", ws.id());
+            tour::anchor::anchor(ui, &id, &search);
+        }
         icons::icon_at(
             ui,
             Rect::from_center_size(
@@ -472,6 +557,7 @@ impl App {
                 cards.push(Card::Online(Box::new(part), credit));
             }
         }
+        cards = ranked(&query, cards);
         let favourites = self.preferences.library_favourites.clone();
         if self.dock.favourites_only {
             cards.retain(|c| favourites.contains(&c.key()));
@@ -548,6 +634,7 @@ impl App {
         if let Some(text) = hint {
             self.dock_empty_state(ui, &text);
         }
+        self.dock_library_notices(ui);
         ui.add_space(6.0);
         if ui
             .link(t!("library.browser.browse_component_libraries"))
@@ -555,6 +642,34 @@ impl App {
             .clicked()
         {
             self.change_tab(Tab::Library);
+        }
+    }
+
+    /// Source and licence lines recorded with parts fetched from open libraries.
+    fn dock_library_notices(&self, ui: &mut egui::Ui) {
+        if self.project.library.notices.is_empty() {
+            return;
+        }
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new(t!("library.dock.notices_heading"))
+                .strong()
+                .font(crate::fonts::Role::Caption.font()),
+        );
+        ui.label(
+            egui::RichText::new(t!("library.dock.notices_intro"))
+                .font(crate::fonts::Role::Caption.font())
+                .color(self.muted()),
+        );
+        for notice in &self.project.library.notices {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(notice.as_str())
+                        .font(crate::fonts::Role::Caption.font())
+                        .color(self.muted()),
+                )
+                .wrap(),
+            );
         }
     }
 
@@ -784,9 +899,12 @@ impl App {
         let args = json!({"filter": filter, "limit": PAGE});
         let project = self.project.clone();
         let roots = self.dock.roots.clone();
+        let config = self.user_config();
         let reply = spawn_read(ctx, move || match roots {
-            Some(roots) => pcbcraft_engine::library::list_over(&args, Some(&project), roots),
-            None => pcbcraft_engine::library::list_with_project(&args, Some(&project)),
+            Some(roots) => {
+                pcbcraft_engine::library::list_over(&config, &args, Some(&project), roots)
+            }
+            None => pcbcraft_engine::library::list_with_project(&config, &args, Some(&project)),
         });
         self.dock.inflight.push((seq, reply));
         while self.dock.inflight.len() > MAX_INFLIGHT {
@@ -1015,8 +1133,10 @@ impl App {
                 let key = format!("installed/{}/{}", i.path, i.name);
                 if !self.dock.drawings.contains_key(&key) && self.dock.drawing_request.is_none() {
                     let (path, name) = (i.path.clone(), i.name.clone());
+                    let config = self.user_config();
                     let reply = spawn_read(ui.ctx(), move || {
                         pcbcraft_engine::library::read_tool(
+                            &config,
                             "library.inspect_symbol",
                             &json!({"path": path, "name": name}),
                         )
@@ -1140,12 +1260,13 @@ impl App {
                 } else {
                     if self.dock.footprint_request.is_none() {
                         let (want, roots) = (package.clone(), self.dock.roots.clone());
+                        let config = self.user_config();
                         let reply = spawn_read(ctx, move || {
                             match roots {
-                                Some(roots) => {
-                                    pcbcraft_engine::library::resolve_footprint_over(roots, &want)
-                                }
-                                None => pcbcraft_engine::library::resolve_footprint(&want),
+                                Some(roots) => pcbcraft_engine::library::resolve_footprint_over(
+                                    &config, roots, &want,
+                                ),
+                                None => pcbcraft_engine::library::resolve_footprint(&config, &want),
                             }
                             .and_then(|d| serde_json::to_value(d).map_err(|e| e.to_string()))
                         });
@@ -1360,6 +1481,7 @@ impl App {
                     .clamp(0.01, 40.0),
                 mirror: false,
                 turns: 0,
+                up: false,
             };
             library::paint_library_paths(&painter, picture, camera, paths, accent);
         } else if want_symbol
@@ -1372,6 +1494,7 @@ impl App {
                 zoom: 3.6,
                 mirror: false,
                 turns: 0,
+                up: false,
             };
             for view in part.schematic_views() {
                 self.symbol(
@@ -1443,6 +1566,7 @@ impl App {
                                 .clamp(0.01, 40.0),
                             mirror: false,
                             turns: 0,
+                            up: false,
                         };
                         library::paint_library_paths(&painter, spot, camera, &paths, accent);
                     } else {
@@ -1748,8 +1872,10 @@ impl App {
             Card::Installed(i) => {
                 let (path, name) = (i.path.clone(), i.name.clone());
                 let (p, n) = (path.clone(), name.clone());
+                let config = self.user_config();
                 let reply = spawn_read(ui.ctx(), move || {
                     pcbcraft_engine::library::read_tool(
+                        &config,
                         "library.inspect_symbol",
                         &json!({"path": p, "name": n}),
                     )
@@ -1972,8 +2098,10 @@ impl App {
             name = name,
             library = library
         );
+        let config = self.user_config();
         let reply = spawn_read(ctx, move || {
             let read = pcbcraft_engine::library::read_tool(
+                &config,
                 "library.inspect_symbol",
                 &json!({"path": path, "name": name}),
             )?;
@@ -1985,10 +2113,12 @@ impl App {
                 Value::Null
             } else {
                 match roots {
-                    Some(roots) => {
-                        pcbcraft_engine::library::resolve_footprint_over(roots, package.trim())
-                    }
-                    None => pcbcraft_engine::library::resolve_footprint(package.trim()),
+                    Some(roots) => pcbcraft_engine::library::resolve_footprint_over(
+                        &config,
+                        roots,
+                        package.trim(),
+                    ),
+                    None => pcbcraft_engine::library::resolve_footprint(&config, package.trim()),
                 }
                 .ok()
                 .and_then(|d| serde_json::to_value(d).ok())
@@ -2021,7 +2151,9 @@ impl App {
             return;
         };
         let sku = part.sku.clone();
-        let reply = spawn_read(ctx, move || library_online::import_open(&source, &sku));
+        let fetch_3d = self.preferences.fetch_open_library_3d;
+        let reply =
+            spawn_read(ctx, move || library_online::import_open(&source, &sku, fetch_3d));
         self.dock.pending = Some(Pending {
             intent: Intent::Online {
                 target: target.to_owned(),

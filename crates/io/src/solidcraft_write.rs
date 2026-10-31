@@ -46,8 +46,11 @@ const MAX_COORD: f64 = 1e9;
 /// Which optional thin layers leave the board as bodies of their own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SolidcraftLayers {
+    /// Include copper pour meshes as bodies.
     pub copper: bool,
+    /// Include soldermask meshes as bodies.
     pub mask: bool,
+    /// Include silkscreen meshes as bodies.
     pub silk: bool,
 }
 

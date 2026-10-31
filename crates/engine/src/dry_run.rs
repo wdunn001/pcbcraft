@@ -269,6 +269,51 @@ mod tests {
     }
 
     #[test]
+    fn dry_run_counts_board_tracks_vias_and_unchanged_objects() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(s.batch(&[add("R1", 10.0)], None).is_ok());
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("net id".into()))?;
+        let dry = s.dry_run(
+            &[Command {
+                command: "track.add".into(),
+                params: json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":30.0,"y":40.0},"width":0.2}),
+            }],
+            Some(s.revision),
+        )?;
+        assert_eq!(dry.summary.added_counts.get("track"), Some(&1));
+        assert!((dry.summary.track_mm_added - 50.0).abs() < 1e-6);
+        assert_eq!(dry.summary.untouched, 3, "R1 and its pads are unchanged");
+        assert_eq!(dry.summary.total, 4);
+        assert!(dry.summary.bytes_after > dry.summary.bytes_before);
+        let via = s.dry_run(
+            &[Command {
+                command: "via.place".into(),
+                params: json!({"net":net,"position":{"x":5.0,"y":5.0},"diameter":0.8,"drill":0.4}),
+            }],
+            Some(s.revision),
+        )?;
+        assert_eq!(via.summary.added_counts.get("via"), Some(&1));
+        Ok(())
+    }
+
+    #[test]
+    fn dry_run_lists_new_net_names() -> Result<(), Error> {
+        let s = Session::default();
+        let dry = s.dry_run(
+            &[Command {
+                command: "net.create".into(),
+                params: json!({"name":"CLK"}),
+            }],
+            None,
+        )?;
+        assert_eq!(dry.summary.nets_added, vec!["CLK".to_string()]);
+        assert_eq!(dry.summary.nets_changed, 1);
+        Ok(())
+    }
+
+    #[test]
     fn dry_run_refuses_a_stale_revision_and_an_empty_batch() {
         let s = Session::default();
         assert!(matches!(

@@ -125,6 +125,9 @@ pub fn footprint(path: &Path) -> Result<FootprintDefinition, String> {
 pub struct LibrarySource {
     pub name: String,
     pub path: String,
+    /// When set, marks this registered folder as the personal or shared library target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 const MAX_LIBRARY_SOURCES: usize = 64;
 pub static SOURCES_PATH_TEST: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -261,6 +264,7 @@ pub fn add_folder(path: &str, name: Option<&str>) -> Result<Value, String> {
     sources.push(LibrarySource {
         name: name.clone(),
         path: canonical.to_string_lossy().into_owned(),
+        role: None,
     });
     write_sources(&sources)?;
     Ok(json!({
@@ -272,6 +276,51 @@ pub fn add_folder(path: &str, name: Option<&str>) -> Result<Value, String> {
     }))
 }
 /// Forget an added folder; the installed locations are never removed.
+fn valid_role(role: &str) -> Result<(), String> {
+    match role {
+        "personal" | "shared" => Ok(()),
+        _ => Err("role must be personal or shared".into()),
+    }
+}
+
+/// Point a registered library folder at the personal or shared save target.
+pub fn set_source_role(path: &str, role: Option<&str>) -> Result<Value, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("provide the folder path to mark".into());
+    }
+    if let Some(role) = role {
+        valid_role(role)?;
+    }
+    let target = PathBuf::from(path);
+    let mut sources = load_sources();
+    let mut found = false;
+    for source in &mut sources {
+        if same_folder(Path::new(&source.path), &target) {
+            found = true;
+            source.role = role.map(str::to_owned);
+        } else if let Some(role) = role {
+            if source.role.as_deref() == Some(role) {
+                source.role = None;
+            }
+        }
+    }
+    if !found {
+        return Err("register that folder as a library source before marking its role".into());
+    }
+    write_sources(&sources)?;
+    Ok(json!({"path": path, "role": role, "sources": self::sources()?["sources"].clone()}))
+}
+
+pub fn folder_for_role(role: &str) -> Result<PathBuf, String> {
+    valid_role(role)?;
+    load_sources()
+        .into_iter()
+        .find(|source| source.role.as_deref() == Some(role))
+        .map(|source| PathBuf::from(source.path))
+        .ok_or_else(|| format!("no library source is marked as {role}"))
+}
+
 pub fn remove_folder(path: &str) -> Result<Value, String> {
     let path = path.trim();
     if path.is_empty() {
@@ -303,6 +352,7 @@ pub fn sources() -> Result<Value, String> {
             "name": source.name,
             "path": source.path,
             "kind": "added",
+            "role": source.role,
             "symbol_libraries": symbols,
             "footprint_libraries": footprints,
         }));
@@ -348,28 +398,11 @@ fn built_in_roots() -> Vec<PathBuf> {
     }
     roots
 }
-fn starter_models_list() -> Result<Value, String> {
-    let models: Vec<Value> = pcbcraft_library::starter_models::all()
-        .iter()
-        .map(|m| {
-            json!({
-                "id": m.id,
-                "file_name": m.file_name,
-                "bytes": m.bytes.len(),
-                "footprint_names": m.footprint_names,
-                "license_title": m.license_title,
-                "source": m.source,
-            })
-        })
-        .collect();
-    Ok(json!({
-        "models": models,
-        "license_file": "crates/library/assets/starter_models/LICENSE.md",
-    }))
-}
-
 pub fn catalog() -> Result<Value, String> {
-    catalog_paths(paths(), 4096)
+    let mut out = catalog_paths(paths(), 4096)?;
+    out["configurable_connectors"] =
+        pcbcraft_library::connector_catalog::ConnectorCatalog::summary_json()?;
+    Ok(out)
 }
 fn catalog_paths(roots: Vec<PathBuf>, scan_limit: usize) -> Result<Value, String> {
     let mut symbol_files = vec![];
@@ -578,10 +611,11 @@ const DEFAULT_LIST_LIMIT: usize = 30;
 
 fn source_rank(source: ListingSource) -> u8 {
     match source {
-        ListingSource::Fixture => 0,
+        ListingSource::Fixture | ListingSource::Generated => 0,
         ListingSource::Project => 1,
         ListingSource::Installed => 2,
-        ListingSource::Distributor => 3,
+        ListingSource::OpenLibrary => 3,
+        ListingSource::Distributor => 4,
     }
 }
 
@@ -806,6 +840,7 @@ pub fn list_over(
     roots: Vec<PathBuf>,
 ) -> Result<Value, String> {
     let (filter, limit, cursor, mut listings) = list_args(args)?;
+    listings.extend(pcbcraft_library::connector_catalog::ConnectorCatalog::listings()?);
     listings.extend(project.map(project_listings).unwrap_or_default());
     let room = MAX_LISTINGS.saturating_sub(listings.len());
     let (installed, found) = installed_listings(roots, room);
@@ -826,7 +861,6 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     };
     match name {
         "library.catalog" => catalog(),
-        "library.starter_models.list" => starter_models_list(),
         "library.sources" => sources(),
         "library.list" => list_with_project(args, None),
         "design.recents" => Ok(json!({"designs": crate::recents::load_recent_paths()})),
@@ -838,6 +872,17 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
             add_folder(text("path")?, name)
         }
         "library.remove_folder" => remove_folder(text("path")?),
+        "library.set_source_role" => {
+            let role = match args.get("role") {
+                None | Some(Value::Null) => None,
+                Some(v) => Some(v.as_str().ok_or("role must be a string or null")?),
+            };
+            set_source_role(text("path")?, role)
+        }
+        "library.read_part_sidecar" => {
+            let sidecar = pcbcraft_library::read_part_sidecar(Path::new(text("path")?))?;
+            Ok(json!({"sidecar": sidecar}))
+        }
         "library.search" => {
             let limit = match args.get("limit") {
                 None => 30,
@@ -910,6 +955,11 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
                 &optional("name_a")?,
                 &optional("name_b")?,
             )
+        }
+        "library.samtec.manufacturer_page" => {
+            let url = pcbcraft_library::samtec::manufacturer_page_url(text("mpn")?)
+                .map_err(|e| e.to_string())?;
+            Ok(json!({"url": url}))
         }
         _ => Err("unknown library query".into()),
     }
@@ -1092,17 +1142,6 @@ mod tests {
         Ok(())
     }
     #[test]
-    #[test]
-    fn starter_models_list_returns_the_bundled_catalog() -> Result<(), String> {
-        let list = read_tool("library.starter_models.list", &json!({}))?;
-        let models = list["models"]
-            .as_array()
-            .ok_or("models must be an array")?;
-        assert!(!models.is_empty());
-        assert!(models.iter().any(|m| m["id"] == "chip_resistor_0603"));
-        Ok(())
-    }
-
     fn library_source_tools_answer_through_the_read_tool_router() -> Result<(), String> {
         let _guard = SOURCES_TEST_LOCK
             .lock()
@@ -1126,9 +1165,38 @@ mod tests {
                 .is_err_and(|error| error.contains("path")),
             "a missing path is refused"
         );
+        assert!(
+            read_tool("library.set_source_role", &json!({}))
+                .is_err_and(|error| error.contains("path")),
+            "role changes need a path"
+        );
         Ok(())
     }
-
+    #[test]
+    fn personal_and_shared_roles_point_at_one_folder_each() -> Result<(), String> {
+        let _guard = SOURCES_TEST_LOCK
+            .lock()
+            .map_err(|_| "test lock unavailable")?;
+        let root = TestDirectory::new()?;
+        let personal = root.0.join("personal-lib");
+        std::fs::create_dir_all(&personal).map_err(|e| e.to_string())?;
+        SOURCES_PATH_TEST
+            .lock()
+            .map_err(|_| "test lock unavailable")?
+            .replace(root.0.join("sources.json"));
+        add_folder(personal.to_str().ok_or("path")?, Some("Personal"))?;
+        set_source_role(personal.to_str().ok_or("path")?, Some("personal"))?;
+        let resolved = folder_for_role("personal")?;
+        assert_eq!(
+            resolved.canonicalize().map_err(|e| e.to_string())?,
+            personal.canonicalize().map_err(|e| e.to_string())?
+        );
+        SOURCES_PATH_TEST
+            .lock()
+            .map_err(|_| "test lock unavailable")?
+            .take();
+        Ok(())
+    }
     fn listed(mpn: &str, source: ListingSource, id: &str) -> PartListing {
         let mut l = pcbcraft_library::listing::listing_from_result(
             &pcbcraft_library::sources::PartResult {
@@ -1189,12 +1257,52 @@ mod tests {
     }
 
     #[test]
+    fn library_list_includes_embedded_samtec_connector_series() -> Result<(), String> {
+        let out = list_over(
+            &json!({"filter": {"text": "TSW"}, "limit": 10}),
+            None,
+            vec![],
+        )?;
+        let mpns: Vec<String> = out["items"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item["mpn"].as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(mpns.iter().any(|mpn| mpn == "TSW"));
+        let sources: Vec<&str> = out["items"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item["source"].as_str())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(sources.contains(&"generated"));
+        Ok(())
+    }
+
+    #[test]
     fn library_list_refuses_a_bad_limit_and_too_many_categories() {
         for limit in [0, 101] {
             assert!(read_tool("library.list", &json!({"limit": limit})).is_err());
         }
         let many = json!({"categories": vec!["led"; 17]});
         assert!(read_tool("library.list", &json!({"filter": many})).is_err());
+    }
+
+    #[test]
+    fn samtec_manufacturer_page_query_returns_the_product_url() -> Result<(), String> {
+        let out = read_tool(
+            "library.samtec.manufacturer_page",
+            &json!({"mpn":"TSW-103-07-G-S"}),
+        )?;
+        assert_eq!(out["url"], "https://www.samtec.com/products/tsw-103-07-g-s");
+        Ok(())
     }
 
     #[test]

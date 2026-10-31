@@ -56,6 +56,27 @@ pub struct Policy {
     pub min_gap: Duration,
     /// Refuse plain http. Tests switch this off to reach a loopback server.
     pub require_https: bool,
+    /// Accept any host. Only the datasheet fetch sets this: a datasheet lives on the maker's
+    /// own site, and the person pressed Get datasheet for that one link.
+    pub allow_any_host: bool,
+}
+
+impl Policy {
+    /// The policy for fetching one datasheet the person asked for: any https host, at most
+    /// 25 MB, 30 seconds for the call.
+    ///
+    /// # Rules
+    /// - Still https only, still the same-host redirect rule; a link that redirects to another
+    ///   site is refused and the person is told to open it in the browser.
+    pub fn datasheets() -> Self {
+        Self {
+            allowed_hosts: Vec::new(),
+            max_bytes: pcbcraft_library::datasheet::MAX_PDF_BYTES,
+            timeout: Duration::from_secs(30),
+            allow_any_host: true,
+            ..Self::default()
+        }
+    }
 }
 
 impl Default for Policy {
@@ -67,6 +88,7 @@ impl Default for Policy {
             connect_timeout: Duration::from_secs(8),
             min_gap: Duration::from_millis(250),
             require_https: true,
+            allow_any_host: false,
         }
     }
 }
@@ -74,7 +96,7 @@ impl Default for Policy {
 /// The User-Agent every call sends.
 pub fn user_agent() -> String {
     format!(
-        "PCBCraft/{} (+https://github.com/tangency-labs/pcbcraft)",
+        "PCBCraft/{} (+https://github.com/wdunn001/pcbcraft)",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -153,7 +175,9 @@ impl HttpFetcher {
                 "That address is not a web address.".into(),
             ));
         }
-        if !self.policy.allowed_hosts.iter().any(|h| h == &parts.host) {
+        if !self.policy.allow_any_host
+            && !self.policy.allowed_hosts.iter().any(|h| h == &parts.host)
+        {
             return Err(FetchError::Failed(format!(
                 "{} is not one of the online library sites.",
                 parts.host
@@ -400,6 +424,7 @@ mod tests {
             timeout: Duration::from_millis(600),
             min_gap: Duration::ZERO,
             require_https: false,
+            allow_any_host: false,
             ..Policy::default()
         };
         (HttpFetcher::new(policy, Arc::clone(&offline)), offline)
@@ -555,6 +580,7 @@ mod tests {
             allowed_hosts: vec!["127.0.0.1".into()],
             min_gap: Duration::from_millis(150),
             require_https: false,
+            allow_any_host: false,
             ..Policy::default()
         };
         let fetcher = HttpFetcher::new(policy, Arc::new(AtomicBool::new(false)));
