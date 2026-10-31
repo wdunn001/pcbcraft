@@ -15,6 +15,9 @@
 //! from `gerber_files`: y stays down from the top-left corner, and a bottom
 //! side file mirrors x about the board origin.
 use crate::board_mesh::{graphic_layer, map_ring, pad_sides, thin_polyline};
+use pcbcraft_doc::fill::{
+    pad_exports_on_layer, plated_item_connected_on_layer, PlatedConnectKind,
+};
 use pcbcraft_doc::{Footprint, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::PadShape;
@@ -36,7 +39,7 @@ const MAX_FILE_OPS: usize = 50_000;
 const MAX_FILE_APERTURES: usize = 64;
 
 /// Millimetres to 4.6 fixed-point coordinate integers.
-fn coordinate(value: f64) -> i64 {
+pub(crate) fn coordinate(value: f64) -> i64 {
     (value * 1_000_000.0).round() as i64
 }
 fn decimal(value: f64) -> String {
@@ -48,13 +51,22 @@ fn decimal(value: f64) -> String {
         text.into()
     }
 }
+fn aperture_mm(value: f64) -> String {
+    let text = format!("{:.3}", value);
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    if text == "-0" || text.is_empty() {
+        "0".into()
+    } else {
+        text.into()
+    }
+}
 
-enum Aperture {
+pub(crate) enum Aperture {
     Standard(String),
     Outline(Vec<Point>),
 }
 impl Aperture {
-    fn key(&self) -> String {
+    pub(crate) fn key(&self) -> String {
         match self {
             Self::Standard(body) => body.clone(),
             Self::Outline(points) => points
@@ -64,6 +76,169 @@ impl Aperture {
                 .join(","),
         }
     }
+    /// One standard `%ADD` line or a macro plus its `%ADD` invocation.
+    pub(crate) fn definition(&self, code: u32) -> String {
+        match self {
+            Self::Standard(body) => format!("%ADD{code}{body}*%\n"),
+            Self::Outline(points) => {
+                let mut ring = points.clone();
+                if let Some(first) = points.first().copied() {
+                    ring.push(first);
+                }
+                format!(
+                    "%AMPAD{code}*\n4,1,{},{},0*%\n%ADD{code}PAD{code}*%\n",
+                    ring.len().saturating_sub(1),
+                    ring.iter()
+                        .map(|v| format!("{},{}", decimal(v.x), decimal(v.y)))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }
+        }
+    }
+}
+
+/// The aperture that flashes one pad at `center` in board space.
+pub(crate) fn pad_aperture(
+    pad: &Pad,
+    center: Point,
+    footprint: &Footprint,
+    to_file: impl Fn(Point) -> Point,
+) -> Result<Aperture, String> {
+    let rotation = footprint.rotation + pad.geometry.as_ref().map(|g| g.rotation).unwrap_or(0.0);
+    let quarter = rotation.rem_euclid(90.0);
+    let axis_aligned = quarter < 1e-9 || 90.0 - quarter < 1e-9;
+    let swapped = (rotation.rem_euclid(180.0) - 90.0).abs() < 1e-9;
+    let Some(geometry) = pad.geometry.as_ref() else {
+        return Ok(Aperture::Standard(format!("C,{}", decimal(pad.diameter))));
+    };
+    Ok(match geometry.shape_kind() {
+        PadShape::Circle => Aperture::Standard(format!("C,{}", decimal(geometry.size.x))),
+        PadShape::Rect | PadShape::Oval if axis_aligned => {
+            let (w, h) = if swapped {
+                (geometry.size.y, geometry.size.x)
+            } else {
+                (geometry.size.x, geometry.size.y)
+            };
+            let letter = if geometry.shape_kind() == PadShape::Rect {
+                "R"
+            } else {
+                "O"
+            };
+            Aperture::Standard(format!("{letter},{}X{}", decimal(w), decimal(h)))
+        }
+        PadShape::Unsupported => {
+            return Err(format!(
+                "pad {} has a shape the Gerber writer does not support",
+                pad.number
+            ));
+        }
+        _ => {
+            let mut outline = pad.outline_points();
+            outline.pop();
+            let origin = to_file(center);
+            Aperture::Outline(
+                outline
+                    .into_iter()
+                    .map(|v| {
+                        let board = footprint.position.offset(v.rotate(-footprint.rotation));
+                        let file = to_file(board);
+                        Point::new(file.x - origin.x, file.y - origin.y)
+                    })
+                    .collect(),
+            )
+        }
+    })
+}
+
+/// Shared X2 attributes for fabrication files.
+pub(crate) fn x2_header(
+    creation: &str,
+    file_function: &str,
+    polarity: Option<&str>,
+    same_coordinates: bool,
+    md5: Option<&str>,
+) -> String {
+    let mut out = String::from("%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n");
+    out.push_str(&format!("%TF.CreationDate,{creation}*%\n"));
+    out.push_str(&format!("%TF.FileFunction,{file_function}*%\n"));
+    if let Some(polarity) = polarity {
+        out.push_str(&format!("%TF.FilePolarity,{polarity}*%\n"));
+    }
+    if same_coordinates {
+        out.push_str("%TF.SameCoordinates,PCBCraft*%\n");
+    }
+    if let Some(md5) = md5 {
+        out.push_str(&format!("%TF.MD5,{md5}*%\n"));
+    }
+    out
+}
+
+/// RFC 1321 MD5 for the `%TF.MD5` attribute without adding a dependency.
+pub(crate) fn md5_hex(message: &[u8]) -> String {
+    const SHIFTS: [u32; 64] = [
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5,
+        9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10,
+        15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+    ];
+    #[rustfmt::skip]
+    const SINE_TABLE: [u32; 64] = [
+        0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+        0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+        0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+        0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+        0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+        0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+        0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+        0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
+    ];
+    let mut state: [u32; 4] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476];
+    let mut padded = message.to_vec();
+    let bits = (message.len() as u64).wrapping_mul(8);
+    padded.push(0x80);
+    let zeros = (120 - padded.len() % 64) % 64;
+    padded.extend(vec![0; zeros]);
+    padded.extend_from_slice(&bits.to_le_bytes());
+    for block in padded.chunks(64) {
+        let mut words = [0u32; 16];
+        for (round, word) in words.iter_mut().enumerate() {
+            *word = u32::from_le_bytes([
+                block[round * 4],
+                block[round * 4 + 1],
+                block[round * 4 + 2],
+                block[round * 4 + 3],
+            ]);
+        }
+        let (mut a, mut b, mut c, mut d) = (state[0], state[1], state[2], state[3]);
+        for step in 0..64 {
+            let (mixed, index) = match step / 16 {
+                0 => ((b & c) | (!b & d), step),
+                1 => ((d & b) | (!d & c), (5 * step + 1) % 16),
+                2 => (b ^ c ^ d, (3 * step + 5) % 16),
+                _ => (c ^ (b | !d), (7 * step) % 16),
+            };
+            let rotated = a
+                .wrapping_add(mixed)
+                .wrapping_add(SINE_TABLE[step])
+                .wrapping_add(words[index])
+                .rotate_left(SHIFTS[step]);
+            a = d;
+            d = c;
+            c = b;
+            b = b.wrapping_add(rotated);
+        }
+        state[0] = state[0].wrapping_add(a);
+        state[1] = state[1].wrapping_add(b);
+        state[2] = state[2].wrapping_add(c);
+        state[3] = state[3].wrapping_add(d);
+    }
+    let mut hex = String::with_capacity(32);
+    for word in state {
+        for byte in word.to_le_bytes() {
+            hex.push_str(&format!("{byte:02x}"));
+        }
+    }
+    hex
 }
 
 /// Gerber copper image of one layer. Board coordinates are y-down from the
@@ -80,25 +255,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             return *code;
         }
         let code = 10 + codes.len();
-        match aperture {
-            Aperture::Standard(body) => definitions.push_str(&format!("%ADD{code}{body}*%\n")),
-            Aperture::Outline(points) => {
-                // Outline primitive: exposure, vertex count after the start
-                // point, the closed vertex list, then rotation.
-                let mut ring = points.clone();
-                if let Some(first) = points.first().copied() {
-                    ring.push(first);
-                }
-                definitions.push_str(&format!(
-                    "%AMPAD{code}*\n4,1,{},{},0*%\n%ADD{code}PAD{code}*%\n",
-                    ring.len().saturating_sub(1),
-                    ring.iter()
-                        .map(|v| format!("{},{}", decimal(v.x), decimal(v.y)))
-                        .collect::<Vec<_>>()
-                        .join(",")
-                ));
-            }
-        }
+        definitions.push_str(&aperture.definition(code as u32));
         codes.insert(key, code);
         code
     };
@@ -111,7 +268,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
         }
     };
     for t in p.board.tracks.iter().filter(|t| t.layer == layer) {
-        let code = define(Aperture::Standard(format!("C,{}", decimal(t.width))));
+        let code = define(Aperture::Standard(format!("C,{}", aperture_mm(t.width))));
         select(&mut body, code);
         let (a, b) = (to_gerber(t.start), to_gerber(t.end));
         body.push_str(&format!(
@@ -124,11 +281,21 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     }
     for f in &p.board.footprints {
         for pad in &f.pads {
+            if pad
+                .geometry
+                .as_ref()
+.is_some_and(|g| g.pad_type == "unplated")
+            {
+                continue;
+            }
             let plated = pad
                 .geometry
                 .as_ref()
                 .is_some_and(|g| g.pad_type == "thru_hole");
-            if layer == Layer::Back && !plated {
+            if !plated && !p.pad_on_copper(f, pad, layer) {
+                continue;
+            }
+            if !pad_exports_on_layer(p, f, pad, layer) {
                 continue;
             }
             let Some(center) = f.pad_position(&pad.number) else {
@@ -139,9 +306,9 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             let axis_aligned = quarter < 1e-9 || 90.0 - quarter < 1e-9;
             let swapped = (rotation.rem_euclid(180.0) - 90.0).abs() < 1e-9;
             let aperture = match pad.geometry.as_ref().map(|g| (g.shape_kind(), g.size)) {
-                None => Aperture::Standard(format!("C,{}", decimal(pad.diameter))),
+                None => Aperture::Standard(format!("C,{}", aperture_mm(pad.diameter))),
                 Some((PadShape::Circle, size)) => {
-                    Aperture::Standard(format!("C,{}", decimal(size.x)))
+                    Aperture::Standard(format!("C,{}", aperture_mm(size.x)))
                 }
                 Some((kind @ (PadShape::Rect | PadShape::Oval), size)) if axis_aligned => {
                     let (w, h) = if swapped {
@@ -150,7 +317,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
                         (size.x, size.y)
                     };
                     let letter = if kind == PadShape::Rect { "R" } else { "O" };
-                    Aperture::Standard(format!("{letter},{}X{}", decimal(w), decimal(h)))
+                    Aperture::Standard(format!("{letter},{}X{}", aperture_mm(w), aperture_mm(h)))
                 }
                 Some((PadShape::Unsupported, _)) => {
                     return Err(format!(
@@ -179,12 +346,39 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             body.push_str(&format!("X{}Y{}D03*\n", coordinate(at.x), coordinate(at.y)));
         }
     }
+    for v in &p.board.vias {
+        if !p.via_span_layers(v).contains(&layer) {
+            continue;
+        }
+        if p.remove_unused_inner_pads_enabled() && !p.copper_layer_is_end(layer) {
+            if !plated_item_connected_on_layer(
+                p,
+                v.net,
+                v.position,
+                v.diameter / 2.0,
+                layer,
+                PlatedConnectKind::Via,
+            ) {
+                continue;
+            }
+        }
+        let code = define(Aperture::Standard(format!("C,{}", decimal(v.diameter))));
+        select(&mut body, code);
+        let at = to_gerber(v.position);
+        body.push_str(&format!("X{}Y{}D03*\n", coordinate(at.x), coordinate(at.y)));
+    }
     let idx = layer.index();
     let index = idx + 1;
-    let side = match idx {
-        0 => "Top",
-        1 => "Bot",
-        _ => "Inr",
+let last = p.copper_layer_count().saturating_sub(1);
+    let side = if idx == 0 {
+        "Top"
+    } else if p.is_bottom(layer) {
+        "Bot"
+    } else if idx >= last {
+        "Bot"
+    } else {
+        "Inr"
+    };
     };
     Ok(format!(
         "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,Copper,L{index},{side}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
@@ -350,7 +544,7 @@ impl Sheet {
         out.push_str(&self.definitions);
         out.push_str(&self.body);
         out.push_str("M02*\n");
-        out
+        attach_gerber_md5(out)
     }
 }
 
@@ -396,7 +590,7 @@ fn footprint_margin(p: &Project, f: &Footprint, mask: bool) -> Option<f64> {
 }
 
 /// Whether a pad carries copper on the requested side.
-fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
+pub(crate) fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
     let (front, back, _) = pad_sides(fp, pad);
     match layer {
         Layer::Back => back,
@@ -408,7 +602,7 @@ fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
 
 /// Whether a pad is surface mounted, and so takes paste. Pads with a drill and
 /// legacy pads that carry only a diameter are through-hole and are skipped.
-fn pad_is_smd(pad: &Pad) -> bool {
+pub(crate) fn pad_is_smd(pad: &Pad) -> bool {
     match &pad.geometry {
         None => false,
         Some(g) => {
@@ -499,13 +693,19 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
                 continue;
             };
             let opening = pad_opening(f, pad, margin, mirror_x)?;
-            let code = sheet.define(opening, "SMDPad,CuDef")?;
+            let code = sheet.define(opening, smd_aperture_function(f, pad))?;
             sheet.flash(code, mirror(at, layer))?;
         }
     }
     for v in &p.board.vias {
+let top = layer == Layer::Front;
+        // A via keeps its mask opening only on a face it leaves open.
+        if !crate::fab_export::via_mask_opening_on(v, &p.board, top) {
+            continue;
+        }
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
-        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        let code = sheet.define(Opening::Circle(microns(diameter)), "SMDPad,CuDef")?;
+        sheet.flash(code, mirror(v.position, layer))?;
         sheet.flash(code, mirror(v.position, layer))?;
     }
     let (function, comment) = match layer {
@@ -522,8 +722,23 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
 /// `DEFAULT_PASTE_MARGIN` when unset. A negative margin shrinks the opening, as
 /// the library rule documents. Through-hole pads get no paste.
 pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
+    gerber_paste_layer(p, layer, true, false)
+}
+
+/// Paste layer for a laser-cut stencil order: board coordinates without mirroring
+/// the bottom side, and fiducials on that side as their own apertures.
+pub fn gerber_paste_stencil(p: &Project, layer: Layer) -> Result<String, String> {
+    gerber_paste_layer(p, layer, false, true)
+}
+
+fn gerber_paste_layer(
+    p: &Project,
+    layer: Layer,
+    mirror_bottom: bool,
+    include_fiducials: bool,
+) -> Result<String, String> {
     p.validate()?;
-    let mirror_x = layer == Layer::Back;
+    let mirror_x = mirror_bottom && layer == Layer::Back;
     let mut sheet = Sheet::new(file_scale(p));
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, false).unwrap_or(DEFAULT_PASTE_MARGIN);
@@ -536,7 +751,24 @@ pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
             };
             let opening = pad_opening(f, pad, margin, mirror_x)?;
             let code = sheet.define(opening, "SMDPad,CuDef")?;
-            sheet.flash(code, mirror(at, layer))?;
+            let at = if mirror_bottom {
+                mirror(at, layer)
+            } else {
+                at
+            };
+            sheet.flash(code, at)?;
+        }
+    }
+    if include_fiducials {
+        for fid in p.board.fiducials.iter().filter(|f| f.layer == layer) {
+            let diameter = fid.diameter.max(0.001);
+            let code = sheet.define(Opening::Circle(microns(diameter)), "FiducialMark")?;
+            let at = if mirror_bottom {
+                mirror(fid.position, layer)
+            } else {
+                fid.position
+            };
+            sheet.flash(code, at)?;
         }
     }
     let (function, comment) = match layer {
@@ -782,8 +1014,82 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
     Ok(sheet.finish(function, "Positive", comment, &notes))
 }
 
+/// Solder mask for one stack row, with an explicit `%TF.FileFunction` string.
+pub fn gerber_mask_for_stack_row(
+    p: &Project,
+    layer: Layer,
+    file_function: &str,
+    default_margin: f64,
+) -> Result<String, String> {
+    p.validate()?;
+    let mirror_x = crate::gerber_fidelity::copper_layer_is_back(p, layer);
+    let mut sheet = Sheet::new(file_scale(p));
+    for f in &p.board.footprints {
+        let margin = footprint_margin(p, f, true).unwrap_or(default_margin);
+        for pad in &f.pads {
+            if !f.pad_on_copper(pad, layer) {
+                continue;
+            }
+            let Some(at) = f.pad_position(&pad.number) else {
+                continue;
+            };
+            let opening = pad_opening(f, pad, margin, mirror_x)?;
+            let code = sheet.define(opening, smd_aperture_function(f, pad))?;
+            let at = if mirror_x {
+                Point::new(-at.x, at.y)
+            } else {
+                at
+            };
+            sheet.flash(code, at)?;
+        }
+    }
+    for v in &p.board.vias {
+        if !p.via_span_layers(v).contains(&layer) {
+            continue;
+        }
+        if !crate::via_mask_opening(v, &p.board) {
+            continue;
+        }
+        let diameter = (v.diameter + 2.0 * default_margin).max(0.001);
+        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        sheet.flash(code, mirror(v.position, layer))?;
+    }
+    Ok(sheet.finish(file_function, "Negative", "mask layer from stack", &[]))
+}
+
+/// Viafill layer for filled vias.
+pub fn gerber_viafill_layer(p: &Project) -> Result<String, String> {
+    use pcbcraft_doc::ViaCovering;
+    p.validate()?;
+    let mut sheet = Sheet::new(file_scale(p));
+    for v in &p.board.vias {
+        if v.drill <= 0.0 {
+            continue;
+        }
+        match v.effective_covering(&p.board) {
+            ViaCovering::Filled | ViaCovering::FilledCovered | ViaCovering::FilledCapped => {}
+            _ => continue,
+        }
+        let diameter = v.drill.max(0.001);
+        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        sheet.flash(code, v.position)?;
+    }
+    Ok(sheet.finish("Viafill", "Positive", "via fill", &[]))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn coordinate_scales_rounds_and_keeps_sign() {
+        assert_eq!(coordinate(10.0), 10_000_000);
+        assert_eq!(coordinate(-5.25), -5_250_000);
+        assert_eq!(coordinate(0.000_000_4), 0);
+        assert_eq!(coordinate(0.000_000_6), 1);
+        assert_eq!(coordinate(-0.000_000_6), -1);
+        assert_eq!(coordinate(-0.0), 0);
+        assert_eq!(coordinate(1_234.567_891_4), 1_234_567_891);
+    }
+
     use super::*;
     use pcbcraft_doc::{Component, LibraryFootprint, Net, Pin, Via};
     use pcbcraft_library::{
@@ -857,6 +1163,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: vec![],
             })
             .collect()
     }
@@ -871,7 +1178,10 @@ mod tests {
     ) -> Component {
         let numbers: Vec<&str> = pads.iter().map(|p| p.number.as_str()).collect();
         Component {
+            sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id,
             reference: reference.into(),
             value: "1k".into(),
@@ -891,12 +1201,18 @@ mod tests {
                     graphics,
                     model: None,
                     rules,
+                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         }
+    sourcing: Default::default(),
+    compliance: Default::default(),
     }
 
     /// Project with a front SMD part, a through-hole part, a via, front and back
@@ -963,6 +1279,7 @@ mod tests {
             None,
         );
         project.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 2,
             component: 1,
             position: front.position,
@@ -972,6 +1289,7 @@ mod tests {
             pads: front_pads.iter().map(placed).collect(),
         });
         project.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             component: 3,
             position: through.position,
@@ -985,6 +1303,7 @@ mod tests {
         project.components.push(front);
         project.components.push(through);
         project.board.vias.push(Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 5,
             net: 8,
             position: Point::new(30.0, 10.0),
@@ -993,6 +1312,8 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
+            covering_bottom: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,
@@ -1011,6 +1332,7 @@ mod tests {
             width: 0.15,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.validate()?;
         Ok(project)
@@ -1243,6 +1565,7 @@ mod tests {
         let placed = placed(&pad);
         assert!(pad_is_smd(&placed), "a pad without a drill takes paste");
         let footprint = Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 1,
             component: 1,
             position: Point::new(0.0, 0.0),

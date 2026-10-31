@@ -24,9 +24,12 @@
 //! - crates/ui-egui/src/board3d.rs (`Basis`, `flip`)
 //!
 //! # Do not
-//! - Use the GPU or any thread; it runs in headless tests and the browser build.
-use super::{Basis, FOV_TAN, NEAR, V, cross, dot, flip, sub, unit};
-use pcbcraft_io::{BoardMesh, PartKind};
+//! - Use the GPU; native builds may rasterise scanline bands in parallel.
+use super::{FOV_TAN, NEAR, V, cross, dot, flip, sub, unit, Basis};
+use pcbcraft_io::{apply_matrix, BoardMesh, PartKind};
+use scene::{box_corners, box_indices, prepare, Drawable, Scene};
+
+mod scene;
 
 /// What to draw and how, besides the camera.
 #[derive(Clone, Debug, PartialEq)]
@@ -42,10 +45,18 @@ pub(super) struct Look {
     pub silk: [u8; 3],
 }
 
-/// Default solder mask: a deep green.
-pub(super) const MASK_SRGB: [u8; 3] = [23, 86, 52];
-/// Default silkscreen ink: off-white.
-pub(super) const SILK_SRGB: [u8; 3] = [223, 227, 224];
+const BG_TOP: [f32; 3] = [44.0, 48.0, 56.0];
+const BG_BOTTOM: [f32; 3] = [18.0, 20.0, 25.0];
+const MASK: [f32; 3] = [18.0, 104.0, 58.0];
+const FR4: [f32; 3] = [196.0, 172.0, 112.0];
+const MASK_OVER: [f32; 3] = [52.0, 136.0, 84.0];
+const SILK: [f32; 3] = [244.0, 244.0, 238.0];
+const PACKAGE: [f32; 3] = [38.0, 40.0, 47.0];
+const GOLD: [f32; 3] = [222.0, 176.0, 62.0];
+const TIN: [f32; 3] = [200.0, 202.0, 206.0];
+const PICKED: [f32; 3] = [255.0, 190.0, 40.0];
+#[cfg(not(target_arch = "wasm32"))]
+const BAND_ROWS: usize = 48;
 
 type F3 = [f32; 3];
 
@@ -192,143 +203,29 @@ fn comb(a: V, x: f64, b: V, y: f64, c: V, z: f64) -> V {
     ]
 }
 
-/// What a triangle is made of and how light reaches it, computed once.
-#[derive(Clone, Copy)]
-struct Tri {
-    n: F3,
-    /// Diffuse colour times the light arriving on the face.
-    diffuse: F3,
-    /// Reflectance at normal incidence; zero for none.
-    f0: F3,
-    rough: f32,
-    /// True when the sample needs a view vector for its reflection.
-    shiny: bool,
-    /// The same triangle seen under mask: diffuse colour when covered.
-    covered: F3,
-    /// Faces up on the board surface, so a contact shadow may fall on it.
-    ground: bool,
+struct FrameCtx<'a> {
+    basis: &'a Basis,
+    look: &'a Look,
+    sw: usize,
+    sh: usize,
+    focal: f64,
+    cx: f64,
+    cy: f64,
+    toward_eye: V,
+    key: V,
+    fill: V,
+    rim: V,
+    half: V,
+    ss: usize,
 }
 
-const F_COPPER: u8 = 1;
-const F_COVERED: u8 = 2;
-
-/// Surface description before lighting.
-struct Surface {
-    albedo: F3,
-    metal: f32,
-    rough: f32,
-}
-
-fn surface(
-    part: &pcbcraft_io::MeshPart,
-    n: F3,
-    up_facing: bool,
-    look: &Look,
-    mats: &Mats,
-) -> Surface {
-    let plastic = |c: F3, rough: f32| Surface {
-        albedo: c,
-        metal: 0.0,
-        rough,
-    };
-    match part.kind {
-        PartKind::Board => {
-            if up_facing {
-                plastic(mats.mask, 0.7)
-            } else {
-                plastic(mats.fr4, 0.96)
-            }
-        }
-        PartKind::CopperTop | PartKind::CopperBottom => Surface {
-            albedo: mats.copper,
-            metal: if look.gold { 0.92 } else { 0.95 },
-            rough: if look.gold { 0.27 } else { 0.40 },
-        },
-        PartKind::MaskTop | PartKind::MaskBottom => plastic(mats.mask, 0.62),
-        PartKind::SilkTop | PartKind::SilkBottom => plastic(mats.silk, 0.63),
-        PartKind::Lead => Surface {
-            albedo: part.color.map_or(mats.tin, lin3f),
-            metal: 1.0,
-            rough: 0.44,
-        },
-        PartKind::Body => {
-            let family = part.family.as_deref().unwrap_or("");
-            let colour = part.color.map(lin3f);
-            match family {
-                "radial" if n[2] > 0.9 || n[2] < -0.9 => Surface {
-                    albedo: colour.unwrap_or(mats.tin),
-                    metal: 0.9,
-                    rough: 0.38,
-                },
-                "radial" => Surface {
-                    albedo: colour.unwrap_or(lin3([20, 24, 32])),
-                    metal: 0.3,
-                    rough: 0.35,
-                },
-                "chip" => plastic(colour.unwrap_or(lin3([52, 46, 40])), 0.5),
-                "axial" => plastic(colour.unwrap_or(lin3([190, 150, 96])), 0.6),
-                "mark" => plastic(colour.unwrap_or(lin3([170, 172, 175])), 0.6),
-                _ => plastic(colour.unwrap_or(mats.package), 0.42),
-            }
-        }
-    }
-}
-
-struct Mats {
-    mask: F3,
-    mask_over: F3,
-    fr4: F3,
-    silk: F3,
-    package: F3,
-    copper: F3,
-    tin: F3,
-    picked: F3,
-}
-
-/// Light one visible triangle: its material, the light on its face, and the
-/// colour it shows under mask. Called once per triangle that wins a sample.
-fn make_tri(mesh: &BoardMesh, part: usize, nf: F3, look: &Look, mats: &Mats, rig: &Rig) -> Tri {
-    let part = &mesh.parts[part];
-    let is_mask = matches!(part.kind, PartKind::MaskTop | PartKind::MaskBottom);
-    let picked = part.component.is_some() && part.component == look.selected;
-    let solid_outward = !matches!(part.kind, PartKind::Body | PartKind::Lead);
-    let mut s = surface(part, nf, nf[2].abs() >= 0.7, look, mats);
-    if picked {
-        s.albedo = mats.picked;
-        s.metal = 0.0;
-    }
-    let f0 = mix3([0.04f32; 3], s.albedo, s.metal);
-    let irr = rig.irradiance(nf);
-    let diffuse = scale3(mul3(s.albedo, irr), 1.0 - s.metal);
-    let covered = if is_mask {
-        mul3(mats.mask_over, irr)
-    } else {
-        diffuse
-    };
-    Tri {
-        n: nf,
-        diffuse,
-        f0,
-        rough: s.rough,
-        shiny: s.metal > 0.2 || s.rough < 0.5,
-        covered,
-        ground: solid_outward && nf[2] > 0.5,
-    }
+struct TriCam {
+    a: (f64, f64, f64, V),
+    b: (f64, f64, f64, V),
+    c: (f64, f64, f64, V),
 }
 
 /// Draw the mesh at `w` by `h` pixels.
-///
-/// Why: a painter-ordered triangle soup cannot hold coplanar layers apart; a
-/// depth buffer can, and it costs little on a board.
-///
-/// # Rules
-/// - Triangles with a corner behind the near plane are dropped, not clipped.
-/// - Both faces draw, lit from the side that faces the camera.
-/// - Parts draw in mesh order: copper, then mask, then silk, then bodies; the
-///   mask and silk rules above lean on that order.
-///
-/// # Do not
-/// - Call it every frame; `board3d.rs` caches the image.
 pub(super) fn render(
     mesh: &BoardMesh,
     basis: &Basis,
@@ -341,163 +238,56 @@ pub(super) fn render(
     let focal = sh as f64 / 2.0 / FOV_TAN;
     let (cx, cy) = (sw as f64 / 2.0, sh as f64 / 2.0);
     let mut depth = vec![0.0f32; sw * sh];
-    let mut ids = vec![0u32; sw * sh];
-    let mut flags = vec![0u8; sw * sh];
-
-    let toward_eye = [-basis.fwd[0], -basis.fwd[1], -basis.fwd[2]];
-    // Seen from below the board, the face leans the other way: the rig turns over
-    // with the camera so the underside is lit like the top, not from behind.
-    let flipped = toward_eye[2] < 0.0;
-    let basis_up = if flipped {
-        [-basis.up[0], -basis.up[1], -basis.up[2]]
-    } else {
-        basis.up
-    };
-    // Upper right at about 46 degrees, a cool rim from behind, a soft fill from the left.
-    let key = unit(comb(basis_up, 0.72, basis.right, 0.62, toward_eye, 0.55));
-    let fill = unit(comb(basis_up, 0.30, basis.right, -0.85, toward_eye, 0.50));
-    let rim = unit(comb(basis_up, 0.45, basis.right, -0.25, toward_eye, -0.85));
-    let bounce = unit(comb(basis_up, -0.8, basis.right, 0.1, toward_eye, 0.45));
-    let rig = Rig {
-        key: v3(key),
-        fill: v3(fill),
-        rim: v3(rim),
-        bounce: v3(bounce),
-        up: v3(basis_up),
-        eye: v3(toward_eye),
-    };
-    let mats = {
-        let mask = lin3(look.mask);
-        let copper = lin3(if look.gold { GOLD_SRGB } else { TIN_SRGB });
-        Mats {
-            mask,
-            // Copper shows through the thin mask: lighter and warmer.
-            mask_over: mix3(scale3(mask, 1.3), scale3(lin3(GOLD_SRGB), 0.35), 0.09),
-            fr4: lin3(FR4_SRGB),
-            silk: lin3(look.silk),
-            package: lin3(PACKAGE_SRGB),
-            copper,
-            tin: lin3(TIN_SRGB),
-            picked: lin3(PICKED_SRGB),
-        }
-    };
-
-    let mut table: Vec<(u32, F3)> = Vec::new();
-    for (pi, part) in mesh.parts.iter().enumerate() {
-        let is_mask = matches!(part.kind, PartKind::MaskTop | PartKind::MaskBottom);
-        let is_copper = matches!(part.kind, PartKind::CopperTop | PartKind::CopperBottom);
-        let is_silk = matches!(part.kind, PartKind::SilkTop | PartKind::SilkBottom);
-        let solid_outward = !matches!(part.kind, PartKind::Body | PartKind::Lead);
-        let cam: Vec<Option<(f64, f64, f64, V)>> = part
-            .positions
-            .iter()
-            .map(|p| {
-                let world = flip(*p);
-                let rel = sub(world, basis.eye);
-                let z = dot(rel, basis.fwd);
-                (z > NEAR).then(|| {
-                    let x = dot(rel, basis.right);
-                    let y = dot(rel, basis.up);
-                    (cx + x / z * focal, cy - y / z * focal, 1.0 / z, world)
-                })
-            })
-            .collect();
-        for tri in part.indices.as_chunks::<3>().0.iter() {
-            let (Some(Some(a)), Some(Some(b)), Some(Some(c))) = (
-                cam.get(tri[0] as usize),
-                cam.get(tri[1] as usize),
-                cam.get(tri[2] as usize),
-            ) else {
-                continue;
-            };
-            let area = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
-            if area.abs() < 1e-12 {
-                continue;
-            }
-            let x0 = a.0.min(b.0).min(c.0).floor().max(0.0) as usize;
-            let x1 = (a.0.max(b.0).max(c.0).ceil().max(0.0) as usize).min(sw.saturating_sub(1));
-            let y0 = a.1.min(b.1).min(c.1).floor().max(0.0) as usize;
-            let y1 = (a.1.max(b.1).max(c.1).ceil().max(0.0) as usize).min(sh.saturating_sub(1));
-            if x0 > x1 || y0 > y1 {
-                continue;
-            }
-            // While the camera moves, specks under a pixel are not worth the time.
-            if ss == 1 && x1 - x0 <= 1 && y1 - y0 <= 1 {
-                continue;
-            }
-            let mut n = unit(cross(sub(b.3, a.3), sub(c.3, a.3)));
-            let facing = dot(n, sub(basis.eye, a.3));
-            if solid_outward {
-                // Closed solids wound outward before the mirror: the far side is never seen.
-                if facing >= 0.0 {
-                    continue;
-                }
-                n = [-n[0], -n[1], -n[2]];
-            } else if facing < 0.0 {
-                n = [-n[0], -n[1], -n[2]];
-            }
-            let nf = v3(n);
-            let id = table.len() as u32 + 1;
-            table.push((pi as u32, nf));
-            // Depth is linear in screen space once taken as 1/z: a plane.
-            let dx = ((b.2 - a.2) * (c.1 - a.1) - (c.2 - a.2) * (b.1 - a.1)) / area;
-            let dy = ((c.2 - a.2) * (b.0 - a.0) - (b.2 - a.2) * (c.0 - a.0)) / area;
-            let edges = [(a, b), (b, c), (c, a)];
-            for py in y0..=y1 {
-                let fy = py as f64 + 0.5;
-                let (mut xl, mut xr) = (f64::INFINITY, f64::NEG_INFINITY);
-                for (p, q) in edges {
-                    if (p.1 <= fy) != (q.1 <= fy) {
-                        let x = p.0 + (fy - p.1) / (q.1 - p.1) * (q.0 - p.0);
-                        xl = xl.min(x);
-                        xr = xr.max(x);
-                    }
-                }
-                if xl > xr {
-                    continue;
-                }
-                let first = ((xl - 0.5).ceil().max(x0 as f64)) as usize;
-                let last = ((xr - 0.5).floor().min(x1 as f64)) as usize;
-                if (xr - 0.5).floor() < first as f64 {
-                    continue;
-                }
-                let row = py * sw;
-                for px in first..=last {
-                    let iz = (a.2 + dx * (px as f64 + 0.5 - a.0) + dy * (fy - a.1)) as f32;
-                    let at = row + px;
-                    if iz > depth[at] {
-                        let old = flags[at];
-                        // Ink never lies over an exposed pad: the mask opening clips it.
-                        if is_silk && old & F_COPPER != 0 {
-                            continue;
-                        }
-                        // Copper no deeper than the mask is thick shows through it.
-                        let covers = is_mask
-                            && old & F_COPPER != 0
-                            && depth[at] > 0.0
-                            && (1.0 / depth[at] as f64 - 1.0 / iz as f64) < 0.08;
-                        depth[at] = iz;
-                        ids[at] = id;
-                        flags[at] = if is_copper {
-                            F_COPPER
-                        } else if covers {
-                            F_COVERED
-                        } else {
-                            0
-                        };
-                    }
-                }
-            }
-        }
+    let mut color = vec![[0u8; 3]; sw * sh];
+    let mut copper = vec![false; sw * sh];
+    for y in 0..sh {
+        let t = y as f32 / sh.max(1) as f32;
+        let row = [
+            (BG_TOP[0] + (BG_BOTTOM[0] - BG_TOP[0]) * t) as u8,
+            (BG_TOP[1] + (BG_BOTTOM[1] - BG_TOP[1]) * t) as u8,
+            (BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * t) as u8,
+        ];
+        color[y * sw..(y + 1) * sw].fill(row);
     }
+    let toward_eye = [-basis.fwd[0], -basis.fwd[1], -basis.fwd[2]];
+    let key = norm(comb(basis.up, 0.8, basis.right, -0.55, toward_eye, 0.6));
+    let fill = norm(comb(basis.up, 0.15, basis.right, 0.85, toward_eye, 0.5));
+    let rim = norm(comb(basis.up, 0.5, basis.right, 0.2, toward_eye, -0.85));
+    let half = norm([
+        key[0] + toward_eye[0],
+        key[1] + toward_eye[1],
+        key[2] + toward_eye[2],
+    ]);
+    let scene = prepare(mesh, basis, sw, sh, focal, cx, cy, ss);
+    let ctx = FrameCtx {
+        basis,
+        look,
+        sw,
+        sh,
+        focal,
+        cx,
+        cy,
+        toward_eye,
+        key,
+        fill,
+        rim,
+        half,
+        ss,
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        let bands: Vec<(usize, usize)> = (0..sh)
+            .step_by(BAND_ROWS)
+            .map(|y0| (y0, (y0 + BAND_ROWS).min(sh).saturating_sub(1)))
+            .collect();
+        bands.par_iter().for_each(|&(y0, y1)| {
+            raster_scene_band(&scene, &ctx, &mut depth, &mut color, &mut copper, y0, y1);
+        });
+    }
+    #[cfg(target_arch = "wasm32")]
+    raster_scene_band(&scene, &ctx, &mut depth, &mut color, &mut copper, 0, sh.saturating_sub(1));
 
-    // Lit triangles are made on first use: most of the table is never visible.
-    let mut slot = vec![0u32; table.len()];
-    let mut lit: Vec<Tri> = Vec::new();
-    let shadow = contact_shadow(mesh, basis, w, h);
-    // Shade: one pass over the samples, averaged into pixels in linear light.
-    let tan = FOV_TAN as f32;
-    let (right, up, fwd) = (v3(basis.right), v3(basis.up), v3(basis.fwd));
     let mut out = Vec::with_capacity(w * h);
     let mut flat: Option<(u32, u8, egui::Color32)> = None;
     let inv = 1.0 / (ss * ss) as f32;
@@ -612,114 +402,229 @@ pub(super) fn render(
     egui::ColorImage::new([w, h], out)
 }
 
-/// Near-black studio backdrop with a soft pool of light under the board and a
-/// vignette; `u` and `v` run 0..1 across the picture.
-fn backdrop(u: f32, v: f32) -> F3 {
-    let (dx, dy) = (u - 0.5, (v - 0.55) * 1.15);
-    let r2 = dx * dx + dy * dy;
-    let pool = (1.0 - r2 * 5.0).max(0.0);
-    let vignette = (1.0 - r2 * 1.1).clamp(0.2, 1.0);
-    add3(
-        scale3(BG, vignette),
-        scale3([0.0090, 0.0105, 0.0130], pool * pool),
-    )
-}
-
-/// Soft contact shadow under part bodies: darkness 0..255 per output pixel.
-///
-/// Why: a flat-shaded board gives parts nothing to sit on. Each body's
-/// footprint grows into four nested rings of rising darkness on the board
-/// plane; the result is blurred, and only faces up on the board surface
-/// take it, so it costs a few small polygons and two box blurs, never a
-/// per-pixel search.
-///
-/// # Rules
-/// - Rings are star polygons around the footprint centre, fanned into triangles.
-/// - Only the bottom ring of each body counts; marks and leads add nothing.
-fn contact_shadow(mesh: &BoardMesh, basis: &Basis, w: usize, h: usize) -> Vec<u8> {
-    let mut map = vec![0u8; w * h];
-    let focal = h as f64 / 2.0 / FOV_TAN;
-    let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
-    let project = |p: V| -> Option<(f64, f64)> {
-        let world = flip(p);
-        let rel = sub(world, basis.eye);
-        let z = dot(rel, basis.fwd);
-        (z > NEAR).then(|| {
-            (
-                cx + dot(rel, basis.right) / z * focal,
-                cy - dot(rel, basis.up) / z * focal,
-            )
-        })
-    };
-    const RINGS: [(f64, u8); 4] = [(1.0, 46), (0.72, 78), (0.46, 108), (0.2, 140)];
-    for part in &mesh.parts {
-        if part.kind != PartKind::Body || part.family.as_deref() == Some("mark") {
-            continue;
-        }
-        let Some((lo, hi)) = part.bounds() else {
-            continue;
-        };
-        let height = hi[2] - lo[2];
-        let reach = (0.35 + 0.55 * height).clamp(0.3, 2.4);
-        let mut foot: Vec<(f64, f64)> = part
-            .positions
-            .iter()
-            .filter(|p| p[2] <= lo[2] + 1e-6)
-            .map(|p| (p[0], p[1]))
-            .collect();
-        if foot.len() < 3 {
-            continue;
-        }
-        foot.dedup();
-        let (mx, my) = (
-            foot.iter().map(|p| p.0).sum::<f64>() / foot.len() as f64,
-            foot.iter().map(|p| p.1).sum::<f64>() / foot.len() as f64,
-        );
-        foot.sort_by(|a, b| {
-            (a.1 - my)
-                .atan2(a.0 - mx)
-                .total_cmp(&(b.1 - my).atan2(b.0 - mx))
-        });
-        for (grow, dark) in RINGS {
-            let ring: Option<Vec<(f64, f64)>> = foot
-                .iter()
-                .map(|p| {
-                    let (dx, dy) = (p.0 - mx, p.1 - my);
-                    let len = (dx * dx + dy * dy).sqrt().max(1e-6);
-                    let k = (len + reach * grow) / len;
-                    project([mx + dx * k, my + dy * k, lo[2]])
-                })
-                .collect();
-            let Some(ring) = ring else { continue };
-            let centre = project([mx, my, lo[2]]);
-            let Some(centre) = centre else { continue };
-            for i in 0..ring.len() {
-                let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
-                fill_triangle(&mut map, w, h, centre, a, b, dark);
+fn raster_scene_band(
+    scene: &Scene<'_>,
+    ctx: &FrameCtx<'_>,
+    depth: &mut [f32],
+    color: &mut [[u8; 3]],
+    copper: &mut [bool],
+    band_y0: usize,
+    band_y1: usize,
+) {
+    for draw in &scene.drawables {
+        match *draw {
+            Drawable::Tris { part, slice } => {
+                shade_part_tris(part, slice.positions, slice.indices, ctx, depth, color, copper, band_y0, band_y1);
+            }
+            Drawable::Instanced { part, index_len } => {
+                let (Some(proto), Some(m)) = (&part.prototype, &part.instance) else {
+                    continue;
+                };
+                let indices = &proto.indices[..index_len];
+                for tri in indices.as_chunks::<3>().0.iter() {
+                    let (Some(a), Some(b), Some(c)) = (
+                        proto.positions.get(tri[0] as usize),
+                        proto.positions.get(tri[1] as usize),
+                        proto.positions.get(tri[2] as usize),
+                    ) else {
+                        continue;
+                    };
+                    let wa = apply_matrix(m, *a);
+                    let wb = apply_matrix(m, *b);
+                    let wc = apply_matrix(m, *c);
+                    if let Some(cam) = project_tri(ctx, wa, wb, wc)
+                        && let Some(shade) = shade_tri(part, &cam, ctx)
+                    {
+                        raster_tri(&cam, &shade, part, ctx, depth, color, copper, band_y0, band_y1);
+                    }
+                }
+            }
+            Drawable::Box { part, min, max } => {
+                let corners = box_corners(min, max);
+                for face in box_indices() {
+                    let wa = corners[face[0]];
+                    let wb = corners[face[1]];
+                    let wc = corners[face[2]];
+                    if let Some(cam) = project_tri(ctx, wa, wb, wc)
+                        && let Some(shade) = shade_tri(part, &cam, ctx)
+                    {
+                        raster_tri(&cam, &shade, part, ctx, depth, color, copper, band_y0, band_y1);
+                    }
+                }
             }
         }
     }
-    blur(&mut map, w, h);
-    blur(&mut map, w, h);
-    map
 }
 
-/// Write `value` into every pixel centre inside the triangle, keeping the larger.
-fn fill_triangle(
-    map: &mut [u8],
-    w: usize,
-    h: usize,
-    a: (f64, f64),
-    b: (f64, f64),
-    c: (f64, f64),
-    value: u8,
+fn shade_part_tris(
+    part: &pcbcraft_io::MeshPart,
+    positions: &[[f64; 3]],
+    indices: &[u32],
+    ctx: &FrameCtx<'_>,
+    depth: &mut [f32],
+    color: &mut [[u8; 3]],
+    copper: &mut [bool],
+    band_y0: usize,
+    band_y1: usize,
 ) {
-    let y0 = a.1.min(b.1).min(c.1).floor().max(0.0) as usize;
-    let y1 = (a.1.max(b.1).max(c.1).ceil().max(0.0) as usize).min(h.saturating_sub(1));
+    for tri in indices.as_chunks::<3>().0.iter() {
+        let (Some(a), Some(b), Some(c)) = (
+            positions.get(tri[0] as usize),
+            positions.get(tri[1] as usize),
+            positions.get(tri[2] as usize),
+        ) else {
+            continue;
+        };
+        if let Some(cam) = project_tri(ctx, *a, *b, *c)
+            && let Some(shade) = shade_tri(part, &cam, ctx)
+        {
+            raster_tri(&cam, &shade, part, ctx, depth, color, copper, band_y0, band_y1);
+        }
+    }
+}
+
+fn project_tri(ctx: &FrameCtx<'_>, a: V, b: V, c: V) -> Option<TriCam> {
+    let project = |p: V| {
+        let world = flip(p);
+        let rel = sub(world, ctx.basis.eye);
+        let z = dot(rel, ctx.basis.fwd);
+        (z > NEAR).then(|| {
+            let x = dot(rel, ctx.basis.right);
+            let y = dot(rel, ctx.basis.up);
+            (
+                ctx.cx + x / z * ctx.focal,
+                ctx.cy - y / z * ctx.focal,
+                1.0 / z,
+                world,
+            )
+        })
+    };
+    let a = project(a)?;
+    let b = project(b)?;
+    let c = project(c)?;
+    Some(TriCam { a, b, c })
+}
+
+struct TriShade {
+    base: [f32; 3],
+    lit: f64,
+    spec: f64,
+    over: [u8; 3],
+    is_mask: bool,
+    is_copper: bool,
+}
+
+fn shade_tri(part: &pcbcraft_io::MeshPart, cam: &TriCam, ctx: &FrameCtx<'_>) -> Option<TriShade> {
+    let is_mask = matches!(part.kind, PartKind::MaskTop | PartKind::MaskBottom);
+    let is_copper = matches!(part.kind, PartKind::CopperTop | PartKind::CopperBottom);
+    let picked = part.component.is_some() && part.component == ctx.look.selected;
+    let (base_color, shine) = match part.kind {
+        PartKind::Board => (MASK, 0.12),
+        PartKind::CopperTop | PartKind::CopperBottom => {
+            (if ctx.look.gold { GOLD } else { TIN }, 0.55)
+        }
+        PartKind::SilkTop | PartKind::SilkBottom => (SILK, 0.0),
+        PartKind::MaskTop | PartKind::MaskBottom => (MASK, 0.0),
+        PartKind::Body => (
+            part.color
+                .or_else(|| {
+                    part.prototype
+                        .as_ref()
+                        .and_then(|p| p.color)
+                })
+                .map(|c| [c[0] * 255.0, c[1] * 255.0, c[2] * 255.0])
+                .unwrap_or(PACKAGE),
+            0.25,
+        ),
+    };
+    let area = (cam.b.0 - cam.a.0) * (cam.c.1 - cam.a.1) - (cam.b.1 - cam.a.1) * (cam.c.0 - cam.a.0);
+    if area.abs() < 1e-12 {
+        return None;
+    }
+    let mut n = norm(cross(sub(cam.b.3, cam.a.3), sub(cam.c.3, cam.a.3)));
+    let facing = dot(n, sub(ctx.basis.eye, cam.a.3));
+    if part.kind != PartKind::Body {
+        if facing >= 0.0 {
+            return None;
+        }
+        n = [-n[0], -n[1], -n[2]];
+    } else if facing < 0.0 {
+        n = [-n[0], -n[1], -n[2]];
+    }
+    let mut base = base_color;
+    if part.kind == PartKind::Board && n[2].abs() < 0.7 {
+        base = FR4;
+    }
+    if picked {
+        base = PICKED;
+    }
+    let lit = 0.28
+        + 0.42 * dot(n, ctx.toward_eye).max(0.0)
+        + 0.36 * dot(n, ctx.key).max(0.0)
+        + 0.20 * dot(n, ctx.fill).max(0.0)
+        + 0.14 * dot(n, ctx.rim).max(0.0);
+    let spec = shine * dot(n, ctx.half).max(0.0).powi(24) * 255.0;
+    let over = {
+        let m = [
+            MASK_OVER[0] * lit as f32 + spec as f32,
+            MASK_OVER[1] * lit as f32 + spec as f32,
+            MASK_OVER[2] * lit as f32 + spec as f32,
+        ];
+        [
+            m[0].min(255.0) as u8,
+            m[1].min(255.0) as u8,
+            m[2].min(255.0) as u8,
+        ]
+    };
+    Some(TriShade {
+        base,
+        lit,
+        spec,
+        over,
+        is_mask,
+        is_copper,
+    })
+}
+
+fn raster_tri(
+    cam: &TriCam,
+    shade: &TriShade,
+    _part: &pcbcraft_io::MeshPart,
+    ctx: &FrameCtx<'_>,
+    depth: &mut [f32],
+    color: &mut [[u8; 3]],
+    copper: &mut [bool],
+    band_y0: usize,
+    band_y1: usize,
+) {
+    let area = (cam.b.0 - cam.a.0) * (cam.c.1 - cam.a.1) - (cam.b.1 - cam.a.1) * (cam.c.0 - cam.a.0);
+    let x0 = cam.a.0.min(cam.b.0).min(cam.c.0).floor().max(0.0) as usize;
+    let x1 = (cam.a.0.max(cam.b.0).max(cam.c.0).ceil().max(0.0) as usize).min(ctx.sw.saturating_sub(1));
+    let y0 = cam.a.1.min(cam.b.1).min(cam.c.1).floor().max(0.0) as usize;
+    let y1 = (cam.a.1.max(cam.b.1).max(cam.c.1).ceil().max(0.0) as usize).min(ctx.sh.saturating_sub(1));
+    if x0 > x1 || y0 > y1 {
+        return;
+    }
+    if y1 < band_y0 || y0 > band_y1 {
+        return;
+    }
+    if ctx.ss == 1 && x1 - x0 <= 1 && y1 - y0 <= 1 {
+        return;
+    }
+    let y0 = y0.max(band_y0);
+    let y1 = y1.min(band_y1);
+    let rgb = [
+        (shade.base[0] * shade.lit as f32 + shade.spec as f32).min(255.0) as u8,
+        (shade.base[1] * shade.lit as f32 + shade.spec as f32).min(255.0) as u8,
+        (shade.base[2] * shade.lit as f32 + shade.spec as f32).min(255.0) as u8,
+    ];
+    let dx = ((cam.b.2 - cam.a.2) * (cam.c.1 - cam.a.1) - (cam.c.2 - cam.a.2) * (cam.b.1 - cam.a.1)) / area;
+    let dy = ((cam.c.2 - cam.a.2) * (cam.b.0 - cam.a.0) - (cam.b.2 - cam.a.2) * (cam.c.0 - cam.a.0)) / area;
+    let edges = [(cam.a, cam.b), (cam.b, cam.c), (cam.c, cam.a)];
     for py in y0..=y1 {
         let fy = py as f64 + 0.5;
         let (mut xl, mut xr) = (f64::INFINITY, f64::NEG_INFINITY);
-        for (p, q) in [(a, b), (b, c), (c, a)] {
+        for (p, q) in edges {
             if (p.1 <= fy) != (q.1 <= fy) {
                 let x = p.0 + (fy - p.1) / (q.1 - p.1) * (q.0 - p.0);
                 xl = xl.min(x);
@@ -729,31 +634,25 @@ fn fill_triangle(
         if xl > xr {
             continue;
         }
-        let first = (xl - 0.5).ceil().max(0.0) as usize;
-        let last = ((xr - 0.5).floor().max(-1.0) + 1.0).min(w as f64) as usize;
-        for px in first..last {
-            let at = py * w + px;
-            map[at] = map[at].max(value);
+        let first = ((xl - 0.5).ceil().max(x0 as f64)) as usize;
+        let last = ((xr - 0.5).floor().min(x1 as f64)) as usize;
+        if (xr - 0.5).floor() < first as f64 {
+            continue;
+        }
+        let row = py * ctx.sw;
+        for px in first..=last {
+            let iz = (cam.a.2 + dx * (px as f64 + 0.5 - cam.a.0) + dy * (fy - cam.a.1)) as f32;
+            let at = row + px;
+            if iz > depth[at] {
+                let covers = shade.is_mask
+                    && copper[at]
+                    && depth[at] > 0.0
+                    && (1.0 / depth[at] as f64 - 1.0 / iz as f64) < 0.08;
+                depth[at] = iz;
+                color[at] = if covers { shade.over } else { rgb };
+                copper[at] = shade.is_copper;
+            }
         }
     }
 }
 
-/// One 3 by 3 box blur in place, as a horizontal then a vertical pass.
-fn blur(map: &mut [u8], w: usize, h: usize) {
-    if w < 3 || h < 3 {
-        return;
-    }
-    let mut mid = vec![0u16; w * h];
-    for y in 0..h {
-        for x in 1..w - 1 {
-            let i = y * w + x;
-            mid[i] = u16::from(map[i - 1]) + u16::from(map[i]) + u16::from(map[i + 1]);
-        }
-    }
-    for y in 1..h - 1 {
-        for x in 1..w - 1 {
-            let i = y * w + x;
-            map[i] = ((mid[i - w] + mid[i] + mid[i + w]) / 9) as u8;
-        }
-    }
-}

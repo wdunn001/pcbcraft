@@ -27,7 +27,7 @@ impl std::fmt::Debug for Icon {
     }
 }
 
-fn pt(rect: Rect, x: f32, y: f32) -> Pos2 {
+pub(super) fn pt(rect: Rect, x: f32, y: f32) -> Pos2 {
     // 16 by 16 design grid mapped into the rect.
     pos2(
         rect.min.x + rect.width() * x / 16.0,
@@ -35,7 +35,7 @@ fn pt(rect: Rect, x: f32, y: f32) -> Pos2 {
     )
 }
 
-fn line(p: &Painter, rect: Rect, c: Color32, pts: &[(f32, f32)]) {
+pub(super) fn line(p: &Painter, rect: Rect, c: Color32, pts: &[(f32, f32)]) {
     let points: Vec<Pos2> = pts.iter().map(|&(x, y)| pt(rect, x, y)).collect();
     p.add(Shape::line(points, Stroke::new(ICON_STROKE, c)));
 }
@@ -54,6 +54,15 @@ pub const MORE: Icon = Icon(|p, r, c| {
     for x in [3.5, 8.0, 12.5] {
         p.circle_filled(pt(r, x, 8.0), 1.2, c);
     }
+});
+
+/// A push pin, for keeping an item at the top of a list.
+pub const PIN: Icon = Icon(|p, r, c| {
+    line(p, r, c, &[(6.0, 2.5), (10.0, 2.5)]);
+    line(p, r, c, &[(6.5, 2.5), (6.5, 8.0)]);
+    line(p, r, c, &[(9.5, 2.5), (9.5, 8.0)]);
+    line(p, r, c, &[(4.5, 8.0), (11.5, 8.0)]);
+    line(p, r, c, &[(8.0, 8.0), (8.0, 14.0)]);
 });
 
 /// A cross.

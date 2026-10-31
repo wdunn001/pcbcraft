@@ -1,3 +1,26 @@
+//! Validation checks for library definitions.
+//!
+//! Every public `validate` method enforces the invariants that downstream
+//! consumers rely on: finite coordinates, bounded object counts, non-empty
+//! identifiers, and consistent pad geometry. Validation runs before a
+//! definition is inserted into a library or returned by a source adapter.
+//!
+//! # Rules
+//! - Text fields are at most 256 KB and must not contain NUL bytes.
+//! - Coordinates must be finite and at most 100 000 mm in magnitude.
+//! - Sizes, widths, radii, and drill diameters must be non-negative.
+//! - Object counts (pins, pads, graphics) are capped at 20 000.
+//! - Pin numbers must be unique within each unit and body style.
+//! - Pad polygons must be simple, bounded, and contain the pad anchor.
+//!
+//! # Dependencies
+//! - crates/library/src/validation.rs `crate::*`: all library types
+//! - crates/geom/src/lib.rs point-in-polygon, segment intersection, boundary distance
+//!
+//! # Do not
+//! - Add behavioral side effects to validation.
+//! - Change error message strings without updating callers that match on them.
+
 use crate::*;
 use std::collections::BTreeSet;
 fn bad(message: &str) -> Error {
@@ -28,7 +51,32 @@ fn metadata(raw: &str, unsupported: &[String]) -> Result<(), Error> {
     }
     Ok(())
 }
+fn retained_nodes(retained: &[String]) -> Result<(), Error> {
+    if retained.len() > 256 {
+        return Err(Error::Limit("retained source nodes"));
+    }
+    for s in retained {
+        if s.len() > 256 * 1024 {
+            return Err(bad("retained node exceeds size limit"));
+        }
+        text(s)?;
+    }
+    Ok(())
+}
 impl Graphic {
+    /// Validate that all geometry values are finite and within bounds.
+    ///
+    /// Checks coordinate ranges, non-negative widths and radii, and text
+    /// field limits for every graphic variant.
+    ///
+    /// # Rules
+    /// - Coordinates must be finite and at most 100 000 mm in magnitude.
+    /// - Widths and radii must be non-negative.
+    /// - Polylines must have between 2 and 10 000 points.
+    /// - Text fields are at most 256 KB.
+    ///
+    /// # Do not
+    /// - Call on partially constructed graphics.
     pub fn validate(&self) -> Result<(), Error> {
         let valid = match self {
             Self::Line {
@@ -105,6 +153,19 @@ impl Graphic {
     }
 }
 impl SymbolDefinition {
+    /// Validate symbol structure, pin uniqueness, and graphic references.
+    ///
+    /// Checks name, pin numbers, electrical types, graphical styles,
+    /// object counts, text field limits, and validates every graphic.
+    ///
+    /// # Rules
+    /// - Name must be non-empty.
+    /// - Pin numbers must be unique within each unit and body style.
+    /// - Graphical styles must be supported.
+    /// - Object counts are capped at 20 000.
+    ///
+    /// # Do not
+    /// - Call on symbols that have not finished loading.
     pub fn validate(&self) -> Result<(), Error> {
         if self.name.is_empty() || self.pins.len() > 20_000 || self.graphics.len() > 20_000 {
             return Err(bad("invalid symbol name or object count"));
@@ -124,6 +185,7 @@ impl SymbolDefinition {
             text(parent)?;
         }
         metadata(&self.raw_source, &self.unsupported)?;
+        retained_nodes(&self.retained)?;
         let mut keys = BTreeSet::new();
         for p in &self.pins {
             text(&p.number)?;
@@ -155,6 +217,23 @@ impl SymbolDefinition {
     }
 }
 impl FootprintDefinition {
+    /// Validate footprint structure, pad geometry, and rule overrides.
+    ///
+    /// Checks name, pad positions, sizes, drill values, chamfer and
+    /// roundrect parameters, custom polygons, object counts, text field
+    /// limits, and validates every graphic.
+    ///
+    /// # Rules
+    /// - Name must be non-empty.
+    /// - Pad positions must be finite and within bounds.
+    /// - Drill values must be positive (except for unplated pads).
+    /// - Chamfer ratios must be in (0, 0.5].
+    /// - Roundrect ratios must be in [0, 0.5].
+    /// - Custom pad polygons must be simple and contain the anchor.
+    /// - Object counts are capped at 20 000.
+    ///
+    /// # Do not
+    /// - Call on footprints that have not finished loading.
     pub fn validate(&self) -> Result<(), Error> {
         if let Some(rules) = &self.rules {
             for value in [rules.clearance, rules.mask_margin, rules.paste_margin]
@@ -168,6 +247,15 @@ impl FootprintDefinition {
                 }
             }
         }
+        if let Some(body) = &self.box_body {
+            for value in [body.width, body.depth, body.height] {
+                if !scalar(value) || !(0.05..=100.0).contains(&value) {
+                    return Err(bad(
+                        "footprint box body size must be finite and between 0.05 and 100 mm",
+                    ));
+                }
+            }
+        }
         if self.name.is_empty() || self.pads.len() > 20_000 || self.graphics.len() > 20_000 {
             return Err(bad("invalid footprint name or object count"));
         }
@@ -175,6 +263,7 @@ impl FootprintDefinition {
             text(s)?;
         }
         metadata(&self.raw_source, &self.unsupported)?;
+        retained_nodes(&self.retained)?;
         if let Some(m) = &self.model {
             text(&m.path)?;
             metadata(&m.raw_source, &[])?;
@@ -183,6 +272,14 @@ impl FootprintDefinition {
                 || !m.offset.iter().all(|v| scalar(*v))
                 || !m.rotate.iter().all(|v| scalar(*v))
                 || !m.scale.iter().all(|v| scalar(*v) && *v > 0.0)
+                || m
+                    .cad_part
+                    .as_ref()
+                    .is_some_and(|s| s.is_empty() || s.len() > 128)
+                || m
+                    .body_id
+                    .as_ref()
+                    .is_some_and(|s| s.is_empty() || s.len() > 128)
             {
                 return Err(bad("invalid 3D model reference"));
             }

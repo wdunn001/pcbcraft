@@ -165,6 +165,9 @@ thread_local! {
     /// When set, `frame` paints on a screen tall enough to show a whole page,
     /// so the tooltip walk can hover controls that sit below the usual fold.
     pub(crate) static TALL_SCREEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// When set, `frame` uses this width and height for tour replay (#774).
+    pub(crate) static REPLAY_SCREEN: std::cell::Cell<Option<(f32, f32)>> =
+        const { std::cell::Cell::new(None) };
 }
 pub(crate) fn frame(
     ctx: &egui::Context,
@@ -193,18 +196,19 @@ pub(crate) fn frame(
     }
     super::audit::record_touches(ctx, app, &events);
     events.insert(0, egui::Event::ModifiersChanged(modifiers));
+    let (width, height) = REPLAY_SCREEN.with(|cell| cell.get()).unwrap_or((
+        1440.0,
+        if TALL_SCREEN.with(std::cell::Cell::get) {
+            6000.0
+        } else {
+            940.0
+        },
+    ));
     let mut output = ctx.run_ui(
         egui::RawInput {
             screen_rect: Some(Rect::from_min_size(
                 egui::Pos2::ZERO,
-                Vec2::new(
-                    1440.0,
-                    if TALL_SCREEN.with(std::cell::Cell::get) {
-                        6000.0
-                    } else {
-                        940.0
-                    },
-                ),
+                Vec2::new(width, height),
             )),
             events,
             ..Default::default()
@@ -213,6 +217,34 @@ pub(crate) fn frame(
     );
     super::audit::remember_labels(&output);
     // This input test has no GPU renderer; intentionally discard texture uploads.
+    output.textures_delta.clear();
+    output
+}
+
+/// One frame at a tour replay size, then optional extra painting on top.
+pub(crate) fn replay_frame(
+    ctx: &egui::Context,
+    app: &mut App,
+    width: f32,
+    height: f32,
+    paint: impl FnOnce(&mut egui::Ui),
+) -> egui::FullOutput {
+    REPLAY_SCREEN.with(|cell| cell.set(Some((width, height))));
+    ctx.enable_accesskit();
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(width, height),
+            )),
+            ..Default::default()
+        },
+        |ui| {
+            app.show(ui);
+            paint(ui);
+        },
+    );
+    REPLAY_SCREEN.with(|cell| cell.set(None));
     output.textures_delta.clear();
     output
 }
@@ -343,6 +375,9 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
             "tool-move" => "Move",
             "tool-place-part" => "Place part",
             "tool-wire" => "Wire",
+            "tool-bus" => "Bus",
+            "tool-label" => "Label",
+            "tool-power" => "Power",
             "tool-noconnect" => "No connect",
             "tool-route" => "Route",
             "tool-via" => "Via",
@@ -364,14 +399,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
     };
     authoring::tests::tap(ctx, app, "More")?;
     frame(ctx, app, vec![], egui::Modifiers::NONE);
-    let name = if matches!(label.as_str(), "Parts" | "Copper" | "Graphics" | "Text")
-        && id.starts_with("button:")
-    {
-        format!("Pick: {label}")
-    } else {
-        label
-    };
-    authoring::tests::tap(ctx, app, &name)
+    authoring::tests::tap(ctx, app, &label)
 }
 
 /// Click a control in the Properties column on the right of the window,
@@ -572,4 +600,35 @@ pub(crate) fn tap_left(ctx: &egui::Context, app: &mut App, label: &str) -> Resul
     }
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     Ok(())
+}
+
+/// A settings folder no other test can see: unique per process, tag and call.
+///
+/// Recents, library sources and saved conversations all live below the
+/// folder a session carries, so a story that needs them gets its own and
+/// nothing leaks between tests or into the real configuration folder.
+pub(crate) fn private_config(
+    tag: &str,
+) -> Result<(pcbcraft_engine::user_config::UserConfig, std::path::PathBuf), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let folder = std::env::temp_dir().join(format!(
+        "pcbcraft-config-{}-{}-{tag}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    Ok((
+        pcbcraft_engine::user_config::UserConfig::in_folder(&folder),
+        folder,
+    ))
+}
+
+/// An empty session that keeps its settings in `config`.
+pub(crate) fn session_with(
+    config: &pcbcraft_engine::user_config::UserConfig,
+) -> pcbcraft_mcp::SharedSession {
+    let mut session = pcbcraft_engine::Session::default();
+    session.config = config.clone();
+    pcbcraft_mcp::shared(session)
 }

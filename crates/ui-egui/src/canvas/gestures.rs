@@ -99,7 +99,7 @@ impl Tool {
         match self {
             Self::Select => ToolKind::Select,
             Self::Place(_) | Self::LibraryPlace(..) | Self::CustomPlace(..) => ToolKind::Place,
-            Self::Wire(_) => ToolKind::Wire,
+            Self::Wire(_) | Self::SchematicLabel(_) | Self::Bus => ToolKind::Wire,
             Self::Route(_) => ToolKind::Route,
             Self::Via => ToolKind::Via,
             Self::Keepout => ToolKind::Select,
@@ -185,7 +185,13 @@ impl App {
             if let Some(id) = self.pick_via(pos, zoom) {
                 return Hit::Via(id);
             }
-            for t in &self.project.board.tracks {
+            for t in self
+                .project
+                .board
+                .tracks
+                .iter()
+                .filter(|t| self.id_allowed(t.id))
+            {
                 if near(t.start.distance(pos), 6.0) {
                     return Hit::TrackEnd(t.id, false);
                 }
@@ -468,6 +474,9 @@ impl App {
         };
         match (action, &hit) {
             (ClickAction::StartWire, Hit::Pin(pin)) => {
+                if let Some(at) = self.project.pin_position(pin) {
+                    self.wire_route = vec![at];
+                }
                 self.tool = Tool::Wire(Some(pin.clone()));
             }
             (ClickAction::StartRoute, Hit::Pad(id, pad)) => {
@@ -874,6 +883,7 @@ impl App {
                 Some((first, None)) => Some(first),
                 _ => None,
             },
+            Tool::Wire(Some(_)) => self.wire_route.last().copied(),
             Tool::Move => self.selected.and_then(|id| {
                 self.project
                     .component(id)
@@ -973,7 +983,7 @@ impl App {
     pub(crate) fn arm_hotkey(&mut self, hotkey: tm::Hotkey) {
         match hotkey {
             tm::Hotkey::Select => self.tool = Tool::Select,
-            tm::Hotkey::Wire => self.tool = Tool::Wire(None),
+            tm::Hotkey::Wire => self.arm_wire_tool(),
             tm::Hotkey::Route => self.tool = Tool::Route(None),
             tm::Hotkey::Via => self.tool = Tool::Via,
             tm::Hotkey::Text => {

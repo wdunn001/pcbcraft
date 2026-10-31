@@ -1,20 +1,22 @@
 //! Bounded multi-document routing for the control bridge and MCP tools.
 use pcbcraft_engine::Session;
+use pcbcraft_engine::design_document::{
+    DocumentShellState, display_title, is_dirty, project_has_content,
+};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::{SharedSession, invoke_session, shared, text_result, validate_tool_schema};
 
-pub const MAX_OPEN_DOCUMENTS: usize = 8;
+pub use pcbcraft_engine::design_document::MAX_OPEN_DOCUMENTS;
 const MAX_PATH_CHARS: usize = 1024;
-const UNTITLED: &str = "Untitled design";
-const DEFAULT_PROJECT_NAME: &str = "Untitled circuit";
 
 struct DocumentSlot {
     session: SharedSession,
     path: String,
     saved_revision: Option<u64>,
+    shell: DocumentShellState,
 }
 
 struct HubState {
@@ -47,6 +49,7 @@ impl DocumentHub {
                     session: shared,
                     path,
                     saved_revision: Some(revision),
+                    shell: DocumentShellState::default(),
                 }],
                 active: 0,
             })),
@@ -113,9 +116,17 @@ impl DocumentHub {
             documents.push(json!({
                 "index": index,
                 "path": slot.path,
-                "name": slot_display_name(&locked.project.name, &slot.path),
+                "name": display_title(&locked.project.name, &slot.path),
                 "revision": locked.revision,
-                "dirty": slot.saved_revision != Some(locked.revision),
+                "dirty": is_dirty(
+                    slot.saved_revision,
+                    locked.revision,
+                    &slot.path,
+                    project_has_content(&locked.project),
+                ),
+                "workbench_tab": slot.shell.workbench_tab.as_str(),
+                "selected": slot.shell.selected.map(|id| id.0),
+                "selected_unit": slot.shell.selected_unit,
             }));
         }
         Ok(text_result(json!({"documents": documents})))
@@ -194,6 +205,7 @@ impl DocumentHub {
                 session: session.clone(),
                 path: String::new(),
                 saved_revision: None,
+                shell: DocumentShellState::default(),
             });
             (session, index)
         };
@@ -225,7 +237,7 @@ impl DocumentHub {
             (
                 slot.session.clone(),
                 slot.path.clone(),
-                slot_display_name(&locked.project.name, &slot.path),
+                display_title(&locked.project.name, &slot.path),
                 index,
             )
         };
@@ -287,19 +299,6 @@ fn string_param<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
         .and_then(Value::as_str)
         .ok_or_else(|| format!("missing string parameter: {key}"))
-}
-
-fn slot_display_name(project_name: &str, path: &str) -> String {
-    let trimmed = project_name.trim();
-    if !trimmed.is_empty() && trimmed != DEFAULT_PROJECT_NAME {
-        return trimmed.to_string();
-    }
-    if !path.is_empty()
-        && let Some(name) = Path::new(path).file_name().and_then(|s| s.to_str())
-    {
-        return name.to_string();
-    }
-    UNTITLED.to_string()
 }
 
 fn normalize_path(raw: &str) -> Result<String, String> {

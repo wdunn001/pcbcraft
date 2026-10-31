@@ -4,7 +4,26 @@
 use serde_json::Value;
 use std::sync::Arc;
 
+/// One hit from a knowledge search, for the transcript and the model.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceLink {
+    pub title: String,
+    pub source: String,
+}
+
 /// One part of a message to the agent.
+///
+/// # Dependencies
+/// - none yet
+///
+/// # Rules
+/// - This enum represents a part of a message sent to the agent.
+/// - `Text` is plain text content.
+/// - `Picture` is an image sent to the agent (PNG format).
+/// - `Document` is a PDF document sent to the agent.
+///
+/// # Do not
+/// - Add new variants without updating the `tool_list` and `tool_names` logic.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PromptPart {
     Text(String),
@@ -24,6 +43,19 @@ pub enum PromptPart {
 }
 
 /// What a backend reports to the pane.
+///
+/// # Dependencies
+/// - none yet
+///
+/// # Rules
+/// - This enum represents events reported by the backend to the UI pane.
+/// - `Documents` indicates if the agent accepts document inputs.
+/// - `Ready` signals the agent is prepared to receive messages.
+/// - `Text` streams text output from the agent.
+/// - `Tool` reports tool calls made by the agent.
+///
+/// # Do not
+/// - Add new variants without updating the event handling logic.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     /// Whether the agent takes documents (PDFs) in a message; sent before [`Event::Ready`].
@@ -66,6 +98,8 @@ pub enum Event {
     },
     /// The message is answered (`reason`: why it stopped, empty for a normal end).
     TurnEnded { reason: String },
+    /// Titles and links from a knowledge search on this turn.
+    Sources(Vec<SourceLink>),
     /// Something failed; the backend is still running unless [`Event::Exited`] follows.
     Error(String),
     /// It ended; its last error output.
@@ -106,6 +140,15 @@ pub trait ChatBackend {
     fn shutdown(&mut self, wait: bool);
 }
 
+/// One chunk of an incremental HTTP reply body.
+#[derive(Clone, Debug, PartialEq)]
+pub enum HttpStreamPart {
+    /// Raw bytes from the wire (often several SSE lines).
+    Chunk(Vec<u8>),
+    /// The reply is complete; carries the HTTP status.
+    End { status: u16 },
+}
+
 /// One HTTP request of the API backend (the desktop host sends it; nothing else in the chat
 /// reaches the network).
 #[derive(Clone, Debug, PartialEq)]
@@ -115,10 +158,57 @@ pub struct HttpRequest {
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
     pub timeout_s: u64,
+    /// When set, the host sends the reply body here in parts and returns an empty body.
+    pub stream_out: Option<std::sync::mpsc::Sender<Result<HttpStreamPart, String>>>,
 }
 
-/// Sends an [`HttpRequest`]: the status and the body, or why it failed.
-pub type HttpFn = Arc<dyn Fn(&HttpRequest) -> Result<(u16, Vec<u8>), String> + Send + Sync>;
+/// An HTTP reply: status, lowercased header names, and body.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HttpResponse {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl HttpResponse {
+    /// A 200 reply with no extra headers.
+    pub fn ok(body: Vec<u8>) -> HttpResponse {
+        HttpResponse {
+            status: 200,
+            headers: Vec::new(),
+            body,
+        }
+    }
+
+    /// A reply with a status and body only.
+    pub fn with_status(status: u16, body: Vec<u8>) -> HttpResponse {
+        HttpResponse {
+            status,
+            headers: Vec::new(),
+            body,
+        }
+    }
+}
+
+/// Sends an [`HttpRequest`]: the reply, or why it failed.
+pub type HttpFn = Arc<dyn Fn(&HttpRequest) -> Result<HttpResponse, String> + Send + Sync>;
+
+/// Push a complete reply body to [`HttpRequest::stream_out`] in parts, then return an empty body.
+pub fn deliver_streamed_body(
+    out: &std::sync::mpsc::Sender<Result<HttpStreamPart, String>>,
+    status: u16,
+    body: &[u8],
+) -> Result<(u16, Vec<u8>), String> {
+    for chunk in body.chunks(4096) {
+        if !chunk.is_empty() {
+            out.send(Ok(HttpStreamPart::Chunk(chunk.to_vec())))
+                .map_err(|_| "The stream ended early.".to_string())?;
+        }
+    }
+    out.send(Ok(HttpStreamPart::End { status }))
+        .map_err(|_| "The stream ended early.".to_string())?;
+    Ok((status, Vec::new()))
+}
 
 /// The system keychain (the desktop host's), for API keys: never in the preferences.
 pub trait Secrets: Send + Sync {
