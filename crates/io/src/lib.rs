@@ -29,6 +29,7 @@ mod panel_export;
 mod part_bodies;
 mod plot_read;
 mod raster;
+mod starter_models;
 mod step_merge;
 mod step_read;
 mod uv_print;
@@ -106,6 +107,7 @@ pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
 };
+pub use starter_models::{cache_subdir, materialize, resolve_path};
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
 /// # Dependencies

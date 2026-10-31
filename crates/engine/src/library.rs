@@ -348,6 +348,26 @@ fn built_in_roots() -> Vec<PathBuf> {
     }
     roots
 }
+fn starter_models_list() -> Result<Value, String> {
+    let models: Vec<Value> = pcbcraft_library::starter_models::all()
+        .iter()
+        .map(|m| {
+            json!({
+                "id": m.id,
+                "file_name": m.file_name,
+                "bytes": m.bytes.len(),
+                "footprint_names": m.footprint_names,
+                "license_title": m.license_title,
+                "source": m.source,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "models": models,
+        "license_file": "crates/library/assets/starter_models/LICENSE.md",
+    }))
+}
+
 pub fn catalog() -> Result<Value, String> {
     catalog_paths(paths(), 4096)
 }
@@ -806,6 +826,7 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     };
     match name {
         "library.catalog" => catalog(),
+        "library.starter_models.list" => starter_models_list(),
         "library.sources" => sources(),
         "library.list" => list_with_project(args, None),
         "design.recents" => Ok(json!({"designs": crate::recents::load_recent_paths()})),
@@ -1071,6 +1092,17 @@ mod tests {
         Ok(())
     }
     #[test]
+    #[test]
+    fn starter_models_list_returns_the_bundled_catalog() -> Result<(), String> {
+        let list = read_tool("library.starter_models.list", &json!({}))?;
+        let models = list["models"]
+            .as_array()
+            .ok_or("models must be an array")?;
+        assert!(!models.is_empty());
+        assert!(models.iter().any(|m| m["id"] == "chip_resistor_0603"));
+        Ok(())
+    }
+
     fn library_source_tools_answer_through_the_read_tool_router() -> Result<(), String> {
         let _guard = SOURCES_TEST_LOCK
             .lock()
