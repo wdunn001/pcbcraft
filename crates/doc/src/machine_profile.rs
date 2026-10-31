@@ -297,11 +297,58 @@ pub struct FeederBank {
 pub struct NozzleRow {
     /// Identifier.
     pub id: String,
-    /// Diameter in millimetres.
+    /// Inner (suction) diameter in millimetres.
     pub diameter_mm: f64,
+    /// Outer tip diameter in millimetres; 0 when the maker does not state it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub outer_diameter_mm: f64,
     /// Package names this nozzle picks, matched as prefixes of the short package name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub packages: Vec<String>,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+
+/// One automatic-choice rule for a part: when the package name, the largest pad
+/// dimension and the body height fall inside the row, the row names the nozzle
+/// and the default speed and heights. The first matching row wins.
+///
+/// # Rules
+/// - `package` is a prefix of the short package name after the profile's aliases; empty matches any.
+/// - A bound of 0 means no bound. A height bound only applies when the part states its height.
+///
+/// # Dependencies
+/// - crates/doc/src/placement_machine.rs applies the rows.
+///
+/// # Do not
+/// - Name a nozzle that the profile's nozzle list does not hold; validation refuses it.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct PlacementRuleRow {
+    /// Package name prefix; empty matches every package.
+    pub package: String,
+    /// Smallest largest-pad-dimension in millimetres (0 = no bound).
+    pub min_size_mm: f64,
+    /// Largest largest-pad-dimension in millimetres (0 = no bound).
+    pub max_size_mm: f64,
+    /// Smallest body height in millimetres (0 = no bound).
+    pub min_height_mm: f64,
+    /// Largest body height in millimetres (0 = no bound).
+    pub max_height_mm: f64,
+    /// Nozzle id this row chooses.
+    pub nozzle: String,
+    /// Default placement speed in percent; 0 uses the profile default.
+    pub speed_pct: u32,
+    /// Default pick height offset in millimetres.
+    pub pick_height_mm: f64,
+    /// Default place height offset in millimetres.
+    pub place_height_mm: f64,
+    /// True when parts matching the row are left out of the run (test points, marks).
+    pub skip: bool,
+    /// Why the row exists, in a plain sentence.
+    pub note: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -368,6 +415,14 @@ pub struct PickPlaceSection {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     /// Feeder map.
     pub feeder_map: Vec<FeederMapRow>,
+    /// Nozzle types the machine can use in one run without an operator
+    /// (nozzles on the heads plus nozzles in the change station); 0 = unlimited.
+    pub nozzle_slots: u32,
+    /// Placement speed in percent when neither a rule nor a part says one; 0 = 75.
+    pub default_speed_pct: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Rules that choose a nozzle, speed and heights from package size and body height.
+    pub placement_rule: Vec<PlacementRuleRow>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -513,6 +568,9 @@ impl PickPlaceSection {
             && self.rotation_offset.is_empty()
             && self.footprint_alias.is_empty()
             && self.feeder_map.is_empty()
+            && self.placement_rule.is_empty()
+            && self.nozzle_slots == 0
+            && self.default_speed_pct == 0
     }
 }
 
@@ -757,6 +815,39 @@ impl MachineProfile {
                 || row.packages.iter().any(|p| !bounded(p, MAX_SHORT))
             {
                 return Err("a nozzle needs an id, a diameter and up to 16 package names".into());
+            }
+        }
+        if pp.placement_rule.len() > MAX_PROFILE_ROWS * 4
+            || pp.nozzle_slots > 16
+            || pp.default_speed_pct > 100
+        {
+            return Err("placement rules are capped at 256 rows, nozzle slots at 16 and speed at 100 percent".into());
+        }
+        for rule in &pp.placement_rule {
+            let nums = [
+                rule.min_size_mm,
+                rule.max_size_mm,
+                rule.min_height_mm,
+                rule.max_height_mm,
+                rule.pick_height_mm,
+                rule.place_height_mm,
+            ];
+            if nums.iter().any(|n| !n.is_finite() || n.abs() > 1000.0)
+                || rule.speed_pct > 100
+                || !optional_bounded(&rule.package, MAX_SHORT)
+                || !optional_bounded(&rule.note, MAX_NOTES_LEN)
+            {
+                return Err(
+                    "a placement rule has a number out of range or text that is too long".into(),
+                );
+            }
+            if !(rule.skip && rule.nozzle.is_empty())
+                && !pp.nozzle.iter().any(|n| n.id == rule.nozzle)
+            {
+                return Err(format!(
+                    "a placement rule names nozzle {} which the machine does not list",
+                    rule.nozzle
+                ));
             }
         }
         if pp

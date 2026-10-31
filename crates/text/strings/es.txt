@@ -73,11 +73,15 @@ menu.settings.language.system.tip = Seguir el idioma de esta computadora.
 menu.settings.language.pick.tip = Mostrar la aplicación en este idioma.
 
 menu.help = Ayuda
-menu.help.tip = Atajos, la búsqueda de comandos y los informes de errores.
+menu.help.tip = Atajos, recorridos, la búsqueda de comandos y los informes de errores.
+menu.help.tours = Recorridos
+menu.help.tours.tip = Guías que señalan controles reales; reinicia cualquiera desde aquí.
 menu.help.shortcuts = Atajos
 menu.help.shortcuts.tip = Mostrar en una sola lista todos los atajos de teclado y gestos del ratón.
 menu.help.commands = Comandos
 menu.help.commands.tip = Buscar cualquier comando por su nombre y ejecutarlo, con sus parámetros explicados.
+menu.help.tours = Recorridos
+menu.help.tours.tip = Guías que señalan controles reales; reinicia cualquiera desde aquí.
 
 pad_labels.number = Pads: número
 pad_labels.net = Pads: red
