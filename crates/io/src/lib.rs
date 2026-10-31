@@ -17,6 +17,7 @@ mod fab_export;
 mod generate;
 mod gerber;
 mod gerber_job;
+mod idf;
 mod laser;
 mod layers;
 mod library_render;
@@ -30,6 +31,7 @@ mod schematic_sim;
 mod si_export;
 mod part_bodies;
 mod plot_read;
+mod step_merge;
 mod raster;
 mod step_read;
 mod uv_print;
@@ -1513,6 +1515,37 @@ struct StepDoc {
     next: u32,
 }
 
+impl step_merge::StepWriter for StepDoc {
+    fn next_id(&self) -> u32 {
+        self.next
+    }
+    fn add(&mut self, body: &str) -> Result<u32, String> {
+        StepDoc::add(self, body)
+    }
+    fn push_entity(&mut self, id: u32, body: &str) -> Result<(), String> {
+        if id > STEP_MAX_ENTITIES {
+            return Err("the board is too complex for one STEP file".to_string());
+        }
+        let line = format!("#{id} = {body};");
+        if id < self.next {
+            self.lines[id as usize - 1] = line;
+            return Ok(());
+        }
+        if id != self.next {
+            return Err("the merged model has an unexpected entity id".into());
+        }
+        self.lines.push(line);
+        self.next = id + 1;
+        Ok(())
+    }
+    fn point(&mut self, c: (f64, f64, f64)) -> Result<u32, String> {
+        StepDoc::point(self, c)
+    }
+    fn direction(&mut self, d: (f64, f64, f64)) -> Result<u32, String> {
+        StepDoc::direction(self, d)
+    }
+}
+
 impl StepDoc {
     fn new() -> Self {
         StepDoc {
@@ -1673,9 +1706,74 @@ fn thin_ring(points: &[Point]) -> Vec<Point> {
     ring
 }
 
+/// Result of a STEP export that may include vendor model bodies.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StepExport {
+    pub text: String,
+    pub notes: Vec<String>,
+}
+
+/// Resolve model paths from embedded project files and, on native builds, a
+/// project folder passed by the export caller.
+pub fn project_step_loader<'a>(
+    project: &'a Project,
+    base: Option<&Path>,
+) -> impl Fn(&str) -> Option<Vec<u8>> + 'a {
+    move |path| {
+        if path.is_empty() {
+            return None;
+        }
+        let name = Path::new(path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(path);
+        for file in &project.files {
+            if file.name == path
+                || file.name == name
+                || file.name.ends_with(&format!("/{name}"))
+                || file.name.ends_with(&format!("\\{name}"))
+            {
+                return Some(file.data.as_bytes().to_vec());
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(base) = base {
+            let direct = base.join(path);
+            if direct.is_file() {
+                return std::fs::read(direct).ok();
+            }
+            let leaf = base.join(name);
+            if leaf.is_file() {
+                return std::fs::read(leaf).ok();
+            }
+        }
+        None
+    }
+}
+
+fn step_path_is_exchange(path: &str) -> bool {
+    matches!(
+        Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("step") | Some("stp")
+    )
+}
+
 /// Export the board as an AP214 STEP file: the outline and every placed pad
 /// as a solid prism, plus one box solid per placed part, in millimetres.
 pub fn step_board(p: &Project) -> Result<String, String> {
+    Ok(step_board_with_models(p, &|_| None)?.text)
+}
+
+/// Like [`step_board`], but replaces each part box with a vendor STEP body
+/// when `loader` returns readable exchange text for the footprint model path.
+pub fn step_board_with_models(
+    p: &Project,
+    loader: &dyn Fn(&str) -> Option<Vec<u8>>,
+) -> Result<StepExport, String> {
     p.validate()?;
     let depth = p.board.thickness;
     let outline: Vec<Point> = match &p.board.outline {
@@ -1691,7 +1789,8 @@ pub fn step_board(p: &Project) -> Result<String, String> {
     doc.add("PRODUCT('BOARD','pcbcraft board','',('Mechanical Design'))")?;
     doc.add("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#1,.NOT_KNOWN.)")?;
     doc.add("PRODUCT_CONTEXT('',#1,'mechanical')")?;
-    doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
+    let board_product_definition =
+        doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
     doc.add("PRODUCT_DEFINITION_SHAPE('','',#4)")?;
     let shape = doc.add("SHAPE_REPRESENTATION('board',(#14,#15),#7)")?;
     doc.add("(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#16))GLOBAL_UNIT_ASSIGNED_CONTEXT((#8,#9,#10))REPRESENTATION_CONTEXT('','',''))")?;
@@ -1718,7 +1817,82 @@ pub fn step_board(p: &Project) -> Result<String, String> {
             items.extend(doc.prism(&ring, depth)?);
         }
     }
+    let mut notes = Vec::new();
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
     for body in part_bodies::part_boxes(p) {
+        let mut placed_vendor = false;
+        if let Some(fp) = p
+            .board
+            .footprints
+            .iter()
+            .find(|f| refs.get(&f.component).is_some_and(|c| c.reference == body.name))
+        {
+            if let Some(model) = refs
+                .get(&fp.component)
+                .and_then(|c| c.library_footprint.as_ref())
+                .and_then(|l| l.definition.model.as_ref())
+                .filter(|m| step_path_is_exchange(&m.path))
+            {
+                if let Some(bytes) = loader(&model.path) {
+                    if bytes.len() > step_merge::MAX_EXCHANGE_BYTES {
+                        notes.push(format!(
+                            "{}: the model file is over the size limit for a board export",
+                            body.name
+                        ));
+                    } else {
+                        let text = String::from_utf8_lossy(&bytes).into_owned();
+                        match step_merge::parse_exchange(&text) {
+                            Ok(exchange) => {
+                                let mut model = model.clone();
+                                model.offset = [0.0; 3];
+                                let matrix = model_matrix(
+                                    &model,
+                                    fp.position,
+                                    fp.rotation,
+                                    part_bodies::is_bottom_side(fp),
+                                    depth,
+                                );
+                                match step_merge::append_body(&mut doc, exchange, &body.name) {
+                                    Ok(links) => {
+                                        if step_merge::write_occurrence(
+                                            &mut doc,
+                                            board_product_definition,
+                                            &links,
+                                            &matrix,
+                                            &body.name,
+                                            axis,
+                                            reference,
+                                        )
+                                        .is_ok()
+                                        {
+                                            placed_vendor = true;
+                                        } else {
+                                            notes.push(format!(
+                                                "{}: the model could not be placed on the board",
+                                                body.name
+                                            ));
+                                        }
+                                    }
+                                    Err(reason) => {
+                                        notes.push(format!("{}: {reason}", body.name));
+                                    }
+                                }
+                            }
+                            Err(reason) => notes.push(format!("{}: {reason}", body.name)),
+                        }
+                    }
+                } else {
+                    notes.push(format!(
+                        "{}: no model file was found at {}",
+                        body.name, model.path
+                    ));
+                }
+            }
+        }
+        if placed_vendor {
+            continue;
+        }
         let faces = doc.prism_between(&body.ring, body.z0, body.z1)?;
         if faces.is_empty() {
             continue;
@@ -1755,7 +1929,7 @@ pub fn step_board(p: &Project) -> Result<String, String> {
         out.push('\n');
     }
     out.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
-    Ok(out)
+    Ok(StepExport { text: out, notes })
 }
 /// Board as a VRML 2.0 scene for mechanical viewers: one solid prism for the
 /// board outline (the rectangle when no free-form outline is recorded) and one
@@ -3962,71 +4136,7 @@ pub fn gencad_text(p: &Project) -> Result<String, String> {
     }
     Ok(out)
 }
-/// Board as an IDF mechanical drawing for enclosure tools: board size, origin
-/// and reference, one entry per placed footprint with its position, side and
-/// rotation, and a matching default-height entry per component. The native
-/// format stores no component heights, so heights are emitted as 1 mm.
-pub fn idf_board(p: &Project) -> Result<String, String> {
-    p.validate()?;
-    const MAX_PLACED: usize = 5_000;
-    if p.board.footprints.len() > MAX_PLACED {
-        return Err("mechanical drawing exceeds the placed-object limit".into());
-    }
-    if p.board.footprints.is_empty() {
-        return Err("board has no placed footprints to export".into());
-    }
-    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
-        p.components.iter().map(|c| (c.id, c)).collect();
-    let n3 = |v: f64| -> String {
-        let r = (v * 1000.0).round() / 1000.0;
-        if r == 0.0 {
-            "0.000".into()
-        } else {
-            format!("{r:.3}")
-        }
-    };
-    let mut body = String::new();
-    for (pin, f) in p.board.footprints.iter().enumerate() {
-        let c = refs
-            .get(&f.component)
-            .ok_or("footprint references an unknown component")?;
-        let back = f.board_side() == pcbcraft_doc::Layer::Back;
-        body.push_str(&format!(
-            ".END_BODY {}\t{}\t{}\t{}\t{}\t{}\n",
-            c.reference,
-            n3(f.position.x),
-            n3(f.position.y),
-            if back { "BACK" } else { "FRONT" },
-            n3(f.rotation),
-            pin
-        ));
-    }
-    let mut pinbody = String::new();
-    for f in &p.board.footprints {
-        let c = refs
-            .get(&f.component)
-            .ok_or("footprint references an unknown component")?;
-        pinbody.push_str(&format!(
-            ".END_PIN {{\t}}\t{}\t{}\t{}\t0.000\t0.000\t1.000\t0\n",
-            c.reference,
-            n3(f.position.x),
-            n3(f.position.y)
-        ));
-    }
-    Ok(format!(
-        ".FILE_IDF\n.3DIDF VERSION: 2.0\n.UNITS:\tmillmm\n\
-         .BOARD_PATH\n\t.BODY {w} {h} 0.000 0.000\n\t.OFFSET 0.000 0.000\n\t.REFERENCE \"{name}\"\n.END_BOARD_PATH\n\
-         .PINUP 0\n.PINUP_END\n.TPIN 0\n.TPIN_END\n.PLPIN 0\n.PLPIN_END\n\
-         .ELEC_PATH\n{body}.END_ELEC_PATH\n\
-         .PIN_FILE\n.PIN {count}\n{pin}.END_PIN_FILE\n.END_FILE_IDF\n",
-        w = n3(p.board.width),
-        h = n3(p.board.height),
-        name = p.name.replace('"', "'"),
-        body = body,
-        count = p.board.footprints.len(),
-        pin = pinbody,
-    ))
-}
+pub use idf::{idf_board, idf_library};
 /// Board as a Specctra-style board file for external autorouters: the board
 /// boundary, layer stack with a through via type, net classes, every net with
 /// its pins, component and pin placements, track wires (arcs sampled into
@@ -7848,6 +7958,72 @@ mod tests {
         (lo, hi)
     }
 
+    fn fixture_bytes(name: &str) -> Vec<u8> {
+        std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+        )
+        .unwrap_or_else(|_| panic!("fixture {name}"))
+    }
+
+    #[test]
+    fn step_board_without_models_is_byte_identical_to_before() -> Result<(), String> {
+        let project = real_library_project()?;
+        let plain = step_board(&project)?;
+        let with_loader = step_board_with_models(&project, &|_| None)?.text;
+        assert_eq!(plain, with_loader);
+        Ok(())
+    }
+
+    #[test]
+    fn step_board_falls_back_to_the_box_when_the_model_is_missing() -> Result<(), String> {
+        let project = two_part_project(false, 0.0)?;
+        let export = step_board_with_models(&project, &|_| None)?;
+        assert_eq!(
+            export.text.matches("MANIFOLD_SOLID_BREP(").count(),
+            2,
+            "both parts stay boxes when no file loads"
+        );
+        assert!(
+            export.notes.iter().any(|n| n.starts_with("R2:")),
+            "the missing model is reported: {:?}",
+            export.notes
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn step_board_places_a_model_with_the_footprint_matrix() -> Result<(), String> {
+        let mut project = two_part_project(false, 90.0)?;
+        if let Some(lib) = project.components[1].library_footprint.as_mut() {
+            if let Some(model) = lib.definition.model.as_mut() {
+                model.path = "offset_box.step".into();
+            }
+        }
+        let bytes = fixture_bytes("offset_box.step");
+        let export = step_board_with_models(&project, &|path| {
+            if path.ends_with("offset_box.step") {
+                Some(bytes.clone())
+            } else {
+                None
+            }
+        })?;
+        assert!(
+            export.text.contains("NEXT_ASSEMBLY_USAGE_OCCURRENCE('R2'"),
+            "R2 is placed as an assembly occurrence"
+        );
+        assert!(
+            export.text.contains("PRODUCT('R2'"),
+            "the vendor body keeps a product entry for R2"
+        );
+        assert!(
+            export.text.matches("MANIFOLD_SOLID_BREP(").count() >= 2,
+            "R1 stays a box while R2 uses the vendor solid"
+        );
+        Ok(())
+    }
+
     #[test]
     fn step_board_places_a_box_for_a_part_without_a_model() -> Result<(), String> {
         let project = two_part_project(false, 0.0)?;
@@ -9654,32 +9830,136 @@ mod tests {
             }],
         });
         project.validate()?;
-        let text = idf_board(&project)?;
+        let board = idf_board(&project)?;
         assert!(
-            text.starts_with(".FILE_IDF\n.3DIDF VERSION: 2.0\n.UNITS:\tmillmm\n"),
-            "a mechanical drawing declares itself in millimetres"
+            board.starts_with(".HEADER\nBOARD_FILE 3.0"),
+            "the board file declares IDF version 3"
         );
         assert!(
-            text.contains(".BODY 60.000 40.000 0.000 0.000"),
-            "the board outline size is carried"
+            board.contains(".BOARD_OUTLINE ECAD\n") && board.contains("0 60.000 0.0 0.0\n"),
+            "the rectangular board outline is carried in millimetres"
         );
         assert!(
-            text.contains(".END_BODY R5\t12.500\t8.250\tFRONT\t90.000\t0\n"),
-            "front parts list position, side and rotation"
+            board.contains("TEST_ONE Test/TEST_ONE R5\n12.500 8.250 0.0 90.000 TOP PLACED\n"),
+            "front parts list geometry, position, side and rotation"
         );
         assert!(
-            text.contains(".END_BODY U1\t30.000\t20.000\tFRONT\t0.000\t1\n"),
+            board.contains("TEST_ONE Test/TEST_ONE U1\n30.000 20.000 0.0 0.000 TOP PLACED\n"),
             "every part is listed in placement order"
         );
-        assert!(
-            text.contains(".PIN 2\n") && text.matches(".END_PIN {\t}").count() == 2,
-            "the embedded pin file lists every part with a default height"
-        );
-        assert!(text.ends_with(".END_FILE_IDF\n"), "the file closes");
+        assert!(board.ends_with(".END_PLACEMENT\n"), "the board file closes");
         assert_eq!(
             idf_board(&Project::default()).err(),
             Some("board has no placed footprints to export".into()),
             "an empty board is rejected"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn idf_pair_lists_each_footprint_once_and_board_references_names() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.width = 60.0;
+        project.board.height = 40.0;
+        let geometry = |number: &str, x: f64| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
+        };
+        for (id, reference, pad_x) in [(1, "R5", -1.0), (2, "U1", 0.0)] {
+            project.components.push(pcbcraft_doc::Component {
+                sheet: 0,
+                id,
+                reference: reference.into(),
+                value: "1k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: vec![pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::new(-1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                }],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                    library: "Test".into(),
+                    definition: pcbcraft_library::FootprintDefinition {
+                        name: "TEST_ONE".into(),
+                        description: String::new(),
+                        keywords: String::new(),
+                        pads: vec![geometry("1", pad_x)],
+                        graphics: vec![],
+                        model: None,
+                        rules: None,
+                        raw_source: String::new(),
+                        unsupported: vec![],
+                    },
+                }),
+                fields: vec![],
+            });
+        }
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 10,
+            component: 1,
+            position: Point::new(12.5, 8.25),
+            rotation: 90.0,
+            locked: None,
+            side: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::new(-1.0, 0.0),
+                diameter: 1.0,
+                net: None,
+                castellated: None,
+                geometry: Some(geometry("1", -1.0)),
+            }],
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 11,
+            component: 2,
+            position: Point::new(30.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::new(0.0, 0.0),
+                diameter: 1.0,
+                net: None,
+                castellated: None,
+                geometry: Some(geometry("1", 0.0)),
+            }],
+        });
+        project.validate()?;
+        let library = idf_library(&project)?;
+        assert_eq!(
+            library.matches(".ELECTRICAL\n").count(),
+            1,
+            "two instances of the same footprint share one library outline"
+        );
+        assert!(
+            library.contains("TEST_ONE Test/TEST_ONE MM 1.5\n"),
+            "the library entry uses the shared geometry name, part id and default body height"
+        );
+        let board = idf_board(&project)?;
+        assert!(
+            board.contains("TEST_ONE Test/TEST_ONE R5\n")
+                && board.contains("TEST_ONE Test/TEST_ONE U1\n"),
+            "the board references the library geometry for every placement"
         );
         Ok(())
     }
