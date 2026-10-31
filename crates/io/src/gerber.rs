@@ -130,8 +130,15 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             if pad
                 .geometry
                 .as_ref()
-                .is_some_and(|g| g.pad_type == "unplated")
+.is_some_and(|g| g.pad_type == "unplated")
             {
+                continue;
+            }
+            let plated = pad
+                .geometry
+                .as_ref()
+                .is_some_and(|g| g.pad_type == "thru_hole");
+            if !plated && !p.pad_on_copper(f, pad, layer) {
                 continue;
             }
             if !pad_exports_on_layer(p, f, pad, layer) {
@@ -208,11 +215,16 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     }
     let idx = layer.index();
     let index = idx + 1;
-    let last = p.copper_layer_count().saturating_sub(1);
-    let side = match idx {
-        0 => "Top",
-        i if i >= last => "Bot",
-        _ => "Inr",
+let last = p.copper_layer_count().saturating_sub(1);
+    let side = if idx == 0 {
+        "Top"
+    } else if p.is_bottom(layer) {
+        "Bot"
+    } else if idx >= last {
+        "Bot"
+    } else {
+        "Inr"
+    };
     };
     Ok(format!(
         "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,Copper,L{index},{side}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
@@ -532,8 +544,12 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         }
     }
     for v in &p.board.vias {
+        // A via keeps its mask opening only on a face it leaves open.
+        if !crate::fab_export::via_mask_opening_on(v, &p.board, layer == Layer::Back) {
+            continue;
+        }
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
-        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad")?;
         sheet.flash(code, mirror(v.position, layer))?;
     }
     let (function, comment) = match layer {
@@ -899,6 +915,7 @@ mod tests {
     ) -> Component {
         let numbers: Vec<&str> = pads.iter().map(|p| p.number.as_str()).collect();
         Component {
+            sourcing: Default::default(),
             sheet: 0,
             id,
             reference: reference.into(),
@@ -1021,6 +1038,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,
