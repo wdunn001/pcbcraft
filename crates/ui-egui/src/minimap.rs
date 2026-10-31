@@ -469,6 +469,7 @@ pub(crate) fn lerp_camera(from: Camera, to: Camera, t: f32) -> Camera {
         ),
         zoom,
         mirror: to.mirror,
+        turns: to.turns,
         up: to.up,
     }
 }
