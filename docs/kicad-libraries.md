@@ -98,7 +98,7 @@ The data is copyright its KiCad community contributors and is licensed under
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/legalcode) with
 KiCad's design-output exception. The unmodified upstream license document is
 included at `crates/library/tests/fixtures/LICENSE-kicad-libraries.md`.
-These test fixtures retain that license independently of PCBCraft's GPL code.
+These test fixtures retain that license independently of PCBCraft's MIT OR Apache-2.0 code.
 The exception permits use of library data in electronic designs without forcing
 the design's license; redistributing library collections retains CC BY-SA
 attribution and share-alike requirements.

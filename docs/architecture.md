@@ -11,7 +11,7 @@ follow [AGENTS.md](../AGENTS.md) invariants before editing Rust.
 
 PCBCraft follows the Craft application structure, with a headless design engine
 that is the sole mutation boundary. The delivered application is Rust-only.
-GPL-3.0-or-later.
+MIT OR Apache-2.0.
 
 | Layer | Crates | Responsibility |
 |---|---|---|

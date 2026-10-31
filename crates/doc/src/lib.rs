@@ -4465,6 +4465,19 @@ impl Project {
             n as u8
         }
     }
+    /// Whether unused inner pads are stripped from fabrication output.
+    pub fn remove_unused_inner_pads_enabled(&self) -> bool {
+        self.board
+            .rules
+            .as_ref()
+            .and_then(|r| r.remove_unused_inner_pads)
+            .unwrap_or_else(|| FabRules::remove_unused_inner_pads_default(self.copper_layer_count()))
+    }
+    /// Top and bottom copper layers always keep through-hole and via pads.
+    pub fn copper_layer_is_end(&self, layer: Layer) -> bool {
+        let last = self.copper_layer_count().saturating_sub(1);
+        layer.index() == 0 || layer.index() >= last
+    }
     /// True when `id` names a part, footprint, copper item, board text,
     /// cutout, datum or drawn graphic, the kinds groups and locks cover.
     pub fn is_groupable(&self, id: Id) -> bool {
@@ -5354,10 +5367,10 @@ impl Project {
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
         self.validate_parameters()?;
-self.validate_manufacturers()?;
-        self.compliance_settings.validate()?;
-        self.validate_compliance_mutes()?;
-        self.decoupling.validate()?;
+        validate_compliance_settings(&self.compliance)?;
+        for compliance in self.compliance.parts.values() {
+            validate_component_compliance(compliance)?;
+        }
         if self
             .components
             .iter()
