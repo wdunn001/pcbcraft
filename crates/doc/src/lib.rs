@@ -6162,7 +6162,8 @@ mod drill_tests {
             library_footprint: Some(LibraryFootprint {
                 library: "project".into(),
                 definition: definition.clone(),
-            }),
+            fields: vec![],
+            sourcing: Default::default(),
             fields: vec![],
             sheet: 0,
         });

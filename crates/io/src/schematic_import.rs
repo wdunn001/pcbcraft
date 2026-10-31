@@ -471,7 +471,7 @@ impl ImportCtx {
             .map(|p| p.sheet_name.clone())
             .unwrap_or_else(|| "Imported schematic".into());
         project.library = ProjectLibrary {
-            symbols: self.symbols.into_values().collect(),
+            symbols: std::mem::take(&mut self.symbols).into_values().collect(),
             ..ProjectLibrary::default()
         };
         for page in &pages {
