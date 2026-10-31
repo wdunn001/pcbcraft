@@ -43,25 +43,30 @@ pub struct RuleDoc {
     #[serde(default)]
     pub bands_list: String,
     #[serde(default)]
+    pub template: String,
+    #[serde(default)]
     pub attribute: String,
     #[serde(default)]
-    pub markets: Vec<String>,
-    #[serde(default = "default_error")]
-    pub severity_hit: String,
-    #[serde(default = "default_warning")]
-    pub severity_unverified: String,
-    pub text: String,
-    pub citation: String,
-}
-
-fn default_error() -> String {
-    "error".into()
+    pub limit: f64,
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub finish_leaded: Vec<String>,
 }
 
 fn default_warning() -> String {
     "warning".into()
 }
 
-pub fn parse_ruleset(text: &str) -> Result<RuleSetDoc, String> {
-    toml::from_str(text).map_err(|e| e.to_string())
+pub fn load_rule_set(toml_text: &str) -> Result<ComplianceRuleSet, String> {
+    let set: ComplianceRuleSet = toml::from_str(toml_text).map_err(|e| e.to_string())?;
+    if set.schema != 1 {
+        return Err(format!("unsupported compliance ruleset schema {}", set.schema));
+    }
+    if set.id.is_empty() {
+        return Err("ruleset id is required".into());
+    }
+    Ok(set)
 }

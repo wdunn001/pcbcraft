@@ -1,9 +1,9 @@
-﻿//! Dated compliance list snapshots: entity and substance entries with source
+//! Dated compliance list snapshots: entity and substance entries with source
 //! metadata. Rule engines match part and manufacturer names against these
 //! files; list text never belongs in Rust source.
 //!
 //! # Rules
-//! - Pure data and bounds checks; engines parse TOML through `list_from_toml`.
+//! - Pure data and bounds checks. TOML lives in crates/io/src/compliance_list.rs.
 //! - `schema` must be `1` for files this release reads.
 //!
 //! # Dependencies
@@ -69,8 +69,6 @@ pub struct ComplianceListEntityEntry {
     pub added_date: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub citation: String,
-    #[serde(default, rename = "entry_type", skip_serializing_if = "String::is_empty")]
-    pub entry_type: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -138,9 +136,6 @@ impl ComplianceListEntityEntry {
         }
         if !optional_bounded(&self.citation, MAX_CITATION_LEN) {
             return Err("entity citation must be at most 512 bytes".into());
-        }
-        if !optional_bounded(&self.entry_type, MAX_NAME_LEN) {
-            return Err("entity entry type must be at most 256 bytes".into());
         }
         Ok(())
     }
@@ -230,20 +225,4 @@ impl ComplianceListSnapshot {
             && !self.retrieved_date.is_empty()
             && !self.licence.is_empty()
     }
-
-    /// True when `today` is later than `retrieved_date` plus `cadence_days`.
-    pub fn stale_for_cadence(&self, today: &str) -> bool {
-        if self.cadence_days == 0 || !valid_date(&self.retrieved_date) || !valid_date(today) {
-            return false;
-        }
-        let days = self.cadence_days as i64;
-        compliance_day_number(today) - compliance_day_number(&self.retrieved_date) > days
-    }
-}
-
-fn compliance_day_number(text: &str) -> i64 {
-    let y: i64 = text.get(0..4).and_then(|s| s.parse().ok()).unwrap_or(0);
-    let m: i64 = text.get(5..7).and_then(|s| s.parse().ok()).unwrap_or(0);
-    let d: i64 = text.get(8..10).and_then(|s| s.parse().ok()).unwrap_or(0);
-    y * 372 + m * 31 + d
 }

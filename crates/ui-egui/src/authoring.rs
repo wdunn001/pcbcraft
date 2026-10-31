@@ -1428,6 +1428,14 @@ impl App {
         });
         ui.separator();
         match self.library.editor.mode {
+            1 if self.datasheet.open => {
+                self.datasheet.ui(
+                    ui,
+                    self.accent(),
+                    self.muted(),
+                    &mut self.library.editor.mode,
+                );
+            }
             2 => self.library_editor(ui),
             _ => {
                 self.library.editor.mode = 0;

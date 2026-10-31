@@ -12,6 +12,7 @@ mod browser;
 mod canvas;
 mod contrast;
 mod datums;
+mod datasheet_reader;
 mod draw_target;
 mod drill_table;
 mod editing;
@@ -4141,6 +4142,13 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         tour::anchor::anchor(ui, "shell.menu.help", &help.response);
         help.response.on_hover_text(t!("menu.help.tip"));
     }
+    /// Open the in-app datasheet reader on the Library tab.
+    pub(super) fn open_datasheet(&mut self, ctx: &egui::Context, url: String) {
+        self.change_tab(Tab::Libraries);
+        self.library.editor.mode = 1;
+        self.datasheet.open_source(ctx, url);
+    }
+
     /// The datasheet address when the field holds a plain web link.
     fn datasheet_url(field: Option<&str>) -> Option<String> {
         let url = field?.trim();

@@ -51,6 +51,20 @@ fn fresh() -> App {
     app
 }
 
+fn fresh_with_datasheet_fixture() -> App {
+    use std::sync::Arc;
+    let mut app = fresh();
+    let path = crate::datasheet_reader::fixture_pdf_path();
+    app.datasheet.test_loader = Some(Arc::new(move |source| {
+        if source.contains("example.com") {
+            std::fs::read(&path).map_err(|e| e.to_string())
+        } else {
+            pcbcraft_datasheet::load_bytes(source).map_err(|e| e.to_string())
+        }
+    }));
+    app
+}
+
 fn settled(ctx: &egui::Context, app: &mut App) -> egui::FullOutput {
     for _ in 0..4 {
         frame_plain(ctx, app, vec![]);
@@ -192,7 +206,7 @@ fn datasheet_addresses_must_be_plain_web_links() {
 
 #[test]
 fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
-    let mut app = fresh();
+    let mut app = fresh_with_datasheet_fixture();
     app.tool_call("sample_design", json!({}));
     let resistor = app
         .project
@@ -209,11 +223,10 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
         "a chosen part offers its datasheet: {}",
         app.message
     );
-    let opens = |app: &mut App, ctx: &egui::Context| -> Result<bool, String> {
+    let opens_reader = |app: &mut App, ctx: &egui::Context| -> Result<bool, String> {
         let out = frame(ctx, app, vec![], egui::Modifiers::NONE);
         let at = centre_of(&out, "View datasheet", f32::MAX)
             .ok_or("the datasheet action stays visible")?;
-        let mut any = false;
         for pressed in [None, Some(true), Some(false)] {
             let event = match pressed {
                 None => egui::Event::PointerMoved(at),
@@ -224,17 +237,12 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
                     modifiers: egui::Modifiers::NONE,
                 },
             };
-            let out = frame(ctx, app, vec![event], egui::Modifiers::NONE);
-            any |= out
-                .platform_output
-                .commands
-                .iter()
-                .any(|c| matches!(c, egui::OutputCommand::OpenUrl(_)));
+            let _ = frame(ctx, app, vec![event], egui::Modifiers::NONE);
         }
-        Ok(any)
+        Ok(app.datasheet.open)
     };
     assert!(
-        !opens(&mut app, &ctx)?,
+        !opens_reader(&mut app, &ctx)?,
         "without a web link in the Datasheet field the action is disabled"
     );
     app.tool_call(
@@ -249,10 +257,61 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
         "the datasheet action stays visible"
     );
     assert!(
-        opens(&mut app, &ctx)?,
-        "with a web link in the Datasheet field the button opens it"
+        opens_reader(&mut app, &ctx)?,
+        "with a web link in the Datasheet field the reader opens"
     );
-    Ok(())
+    for _ in 0..24 {
+        let out = frame(ctx, &mut app, vec![], egui::Modifiers::NONE);
+        if out
+            .shapes
+            .iter()
+            .any(|s| matches!(s, egui::Shape::Text(t) if t.galley.text().contains("of 1")))
+        {
+            return Ok(());
+        }
+    }
+    Err("page 1 should appear in the reader pane".into())
+}
+
+#[test]
+fn a_newcomer_opens_a_part_and_reads_its_datasheet() -> Result<(), String> {
+    let mut app = fresh_with_datasheet_fixture();
+    app.tool_call("sample_design", json!({}));
+    let resistor = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference.starts_with('R'))
+        .map(|c| c.id)
+        .ok_or("the practice design carries a resistor")?;
+    app.tool_call(
+        "component.field",
+        json!({"id": resistor, "key": "Datasheet", "value": "https://example.com/r.pdf"}),
+    );
+    app.select(Some(resistor));
+    let ctx = egui::Context::default();
+    settled(&ctx, &mut app);
+    scrolled_to(&ctx, &mut app, "View datasheet")?;
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = centre_of(&out, "View datasheet", f32::MAX).ok_or("datasheet action visible")?;
+    let click = egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let _ = frame(&ctx, &mut app, vec![click], egui::Modifiers::NONE);
+    for _ in 0..32 {
+        let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        if out
+            .shapes
+            .iter()
+            .any(|s| matches!(s, egui::Shape::Text(t) if t.galley.text().contains("of 1")))
+        {
+            return Ok(());
+        }
+    }
+    Err("View datasheet should show page 1 in the Library reader".into())
 }
 
 #[test]
