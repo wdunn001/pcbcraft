@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+pcbcraft-clock.workspace = true
 pcbcraft-ui-egui.workspace = true
 pcbcraft-engine.workspace = true
 pcbcraft-mcp.workspace = true
@@ -19,6 +20,9 @@ pcbcraft-assistant.workspace = true
 pcbcraft-library.workspace = true
 ureq = { version = "2", default-features = false, features = ["tls"] }
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
+
+[build-dependencies]
+embed-resource = "3.0.12"
 
 [dev-dependencies]
 tempfile.workspace = true

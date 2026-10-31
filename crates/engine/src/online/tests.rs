@@ -5,7 +5,7 @@ use pcbcraft_library::{read_footprint, read_symbols};
 const DEVICE: &str = include_str!("../../../library/tests/fixtures/device.kicad_sym");
 const LM358: &str = include_str!("../../../library/tests/fixtures/lm358.kicad_sym");
 const R0805: &str = include_str!("../../../library/tests/fixtures/R_0805_2012Metric.kicad_mod");
-const NOTICE: &str = "Imported symbol from Open library: Device.kicad_symdir/R.kicad_sym. Licence CC-BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).";
+const NOTICE: &str = "Imported symbol from Open library (open-library): Device.kicad_symdir/R.kicad_sym. Licence CC-BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).";
 
 fn symbol(text: &str, name: &str) -> Result<SymbolDefinition, Error> {
     read_symbols(text)
@@ -37,9 +37,39 @@ fn place_params(target: &str, x: f64, y: f64) -> Result<Value, Error> {
 #[test]
 fn both_commands_are_listed_with_their_schemas() {
     let all = commands();
-    for id in ["library.import_online", "library.place_online"] {
+    for id in [
+        "library.import_online",
+        "library.place_online",
+        "library.online_status",
+    ] {
         assert!(all.iter().any(|c| c.id == id), "{id} is registered");
     }
+}
+
+#[test]
+fn online_status_lists_imported_parts_without_network() -> Result<(), Error> {
+    let mut s = Session::default();
+    let rev = s.revision;
+    s.execute("library.import_online", import_params()?, None)?;
+    let out = s.execute("library.online_status", json!({}), None)?;
+    assert_eq!(s.revision, rev, "online_status must not change the design");
+    let entries = out
+        .get("result")
+        .and_then(|r| r.get("entries"))
+        .and_then(Value::as_array)
+        .ok_or_else(missing)?;
+    assert_eq!(entries.len(), 1);
+    let row = &entries[0];
+    assert_eq!(
+        row.get("source_id").and_then(Value::as_str),
+        Some("open-library")
+    );
+    assert_eq!(
+        row.get("upstream_path").and_then(Value::as_str),
+        Some("Device.kicad_symdir/R.kicad_sym")
+    );
+    assert_eq!(row.get("blob_id").and_then(Value::as_str), Some(""));
+    Ok(())
 }
 
 #[test]

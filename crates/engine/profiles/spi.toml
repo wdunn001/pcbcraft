@@ -1,16 +1,49 @@
-schema = 1
+schema = 2
+
+[record]
+kind = "interface_profile"
+license = "MIT"
+source = "PCBCraft built-in interface profiles"
 
 [profile]
 id = "spi"
 name = "SPI serial"
 category = "interface"
-summary = "SPI serial rule starting points."
+summary = "Single-ended SPI clock and data with return-path guidance."
+
+[bus]
+name = "SPI"
+schematic_type = "SPI"
+
+[bus.limits]
+edge_rate_band = "board_level"
+reference_plane = "required"
+
+[[signal]]
+name = "SCLK"
+pattern = "*SCLK*"
+electrical_class = "single-ended"
+
+[[signal]]
+name = "MOSI"
+pattern = "*MOSI*"
+electrical_class = "single-ended"
+
+[[signal]]
+name = "MISO"
+pattern = "*MISO*"
+electrical_class = "single-ended"
+
+[[signal]]
+name = "CS"
+pattern = "*CS*"
+electrical_class = "single-ended"
 
 [[net_class]]
-name = "SIG"
+name = "SPI"
 clearance = 0.15
 width = 0.2
-patterns = ["*"]
+patterns = ["SPI_*", "*SCLK*", "*MOSI*", "*MISO*", "*CS*"]
 
 [[value_source]]
 field = "net_class.width"

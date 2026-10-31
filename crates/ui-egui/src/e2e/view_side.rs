@@ -327,3 +327,112 @@ fn a_newcomer_sees_the_board_is_behind_the_schematic_and_updates_it() -> Result<
     assert!(!app.board_behind(), "the notice goes away once synced");
     Ok(())
 }
+
+// ----- Y-up board view (#797) -----
+
+/// A camera on the board: y up, optionally flipped to the bottom and turned.
+fn board_camera(mirror: bool, turns: u8) -> Camera {
+    Camera {
+        center: pcbcraft_geom::Point::new(30.0, 20.0),
+        zoom: 10.0,
+        mirror,
+        turns,
+        up: true,
+    }
+}
+
+#[test]
+fn a_newcomer_sees_a_part_at_y_20_twenty_millimetres_above_the_origin() {
+    let rect = Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 600.0));
+    let camera = board_camera(false, 0);
+    let origin = camera.screen(pcbcraft_geom::Point::new(0.0, 0.0), rect);
+    let part = camera.screen(pcbcraft_geom::Point::new(10.0, 20.0), rect);
+    assert!(
+        (origin.y - part.y - 20.0 * camera.zoom).abs() < 1e-3,
+        "Y 20 sits 20 mm above the origin on screen"
+    );
+    assert!(
+        (part.x - origin.x - 10.0 * camera.zoom).abs() < 1e-3,
+        "X 10 sits 10 mm to the right"
+    );
+}
+
+#[test]
+fn screen_world_screen_round_trips_with_the_flip_the_bottom_and_every_turn() {
+    let rect = Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 600.0));
+    for mirror in [false, true] {
+        for turns in 0..4 {
+            let camera = board_camera(mirror, turns);
+            for p in [
+                egui::pos2(10.0, 20.0),
+                egui::pos2(400.0, 300.0),
+                egui::pos2(777.0, 123.0),
+            ] {
+                let back = camera.screen(camera.world(p, rect), rect);
+                assert!(
+                    (back.x - p.x).abs() < 1e-3 && (back.y - p.y).abs() < 1e-3,
+                    "mirror {mirror} turns {turns}: {p:?} came back as {back:?}"
+                );
+            }
+            // Picking: the world point under a screen point is the one drawn there.
+            let w = pcbcraft_geom::Point::new(12.5, -3.0);
+            let hit = camera.world(camera.screen(w, rect), rect);
+            assert!((hit.x - w.x).abs() < 1e-6 && (hit.y - w.y).abs() < 1e-6);
+        }
+    }
+}
+
+#[test]
+fn a_newcomer_reads_a_larger_y_in_the_status_bar_moving_the_pointer_up() -> Result<(), String> {
+    let (mut app, ctx) = open_layout();
+    let rect = app.canvas_rect;
+    let low = rect.center() + Vec2::new(0.0, 80.0);
+    let high = rect.center() - Vec2::new(0.0, 80.0);
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(low)],
+        egui::Modifiers::NONE,
+    );
+    let y_low = app.cursor.ok_or("the pointer is over the canvas")?.y;
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(high)],
+        egui::Modifiers::NONE,
+    );
+    let y_high = app.cursor.ok_or("the pointer is over the canvas")?.y;
+    assert!(y_high > y_low, "up reads larger: {y_low} then {y_high}");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_keeps_picks_right_after_flipping_to_the_bottom_and_rotating() -> Result<(), String> {
+    let (mut app, ctx) = open_layout();
+    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    app.pcb.turns = 1;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let rect = app.canvas_rect;
+    let spot = pcbcraft_geom::Point::new(20.0, 30.0);
+    let at = app.pcb.screen(spot, rect);
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(at)],
+        egui::Modifiers::NONE,
+    );
+    let seen = app.cursor.ok_or("the pointer is over the canvas")?;
+    assert!(
+        (seen.x - spot.x).abs() < 0.05 && (seen.y - spot.y).abs() < 0.05,
+        "the pointer reads the point drawn under it: {seen:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_measure_angle_counts_up_on_the_board_and_down_on_the_schematic() {
+    let a = pcbcraft_geom::Point::new(0.0, 0.0);
+    let b = pcbcraft_geom::Point::new(1.0, 1.0);
+    assert!(crate::editing::measure_text(a, b, true).contains("angle 45.0"));
+    assert!(crate::editing::measure_text(a, b, false).contains("angle -45.0"));
+}
