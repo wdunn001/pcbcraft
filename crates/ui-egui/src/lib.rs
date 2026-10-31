@@ -52,6 +52,7 @@ mod targets;
 pub mod theme;
 mod tool_modifiers;
 mod toolbar;
+mod tour;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
@@ -1028,6 +1029,8 @@ pub struct App {
     preferences: Preferences,
     /// Text for the language chosen in Settings.
     catalog: std::sync::Arc<pcbcraft_text::Catalog>,
+    /// Embedded in-app tour definitions (#769).
+    tours: tour::data::Doc,
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
@@ -1757,6 +1760,7 @@ impl App {
             catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
                 &preferences.language,
             )),
+            tours: tour::data::embedded_for_shell(),
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
@@ -3653,6 +3657,17 @@ impl App {
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
+            ui.menu_button(t!("menu.help.tours"), |ui| {
+                for tour in &self.tours.tour {
+                    let list_key = tour.list_key();
+                    let label = pcbcraft_text::lookup(&list_key, &[]);
+                    let tip_key = format!("{list_key}.tip");
+                    ui.button(label)
+                        .on_hover_text(pcbcraft_text::lookup(&tip_key, &[]));
+                }
+            })
+            .response
+            .on_hover_text(t!("menu.help.tours.tip"));
             ui.separator();
             if ui
                 .button(t!("app.about"))

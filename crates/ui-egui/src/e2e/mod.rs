@@ -41,6 +41,7 @@ mod showcase;
 mod showcase_schematic_layout;
 mod sourcing;
 mod toolbar;
+mod tours;
 mod tree_rows;
 mod via_covering;
 mod vias;
