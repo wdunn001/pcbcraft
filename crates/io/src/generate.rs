@@ -26,7 +26,8 @@ PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, compliance_repo
     netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
     postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, testpoints_csv,
     vrml_board, impedance_table_csv, fab_drawing_pdf, si_net_results_csv, spice_netlist, touchstone_text,
-    bundled_placement_flavours, placement_flavoured, ComplianceReportOptions
+    bundled_placement_flavours, placement_flavoured, ComplianceReportOptions, gerber_files_with_options,
+    GerberArcOptions, PACKAGE_CREATION_DATE
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -168,7 +169,9 @@ fn copper_gerber_name(layer: &str) -> Option<&'static str> {
 fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
     let path = artifact.path.as_str();
     if path == "gerber/" || path.starts_with("gerber/") {
-        let files = gerber_files(p)?;
+        let opts = GerberArcOptions::default_for(p, &artifact.settings);
+        let (files, _report) =
+            gerber_files_with_options(p, PACKAGE_CREATION_DATE, opts)?;
         if path == "gerber/" {
             return Ok(GeneratedOutput::Files(files));
         }

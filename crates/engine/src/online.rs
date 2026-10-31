@@ -274,7 +274,9 @@ fn place_command(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value
             locked: None,
             side: None,
             pads,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         Some(fid)
     } else {
         None

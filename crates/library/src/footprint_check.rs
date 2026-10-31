@@ -813,6 +813,7 @@ mod tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         let codes: Vec<_> = check_footprint(&def).into_iter().map(|f| f.code).collect();
         assert!(codes.iter().any(|c| c == "lib_name_not_ipc"));
@@ -836,6 +837,7 @@ mod tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         assert!(
             check_footprint(&def)
@@ -861,6 +863,7 @@ mod tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         assert!(
             check_footprint(&def)

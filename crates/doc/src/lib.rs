@@ -4,8 +4,8 @@ mod machine_profile;
 mod outline;
 pub use machine_profile::*;
 pub use outline::{
-    MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_sagitta, flatten_outline, outline_extent,
-    segment_arc, validate_outline_arcs,
+    MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_chord_worst_error, arc_polyline, arc_sagitta,
+    flatten_outline, outline_extent, segment_arc, validate_outline_arcs,
 };
 mod panel;
 pub use component_kind::{
@@ -294,6 +294,9 @@ pub struct Component {
     pub library_symbol: Option<LibrarySymbol>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library_footprint: Option<LibraryFootprint>,
+    /// Project-library part this component references, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part: Option<Id>,
     /// Free-form component properties, such as a datasheet link, a manufacturer
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -545,6 +548,10 @@ pub struct NetClass {
     /// Absent means no stub check; zero means no stubs at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_stub: Option<f64>,
+    /// Maximum plated vias allowed on each member net. Absent means no limit;
+    /// zero means no vias.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_vias: Option<u32>,
     /// Default outer via pad diameter for member nets, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_diameter: Option<f64>,
@@ -609,6 +616,9 @@ pub struct DiffPair {
     /// means length matching is not checked for this pair.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// When true, both sides must carry the same number of plated vias.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub equal_vias: bool,
     /// Rule profile that last applied this differential pair, when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
@@ -2380,6 +2390,7 @@ pub const ARTIFACT_KINDS: &[&str] = &[
     "drill_unplated",
     "drill_map",
     "placement",
+    "placement_yy1",
     "bom",
     "assembly_drawing",
     "fab_drawing",
@@ -2426,6 +2437,35 @@ impl Artifact {
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     }
+    /// True when the `placement_yy1` settings object only uses known keys and
+    /// bounded values. Omitted keys use the same defaults as `placement_yy1.export`.
+    pub fn placement_yy1_settings_valid(settings: &serde_json::Value) -> bool {
+        let Some(obj) = settings.as_object() else {
+            return false;
+        };
+        const KEYS: &[&str] = &["side", "layout", "variant", "include_dnp_as_skip"];
+        for key in obj.keys() {
+            if !KEYS.iter().any(|allowed| allowed == &key.as_str()) {
+                return false;
+            }
+        }
+        let side = obj.get("side").and_then(|v| v.as_str()).unwrap_or("top");
+        if !matches!(side, "top" | "bottom" | "both") {
+            return false;
+        }
+        let layout = obj.get("layout").and_then(|v| v.as_str()).unwrap_or("native");
+        if !matches!(layout, "native" | "import") {
+            return false;
+        }
+        if obj.get("variant").is_some_and(|v| {
+            !v.is_string()
+                || v.as_str().is_none_or(|s| s.is_empty() || s.len() > 64)
+        }) {
+            return false;
+        }
+        obj.get("include_dnp_as_skip")
+            .is_none_or(serde_json::Value::is_boolean)
+    }
     /// True when every field is within its bound: name, kind, layers,
     /// settings, machine, path, hash and job. `Project::validate` and the
     /// engine commands both rely on it.
@@ -2449,6 +2489,10 @@ impl Artifact {
                 .job
                 .as_ref()
                 .is_none_or(|j| !j.is_empty() && j.len() <= 64)
+            && (self.kind != "placement_yy1"
+                || (self.machine.is_some()
+                    && self.path.ends_with('/')
+                    && Self::placement_yy1_settings_valid(&self.settings)))
     }
 }
 /// Maps a legacy output job kind to its artifact kind and default path.
@@ -3490,6 +3534,30 @@ pub fn panel_score_lines(project: &Project) -> Result<Vec<(Point, Point)>, Strin
     }
     Ok(lines)
 }
+/// V-score or breakaway score segments on the board profile: panel score
+/// lines when the design is panelized with V-score, plus drawn cut figures
+/// on user layers.
+pub fn board_vscore_segments(project: &Project) -> Vec<(Point, Point)> {
+    let mut lines = Vec::new();
+    if project.panel.enabled && project.panel.separation == PanelSeparation::VScore {
+        if let Ok(panel) = panel_score_lines(project) {
+            lines.extend(panel);
+        }
+    }
+    for layer in &project.board.user_layers {
+        if layer.kind != ArtKind::Cut {
+            continue;
+        }
+        for shape in &layer.shapes {
+            for path in shape.paths() {
+                for edge in path.points.windows(2) {
+                    lines.push((edge[0], edge[1]));
+                }
+            }
+        }
+    }
+    lines
+}
 /// Tab-routing cut paths between copies when tab separation is active.
 pub fn panel_tab_segments(project: &Project) -> Result<Vec<(Point, Point)>, String> {
     let settings = &project.panel;
@@ -3787,6 +3855,8 @@ pub struct ProjectLibrary {
     pub notices: Vec<String>,
     pub symbols: Vec<pcbcraft_library::SymbolDefinition>,
     pub footprints: Vec<pcbcraft_library::FootprintDefinition>,
+    #[serde(default)]
+    pub parts: Vec<pcbcraft_library::Part>,
 }
 impl ProjectLibrary {
     pub fn validate(&self) -> Result<(), String> {
@@ -3795,6 +3865,9 @@ impl ProjectLibrary {
         }
         if self.symbols.len() > 256 || self.footprints.len() > 256 {
             return Err("project library supports at most 256 symbols and 256 footprints".into());
+        }
+        if self.parts.len() > pcbcraft_library::MAX_PARTS {
+            return Err("project library supports at most 256 parts".into());
         }
         let mut names = BTreeSet::new();
         for s in &self.symbols {
@@ -3808,6 +3881,17 @@ impl ProjectLibrary {
             f.validate().map_err(|e| e.to_string())?;
             if !names.insert(&f.name) {
                 return Err("duplicate library footprint name".into());
+            }
+        }
+        names.clear();
+        let mut ids = BTreeSet::new();
+        for part in &self.parts {
+            part.validate().map_err(|e| e.to_string())?;
+            if !ids.insert(part.id) {
+                return Err("duplicate library part id".into());
+            }
+            if !names.insert(&part.mpn) {
+                return Err("duplicate library part MPN".into());
             }
         }
         Ok(())
@@ -4977,6 +5061,7 @@ impl Project {
             .chain(self.board.user_layers.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
             .chain(self.artifacts.iter().map(|x| x.id))
+            .chain(self.library.parts.iter().map(|x| x.id))
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
@@ -5203,6 +5288,7 @@ self.validate_manufacturers()?;
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
                 || c.max_stub
                     .is_some_and(|s| !s.is_finite() || !(0.0..=100.0).contains(&s))
+                || c.max_vias.is_some_and(|v| v > 1024)
                 || !profile_tag_valid(&c.profile)
                 || c.via_diameter
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
@@ -5409,6 +5495,25 @@ self.validate_manufacturers()?;
             {
                 return Err("artifact job label must name an existing output job".into());
             }
+            if a.kind == "placement_yy1" {
+                let machine_id = a.machine.as_ref().ok_or(
+                    "placement_yy1 artifacts must name a machine profile on the design".into(),
+                )?;
+                let profile = self
+                    .machine_profiles
+                    .iter()
+                    .find(|profile| profile.id == *machine_id)
+                    .ok_or_else(|| {
+                        format!(
+                            "placement_yy1 artifact names unknown machine profile {machine_id}"
+                        )
+                    })?;
+                if profile.kind != "pick_place" {
+                    return Err(
+                        "placement_yy1 artifacts must use a pick and place machine profile".into(),
+                    );
+                }
+            }
         }
         if self.bom_fields.len() > 16 {
             return Err("a bill of materials lists at most 16 properties".into());
@@ -5607,6 +5712,11 @@ c.compliance.validate()?;
                     || !field_keys.insert(f.key.as_str())
                 {
                     return Err("invalid component field".into());
+                }
+            }
+            if let Some(part_id) = c.part {
+                if !self.library.parts.iter().any(|p| p.id == part_id) {
+                    return Err("component references an unknown part".into());
                 }
             }
             if let Some(symbol) = &c.library_symbol {
@@ -6469,6 +6579,33 @@ mod artifact_tests {
     }
 
     #[test]
+    fn placement_yy1_artifact_requires_machine_folder_path_and_settings() -> Result<(), String> {
+        let base = Artifact {
+            id: 1,
+            name: "yy1".into(),
+            kind: "placement_yy1".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: Some("neoden-yy1".into()),
+            path: "yy1/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        assert!(base.valid());
+        let mut no_machine = base.clone();
+        no_machine.machine = None;
+        assert!(!no_machine.valid());
+        let mut file_path = base.clone();
+        file_path.path = "Top.csv".into();
+        assert!(!file_path.valid());
+        let mut bad_side = base.clone();
+        bad_side.settings = serde_json::json!({"side": "wide"});
+        assert!(!bad_side.valid());
+        Ok(())
+    }
+
+    #[test]
     fn migrate_output_jobs_creates_equivalent_artifacts() -> Result<(), String> {
         let mut project = Project::default();
         project.output_jobs.push(OutputJob {
@@ -6567,6 +6704,7 @@ mod drill_tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         validate_footprint_support(&definition)?;
         Ok(())
@@ -6876,6 +7014,7 @@ mod drill_tests {
             extends: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         let text = serde_json::to_string(&def).map_err(|e| e.to_string())?;
         assert!(text.contains("Power bits"), "the set travels in the file");
@@ -7129,6 +7268,7 @@ mod drill_tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         validate_footprint_support(&definition)?;
         Ok(())
@@ -7147,6 +7287,7 @@ mod drill_tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         validate_footprint_support(&definition)?;
         let mut p = Project::default();
@@ -7337,6 +7478,18 @@ mod art_tests {
         );
         p.board.holes[0].end = Some(Point::new(70.0, 5.0));
         assert!(p.validate().is_err(), "a slot spans at most 50 mm");
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_project_json_loads_with_empty_parts_vector() -> Result<(), String> {
+        let lib: ProjectLibrary = serde_json::from_value(serde_json::json!({
+            "notices": [],
+            "symbols": [],
+            "footprints": []
+        }))
+        .map_err(|e| e.to_string())?;
+        assert!(lib.parts.is_empty());
         Ok(())
     }
 }

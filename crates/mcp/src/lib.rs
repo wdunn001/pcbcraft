@@ -357,20 +357,33 @@ pub(crate) fn invoke_session(
             pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
             json!({"path":path})
         }
-        "library.export_footprint"
-        | "library.export_symbol"
-        | "library.export_footprint_svg"
-        | "library.export_symbol_svg" => {
+        "library.export_footprint" | "library.export_symbol" => {
             s.project.library.validate()?;
             let path = string(args, "path")?;
             let definition = string(args, "name")?;
-            let footprint =
-                name == "library.export_footprint" || name == "library.export_footprint_svg";
-            let suffix = match name {
-                "library.export_footprint" => "kicad_mod",
-                "library.export_symbol" => "kicad_sym",
-                _ => "svg",
+            let kind = if name == "library.export_footprint" {
+                "footprint"
+            } else {
+                "symbol"
             };
+            let written = pcbcraft_io::export_library_definitions(
+                &s.project.library,
+                kind,
+                Path::new(path),
+                &[definition.to_string()],
+            )?;
+            json!({
+                "path": written["path"],
+                "name": definition,
+                "files": written["files"],
+            })
+        }
+        "library.export_footprint_svg" | "library.export_symbol_svg" => {
+            s.project.library.validate()?;
+            let path = string(args, "path")?;
+            let definition = string(args, "name")?;
+            let footprint = name == "library.export_footprint_svg";
+            let suffix = "svg";
             if Path::new(path).extension().and_then(|e| e.to_str()) != Some(suffix) {
                 return Err(format!("path must end in .{suffix}"));
             }
@@ -382,11 +395,7 @@ pub(crate) fn invoke_session(
                     .iter()
                     .find(|f| f.name == definition)
                     .ok_or("unknown project-library footprint")?;
-                if suffix == "svg" {
-                    pcbcraft_io::footprint_svg(item)?
-                } else {
-                    pcbcraft_io::footprint_library_text(item)?
-                }
+                pcbcraft_io::footprint_svg(item)?
             } else {
                 let item = s
                     .project
@@ -395,34 +404,42 @@ pub(crate) fn invoke_session(
                     .iter()
                     .find(|f| f.name == definition)
                     .ok_or("unknown project-library symbol")?;
-                if suffix == "svg" {
-                    pcbcraft_io::symbol_svg(item)?
-                } else {
-                    pcbcraft_io::symbol_library_text(item)?
-                }
+                pcbcraft_io::symbol_svg(item)?
             };
             pcbcraft_io::atomic_write(Path::new(path), text.as_bytes())?;
             json!({"path":path,"name":definition,"bytes":text.len()})
         }
         "library.export_footprints" => {
+            s.project.library.validate()?;
             let directory = string(args, "path")?;
-            let mut files = Vec::new();
-            for item in &s.project.library.footprints {
-                let text = pcbcraft_io::footprint_library_text(item)?;
-                let name = format!("{}.kicad_mod", item.name);
-                pcbcraft_io::atomic_write(&Path::new(&directory).join(&name), text.as_bytes())?;
-                files.push(name);
-            }
-            json!({"directory":directory,"files":files})
+            let names: Vec<String> = s
+                .project
+                .library
+                .footprints
+                .iter()
+                .map(|item| item.name.clone())
+                .collect();
+            let written = pcbcraft_io::export_library_definitions(
+                &s.project.library,
+                "footprint",
+                Path::new(directory),
+                &names,
+            )?;
+            json!({"directory": written["path"], "files": written["files"]})
         }
         "library.export_symbols" => {
+            s.project.library.validate()?;
             let directory = string(args, "path")?;
             let mut files = Vec::new();
             for item in &s.project.library.symbols {
-                let text = pcbcraft_io::symbol_library_text(item)?;
-                let name = format!("{}.kicad_sym", item.name);
-                pcbcraft_io::atomic_write(&Path::new(&directory).join(&name), text.as_bytes())?;
-                files.push(name);
+                let file = format!("{}.kicad_sym", item.name);
+                pcbcraft_io::export_library_definitions(
+                    &s.project.library,
+                    "symbol",
+                    &Path::new(directory).join(&file),
+                    &[item.name.clone()],
+                )?;
+                files.push(file);
             }
             json!({"directory":directory,"files":files})
         }
@@ -3089,6 +3106,44 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
                 .and_then(Value::as_str)
                 .is_some_and(|p| !p.is_empty())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn hub_document_dirty_flag_clears_after_successful_save() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = directory.path().join("dirty.pcbcraft");
+        pcbcraft_io::save(&Session::default().project, &path)?;
+        assert_eq!(
+            hub.call_tool("open", &json!({"path": path.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let dirty = |listed: &Value| {
+            listed
+                .pointer("/structuredContent/documents/0/dirty")
+                .and_then(Value::as_bool)
+        };
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(dirty(&listed), Some(false), "{listed}");
+        assert_eq!(
+            hub.call_tool(
+                "execute",
+                &json!({"command":"net.create","params":{"name":"DIRTY"}}),
+            )
+            .get("isError"),
+            Some(&json!(false))
+        );
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(dirty(&listed), Some(true), "{listed}");
+        assert_eq!(
+            hub.call_tool("save", &json!({"path": path.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(dirty(&listed), Some(false), "{listed}");
         Ok(())
     }
 

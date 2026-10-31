@@ -4,6 +4,7 @@ mod authoring;
 pub mod collab;
 mod dry_run;
 mod images;
+pub mod design_document;
 pub mod library;
 mod online;
 mod outline;
@@ -854,6 +855,35 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "schematic.instance_add",
+            "Place another copy of a template schematic page on a parent page with distinct references, local nets and hierarchy ports wired by name",
+            schema(
+                json!({"sheet":id_schema(),"name":{"type":"string","minLength":1,"maxLength":64},"parent":{"type":"integer","minimum":0},"entry":point_schema(),"reference_offset":{"type":"integer","minimum":0,"maximum":999000}}),
+                &["sheet", "name", "parent", "entry", "reference_offset"],
+            ),
+        ),
+        (
+            "schematic.instance_remove",
+            "Remove one sheet instance and every component, net fragment, wire and label it materialized",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "schematic.export_design_block",
+            "Write one template schematic page and the library it needs to a portable design block archive on disk",
+            schema(
+                json!({"sheet":id_schema(),"path":{"type":"string","minLength":1,"maxLength":1024}}),
+                &["sheet", "path"],
+            ),
+        ),
+        (
+            "schematic.import_design_block",
+            "Read a design block archive from disk as a new template page and place the first instance on a parent page",
+            schema(
+                json!({"path":{"type":"string","minLength":1,"maxLength":1024},"parent":{"type":"integer","minimum":0},"entry":point_schema(),"name":{"type":"string","minLength":1,"maxLength":64},"reference_offset":{"type":"integer","minimum":0,"maximum":999000}}),
+                &["path", "parent", "entry"],
+            ),
+        ),
+        (
             "graphic.scale",
             "Scale a graphic about an anchor point by a factor from 0.01 to 100; the stroke width follows the factor unless keep_width is set",
             schema(
@@ -1448,6 +1478,14 @@ schema(
             ),
         ),
         (
+            "board.repeat_layout",
+            "Copy footprint placement and instance-local copper from one sheet instance onto others relative to an anchor reference on the template page",
+            schema(
+                json!({"source_instance":id_schema(),"targets":{"type":"array","items":id_schema(),"minItems":1,"maxItems":63},"anchor_reference":{"type":"string","minLength":1,"maxLength":64}}),
+                &["source_instance", "targets", "anchor_reference"],
+            ),
+        ),
+        (
             "track.add",
             "Add a straight copper segment; checks report clearance errors rather than hiding them",
             schema(
@@ -1587,9 +1625,9 @@ schema(
         ),
         (
             "track.route",
-            "Connect a same-net pad or point to another on the chosen copper layer. Default mode orthogonal is one right-angle bend with no obstacle checks. Mode octilinear routes 45-degree copper around other nets' pads, tracks and cutouts. Mode octilinear_shove walks around pads and cutouts and pushes other nets' tracks aside within fixed iteration limits. Refusals say why and change nothing. Single layer, no vias",
+            "Connect a same-net pad or point to another on the chosen copper layer. Optional end_layer finishes on another layer and inserts a through via at the bend in the same step. Default mode orthogonal is one right-angle bend with no obstacle checks. Mode octilinear routes 45-degree copper around other nets' pads, tracks and cutouts. Mode octilinear_shove walks around pads and cutouts and pushes other nets' tracks aside within fixed iteration limits. Refusals say why and change nothing",
             schema(
-                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
+                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"start copper layer for the route"},"end_layer":{"type":"string","maxLength":64,"description":"finish copper layer; when it differs from layer a through via is placed at the bend"},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
                 &["from", "to"],
             ),
         ),
@@ -2466,7 +2504,8 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
                     "tool":{"type":"object","properties":{"diameter_mm":{"type":"number","exclusiveMinimum":0},"feed_mm_min":{"type":"number","exclusiveMinimum":0},"plunge_mm_min":{"type":"number","exclusiveMinimum":0},"depth_mm":{"type":"number","exclusiveMinimum":0},"passes":{"type":"integer","minimum":1,"maximum":8},"spindle_rpm":{"type":"integer","minimum":1}},"required":["diameter_mm","feed_mm_min","plunge_mm_min","depth_mm","passes","spindle_rpm"],"additionalProperties":false},
                     "overlap_pct":{"type":"integer","minimum":0,"maximum":90,"default":50},
                     "mirror_axis":{"type":"string","enum":["x","y"],"default":"y"},
-                    "alignment_holes":{"type":"boolean","default":false}
+                    "alignment_holes":{"type":"boolean","default":false},
+                    "rubout":{"type":"object","properties":{"rect":{"type":["object","null"],"properties":{"min":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]},"max":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]}},"required":["min","max"]},"tool":{"type":"object","properties":{"diameter_mm":{"type":"number","exclusiveMinimum":0},"feed_mm_min":{"type":"number","exclusiveMinimum":0},"plunge_mm_min":{"type":"number","exclusiveMinimum":0},"depth_mm":{"type":"number","exclusiveMinimum":0},"passes":{"type":"integer","minimum":1,"maximum":8},"spindle_rpm":{"type":"integer","minimum":1}},"required":["diameter_mm","feed_mm_min","plunge_mm_min","depth_mm","passes","spindle_rpm"],"additionalProperties":false},"stepover_pct":{"type":"integer","minimum":30,"maximum":80},"angle_deg":{"type":"number"}},"required":["tool","stepover_pct","angle_deg"],"additionalProperties":false}
                 }),
                 &["side", "tool"],
             ),
@@ -2640,8 +2679,12 @@ impl Session {
             results.push(sync_board_from_schematic(&mut candidate, &mut next)?);
             candidate.validate()?;
         }
-        self.commit(candidate);
-        self.next_id = next;
+        if candidate != self.project {
+            self.commit(candidate);
+        }
+        if next != self.next_id {
+            self.next_id = next;
+        }
         Ok(json!({"revision":self.revision,"results":results}))
     }
     /// Run one command on a scratch copy and return its result without
@@ -3609,6 +3652,7 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
                 locked: None,
                 pads: component_pads(c),
                 side: None,
+                preserved: pcbcraft_doc::PreservedSource::default(),
             });
         }
     }
@@ -4271,6 +4315,44 @@ struct ImportSheetParams {
     path: String,
     #[serde(default)]
     name: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InstanceAddParams {
+    sheet: Id,
+    name: String,
+    parent: Id,
+    entry: Point,
+    reference_offset: u64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InstanceRemoveParams {
+    id: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DesignBlockExportParams {
+    sheet: Id,
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DesignBlockImportParams {
+    path: String,
+    parent: Id,
+    entry: Point,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    reference_offset: Option<u64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RepeatLayoutParams {
+    source_instance: Id,
+    targets: Vec<Id>,
+    anchor_reference: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6574,6 +6656,8 @@ struct Route {
     #[serde(default = "front")]
     layer: Layer,
     #[serde(default)]
+    end_layer: Option<Layer>,
+    #[serde(default)]
     mode: route::Mode,
     net: Option<Id>,
 }
@@ -6610,6 +6694,23 @@ fn class_width(p: &Project, net: Id) -> f64 {
     p.net_class(net)
         .map(|class| class.width)
         .unwrap_or_else(default_width)
+}
+fn class_via_size(p: &Project, net: Id) -> Result<(f64, f64), Error> {
+    let class = p.net_class(net);
+    let diameter = class
+        .and_then(|c| c.via_diameter)
+        .filter(|d| d.is_finite() && *d > 0.0 && *d <= 100.0)
+        .unwrap_or(0.8);
+    let drill = class
+        .and_then(|c| c.via_drill)
+        .filter(|d| d.is_finite() && *d >= 0.0)
+        .unwrap_or(0.4);
+    if drill >= diameter {
+        return Err(Error::Invalid(
+            "via drill must be smaller than its pad".into(),
+        ));
+    }
+    Ok((diameter, drill))
 }
 fn start_at_one() -> u64 {
     1
@@ -6812,6 +6913,170 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .and_then(|pad| pad.net)
         .ok_or_else(|| Error::Invalid("pad has no net".into()))?;
     Ok((position, net))
+}
+
+fn component_for_instance_prototype<'a>(
+    p: &'a Project,
+    instance: Id,
+    prototype: Id,
+) -> Option<&'a Component> {
+    p.components
+        .iter()
+        .find(|c| c.instance == Some(instance) && c.prototype == Some(prototype))
+}
+
+fn footprint_for_component<'a>(p: &'a Project, component: Id) -> Option<&'a Footprint> {
+    p.board.footprints.iter().find(|f| f.component == component)
+}
+
+fn template_component_by_reference<'a>(
+    p: &'a Project,
+    sheet: Id,
+    reference: &str,
+) -> Option<&'a Component> {
+    p.components
+        .iter()
+        .find(|c| c.sheet == sheet && c.instance.is_none() && c.reference == reference)
+}
+
+fn instance_materialized_net_name(template_name: &str, instance_name: &str) -> String {
+    format!("{template_name}__{instance_name}")
+}
+
+fn merge_design_block_template(
+    p: &mut Project,
+    block: pcbcraft_io::DesignBlock,
+    next: &mut Id,
+) -> Result<Id, Error> {
+    let mut sheet_name = block.sheet.name.clone();
+    if p.sheets.iter().any(|s| s.name == sheet_name) {
+        let mut n = 2u64;
+        loop {
+            sheet_name = format!("{} ({n})", block.sheet.name);
+            if sheet_name.len() > 128 {
+                return Err(Error::Invalid("design block sheet name is too long".into()));
+            }
+            if !p.sheets.iter().any(|s| s.name == sheet_name) {
+                break;
+            }
+            n += 1;
+        }
+    }
+    let sheet_id = allocate(next)?;
+    let mut id_map: std::collections::BTreeMap<Id, Id> = std::collections::BTreeMap::new();
+    id_map.insert(block.sheet.id, sheet_id);
+    for net in &block.nets {
+        let new_id = allocate(next)?;
+        id_map.insert(net.id, new_id);
+    }
+    for component in &block.components {
+        let new_id = allocate(next)?;
+        id_map.insert(component.id, new_id);
+    }
+    for port in &block.ports {
+        let new_id = allocate(next)?;
+        id_map.insert(port.id, new_id);
+    }
+    for wire in &block.wires {
+        let new_id = allocate(next)?;
+        id_map.insert(wire.id, new_id);
+    }
+    for wire in &block.drawn_wires {
+        let new_id = allocate(next)?;
+        id_map.insert(wire.id, new_id);
+    }
+    for label in &block.labels {
+        let new_id = allocate(next)?;
+        id_map.insert(label.id, new_id);
+    }
+    p.sheets.push(Sheet {
+        id: sheet_id,
+        name: sheet_name,
+        parent: block.sheet.parent,
+        entry: block.sheet.entry,
+    });
+    for symbol in block.library.symbols {
+        if !p.library.symbols.iter().any(|s| s.name == symbol.name) {
+            p.library.symbols.push(symbol);
+        }
+    }
+    for footprint in block.library.footprints {
+        if !p
+            .library
+            .footprints
+            .iter()
+            .any(|f| f.name == footprint.name)
+        {
+            p.library.footprints.push(footprint);
+        }
+    }
+    for net in block.nets {
+        p.nets.push(Net {
+            id: *id_map.get(&net.id).ok_or_else(missing)?,
+            name: net.name.clone(),
+            target_length: net.target_length,
+            length_tolerance: net.length_tolerance,
+            instance: None,
+        });
+    }
+    for component in block.components {
+        let id = *id_map.get(&component.id).ok_or_else(missing)?;
+        let mut clone = component.clone();
+        clone.id = id;
+        clone.sheet = sheet_id;
+        clone.instance = None;
+        clone.prototype = None;
+        for pin in &mut clone.pins {
+            if let Some(net) = pin.net {
+                pin.net = Some(*id_map.get(&net).ok_or_else(missing)?);
+            }
+        }
+        p.components.push(clone);
+    }
+    for port in block.ports {
+        p.ports.push(Port {
+            id: *id_map.get(&port.id).ok_or_else(missing)?,
+            name: port.name.clone(),
+            net: *id_map.get(&port.net).ok_or_else(missing)?,
+            sheet: sheet_id,
+            position: port.position,
+        });
+    }
+    for wire in block.wires {
+        p.wires.push(Wire {
+            id: *id_map.get(&wire.id).ok_or_else(missing)?,
+            net: *id_map.get(&wire.net).ok_or_else(missing)?,
+            from: PinRef {
+                component: *id_map.get(&wire.from.component).ok_or_else(missing)?,
+                pin: wire.from.pin.clone(),
+            },
+            to: PinRef {
+                component: *id_map.get(&wire.to.component).ok_or_else(missing)?,
+                pin: wire.to.pin.clone(),
+            },
+        });
+    }
+    for wire in block.drawn_wires {
+        p.drawn_wires.push(DrawnWire {
+            id: *id_map.get(&wire.id).ok_or_else(missing)?,
+            net: wire
+                .net
+                .map(|n| id_map.get(&n).copied().ok_or_else(missing))
+                .transpose()?,
+            points: wire.points.clone(),
+        });
+    }
+    for label in block.labels {
+        p.labels.push(Label {
+            id: *id_map.get(&label.id).ok_or_else(missing)?,
+            kind: label.kind.clone(),
+            net: *id_map.get(&label.net).ok_or_else(missing)?,
+            position: label.position,
+            rotation: label.rotation,
+            text: label.text.clone(),
+        });
+    }
+    Ok(sheet_id)
 }
 
 const TRACK_ENDPOINT_EPS: f64 = 1e-6;
@@ -7639,15 +7904,7 @@ fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Er
     }
 }
 
-fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
-    let side = match params.get("side").and_then(Value::as_str) {
-        Some("top") => pcbcraft_io::Side::Top,
-        Some("bottom") => pcbcraft_io::Side::Bottom,
-        _ => return Err("side must be top or bottom".into()),
-    };
-    let tool_val = params
-        .get("tool")
-        .ok_or_else(|| "missing tool".to_string())?;
+fn parse_cam_tool(tool_val: &Value) -> Result<pcbcraft_io::Tool, String> {
     let diameter_mm = tool_val
         .get("diameter_mm")
         .and_then(Value::as_f64)
@@ -7679,6 +7936,86 @@ fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
         .filter(|v| *v > 0)
         .ok_or_else(|| "tool.spindle_rpm must be positive".to_string())?
         as u32;
+    Ok(pcbcraft_io::Tool {
+        diameter_mm,
+        feed_mm_min,
+        plunge_mm_min,
+        depth_mm,
+        passes,
+        spindle: pcbcraft_io::Spindle::Rpm(spindle_rpm),
+    })
+}
+
+fn parse_cam_rubout(value: Option<&Value>) -> Result<Option<pcbcraft_io::RubRegion>, String> {
+    let Some(val) = value else {
+        return Ok(None);
+    };
+    if val.is_null() {
+        return Ok(None);
+    }
+    let tool = parse_cam_tool(
+        val.get("tool")
+            .ok_or_else(|| "rubout.tool is required".to_string())?,
+    )?;
+    let stepover_pct = val
+        .get("stepover_pct")
+        .and_then(Value::as_u64)
+        .filter(|v| (30..=80).contains(v))
+        .ok_or_else(|| "rubout.stepover_pct must be 30 to 80".to_string())? as u8;
+    let angle_deg = val
+        .get("angle_deg")
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite())
+        .ok_or_else(|| "rubout.angle_deg must be finite".to_string())?;
+    let rect = match val.get("rect") {
+        None | Some(Value::Null) => None,
+        Some(r) => {
+            let min = r.get("min").ok_or("rubout.rect.min is required")?;
+            let max = r.get("max").ok_or("rubout.rect.max is required")?;
+            let x0 = min
+                .get("x")
+                .and_then(Value::as_f64)
+                .filter(|v| v.is_finite())
+                .ok_or("rubout.rect.min.x must be finite")?;
+            let y0 = min
+                .get("y")
+                .and_then(Value::as_f64)
+                .filter(|v| v.is_finite())
+                .ok_or("rubout.rect.min.y must be finite")?;
+            let x1 = max
+                .get("x")
+                .and_then(Value::as_f64)
+                .filter(|v| v.is_finite())
+                .ok_or("rubout.rect.max.x must be finite")?;
+            let y1 = max
+                .get("y")
+                .and_then(Value::as_f64)
+                .filter(|v| v.is_finite())
+                .ok_or("rubout.rect.max.y must be finite")?;
+            Some((
+                pcbcraft_geom::Point::new(x0, y0),
+                pcbcraft_geom::Point::new(x1, y1),
+            ))
+        }
+    };
+    Ok(Some(pcbcraft_io::RubRegion {
+        rect,
+        tool,
+        stepover_pct,
+        angle_deg,
+    }))
+}
+
+fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
+    let side = match params.get("side").and_then(Value::as_str) {
+        Some("top") => pcbcraft_io::Side::Top,
+        Some("bottom") => pcbcraft_io::Side::Bottom,
+        _ => return Err("side must be top or bottom".into()),
+    };
+    let tool_val = params
+        .get("tool")
+        .ok_or_else(|| "missing tool".to_string())?;
+    let tool = parse_cam_tool(tool_val)?;
     let overlap_pct = params
         .get("overlap_pct")
         .and_then(Value::as_u64)
@@ -7696,18 +8033,12 @@ fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
         .get("alignment_holes")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let rubout = parse_cam_rubout(params.get("rubout"))?;
     let opts = pcbcraft_io::IsolationOptions {
         side,
-        tool: pcbcraft_io::Tool {
-            diameter_mm,
-            feed_mm_min,
-            plunge_mm_min,
-            depth_mm,
-            passes,
-            spindle: pcbcraft_io::Spindle::Rpm(spindle_rpm),
-        },
+        tool,
         overlap_pct,
-        rubout: None,
+        rubout,
         mirror_axis,
         alignment_holes,
     };
@@ -8620,7 +8951,11 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 {
                     continue;
                 }
-                groups.entry(pre).or_default().push(i);
+                let key = match c.instance {
+                    Some(inst) => format!("instance:{inst}:{pre}"),
+                    None => pre.clone(),
+                };
+                groups.entry(key).or_default().push(i);
             }
             if groups.is_empty() {
                 return Err(Error::Invalid("no letter-prefixed references match".into()));
@@ -8647,10 +8982,23 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 .collect();
             let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
             let mut planned: Vec<(usize, Id, String, String)> = Vec::new();
-            for (pre, g) in &groups {
+            for (key, g) in &groups {
+                let pre = key
+                    .split(':')
+                    .last()
+                    .ok_or_else(|| Error::Invalid("invalid reannotate group".into()))?;
                 let pre = a.prefix.as_deref().unwrap_or(pre);
                 for (n, i) in g.iter().enumerate() {
-                    let to = format!("{pre}{}", a.start + n as u64);
+                    let offset = p.components[*i]
+                        .instance
+                        .and_then(|inst| {
+                            p.sheet_instances
+                                .iter()
+                                .find(|row| row.id == inst)
+                                .map(|row| row.reference_offset)
+                        })
+                        .unwrap_or(0);
+                    let to = format!("{pre}{}", a.start + n as u64 + offset);
                     if to.len() > 64 || taken.contains(to.as_str()) || !used.insert(to.clone()) {
                         return Err(Error::Invalid(format!("reference {to} is already in use")));
                     }
@@ -11750,6 +12098,120 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))
         }
+"schematic.instance_add" => {
+            let a: InstanceAddParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > MAX_INSTANCE_NAME {
+                return Err(Error::Invalid("instance name must be 1 to 64 bytes".into()));
+            }
+            if a.reference_offset > MAX_REFERENCE_OFFSET {
+                return Err(Error::Invalid(
+                    "reference offset must be 0 to 999000".into(),
+                ));
+            }
+            if !a.entry.valid() {
+                return Err(Error::Invalid("entry position is out of range".into()));
+            }
+            if p.sheet_instances.len() >= MAX_SHEET_INSTANCES {
+                return Err(Error::Invalid(
+                    "a schematic supports at most 64 sheet instances".into(),
+                ));
+            }
+            if p.sheet_instances
+                .iter()
+                .any(|i| i.parent == a.parent && i.name == a.name)
+            {
+                return Err(Error::Invalid(
+                    "that parent page already carries an instance with this name".into(),
+                ));
+            }
+            if !p.sheets.iter().any(|s| s.id == a.sheet) {
+                return Err(Error::Invalid("template sheet does not exist".into()));
+            }
+            if !p.components.iter().any(|c| c.sheet == a.sheet) {
+                return Err(Error::Invalid("template sheet has no components".into()));
+            }
+            let id = allocate(next)?;
+            let inst = SheetInstance {
+                id,
+                sheet: a.sheet,
+                name: a.name.clone(),
+                reference_offset: a.reference_offset,
+                parent: a.parent,
+                entry: a.entry,
+            };
+            let (components, nets) = expand_instance(p, &inst, next).map_err(Error::Invalid)?;
+            p.sheet_instances.push(inst);
+            Ok(json!({"id": id, "components": components, "nets": nets}))
+        }
+        "schematic.instance_remove" => {
+            let a: InstanceRemoveParams = parse(params)?;
+            if !p.sheet_instances.iter().any(|i| i.id == a.id) {
+                return Err(missing());
+            }
+            collapse_instance(p, a.id).map_err(Error::Invalid)?;
+            Ok(json!({"removed": a.id}))
+        }
+        "schematic.export_design_block" => {
+            let a: DesignBlockExportParams = parse(params)?;
+            let bytes = pcbcraft_io::design_block_zip(p, a.sheet).map_err(Error::Invalid)?;
+            pcbcraft_io::atomic_write(std::path::Path::new(&a.path), &bytes)
+                .map_err(Error::Invalid)?;
+            Ok(json!({"path": a.path, "bytes": bytes.len()}))
+        }
+        "schematic.import_design_block" => {
+            let a: DesignBlockImportParams = parse(params)?;
+            if !a.entry.valid() {
+                return Err(Error::Invalid("entry position is out of range".into()));
+            }
+            let bytes = std::fs::read(std::path::Path::new(&a.path))
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let block = pcbcraft_io::design_block_read(&bytes).map_err(Error::Invalid)?;
+            let sheet = merge_design_block_template(p, block, next)?;
+            let name = a.name.unwrap_or_else(|| "block".into());
+            let reference_offset = a.reference_offset.unwrap_or(0);
+            if name.is_empty() || name.len() > MAX_INSTANCE_NAME {
+                return Err(Error::Invalid("instance name must be 1 to 64 bytes".into()));
+            }
+            if reference_offset > MAX_REFERENCE_OFFSET {
+                return Err(Error::Invalid(
+                    "reference offset must be 0 to 999000".into(),
+                ));
+            }
+            if p.sheet_instances.len() >= MAX_SHEET_INSTANCES {
+                return Err(Error::Invalid(
+                    "a schematic supports at most 64 sheet instances".into(),
+                ));
+            }
+            let id = allocate(next)?;
+            let inst = SheetInstance {
+                id,
+                sheet,
+                name: name.clone(),
+                reference_offset,
+                parent: a.parent,
+                entry: a.entry,
+            };
+            let (components, nets) = expand_instance(p, &inst, next).map_err(Error::Invalid)?;
+            p.sheet_instances.push(inst);
+            Ok(json!({
+                "sheet": sheet,
+                "instance": id,
+                "components": components,
+                "nets": nets,
+            }))
+        }
+        "schematic.cleanup" => {
+            let mut merged = 0usize;
+            let mut keep: Vec<(Point, Id)> = Vec::new();
+            p.labels.retain(|l| {
+                if l.kind != "junction" {
+                    return true;
+                }
+                if let Some(i) = keep.iter().position(|(q, _)| *q == l.position) {
+                    if keep[i].1 == l.net {
+                        merged += 1;
+                        return false;
+                    }
         "schematic.cleanup" => {
             let mut merged = 0usize;
             let mut keep: Vec<(Point, Id)> = Vec::new();
@@ -16452,7 +16914,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 return Err(Error::Invalid("an artifact with that name exists".into()));
             }
             let id = allocate(next)?;
-            p.artifacts.push(Artifact {
+            let record = Artifact {
                 id,
                 name: name.into(),
                 kind: a.kind,
@@ -16463,7 +16925,13 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 generated_at_revision: None,
                 generated_hash: None,
                 job: a.job,
-            });
+            };
+            if !record.valid() {
+                return Err(Error::Invalid(
+                    "artifact record is invalid for this kind".into(),
+                ));
+            }
+            p.artifacts.push(record);
             Ok(json!({"id": id, "name": name}))
         }
         "artifact.set" => {
@@ -17143,6 +17611,204 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 "footprints": parts
             }))
         }
+        "board.repeat_layout" => {
+            let a: RepeatLayoutParams = parse(params)?;
+            if a.targets.is_empty() || a.targets.len() > 63 {
+                return Err(Error::Invalid("targets must list 1 to 63 instances".into()));
+            }
+            if a.anchor_reference.is_empty() || a.anchor_reference.len() > 64 {
+                return Err(Error::Invalid(
+                    "anchor reference must be 1 to 64 bytes".into(),
+                ));
+            }
+            let source = p
+                .sheet_instances
+                .iter()
+                .find(|i| i.id == a.source_instance)
+                .ok_or_else(missing)?
+                .clone();
+            if a.targets.contains(&a.source_instance) {
+                return Err(Error::Invalid(
+                    "the source instance cannot also be a target".into(),
+                ));
+            }
+            for target in &a.targets {
+                if !p.sheet_instances.iter().any(|i| i.id == *target) {
+                    return Err(Error::Invalid("target instance does not exist".into()));
+                }
+                if p.sheet_instances
+                    .iter()
+                    .find(|i| i.id == *target)
+                    .is_some_and(|t| t.sheet != source.sheet || t.parent != source.parent)
+                {
+                    return Err(Error::Invalid(
+                        "every target must share the template and parent page".into(),
+                    ));
+                }
+            }
+            let template_anchor_id =
+                template_component_by_reference(p, source.sheet, &a.anchor_reference)
+                    .ok_or_else(|| {
+                        Error::Invalid("anchor reference is missing on the template page".into())
+                    })?
+                    .id;
+            let source_anchor_id =
+                component_for_instance_prototype(p, source.id, template_anchor_id)
+                    .ok_or_else(missing)?
+                    .id;
+            let source_fp = footprint_for_component(p, source_anchor_id).ok_or_else(|| {
+                Error::Invalid("sync footprints before repeating layout across instances".into())
+            })?;
+            let source_fp_position = source_fp.position;
+            if footprint_locked(p, source_fp.id) {
+                return Err(Error::Invalid(
+                    "the anchor footprint is locked against placement changes".into(),
+                ));
+            }
+            let template_parts: Vec<Id> = p
+                .components
+                .iter()
+                .filter(|c| c.sheet == source.sheet && c.instance.is_none())
+                .map(|c| c.id)
+                .collect();
+            let mut copied_tracks = 0usize;
+            let mut copied_vias = 0usize;
+            for target_id in &a.targets {
+                let target_row = p
+                    .sheet_instances
+                    .iter()
+                    .find(|i| i.id == *target_id)
+                    .ok_or_else(missing)?;
+                let target_anchor_id =
+                    component_for_instance_prototype(p, *target_id, template_anchor_id)
+                        .ok_or_else(missing)?
+                        .id;
+                let target_fp = footprint_for_component(p, target_anchor_id).ok_or_else(|| {
+                    Error::Invalid(
+                        "sync footprints before repeating layout across instances".into(),
+                    )
+                })?;
+                let target_fp_position = target_fp.position;
+                if footprint_locked(p, target_fp.id) {
+                    return Err(Error::Invalid(
+                        "a target anchor footprint is locked against placement changes".into(),
+                    ));
+                }
+                let layout_shift = Point::new(
+                    target_fp_position.x - source_fp_position.x,
+                    target_fp_position.y - source_fp_position.y,
+                );
+                for prototype in &template_parts {
+                    let source_part_id = component_for_instance_prototype(p, source.id, *prototype)
+                        .ok_or_else(missing)?
+                        .id;
+                    let target_part_id =
+                        component_for_instance_prototype(p, *target_id, *prototype)
+                            .ok_or_else(missing)?
+                            .id;
+                    let (rotation, want) = {
+                        let source_foot =
+                            footprint_for_component(p, source_part_id).ok_or_else(missing)?;
+                        let rel = Point::new(
+                            source_foot.position.x - source_fp_position.x,
+                            source_foot.position.y - source_fp_position.y,
+                        );
+                        let want =
+                            Point::new(target_fp_position.x + rel.x, target_fp_position.y + rel.y);
+                        (source_foot.rotation, want)
+                    };
+                    if !want.valid() {
+                        return Err(Error::Invalid(
+                            "the repeated layout would move a footprint out of range".into(),
+                        ));
+                    }
+                    let target_foot_id = p
+                        .board
+                        .footprints
+                        .iter()
+                        .find(|f| f.component == target_part_id)
+                        .ok_or_else(missing)?
+                        .id;
+                    if footprint_locked(p, target_foot_id) {
+                        return Err(Error::Invalid(
+                            "a target footprint is locked against placement changes".into(),
+                        ));
+                    }
+                    let target_foot = p
+                        .board
+                        .footprints
+                        .iter_mut()
+                        .find(|f| f.component == target_part_id)
+                        .ok_or_else(missing)?;
+                    target_foot.position = want;
+                    target_foot.rotation = rotation;
+                }
+                let source_nets: Vec<(String, Id)> = p
+                    .nets
+                    .iter()
+                    .filter(|n| n.instance == Some(source.id))
+                    .map(|n| (n.name.clone(), n.id))
+                    .collect();
+                for (name, source_net) in source_nets {
+                    let template_name = name
+                        .strip_suffix(&format!("__{}", source.name))
+                        .ok_or_else(|| {
+                            Error::Invalid("instance net names no longer match the template".into())
+                        })?;
+                    let target_name =
+                        instance_materialized_net_name(template_name, &target_row.name);
+                    let target_net = p
+                        .nets
+                        .iter()
+                        .find(|n| n.instance == Some(*target_id) && n.name == target_name)
+                        .map(|n| n.id)
+                        .ok_or_else(|| Error::Invalid("target instance net is missing".into()))?;
+                    for track in p
+                        .board
+                        .tracks
+                        .iter()
+                        .filter(|t| t.net == source_net)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                    {
+                        let id = allocate(next)?;
+                        p.board.tracks.push(Track {
+                            id,
+                            net: target_net,
+                            start: track.start.offset(layout_shift),
+                            end: track.end.offset(layout_shift),
+                            width: track.width,
+                            layer: track.layer,
+                            arc: track.arc.map(|mid| mid.offset(layout_shift)),
+                        });
+                        copied_tracks += 1;
+                    }
+                    for via in p
+                        .board
+                        .vias
+                        .iter()
+                        .filter(|v| v.net == source_net)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                    {
+                        let id = allocate(next)?;
+                        p.board.vias.push(Via {
+                            id,
+                            net: target_net,
+                            position: via.position.offset(layout_shift),
+                            diameter: via.diameter,
+                            drill: via.drill,
+                        });
+                        copied_vias += 1;
+                    }
+                }
+            }
+            Ok(json!({
+                "targets": a.targets,
+                "tracks": copied_tracks,
+                "vias": copied_vias,
+            }))
+        }
         "track.add" => {
             let a: TrackParams = parse(params)?;
             let layer = command_layer(p, params, a.layer)?;
@@ -17382,8 +18048,67 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
         }
         "track.route" => {
             let a: Route = parse(params)?;
-            let layer = command_layer(p, params, a.layer)?;
-            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, layer)?;
+            let start_layer = command_layer(p, params, a.layer)?;
+            let end_layer = match params.get("end_layer").and_then(|v| v.as_str()) {
+                Some(name) => resolve_layer_param(p, name)?,
+                None => a.end_layer.unwrap_or(start_layer),
+            };
+            if start_layer != end_layer {
+                if a.mode != route::Mode::Orthogonal {
+                    return Err(Error::Invalid(
+                        "a layer change route uses right-angle copper only".into(),
+                    ));
+                }
+                let (start, end, net) = route::resolve_between_layers(
+                    p,
+                    &a.from,
+                    &a.to,
+                    a.net,
+                    start_layer,
+                    end_layer,
+                )?;
+                let width = a.width.unwrap_or_else(|| class_width(p, net));
+                if start.distance(end) < 1e-6 || !positive(width) {
+                    return Err(Error::Invalid(
+                        "route requires distinct pads on the same net and a valid width".into(),
+                    ));
+                }
+                let bend = Point::new(end.x, start.y);
+                if !bend.valid() {
+                    return Err(Error::Invalid("via position is out of range".into()));
+                }
+                let (diameter, drill) = class_via_size(p, net)?;
+                let mut ids = vec![];
+                for (from, to, layer) in [(start, bend, start_layer), (bend, end, end_layer)] {
+                    if from.distance(to) > 1e-6 {
+                        let id = allocate(next)?;
+                        ids.push(id);
+                        p.board.tracks.push(Track {
+                            id,
+                            net,
+                            start: from,
+                            end: to,
+                            width,
+                            layer,
+                            arc: None,
+                        });
+                    }
+                }
+                let via_id = allocate(next)?;
+                ids.push(via_id);
+                p.board.vias.push(pcbcraft_doc::Via {
+                    id: via_id,
+                    net,
+                    position: bend,
+                    diameter,
+                    drill,
+                    from_layer: None,
+                    to_layer: None,
+                    covering: None,
+                });
+                return Ok(json!({"ids":ids,"net":net,"width":width,"via":via_id}));
+            }
+            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, start_layer)?;
             let width = a.width.unwrap_or_else(|| class_width(p, net));
             if start.distance(end) < 1e-6 || !positive(width) {
                 return Err(Error::Invalid(
@@ -17391,7 +18116,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 ));
             }
             if a.mode != route::Mode::Orthogonal {
-                return route::run(p, next, start, end, net, width, layer, a.mode);
+                return route::run(p, next, start, end, net, width, start_layer, a.mode);
             }
             let bend = Point::new(end.x, start.y);
             let mut ids = vec![];
@@ -17405,7 +18130,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                         start: from,
                         end: to,
                         width,
-                        layer,
+                        layer: start_layer,
                         arc: None,
                     });
                 }
@@ -19856,10 +20581,10 @@ mod tests {
             .ok_or_else(missing)?
             .pad_position("1")
             .ok_or_else(missing)?;
-        let mirrored_x = -centre.x;
+        let fab = pcbcraft_io::fabrication_point(&s.project, centre);
         assert!(
-            gerber["pcb-B.Cu.gbr"].contains(&format!("{mirrored_x:.6}")),
-            "bottom copper carries the mirrored pad flash"
+            gerber["pcb-B.Cu.gbr"].contains(&format!("{:.6}", fab.x)),
+            "bottom copper carries the same x as the front in fabrication space"
         );
         assert!(
             !gerber["pcb-F.Cu.gbr"]
@@ -21546,8 +22271,8 @@ mod tests {
         assert_eq!(set["drill_origin"]["y"], 10.0);
         let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Plated.drl"].clone();
         assert!(
-            drill.contains("X10.000Y10.000\n"),
-            "the recorded origin moves drill coordinates"
+            drill.contains("X10.000Y30.000\n"),
+            "the recorded origin moves drill coordinates in fabrication space"
         );
         assert!(
             !drill.contains("X30.000Y20.000"),
@@ -24285,6 +25010,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         let out = s.execute(
             "library.footprint.check",
@@ -28492,6 +29218,361 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         Ok(())
     }
 
+    fn two_resistor_template_sheet(s: &mut Session) -> Result<Id, Error> {
+        let sheet =
+            s.execute("schematic.new_sheet", json!({"name":"channel"}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "schematic.move_component",
+            json!({"id":r1,"sheet":sheet}),
+            None,
+        )?;
+        s.execute(
+            "schematic.move_component",
+            json!({"id":r2,"sheet":sheet}),
+            None,
+        )?;
+        let net = s.execute("net.create", json!({"name":"LOCAL"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({
+                "net": net,
+                "pins": [
+                    {"component": r1, "pin": "1"},
+                    {"component": r2, "pin": "1"},
+                ],
+            }),
+            None,
+        )?;
+        Ok(sheet)
+    }
+
+    #[test]
+    fn instance_add_triples_a_two_resistor_page() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        for (name, offset) in [("A", 0), ("B", 100), ("C", 200)] {
+            s.execute(
+                "schematic.instance_add",
+                json!({
+                    "sheet": sheet,
+                    "name": name,
+                    "parent": 0,
+                    "entry": {"x": 0.0, "y": 0.0},
+                    "reference_offset": offset,
+                }),
+                None,
+            )?;
+        }
+        assert_eq!(
+            s.project.components.len(),
+            8,
+            "two template parts plus six materialized copies"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn instance_add_gives_distinct_references_and_local_nets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "left",
+                "parent": 0,
+                "entry": {"x": 0.0, "y": 0.0},
+                "reference_offset": 0,
+            }),
+            None,
+        )?;
+        s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "right",
+                "parent": 0,
+                "entry": {"x": 40.0, "y": 0.0},
+                "reference_offset": 100,
+            }),
+            None,
+        )?;
+        let refs: std::collections::BTreeSet<String> = s
+            .project
+            .components
+            .iter()
+            .map(|c| c.reference.clone())
+            .collect();
+        assert!(refs.contains("R1"));
+        assert!(refs.contains("R101"));
+        assert!(refs.contains("R2"));
+        assert!(refs.contains("R102"));
+        let local: Vec<_> = s
+            .project
+            .nets
+            .iter()
+            .filter(|n| n.instance.is_some())
+            .map(|n| n.name.clone())
+            .collect();
+        assert!(local.iter().any(|n| n.contains("left")));
+        assert!(local.iter().any(|n| n.contains("right")));
+        Ok(())
+    }
+
+    #[test]
+    fn instance_remove_strips_all_materialized_parts() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        let out = s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "only",
+                "parent": 0,
+                "entry": {"x": 0.0, "y": 0.0},
+                "reference_offset": 0,
+            }),
+            None,
+        )?["result"]
+            .clone();
+        let id = out["id"].as_u64().ok_or_else(missing)?;
+        assert_eq!(s.project.components.len(), 4);
+        s.execute("schematic.instance_remove", json!({"id": id}), None)?;
+        assert_eq!(s.project.components.len(), 2);
+        assert!(s.project.sheet_instances.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn reannotate_honors_instance_reference_offset() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "ch",
+                "parent": 0,
+                "entry": {"x": 0.0, "y": 0.0},
+                "reference_offset": 100,
+            }),
+            None,
+        )?;
+        s.execute(
+            "components.reannotate",
+            json!({"prefix":"R","start":1}),
+            None,
+        )?;
+        let refs: Vec<String> = s
+            .project
+            .components
+            .iter()
+            .filter(|c| c.instance.is_some())
+            .map(|c| c.reference.clone())
+            .collect();
+        assert!(refs.iter().any(|r| r == "R101"));
+        assert!(refs.iter().any(|r| r == "R102"));
+        Ok(())
+    }
+
+    #[test]
+    fn repeat_layout_copies_footprints_relative_to_anchor() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        let a = s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "src",
+                "parent": 0,
+                "entry": {"x": 0.0, "y": 0.0},
+                "reference_offset": 0,
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "dst",
+                "parent": 0,
+                "entry": {"x": 50.0, "y": 0.0},
+                "reference_offset": 100,
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        let src_r1_id = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.instance == Some(a) && c.reference == "R1")
+            .ok_or_else(missing)?
+            .id;
+        let src_fp_id = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == src_r1_id)
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "footprint.move",
+            json!({"id": src_fp_id, "position": {"x": 12.0, "y": 14.0}}),
+            None,
+        )?;
+        s.execute(
+            "board.repeat_layout",
+            json!({
+                "source_instance": a,
+                "targets": [b],
+                "anchor_reference": "R1",
+            }),
+            None,
+        )?;
+        let dst_r2 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.instance == Some(b) && c.reference == "R102")
+            .ok_or_else(missing)?;
+        let dst_fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == dst_r2.id)
+            .ok_or_else(missing)?;
+        let src_r2 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.instance == Some(a) && c.reference == "R2")
+            .ok_or_else(missing)?;
+        let src_r2_fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == src_r2.id)
+            .ok_or_else(missing)?;
+        let src_anchor_fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == src_r1_id)
+            .ok_or_else(missing)?;
+        let rel_x = src_r2_fp.position.x - src_anchor_fp.position.x;
+        let rel_y = src_r2_fp.position.y - src_anchor_fp.position.y;
+        let dst_r1 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.instance == Some(b) && c.reference == "R101")
+            .ok_or_else(missing)?;
+        let dst_r1_fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == dst_r1.id)
+            .ok_or_else(missing)?;
+        assert!(
+            (dst_fp.position.x - (dst_r1_fp.position.x + rel_x)).abs() < 1e-6
+                && (dst_fp.position.y - (dst_r1_fp.position.y + rel_y)).abs() < 1e-6,
+            "the copied layout keeps the same relative spacing"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn repeat_layout_undo_removes_copied_tracks_in_one_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        let a = s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "src",
+                "parent": 0,
+                "entry": {"x": 0.0, "y": 0.0},
+                "reference_offset": 0,
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "dst",
+                "parent": 0,
+                "entry": {"x": 50.0, "y": 0.0},
+                "reference_offset": 100,
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        let src_net = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.instance == Some(a))
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "track.add",
+            json!({
+                "net": src_net,
+                "start": {"x": 1.0, "y": 1.0},
+                "end": {"x": 5.0, "y": 5.0},
+                "width": 0.25,
+            }),
+            None,
+        )?;
+        let before = s.project.board.tracks.len();
+        s.execute(
+            "board.repeat_layout",
+            json!({
+                "source_instance": a,
+                "targets": [b],
+                "anchor_reference": "R1",
+            }),
+            None,
+        )?;
+        assert!(s.project.board.tracks.len() > before);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), before);
+        Ok(())
+    }
+
     #[test]
     fn undo_branch_never_reuses_ids() {
         let mut s = Session::default();
@@ -30925,17 +32006,21 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             .collect();
         assert_eq!(xs, vec![20.0, 30.0, 10.0, 20.0, 30.0]);
         let files = pcbcraft_io::gerber_files(&s.project)?;
-        let drill = &files["pcb-Drill.drl"];
+        let drill = &files["pcb-NPTH.drl"];
         assert_eq!(
-            drill.matches("G85").count(),
+            drill.matches("M15").count(),
             6,
-            "every copy is a slotted hit: {drill}"
+            "every copy is a routed slot: {drill}"
+        );
+        assert!(
+            !drill.contains("G85"),
+            "slotted mounting holes never use G85: {drill}"
         );
         let tools: Vec<&str> = drill
             .lines()
             .filter(|l| l.starts_with('T') && l.contains('C'))
             .collect();
-        assert_eq!(tools, vec!["T1C1.000"], "one tool carries all six: {drill}");
+        assert_eq!(tools, vec!["T01C1.000"], "one tool carries all six: {drill}");
         Ok(())
     }
     #[test]
@@ -32511,6 +33596,36 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         }
         assert!(out.to_string().contains("FeederSheet.csv"));
         let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    #[test]
+    fn placement_yy1_artifact_exports_through_the_artifact_pipeline() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute("machine.add", json!({"preset":"neoden-yy1"}), None)?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-yy1-artifact-{}", std::process::id()));
+        let id = s.execute(
+            "artifact.add",
+            json!({
+                "name": "NeoDen YY1",
+                "kind": "placement_yy1",
+                "machine": "neoden-yy1",
+                "path": "yy1/",
+                "settings": {"side": "top", "layout": "native"},
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "artifact.export",
+            json!({"id": id, "directory": directory.to_string_lossy()}),
+            None,
+        )?;
+        assert!(directory.join("yy1/Top.csv").exists());
+        assert!(directory.join("yy1/FeederSheet.csv").exists());
+        let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
 
@@ -36435,6 +37550,74 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     }
 
     #[test]
+    fn library_export_command_writes_symbol_file_without_revision_change() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-libexport-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "library.import_symbol_file",
+            json!({"path": library_fixture("device.kicad_sym")}),
+            None,
+        )?;
+        let revision = s.revision;
+        let before = s.project.clone();
+        let out = directory.join(format!("parts-{}.kicad_sym", std::process::id()));
+        let result = s.execute(
+            "library.export",
+            json!({"kind":"symbol","path": out.to_string_lossy(),"names":["R","C"]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(s.revision, revision);
+        assert_eq!(s.project, before);
+        assert!(out.exists());
+        assert_eq!(result["files"].as_array().ok_or_else(missing)?.len(), 1);
+        let text = std::fs::read_to_string(&out).map_err(|e| Error::Invalid(e.to_string()))?;
+        let symbols =
+            pcbcraft_library::read_symbols(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(symbols.len(), 2);
+        assert!(
+            s.execute(
+                "library.export",
+                json!({"kind":"symbol","path": out.to_string_lossy(),"names":[]}),
+                None,
+            )
+            .is_err()
+        );
+        std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn library_export_command_writes_footprint_directory() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-fpexport-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "library.import_footprint_file",
+            json!({"path": library_fixture("R_0805_2012Metric.kicad_mod")}),
+            None,
+        )?;
+        let revision = s.revision;
+        let before = s.project.clone();
+        let out_dir = directory.join("footprints");
+        let result = s.execute(
+            "library.export",
+            json!({"kind":"footprint","path": out_dir.to_string_lossy(),"names":["R_0805_2012Metric"]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(s.revision, revision);
+        assert_eq!(s.project, before);
+        assert!(out_dir.join("R_0805_2012Metric.kicad_mod").exists());
+        assert_eq!(result["files"].as_array().ok_or_else(missing)?.len(), 1);
+        std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+
+    #[test]
     fn library_file_imports_replace_same_named_entries_and_reject_bad_files() -> Result<(), Error> {
         let mut s = Session::default();
         let directory =
@@ -37319,6 +38502,176 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
                 .is_err(),
             "shrinking the stack while bottom copper still carries a track is refused"
         );
+        Ok(())
+    }
+    #[test]
+    fn track_route_with_different_end_layer_places_via_and_undo_once() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("board.resize", json!({"width":60.0,"height":40.0}), None)?;
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            s.execute(
+                "board.set_layer_record",
+                json!({"name":name,"kind":"copper","thickness":thickness}),
+                None,
+            )?;
+        }
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let a = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":a,"pin":"1"},{"component":b,"pin":"1"}]}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp_a = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == a)
+            .ok_or_else(missing)?
+            .id;
+        let fp_b = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == b)
+            .ok_or_else(missing)?
+            .id;
+        if let Some(f) = s.project.board.footprints.iter_mut().find(|f| f.id == fp_b)
+            && let Some(pad) = f.pads.iter_mut().find(|pad| pad.number == "1")
+        {
+            pad.diameter = 1.6;
+            pad.geometry = Some(pcbcraft_library::FootprintPad {
+                number: "1".into(),
+                pad_type: "smd".into(),
+                shape: "circle".into(),
+                position: Point::default(),
+                rotation: 0.0,
+                size: Point::new(1.6, 1.6),
+                layers: vec!["In1.Cu".into()],
+                drill: None,
+                roundrect_ratio: None,
+                chamfer: None,
+                polygon: vec![],
+                raw_source: String::new(),
+            });
+        }
+        let tracks_before = s.project.board.tracks.len();
+        let vias_before = s.project.board.vias.len();
+        s.execute(
+            "track.route",
+            json!({
+                "from":{"footprint":fp_a,"pad":"1"},
+                "to":{"footprint":fp_b,"pad":"1"},
+                "layer":"F.Cu",
+                "end_layer":"In1.Cu",
+                "width":0.25
+            }),
+            None,
+        )?;
+        assert_eq!(s.project.board.tracks.len(), tracks_before + 2);
+        assert_eq!(s.project.board.vias.len(), vias_before + 1);
+        assert!(
+            pcbcraft_rules::airwires(&s.project).is_empty(),
+            "the layer-change route connects both pads"
+        );
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), tracks_before);
+        assert_eq!(s.project.board.vias.len(), vias_before);
+        Ok(())
+    }
+    #[test]
+    fn track_route_rejects_end_layer_without_pad_copper() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            s.execute(
+                "board.set_layer_record",
+                json!({"name":name,"kind":"copper","thickness":thickness}),
+                None,
+            )?;
+        }
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let a = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":a,"pin":"1"},{"component":b,"pin":"1"}]}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp_a = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == a)
+            .ok_or_else(missing)?
+            .id;
+        let fp_b = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == b)
+            .ok_or_else(missing)?
+            .id;
+        let snapshot = s.project.clone();
+        assert!(
+            s.execute(
+                "track.route",
+                json!({
+                    "from":{"footprint":fp_a,"pad":"1"},
+                    "to":{"footprint":fp_b,"pad":"1"},
+                    "layer":"F.Cu",
+                    "end_layer":"In1.Cu"
+                }),
+                None,
+            )
+            .is_err(),
+            "the destination pad has no inner copper"
+        );
+        assert_eq!(s.project, snapshot);
         Ok(())
     }
     #[test]

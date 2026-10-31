@@ -29,6 +29,7 @@ mod footprint_generate;
 mod footprint_pad_outline;
 pub mod listing;
 pub mod listing_adapters;
+pub mod part_fields;
 pub mod online_import;
 pub mod open_library;
 mod paths;
@@ -83,6 +84,10 @@ pub use model_transform::{
     refresh_model_raw_source,
 };
 pub use validation::custom_polygon_error;
+pub use part_fields::{
+    DESCRIPTION, MANUFACTURER, MPN, PARTS_TABLE_SUGGESTED_KEYS, STANDARD_SOURCING_KEYS,
+    SUPPLIER_KEY_PREFIX, SUPPLIERS, is_standard_sourcing_key,
+};
 
 /// A schematic symbol definition parsed from the interchange format.
 ///
@@ -115,6 +120,9 @@ pub struct SymbolDefinition {
     pub extends: Option<String>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+    /// Unknown S-expression snippets from the source file, re-emitted on export.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
 }
 /// A single pin of a schematic symbol.
 ///
@@ -466,6 +474,9 @@ pub struct FootprintDefinition {
     pub rules: Option<FootprintRules>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+    /// Unknown S-expression snippets from the source file, re-emitted on export.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
 }
 /// Per-footprint design rule overrides. Each value is a millimetre amount;
 /// a negative margin shrinks the paste or mask opening.

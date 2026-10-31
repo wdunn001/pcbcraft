@@ -1724,6 +1724,7 @@ covering_scope: None,
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         p.components.push(Component {
             sourcing: Default::default(),
@@ -1755,8 +1756,10 @@ covering_scope: None,
             include_in_bom: true,
             include_in_placement: true,
             sheet: 0,
-        sourcing: Default::default(),
-        compliance: Default::default(),
+instance: None,
+            prototype: None,
+            sourcing: Default::default(),
+            compliance: Default::default(),
         });
         p.board.footprints.push(footprint(pads));
         p
@@ -2060,6 +2063,26 @@ covering_scope: None,
         assert!(full["parts"][0].get("positions").is_some());
         assert!(summary["parts"][0].get("positions").is_none());
         assert_eq!(full["bounds"]["min"][0], 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn vertex_count_of_a_box_mesh_is_eight() -> Check {
+        let mesh = BoardMesh {
+            parts: vec![MeshPart {
+                kind: PartKind::Board,
+                name: "box".into(),
+                component: None,
+                family: None,
+                height_source: None,
+                model: None,
+                color: None,
+                positions: (0..8).map(|i| [i as f64, 0.0, 0.0]).collect(),
+                indices: vec![0, 1, 2, 0, 2, 3],
+            }],
+            warnings: vec![],
+        };
+        assert_eq!(mesh.vertex_count(), 8);
         Ok(())
     }
 }

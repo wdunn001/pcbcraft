@@ -630,12 +630,25 @@ fn run() -> Result<(), String> {
         "showcase" => showcase::run(&root()?)?,
         "status-data" => status_data::run(args.get(1..).unwrap_or(&[]), &root()?)?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
+"bless-parity" => {
+            run_env(
+                "cargo",
+                &["test", "-p", "pcbcraft-engine", "--test", "parity"],
+                &[("PCBCRAFT_BLESS", "1")],
+            )?;
+            run_env(
+                "cargo",
+                &[
+                    "test",
+                    "-p",
+                    "pcbcraft-engine",
+                    "--test",
+                    "m6_artifact_goldens",
+                ],
+                &[("PCBCRAFT_BLESS", "1")],
+            )?;
+        }
         "board3d-bench" => board3d_bench()?,
-        "bless-parity" => run_env(
-            "cargo",
-            &["test", "-p", "pcbcraft-engine", "--test", "parity"],
-            &[("PCBCRAFT_BLESS", "1")],
-        )?,
         "help" | "--help" | "-h" => println!("{USAGE}"),
         _ => return Err(USAGE.into()),
     }
