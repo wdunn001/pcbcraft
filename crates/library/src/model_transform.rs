@@ -1,3 +1,5 @@
+//! Helpers for editing footprint 3D model transforms in project library overrides.
+
 use crate::Model3D;
 
 /// Rebuild `raw_source` from the structured transform fields.
@@ -17,6 +19,7 @@ pub fn refresh_model_raw_source(model: &mut Model3D) {
     );
 }
 
+/// Wrap a degree value into `[0, 360)`.
 pub fn normalize_degrees(v: f64) -> f64 {
     let mut d = v % 360.0;
     if d < 0.0 {
@@ -25,11 +28,13 @@ pub fn normalize_degrees(v: f64) -> f64 {
     d
 }
 
+/// Turn the model 90 degrees counter-clockwise about Z.
 pub fn model_rotate_z_90(model: &mut Model3D) {
     model.rotate[2] = normalize_degrees(model.rotate[2] + 90.0);
     refresh_model_raw_source(model);
 }
 
+/// Mirror the model across the vertical axis by negating X scale.
 pub fn model_mirror_y(model: &mut Model3D) {
     model.scale[0] *= -1.0;
     refresh_model_raw_source(model);
@@ -56,7 +61,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_writes_kicad_model_clause() {
+    fn refresh_writes_model_clause() {
         let mut m = sample();
         refresh_model_raw_source(&mut m);
         assert!(m.raw_source.contains("(offset (xyz 1 2 3))"));

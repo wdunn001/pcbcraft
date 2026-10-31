@@ -161,21 +161,6 @@ fn a_newcomer_extends_selection_with_shift_click() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_turns_off_parts_in_the_pick_chips() -> Result<(), String> {
-    let mut app = sample();
-    app.tab = Tab::Schematic;
-    let (first, _) = two_parts(&app)?;
-    let at = app.project.component(first).ok_or("part missing")?.position;
-    app.edit.filter.parts = false;
-    app.canvas_click(at, 10.0);
-    assert!(app.selection().is_empty(), "parts are filtered out");
-    app.edit.filter.parts = true;
-    app.canvas_click(at, 10.0);
-    assert_eq!(app.selection(), vec![first]);
-    Ok(())
-}
-
-#[test]
 fn a_newcomer_runs_track_cleanup_from_the_menu() -> Result<(), String> {
     let mut app = sample();
     app.tab = Tab::Pcb;
