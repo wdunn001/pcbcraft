@@ -3,12 +3,15 @@
 //! Placement on the board is not done here; `board_mesh::with_models` applies
 //! the footprint matrix. Every limit returns a plain-sentence [`ModelError`]
 //! that the 3D View shows beside the part, so a bad file never panics.
+//! Open-library STEP bodies reach this reader only after optional fetch into
+//! the CAD cache (crates/library/src/open_import.rs).
 //!
 //! Formats: glTF and GLB, a bounded VRML subset
 //! (`vrml_read.rs`), STEP solids (`step_read.rs`, millimetres) and SolidCraft
 //! projects (`solidcraft_model.rs`, millimetres, Z up).
 //! Units: glTF is metres and Y up, so it is scaled by 1000 and turned to Z up.
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -25,7 +28,7 @@ const MAX_NODE_DEPTH: usize = 64;
 const MAX_NODES_VISITED: usize = 20_000;
 
 /// One model as triangles in millimetres, Z up, in the model's own frame.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoadedModel {
     /// Vertex positions in millimetres.
     pub positions: Vec<[f64; 3]>,
@@ -67,7 +70,7 @@ fn err<T>(s: impl Into<String>) -> Result<T, ModelError> {
 
 /// Identity of a model file for caching: changes when the file, its size,
 /// its modification time or the reader changes.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModelCacheKey {
     /// The model path as the footprint names it.
     pub path: String,

@@ -1568,8 +1568,8 @@ fn sample_on(tab: Tab) -> (App, egui::Context) {
 fn a_newcomer_hides_and_shows_each_kind_of_thing_on_the_board() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Pcb);
     for (row, name) in [
-        ("side:top/copper", "Top copper"),
-        ("side:bottom/copper", "Bottom copper"),
+        ("side:top", "Top copper"),
+        ("side:bottom", "Bottom copper"),
         ("side:top/components", "Pads"),
         ("drills", "Vias"),
         ("edge", "Cutouts"),
