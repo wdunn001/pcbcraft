@@ -6,7 +6,7 @@
 //! Local rules: every edit goes through an engine command (`component.value`,
 //! `footprint.move`, `footprint.rotate`, `footprint.flip`, `footprint.set_locked`,
 //! `board.resize`); a field commits on Enter or when it loses focus; every control has
-//! a tooltip from the catalog.
+//! a tooltip from the catalog. The Sourcing section lives in `sourcing_panel.rs`.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/ui_kit/section.rs, form_row.rs, number_field.rs, segmented.rs
@@ -347,6 +347,16 @@ impl App {
                 });
             },
         );
+if self
+            .project
+            .board
+            .footprints
+            .iter()
+            .any(|f| f.component == c.id)
+        {
+            self.placement_machine_section(ui, c.id);
+        }
+        self.sourcing_section(ui, c);
         egui::Frame::NONE
             .inner_margin(egui::Margin::ZERO)
             .show(ui, |ui| {

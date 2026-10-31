@@ -2,6 +2,8 @@
 // crates/ui-egui/src/agent_chat/mod.rs (conversation items and event handling)
 
 use crate::backend::{Event, PermissionOption, ToolStatus};
+use crate::steps::{StepState, Suggestion};
+use pcbcraft_engine::ChangeSummary;
 
 /// Most entries kept in the conversation; older ones are dropped.
 pub const MAX_ITEMS: usize = 2000;
@@ -37,8 +39,26 @@ pub enum Item {
         title: String,
         /// What the change would do, in plain words (empty when unknown).
         detail: String,
+        /// What it would change, for the review card (absent for a call that edits nothing).
+        summary: Option<ChangeSummary>,
         answer: Option<bool>,
     },
+    /// One tool call of the model, in plain words.
+    Step {
+        /// The call's id (the approval's id when the call asked first).
+        id: u64,
+        /// The plain name, from the catalog ("Placing").
+        title: String,
+        state: StepState,
+        /// How long it ran, in milliseconds.
+        ms: u64,
+        /// One line on what came of it.
+        result: String,
+        /// The engine commands behind it, shown only under "Show commands".
+        commands: Vec<String>,
+    },
+    /// Next steps the model offered at the end of its message.
+    Suggestions(Vec<Suggestion>),
     Queued {
         text: String,
     },
