@@ -138,6 +138,7 @@ pub fn tab_bar(
     current: &mut usize,
     tabs: &[TabItem<'_>],
     size: TabSize,
+    tour_anchors: Option<&[&str]>,
 ) -> Response {
     let t = theme::tokens(ui.ctx());
     let count = tabs.len();
@@ -235,6 +236,11 @@ pub fn tab_bar(
             }
         }
         response.on_hover_text(item.tip);
+        if let Some(ids) = tour_anchors
+            && let Some(id) = ids.get(i)
+        {
+            crate::tour::anchor::anchor(ui, id, &response);
+        }
     }
     if let Some(i) = moved_to
         && i != *current
@@ -270,7 +276,7 @@ mod tests {
             let mut cur = 0usize;
             let mut got = 0.0;
             frame(&ctx, vec![], |ui| {
-                got = tab_bar(ui, "t", &mut cur, &items(), size).rect.height();
+                got = tab_bar(ui, "t", &mut cur, &items(), size, None).rect.height();
             });
             assert_eq!(got, h, "{size:?}");
         }
@@ -284,7 +290,7 @@ mod tests {
         let first = std::cell::Cell::new(None);
         let draw = |ui: &mut Ui, cur: &mut usize| {
             first.set(Some(tab_id(ui, "t", 0)));
-            tab_bar(ui, "t", cur, &items(), TabSize::Aside);
+            tab_bar(ui, "t", cur, &items(), TabSize::Aside, None);
         };
         frame(&ctx, vec![], |ui| draw(ui, &mut cur));
         let id = first.get().ok_or("the frame did not draw the bar")?;
@@ -311,7 +317,7 @@ mod tests {
         let ctx = context(true);
         let mut cur = 1usize;
         let out = frame(&ctx, vec![], |ui| {
-            tab_bar(ui, "t", &mut cur, &items(), TabSize::Aside);
+            tab_bar(ui, "t", &mut cur, &items(), TabSize::Aside, None);
         });
         let Some(update) = out.platform_output.accesskit_update else {
             assert!(cur == 1, "accesskit was off");
