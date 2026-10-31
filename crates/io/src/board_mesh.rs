@@ -1971,6 +1971,7 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.8,
             drill: 0.4,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -2055,6 +2056,7 @@ mod tests {
             locked: None,
             side: None,
             pads,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         }
     }
     fn body_of(pads: Vec<Pad>) -> Result<Body, String> {
@@ -2360,6 +2362,8 @@ mod tests {
             width: 0.5,
             layer: Layer::Front,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p.board.tracks.push(Track {
             id: 3,
@@ -2369,6 +2373,8 @@ mod tests {
             width: 0.5,
             layer: Layer::Back,
             arc: Some(Point::new(10.0, 12.0)),
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let top = part(&mesh, PartKind::CopperTop)?;
@@ -2395,6 +2401,7 @@ mod tests {
             cutouts: vec![cut],
             filled: true,
             kind: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         p.board.zones.push(CopperZone {
@@ -2405,6 +2412,7 @@ mod tests {
             cutouts: vec![],
             filled: false,
             kind: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         let mesh = board_mesh(&p, MeshLayers::default())?;

@@ -323,6 +323,7 @@ mod tests {
             ..Default::default()
         });
         project.board.tracks.push(Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 3,
             net: 8,
             start: Point::new(10.0, 10.0),
@@ -333,6 +334,7 @@ mod tests {
         });
         // A plated via puts a plated drill file in the package.
         project.board.vias.push(pcbcraft_doc::Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             net: 8,
             position: Point::new(40.0, 10.0),

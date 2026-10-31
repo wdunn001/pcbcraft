@@ -7,6 +7,7 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 mod bitmap_trace;
+mod board_import;
 mod board_edge;
 mod board_mesh;
 mod diff;
@@ -37,27 +38,29 @@ mod plot_read;
 #[cfg(feature = "plugin-firmware-target")]
 pub mod plugins;
 mod raster;
+mod schematic_import;
 mod solidcraft_write;
 mod starter_models;
 mod step_merge;
 mod step_read;
 mod uv_print;
 mod vrml_read;
-/// Bitmap trace constants, options, and functions for converting images to polygon traces.
-/// # Dependencies
-/// - crates/io/src/bitmap_trace.rs
 pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
+};
+/// Bitmap trace constants, options, and functions for converting images to polygon traces.
+/// # Dependencies
+/// - crates/io/src/bitmap_trace.rs
+pub use board_import::{
+    ImportCounts, ImportReport, read_board_interchange, read_board_interchange_report,
+    read_board_interchange_with_rules,
 };
 pub use board_edge::{DxfOutlineSource, dxf_import_outline};
 mod cam;
 mod cam_drill;
 mod cam_shapes;
 mod snapmaker;
-/// 3D board mesh types and functions for generating mesh representations of PCBs.
-/// # Dependencies
-/// - crates/io/src/board_mesh.rs
 pub use board_mesh::{
     BodyPrototype, BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers,
     MeshPart, ModelLookup, ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix,
@@ -156,6 +159,12 @@ pub use plot_read::{
 pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
     layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg, rasterize_shapes,
+};
+/// 3D board mesh types and functions for generating mesh representations of PCBs.
+/// # Dependencies
+/// - crates/io/src/board_mesh.rs
+pub use schematic_import::{
+    import_summary, read_schematic_interchange, read_schematic_interchange_path,
 };
 pub use snapmaker::{
     SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
@@ -2018,9 +2027,12 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let b = &p.board;
     let mut s = format!(
-        "(kicad_pcb (version 20240108) (generator \"pcbcraft\")\n (general (thickness {})) (paper \"A4\")\n (layers (0 \"F.Cu\" signal) (31 \"B.Cu\" signal) (34 \"B.Paste\" user) (35 \"F.Paste\" user) (36 \"B.SilkS\" user \"b.silkscreen\") (37 \"F.SilkS\" user \"f.silkscreen\") (38 \"B.Mask\" user) (39 \"F.Mask\" user) (44 \"Edge.Cuts\" user) (46 \"B.CrtYd\" user) (47 \"F.CrtYd\" user) (48 \"B.Fab\" user) (49 \"F.Fab\" user))\n (setup (pad_to_mask_clearance 0))\n (net 0 \"\")\n",
-        b.thickness
+        "(kicad_pcb (version 20240108) (generator \"pcbcraft\")\n (general (thickness {})) (paper \"A4\")\n (layers{} (34 \"B.Paste\" user) (35 \"F.Paste\" user) (36 \"B.SilkS\" user \"b.silkscreen\") (37 \"F.SilkS\" user \"f.silkscreen\") (38 \"B.Mask\" user) (39 \"F.Mask\" user) (44 \"Edge.Cuts\" user) (46 \"B.CrtYd\" user) (47 \"F.CrtYd\" user) (48 \"B.Fab\" user) (49 \"F.Fab\" user))\n (setup{} (pad_to_mask_clearance 0))\n (net 0 \"\")\n",
+        f64s(b.thickness),
+        kicad_copper_layers(p),
+        kicad_stackup(p)
     );
+    write_preserved(&mut s, &b.preserved);
     for (i, n) in p.nets.iter().enumerate() {
         s.push_str(&format!(" (net {} {})\n", i + 1, quote(&n.name)));
     }
@@ -2059,7 +2071,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
         let label_x = (min.x + max.x) / 2.0;
         let reference_y = min.y - 1.2;
         let value_y = max.y + 1.2;
-        s.push_str(&format!(" (footprint {} (layer \"F.Cu\") (uuid {}) (at {} {} {})\n (property \"Reference\" {} (at {label_x} {reference_y} {}) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))\n (property \"Value\" {} (at {label_x} {value_y} {}) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))\n (attr {attr})\n",quote(&name),uuid(f.id,1),f.position.x,f.position.y,f.rotation,quote(&c.reference),f.rotation,quote(&c.value),f.rotation));
+        s.push_str(&format!(" (footprint {} (layer \"{}\") {} (at {} {} {})\n (property \"Reference\" {} (at {label_x} {reference_y} {}) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))\n (property \"Value\" {} (at {label_x} {value_y} {}) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))\n (attr {attr})\n",quote(&name),if f.board_side() == pcbcraft_doc::Layer::Back { "B.Cu" } else { "F.Cu" },uuid_node(&f.preserved, f.id, 1),f64s(f.position.x),f64s(f.position.y),f64s(f.rotation),quote(&c.reference),f64s(f.rotation),quote(&c.value),f64s(f.rotation)));
         if let Some(library) = &c.library_footprint {
             if let Some(m) = &library.definition.model {
                 s.push_str(&format!(
@@ -2097,10 +2109,11 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
             let net = pad.net.map(|n| p.net_name(n)).unwrap_or("");
             let (pad_type, shape, size, rotation, layers, ratio, drill) =
                 if let Some(g) = &pad.geometry {
-                    if !matches!(g.pad_type.as_str(), "smd" | "thru_hole")
+                    if !matches!(g.pad_type.as_str(), "smd" | "thru_hole" | "unplated")
                         || matches!(g.shape_kind(), pcbcraft_library::PadShape::Unsupported)
                         || (g.pad_type == "smd" && g.drill.is_some())
-                        || (g.pad_type == "thru_hole" && g.drill.is_none())
+                        || ((g.pad_type == "thru_hole" || g.pad_type == "unplated")
+                            && g.drill.is_none())
                     {
                         return Err(
                         "KiCad export supports standard SMD or plated through-hole pad geometry"
@@ -2108,7 +2121,11 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                     );
                     }
                     (
-                        g.pad_type.as_str(),
+                        if g.pad_type == "unplated" {
+                            "np_thru_hole"
+                        } else {
+                            g.pad_type.as_str()
+                        },
                         match g.shape_kind() {
                             pcbcraft_library::PadShape::Chamfered(_) => "roundrect",
                             _ => g.shape.as_str(),
@@ -2144,55 +2161,229 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                         String::new(),
                     )
                 };
-            s.push_str(&format!(" (pad {} {pad_type} {shape} (at {} {} {rotation}) (size {} {}) (layers {layers}){ratio}{drill} (net {} {}) (uuid {}))\n",quote(&pad.number),pad.offset.x,pad.offset.y,size.x,size.y,ordinal(pad.net),quote(net),uuid(f.id,i+2)));
+            s.push_str(&format!(
+                " (pad {} {pad_type} {shape} (at {} {} {}) (size {} {}) (layers {layers}){ratio}{drill} (net {} {}) (uuid {}))\n",
+                quote(&pad.number),
+                pad.offset.x,
+                pad.offset.y,
+                rotation,
+                size.x,
+                size.y,
+                ordinal(pad.net),
+                quote(net),
+                uuid(f.id, i + 2),
+            ));
         }
+        write_preserved_inline(&mut s, &f.preserved);
         s.push_str(" )\n");
     }
     for t in &b.tracks {
         match t.arc {
-            Some(mid) => s.push_str(&format!(
-                " (arc (start {} {}) (mid {} {}) (end {} {}) (width {}) (layer {}) (net {}) (uuid {}))\n",
-                t.start.x,
-                t.start.y,
-                mid.x,
-                mid.y,
-                t.end.x,
-                t.end.y,
-                t.width,
-                quote(&p.layer_name(t.layer)),
-                ordinal(Some(t.net)),
-                uuid(t.id, 1)
-            )),
-            None => s.push_str(&format!(
-                " (segment (start {} {}) (end {} {}) (width {}) (layer {}) (net {}) (uuid {}))\n",
-                t.start.x,
-                t.start.y,
-                t.end.x,
-                t.end.y,
-                t.width,
-                quote(&p.layer_name(t.layer)),
-                ordinal(Some(t.net)),
-                uuid(t.id, 1)
-            )),
+            Some(mid) => {
+                s.push_str(&format!(
+                    " (arc (start {} {}) (mid {} {}) (end {} {}) (width {}) (layer {}) (net {}) {}",
+                    t.start.x,
+                    t.start.y,
+                    mid.x,
+                    mid.y,
+                    t.end.x,
+                    t.end.y,
+                    t.width,
+                    quote(&p.layer_name(t.layer)),
+                    ordinal(Some(t.net)),
+                    uuid_node(&t.preserved, t.id, 1)
+                ));
+                write_preserved_inline(&mut s, &t.preserved);
+                s.push_str(")\n");
+            }
+            None => {
+                s.push_str(&format!(
+                    " (segment (start {} {}) (end {} {}) (width {}) (layer {}) (net {}) {}",
+                    t.start.x,
+                    t.start.y,
+                    t.end.x,
+                    t.end.y,
+                    t.width,
+                    quote(&p.layer_name(t.layer)),
+                    ordinal(Some(t.net)),
+                    uuid_node(&t.preserved, t.id, 1)
+                ));
+                write_preserved_inline(&mut s, &t.preserved);
+                s.push_str(")\n");
+            }
         }
+    }
+    for v in &b.vias {
+        let (top, bottom) = p.via_span(v);
+        s.push_str(&format!(
+            " (via (at {} {}) (size {}) (drill {}) (layers {} {}) (net {}) {}",
+            v.position.x,
+            v.position.y,
+            v.diameter,
+            v.drill,
+            quote(&p.layer_name(top)),
+            quote(&p.layer_name(bottom)),
+            ordinal(Some(v.net)),
+            uuid_node(&v.preserved, v.id, 1)
+        ));
+        write_preserved_inline(&mut s, &v.preserved);
+        s.push_str(")\n");
+    }
+    for z in &b.zones {
+        s.push_str(&format!(
+            " (zone (net {}) (net_name {}) (layer {}) {} (hatch edge 0.508) (connect_pads (clearance 0.508)) (min_thickness 0.254) (filled {})\n  (polygon (pts",
+            ordinal(Some(z.net)),
+            quote(p.net_name(z.net)),
+            quote(&p.layer_name(z.layer)),
+            uuid_node(&z.preserved, z.id, 1),
+            if z.filled { "yes" } else { "no" }
+        ));
+        for pt in z.outline.iter().take(z.outline.len().saturating_sub(1)) {
+            s.push_str(&format!(" (xy {} {})", pt.x, pt.y));
+        }
+        s.push_str("))\n");
+        write_preserved_inline(&mut s, &z.preserved);
+        s.push_str(" )\n");
+    }
+    for a in b.rule_areas.iter().filter(|a| a.keepout.is_some()) {
+        let Some(k) = a.keepout else { continue };
+        let allowed = |on: bool| if on { "not_allowed" } else { "allowed" };
+        let layer = match a.layer {
+            Some(l) => format!("(layer {})", quote(&p.layer_name(l))),
+            None => "(layers \"F&B.Cu\")".to_string(),
+        };
+        let r = &a.region;
+        s.push_str(&format!(
+            " (zone (net 0) (net_name \"\") {layer} (uuid {}) (hatch edge 0.508) (keepout (tracks {}) (vias {}) (pads {}) (copperpour {}) (footprints allowed))\n  (polygon (pts (xy {} {}) (xy {} {}) (xy {} {}) (xy {} {}))))\n",
+            quote(&uuid(a.id, 3)),
+            allowed(k.tracks),
+            allowed(k.vias),
+            allowed(k.pads),
+            allowed(k.zones),
+            r.x, r.y, r.x + r.width, r.y, r.x + r.width, r.y + r.height, r.x, r.y + r.height
+        ));
     }
     match &b.outline {
         Some(o) => {
             s.push_str(" (gr_poly (pts");
             for pt in o {
-                s.push_str(&format!(" (start {} {})", pt.x, pt.y));
+                s.push_str(&format!(" (start {} {})", f64s(pt.x), f64s(pt.y)));
             }
             s.push_str(
                 ") (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\"))\n",
             );
         }
-        None => s.push_str(&format!(" (gr_rect (start 0 0) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\"))\n",b.width,b.height)),
+        None => s.push_str(&format!(
+            " (gr_rect (start 0 0) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\"))\n",
+            f64s(b.width),
+            f64s(b.height)
+        )),
     }
     for c in &b.cutouts {
-        s.push_str(&format!(" (gr_circle (center {} {}) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\") (uuid {}))\n",c.center.x,c.center.y,c.center.x+c.radius,c.center.y,uuid(c.id,1)));
+        s.push_str(&format!(
+            " (gr_circle (center {} {}) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\") (uuid {}))\n",
+            f64s(c.center.x),
+            f64s(c.center.y),
+            f64s(c.center.x + c.radius),
+            f64s(c.center.y),
+            uuid(c.id, 1)
+        ));
     }
     s.push_str(")\n");
     Ok(s)
+}
+
+/// Copper layer entries of the layer table, top to bottom, with the classic
+/// numbering: top 0, inner 1 to 30, bottom 31.
+fn kicad_copper_layers(p: &Project) -> String {
+    let count = p.copper_layer_count();
+    let mut out = String::new();
+    for i in 0..count {
+        let ordinal = if i == 0 {
+            0
+        } else if i + 1 == count {
+            31
+        } else {
+            u32::from(i)
+        };
+        if let Ok(layer) = pcbcraft_doc::Layer::from_index(i) {
+            out.push_str(&format!(
+                " ({ordinal} {} signal)",
+                quote(&p.layer_name(layer))
+            ));
+        }
+    }
+    out
+}
+
+/// Stackup block for the setup section, written only when the project
+/// records stack rows.
+fn kicad_stackup(p: &Project) -> String {
+    let rows = &p.board.layer_records;
+    if rows.is_empty() {
+        return String::new();
+    }
+    let first = rows.iter().position(|r| r.kind == "copper").unwrap_or(0);
+    let mut out = String::from(" (stackup");
+    for (i, r) in rows.iter().enumerate() {
+        let side = if i < first { "Top" } else { "Bottom" };
+        let kind = match r.kind.as_str() {
+            "copper" => "copper".to_string(),
+            "core" => "core".to_string(),
+            "prepreg" => "prepreg".to_string(),
+            "soldermask" => format!("{side} Solder Mask"),
+            "silkscreen" => format!("{side} Silk Screen"),
+            "paste" => format!("{side} Solder Paste"),
+            _ => "user".to_string(),
+        };
+        out.push_str(&format!(
+            " (layer {} (type {}) (thickness {})",
+            quote(&r.name),
+            quote(&kind),
+            r.thickness
+        ));
+        if let Some(m) = &r.material {
+            out.push_str(&format!(" (material {})", quote(m)));
+        }
+        if let Some(dk) = r.dk {
+            out.push_str(&format!(" (epsilon_r {dk})"));
+        }
+        if let Some(df) = r.df {
+            out.push_str(&format!(" (loss_tangent {df})"));
+        }
+        out.push(')');
+    }
+    out.push(')');
+    out
+}
+
+/// The uuid node an object writes: the preserved source one when present,
+/// else one made from the object id.
+fn uuid_node(preserved: &pcbcraft_doc::PreservedSource, id: u64, kind: usize) -> String {
+    preserved
+        .nodes
+        .iter()
+        .find(|n| n.starts_with("(uuid"))
+        .map(|n| n.trim().to_string())
+        .unwrap_or_else(|| format!("(uuid {})", uuid(id, kind)))
+}
+
+/// Preserved nodes written inside the object that owns them; the uuid node is
+/// written separately.
+fn write_preserved_inline(s: &mut String, preserved: &pcbcraft_doc::PreservedSource) {
+    for node in preserved.nodes.iter().filter(|n| !n.starts_with("(uuid")) {
+        s.push(' ');
+        s.push_str(node.trim());
+    }
+}
+
+fn write_preserved(s: &mut String, preserved: &pcbcraft_doc::PreservedSource) {
+    for node in &preserved.nodes {
+        s.push_str(node);
+        if !node.ends_with('\n') {
+            s.push('\n');
+        }
+    }
 }
 
 /// Shape-specific pad expressions. A chamfered pad is a KiCad roundrect with
@@ -7428,6 +7619,8 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: Some(Point::new(20.0, 20.0)),
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 102,
@@ -7435,6 +7628,7 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -7511,6 +7705,7 @@ mod tests {
             ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 501,
             net: 500,
             position: Point::new(10.0, 10.0),
@@ -7528,6 +7723,7 @@ mod tests {
             end: None,
         });
         project.board.tracks.push(pcbcraft_doc::Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 503,
             net: 500,
             start: Point::new(0.0, 0.0),
@@ -7636,6 +7832,8 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 602,
@@ -7643,6 +7841,7 @@ mod tests {
             position: Point::new(30.0, 40.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -7687,6 +7886,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -7698,6 +7898,7 @@ mod tests {
             position: Point::new(20.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -7869,6 +8070,8 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -7876,6 +8079,7 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -7917,6 +8121,8 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -7924,6 +8130,7 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -7982,6 +8189,8 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: Some(Point::new(20.0, 20.0)),
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 102,
@@ -7989,6 +8198,7 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -8505,6 +8715,8 @@ mod tests {
             locked: None,
             side: None,
             pads,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.validate()?;
         Ok(project)
@@ -8922,6 +9134,7 @@ mod tests {
 
             kind: None,
 
+            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         project.validate()?;
@@ -8972,6 +9185,8 @@ mod tests {
             width: 0.508,
             layer: pcbcraft_doc::Layer::Back,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 4,
@@ -8979,6 +9194,7 @@ mod tests {
             position: Point::new(50.8, 25.4),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -9068,6 +9284,8 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Back,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 4,
@@ -9075,6 +9293,7 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -9096,6 +9315,7 @@ mod tests {
 
             kind: None,
 
+            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         project.board.cutouts.push(pcbcraft_doc::Cutout {
@@ -9146,6 +9366,8 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![through_pad, pad2],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
@@ -9314,6 +9536,7 @@ mod tests {
             ..Default::default()
         });
         project.board.tracks.push(pcbcraft_doc::Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 3,
             net: 8,
             start: Point::new(10.0, 10.0),
@@ -9323,6 +9546,7 @@ mod tests {
             arc: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             net: 8,
             position: Point::new(30.0, 10.0),
@@ -9386,6 +9610,7 @@ mod tests {
                 castellated: None,
                 geometry: Some(oval_geometry()),
             }],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         };
         for id in 1..=2u64 {
             project.components.push(pcbcraft_doc::Component {
@@ -9552,6 +9777,7 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
+                preserved: pcbcraft_doc::PreservedSource::default(),
             }
         };
         project.components.push(component(1, "R5", "R0603", false));
@@ -9762,6 +9988,7 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
+                preserved: pcbcraft_doc::PreservedSource::default(),
             }
         };
         project.nets.push(pcbcraft_doc::Net {
@@ -9919,6 +10146,7 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
+                preserved: pcbcraft_doc::PreservedSource::default(),
             };
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
@@ -9944,6 +10172,8 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 30,
@@ -9951,6 +10181,7 @@ mod tests {
             position: Point::new(15.0, 11.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -10108,6 +10339,8 @@ mod tests {
                 castellated: None,
                 geometry: Some(geometry("1", -1.0)),
             }],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 11,
@@ -10124,6 +10357,8 @@ mod tests {
                 castellated: None,
                 geometry: Some(geometry("1", 0.0)),
             }],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.validate()?;
         let text = idf_board(&project)?;
@@ -10263,6 +10498,8 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, Some(5))],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 4,
@@ -10272,6 +10509,8 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, None)],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 6,
@@ -10281,6 +10520,8 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 7,
@@ -10288,6 +10529,7 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -10413,6 +10655,8 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad("1", -1.0, 0.0, None), pad("2", 1.0, 0.0, Some(9))],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 4,
@@ -10422,6 +10666,8 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad("1", 0.0, 0.0, Some(5)), pad("2", 2.0, 0.0, Some(9))],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         let text = ipc356_netlist(&project)?;
         let lines: Vec<&str> = text.lines().filter(|l| !l.starts_with('*')).collect();
@@ -10564,6 +10810,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -10646,6 +10893,8 @@ mod tests {
             width: 0.2,
             layer: pcbcraft_doc::Layer::Front,
             arc: Some(Point::new(15.0, 12.0)),
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.validate()?;
         let board = kicad_board(&project)?;
@@ -10732,6 +10981,8 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 11,
@@ -10739,6 +10990,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -11332,6 +11584,98 @@ mod tests {
         assert!(!text.contains("R1.2"), "a pin with no net is left out");
         Ok(())
     }
+
+    fn normalize_board_import_round_trip(project: &mut Project) {
+        project.board.preserved = pcbcraft_doc::PreservedSource::default();
+        for track in &mut project.board.tracks {
+            track.preserved = pcbcraft_doc::PreservedSource::default();
+        }
+        for via in &mut project.board.vias {
+            via.preserved = pcbcraft_doc::PreservedSource::default();
+        }
+        for zone in &mut project.board.zones {
+            zone.preserved = pcbcraft_doc::PreservedSource::default();
+        }
+        for footprint in &mut project.board.footprints {
+            footprint.preserved = pcbcraft_doc::PreservedSource::default();
+        }
+        for component in &mut project.components {
+            component.library_footprint = None;
+        }
+        for footprint in &mut project.board.footprints {
+            for pad in &mut footprint.pads {
+                pad.geometry = None;
+            }
+        }
+    }
+
+    fn assert_board_import_round_trip_equivalent(a: &Project, b: &Project) {
+        assert_eq!(a.name, b.name);
+        assert_eq!(a.unit, b.unit);
+        assert_eq!(a.nets, b.nets);
+        assert_eq!(a.components, b.components);
+        assert_eq!(a.board.tracks, b.board.tracks);
+        assert_eq!(a.board.vias, b.board.vias);
+        assert_eq!(a.board.zones, b.board.zones);
+        assert_eq!(a.board.footprints, b.board.footprints);
+        assert_eq!(a.board.cutouts, b.board.cutouts);
+        assert_eq!(a.board.width, b.board.width);
+        assert_eq!(a.board.height, b.board.height);
+        assert_eq!(a.board.outline, b.board.outline);
+        assert_eq!(a.board.thickness, b.board.thickness);
+        assert_eq!(a.board.finish, b.board.finish);
+    }
+
+    #[test]
+    fn board_import_round_trip_simple_project_eq() -> Result<(), String> {
+        let fixture = include_str!("../tests/fixtures/board_import_simple_2layer.kicad_pcb");
+        let mut first = read_board_interchange(fixture)?;
+        let text = kicad_board(&first)?;
+        let mut second = read_board_interchange(&text)?;
+        normalize_board_import_round_trip(&mut first);
+        normalize_board_import_round_trip(&mut second);
+        assert_board_import_round_trip_equivalent(&first, &second);
+        Ok(())
+    }
+
+    #[test]
+    fn board_import_round_trip_zones_and_vias_project_eq() -> Result<(), String> {
+        let fixture = include_str!("../tests/fixtures/board_import_zones_vias.kicad_pcb");
+        let mut first = read_board_interchange(fixture)?;
+        let text = kicad_board(&first)?;
+        let mut second = read_board_interchange(&text)?;
+        normalize_board_import_round_trip(&mut first);
+        normalize_board_import_round_trip(&mut second);
+        assert_board_import_round_trip_equivalent(&first, &second);
+        Ok(())
+    }
+
+    #[test]
+    fn board_import_unknown_nodes_survive_export_text() -> Result<(), String> {
+        let fixture = include_str!("../tests/fixtures/board_import_unknown_nodes.kicad_pcb");
+        let project = read_board_interchange(fixture)?;
+        let text = kicad_board(&project)?;
+        for token in [
+            "legacy_board_tag",
+            "legacy_footprint_tag",
+            "legacy_segment_tag",
+            "legacy_zone_tag",
+        ] {
+            assert!(text.contains(token), "export must preserve {token}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn board_import_malformed_refuses_with_line_number() -> Result<(), String> {
+        let text = "(kicad_pcb\n (segment (start 0 0)\n";
+        let err = read_board_interchange(text)
+            .err()
+            .ok_or("expected malformed board import to fail")?;
+        assert!(err.contains("line"), "expected a line number in {err:?}");
+        Ok(())
+    }
+
     #[test]
     fn gencad_text_records_components_pins_and_nets_in_mils() -> Result<(), String> {
         let project = real_library_project()?;
@@ -11501,6 +11845,7 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
+                preserved: pcbcraft_doc::PreservedSource::default(),
             }
         };
         project.nets.push(pcbcraft_doc::Net {
@@ -11645,6 +11990,8 @@ mod tests {
                     geometry: Some(geometry_two),
                 },
             ],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 21,
@@ -11654,6 +12001,8 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Back,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 31,
@@ -11661,6 +12010,7 @@ mod tests {
             position: Point::new(4.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -11819,6 +12169,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 1.4,
             drill: 0.8,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
@@ -12589,6 +12940,8 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.validate()?;
         Ok(project)
@@ -12916,6 +13269,8 @@ mod tests {
             locked: None,
             side: None,
             pads: placed,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.validate()?;
         Ok(project)
@@ -13039,6 +13394,7 @@ mod tests {
             ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             net: 8,
             position: Point::new(5.0, 5.0),
@@ -13073,6 +13429,7 @@ mod tests {
             ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             net: 8,
             position: Point::new(5.0, 5.0),
@@ -13468,6 +13825,129 @@ mod tests {
         Ok(())
     }
 
+    fn fixture_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+    }
+
+    fn schematic_snapshot(project: &Project) -> serde_json::Value {
+        let mut components: Vec<String> = project
+            .components
+            .iter()
+            .map(|c| c.reference.clone())
+            .collect();
+        components.sort();
+        let mut nets: Vec<String> = project.nets.iter().map(|n| n.name.clone()).collect();
+        nets.sort();
+        serde_json::json!({
+            "name": project.name,
+            "components": components,
+            "nets": nets,
+            "junctions": project.labels.iter().filter(|l| l.kind == "junction").count(),
+            "no_connects": project.no_connects.len(),
+            "drawn_wires": project.drawn_wires.len(),
+            "sheets": project.sheets.len(),
+            "ports": project.ports.len(),
+            "bus_labels": project.labels.iter().filter(|l| l.kind == "bus").count(),
+        })
+    }
+
+    fn load_schematic_golden(name: &str) -> Result<serde_json::Value, String> {
+        let path = fixture_dir().join(name);
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&text).map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn schematic_import_flat_matches_golden_json() -> Result<(), String> {
+        let text = std::fs::read_to_string(fixture_dir().join("schematic_import_flat.kicad_sch"))
+            .map_err(|e| e.to_string())?;
+        let project = read_schematic_interchange(&text)?;
+        let snapshot = schematic_snapshot(&project);
+        let golden = load_schematic_golden("schematic_import_flat.golden.json")?;
+        assert_eq!(snapshot["name"], golden["name"]);
+        assert_eq!(snapshot["components"], golden["components"]);
+        assert_eq!(snapshot["nets"], golden["nets"]);
+        assert_eq!(snapshot["junctions"], golden["junctions"]);
+        assert_eq!(snapshot["no_connects"], golden["no_connects"]);
+        assert_eq!(snapshot["drawn_wires"], golden["drawn_wires"]);
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_import_hierarchy_matches_golden_json() -> Result<(), String> {
+        let path = fixture_dir().join("schematic_import_hierarchy_root.kicad_sch");
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let project = read_schematic_interchange_path(&path, &text)?;
+        let snapshot = schematic_snapshot(&project);
+        let golden = load_schematic_golden("schematic_import_hierarchy.golden.json")?;
+        assert_eq!(snapshot["components"], golden["components"]);
+        assert_eq!(snapshot["nets"], golden["nets"]);
+        assert_eq!(snapshot["sheets"], golden["sheets"]);
+        assert_eq!(snapshot["ports"], golden["ports"]);
+        let net = project
+            .nets
+            .iter()
+            .find(|n| n.name == "IN1")
+            .ok_or("missing IN1 net")?;
+        let root_pin = project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .and_then(|c| c.pins.iter().find(|p| p.number == "1"))
+            .and_then(|p| p.net);
+        let child_pin = project
+            .components
+            .iter()
+            .find(|c| c.reference == "R2")
+            .and_then(|c| c.pins.iter().find(|p| p.number == "1"))
+            .and_then(|p| p.net);
+        if root_pin != Some(net.id) || child_pin != Some(net.id) {
+            return Err("cross-page net did not reach both pages".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_import_bus_derives_member_nets() -> Result<(), String> {
+        let text = std::fs::read_to_string(fixture_dir().join("schematic_import_bus.kicad_sch"))
+            .map_err(|e| e.to_string())?;
+        let project = read_schematic_interchange(&text)?;
+        let golden = load_schematic_golden("schematic_import_bus.golden.json")?;
+        let mut nets: Vec<String> = project.nets.iter().map(|n| n.name.clone()).collect();
+        nets.sort();
+        assert_eq!(
+            serde_json::to_value(&nets).map_err(|e| e.to_string())?,
+            golden["member_nets"]
+        );
+        assert_eq!(
+            project.labels.iter().filter(|l| l.kind == "bus").count(),
+            golden["bus_labels"].as_u64().unwrap_or(0) as usize
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_import_malformed_refuses_with_line_number() {
+        let err = read_schematic_interchange("(kicad_sch (version 20250114)\n(broken")
+            .err()
+            .unwrap_or_default();
+        assert!(
+            err.contains("line"),
+            "malformed import should name a line number: {err}"
+        );
+    }
+
+    #[test]
+    fn schematic_import_legacy_cache_library_refused() {
+        let text = std::fs::read_to_string(fixture_dir().join("schematic_import_legacy.kicad_sch"))
+            .unwrap_or_default();
+        let err = read_schematic_interchange(&text).err().unwrap_or_default();
+        assert!(
+            err.contains("embedded symbol definitions"),
+            "legacy file should be refused plainly: {err}"
+        );
+    }
+
     #[test]
     fn mask_and_paste_layers_export_for_smd_pads_with_rules_margins() -> Result<(), String> {
         let smd = pcbcraft_library::FootprintPad {
@@ -13526,6 +14006,7 @@ mod tests {
             fields: vec![],
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 2,
             component: 1,
             position: Point::new(12.0, 8.0),
@@ -13618,6 +14099,7 @@ mod tests {
     fn six_layer_three_span_drill_files() -> Result<(), String> {
         let mut project = six_layer_project();
         let via = |id, x, from: Option<u8>, to: Option<u8>| pcbcraft_doc::Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id,
             net: 1,
             position: Point::new(x, 5.0),
@@ -13757,6 +14239,7 @@ mod tests {
         project.board.via_covering_default = default;
         for (id, x, covering) in [(10, 10.0, own), (11, 20.0, None)] {
             project.board.vias.push(pcbcraft_doc::Via {
+                preserved: pcbcraft_doc::PreservedSource::default(),
                 id,
                 net: 1,
                 position: Point::new(x, 10.0),
@@ -13873,6 +14356,7 @@ mod tests {
             ]
         };
         p.board.zones.push(pcbcraft_doc::CopperZone {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 10,
             net: 1,
             layer: pcbcraft_doc::Layer::Front,
@@ -13957,6 +14441,7 @@ mod tests {
             p.components.push(c);
         }
         p.board.footprints.push(pcbcraft_doc::Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 20,
             component: 4,
             position: Point::new(20.0, 20.0),

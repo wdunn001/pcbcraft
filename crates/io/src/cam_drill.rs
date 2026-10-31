@@ -1031,6 +1031,7 @@ mod tests {
             ..Default::default()
         });
         p.board.vias.push(Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 1,
             net: 100,
             position: Point::new(10.0, 10.0),

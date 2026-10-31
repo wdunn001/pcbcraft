@@ -610,8 +610,8 @@ fn top_level(env: &Env) -> Vec<Row> {
     root.swatch = Some(c.warn);
     root.sub = t!(
         "tree.board_size",
-        w = format!("{}", board.width),
-        h = format!("{}", board.height)
+        w = size_text(board.width),
+        h = size_text(board.height)
     );
     out.push(root);
     for item in stack(env) {
@@ -1064,8 +1064,8 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 RowKind::Leaf,
                 t!(
                     "tree.edge",
-                    w = format!("{}", board.width),
-                    h = format!("{}", board.height)
+                    w = size_text(board.width),
+                    h = size_text(board.height)
                 ),
             );
             edge.dim = true;
@@ -3965,6 +3965,13 @@ pub(crate) fn layers_tab(ui: &mut Ui, app: &mut crate::App) {
     app.layers_tree_panel(ui);
 }
 
+/// A board size in millimetres to two decimals with trailing zeros dropped,
+/// so an imported 37.94230200896579 reads 37.94 and 60.0 reads 60.
+fn size_text(v: f64) -> String {
+    let t = format!("{v:.2}");
+    t.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4001,6 +4008,7 @@ show_empty: false,
     fn renamable_rows_are_nets_layers_and_pages_only() {
         let mut project = sample();
         project.sheets.push(pcbcraft_doc::Sheet {
+            interchange_uuid: None,
             id: 9001,
             name: "Power".into(),
             parent: None,

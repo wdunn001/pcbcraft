@@ -92,6 +92,7 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
         "Space shows it again"
     );
     app.project.board.tracks.push(pcbcraft_doc::Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 9_999,
         net: app.project.nets[0].id,
         start: Point::new(10.0, 10.0),
@@ -118,6 +119,7 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
 fn a_newcomer_locks_a_layer_row_and_clicks_pass_through_it() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
     app.project.board.tracks.push(pcbcraft_doc::Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 9_998,
         net: app.project.nets[0].id,
         start: Point::new(10.0, 10.0),

@@ -2786,6 +2786,7 @@ pub(super) fn run(
                     .ok_or_else(missing)?;
                 let footprint_id = allocate(next)?;
                 p.board.footprints.push(Footprint {
+                    preserved: pcbcraft_doc::PreservedSource::default(),
                     id: footprint_id,
                     component: id,
                     position: a.position,
