@@ -1,10 +1,7 @@
 //! Tour anchors (#772), Help > Tours listing (#769).
 
-use super::super::tour::{self, anchor, data};
-use super::super::{App, Tab};
-use super::support::*;
 use super::super::authoring;
-use super::super::bottom_sheet::SheetTab;
+use super::support::*;
 
 #[test]
 fn a_newcomer_opens_Help_Tours_and_sees_every_tour_listed() -> Result<(), String> {

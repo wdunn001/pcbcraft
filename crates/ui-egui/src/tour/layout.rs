@@ -1,4 +1,6 @@
-//! Card placement beside an anchor (overlay #770 and CI stories share this math).
+//! Card and spotlight hole geometry shared by the overlay (#770) and CI replay.
+//!
+//! Pure math: no widgets, no platform code.
 
 use egui::{Align2, Pos2, Rect, Vec2};
 
@@ -55,10 +57,11 @@ fn place_card(screen: Rect, anchor: Rect, placement: &str, size: Vec2) -> Rect {
             card_right(screen, anchor, size)
         }
     };
-    pick(placement).intersect(screen)
+    let rect = pick(placement);
+    rect.intersect(screen)
 }
 
-fn card_above(screen: Rect, anchor: Rect, size: Vec2) -> Rect {
+fn card_above(_screen: Rect, anchor: Rect, size: Vec2) -> Rect {
     let y = anchor.min.y - GAP - size.y;
     Rect::from_min_size(
         Pos2::new(anchor.center().x - size.x * 0.5, y),
@@ -66,7 +69,7 @@ fn card_above(screen: Rect, anchor: Rect, size: Vec2) -> Rect {
     )
 }
 
-fn card_below(screen: Rect, anchor: Rect, size: Vec2) -> Rect {
+fn card_below(_screen: Rect, anchor: Rect, size: Vec2) -> Rect {
     let y = anchor.max.y + GAP;
     Rect::from_min_size(
         Pos2::new(anchor.center().x - size.x * 0.5, y),
@@ -74,12 +77,12 @@ fn card_below(screen: Rect, anchor: Rect, size: Vec2) -> Rect {
     )
 }
 
-fn card_left(screen: Rect, anchor: Rect, size: Vec2) -> Rect {
+fn card_left(_screen: Rect, anchor: Rect, size: Vec2) -> Rect {
     let x = anchor.min.x - GAP - size.x;
     Rect::from_min_size(Pos2::new(x, anchor.center().y - size.y * 0.5), size)
 }
 
-fn card_right(screen: Rect, anchor: Rect, size: Vec2) -> Rect {
+fn card_right(_screen: Rect, anchor: Rect, size: Vec2) -> Rect {
     let x = anchor.max.x + GAP;
     Rect::from_min_size(Pos2::new(x, anchor.center().y - size.y * 0.5), size)
 }
