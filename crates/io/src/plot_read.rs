@@ -1,4 +1,16 @@
 //! Read fabrication plot and drill files for inspection (bounded, read-only).
+//!
+//! Parsed Gerber layers and Excellon drill data are returned as plain structs
+//! so callers can preview fabrication output without editing the project.
+//!
+//! # Rules
+//! - Plot operations, apertures and drill hits are capped (`MAX_OPS`, `MAX_APERTURES`, `MAX_HITS`).
+//! - Zip archives use the same byte budget as one on-disk file (`MAX_PLOT_ZIP_BYTES`).
+//!
+//! # Dependencies
+//! - crates/geom/src/lib.rs
+//! - crates/io/src/lib.rs
+//! - crates/io/tests/fixtures/shaped_pads_F_Cu.gbr
 
 use pcbcraft_geom::Point;
 use std::collections::BTreeMap;
@@ -92,28 +104,54 @@ impl PlotLayer {
             .sum()
     }
 }
-
 #[derive(Clone, Debug)]
 pub struct PlotDrillTool {
+    /// Tool index from `T` lines in the drill body.
     pub number: u32,
+    /// Cutter diameter in millimetres from the header `T<n>C<diameter>` definition.
     pub diameter_mm: f64,
+    /// Plated versus unplated when the drill file states it; otherwise unset.
     pub plated: Option<bool>,
+    /// How many hits in the file used this tool number.
     pub hit_count: usize,
 }
 
+/// One drilled hole or slot start from an Excellon body line.
+///
+/// # Rules
+/// - Round holes set `slot_end` to none; `G85` slot lines store the far end in millimetres.
+///
+/// # Dependencies
+/// - crates/io/src/plot_read.rs
 #[derive(Clone, Debug)]
 pub struct PlotDrillHit {
+    /// Tool number active when this hit was written.
     pub tool: u32,
+    /// Hole or slot start x in millimetres.
     pub x_mm: f64,
+    /// Hole or slot start y in millimetres.
     pub y_mm: f64,
+    /// Far end of a routed slot in millimetres, or none for a round hit.
     pub slot_end: Option<(f64, f64)>,
 }
 
+/// Every Gerber layer and drill record loaded from one folder or zip archive.
+///
+/// # Rules
+/// - `layers` includes a synthetic drill overlay when any hits were read.
+/// - `hints` collects non-fatal parse notes from individual Gerber layers.
+///
+/// # Dependencies
+/// - crates/io/src/plot_read.rs
 #[derive(Clone, Debug)]
 pub struct PlotPackage {
+    /// Gerber layers in filename order, plus an optional drill overlay layer.
     pub layers: Vec<PlotLayer>,
+    /// Drill tools merged from every `.drl` file, with renumbered indices.
     pub drill_tools: Vec<PlotDrillTool>,
+    /// Drill and slot hits merged from every `.drl` file.
     pub drill_hits: Vec<PlotDrillHit>,
+    /// Parse hints surfaced while loading Gerber files in the package.
     pub hints: Vec<PlotHint>,
 }
 
@@ -675,6 +713,98 @@ pub fn parse_excellon_drill(text: &str) -> Result<(Vec<PlotDrillTool>, Vec<PlotD
     Ok((tool_list, hits))
 }
 
+/// Parse an XNC drill file from the native export path (two-digit tools, rout slots).
+pub fn parse_xnc_drill(text: &str) -> Result<(Vec<PlotDrillTool>, Vec<PlotDrillHit>), String> {
+    let inch = text.lines().any(|l| l.trim() == "INCH");
+    let scale = if inch { 25.4 } else { 1.0 };
+    let mut tools: BTreeMap<u32, f64> = BTreeMap::new();
+    let mut hits: Vec<PlotDrillHit> = Vec::new();
+    let mut current_tool = 1u32;
+    let mut in_header = false;
+    let mut pending_slot_start: Option<(f64, f64)> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line == "M48" {
+            in_header = true;
+            continue;
+        }
+        if line == "%" {
+            in_header = false;
+            continue;
+        }
+        if in_header {
+            if let Some(rest) = line.strip_prefix('T')
+                && let Some((num, diam)) = rest.split_once('C')
+                && let Ok(n) = num.parse::<u32>()
+                && let Ok(d) = diam.parse::<f64>()
+            {
+                tools.insert(n, d * scale);
+            }
+            continue;
+        }
+        if line == "M15" || line == "M16" {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix('T')
+            && let Ok(n) = rest.parse::<u32>()
+        {
+            current_tool = n;
+            continue;
+        }
+        if let Some(coords) = line.strip_prefix("G00") {
+            pending_slot_start = parse_coord_pair(coords).map(|(x, y)| inch_to_mm(inch, x, y));
+            continue;
+        }
+        if let Some(coords) = line.strip_prefix("G01") {
+            let Some((sx, sy)) = pending_slot_start.take() else {
+                return Err("rout slot missing a G00 start".into());
+            };
+            let Some((ex, ey)) = parse_coord_pair(coords) else {
+                return Err("rout slot end has no coordinates".into());
+            };
+            let (ex, ey) = inch_to_mm(inch, ex, ey);
+            if hits.len() >= MAX_HITS {
+                return Err("drill file exceeds the hit limit".into());
+            }
+            hits.push(PlotDrillHit {
+                tool: current_tool,
+                x_mm: sx,
+                y_mm: sy,
+                slot_end: Some((ex, ey)),
+            });
+            continue;
+        }
+        if line.starts_with('X') {
+            if hits.len() >= MAX_HITS {
+                return Err("drill file exceeds the hit limit".into());
+            }
+            if let Some((x, y)) = parse_coord_pair(line) {
+                let (x_mm, y_mm) = inch_to_mm(inch, x, y);
+                hits.push(PlotDrillHit {
+                    tool: current_tool,
+                    x_mm,
+                    y_mm,
+                    slot_end: None,
+                });
+            }
+        }
+    }
+    let mut tool_list: Vec<PlotDrillTool> = tools
+        .iter()
+        .map(|(n, d)| PlotDrillTool {
+            number: *n,
+            diameter_mm: *d,
+            plated: None,
+            hit_count: hits.iter().filter(|h| h.tool == *n).count(),
+        })
+        .collect();
+    tool_list.sort_by_key(|t| t.number);
+    Ok((tool_list, hits))
+}
+
 fn is_plot_name_ext(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     lower.ends_with(".gbr") || lower.ends_with(".drl")
@@ -905,6 +1035,13 @@ pub fn load_plot_zip(bytes: &[u8]) -> Result<PlotPackage, String> {
     })
 }
 
+/// Bounding box of every flash and stroke in a plot package, as (min_x, min_y, max_x, max_y) in millimetres.
+///
+/// # Rules
+/// - Returns `None` when the package has no flashes and no strokes.
+///
+/// # Dependencies
+/// - crates/io/src/plot_read.rs
 pub fn layer_bounds(package: &PlotPackage) -> Option<(f64, f64, f64, f64)> {
     let mut min_x = f64::INFINITY;
     let mut min_y = f64::INFINITY;
@@ -936,6 +1073,10 @@ pub fn layer_bounds(package: &PlotPackage) -> Option<(f64, f64, f64, f64)> {
     }
 }
 
+/// Straight-line distance between two board points in millimetres.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
 pub fn distance_mm(a: Point, b: Point) -> f64 {
     ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
 }

@@ -102,7 +102,7 @@ pub fn zone_fill(project: &Project, zone: &CopperZone) -> Result<ZoneFill, Strin
         pieces: Vec::new(),
         min_width: settings
             .min_width
-            .unwrap_or_else(|| default_min_width(project)),
+            .unwrap_or_else(|| default_pour_min_width(project)),
         islands: 0,
         removed: 0,
         unconnected: false,
@@ -341,7 +341,7 @@ fn open(region: &[Piece], width: f64) -> Region {
 
 /// Narrowest copper the board already uses: the thinnest track or class
 /// minimum, never below a fab-friendly 0.05 mm, never above 1 mm.
-fn default_min_width(project: &Project) -> f64 {
+pub fn default_pour_min_width(project: &Project) -> f64 {
     let tracks = project
         .board
         .tracks
@@ -363,7 +363,7 @@ fn default_min_width(project: &Project) -> f64 {
 
 /// True when a keepout area forbids one kind of copper on a layer for a net.
 pub fn keepout_blocks(area: &RuleArea, kind: KeepoutKind, layer: Layer, net: Id) -> bool {
-    let Some(keepout) = area.keepout else {
+    let Some(keepout) = area.active_keepout() else {
         return false;
     };
     keepout.forbids(kind) && area.keepout_applies(layer, net)
@@ -616,13 +616,48 @@ fn board_piece(project: &Project) -> Piece {
 
 /// A rule area rectangle as a piece.
 fn rectangle(region: crate::RuleRegion) -> Piece {
+    let corners = region.axis_corners();
     vec![vec![
-        Point::new(region.x, region.y),
-        Point::new(region.x + region.width, region.y),
-        Point::new(region.x + region.width, region.y + region.height),
-        Point::new(region.x, region.y + region.height),
-        Point::new(region.x, region.y),
+        corners[0], corners[1], corners[2], corners[3], corners[0],
     ]]
+}
+
+fn rule_area_keepout_piece(project: &Project, area: &RuleArea) -> Option<Piece> {
+    if area.active_keepout().is_none() {
+        return None;
+    }
+    let region = area.keepout_rect();
+    let corners = region.axis_corners();
+    let ring: Ring = if let Some(reference) = area.footprint_ref.as_deref() {
+        let component = project.component_by_reference(reference)?;
+        let footprint = project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == component.id)?;
+        corners
+            .iter()
+            .map(|corner| {
+                footprint
+                    .position
+                    .offset(corner.rotate(-footprint.rotation))
+            })
+            .collect()
+    } else {
+        corners.to_vec()
+    };
+    if ring.len() < 3 {
+        return None;
+    }
+    Some(vec![{
+        let mut closed = ring;
+        if closed.first() != closed.last() {
+            if let Some(first) = closed.first().copied() {
+                closed.push(first);
+            }
+        }
+        closed
+    }])
 }
 
 /// True when a zone's settings are all inside their bounds.
@@ -663,13 +698,15 @@ pub fn keepout_hits(project: &Project) -> Result<Vec<KeepoutHit>, String> {
     for layer in project.copper_layers() {
         let items = items(project, layer)?;
         for area in &project.board.rule_areas {
-            let Some(keepout) = area.keepout else {
+            let Some(keepout) = area.active_keepout() else {
                 continue;
             };
             if area.layer.is_some_and(|only| only != layer) {
                 continue;
             }
-            let rect = rectangle(area.keepout_rect());
+            let Some(rect) = rule_area_keepout_piece(project, area) else {
+                continue;
+            };
             for item in &items {
                 let kind = match item.kind {
                     Kind::Pad => KeepoutKind::Pads,
