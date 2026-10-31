@@ -88,3 +88,11 @@ library_dock.rs dock_sets
 library_dock.rs dock_card
 toolbar.rs toolbar_row
 toolbar.rs toolbar_options
+files_home.rs files_commands
+files_home.rs files_center
+files_home.rs files_recent_page
+files_home.rs files_details
+files_home.rs files_open_page
+files_home.rs files_formats_page
+files_home.rs files_settings_page
+files_home.rs files_close_page

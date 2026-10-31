@@ -22,12 +22,13 @@ that closes it or the decision to leave it.
 | OpenAI chat | Parallel calls | several entries in one `tool_calls` | Yes, capped at 32 | two calls, two tool messages in order |
 | OpenAI chat | `finish_reason` | `stop`, `length`, `tool_calls`, `content_filter` | Partial: a cut-off or filtered answer looked empty | #633, test `an_openai_reply_cut_by_length_shows_a_note_and_ends_the_turn_with_that_reason` |
 | OpenAI chat | Output limit | `max_tokens` is deprecated; `max_completion_tokens` replaces it | Neither is sent; the server default applies | none: left to the server |
-| OpenAI chat | Streaming | `stream: true` with server-sent deltas | No | #635 |
+| OpenAI chat | Streaming | `stream: true` with server-sent deltas | Yes | #475 |
 | OpenAI chat | Model list | `GET /v1/models` | Yes | list parse |
 | Anthropic Messages | Request | `model`, required `max_tokens`, top-level `system`, `messages`, `tools[]{name,description,input_schema}` | Yes, `max_tokens` is 8192 | body shape |
 | Anthropic Messages | Headers | `x-api-key`, `anthropic-version`, JSON content type | Yes, version `2023-06-01` | headers present |
 | Anthropic Messages | Tool name pattern | letters, digits, underscore, dash, at most 128 | No: dotted names were passed through | #632, same name test |
 | Anthropic Messages | Tool use and result | `tool_use` blocks; the next user message holds `tool_result` blocks with `tool_use_id` and optional `is_error` | Yes | all results in one user message |
+| Anthropic Messages | Streaming | `stream: true` with message events | Yes | #475 |
 | Anthropic Messages | `stop_reason` | `end_turn`, `tool_use`, `max_tokens`, `refusal` and others | Partial: not read | #633, test `an_anthropic_reply_with_max_tokens_shows_a_note` |
 | Ollama native `/api/chat` | Tools and results | same function shape; arguments come as a JSON object; results use `tool_name`, no id | No native protocol | decision: not built, see below |
 | Ollama native | Options | `options.num_ctx`, `keep_alive`, `stream: false` | No | decision: not built |
@@ -45,7 +46,7 @@ that closes it or the decision to leave it.
    Two tools that would share a wire name stop the assistant from starting.
 2. Stop reasons (#633). `length`, `max_tokens`, `content_filter` and `refusal` show one plain
    note and end the turn with that reason. A cut-off reply runs none of its tool calls.
-3. Streaming is a feature, not a conformance failure (#635).
+3. Streaming is a feature, not a conformance failure (#475).
 4. Ollama and llama.cpp need no new protocol. Both speak the OpenAI chat route with tools, so
    they get presets with notes (#634). The Ollama preset uses `http://localhost:11434/v1`, no
    key, and the note "set the context size in a Modelfile; the /v1 route cannot". The llama.cpp

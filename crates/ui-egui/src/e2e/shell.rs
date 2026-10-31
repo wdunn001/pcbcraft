@@ -151,6 +151,7 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "Files")?;
+    authoring::tests::tap(&ctx, &mut app, "Project settings…")?;
     assert!(
         paints_text(&ctx, &mut app, "Project files")?,
         "build outputs moved under Files: {}",
@@ -708,6 +709,7 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
         "View > Rules opens the rules page"
     );
     authoring::tests::tap(&ctx, &mut app, "Files")?;
+    authoring::tests::tap(&ctx, &mut app, "Project settings…")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;
     assert!(
         matches!(app.tab, Tab::Libraries),

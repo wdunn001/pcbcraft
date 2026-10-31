@@ -4,6 +4,13 @@
 #
 # Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
 # repackage jobs. No Snap Store or Flathub upload in CI.
+# Release builds for every platform. Called by nightly.yml and release.yml so
+# nightly runs exercise the exact packaging that a tagged release uses.
+# No build cache here: release artifacts are built from a clean state.
+#
+# Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
+# repackage jobs. No Snap Store or Flathub upload in CI.
+#
 name: Build distributables
 
 on:
