@@ -51,6 +51,18 @@ fn metadata(raw: &str, unsupported: &[String]) -> Result<(), Error> {
     }
     Ok(())
 }
+fn retained_nodes(retained: &[String]) -> Result<(), Error> {
+    if retained.len() > 256 {
+        return Err(Error::Limit("retained source nodes"));
+    }
+    for s in retained {
+        if s.len() > 256 * 1024 {
+            return Err(bad("retained node exceeds size limit"));
+        }
+        text(s)?;
+    }
+    Ok(())
+}
 impl Graphic {
     /// Validate that all geometry values are finite and within bounds.
     ///
@@ -173,6 +185,7 @@ impl SymbolDefinition {
             text(parent)?;
         }
         metadata(&self.raw_source, &self.unsupported)?;
+        retained_nodes(&self.retained)?;
         let mut keys = BTreeSet::new();
         for p in &self.pins {
             text(&p.number)?;
@@ -234,6 +247,15 @@ impl FootprintDefinition {
                 }
             }
         }
+        if let Some(body) = &self.box_body {
+            for value in [body.width, body.depth, body.height] {
+                if !scalar(value) || !(0.05..=100.0).contains(&value) {
+                    return Err(bad(
+                        "footprint box body size must be finite and between 0.05 and 100 mm",
+                    ));
+                }
+            }
+        }
         if self.name.is_empty() || self.pads.len() > 20_000 || self.graphics.len() > 20_000 {
             return Err(bad("invalid footprint name or object count"));
         }
@@ -241,6 +263,7 @@ impl FootprintDefinition {
             text(s)?;
         }
         metadata(&self.raw_source, &self.unsupported)?;
+        retained_nodes(&self.retained)?;
         if let Some(m) = &self.model {
             text(&m.path)?;
             metadata(&m.raw_source, &[])?;
@@ -249,6 +272,14 @@ impl FootprintDefinition {
                 || !m.offset.iter().all(|v| scalar(*v))
                 || !m.rotate.iter().all(|v| scalar(*v))
                 || !m.scale.iter().all(|v| scalar(*v) && *v > 0.0)
+                || m
+                    .cad_part
+                    .as_ref()
+                    .is_some_and(|s| s.is_empty() || s.len() > 128)
+                || m
+                    .body_id
+                    .as_ref()
+                    .is_some_and(|s| s.is_empty() || s.len() > 128)
             {
                 return Err(bad("invalid 3D model reference"));
             }

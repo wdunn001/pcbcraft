@@ -17,14 +17,13 @@
 //! - crates/library/src/cad_cache.rs
 //! - crates/library/src/sources.rs
 use crate::cad::{CadFile, CadKind, CadRef, CadSource, LicenseInfo, MAX_FILE_BYTES, Provenance};
-use crate::cad_cache::CadCache;
+use crate::cad_cache::{CadCache, now_secs};
 use crate::sources::{
     Attribution, MAX_RESULTS, PartResult, PartSource, SetupCard, SourceError, check_query,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Id used in cache keys and notices.
 pub const SOURCE_ID: &str = "open-library";
@@ -57,6 +56,9 @@ pub enum FetchError {
     },
     /// Anything else, in plain words.
     Failed(String),
+    /// The request was sent and the answer has not come back yet. Only the
+    /// browser transport returns this; ask again on a later frame.
+    Pending,
 }
 
 /// Gets the bytes behind a URL. Desktop and web builds each bring one.
@@ -65,13 +67,15 @@ pub enum FetchError {
 /// - Plain GET, no credentials, no cookies.
 /// - Refuse an answer over [`MAX_FILE_BYTES`].
 /// - Map HTTP 404 to [`FetchError::NotFound`] and 429 to [`FetchError::RateLimited`].
+/// - A transport that cannot block (the browser) answers [`FetchError::Pending`] and the caller asks again
+///   on a later frame; `WebTransport::waiting` in crates/library/src/web_transport.rs says when to stop.
 ///
 /// # Do not
 /// - Retry in a loop; the source decides what to do with a failure.
 ///
 /// # Implementations
 /// - `apps/pcbcraft/src/online_http.rs`
-/// - `apps/pcbcraft-web/src/transport.rs`
+/// - `crates/library/src/web_transport.rs`
 /// - `crates/ui-egui/src/e2e/support.rs`
 /// - `crates/ui-egui/src/sources.rs`
 pub trait Fetcher: Send + Sync {
@@ -288,16 +292,15 @@ fn from_fetch(err: FetchError, what: &str) -> SourceError {
         FetchError::Failed(m) => {
             SourceError::Unavailable(format!("the open library could not be read: {m}"))
         }
+        FetchError::Pending => {
+            SourceError::Unavailable("the open library is still answering".into())
+        }
     }
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    pcbcraft_clock::unix_secs()
 }
-
 /// The official open libraries as a CAD source and a part source.
 ///
 /// # Rules
@@ -333,7 +336,7 @@ impl OpenLibrarySource {
             fetcher,
             cache,
             config,
-            clock: Box::new(now_secs),
+            clock: Box::new(crate::wall_clock::unix_secs_now),
             commits: Mutex::new(BTreeMap::new()),
         }
     }

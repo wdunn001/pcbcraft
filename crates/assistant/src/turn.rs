@@ -3,7 +3,6 @@
 
 use pcbcraft_engine::Session;
 use serde_json::Value;
-use std::sync::mpsc::Sender;
 
 /// Changes the agent may make in one turn; the seeded default when the user turns the limit on.
 pub const DEFAULT_TURN_LIMIT: u32 = 24;
@@ -11,11 +10,14 @@ pub const DEFAULT_TURN_LIMIT: u32 = 24;
 pub const MAX_REQUESTS_PER_TURN: u32 = 400;
 
 /// One in-process tool call the host runs on behalf of a backend.
+#[cfg(not(target_arch = "wasm32"))]
+pub use pcbcraft_mcp::ToolRequest;
+#[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 pub struct ToolRequest {
     pub name: String,
-    pub args: Value,
-    pub reply: Sender<Value>,
+    pub args: serde_json::Value,
+    pub reply: std::sync::mpsc::Sender<serde_json::Value>,
 }
 
 /// The message being answered: what undo and the limits need.
