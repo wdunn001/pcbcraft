@@ -4,8 +4,8 @@ use crate::credentials::{self, KeyStore};
 use crate::http_client::{HttpClient, HttpError, HttpRequest, HttpResponse};
 use crate::rate_limit::{Clock, SystemClock, TokenBucket, rate_limited};
 use crate::sources::{
-    Attribution, PartResult, PartSource, PriceBreak, SetupCard, SourceError, check_query,
-    DEFAULT_CACHE_SECS,
+    Attribution, DEFAULT_CACHE_SECS, PartResult, PartSource, PriceBreak, SetupCard, SourceError,
+    check_query,
 };
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
@@ -219,9 +219,7 @@ impl DigiKeySource {
         if response.status == 400 {
             let text = String::from_utf8_lossy(&response.body);
             if text.contains("Multiple") || text.contains("multiple") {
-                return Err(SourceError::Invalid(
-                    "several parts match, pick one".into(),
-                ));
+                return Err(SourceError::Invalid("several parts match, pick one".into()));
             }
         }
         if response.status != 200 {

@@ -47,8 +47,8 @@ impl TokenBucket {
         let now = self.clock.now_secs();
         let elapsed = now.saturating_sub(self.last);
         if elapsed > 0 {
-            self.tokens = (self.tokens + elapsed as f64 * self.refill_per_sec)
-                .min(self.capacity as f64);
+            self.tokens =
+                (self.tokens + elapsed as f64 * self.refill_per_sec).min(self.capacity as f64);
             self.last = now;
         }
     }

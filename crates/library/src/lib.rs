@@ -1,6 +1,9 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod credentials;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
 pub mod datasheet;
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
@@ -27,18 +30,19 @@ pub mod credentials;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
+pub mod http_client;
 pub mod listing;
 pub mod listing_adapters;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
 pub mod part_fields;
 pub mod online_import;
 pub mod open_library;
 mod paths;
+pub mod rate_limit;
 mod reader;
 pub mod samtec;
 mod sexpr;
-pub mod credentials;
-pub mod http_client;
-pub mod rate_limit;
 pub mod source_log;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod digikey;
