@@ -1,4 +1,4 @@
-//! The back-drill checks (issue #801): a stub longer than the limit and a
+﻿//! The back-drill checks (issue #801): a stub longer than the limit and a
 //! drill that cuts a layer it must not.
 
 use pcbcraft_doc::{BackDrill, BackDrillFrom, Id, Layer, LayerRecord, Net, Project, Track, Via};
@@ -46,7 +46,6 @@ fn via(id: Id, span: Option<(u8, u8)>, spec: BackDrill) -> Result<Via, String> {
         from_layer: span.map(|s| Layer::from_index(s.0)).transpose()?,
         to_layer: span.map(|s| Layer::from_index(s.1)).transpose()?,
         covering: None,
-        covering_bottom: None,
         backdrill: Some(spec),
     })
 }

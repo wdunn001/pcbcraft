@@ -282,17 +282,6 @@ const STUB_SLACK_MM: f64 = 1e-9;
 
 /// Back-drill checks for via barrels: a remaining stub longer than the
 /// setting allows, and a back-drill that cuts something it must not.
-///
-/// # Rules
-/// - `backdrill_stub_too_long`: the stub from the stackup records exceeds `max_stub`; the message gives the stub and the limit in millimetres. A stackup with no rows for the span reports nothing.
-/// - `backdrill_must_not_cut`: the setting does not fit its via (must-not-cut layer outside the span or not below the start layer, drill not larger than the hole, no hole), or a track of the via's net ends on the via on a layer the drill removes.
-///
-/// # Dependencies
-/// - crates/doc/src/backdrill.rs `Project::effective_backdrill`, `validate_backdrill`, `backdrilled_layers`, `backdrill_stub`.
-///
-/// # Do not
-/// - Report a via without a back-drill setting.
-/// - Reuse the code `stub_too_long`; that one is for track branches.
 pub(crate) fn backdrill_findings(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
     for via in &project.board.vias {

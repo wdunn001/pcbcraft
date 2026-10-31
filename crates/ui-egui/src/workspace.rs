@@ -425,14 +425,8 @@ impl App {
                                 "layout-view-2d3d",
                                 &mut view_idx,
                                 &[
-                                    Segment {
-                                        label: &view_2d_label,
-                                        tip: &view_2d_tip,
-                                    },
-                                    Segment {
-                                        label: &view_3d_label,
-                                        tip: &view_3d_tip,
-                                    },
+                                    Segment::text(&view_2d_label, &view_2d_tip),
+                                    Segment::text(&view_3d_label, &view_3d_tip),
                                 ],
                             );
                             segmented(
@@ -440,14 +434,8 @@ impl App {
                                 "layout-view-side",
                                 &mut side_idx,
                                 &[
-                                    Segment {
-                                        label: &top_label,
-                                        tip: &top_tip,
-                                    },
-                                    Segment {
-                                        label: &bottom_label,
-                                        tip: &bottom_tip,
-                                    },
+                                    Segment::text(&top_label, &top_tip),
+                                    Segment::text(&bottom_label, &bottom_tip),
                                 ],
                             );
                             if view_idx == 0 {

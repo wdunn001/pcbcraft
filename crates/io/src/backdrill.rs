@@ -1,21 +1,4 @@
 //! Back-drill passes for the drill export: hits, files and map markers.
-//!
-//! Context: a back-drill is a second drilling pass that removes the unused
-//! barrel of a via. It is written to its own Excellon file per pass, never
-//! into the through, blind or buried files, so a project without back-drills
-//! exports exactly what it did before.
-//!
-//! # Rules
-//! - One pass is one entry face plus one drilled layer range; each pass gets one file named `pcb-BackDrill-L<entry>-L<stop>.drl`, layers counted from 1 at the top.
-//! - Tools carry `TA.AperFunction,NonPlated,NPTH,BackDrill`; the file header names the entry and the deepest drilled layer.
-//! - Hits come from `Project::effective_backdrill`; a spec that no longer fits its via is skipped here and reported by the rules crate.
-//!
-//! # Dependencies
-//! - `crates/doc/src/backdrill.rs` `BackDrill`, `Project::effective_backdrill`, `Project::backdrilled_layers`.
-//! - `crates/io/src/fab_export.rs` `MAX_TOOLS` limit, written through `excellon_pass`.
-//!
-//! # Do not
-//! - Add a back-drill hit to `collect_drill_hits`; the other files must not change.
 use crate::fab_export::MAX_TOOLS;
 use pcbcraft_doc::{BackDrillFrom, Project};
 use pcbcraft_geom::Point;
@@ -24,22 +7,12 @@ use std::collections::BTreeMap;
 /// One back-drilled hole.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct BackDrillHit {
-    /// Drill diameter in micrometres.
     pub d_um: u64,
     pub x: f64,
     pub y: f64,
     pub from: BackDrillFrom,
-    /// Layer index of the face the drill enters (0 for the top).
     pub entry: u8,
-    /// Layer index of the deepest layer the drill removes.
     pub stop: u8,
-}
-
-impl BackDrillHit {
-    /// The drilled range as ascending layer indices.
-    pub(crate) fn range(&self) -> (u8, u8) {
-        (self.entry.min(self.stop), self.entry.max(self.stop))
-    }
 }
 
 /// Every back-drilled hole of the project, in via order.
@@ -73,8 +46,6 @@ pub(crate) fn collect_backdrill_hits(p: &Project) -> Vec<BackDrillHit> {
     hits
 }
 
-/// The back-drill files of a project: file name to Excellon text. Empty when
-/// no via is back-drilled.
 pub(crate) fn backdrill_files(
     p: &Project,
     scale: f64,

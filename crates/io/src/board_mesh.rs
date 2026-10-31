@@ -56,6 +56,8 @@ pub enum PartKind {
     SilkTop,
     SilkBottom,
     Body,
+    /// Metal terminals of a part body: chip end caps, gull-wing leads, header pins.
+    Lead,
 }
 impl PartKind {
     pub fn name(self) -> &'static str {
@@ -68,6 +70,7 @@ impl PartKind {
             Self::SilkTop => "silk_top",
             Self::SilkBottom => "silk_bottom",
             Self::Body => "body",
+            Self::Lead => "lead",
         }
     }
 }
@@ -628,14 +631,21 @@ fn triangulate(outer: &[Point], holes: &[Vec<Point>]) -> Option<Triangulation> {
 struct Builder<'a> {
     part: MeshPart,
     budget: &'a mut Budget,
+    cap_mat: MaterialClass,
+    wall_mat: MaterialClass,
 }
 impl Builder<'_> {
     fn vertex(&mut self, x: f64, y: f64, z: f64) -> u32 {
         self.part.positions.push([x, y, z]);
         u32::try_from(self.part.positions.len().saturating_sub(1)).unwrap_or(u32::MAX)
     }
-    fn tri(&mut self, a: u32, b: u32, c: u32) {
+    fn push_material(&mut self, mat: MaterialClass, authored: [f32; 3]) {
+        self.part.materials.push(mat);
+        self.part.authored_colors.push(authored);
+    }
+    fn tri(&mut self, a: u32, b: u32, c: u32, mat: MaterialClass) {
         self.part.indices.extend([a, b, c]);
+        self.push_material(mat, [0.0; 3]);
     }
     /// Extrude a counter-clockwise ring with optional holes from z0 to z1.
     /// Returns false when the shape could not be triangulated.
@@ -688,8 +698,8 @@ impl Builder<'_> {
         let top: Vec<u32> = verts.iter().map(|p| self.vertex(p.x, p.y, z1)).collect();
         let bottom: Vec<u32> = verts.iter().map(|p| self.vertex(p.x, p.y, z0)).collect();
         for t in &tris {
-            self.tri(top[t[0]], top[t[1]], top[t[2]]);
-            self.tri(bottom[t[0]], bottom[t[2]], bottom[t[1]]);
+            self.tri(top[t[0]], top[t[1]], top[t[2]], self.cap_mat);
+            self.tri(bottom[t[0]], bottom[t[2]], bottom[t[1]], self.cap_mat);
         }
         self.walls(outer, z0, z1);
         if cut {
@@ -708,9 +718,43 @@ impl Builder<'_> {
             let b0 = self.vertex(b.x, b.y, z0);
             let b1 = self.vertex(b.x, b.y, z1);
             let a1 = self.vertex(a.x, a.y, z1);
-            self.tri(a0, b0, b1);
-            self.tri(a0, b1, a1);
+            self.tri(a0, b0, b1, self.wall_mat);
+            self.tri(a0, b1, a1, self.wall_mat);
         }
+    }
+}
+
+fn board_part_materials(kind: PartKind, gold_finish: bool) -> (MaterialClass, MaterialClass) {
+    match kind {
+        PartKind::Board => (MaterialClass::Ceramic, MaterialClass::Ceramic),
+        PartKind::CopperTop | PartKind::CopperBottom => {
+            if gold_finish {
+                (MaterialClass::GoldContact, MaterialClass::GoldContact)
+            } else {
+                (MaterialClass::TinLead, MaterialClass::TinLead)
+            }
+        }
+        PartKind::MaskTop | PartKind::MaskBottom => {
+            (MaterialClass::MouldCompound, MaterialClass::MouldCompound)
+        }
+        PartKind::SilkTop | PartKind::SilkBottom => {
+            (MaterialClass::Marking, MaterialClass::Marking)
+        }
+        PartKind::Body => (MaterialClass::MouldCompound, MaterialClass::MouldCompound),
+    }
+}
+
+fn new_builder<'a>(
+    part: MeshPart,
+    budget: &'a mut Budget,
+    cap: MaterialClass,
+    wall: MaterialClass,
+) -> Builder<'a> {
+    Builder {
+        part,
+        budget,
+        cap_mat: cap,
+        wall_mat: wall,
     }
 }
 
@@ -974,10 +1018,16 @@ pub fn with_models(
                 part.family = Some("model".into());
                 part.color = m.color;
                 model.loaded = true;
+                loaded_ids.push(id);
                 notes.push((id, ModelStatus::Loaded));
             }
         }
     }
+    // A loaded model brings its own terminals and marks; drop the default ones.
+    mesh.parts.retain(|p| {
+        let detail = p.kind == PartKind::Lead || p.family.as_deref() == Some("mark");
+        !(detail && p.component.is_some_and(|c| loaded_ids.contains(&c)))
+    });
     notes
 }
 
@@ -1136,6 +1186,8 @@ pub fn board_mesh_with_dir(
 ) -> Result<BoardMesh, String> {
     p.validate()?;
     let thickness = p.board.thickness;
+    let finish = p.board.finish.to_ascii_uppercase();
+    let gold_finish = finish.contains("ENIG") || finish.contains("GOLD");
     let mut budget = Budget { triangles: 0 };
     let mut warnings = Warnings::default();
     let mut parts: Vec<MeshPart> = vec![];
@@ -1181,10 +1233,13 @@ pub fn board_mesh_with_dir(
     let slab_holes = drills;
 
     if layers.board {
-        let mut b = Builder {
-            part: MeshPart::new(PartKind::Board, "board".into()),
-            budget: &mut budget,
-        };
+        let (cap, wall) = board_part_materials(PartKind::Board, gold_finish);
+        let mut b = new_builder(
+            MeshPart::new(PartKind::Board, "board".into()),
+            &mut budget,
+            cap,
+            wall,
+        );
         if !b.prism(&outline, slab_holes.clone(), 0.0, thickness, &mut warnings)? {
             return Err("the board outline could not be triangulated".into());
         }
@@ -1199,10 +1254,13 @@ pub fn board_mesh_with_dir(
                 (-COPPER_THICKNESS, 0.0)
             };
             let side = if top { Layer::Front } else { Layer::Back };
-            let mut b = Builder {
-                part: MeshPart::new(kind, kind.name().into()),
-                budget: &mut budget,
-            };
+            let (cap, wall) = board_part_materials(kind, gold_finish);
+            let mut b = new_builder(
+                MeshPart::new(kind, kind.name().into()),
+                &mut budget,
+                cap,
+                wall,
+            );
             for fp in &p.board.footprints {
                 for pad in &fp.pads {
                     let (front, back, copper) = pad_sides(fp, pad);
@@ -1292,10 +1350,13 @@ pub fn board_mesh_with_dir(
             } else {
                 holes.extend(openings);
             }
-            let mut b = Builder {
-                part: MeshPart::new(kind, kind.name().into()),
-                budget: &mut budget,
-            };
+            let (cap, wall) = board_part_materials(kind, gold_finish);
+            let mut b = new_builder(
+                MeshPart::new(kind, kind.name().into()),
+                &mut budget,
+                cap,
+                wall,
+            );
             b.prism(&outline, holes, z0, z1, &mut warnings)?;
             parts.push(b.part);
         }
@@ -1385,10 +1446,13 @@ pub fn board_mesh_with_dir(
             } else {
                 (bottom_z0, bottom_z1)
             };
-            let mut b = Builder {
-                part: MeshPart::new(kind, kind.name().into()),
-                budget: &mut budget,
-            };
+            let (cap, wall) = board_part_materials(kind, gold_finish);
+            let mut b = new_builder(
+                MeshPart::new(kind, kind.name().into()),
+                &mut budget,
+                cap,
+                wall,
+            );
             for (a, c, w, on_top) in &strokes {
                 if *on_top == top
                     && let Some(ring) = stroke_ring(*a, *c, *w)
@@ -1512,9 +1576,54 @@ part.model = Some(ModelPlacement {
                         extrude(&ring, body.height, body.height + DECAL_RAISE)?;
                     }
                 }
-            }
-            if !b.part.indices.is_empty() {
-                parts.push(b.part);
+                if !leads.part.indices.is_empty() {
+                    extra.push(leads.part);
+                }
+                if !body.pins.is_empty() {
+                    let mut pins = Builder {
+                        part: MeshPart::new(PartKind::Lead, format!("{name} pins")),
+                        budget: &mut budget,
+                    };
+                    pins.part.component = Some(fp.component);
+                    pins.part.color = Some(PIN_GOLD);
+                    for pin in &body.pins {
+                        if let Some(ring) = clean_ring(&map_ring(fp, pin)) {
+                            pins.prism(
+                                &ring,
+                                vec![],
+                                thickness + body.height,
+                                thickness + body.height + POST_HEIGHT,
+                                &mut warnings,
+                            )?;
+                        }
+                    }
+                    if !pins.part.indices.is_empty() {
+                        extra.push(pins.part);
+                    }
+                }
+                if let Some((centre, radius)) = details.mark {
+                    let mut dot = Builder {
+                        part: MeshPart::new(PartKind::Body, format!("{name} mark")),
+                        budget: &mut budget,
+                    };
+                    dot.part.component = Some(fp.component);
+                    dot.part.family = Some("mark".into());
+                    dot.part.color = Some([0.62, 0.63, 0.65]);
+                    if let Some(ring) = clean_ring(&map_ring(fp, &circle_ring(centre, radius))) {
+                        dot.prism(
+                            &ring,
+                            vec![],
+                            thickness + body.height,
+                            thickness + body.height + MARK_THICKNESS,
+                            &mut warnings,
+                        )?;
+                    }
+                    if !dot.part.indices.is_empty() {
+                        extra.push(dot.part);
+                    }
+                }
+                parts.push(body_part);
+                parts.extend(extra);
             }
         }
     }
@@ -1972,6 +2081,20 @@ instance: None,
         );
         assert!(close(bhi[0] - blo[0], 1.95));
         assert!(mesh.parts.iter().all(|p| p.kind != PartKind::CopperBottom));
+        Ok(())
+    }
+
+    #[test]
+    fn every_triangle_has_a_material_id() -> Check {
+        let mesh = board_mesh(&resistor_project(), MeshLayers::default())?;
+        for part in &mesh.parts {
+            assert_eq!(
+                part.materials.len(),
+                part.triangle_count(),
+                "{}",
+                part.name
+            );
+        }
         Ok(())
     }
 

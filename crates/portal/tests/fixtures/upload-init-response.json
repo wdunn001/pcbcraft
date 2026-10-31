@@ -1,0 +1,11 @@
+{
+  "upload_id": "upl_01HZZZZZZZZZZZZZZZZZZZZZZZ",
+  "expires_at": 1730000000,
+  "parts": [
+    {
+      "part_number": 1,
+      "url": "https://example.test/upload/part/1",
+      "method": "PUT"
+    }
+  ]
+}

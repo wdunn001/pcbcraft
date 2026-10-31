@@ -54,6 +54,7 @@ covering_scope: None,
         covering_bottom: None,
         backdrill: None,
     });
+    });
     project.validate()?;
     let files = pcbcraft_io::gerber_files(&project)?;
     let front = &files["pcb-F.Cu.gbr"];

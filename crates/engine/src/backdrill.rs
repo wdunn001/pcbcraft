@@ -1,18 +1,5 @@
 //! Back-drill commands: set or clear the back-drill of one via, or the
 //! default of a net class.
-//!
-//! # Rules
-//! - `from` is `top` or `bottom`; omitting `from` clears the setting.
-//! - `must_not_cut` names a copper layer (for example `In2.Cu`, `L3`, `B.Cu`).
-//! - A via setting is checked against the via's own span before anything changes; a class default is checked for sizes and layer only, and applies to a member via only where it fits.
-//! - Changing a via span that would make its own back-drill invalid is refused in `via.set_span`.
-//!
-//! # Dependencies
-//! - `crates/doc/src/backdrill.rs` `BackDrill`, `Project::validate_backdrill`.
-//! - `crates/engine/src/lib.rs` `CommandSpec`, `schema`, `parse`, `id_schema`.
-//!
-//! # Do not
-//! - Mutate before validation has passed.
 use super::*;
 use pcbcraft_doc::{BackDrill, BackDrillFrom};
 

@@ -82,15 +82,6 @@ impl BackDrill {
 impl Project {
     /// The back-drill that applies to a via: its own, else its net class
     /// default when that default is valid for this via's span.
-    ///
-    /// # Rules
-    /// - A via's own setting wins and is returned as saved, even if the span later made it invalid; the rules crate reports that.
-    ///
-    /// # Dependencies
-    /// - crates/doc/src/lib.rs `NetClass::backdrill`, `Project::validate_backdrill`.
-    ///
-    /// # Do not
-    /// - Return a class default that does not fit the span.
     pub fn effective_backdrill(&self, via: &Via) -> Option<BackDrill> {
         if via.backdrill.is_some() {
             return via.backdrill;
@@ -106,16 +97,6 @@ impl Project {
     /// Check a back-drill against a via: the must-not-cut layer lies inside
     /// the via's span and has at least one span layer between it and the
     /// entry face, the via has a hole, and the diameter exceeds the hole.
-    ///
-    /// # Rules
-    /// - Sizes must be finite, positive (stub may be zero) and at most `BACKDRILL_MAX_MM`.
-    /// - From the top the must-not-cut layer is below the span's upper end; from the bottom it is above the span's lower end.
-    ///
-    /// # Dependencies
-    /// - crates/doc/src/lib.rs `Project::via_span`.
-    ///
-    /// # Do not
-    /// - Check the stub against the stackup here; that is a design rule finding.
     pub fn validate_backdrill(&self, via: &Via, spec: &BackDrill) -> Result<(), String> {
         spec.validate_sizes()?;
         if via.drill <= 0.0 {
@@ -158,14 +139,7 @@ impl Project {
             .collect()
     }
 
-    /// Span layers a via conducts on once its back-drill is taken out. Equal
-    /// to `via_span_layers` for a via with no back-drill.
-    ///
-    /// # Dependencies
-    /// - crates/doc/src/backdrill.rs `Project::effective_backdrill`.
-    ///
-    /// # Do not
-    /// - Use `via_span_layers` for connectivity; it still counts drilled-out layers.
+    /// Span layers a via conducts on once its back-drill is taken out.
     pub fn via_conducting_layers(&self, via: &Via) -> Vec<Layer> {
         let all = self.via_span_layers(via);
         let Some(spec) = self.effective_backdrill(via) else {
@@ -175,9 +149,7 @@ impl Project {
         all.into_iter().filter(|l| !gone.contains(l)).collect()
     }
 
-    /// The stub a back-drill leaves, in millimetres: the stackup distance
-    /// from the must-not-cut layer to the nearest drilled-out layer. None when
-    /// the spec does not fit the via or the stackup has no rows for it.
+    /// The stub a back-drill leaves, in millimetres.
     pub fn backdrill_stub(&self, via: &Via, spec: &BackDrill) -> Option<f64> {
         let gone = self.backdrilled_layers(via, spec);
         let nearest = match spec.from {

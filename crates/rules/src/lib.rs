@@ -14,6 +14,7 @@ mod courtyard;
 mod diffpair_impedance;
 mod decoupling;
 mod drill;
+mod finding_set;
 mod silk;
 mod stub;
 pub mod compliance;
@@ -22,6 +23,8 @@ pub use compliance::{
     check as compliance_check, load_list_snapshot, ComplianceFinding, EU_MARKET_RULE_SET,
     RESPONSIBLE_SOURCING_RULE_SET,
 };
+
+pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
@@ -1973,6 +1976,26 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                     hint: None,
                 });
             }
+        }
+        if project.rule_disabled("track_width_advice") {
+            continue;
+        }
+        if let Some(advice) = width_advice::width_advice_on_layer(project, track.net, track.layer)
+            && track.width + 1e-6 < advice.width_mm
+            && let Some(current) = project.effective_current(track.net)
+        {
+            result.push(Finding {
+                code: "track_width_advice",
+                severity: project.rule_severity("track_width_advice", "warning"),
+                message: format!(
+                    "{} track is {:.3} mm wide, {} advice asks at least {:.3} mm for {current:.2} A",
+                    project.net_name(track.net),
+                    track.width,
+                    advice.method,
+                    advice.width_mm,
+                ),
+                objects: vec![track.id],
+            });
         }
     }
     for wire in airwires_from(&items) {

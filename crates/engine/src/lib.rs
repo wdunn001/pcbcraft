@@ -18,7 +18,9 @@ mod gerber_export;
 mod images;
 pub mod design_document;
 pub mod library;
+mod registry;
 mod online;
+mod publication;
 mod outline;
 mod packages;
 pub mod profiles;
@@ -424,18 +426,50 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "component.set_sourcing",
-            "Set the typed sourcing facts of one part: manufacturer, manufacturer part number, description, lifecycle (active, nrnd, last_time_buy, obsolete, unknown), moisture sensitivity level 1 to 6, and RoHS, REACH and halogen-free flags. A key left out stays as it is; null (or an empty string) clears it. One undo step; the old free-form properties are not touched",
+"Set or clear typed sourcing fields on a component; keys left out stay unchanged and null clears a field. Set the typed sourcing facts of one part: manufacturer, manufacturer part number, description, lifecycle (active, nrnd, last_time_buy, obsolete, unknown), moisture sensitivity level 1 to 6, and RoHS, REACH and halogen-free flags. A key left out stays as it is; null (or an empty string) clears it. One undo step; the old free-form properties are not touched",
             schema(
-                json!({"id":id_schema(),"manufacturer":{"type":["string","null"],"maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"description":{"type":["string","null"],"maxLength":256},"lifecycle":{"type":["string","null"],"enum":["active","nrnd","last_time_buy","obsolete","unknown",null]},"moisture_level":{"type":["integer","null"],"minimum":1,"maximum":6},"rohs":{"type":["boolean","null"]},"reach":{"type":["boolean","null"]},"halogen_free":{"type":["boolean","null"]}}),
+                json!({
+                    "id": id_schema(),
+                    "manufacturer": {"type": ["string", "null"], "maxLength": 256},
+                    "mpn": {"type": ["string", "null"], "maxLength": 256},
+                    "description": {"type": ["string", "null"], "maxLength": 256},
+                    "lifecycle": {"type": ["string", "null"], "enum": ["active", "nrnd", "last_time_buy", "obsolete", "unknown", null]},
+                    "moisture_level": {"type": ["integer", "null"], "minimum": 1, "maximum": 6},
+                    "rohs": {"type": ["boolean", "null"]},
+                    "reach": {"type": ["boolean", "null"]},
+                    "halogen_free": {"type": ["boolean", "null"]},
+                    "packaging": {"type": ["string", "null"]},
+                    "alternates": {"type": ["array", "null"], "maxItems": 8},
+                    "datasheet_url": {"type": ["string", "null"]},
+                    "model3d_url": {"type": ["string", "null"]}
+                }),
+                &["id"],
+            ),
+        ),
                 &["id"],
             ),
         ),
         (
-            "component.set_supplier",
+"component.set_supplier",
             "Set one supplier's part number on a part (and an optional link to its page), replacing the entry of the same supplier name (ignoring case) or adding one; a null part_number removes that supplier. A part lists at most 16 suppliers, one number each",
             schema(
                 json!({"id":id_schema(),"supplier":{"type":"string","minLength":1,"maxLength":256},"part_number":{"type":["string","null"],"maxLength":256},"url":{"type":["string","null"],"maxLength":512}}),
                 &["id", "supplier"],
+            ),
+        ),
+        (
+            "component.apply_listing",
+            "Copy matching fields from a part listing into typed sourcing; skips values already set unless overwrite is true",
+            schema(
+                json!({
+                    "id": id_schema(),
+                    "listing": {"type": "object"},
+                    "overwrite": {"type": "boolean"}
+                }),
+                &["id", "listing"],
+            ),
+        ),
+        (
             ),
         ),
         (
@@ -741,6 +775,32 @@ pub fn commands() -> Vec<CommandSpec> {
                 json!({"path":{"type":"string","minLength":1,"maxLength":1024},"use_outline":{"type":"boolean"}}),
                 &["path"],
             ),
+        ),
+        (
+            "enclosure.import",
+            "Import an enclosure STEP file for its bounding box and named datums, optionally with a glTF or OBJ mesh path for the picture; one undo step",
+            schema(
+                json!({"path":{"type":"string","minLength":1,"maxLength":1024},"mesh_path":{"type":"string","minLength":1,"maxLength":1024},"transform":{"type":"array","minItems":16,"maxItems":16,"items":{"type":"number"}}}),
+                &["path"],
+            ),
+        ),
+        (
+            "enclosure.remove",
+            "Remove the imported enclosure and the datums it created",
+            schema(json!({}), &[]),
+        ),
+        (
+            "enclosure.set_transform",
+            "Set the row-major 4x4 transform applied to the enclosure body in millimetres",
+            schema(
+                json!({"transform":{"type":"array","minItems":16,"maxItems":16,"items":{"type":"number"}}}),
+                &["transform"],
+            ),
+        ),
+        (
+            "enclosure.show",
+            "Read the enclosure reference record and any scan notice from the last import",
+            schema(json!({}), &[]),
         ),
         (
             "svg.import",
@@ -1629,6 +1689,21 @@ schema(
             ),
         ),
         (
+            "track.round_corners",
+            "Replace sharp corners between joined same-net straight tracks with circular arcs or short chord segments; optional selection, layer and net filters",
+            schema(
+                json!({
+                    "ids":{"type":"array","items":id_schema(),"maxItems":512,"description":"only corners where both tracks are listed; omit for the whole board"},
+                    "radius":{"type":"number","minimum":0,"description":"fillet radius in millimetres; zero uses three times the track width"},
+                    "layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},
+                    "net":id_schema(),
+                    "style":{"type":"string","enum":["arc","segments"],"description":"arc keeps one curved track; segments replaces the arc with straight chords within tolerance"},
+                    "tolerance":{"type":"number","exclusiveMinimum":0,"description":"maximum chord error for segments style, millimetres; default 0.02"}
+                }),
+                &[],
+            ),
+        ),
+        (
             "track.set_width",
             "Change the width of an existing track segment",
             schema(
@@ -2025,6 +2100,22 @@ schema(
             schema(json!({"net":id_schema()}), &["net"]),
         ),
         (
+            "help.glossary",
+            "Search the electronics glossary and engine command list; read only and does not edit the design",
+            schema(
+                json!({"query":{"type":"string","minLength":1,"maxLength":128},"limit":{"type":"integer","minimum":1,"maximum":100,"default":20}}),
+                &["query"],
+            ),
+        ),
+        (
+            "help.term",
+            "Return one glossary entry by id; read only and does not edit the design",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id"],
+            ),
+        ),
+        (
             "board.bounds",
             "Report the bounding box in millimetres of the board outline and of placed objects, overall and per copper side, from object anchors, pad and via extents and zone outlines",
             schema(json!({}), &[]),
@@ -2281,6 +2372,27 @@ json!({"code":{"type":"string","description":"check code: unassigned_pin, single
                     "dry_run":{"type":"boolean","default":false}
                 }),
                 &[],
+            ),
+        ),
+        (
+            "plugins.list",
+            "List data-only plugins under a local root folder (manifest scan, no network)",
+            schema(
+                json!({"root":{"type":"string","minLength":1,"maxLength":4096,"description":"directory containing one folder per plugin"}}),
+                &["root"],
+            ),
+        ),
+        (
+            "plugins.export",
+            "Render a plugin pin-map export template from the current design; optional directory writes the file without editing the project",
+            schema(
+                json!({
+                    "root":{"type":"string","minLength":1,"maxLength":4096},
+                    "plugin_id":{"type":"string","minLength":1,"maxLength":64},
+                    "template_id":{"type":"string","minLength":1,"maxLength":64},
+                    "directory":{"type":"string","minLength":1,"maxLength":4096,"description":"when set, write the export file here"}
+                }),
+                &["root", "plugin_id", "template_id"],
             ),
         ),
         (
@@ -2745,6 +2857,7 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
         .chain(authoring::commands())
         .chain(online::commands())
         .chain(images::commands())
+        .chain(packages::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
         .chain(sim::commands())
@@ -2843,17 +2956,25 @@ impl Session {
         if commands.is_empty() || commands.len() > 128 {
             return Err(Error::Invalid("batch must contain 1–128 commands".into()));
         }
-        if commands
-            .iter()
-            .all(|c| c.command == "cam.isolation" || snapmaker::handles(&c.command))
-        {
+        if commands.iter().all(|c| {
+            c.command == "cam.isolation"
+                || snapmaker::handles(&c.command)
+                || publication::handles(&c.command)
+        }) {
             let mut results = vec![];
             for command in commands {
-                results.push(run_read_only(
-                    &self.project,
-                    &command.command,
-                    &command.params,
-                )?);
+                if publication::handles(&command.command) {
+                    results.push(
+                        publication::run(&self.project, &command.params)
+                            .map_err(Error::Invalid)?,
+                    );
+                } else {
+                    results.push(run_read_only(
+                        &self.project,
+                        &command.command,
+                        &command.params,
+                    )?);
+                }
             }
             return Ok(json!({"revision":self.revision,"results":results}));
         }
@@ -3079,6 +3200,159 @@ impl Session {
 /// - serde errors become `Error::Invalid` with the serializer message.
 fn parse<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, Error> {
     serde_json::from_value(v.clone()).map_err(|e| Error::Invalid(e.to_string()))
+}
+
+fn help_query_tokens(query: &str) -> Vec<String> {
+    query
+        .split_whitespace()
+        .filter(|t| !t.is_empty())
+        .map(|t| t.to_ascii_lowercase())
+        .collect()
+}
+
+fn help_all_tokens_in(haystack: &str, toks: &[String]) -> bool {
+    let h = haystack.to_ascii_lowercase();
+    toks.iter().all(|t| h.contains(t.as_str()))
+}
+
+fn help_rank_command(query: &str, spec: &CommandSpec) -> Option<(&'static str, u8)> {
+    let q = query.trim();
+    if q.is_empty() {
+        return None;
+    }
+    let ql = q.to_ascii_lowercase();
+    let idl = spec.id.to_ascii_lowercase();
+    if idl == ql {
+        return Some(("id", 0));
+    }
+    if idl.starts_with(ql.as_str()) {
+        return Some(("id", 2));
+    }
+    let toks = help_query_tokens(q);
+    if toks.is_empty() {
+        return None;
+    }
+    if help_all_tokens_in(spec.id, &toks) {
+        return Some(("id", 4));
+    }
+    if help_all_tokens_in(spec.description, &toks) {
+        return Some(("description", 5));
+    }
+    None
+}
+
+fn help_command_description<'a>(specs: &'a [CommandSpec], id: &str) -> &'a str {
+    specs
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| s.description)
+        .unwrap_or("")
+}
+
+fn help_glossary_json(query: &str, limit: usize) -> Value {
+    let specs = commands();
+    let mut rows: Vec<(u8, Value)> = Vec::new();
+    for hit in pcbcraft_calc::search_glossary(query, limit) {
+        let t = hit.term;
+        let calc = if t.calculator.is_empty() {
+            Value::Null
+        } else {
+            json!(t.calculator)
+        };
+        rows.push((
+            hit.rank,
+            json!({
+                "kind": "term",
+                "id": t.id,
+                "term": t.term,
+                "short": t.short,
+                "category": t.category,
+                "in_pcbcraft": t.in_pcbcraft,
+                "calculator": calc,
+                "matched_field": hit.matched_field,
+            }),
+        ));
+        for cmd in t.in_pcbcraft {
+            rows.push((
+                hit.rank.saturating_add(8),
+                json!({
+                    "kind": "command",
+                    "id": cmd,
+                    "term": cmd,
+                    "short": help_command_description(&specs, cmd),
+                    "category": Value::Null,
+                    "in_pcbcraft": [],
+                    "calculator": Value::Null,
+                    "matched_field": "in_pcbcraft",
+                }),
+            ));
+        }
+    }
+    for spec in &specs {
+        if let Some((field, rank)) = help_rank_command(query, spec) {
+            rows.push((
+                rank,
+                json!({
+                    "kind": "command",
+                    "id": spec.id,
+                    "term": spec.id,
+                    "short": spec.description,
+                    "category": Value::Null,
+                    "in_pcbcraft": [],
+                    "calculator": Value::Null,
+                    "matched_field": field,
+                }),
+            ));
+        }
+    }
+    rows.sort_by(|a, b| {
+        a.0.cmp(&b.0).then_with(|| {
+            a.1["id"]
+                .as_str()
+                .unwrap_or("")
+                .cmp(b.1["id"].as_str().unwrap_or(""))
+        })
+    });
+    let mut seen = BTreeSet::new();
+    let mut hits: Vec<Value> = Vec::new();
+    for (_, row) in rows {
+        let kind = row["kind"].as_str().unwrap_or("");
+        let id = row["id"].as_str().unwrap_or("");
+        let key = format!("{kind}:{id}");
+        if !seen.insert(key) {
+            continue;
+        }
+        hits.push(row);
+        if hits.len() >= limit {
+            break;
+        }
+    }
+    json!({"hits": hits, "count": hits.len()})
+}
+
+fn help_term_json(id: &str) -> Result<Value, Error> {
+    let Some(t) = pcbcraft_calc::term_by_id(id) else {
+        return Err(Error::Invalid(format!("unknown glossary id {id}")));
+    };
+    let calc = if t.calculator.is_empty() {
+        Value::Null
+    } else {
+        json!(t.calculator)
+    };
+    Ok(json!({
+        "id": t.id,
+        "term": t.term,
+        "category": t.category,
+        "short": t.short,
+        "long": t.long,
+        "synonyms": t.synonyms,
+        "related": t.related,
+        "units": t.units,
+        "in_pcbcraft": t.in_pcbcraft,
+        "search": t.search,
+        "calculator": calc,
+        "source": t.source,
+    }))
 }
 
 const MAX_MACHINE_PROFILE_JSON_BYTES: usize = 65536;
@@ -4615,6 +4889,20 @@ struct DxfImportParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct EnclosureImportParams {
+    path: String,
+    #[serde(default)]
+    mesh_path: Option<String>,
+    #[serde(default)]
+    transform: Option<[f64; 16]>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EnclosureTransformParams {
+    transform: [f64; 16],
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SvgImportParams {
     path: String,
     #[serde(default)]
@@ -5380,6 +5668,21 @@ struct NetMembersParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct HelpGlossaryParams {
+    query: String,
+    #[serde(default = "default_help_glossary_limit")]
+    limit: u32,
+}
+fn default_help_glossary_limit() -> u32 {
+    20
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HelpTermParams {
+    id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NetLengthsParams {
     #[serde(default)]
     net: Option<Id>,
@@ -5846,6 +6149,7 @@ pub fn compliance_report_write(p: &Project, params: &Value) -> Result<Value, Err
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs (`Component::in_bom`).
+/// - crates/io/src/bom_sheet.rs (row collection and generic CSV text).
 ///
 /// # Do not
 /// - Print the bill from anywhere else; `pcbcraft_io::bom_csv` is the file writer.
@@ -5869,14 +6173,11 @@ pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
     } else {
         a.fields.clone()
     };
-    let variant = match a.variant.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(name) => Some(
-            p.variants
-                .iter()
-                .find(|v| v.name == name)
-                .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
-        ),
+    let sheet = pcbcraft_io::BomSheetParams {
+        fields: keys.clone(),
+        variant: a.variant.clone(),
+        ids: a.ids.clone(),
+        group: a.group,
     };
     if a.ids.len() > 4096 {
         return Err(Error::Invalid(
@@ -5925,24 +6226,30 @@ let values: Vec<String> = keys
             references.sort();
             let columns = keys.clone();
             let mut fields = serde_json::Map::new();
-            for (key, value) in columns.into_iter().zip(values) {
-                fields.insert(key, json!(value));
+            for (key, value) in keys.iter().zip(&row.property_values) {
+                fields.insert(key.clone(), json!(value));
             }
             json!({
-                "quantity": references.len(),
-                "references": references,
-                "value": value,
-                "kind": kind,
-                "footprint": footprint,
+                "quantity": row.references.len(),
+                "references": row.references.clone(),
+                "value": row.value,
+                "kind": row.kind,
+                "footprint": row.footprint,
                 "fields": Value::Object(fields),
             })
         })
         .collect();
+    let csv = pcbcraft_io::bom_sheet_generic_csv(p, &rows, &keys);
+    let variant = match a.variant.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(name) => Some(name.to_owned()),
+    };
     Ok(json!({
         "items": items,
         "groups": items.len(),
         "components": populated,
-        "variant": variant.map(|v| v.name.clone()),
+        "variant": variant,
+        "csv": csv,
     }))
 }
 /// Set or clear one named custom field on a component.
@@ -6022,6 +6329,49 @@ struct FieldParams {
     key: String,
     #[serde(default)]
     value: Option<String>,
+}
+/// Reads a key that may be absent (leave alone), null (clear) or a value (set).
+fn present<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourcingParams {
+    id: Id,
+    #[serde(default, deserialize_with = "present")]
+    manufacturer: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    mpn: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    lifecycle: Option<Option<pcbcraft_library::listing::Lifecycle>>,
+    #[serde(default, deserialize_with = "present")]
+    moisture_level: Option<Option<u8>>,
+    #[serde(default, deserialize_with = "present")]
+    rohs: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    reach: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    halogen_free: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    packaging: Option<Option<pcbcraft_library::listing::Packaging>>,
+    #[serde(default, deserialize_with = "present")]
+    alternates: Option<Option<Vec<PartAlternate>>>,
+    #[serde(default, deserialize_with = "present")]
+    datasheet_url: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    model3d_url: Option<Option<String>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApplyListingParams {
+    id: Id,
+    listing: pcbcraft_library::listing::PartListing,
+    #[serde(default)]
+    overwrite: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8715,6 +9065,18 @@ if let Some(result) = via_protection::run(p, command, params) {
         "project.rename" => {
             let a: Name = parse(params)?;
             p.name = a.name;
+        return result;
+    }
+    if let Some(result) = images::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = outline::run(p, next, command, params) {
+        return result;
+    }
+    match command {
+        "project.rename" => {
+            let a: Name = parse(params)?;
+            p.name = a.name;
             Ok(json!({"name":p.name}))
         }
         "project.replace" => {
@@ -9675,9 +10037,35 @@ if let Some(result) = via_protection::run(p, command, params) {
             };
             text(&mut next.manufacturer, a.manufacturer);
             text(&mut next.mpn, a.mpn);
+text(&mut next.manufacturer, a.manufacturer);
+            text(&mut next.mpn, a.mpn);
             text(&mut next.description, a.description);
             if let Some(v) = a.lifecycle {
                 next.lifecycle = v;
+            }
+            if let Some(v) = a.moisture_level {
+                next.moisture_level = v;
+            }
+            if let Some(v) = a.rohs {
+                next.rohs = v;
+            }
+            if let Some(v) = a.reach {
+                next.reach = v;
+            }
+            if let Some(v) = a.halogen_free {
+                next.halogen_free = v;
+            }
+if let Some(v) = a.packaging {
+                next.packaging = v;
+            }
+            if let Some(v) = a.alternates {
+                next.alternates = v.unwrap_or_default();
+            }
+            if let Some(v) = a.datasheet_url {
+                next.datasheet_url = v.filter(|u| !u.trim().is_empty());
+            }
+            if let Some(v) = a.model3d_url {
+                next.model3d_url = v.filter(|u| !u.trim().is_empty());
             }
             if let Some(v) = a.moisture_level {
                 next.moisture_level = v;
@@ -9730,6 +10118,7 @@ if let Some(result) = via_protection::run(p, command, params) {
                 .map_err(Error::Invalid)?;
             component.sourcing = next;
             Ok(json!({"id": a.id, "suppliers": component.sourcing.suppliers}))
+        }
         }
         "part.attach_source" => {
             let a: AttachSourceParams = parse(params)?;
@@ -10307,6 +10696,7 @@ if let Some(result) = via_protection::run(p, command, params) {
                 target_length: None,
                 length_tolerance: None,
                 max_stub: None,
+                min_radius: None,
                 via_diameter: None,
                 via_drill: None,
                 pair_width: None,
@@ -11271,6 +11661,104 @@ if let Some(result) = via_protection::run(p, command, params) {
             Ok(json!({
                 "graphics": added,
                 "outline": p.board.outline.as_ref().map(|o| o.len()),
+            }))
+        }
+        "enclosure.import" => {
+            let a: EnclosureImportParams = parse(params)?;
+            if a.path.is_empty() || a.path.len() > 1024 {
+                return Err(Error::Invalid(
+                    "the enclosure path must be 1 to 1024 bytes".into(),
+                ));
+            }
+            if let Some(mesh) = &a.mesh_path {
+                if mesh.is_empty() || mesh.len() > 1024 || !mesh_path_allowed(mesh) {
+                    return Err(Error::Invalid(
+                        "the mesh path must end with .gltf, .glb or .obj".into(),
+                    ));
+                }
+            }
+            let transform = parse_enclosure_transform(a.transform)?;
+            let bytes = std::fs::read(&a.path).map_err(|e| Error::Invalid(e.to_string()))?;
+            let scan =
+                pcbcraft_io::read_enclosure_step(&bytes).map_err(Error::Invalid)?;
+            clear_enclosure_import(p);
+            let mut linked_datums = Vec::new();
+            for datum in &scan.datums {
+                if p.board.datums.len() >= pcbcraft_doc::Datum::MAX {
+                    return Err(Error::Invalid("a board carries at most 64 datums".into()));
+                }
+                check_datum_name(p, &datum.name, None)?;
+                let world = pcbcraft_io::apply_matrix(&transform, datum.position);
+                let position = Point::new(world[0], world[1]);
+                check_datum_position(p, position)?;
+                let id = allocate(next)?;
+                p.board.datums.push(pcbcraft_doc::Datum {
+                    id,
+                    name: datum.name.clone(),
+                    position,
+                    hole: None,
+                });
+                linked_datums.push(id);
+            }
+            let bounds = pcbcraft_doc::EnclosureBounds {
+                min: scan.bounds.min,
+                max: scan.bounds.max,
+            };
+            let notice = scan.notice.clone();
+            p.board.enclosure = Some(pcbcraft_doc::EnclosureRef {
+                path: a.path,
+                transform,
+                source_format: pcbcraft_doc::EnclosureSourceFormat::Step,
+                bounds,
+                mesh_path: a.mesh_path,
+                linked_datums,
+                notice,
+            });
+            p.validate().map_err(Error::Invalid)?;
+            Ok(json!({
+                "bounds": scan.bounds,
+                "datums": scan.datums.len(),
+                "planar_faces": scan.planar_faces.len(),
+                "hidden_face_count": scan.hidden_face_count,
+                "notice": scan.notice,
+            }))
+        }
+        "enclosure.remove" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "enclosure.remove takes an empty object".into(),
+                ));
+            }
+            if p.board.enclosure.is_none() {
+                return Err(Error::Invalid("there is no enclosure to remove".into()));
+            }
+            clear_enclosure_import(p);
+            Ok(json!({"removed": true}))
+        }
+        "enclosure.set_transform" => {
+            let a: EnclosureTransformParams = parse(params)?;
+            let transform = parse_enclosure_transform(Some(a.transform))?;
+            let enclosure = p
+                .board
+                .enclosure
+                .as_mut()
+                .ok_or_else(|| Error::Invalid("there is no enclosure to move".into()))?;
+            enclosure.transform = transform;
+            p.validate().map_err(Error::Invalid)?;
+            Ok(json!({"transform": transform}))
+        }
+        "enclosure.show" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "enclosure.show takes an empty object".into(),
+                ));
+            }
+            let Some(enclosure) = &p.board.enclosure else {
+                return Ok(json!({"enclosure": null}));
+            };
+            Ok(json!({
+                "enclosure": enclosure,
+                "notice": enclosure.notice,
             }))
         }
         "svg.import" => {
@@ -14515,12 +15003,6 @@ if let Some(result) = via_protection::run(p, command, params) {
                     ))
                 })?;
             }
-            let via = p
-                .board
-                .vias
-                .iter_mut()
-                .find(|v| v.id == a.id)
-                .ok_or_else(missing)?;
             via.from_layer = from_layer;
             via.to_layer = to_layer;
             let via = via.clone();
@@ -16146,6 +16628,27 @@ if let Some(result) = via_protection::run(p, command, params) {
             p.board.copper_layer_roles.clear();
             Ok(json!({"removed": removed}))
         }
+        "help.glossary" => {
+            let a: HelpGlossaryParams = parse(params)?;
+            let q = a.query.trim();
+            if q.is_empty() || q.len() > 128 {
+                return Err(Error::Invalid(
+                    "query must be 1 to 128 non whitespace characters".into(),
+                ));
+            }
+            if !(1..=100).contains(&a.limit) {
+                return Err(Error::Invalid("limit must be 1 to 100".into()));
+            }
+            Ok(help_glossary_json(q, a.limit as usize))
+        }
+        "help.term" => {
+            let a: HelpTermParams = parse(params)?;
+            let id = a.id.trim();
+            if id.is_empty() || id.len() > 64 {
+                return Err(Error::Invalid("id must be 1 to 64 bytes".into()));
+            }
+            help_term_json(id)
+        }
         "net.members" => {
             let a: NetMembersParams = parse(params)?;
             let members = p.net_members(a.net).ok_or_else(missing)?;
@@ -16821,6 +17324,8 @@ if let Some(result) = via_protection::run(p, command, params) {
         "rules.profile_list" => Ok(profiles::profile_list()),
         "rules.profile_read" => profiles::profile_read(p, params).map_err(Error::Invalid),
         "rules.profile_apply" => profiles::profile_apply(p, next, params).map_err(Error::Invalid),
+        "plugins.list" => plugins::plugins_list(params).map_err(Error::Invalid),
+        "plugins.export" => plugins::plugins_export(p, params).map_err(Error::Invalid),
         "board.layer_add" => {
             let a: LayerAddParams = parse(params)?;
             if a.name.trim().is_empty() || a.name.len() > 64 {
@@ -18993,6 +19498,7 @@ if let Some(result) = via_protection::run(p, command, params) {
             });
             Ok(json!({"id": id, "a": a.a, "b": a.b}))
         }
+        "track.round_corners" => track_round::run(p, next, parse(params)?),
         "track.move" => {
             let a: DeltaParams = parse(params)?;
             let track = p
@@ -21665,6 +22171,277 @@ mod tests {
                 .ok_or_else(missing)?
                 .end,
             Point::new(10.0, 10.0)
+        );
+        Ok(())
+    }
+    #[test]
+    fn rounding_a_right_angle_corner_makes_a_quarter_arc() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":20.0},"width":0.2}),
+            None,
+        )?;
+        let out = s.execute(
+            "track.round_corners",
+            json!({"radius":2.0,"style":"arc"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["rounded"], 1);
+        let arc_track = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.arc.is_some())
+            .ok_or_else(missing)?;
+        let arc = pcbcraft_geom::arc_through(
+            arc_track.start,
+            arc_track.arc.ok_or_else(missing)?,
+            arc_track.end,
+        )
+        .ok_or_else(missing)?;
+        assert!((arc.radius - 2.0).abs() < 1e-9);
+        assert!(
+            (arc.sweep.abs() - std::f64::consts::FRAC_PI_2).abs() < 1e-9,
+            "sweep {}",
+            arc.sweep
+        );
+        Ok(())
+    }
+    #[test]
+    fn short_legs_cap_the_rounding_radius() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":9.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":11.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.round_corners",
+            json!({"radius":2.0,"style":"arc"}),
+            None,
+        )?;
+        let arc_track = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.arc.is_some())
+            .ok_or_else(missing)?;
+        let arc = pcbcraft_geom::arc_through(
+            arc_track.start,
+            arc_track.arc.ok_or_else(missing)?,
+            arc_track.end,
+        )
+        .ok_or_else(missing)?;
+        assert!((arc.radius - 0.5).abs() < 1e-9);
+        Ok(())
+    }
+    #[test]
+    fn parallel_traces_keep_their_gap_after_rounding() -> Result<(), Error> {
+        let mut s = Session::default();
+        let n1 = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let n2 = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let gap = 2.0;
+        for (net, y) in [(n1, 0.0), (n2, gap)] {
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":0.0,"y":y},"end":{"x":10.0,"y":y},"width":0.2}),
+                None,
+            )?;
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":10.0,"y":10.0},"width":0.2}),
+                None,
+            )?;
+        }
+        s.execute(
+            "track.round_corners",
+            json!({"radius":1.0,"style":"arc"}),
+            None,
+        )?;
+        let tracks: Vec<_> = s.project.board.tracks.iter().collect();
+        let mut min_gap = f64::INFINITY;
+        for a in tracks.iter().filter(|t| t.net == n1) {
+            for b in tracks.iter().filter(|t| t.net == n2 && t.layer == a.layer && t.id != a.id) {
+                min_gap = min_gap.min(pcbcraft_geom::segment_distance(
+                    a.start, a.end, b.start, b.end,
+                ));
+            }
+        }
+        assert!(
+            min_gap + 1e-6 >= gap - 0.2,
+            "centre gap should stay near {gap}, got {min_gap}"
+        );
+        Ok(())
+    }
+    #[test]
+    fn rounded_tracks_round_trip_through_gerber_with_g75_arcs() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":20.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.round_corners",
+            json!({"radius":2.0,"style":"arc"}),
+            None,
+        )?;
+        let copper = pcbcraft_io::gerber_files(&s.project).map_err(Error::Invalid)?;
+        let front = &copper["pcb-F.Cu.gbr"];
+        assert!(
+            front.contains("G75*"),
+            "curved copper must enable multi-quadrant arcs"
+        );
+        assert!(
+            front.contains("G02*") || front.contains("G03*"),
+            "curved copper must draw an arc command"
+        );
+        Ok(())
+    }
+    #[test]
+    fn rounding_every_corner_of_a_board_in_one_command() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":0.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        let before = s.project.board.tracks.len();
+        let out = s.execute("track.round_corners", json!({"radius":1.0}), None)?["result"].clone();
+        assert_eq!(out["rounded"], 2);
+        assert_eq!(s.project.board.tracks.len(), before + 2);
+        assert_eq!(
+            s.project.board.tracks.iter().filter(|t| t.arc.is_some()).count(),
+            2
+        );
+        Ok(())
+    }
+    #[test]
+    fn segment_style_rounding_writes_chords_not_one_arc() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":20.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.round_corners",
+            json!({"radius":2.0,"style":"segments","tolerance":0.05}),
+            None,
+        )?;
+        assert!(
+            s.project.board.tracks.iter().all(|t| t.arc.is_none()),
+            "segments style must leave straight tracks only"
+        );
+        assert!(
+            s.project.board.tracks.len() > 3,
+            "the fillet should add more than one chord"
+        );
+        Ok(())
+    }
+    #[test]
+    fn undoing_round_corners_restores_sharp_corners_in_one_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        let b = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":20.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let corner = Point::new(10.0, 10.0);
+        let undo_before = s.inspect()["history"]["undo"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.round_corners",
+            json!({"radius":2.0,"style":"arc"}),
+            None,
+        )?;
+        assert_eq!(
+            s.inspect()["history"]["undo"]
+                .as_u64()
+                .ok_or_else(missing)?,
+            undo_before + 1
+        );
+        assert!(
+            s.project.board.tracks.iter().any(|t| t.arc.is_some()),
+            "rounding should add an arc"
+        );
+        s.undo()?;
+        let end = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.id == b)
+            .ok_or_else(missing)?
+            .start;
+        assert_eq!(end, corner);
+        assert!(
+            s.project.board.tracks.iter().all(|t| t.arc.is_none()),
+            "undo should remove fillet arcs"
         );
         Ok(())
     }
@@ -25326,6 +26103,29 @@ mod tests {
         assert_eq!(full, s.board_mesh(None, true)?, "output is deterministic");
         Ok(())
     }
+
+    #[test]
+    fn publication_scan_is_read_only_and_blocks_secrets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let before = s.project.clone();
+        let rev = s.revision;
+        let out = s.execute(
+            "publication.scan",
+            json!({
+                "design_licence":"MIT",
+                "files":[{"path":"notes.txt","text":"token sk-test-abc\n"}]
+            }),
+            None,
+        )?;
+        assert_eq!(s.project, before);
+        assert_eq!(s.revision, rev);
+        assert_eq!(out["result"]["ok_to_upload"], false);
+        assert!(out["result"]["hard_fails"]
+            .as_array()
+            .is_some_and(|a| !a.is_empty()));
+        Ok(())
+    }
+
     #[test]
     fn legacy_inch_model_offset_exports_as_millimetres() -> Result<(), Error> {
         let mut s = Session::default();
@@ -25411,6 +26211,20 @@ mod tests {
             "an absent scale is unit"
         );
         assert_eq!(m["rotate"][2], 90.0);
+        s.execute(
+            "library.footprint.set_model",
+            json!({"name":"R_0805_2012Metric","path":"parts/housing.solidcraft","cad_part":"Body"}),
+            None,
+        )?;
+        let solid = s.inspect()["project"]["library"]["footprints"][0]["model"].clone();
+        assert_eq!(solid["path"], "parts/housing.solidcraft");
+        assert_eq!(solid["cad_part"], "Body");
+        assert!(
+            solid["raw_source"]
+                .as_str()
+                .is_some_and(|s| s.contains("(cad_part \"Body\")")),
+            "cad_part is stored in the footprint model source"
+        );
         let board_now = pcbcraft_io::kicad_board(&s.project)?;
         assert!(
             board_now.contains("R_0805_2012Metric.step"),
@@ -26344,6 +27158,13 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         let grouped = s.execute("bom.export", json!({}), None)?["result"].clone();
         assert_eq!(grouped["groups"], 1, "identical parts share a row");
         assert_eq!(grouped["items"][0]["quantity"], 3);
+        assert!(
+            grouped["csv"].as_str().is_some_and(|csv| {
+                csv.starts_with("Reference,Value,Footprint,MPN,Manufacturer,Quantity")
+                    && csv.contains("R1, R2, R3")
+            }),
+            "the export carries generic CSV matching the dialog"
+        );
         let apart = s.execute("bom.export", json!({"group": false}), None)?["result"].clone();
         assert_eq!(apart["groups"], 3, "ungrouped lists each part");
         let some =
@@ -40149,6 +40970,69 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         assert!(b > a);
         Ok(())
     }
+
+    fn enclosure_fixture_with_datum() -> Result<std::path::PathBuf, Error> {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../io/tests/fixtures/box.step");
+        let mut text =
+            std::fs::read_to_string(&src).map_err(|e| Error::Invalid(e.to_string()))?;
+        let insert = "#200=CARTESIAN_POINT('Mount_A',(5.0,5.0,0.0));\n";
+        if let Some(index) = text.find("ENDSEC;") {
+            text.insert_str(index, insert);
+        } else {
+            text.push_str(insert);
+        }
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-enclosure-import-{}.step",
+            std::process::id()
+        ));
+        std::fs::write(&path, text).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(path)
+    }
+
+    #[test]
+    fn enclosure_import_is_one_undo_step() -> Result<(), Error> {
+        let path = enclosure_fixture_with_datum()?;
+        let mut s = Session::default();
+        s.execute("enclosure.import", json!({"path": path.to_string_lossy()}), None)?;
+        assert!(s.project.board.enclosure.is_some());
+        assert_eq!(s.project.board.datums.len(), 1);
+        s.undo()?;
+        assert!(s.project.board.enclosure.is_none());
+        assert!(s.project.board.datums.is_empty());
+        let _ = std::fs::remove_file(path);
+        Ok(())
+    }
+
+    #[test]
+    fn enclosure_import_refuses_a_bad_transform() -> Result<(), Error> {
+        let path = enclosure_fixture_with_datum()?;
+        let mut s = Session::default();
+        let bad = json!({
+            "path": path.to_string_lossy(),
+            "transform": [1.0, f64::NAN, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        });
+        assert!(s.execute("enclosure.import", bad, None).is_err());
+        assert!(s.project.board.enclosure.is_none());
+        let _ = std::fs::remove_file(path);
+        Ok(())
+    }
+
+    #[test]
+    fn enclosure_record_round_trips_through_save() -> Result<(), Error> {
+        let path = enclosure_fixture_with_datum()?;
+        let mut s = Session::default();
+        s.execute("enclosure.import", json!({"path": path.to_string_lossy()}), None)?;
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let project: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        project.validate().map_err(Error::Invalid)?;
+        assert!(project.board.enclosure.is_some());
+        assert_eq!(project.board.datums.len(), 1);
+        let _ = std::fs::remove_file(path);
+        Ok(())
+    }
+
     #[test]
     fn datums_write_into_the_mechanical_outputs_of_a_job() -> Result<(), Error> {
         let mut s = Session::sample()?;
@@ -40360,5 +41244,75 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
                 .is_some_and(|v| v > 0.0)
         );
         Ok(())
+    }
+
+    #[test]
+    fn help_glossary_thicker_track_includes_track_width_and_set_width_command() -> Result<(), Error> {
+        let s = Session::default();
+        let rev = s.revision;
+        let nets_before = s.project.nets.len();
+        let out = s.execute(
+            "help.glossary",
+            json!({"query": "thicker track", "limit": 40}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(s.revision, rev + 1);
+        assert_eq!(s.project.nets.len(), nets_before);
+        let hits = out["hits"]
+            .as_array()
+            .ok_or_else(|| Error::Invalid("hits".into()))?;
+        let ids: Vec<&str> = hits
+            .iter()
+            .filter_map(|h| h["id"].as_str())
+            .collect();
+        assert!(ids.iter().any(|id| *id == "track_width"));
+        assert!(ids.iter().any(|id| *id == "track.set_width"));
+        Ok(())
+    }
+
+    #[test]
+    fn help_term_unknown_id_returns_error() {
+        let mut s = Session::default();
+        let err = s.execute("help.term", json!({"id": "not_a_real_term_id"}), None);
+        assert!(err.as_ref().is_err_and(|e| {
+            format!("{e}").contains("not_a_real_term_id")
+        }));
+    }
+
+    #[test]
+    fn help_glossary_rejects_limit_out_of_range() {
+        let mut s = Session::default();
+        assert!(s
+            .execute("help.glossary", json!({"query": "volt", "limit": 0}), None)
+            .is_err());
+        assert!(s
+            .execute(
+                "help.glossary",
+                json!({"query": "volt", "limit": 101}),
+                None,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn help_commands_listed_in_commands() {
+        let ids: Vec<&str> = commands().iter().map(|c| c.id).collect();
+        assert!(ids.iter().any(|id| *id == "help.glossary"));
+        assert!(ids.iter().any(|id| *id == "help.term"));
+    }
+
+    #[test]
+    fn in_pcbcraft_command_ids_exist() {
+        let ids: std::collections::HashSet<&str> = commands().iter().map(|c| c.id).collect();
+        for t in pcbcraft_calc::TERMS {
+            for cmd in t.in_pcbcraft {
+                assert!(
+                    ids.contains(cmd),
+                    "term {} lists unknown command {cmd}",
+                    t.id
+                );
+            }
+        }
     }
 }
