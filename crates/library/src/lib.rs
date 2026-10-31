@@ -11,6 +11,8 @@ pub mod listing_adapters;
 pub mod listing_search;
 pub mod online_import;
 pub mod open_library;
+pub mod part_compare;
+pub mod part_substitutes;
 pub mod starter_models;
 mod paths;
 mod reader;
@@ -21,6 +23,15 @@ mod validation;
 pub use drop_in_check::{DropInFinding, DropInPart, DropInPin, DropInReport, drop_in_check};
 pub mod web_transport;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use part_compare::{
+    compare_one_part, compare_symbol_fields, effective_footprint_name, FootprintPadCompare,
+    PartCompareEntry, PartFieldRow, PartPinCompare, MAX_PART_COMPARE_OTHERS,
+};
+pub use part_substitutes::{
+    AlternatePart, PartSubstitutes, SecondSource, read_sidecar, sidecar_path_for_symbol,
+    write_sidecar, MAX_SUBSTITUTES_EACH, MAX_SUBSTITUTE_TEXT, PART_SIDECAR_FORMAT,
+    PART_SIDECAR_SUFFIX, PART_SIDECAR_VERSION,
+};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};

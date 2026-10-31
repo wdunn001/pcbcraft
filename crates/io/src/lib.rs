@@ -10,12 +10,27 @@ mod bitmap_trace;
 mod board_import;
 mod board_edge;
 mod board_mesh;
+mod parametric_body;
 mod diff;
 mod drawn;
 pub mod export_package;
 pub use export_package::{
     PackageOutput, availability, build_package, bundled_packages, find_package,
 };
+mod drill_table;
+mod fab_export;
+pub mod formats;
+mod generate;
+mod gerber;
+mod gerber_job;
+mod gerber_pour;
+mod laser;
+mod layers;
+mod library_render;
+mod machine_profile;
+mod board_mesh;
+mod diff;
+mod drawn;
 mod drill_table;
 mod fab_export;
 pub mod formats;
@@ -114,6 +129,15 @@ pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
 };
+pub use layers::{
+    FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
+    fabrication_point, gerber_copper_counts, layer_shapes, legend_shapes,
+};
+use library_render::*;
+pub use machine_profile::{
+    builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
+    machine_profile_to_toml,
+};
 pub use migrate::{CURRENT_VERSION, migrate, read_project};
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
@@ -194,11 +218,13 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 /// - Validates the loaded project structure
 /// # Do not
 /// - Call with paths to non-JSON files
+/// Read a design file, running its format migrations first.
 pub fn load(path: &Path) -> Result<Project, String> {
     let mut project = read_project(&read_text(path)?)?;
     migrate_loaded_project(&mut project)?;
     project.validate()?;
     Ok(project)
+}
 }
 /// Read a text file at the given path, enforcing the 8 MiB size limit.
 /// # Do not
@@ -475,12 +501,7 @@ pub fn archive_project(bytes: &[u8]) -> Result<Project, String> {
     }
     let design = design.ok_or_else(|| "archive holds no design.json".to_string())?;
     let text = std::str::from_utf8(design).map_err(|_| "design.json is not UTF-8".to_string())?;
-    let project: Project =
-        serde_json::from_str(text).map_err(|e| format!("design.json is invalid: {e}"))?;
-    project
-        .validate()
-        .map_err(|e| format!("archived design is invalid: {e}"))?;
-    Ok(project)
+    read_project(text).map_err(|e| format!("design.json is invalid: {e}"))
 }
 
 /// A small vector PDF writer: the drawing is collected as path and text

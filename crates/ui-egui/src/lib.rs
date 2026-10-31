@@ -1333,6 +1333,26 @@ pub struct App {
     capture_sheet: bool,
     frames: u32,
     library: library::Browser,
+command_scroll: bool,
+    capture: Option<String>,
+    /// Reference of the part to select for a capture image.
+    capture_select: Option<String>,
+    /// Open the canvas right-click menu on the selected part in a capture.
+    capture_menu: bool,
+    /// Kind of row whose right-click menu opens by itself in a capture image.
+    capture_menu_tag: Option<String>,
+    /// Capture option: open the bottom sheet on its Findings tab.
+    capture_sheet: bool,
+    frames: u32,
+    library: library::Browser,
+    /// This design's autosave slot, while the desktop has a recovery folder.
+    autosave: Option<pcbcraft_engine::recovery::Autosaver>,
+    /// Snapshots a killed app left behind, newest first.
+    recovery_offer: Vec<pcbcraft_engine::recovery::Entry>,
+    /// True while the offer window is up for the designer to answer.
+    recovery_open: bool,
+    /// The folder this window autosaves into and offers snapshots from.
+    recovery_dir: Option<std::path::PathBuf>,
     pub(crate) compare_open: bool,
     pub(crate) compare_baseline_path: String,
     compare_report_open: bool,
@@ -1830,6 +1850,9 @@ impl App {
         if light {
             preferences.dark = false;
         }
+// The browser has no recovery folder, so it keeps one slot in the
+        // page's own storage. Everywhere else the offer window asks first.
+        #[cfg(target_arch = "wasm32")]
         #[cfg(target_arch = "wasm32")]
         if let Some(text) = cc
             .storage
@@ -1845,7 +1868,7 @@ impl App {
         let show_home = capture.is_none();
         let mut app = Self::create(session, preferences, capture, tab);
         app.home_open = show_home && app.project.components.is_empty();
-        app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
+app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         // Install the fonts now, so the fallback font added next lands behind them.
         fonts::install(&cc.egui_ctx);
         cc.egui_ctx
@@ -1862,7 +1885,21 @@ impl App {
         Self::create_with_recovery(session, preferences, capture, tab, recovery_dir())
     }
 
+/// `create` with the recovery folder named, so a test can point the offer
+    /// at its own folder without touching the machine's.
     pub(crate) fn create_with_recovery(
+        session: SharedSession,
+        preferences: Preferences,
+        capture: Option<String>,
+        tab: Option<&str>,
+        recovery: Option<std::path::PathBuf>,
+    ) -> Self {
+        let (autosave, recovery_offer) = recovery_slots(recovery.as_deref());
+        let project = session
+            .lock()
+            .map(|s| s.project.clone())
+            .unwrap_or_default();
+        let width = project.board.width;
         session: SharedSession,
         preferences: Preferences,
         capture: Option<String>,
@@ -2077,6 +2114,10 @@ impl App {
             compare_diff: None,
             compare_tint: std::collections::BTreeMap::new(),
             library,
+            autosave,
+            recovery_open: !recovery_offer.is_empty(),
+            recovery_offer,
+            recovery_dir: recovery,
             #[cfg(test)]
             icon_rects: BTreeMap::new(),
             autosave,
@@ -2086,6 +2127,20 @@ impl App {
         }
     }
     fn refresh(&mut self) {
+// The autosave goes out with the same lock that takes the snapshot, so
+        // what lands in the recovery folder is a revision the window has seen.
+        let mut autosave = self.autosave.take();
+        let saved = self.saved_revision;
+        let mut autosave_error: Option<String> = None;
+        let snapshot = self.session.lock().ok().and_then(|s| {
+            if s.revision != self.revision {
+                if let Some(slot) = autosave.as_mut()
+                    && let Err(e) = slot.tick(&s, saved)
+                {
+                    autosave_error = Some(e);
+                }
+                Some((s.project.clone(), s.revision, s.checks()))
+            } else {
         let mut autosave = self.autosave.take();
         let saved = self.saved_revision;
         let mut autosave_error: Option<String> = None;
@@ -7797,6 +7852,7 @@ impl App {
         self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
+self.recovery_window(ui);
         self.renumber_window(&ctx);
         self.recovery_window(ui);
         if self.home_open {
@@ -7849,6 +7905,29 @@ impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
         self.assistant_save();
+}
+}
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+        self.show(ui);
+    }
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.capture_inputs(raw_input);
+    }
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, "preferences", &self.preferences);
+        self.assistant_save();
+        // The desktop autosaves into the recovery folder (see `recovery`);
+        // only the browser still needs the page's own storage for it.
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(session) = self.session.lock()
+            && let Ok(text) = serde_json::to_string(&session.project)
+            && text.len() <= pcbcraft_io_limit()
+        {
+            storage.set_string("recovery", text);
+        }
+    }
+}
         #[cfg(target_arch = "wasm32")]
         if let Ok(session) = self.session.lock()
             && let Ok(text) = serde_json::to_string(&session.project)
@@ -7859,6 +7938,17 @@ impl eframe::App for App {
     }
 }
 
+/// Closing the window with everything saved leaves no recovery entry behind;
+/// closing with unsaved work leaves it for the next launch to offer.
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(session) = self.session.lock()
+            && let Ok(text) = serde_json::to_string(&session.project)
+            && text.len() <= pcbcraft_io_limit()
+        {
+            storage.set_string("recovery", text);
+        }
+    }
+}
 impl Drop for App {
     fn drop(&mut self) {
         let Some(slot) = self.autosave.take() else {
@@ -7871,7 +7961,9 @@ impl Drop for App {
         }
     }
 }
-
+/// The recovery folder this build reads and writes: the real one on a desktop,
+/// and in a test run only a folder a test pointed the override at, so a test
+/// never sees or writes the user's own snapshots.
 #[cfg(not(target_arch = "wasm32"))]
 fn recovery_dir() -> Option<std::path::PathBuf> {
     let pointed = pcbcraft_engine::recovery::override_dir();
@@ -7887,6 +7979,10 @@ fn recovery_dir() -> Option<std::path::PathBuf> {
     None
 }
 
+/// This design's autosave slot, and the snapshots a killed app left in the same
+/// folder, newest first. The offer is read before the slot takes its own lock,
+/// so this session's empty entry is never one of them.
+fn recovery_slots(
 fn recovery_slots(
     dir: Option<&std::path::Path>,
 ) -> (
