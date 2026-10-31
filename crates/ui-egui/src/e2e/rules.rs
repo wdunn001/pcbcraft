@@ -304,7 +304,7 @@ fn a_newcomer_picks_a_fab_preset_and_sees_the_numbers_change() -> Result<(), Str
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to_at(&ctx, &mut app, "Choose a maker", 700.0)?,
@@ -396,7 +396,7 @@ fn a_newcomer_keeps_two_classes_further_apart() -> Result<(), String> {
     let before = clearance_findings(&app);
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "Add gap", 700.0)?,
         "the Rules page has a place to add a gap between classes"

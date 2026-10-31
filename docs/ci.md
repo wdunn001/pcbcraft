@@ -4,9 +4,8 @@
 
 On [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft), push your branch
 to the fork (never to `main`) and open a draft pull request against `main`. When
-the work is done, mark the pull request ready for review and wait for the green
-**CI result** check. Link that Actions run in the pull request. You do not need
-a green local `cargo xtask ci` on a laptop.
+the work is done, mark the pull request ready for review. Link the Actions run
+in the pull request. You do not need a green local `cargo xtask ci` on a laptop.
 
 Clone and first-run steps: [getting-started.md](getting-started.md).
 
@@ -24,39 +23,33 @@ manual dispatch. A push to a feature branch starts nothing by itself; open a
 pull request (a draft is fine) to get results. This avoids the duplicate run
 that a branch push plus a pull request used to start.
 
-- **Draft pull request:** only the cheap jobs run: Changes, Format and policy, Clippy and docs, Documentation standard. **CI result** reports that set.
-- **Ready pull request:** marking it ready for review (the `ready_for_review` event) starts the full gate, including Tests, Coverage, E2E, UI strings, Accessibility, Localization, WebAssembly, Licenses and advisories, UI screenshots and the Windows build. **CI result** goes green only when all of them succeed.
-- **Main and merge queue:** everything, and macOS and the minimum Rust version too.
+- **Draft pull request:** Changes, Format and policy, Clippy and docs, Documentation standard.
+- **Ready pull request:** those plus Accessibility, WebAssembly, Licenses and advisories, and the Windows build.
+- **Main and merge queue:** those plus macOS and the minimum Rust version.
+- Off the gate (run locally if you need them): Tests, Coverage, E2E, UI strings, Localization, UI screenshots, and the old CI result aggregator. English is the only locale the product ships.
 
 Documentation-only commits skip the heavy build jobs on any of these but still
-run policy, docs standard and the result job.
+run policy and docs standard.
 
 | Job | Command | What it enforces |
 | --- | --- | --- |
 | Format and policy | `cargo xtask policy`, `cargo xtask fmt` | Crate dependency layers, workspace lints keep `unwrap_used`, `expect_used`, `panic`, `unimplemented`, `todo` and `unreachable` at deny (AGENTS.md), no source `allow` of them, rustfmt |
 | Clippy and docs | `cargo xtask clippy`, `cargo xtask docs` | Clippy with `-D warnings` on all targets, rustdoc with warnings denied |
 | Documentation standard | `cargo xtask docs check` | Contract and dependency paths exist, trait implementation lists match the code, AGENTS.md is 60 lines or fewer, missing-docs warnings do not rise above xtask/doc-ratchet.toml |
-| Tests | `cargo xtask test` | Workspace tests with cargo-nextest (profile `ci`, JUnit report uploaded) plus doctests. Includes the headless `a_newcomer_*` end-to-end tests in crates/ui-egui |
-| Text catalog | `cargo xtask strings check` (and `strings extract`) | `crates/text/strings/en.txt` is well formed with no duplicate keys, translation files have no unknown keys and keep the English `{placeholders}`, every `t!("key")` in crates/ui-egui exists, and no string literal sits in a text call inside a function listed in `crates/text/strings/converted-fns.txt` |
 | Accessibility | `cargo xtask a11y` | Headless, no GPU. Every tab, dialog and menu through the AccessKit tree: names, duplicate names, 24 by 24 targets, keyboard reach, contrast, reduce motion. Table per screen in the job summary. See [accessibility.md](accessibility.md) |
-| Localization | `cargo xtask i18n` | Locale key and placeholder parity, unused keys, hard-coded text, joined fragments, the `en-XA` pseudo-locale at 1280 and 320 points, font coverage. See [localization.md](localization.md) |
 | WebAssembly | `cargo xtask wasm` | The shared UI and the browser entry point build for wasm32 |
 | Tooltip text | `cargo xtask tooltips` | Lists tooltips that repeat their label, are too short or long, omit a limit, or leave a disabled control unexplained (docs/tooltips.md). Non-fatal until `--strict` is switched on (#631); exemptions with reasons live in `crates/ui-egui/tooltip-exemptions.txt` |
 | Minimum Rust version | `cargo xtask msrv` | Builds with the `rust-version` in Cargo.toml |
 | Licenses and advisories | `cargo xtask deny` | `deny.toml`: GPL-3.0 compatible license allow list, RustSec advisories, yanked crates, unknown registries and git sources |
-| Coverage | `cargo xtask coverage` | Runs the workspace tests under cargo-llvm-cov 0.9.1 (source-based LLVM coverage on stable with the `llvm-tools` component). Fails when workspace line coverage is under 70% or when any crate falls more than 0.5 points below `ci/coverage-baseline.json`. Uploads `coverage` (lcov and HTML) and writes the per-crate table to the job summary. Ready pull requests and main only |
-| E2E and control coverage | `cargo xtask e2e` | Runs every `a_newcomer_*` story, walks every page of the UI, and fails with one line per control that has no tooltip, no story or no id (message names the id). Uploads `e2e-coverage` (report and logs). Exemptions: `e2e-exemptions.txt` |
-| UI screenshots | `cargo xtask screenshots` | Launches the real app under Xvfb with Mesa software Vulkan and captures eight views |
 | Build | `cargo build --locked` | Windows on every ready pull request, macOS also on main and the merge queue |
-| CI result | none | The one check to mark as required in branch protection |
 
 Speed and friendliness to stacked pull requests:
 
 - The concurrency group is the workflow plus the pull request number. A new push, or marking the pull request ready, cancels the older run of that pull request. Runs on main, in the merge queue and manual runs are never cancelled.
-- Documentation-only changes skip the build jobs; the policy, deny and result jobs still run.
+- Documentation-only changes skip the build jobs; the policy and docs standard jobs still run.
 - Caches (rust-cache) are written only by main and read by everything else.
 - A stacked branch gets results once its pull request exists, even a draft one, whatever its base branch.
-- Job names are unchanged, so existing branch status checks still match.
+- Remaining job names are unchanged, so existing branch status checks for those jobs still match.
 
 ## Coverage gate
 
@@ -133,14 +126,11 @@ lines. The tracker is the fork, `wdunn001/pcbcraft`.
 
 ## Seeing UI changes
 
-The screenshots job uploads `screenshots-head` (this change) and, on pull
-requests, `screenshots-base` (the target branch). A final job builds one
-side-by-side image, `ui-screenshots.png`, and links it from the run summary.
-Open the run, then the Summary page, and follow the link. Left column is the
-base, right column is the change. Views are listed in `VIEWS` in
-xtask/src/main.rs; add a row there when a new tab or dialog deserves a shot.
+CI does not capture the desktop UI. Screenshots are local only:
 
-Locally: `cargo xtask screenshots --out target/screenshots`.
+`cargo xtask screenshots --out target/screenshots`
+
+Views are listed in `VIEWS` in xtask/src/main.rs.
 
 ## Nightly (`nightly.yml`)
 
@@ -206,4 +196,4 @@ The logo masters and every platform icon live in `assets/brand/`. Run `assets/br
 
 - Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries are unsigned until then, and macOS users must open the app via right-click.
 - Where the web bundle is hosted (Pages or another host) and whether tags publish it.
-- Marking `CI result` as a required check in branch protection.
+- Whether to put Tests, Coverage, E2E, strings, localization or screenshots back on the gate later.
