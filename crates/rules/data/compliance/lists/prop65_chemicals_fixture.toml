@@ -1,0 +1,21 @@
+schema = 1
+id = "prop65_chemicals_fixture"
+title = "Proposition 65 chemicals (fixture subset)"
+source_url = "https://oehha.ca.gov/proposition-65/proposition-65-list"
+published = "2026-01-03"
+retrieved = "2026-03-01"
+licence = "Public domain (California OEHHA list; fixture rows only)"
+cadence_days = 90
+version = "2026-01-03"
+
+[[substances]]
+cas = "7439-92-1"
+name = "Lead"
+added = "1987-02-27"
+citation = "California Proposition 65; fixture row."
+
+[[substances]]
+cas = "117-81-7"
+name = "Di(2-ethylhexyl) phthalate"
+added = "1988-10-01"
+citation = "California Proposition 65; fixture row."

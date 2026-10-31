@@ -3151,6 +3151,7 @@ dependencies = [
  "pcbcraft-library",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
