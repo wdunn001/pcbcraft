@@ -67,18 +67,7 @@ mod library_builtin;
 mod library_dock;
 mod library_online;
 mod library_quality;
-pub mod fonts;
-mod footprint_wizard;
-mod hover_affordance;
-mod icons;
-mod impedance_panel;
-mod keymap;
-mod layers_tree;
-mod library;
-mod library_builtin;
-mod library_dock;
-mod library_online;
-mod library_quality;
+mod library_rank;
 mod library_workspace;
 mod minimap;
 mod modifier_ui;
@@ -101,15 +90,33 @@ mod pages;
 mod palette;
 mod plot_viewer;
 mod pour_panel;
+mod project_settings;
 mod properties;
 mod reference_panel;
 mod route_drag;
+mod rules_fab;
+mod sheet_rows;
+mod showcase;
+mod sources;
+mod sourcing_panel;
+mod pages;
+mod palette;
+mod plot_viewer;
+mod pour_panel;
+mod properties;
+mod reference_panel;
+mod route_drag;
+mod setup_wizard;
 mod library_quality;
 mod minimap;
 mod modifier_ui;
 mod motion;
 mod number_entry;
 mod outline_arcs;
+mod sheet_rows;
+mod modifier_ui;
+mod motion;
+mod number_entry;
 mod pages;
 mod palette;
 mod plot_viewer;
@@ -135,6 +142,7 @@ mod tour;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
+mod wall_clock;
 mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
@@ -829,6 +837,9 @@ struct Preferences {
     /// Remapped tool modifiers and tool hotkeys; empty means classic defaults.
     #[serde(default)]
     modifiers: tool_modifiers::Bindings,
+    /// After the design setup wizard is finished or skipped, do not open it on every new design.
+    #[serde(default)]
+    setup_wizard_seen: bool,
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -910,6 +921,7 @@ dark: true,
             active_keymap_profile: default_keymap_profile(),
             keymap_profiles: default_keymap_profiles(),
             modifiers: Default::default(),
+            setup_wizard_seen: false,
         }
     }
 }
@@ -1261,6 +1273,8 @@ pub struct App {
     stack_kind: String,
     stack_thickness: f64,
     stack_edit: Option<(String, String, f64)>,
+    /// The File > Project settings dialog.
+    project_settings: project_settings::State,
     /// Optional workspace tabs the user closed; the + menu reopens them.
     closed_tabs: Vec<Tab>,
     notes_thick: f64,
@@ -1284,6 +1298,7 @@ pub struct App {
     sync_behind: Option<(u64, bool)>,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
+    setup_wizard: setup_wizard::State,
     /// Left edge of the central page, so tests can check text keeps its margin.
     page_left: f32,
     schematic: Camera,
@@ -2034,6 +2049,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
             stack_edit: None,
+            project_settings: Default::default(),
             closed_tabs: Vec::new(),
             notes_thick: 1.6,
             notes_er: 4.4,
@@ -2055,6 +2071,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             pinned_view: None,
             sync_behind: None,
             renumber_open: false,
+            setup_wizard: setup_wizard::State::default(),
             active_page: 0,
             power_pick: std::collections::BTreeMap::new(),
             port_pick_name: String::new(),
@@ -2137,6 +2154,67 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             recovery_open: !recovery_offer.is_empty(),
             recovery_offer,
             recovery_dir: recovery,
+        }
+    }
+    fn tour_modal_open(&self) -> bool {
+        self.about_open
+            || self.shortcuts_open
+            || self.command_open
+            || self.compare_open
+            || self.renumber_open
+            || self.edit.dialog.open
+            || self.edit.dialog.preview_open
+    }
+    fn tour_shell_view(&self) -> tour::state::ShellView<'_> {
+        tour::state::ShellView {
+            offer_tours: self.preferences.offer_tours,
+            modal_open: self.tour_modal_open(),
+            file_busy: self.pending_source.is_some(),
+            tab: self.tab,
+            workspace: tour::WorkspaceId::from_tab(self.tab),
+            progress: &self.preferences.tour_progress,
+            first_launch_done: self.preferences.tour_first_launch_done,
+            tab_changed_at: self.tour.tab_changed_at(),
+        }
+    }
+    fn tour_tick(&mut self) {
+        if let Some(ws) = tour::WorkspaceId::from_tab(self.tab) {
+            self.tour.note_workspace_visit(ws);
+        }
+        if self.tour.first_launch_handled() {
+            self.preferences.tour_first_launch_done = true;
+        }
+        let view = self.tour_shell_view();
+        self.tour
+            .sync_triggers(view, std::time::Instant::now());
+    }
+    fn tour_panel_hints(&mut self, ui: &mut egui::Ui) {
+        let ids: Vec<String> = self.tour.hint_tours().map(|m| m.id.clone()).collect();
+        if ids.is_empty() {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                for id in ids {
+                    self.tour_hint_button(ui, &id);
+                }
+            });
+        });
+    }
+    fn tour_hint_button(&mut self, ui: &mut egui::Ui, tour_id: &str) {
+        if self.tour.meta(tour_id).is_none() {
+            return;
+        }
+        if ui
+            .small_button("?")
+            .on_hover_text(t!("tour.panel_hint.tip"))
+            .clicked()
+        {
+            self.tour.start_from_menu(
+                &mut self.preferences.tour_progress,
+                tour_id,
+                tour::state::MenuAction::Start,
+            );
         }
     }
     fn refresh(&mut self) {
@@ -2372,6 +2450,9 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             self.assistant_design_opened(name);
             self.needs_fit = true;
         }
+        if success && name == "new_design" && !self.preferences.setup_wizard_seen {
+            self.open_setup_wizard();
+        }
         success
     }
 
@@ -2450,6 +2531,8 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         if !page(tab) && !page(self.tab) {
             self.needs_fit = true;
         }
+        self.tour
+            .note_tab_change(std::time::Instant::now());
         self.tab = tab;
         self.tool = Tool::Select;
         self.drag = None;
@@ -3434,6 +3517,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                     &mut index,
                     &items,
                     ui_kit::tab_bar::TabSize::Nav,
+                    Some(&TAB_ANCHORS),
                 );
                 if response.changed() {
                     current = index;
@@ -3502,7 +3586,46 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    home_btn,
+[300.0, 48.0],
+                                    egui::Button::new(
+                                        egui::RichText::new("Design setup wizard").size(14.0),
+                                    ),
+                                )
+                                .on_hover_text(
+                                    "Reopen the guided board setup for size, layers, and rules.",
+                                )
+                                .clicked()
+                            {
+                                self.open_setup_wizard();
+                                self.home_open = false;
+                            }
+                            ui.add_space(6.0);
+                            if ui
+                                .add_sized(
+                                    [300.0, 64.0],
+                                    egui::Button::new((
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.worked_example"
+                                        ))
+                                        .size(16.0)
+                                        .strong(),
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.a_small_battery_resistor_and"
+                                        ))
+                                        .small()
+                                        .color(self.muted()),
+                                    )),
+                                )
+                                .on_hover_text(t!("dialogs.start_home.begin_with_a_blank_page.tip"))
+                                .clicked()
+                            {
+                                self.tool_call("new_design", json!({}));
+                                self.select(None);
+                                self.home_open = false;
+                            }
+                            ui.add_space(6.0);
+                            if ui
+                                .add_sized(
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.worked_example"
@@ -3667,7 +3790,14 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 ui.close();
             }
             if ui
-.button(t!("menu.file.save_as"))
+.button(t!("menu.file.compare"))
+                .on_hover_text(t!("menu.file.compare.tip"))
+                .clicked()
+            {
+                self.compare_open = true;
+            }
+            if ui
+                .button(t!("menu.file.save_as"))
                 .on_hover_text(t!("menu.file.save_as.tip"))
                 .clicked()
             {
@@ -3675,13 +3805,11 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 ui.close();
             }
             if ui
-.button(t!("menu.file.save_as"))
-                .on_hover_text(t!("menu.file.save_as.tip"))
+                .on_hover_text(t!("menu.file.compare.tip"))
                 .clicked()
             {
-                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
-                ui.close();
-            }
+                self.compare_open = true;
+}
             if ui
                 .button(t!("menu.file.compare"))
                 .on_hover_text(t!("menu.file.compare.tip"))
@@ -3689,10 +3817,6 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             {
                 self.compare_open = true;
             }
-            }
-            ui.separator();
-            self.import_submenu(ui);
-            self.export_submenu(ui);
             if ui
                 .button(t!("menu.file.save_as"))
                 .button(t!("menu.file.compare"))
@@ -3711,6 +3835,27 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 .clicked()
             {
                 self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
+            }
+            if ui
+                .button(t!("menu.file.project_settings"))
+                .on_hover_text(t!("menu.file.project_settings.tip"))
+            }
+            if ui
+                .button(t!("menu.file.save_as"))
+                .on_hover_text(t!("menu.file.save_as.tip"))
+                .clicked()
+            {
+                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
+            }
+            if ui
+                .button(t!("menu.file.project_settings"))
+                .on_hover_text(t!("menu.file.project_settings.tip"))
+                .clicked()
+            {
+                self.open_project_settings(project_settings::TAB_BOARD);
+            }
                 ui.close();
             }
             ui.separator();
@@ -3949,7 +4094,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         .on_hover_text(t!("menu.view.tip"));
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button(t!("menu.help"), |ui| {
+        let help = ui.menu_button(t!("menu.help"), |ui| {
             if ui
                 .button(t!("menu.help.shortcuts"))
                 .on_hover_text(t!("menu.help.shortcuts.tip"))
@@ -3966,7 +4111,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
-            ui.menu_button(t!("menu.help.tours"), |ui| {
+            let tours = ui.menu_button(t!("menu.help.tours"), |ui| {
                 for tour in &self.tours.tour {
                     let list_key = tour.list_key();
                     let label = pcbcraft_text::lookup(&list_key, &[]);
@@ -3974,9 +4119,11 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                     ui.button(label)
                         .on_hover_text(pcbcraft_text::lookup(&tip_key, &[]));
                 }
-            })
-            .response
-            .on_hover_text(t!("menu.help.tours.tip"));
+            });
+            tour::anchor::anchor(ui, "menu.help.tours", &tours.response);
+            tours
+                .response
+                .on_hover_text(t!("menu.help.tours.tip"));
             ui.separator();
             if ui
                 .button(t!("app.about"))
@@ -3991,7 +4138,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 .clicked()
             {
                 let url = format!(
-                    "https://github.com/tangency-labs/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
+                    "https://github.com/wdunn001/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
                     env!("CARGO_PKG_VERSION")
                 );
                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));
@@ -4002,9 +4149,9 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                     .color(self.muted()),
             )
             .on_hover_text(t!("app.version.tip"));
-        })
-        .response
-        .on_hover_text(t!("menu.help.tip"));
+        });
+        tour::anchor::anchor(ui, "shell.menu.help", &help.response);
+        help.response.on_hover_text(t!("menu.help.tip"));
     }
     /// The datasheet address when the field holds a plain web link.
     fn datasheet_url(field: Option<&str>) -> Option<String> {
@@ -4073,6 +4220,12 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             .iter()
             .position(|t| t.id == self.region().left_tab)
             .unwrap_or(0);
+        let ws = self.workspace().id();
+        let region_ids: Vec<String> = tabs
+            .iter()
+            .map(|t| tour::anchor::region_tab_id(ws, t.id))
+            .collect();
+        let region_refs: Vec<&str> = region_ids.iter().map(String::as_str).collect();
         let tokens = theme::tokens(ui.ctx());
         let response = egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(8, 0))
@@ -4083,6 +4236,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                     &mut current,
                     &items,
                     ui_kit::tab_bar::TabSize::Aside,
+                    Some(&region_refs),
                 )
             })
             .inner;
@@ -4096,6 +4250,9 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             && let Some(tab) = tabs.get(current)
         {
             self.region().left_tab = tab.id.to_owned();
+        }
+        if self.region().left_tab == "library" {
+            self.tour_panel_hints(ui);
         }
     }
     /// Body of the Layers tab: the parts list and the layer tree.
@@ -4444,6 +4601,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                         let r = PinRef {
                             component: comp.id,
                             pin: pin.number.clone(),
+                            unit: None,
                         };
                         if pin.net == Some(net.id) {
                             members.push((label, r));
@@ -4916,6 +5074,15 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         ui.add_space(10.0);
         ui.heading(t!("settings.settings_tab.settings"));
         self.stackup_section(ui);
+        if ui
+            .button("Open design setup wizard")
+            .on_hover_text(
+                "Walk through board size, layers, fabrication preset, and starter net classes.",
+            )
+            .clicked()
+        {
+            self.open_setup_wizard();
+        }
         ui.separator();
         ui.label(t!("settings.settings_tab.how_the_app_looks_and"));
         ui.add_space(10.0);
@@ -4990,6 +5157,11 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             t!("settings.settings_tab.reduce_motion"),
         )
         .on_hover_text(t!("settings.settings_tab.reduce_motion.tip"));
+        ui.checkbox(
+            &mut self.preferences.offer_tours,
+            t!("settings.settings_tab.offer_tours"),
+        )
+        .on_hover_text(t!("settings.settings_tab.offer_tours.tip"));
         self.language_menu(ui);
         ui.label(
             egui::RichText::new(t!(
@@ -5724,6 +5896,30 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 .small()
                 .color(self.muted()),
         );
+        if let Some(rules) = self.project.board.rules.as_ref() {
+            ui.label(
+                egui::RichText::new("Fabrication minimums")
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            if let Some(name) = rules.preset.as_deref() {
+                ui.label(format!("Preset: {name}"))
+                    .on_hover_text("Named fabrication preset applied to this board.");
+            }
+            if let Some(v) = rules.min_track {
+                ui.label(format!("Min track {v:.3} mm"))
+                    .on_hover_text("Smallest routed width the fab accepts.");
+            }
+            if let Some(v) = rules.min_space {
+                ui.label(format!("Min space {v:.3} mm"))
+                    .on_hover_text("Smallest copper gap the fab accepts.");
+            }
+            if let Some(v) = rules.min_drill {
+                ui.label(format!("Min drill {v:.3} mm"))
+                    .on_hover_text("Smallest drilled hole the fab accepts.");
+            }
+            ui.add_space(8.0);
+        }
         if let Some(pick) = &self.class_pick
             && !self.project.nets.iter().any(|n| n.name == *pick)
         {
@@ -6893,7 +7089,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             return;
         }
         if Self::narrow_window(ui.ctx()) {
-            egui::Panel::bottom("inspector-narrow")
+            let panel = egui::Panel::bottom("inspector-narrow")
                 .default_size(260.0)
                 .frame(Self::dock_frame(ui.style()))
                 .show(ui, |ui| {
@@ -6901,10 +7097,14 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                         .auto_shrink([false, false])
                         .show(ui, |ui| self.inspector_body(ui, 0.0));
                 });
+            if let Some(ws) = workspace::workspace_for(self.tab) {
+                let id = format!("{}.inspector", ws.id());
+                tour::anchor::anchor(ui, &id, &panel.response);
+            }
             return;
         }
         let tokens = theme::tokens(ui.ctx());
-        egui::Panel::right("inspector")
+        let panel = egui::Panel::right("inspector")
             .default_size(340.0)
             .min_size(280.0)
             .frame(
@@ -6915,6 +7115,10 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             .show(ui, |ui| {
                 self.inspector_body(ui, 0.0);
             });
+        if let Some(ws) = workspace::workspace_for(self.tab) {
+            let id = format!("{}.inspector", ws.id());
+            tour::anchor::anchor(ui, &id, &panel.response);
+        }
     }
     /// The layers tree over the properties page, in the side dock or, in a
     /// narrow window, in the strip under the drawing. `top_h` is the height
@@ -6939,6 +7143,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 &mut index,
                 &items,
                 ui_kit::tab_bar::TabSize::Aside,
+                None,
             );
             if response.changed() {
                 self.preferences.aside_lower_tab = index as _;
@@ -6948,6 +7153,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             let mut padded = egui::Frame::NONE
                 .inner_margin(theme::aside_margin())
                 .begin(ui);
+            self.tour_panel_hints(&mut padded.content_ui);
             assistant::pane::show(self, &mut padded.content_ui);
             padded.end(ui);
             return;
@@ -7426,6 +7632,28 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                                     ui.label(egui::RichText::new(line).small().color(self.muted()));
                                 }
                             }
+                            for (cmd, list_key) in self.tour.command_entries() {
+                                let label = pcbcraft_text::lookup(&list_key, &[]);
+                                if !query.is_empty()
+                                    && !fuzzy_match(&query, &label)
+                                    && !fuzzy_match(&query, &cmd)
+                                {
+                                    continue;
+                                }
+                                let row_text = t!("tour.command.row", label = label);
+                                if ui
+                                    .selectable_label(false, row_text)
+                                    .on_hover_text(t!("tour.command.row.tip"))
+                                    .clicked()
+                                {
+                                    let id = cmd.strip_prefix("tour:").unwrap_or(&cmd);
+                                    self.tour.start_from_menu(
+                                        &mut self.preferences.tour_progress,
+                                        id,
+                                        tour::state::MenuAction::Start,
+                                    );
+                                }
+                            }
                             for (row, spec) in matches.iter().enumerate() {
                                 let row_text = t!(
                                     "board.footer.id_description",
@@ -7451,6 +7679,10 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 });
         }
         let about_muted = self.muted();
+        brand::about_window(ui, &mut self.about_open, about_muted);
+        self.array_window(ui.ctx());
+        self.file_dialog_window(ui.ctx());
+self.project_settings_window(ui.ctx());
         brand::about_window(ui, &mut self.about_open, about_muted);
         self.array_window(ui.ctx());
         self.file_dialog_window(ui.ctx());
@@ -7888,6 +8120,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        self.tour_tick();
         icons::install(&ctx);
         a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.assistant_frame(&ctx);
@@ -7908,7 +8141,19 @@ impl App {
         self.footer(ui);
 self.recovery_window(ui);
         self.renumber_window(&ctx);
+return;
+        }
+        self.file_shortcuts(&ctx);
+        self.shortcuts(&ctx);
+        if self.compare_open {
+            self.compare_window(&ctx);
+        }
+        self.edit_events(&ctx);
+        self.header(ui);
+        self.footer(ui);
+        self.setup_wizard_window(&ctx);
         self.recovery_window(ui);
+        self.renumber_window(&ctx);
         if self.home_open {
             self.start_home(ui);
         } else {
@@ -7922,6 +8167,12 @@ self.recovery_window(ui);
                     self.bottom_sheet(ui);
                     self.page_left = ui.max_rect().left();
                     if let Some(workspace) = workspace::workspace_for(self.tab) {
+                        let canvas_id = format!("canvas.{}", workspace.id());
+                        tour::anchor::anchor_rect(
+                            ui,
+                            &canvas_id,
+                            ui.available_rect_before_wrap(),
+                        );
                         workspace.center(self, ui);
                     } else {
                         match self.tab {
@@ -7945,6 +8196,15 @@ self.recovery_window(ui);
                 });
         }
         a11y::paint_focus_ring(&ctx, self.accent());
+        let muted = self.muted();
+        let accent = self.accent();
+        tour::paint_offers(
+            ui,
+            &mut self.tour,
+            &mut self.preferences.tour_progress,
+            muted,
+            accent,
+        );
         self.capture(&ctx);
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
@@ -9093,6 +9353,7 @@ mod tests {
                 Tool::Wire(Some(PinRef {
                     component: 1,
                     pin: "1".into(),
+                    unit: None,
                 })),
                 "second pin",
             ),

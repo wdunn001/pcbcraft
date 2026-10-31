@@ -3,6 +3,10 @@
 ## Getting started
 
 On [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft), push your branch
+and open a pull request against `main` (never push to `main`). Wait for the green
+**CI result** check on that commit and link the Actions run in the pull request
+body. That run is the required proof for workers and doc-only lanes; you do not
+need a green local `cargo xtask ci` on a laptop.
 to the fork (never to `main`) and open a draft pull request against `main`. When
 the work is done, mark the pull request ready for review. Link the Actions run
 in the pull request. You do not need a green local `cargo xtask ci` on a laptop.
@@ -18,6 +22,11 @@ GitHub Actions run on the pushed branch is the proof (see CONTRIBUTING.md). `car
 
 ### Fork and pull request gate (`.github/workflows/ci.yml`)
 
+On wdunn001/pcbcraft, **every branch push** and every pull request runs the
+gate. Workers open a pull request against `main`, wait for the green **CI result**
+check, and put that Actions link in the pull request body. A new push cancels
+the older run for the same PR. Documentation-only commits skip heavy build jobs but still run policy,
+deny and the aggregated result job.
 The gate runs on pull requests, on pushes to `main`, in the merge queue and on
 manual dispatch. A push to a feature branch starts nothing by itself; open a
 pull request (a draft is fine) to get results. This avoids the duplicate run
@@ -37,8 +46,12 @@ run policy and docs standard.
 | Clippy and docs | `cargo xtask clippy`, `cargo xtask docs` | Clippy with `-D warnings` on all targets, rustdoc with warnings denied |
 | Large-board bench | `cargo xtask bench` | The ten-thousand-pad board through the copper checks and a selection and pan frame, in release, with a time budget and a check that the copper broad phase stays a small multiple of the item count |
 | Documentation standard | `cargo xtask docs check` | Contract and dependency paths exist, trait implementation lists match the code, AGENTS.md is 60 lines or fewer, missing-docs warnings do not rise above xtask/doc-ratchet.toml |
+| Tests | `cargo xtask test` | Workspace tests with cargo-nextest (profile `ci`, JUnit report uploaded) plus doctests. Includes the headless `a_newcomer_*` end-to-end tests in crates/ui-egui |
+| Text catalog | `cargo xtask strings check` (and `strings extract`) | `crates/text/strings/en.txt` is well formed with no duplicate keys, translation files have no unknown keys and keep the English `{placeholders}`, every `t!("key")` in crates/ui-egui exists, and no string literal sits in a text call inside a function listed in `crates/text/strings/converted-fns.txt` |
+| WebAssembly | `cargo xtask wasm` | The shared UI and browser entry build for wasm32, wasm clippy blocks `std::time` clocks, trunk builds the page, and a headless Chromium smoke run fails on a first-frame panic |
 | Accessibility | `cargo xtask a11y` | Headless, no GPU. Every tab, dialog and menu through the AccessKit tree: names, duplicate names, 24 by 24 targets, keyboard reach, contrast, reduce motion. Table per screen in the job summary. See [accessibility.md](accessibility.md) |
 | WebAssembly | `cargo xtask wasm` | The shared UI and the browser entry point build for wasm32 |
+| Browser smoke test | `trunk build --release` in `apps/pcbcraft-web`, then `node apps/pcbcraft-web/smoke/web-smoke.mjs apps/pcbcraft-web/dist` | The built page loads in headless Chromium with no console error or panic, the first frame paints, and the Layout tab switches |
 | Tooltip text | `cargo xtask tooltips` | Lists tooltips that repeat their label, are too short or long, omit a limit, or leave a disabled control unexplained (docs/tooltips.md). Non-fatal until `--strict` is switched on (#631); exemptions with reasons live in `crates/ui-egui/tooltip-exemptions.txt` |
 | Minimum Rust version | `cargo xtask msrv` | Builds with the `rust-version` in Cargo.toml |
 | Licenses and advisories | `cargo xtask deny` | `deny.toml`: GPL-3.0 compatible license allow list, RustSec advisories, yanked crates, unknown registries and git sources |
@@ -152,6 +165,8 @@ replace the latest stable download links from tagged releases.
 Push a tag `vX.Y.Z` (or `vX.Y.Z-rc.1`) that matches the workspace version in
 Cargo.toml. The workflow builds, from clean state:
 
+- `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz`
+- `pcbcraft-<tag>-windows-x86_64.msi`, `-windows-x86_64-portable.zip`, standalone `PCBCraft-<tag>-windows-x86_64.exe`, and legacy `-windows-x86_64.zip` (loose exes)
 - `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz` (FHS tree used by Flatpak and Snap repackage jobs)
 - Per Linux architecture (`x86_64`, `aarch64`):
   - `pcbcraft-<tag>-linux-<arch>.AppImage` and `.AppImage.zsync`
@@ -178,12 +193,21 @@ it by hand; nothing publishes automatically. Release notes list commit subjects
 since the previous tag.
 
 The nightly and release workflows share `build-dist.yml`, so a nightly run
-proves the release packaging works. Linux installers are built in
-`packaging/linux/package.sh` (called from the Linux matrix jobs in
-`build-dist.yml`). Flatpak and Snap repackage the FHS tarball via
-`packaging/linux/flatpak-bundle.sh` and `packaging/linux/snap-pack.sh`.
-Legacy flat Linux tarballs, Windows zip, macOS bundles, and the web zip still
-come from `.github/scripts/package.sh`.
+proves the release packaging works. Linux packaging is in `packaging/linux/package.sh`; macOS and the legacy Windows zip use `.github/scripts/package.sh`. Windows MSI and portable zip use `packaging/windows/package.ps1` with WiX sources in `assets/platforms/windows/`. Linux installers are built in `packaging/linux/package.sh` (called from the Linux matrix jobs in `build-dist.yml`). Flatpak and Snap repackage the FHS tarball via `packaging/linux/flatpak-bundle.sh` and `packaging/linux/snap-pack.sh`. Legacy flat Linux tarballs, Windows zip, macOS bundles, and the web zip still come from `.github/scripts/package.sh`.
+
+### Windows MSI locally (maintainers)
+
+On Windows x86_64 with Rust (MSVC toolchain) and the .NET SDK:
+
+```powershell
+dotnet tool install --global wix --version 5.0.2
+wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
+bash packaging/windows/make-icon.sh icons
+# or use committed assets/brand/generated/windows/pcbcraft.ico
+pwsh packaging/windows/package.ps1
+```
+
+Outputs land in `dist/`. Installers are unsigned until code signing lands (#297); Windows SmartScreen may warn on first run.
 
 ### Building Linux installers locally
 
@@ -197,61 +221,14 @@ cargo build --locked --release -p pcbcraft -p pcbcraft-cli
 packaging/linux/package.sh --skip-build
 ```
 
-Install `nfpm`, `desktop-file-utils`, `appstream`, and `zsync` for deb, rpm, and
-AppImage zsync output (the script prints a warning if zsync is missing). The
-first AppImage build downloads `appimagetool` into `target/` when it is not on
-`PATH`.
+Install `nfpm`, `desktop-file-utils`, `appstream`, and `zsync` for deb, rpm, and AppImage zsync output (the script prints a warning if zsync is missing). The first AppImage build downloads `appimagetool` into `target/` when it is not on `PATH`.
 
 Flatpak and Snap need extra host tooling and match what CI runs:
 
-- Flatpak: build the FHS tarball (`packaging/linux/package.sh --skip-build --formats tar`),
-  then `packaging/linux/flatpak-bundle.sh dist/pcbcraft-$PCBCRAFT_DIST_TAG-linux-$(uname -m).tar.gz`
-  (needs `flatpak`, `flatpak-builder`, and `librsvg2-common`).
-- Snap: same tarball, then `packaging/linux/snap-pack.sh` (needs `snapcraft`; CI uses
-  `--destructive-mode` on Ubuntu 24.04).
+- Flatpak: build the FHS tarball (`packaging/linux/package.sh --skip-build --formats tar`), then `packaging/linux/flatpak-bundle.sh dist/pcbcraft-$PCBCRAFT_DIST_TAG-linux-$(uname -m).tar.gz` (needs `flatpak`, `flatpak-builder`, and `librsvg2-common`).
+- Snap: same tarball, then `packaging/linux/snap-pack.sh` (needs `snapcraft`; CI uses `--destructive-mode` on Ubuntu 24.04).
 
 CI does not upload to Flathub or the Snap Store; bundles are release artifacts only.
-Windows MSI packaging is tracked separately from this workflow.
-proves the release packaging works. Linux AppImage, .deb, .rpm and the FHS
-tarball come from `packaging/linux/package.sh`. Archives for every platform
-are assembled by `.github/scripts/package.sh`.
-
-### Signing (Windows and macOS)
-
-Release builds sign when repository secrets are present. Nightly runs and fork
-pull requests stay unsigned even if `sign` were enabled, because secrets are not
-exposed to untrusted workflows.
-
-| Secret | Purpose |
-| --- | --- |
-| `WINDOWS_CERTIFICATE` | Base64-encoded code signing PFX |
-| `WINDOWS_CERTIFICATE_PASSWORD` | PFX password |
-| `APPLE_CERTIFICATE` | Base64-encoded Developer ID Application PKCS#12 |
-| `APPLE_CERTIFICATE_PASSWORD` | PKCS#12 password |
-| `APPLE_CODESIGN_IDENTITY` | Optional full codesign identity string; otherwise the first Developer ID Application identity in the import keychain |
-| `APPLE_ID` | Apple ID for notarization (app-specific password flow) |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization |
-| `APPLE_TEAM_ID` | Team id for notarization |
-| `APPLE_NOTARY_KEY` | Base64-encoded App Store Connect API key (`.p8`) |
-| `APPLE_NOTARY_KEY_ID` | Key id when using the API key |
-| `APPLE_NOTARY_ISSUER_ID` | Issuer id when using the API key |
-
-Windows: `.github/scripts/sign-windows.ps1` signs `pcbcraft.exe` and
-`pcbcraft-cli.exe` before they are zipped, then runs `signtool verify /pa` in
-CI.
-
-macOS: `.github/scripts/sign-macos.sh` signs the CLI binary and app bundle with
-the hardened runtime, builds the dmg, signs the dmg, submits it to Apple, waits,
-and staples the ticket. Tarball binaries are signed but cannot be stapled; trust
-the dmg for Gatekeeper on first download.
-
-Local reproduction needs the same certificates and notarization credentials as
-CI. Without them, use unsigned nightly artifacts or build from source.
-
-Manual verification on clean machines:
-
-- Windows: `signtool verify /pa pcbcraft.exe`
-- macOS: `codesign --verify --deep --strict PCBCraft.app`, `xcrun stapler validate` on the dmg, `spctl --assess --type open` on the dmg
 
 ## Security posture
 
@@ -276,6 +253,8 @@ The logo masters and every platform icon live in `assets/brand/`. Run `assets/br
 
 ## Open decisions for the maintainers
 
+- Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries and the Windows MSI are unsigned until then; macOS users must open the app via right-click, and Windows may show SmartScreen on first launch.
+- Package formats: Linux AppImage, deb, rpm, Flatpak, and Snap ship from CI; Windows MSI and portable zip ship from CI. Other formats remain open.
 - Package formats: AppImage, .deb, .msi or Flatpak are not produced yet.
 - Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries are unsigned until then, and macOS users must open the app via right-click.
 - Where the web bundle is hosted (Pages or another host) and whether tags publish it.

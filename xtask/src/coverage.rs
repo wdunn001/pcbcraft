@@ -172,6 +172,52 @@ impl Config {
     }
 }
 
+/// Index of the line holding the `}` that closes the block opened at or after
+/// line `from`, or `None` for an item that ends in `;` before any brace. The
+/// scan skips string literals, character literals and `//` comments.
+pub fn block_end(lines: &[&str], from: usize) -> Option<usize> {
+    let mut depth: i64 = 0;
+    let mut opened = false;
+    for (k, line) in lines.iter().enumerate().skip(from) {
+        let chars: Vec<char> = line.chars().collect();
+        let mut c = 0;
+        while c < chars.len() {
+            match chars[c] {
+                '/' if chars.get(c + 1) == Some(&'/') => break,
+                '"' => {
+                    c += 1;
+                    while c < chars.len() && chars[c] != '"' {
+                        if chars[c] == '\\' {
+                            c += 1;
+                        }
+                        c += 1;
+                    }
+                }
+                '\'' => {
+                    // A character literal like '{' or '\n'; lifetimes have no closing quote.
+                    if chars.get(c + 2) == Some(&'\'') {
+                        c += 2;
+                    } else if chars.get(c + 1) == Some(&'\\') && chars.get(c + 3) == Some(&'\'') {
+                        c += 3;
+                    }
+                }
+                '{' => {
+                    depth += 1;
+                    opened = true;
+                }
+                '}' => depth -= 1,
+                ';' if !opened => return None,
+                _ => {}
+            }
+            c += 1;
+        }
+        if opened && depth <= 0 {
+            return Some(k);
+        }
+    }
+    None
+}
+
 /// Line ranges (1-based, inclusive) of `#[cfg(test)] mod name { ... }` blocks.
 pub fn test_module_ranges(source: &str) -> Vec<(u32, u32)> {
     let lines: Vec<&str> = source.lines().collect();
@@ -199,49 +245,7 @@ pub fn test_module_ranges(source: &str) -> Vec<(u32, u32)> {
             i += 1;
             continue;
         }
-        // Count braces from the module line to its closing brace.
-        let mut depth: i64 = 0;
-        let mut opened = false;
-        let mut end = None;
-        'scan: for (k, line) in lines.iter().enumerate().skip(j) {
-            let chars: Vec<char> = line.chars().collect();
-            let mut c = 0;
-            while c < chars.len() {
-                match chars[c] {
-                    '/' if chars.get(c + 1) == Some(&'/') => break,
-                    '"' => {
-                        c += 1;
-                        while c < chars.len() && chars[c] != '"' {
-                            if chars[c] == '\\' {
-                                c += 1;
-                            }
-                            c += 1;
-                        }
-                    }
-                    '\'' => {
-                        // A character literal like '{' or '\n'; lifetimes have no closing quote.
-                        if chars.get(c + 2) == Some(&'\'') {
-                            c += 2;
-                        } else if chars.get(c + 1) == Some(&'\\') && chars.get(c + 3) == Some(&'\'')
-                        {
-                            c += 3;
-                        }
-                    }
-                    '{' => {
-                        depth += 1;
-                        opened = true;
-                    }
-                    '}' => depth -= 1,
-                    ';' if !opened => break 'scan,
-                    _ => {}
-                }
-                c += 1;
-            }
-            if opened && depth <= 0 {
-                end = Some(k);
-                break;
-            }
-        }
+        let end = block_end(&lines, j);
         if let Some(end) = end {
             ranges.push((j as u32 + 1, end as u32 + 1));
             i = end + 1;

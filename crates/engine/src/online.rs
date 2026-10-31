@@ -16,6 +16,7 @@
 //! - crates/library/src/online_import.rs
 use super::authoring::{self, ModelParams};
 use super::*;
+use pcbcraft_library::cad::Provenance;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 
 const MAX_NOTICES: usize = 4;
@@ -59,6 +60,11 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             id: "library.place_online",
             description: "Import an online library part and place it in one undoable step: on the schematic the symbol is placed at the position; on the layout the part is also added to the schematic at a free spot and its footprint is put on the board at the position; the footprint pad numbers must match the symbol pins or nothing changes",
             input_schema: schema(place_props, &["symbol", "target", "position"]),
+        },
+        CommandSpec {
+            id: "library.online_status",
+            description: "List each project-library notice that records an online import, with its source id, upstream path and stored file revision, without using the network",
+            input_schema: schema(json!({}), &[] as &[&str]),
         },
     ]
 }
@@ -154,8 +160,30 @@ pub(super) fn run(
     match command {
         "library.import_online" => Some(import_command(p, params)),
         "library.place_online" => Some(place_command(p, next, params)),
+        "library.online_status" => Some(Ok(online_status(p))),
         _ => None,
     }
+}
+
+fn online_status(p: &Project) -> Value {
+    let entries: Vec<Value> = p
+        .library
+        .notices
+        .iter()
+        .filter_map(|notice| {
+            Provenance::parse_notice(notice).ok().map(|parsed| {
+                json!({
+                    "notice": notice,
+                    "kind": parsed.kind,
+                    "source_id": parsed.source_id,
+                    "upstream_path": parsed.upstream_path,
+                    "blob_id": parsed.blob_id,
+                    "commit_id": parsed.commit_id,
+                })
+            })
+        })
+        .collect();
+    json!({ "entries": entries })
 }
 
 fn import_command(p: &mut Project, params: &Value) -> Result<Value, Error> {
@@ -246,7 +274,9 @@ fn place_command(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value
             locked: None,
             side: None,
             pads,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         Some(fid)
     } else {
         None

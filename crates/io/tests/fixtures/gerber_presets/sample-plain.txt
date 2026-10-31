@@ -1,0 +1,12 @@
+LED_indicator-Copper_L1_Top.gbr	Copper,L1,Top
+LED_indicator-Copper_L2_Bot.gbr	Copper,L2,Bot
+LED_indicator-Drillmap.gbr	Drillmap
+LED_indicator-Legend_Bot.gbr	Legend,Bot
+LED_indicator-Legend_Top.gbr	Legend,Top
+LED_indicator-Paste_Bot.gbr	Paste,Bot
+LED_indicator-Paste_Top.gbr	Paste,Top
+LED_indicator-Profile.gbr	Profile,NP
+LED_indicator-Soldermask_Bot.gbr	Soldermask,Bot
+LED_indicator-Soldermask_Top.gbr	Soldermask,Top
+LED_indicator.gbrjob	-
+README-fabrication.txt	-

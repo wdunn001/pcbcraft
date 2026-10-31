@@ -853,13 +853,18 @@ pub mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
         }
+    sourcing: Default::default(),
+    compliance: Default::default(),
     }
 
     pub fn laser_job_two_pad_one_track_project() -> Project {
@@ -892,7 +897,9 @@ pub mod tests {
                     castellated: None,
                     geometry: None,
                 }],
-            },
+            
+                preserved: pcbcraft_doc::PreservedSource::default(),
+},
             Footprint {
                 preserved: pcbcraft_doc::PreservedSource::default(),
                 id: FP_B,
@@ -909,7 +916,9 @@ pub mod tests {
                     castellated: None,
                     geometry: None,
                 }],
-            },
+            
+                preserved: pcbcraft_doc::PreservedSource::default(),
+},
         ];
         project.board.tracks = vec![Track {
             preserved: pcbcraft_doc::PreservedSource::default(),
@@ -920,7 +929,9 @@ pub mod tests {
             width: 0.2,
             layer: Layer::Front,
             arc: None,
-        }];
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+}];
         project.components = vec![
             sample_component(COMP_A, "P1"),
             sample_component(COMP_B, "P2"),
@@ -928,8 +939,7 @@ pub mod tests {
         project.nets = vec![Net {
             id: NET,
             name: "SIG".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         }];
         project
     }
@@ -989,7 +999,7 @@ pub mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
             .join(name);
-        if std::env::var("PCBCRAFT_BLESS").is_ok() {
+        if pcbcraft_testkit::blessing() {
             fs::write(&path, actual).map_err(|e| e.to_string())?;
             return Ok(());
         }
