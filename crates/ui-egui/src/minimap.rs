@@ -468,7 +468,8 @@ pub(crate) fn lerp_camera(from: Camera, to: Camera, t: f32) -> Camera {
             from.center.y + (to.center.y - from.center.y) * e as f64,
         ),
         zoom,
-        mirror: to.mirror,
+        turns: to.turns,
+        up: to.up,
         turns: to.turns,
     }
 }
@@ -1595,6 +1596,7 @@ mod tests {
             zoom,
             mirror: false,
             turns: 0,
+            up: false,
         }
     }
 
