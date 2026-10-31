@@ -81,12 +81,12 @@ impl ChatBackend for ScriptBackend {
 #[derive(Clone)]
 pub struct CountingHttp {
     count: Arc<std::sync::atomic::AtomicUsize>,
-    reply: Result<(u16, Vec<u8>), String>,
+    reply: Result<crate::backend::HttpResponse, String>,
 }
 
 impl CountingHttp {
     /// A sender that answers every request with `reply`.
-    pub fn new(reply: Result<(u16, Vec<u8>), String>) -> Self {
+    pub fn new(reply: Result<crate::backend::HttpResponse, String>) -> Self {
         Self {
             count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             reply,
