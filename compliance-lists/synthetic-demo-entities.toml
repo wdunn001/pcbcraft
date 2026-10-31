@@ -1,0 +1,24 @@
+schema = 1
+id = "synthetic-demo-entities"
+title = "Synthetic demo entity list (not a real sanctions or entity register)"
+source_url = "https://example.com/compliance/synthetic-demo-entities"
+published = "2026-01-15"
+retrieved = "2026-06-01"
+licence = "CC0-1.0"
+cadence_days = 90
+
+[[entities]]
+name = "Synthetic Entity Alpha"
+aliases = ["SynAlpha Co", "Entity Alpha (demo)"]
+country = "XX"
+added = "2026-01-15"
+citation = "Fixture row for tests only."
+
+[[entities]]
+name = "Synthetic Entity Beta"
+parent = "Synthetic Entity Alpha"
+added = "2026-02-01"
+
+[[entities]]
+name = "Synthetic Entity Gamma"
+aliases = ["SynGamma"]
