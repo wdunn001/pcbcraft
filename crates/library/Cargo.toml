@@ -6,10 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+pcbcraft-clock.workspace = true
 pcbcraft-geom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+web-time = "1"
 
 [features]
 default = []
