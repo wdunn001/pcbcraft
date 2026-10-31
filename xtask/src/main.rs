@@ -39,6 +39,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   fmt          rustfmt check
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
+  bench        timed large-board bench (release, ignored tests)
   wasm         WebAssembly check of the shared UI and browser entry point
   tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
@@ -162,6 +163,20 @@ fn clippy() -> Result<(), String> {
         "--",
         "-D",
         "warnings",
+    ])
+}
+
+fn bench() -> Result<(), String> {
+    cargo(&[
+        "test",
+        "--release",
+        "--locked",
+        "-p",
+        "pcbcraft-ui-egui",
+        "--lib",
+        "--",
+        "--ignored",
+        "large_board_",
     ])
 }
 
@@ -553,6 +568,7 @@ fn run() -> Result<(), String> {
         "fmt" => fmt()?,
         "clippy" => clippy()?,
         "test" => test()?,
+        "bench" => bench()?,
         "coverage" => coverage::run(&root()?, args.get(1..).unwrap_or(&[]))?,
         "e2e" => e2e()?,
         "a11y" => a11y_gate()?,

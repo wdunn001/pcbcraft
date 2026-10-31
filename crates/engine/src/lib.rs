@@ -20,6 +20,7 @@ mod online;
 mod outline;
 pub mod profiles;
 pub mod recents;
+pub mod recovery;
 pub mod scope;
 pub mod wirelength;
 pub use dry_run::{ChangeSummary, DryRun};

@@ -4,6 +4,7 @@
 |---|---|---|---|
 | craft-ui | https://github.com/wdunn001/craft-libs | 0e9d4a61affd665b2e00d5e107cfe4a88ad15df5; MIT OR Apache-2.0 | Shared egui tab and widget components, Cargo dependency |
 | SolidCraft architecture | https://github.com/bherbruck/solidcraft | README / AGENTS consulted; MIT OR Apache-2.0 | Architectural reference; no implementation copied |
+| SolidCraft recovery design | https://github.com/bherbruck/solidcraft | crates/engine/src/recovery.rs and the recovery screen in crates/ui-egui/src/lib.rs read; MIT OR Apache-2.0 | Design of the per-design autosave entry, lock and offer prompt, adapted to PCBCraft's session, project and atomic write; no source copied |
 | SolidCraft agent chat backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/backend.rs` |
 | SolidCraft agent chat transcript | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/transcript.rs` and `turn.rs` |
 | SolidCraft agent chat test script backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/script.rs` |
