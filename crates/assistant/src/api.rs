@@ -5,6 +5,8 @@
 //! the [`StartContext::tools`] channel (the host gates it and runs it on the displayed session) and
 //! the result goes back to the model. The host supplies the HTTP function; nothing here touches the
 //! network by itself.
+//!
+//! Wire-format checklist (tools, tool results, stop reasons, headers): `docs/assistant-backends.md`.
 
 use crate::backend::{
     ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PromptPart, StartContext, ToolStatus,
