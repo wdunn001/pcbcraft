@@ -1162,6 +1162,7 @@ check.cutout_clearance = Ausschnittabstand
 check.diffpair_gap = Abstand der Differenzialpaare
 check.diffpair_impedance = Impedanz des Differenzialpaars
 check.diffpair_skew = Laufzeitversatz der Differenzialpaare
+check.impedance_target = Impedanzziel
 check.keepout = Sperrbereich
 check.length_group_skew = Laufzeitversatz der Längengruppe
 check.mask_covers_pad = Lötmaske bedeckt Pad

@@ -1433,6 +1433,7 @@ check.cutout_clearance = Cutout clearance
 check.diffpair_gap = Diffpair gap
 check.diffpair_impedance = Diffpair impedance
 check.diffpair_skew = Diffpair skew
+check.impedance_target = Impedance target
 check.keepout = Keepout
 check.length_group_skew = Length group skew
 check.mask_covers_pad = Mask covers pad

@@ -1162,6 +1162,7 @@ check.cutout_clearance = Dégagement de découpe
 check.diffpair_gap = Écart de paire différentielle
 check.diffpair_impedance = Impédance de paire différentielle
 check.diffpair_skew = Déséquilibre de paire différentielle
+check.impedance_target = Cible d'impédance
 check.keepout = Zone interdite
 check.length_group_skew = Déséquilibre du groupe de longueur
 check.mask_covers_pad = Masque couvrant une pastille

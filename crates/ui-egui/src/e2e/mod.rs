@@ -59,6 +59,7 @@ mod files_home;
 mod images;
 mod keymap;
 mod layers;
+mod impedance_target;
 mod layout;
 mod library;
 mod library_browser;
