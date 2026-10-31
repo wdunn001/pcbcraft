@@ -79,6 +79,9 @@ lib.rs copy_plot_to_clipboard
 lib.rs refusal_text
 authoring.rs pad_shape_controls
 authoring.rs pad_shape_label
+rules_fab.rs fab_rules_section
+rules_fab.rs class_fab_fields
+rules_fab.rs class_pair_section
 library_dock.rs library_dock_body
 library_dock.rs dock_chips
 library_dock.rs dock_sets

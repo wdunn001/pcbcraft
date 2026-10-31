@@ -885,6 +885,13 @@ fn a_newcomer_picks_a_drawing_tool_in_the_symbol_editor() -> Result<(), String> 
         app.library.editor.tool == LibraryTool::Polyline,
         "Fit zooms the canvas and leaves the chosen tool alone"
     );
+    let before = symbol_draft(&app)?.graphics.len();
+    tap_id(&ctx, &mut app, "button:Text")?;
+    assert_eq!(
+        symbol_draft(&app)?.graphics.len(),
+        before + 1,
+        "Text adds one text label to the symbol"
+    );
     Ok(())
 }
 

@@ -9,6 +9,7 @@
 //! frame activated with [`activate`].
 
 pub mod numbers;
+pub mod pseudo;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
