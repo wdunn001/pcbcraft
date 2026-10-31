@@ -1160,6 +1160,7 @@ check.copper_to_edge = Cuivre au bord
 check.cut_hits_via = Découpe touchant un via
 check.cutout_clearance = Dégagement de découpe
 check.diffpair_gap = Écart de paire différentielle
+check.diffpair_impedance = Impédance de paire différentielle
 check.diffpair_skew = Déséquilibre de paire différentielle
 check.keepout = Zone interdite
 check.length_group_skew = Déséquilibre du groupe de longueur

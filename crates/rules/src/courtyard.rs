@@ -270,6 +270,7 @@ pub(crate) fn courtyard_findings(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("courtyard_overlap", "error"),
                 message,
                 objects: vec![key.0, key.1],
+                hint: None,
             });
         }
     }

@@ -42,7 +42,11 @@ fn sample_two_pads_track() -> Project {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
+    sourcing: Default::default(),
+    compliance: Default::default(),
     });
     p.components.push(Component {
         sourcing: Default::default(),
@@ -65,7 +69,11 @@ fn sample_two_pads_track() -> Project {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
+    sourcing: Default::default(),
+    compliance: Default::default(),
     });
     let fp1 = Footprint {
         preserved: pcbcraft_doc::PreservedSource::default(),
@@ -263,6 +271,7 @@ fn snapmaker_drill_three_tool_sizes_yields_three_files_each_with_header_and_boun
         from_layer: None,
         to_layer: None,
         covering: None,
+covering_scope: None,
         covering_bottom: None,
     });
     p.board.holes.push(Hole {

@@ -32,8 +32,10 @@ use std::path::Path;
 /// # Do not
 /// - List a command that mutates the project.
 pub fn command_is_read_only(id: &str) -> bool {
-matches!(id, "artifact.generate" | "artifact.stale" | "design.summary")
-    || (id.starts_with("calc.") && id != "calc.apply")
+matches!(
+        id,
+"artifact.generate" | "artifact.stale" | "selection.copy_text" | "library.online_status" | "design.summary" | "sim.dc"
+    )
 }
 
 /// An artifact is stale when it was never generated or its live output hash
