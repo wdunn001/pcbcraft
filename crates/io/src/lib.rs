@@ -66,6 +66,7 @@ mod panel_export;
 mod schematic_sim;
 mod si_export;
 mod part_bodies;
+pub use part_bodies::part_boxes;
 mod plot_read;
 mod step_merge;
 mod raster;
