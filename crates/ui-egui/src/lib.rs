@@ -103,6 +103,18 @@ mod pour_panel;
 mod properties;
 mod reference_panel;
 mod route_drag;
+mod library_quality;
+mod minimap;
+mod modifier_ui;
+mod motion;
+mod number_entry;
+mod pages;
+mod palette;
+mod plot_viewer;
+mod pour_panel;
+mod properties;
+mod reference_panel;
+mod route_drag;
 mod rules_fab;
 mod sheet_rows;
 mod showcase;
@@ -7448,6 +7460,17 @@ impl App {
         {
             self.capture_select = None;
             self.select(Some(via));
+        }
+        if self.frames == 3
+            && let Some(row) = self
+                .capture_select
+                .as_deref()
+                .and_then(|s| s.strip_prefix("row:"))
+                .map(str::to_owned)
+        {
+            // `--select row:title` (or symbols, power, drawing) opens that page row.
+            self.capture_select = None;
+            self.select_sheet_row(0, &row);
         }
         if self.frames == 3
             && let Some(row) = self

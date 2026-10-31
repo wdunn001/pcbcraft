@@ -5763,6 +5763,19 @@ fn valid_hex_colour(text: &str) -> bool {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemoveSheet {
+    id: Id,
+    #[serde(default)]
+    move_to: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetSheetParent {
+    id: Id,
+    #[serde(default)]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RemoveSheet {

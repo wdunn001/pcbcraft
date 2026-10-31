@@ -2323,6 +2323,7 @@ web.download_desktop = Download the desktop app
 web.download_desktop.tip = Open the releases page, where the desktop app for your computer is listed.
 web.needs_desktop = Open, Save and Export need the desktop app. In the browser your work stays in this tab only.
 web.limits = Browser version: your work stays in this tab. Open, Save, Export, library folders and the assistant keys need the desktop app.
+# Layers tree: what each row is (hover text on every row of both trees)
 docks.workbench_tabs.library = Library
 library.dock.open_in_library = Open in Library tab
 library.dock.open_in_library.tip = Open this part's page in the Library tab: its datasheet, prices, 3D model and fields.

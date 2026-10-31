@@ -1648,12 +1648,13 @@ impl App {
         let row_shown = |row: &str| self.page_row_shown(page, row);
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
         let mut sheet_frame = sheet::sheet_for(p, page);
-        // The title block names the page being drawn, not always the first.
+// The title block names the page being drawn, not always the first.
         sheet_frame.page = 1 + p
             .sheets
             .iter()
             .position(|s| s.id == page)
             .map_or(0, |i| i + 1);
+        sheet_frame.title_shown &= row_shown("title");
         sheet_frame.title_shown &= row_shown("title");
         sheet::paint_sheet(
             painter,
@@ -1709,7 +1710,7 @@ impl App {
             );
         }
         if row_shown("power") {
-            sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
+sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
         }
         for w in p
             .drawn_wires
