@@ -13,7 +13,7 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// Bumped whenever the reader changes what a file produces, so a cache of
 /// older results is never served.
@@ -167,14 +167,15 @@ fn extension(path: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// Read one model file from its bytes. `path` picks the format by extension
-/// and the folder for a glTF that points at a separate `.bin` file.
+fn default_import_cache() -> &'static crate::ImportCache {
+    static CACHE: OnceLock<crate::ImportCache> = OnceLock::new();
+    CACHE.get_or_init(crate::ImportCache::default)
+}
+
+/// Read one model file from its bytes, using the user disk cache when available.
 ///
 /// # Rules
-/// Refuses files over [`MAX_MODEL_BYTES`], [`MAX_MODEL_VERTICES`] or
-/// [`MAX_MODEL_FACES`] with a plain reason.
-/// # Dependencies
-/// `gltf` crate with default features off (no image decoding).
+/// Same limits as [`load_model_uncached`]; cache hits skip parsing.
 /// # Do not
 /// Do not place the model on the board here; that is `board_mesh::with_models`.
 pub fn load_model(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {

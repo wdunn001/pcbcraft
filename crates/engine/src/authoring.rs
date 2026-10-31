@@ -449,6 +449,13 @@ struct ModelTransformParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct EmbedModelParams {
+    name: String,
+    #[serde(default)]
+    path: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RulesParams {
     name: String,
     #[serde(default)]
