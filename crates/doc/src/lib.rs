@@ -1403,7 +1403,7 @@ impl Layer {
     }
 
     /// Plain-English layer name for people who have never seen copper-layer
-    /// shorthand; file formats keep using stackup-aware names from the project.
+    /// shorthand. Saved project files use stackup names via the I/O layer.
     pub fn label(self) -> &'static str {
         match self.0 {
             0 => "Top",

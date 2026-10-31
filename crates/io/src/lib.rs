@@ -16,6 +16,7 @@ mod export_validate;
 mod fab_drawing;
 mod fab_export;
 mod generate;
+mod layer_file;
 mod gerber;
 mod gerber_job;
 mod idf;
@@ -236,7 +237,9 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 /// - Call with paths to non-JSON files
 pub fn load(path: &Path) -> Result<Project, String> {
     let text = read_text(path)?;
-    let mut project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let mut project: Project = serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
+    layer_file::read_stackup_copper_names(&mut project, &root)?;
     migrate_loaded_project(&mut project)?;
     project.validate()?;
     Ok(project)
@@ -297,7 +300,9 @@ pub fn atomic_write(_path: &Path, _bytes: &[u8]) -> Result<(), String> {
 /// - Uses atomic write to prevent corruption
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
     project.validate()?;
-    let bytes = serde_json::to_vec_pretty(project).map_err(|e| e.to_string())?;
+    let mut root = serde_json::to_value(project).map_err(|e| e.to_string())?;
+    layer_file::write_stackup_copper_names(&mut root, project);
+    let bytes = serde_json::to_vec_pretty(&root).map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err("project exceeds 8 MiB".into());
     }
@@ -13977,6 +13982,146 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn a_project_saved_with_index_derived_bottom_name_opens_on_the_same_layer(
+    ) -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            project.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: name.into(),
+                kind: "copper".into(),
+                thickness,
+                ..Default::default()
+            });
+        }
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(5.0, 0.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::from_index(3).map_err(|e| e.to_string())?,
+            arc: None,
+        });
+        let raw = serde_json::to_string(&project).map_err(|e| e.to_string())?;
+        let loaded = {
+            let root: serde_json::Value =
+                serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+            let mut p: Project =
+                serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
+            layer_file::read_stackup_copper_names(&mut p, &root)?;
+            p
+        };
+        assert_eq!(loaded.board.tracks[0].layer.index(), 3);
+        Ok(())
+    }
+
+    fn four_layer_project_save_is_byte_stable_on_second_write() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            project.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: name.into(),
+                kind: "copper".into(),
+                thickness,
+                ..Default::default()
+            });
+        }
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(5.0, 0.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::from_index(3).map_err(|e| e.to_string())?,
+            arc: None,
+        });
+        project.validate()?;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("four.pcbcraft");
+        save(&project, &path)?;
+        let first = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let text = String::from_utf8(first.clone()).map_err(|e| e.to_string())?;
+        assert!(
+            text.contains("\"layer\": \"B.Cu\""),
+            "bottom copper is written with the stackup name"
+        );
+        assert!(
+            !text.contains("In3.Cu"),
+            "index-derived bottom names must not appear"
+        );
+        let loaded = load(&path)?;
+        let again = dir.path().join("four-again.pcbcraft");
+        save(&loaded, &again)?;
+        let second = std::fs::read(&again).map_err(|e| e.to_string())?;
+        assert_eq!(first, second, "a second save must be byte-identical");
+        Ok(())
+    }
+
+    fn six_layer_project_save_is_byte_stable_on_second_write() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        for i in 1..=6 {
+            project.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: format!("L{i}"),
+                kind: "copper".into(),
+                thickness: 0.035,
+                ..Default::default()
+            });
+        }
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(5.0, 0.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::from_index(5).map_err(|e| e.to_string())?,
+            arc: None,
+        });
+        project.validate()?;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("six.pcbcraft");
+        save(&project, &path)?;
+        let first = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let text = String::from_utf8(first.clone()).map_err(|e| e.to_string())?;
+        assert!(
+            text.contains("\"layer\": \"L6\""),
+            "bottom copper uses the recorded stackup name"
+        );
+        assert!(
+            !text.contains("In5.Cu"),
+            "index-derived bottom names must not appear"
+        );
+        let loaded = load(&path)?;
+        let again = dir.path().join("six-again.pcbcraft");
+        save(&loaded, &again)?;
+        let second = std::fs::read(&again).map_err(|e| e.to_string())?;
+        assert_eq!(first, second, "a second save must be byte-identical");
+        Ok(())
+    }
+
     fn an_arced_corner_round_trips_through_save_and_open() -> Result<(), String> {
         let mut project = Project::default();
         project.board.outline = Some(vec![
