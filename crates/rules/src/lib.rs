@@ -2400,6 +2400,7 @@ mod tests {
                 electrical_type: electrical_type.into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             });
         }
         Ok(())
