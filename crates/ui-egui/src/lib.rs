@@ -117,6 +117,7 @@ mod number_entry;
 mod outline_arcs;
 mod sheet_rows;
 mod modifier_ui;
+mod model_transform;
 mod motion;
 mod number_entry;
 mod pages;
