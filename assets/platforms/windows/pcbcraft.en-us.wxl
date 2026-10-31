@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Overrides for the setup wizard's WixUI strings ([PcbcraftVersion] is set in pcbcraft.wxs).
+  Adapted from SolidCraft packaging (bherbruck/solidcraft; MIT OR Apache-2.0; see ATTRIBUTION.md).
+-->
+<WixLocalization Culture="en-US" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <String Id="WelcomeDlgTitle" Value="{\WixUI_Font_Bigger}Welcome to the [ProductName] [PcbcraftVersion] Setup Wizard" />
+  <String Id="WelcomeDlgDescription" Value="The Setup Wizard will install [ProductName] version [PcbcraftVersion] on your computer. Click Next to continue or Cancel to exit the Setup Wizard." />
+  <String Id="VerifyReadyDlgInstallTitle" Value="{\WixUI_Font_Title}Ready to install [ProductName] [PcbcraftVersion]" />
+  <String Id="ExitDialogTitle" Value="{\WixUI_Font_Bigger}Completed the [ProductName] [PcbcraftVersion] Setup Wizard" />
+</WixLocalization>

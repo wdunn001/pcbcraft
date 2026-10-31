@@ -41,6 +41,10 @@ Stages in words:
 7. **Closing.** The tracker manager closes the issue when the pull request that finishes it has merged and CI on `main` is green. Partial work leaves the issue open with the pull request linked.
 
 A reviewer may add a `### Review` comment on the issue or the pull request. It is optional and never replaces CI.
+5. **Work.** The worker claims, branches off fork `main`, builds, tests, merges the latest fork `main` back in, pushes the branch, waits for the Actions run, and posts a build report ending in "PR pending owner review".
+6. **Review.** A reviewer checks the pushed branch against the acceptance criteria and posts `### Review`.
+7. **Integration.** The integrator merges the branch into fork `main` with a merge commit. The merge message ends with a line `Issues: #N, #M` listing every issue the branch delivers, with no other text on that line. When the Actions build on fork `main` is green, the change is done.
+8. **Owner test.** The maintainer runs fork `main`. Only then does a pull request to upstream open.
 
 ## 2. Roles, step by step
 
@@ -193,12 +197,14 @@ A pull request that does not merge cleanly into `main` goes back to the worker.
 **Build and test**
 
 CI is GitHub Actions on wdunn001/pcbcraft, and it runs on every pull request. The Actions run is the proof of a green build; link it in your pull request. Running the gate yourself before pushing is optional and saves round trips:
+CI is GitHub Actions on the fork, and it runs on pull requests and on `main`, not on plain branch pushes. Open a draft pull request to get the cheap checks (format, policy, clippy, docs); mark it ready for review to run the full gate. The green run is the proof of a build; link it in your report. Running the gate yourself before pushing is optional and saves round trips:
 
 ```sh
 cargo xtask ci
 ```
 
 It runs formatting, dependency layer checks, clippy with warnings denied, the workspace tests (including the `a_newcomer_*` end-to-end tests) and the WebAssembly check. Once the CI pipeline branch (#164) is merged, the Actions gate also runs policy, docs, MSRV and license checks, the full e2e suite and the screenshot sheet; `docs/ci.md` lists every job and its local command. If you build on a shared machine, cap parallelism (`CARGO_BUILD_JOBS=4`) and keep your own target directory; do not run full builds on a laptop when a shared build host or Actions can do it.
+It runs formatting, dependency layer checks, clippy with warnings denied, the workspace tests (including the `a_newcomer_*` end-to-end tests) and the WebAssembly check. `docs/ci.md` lists every job and its local command. CI does not capture screenshots. If you build on a shared machine, cap parallelism (`CARGO_BUILD_JOBS=4`) and keep your own target directory; do not run full builds on a laptop when a build machine or Actions can do it.
 
 For UI changes, look at the rendered result (section 6).
 
@@ -280,16 +286,40 @@ Integrators verify pull requests and merge them into `main`, so `main` is always
 1. Watch `gh pr list -R wdunn001/pcbcraft --state open` for pull requests with green CI. Workers do not need to ask.
 2. Verify the pull request: it merges cleanly, the report is complete, the Definition of Done is ticked and the rules in section 5 hold. Wait until the pull request's "CI result" check is green (`main` has no required checks, so do not use `--auto`: it merges at once). Then merge it with a merge commit, never a squash or a rebase of `main`:
    ```sh
+Verdict: approved for integration
+   ```
+   or `Verdict: changes requested` followed by the list. The worker fixes and pushes; the reviewer reviews again.
+5. The reviewer does not merge and does not change the status tag.
+
+### Integrator
+
+Integrators verify pull requests and merge them into `main`, so `main` is always the integrated build.
+
+1. Watch `gh pr list -R wdunn001/pcbcraft --state open` for pull requests with green CI. Workers do not need to ask.
+2. Verify the pull request: it merges cleanly, the report is complete, the Definition of Done is ticked and the rules in section 5 hold. Wait until the pull request's "CI result" check is green (`main` has no required checks, so do not use `--auto`: it merges at once). Then merge it with a merge commit, never a squash or a rebase of `main`:
+   ```sh
+   git checkout main && git pull --ff-only origin main
+   git merge --no-ff feat-<slug>
    gh pr merge N -R wdunn001/pcbcraft --merge
    ```
-3. Resolve conflicts in the merge commit, keeping both sides' intent; if the resolution is not obvious, ask on both issues before merging.
-4. Watch the GitHub Actions run on `main`. The change is done when that full build is green; if it is red, fix forward on a branch with its own pull request or report on the issue, and never rewrite `main`.
+   End the merge commit message with a line `Issues: #N, #M` listing every issue the branch delivers, with no other text on that line.
+3. Resolve conflicts in the merge commit, keeping both sides' intent; if the resolution is not obvious, ask on both issues before merging/pushing.
+4. Push the merge, then watch the GitHub Actions run on `main`. The change is done when that full build is green; if it is red, fix forward on a branch with its own pull request or report on the issue, and never rewrite `main`. Where a local run is cheap, run `cargo xtask ci` on the merged tree before the push:
+   ```sh
+   git push origin main
+   ```
 5. Never rewrite `main` and never push to it directly. All changes arrive by pull request.
-6. Comment on each issue with the merge commit, and post any resolution that changes logic so the worker sees it.
+6. Keep a ledger in `integration-ledger.md`: date, branch, branch head, issue, fork main before and after, Actions run, conflict files and how each was resolved. Comment on each issue with the merge commit, and post any resolution that changes logic so the worker and reviewer see it.
 
 ### Owner test
 
-The maintainer can test any branch or `main` with one packaged command that builds it and produces the screenshot sheet. It wraps `cargo xtask screenshots` from the CI pipeline (#164). Until it exists, run `cargo xtask screenshots --out target/screenshots` yourself. If the maintainer finds a problem, they comment on the pull request or the issue; the status goes back to `status:in-progress` and the worker continues on the same branch.
+The maintainer tests on fork `main`. Screenshots are local (`cargo xtask screenshots --out target/screenshots`). Only after the maintainer has tested:
+
+- The maintainer opens one pull request per feature from the feature branch to upstream `main`, with a body that starts with the Tags line, and sets `status:pr-open` on the issue.
+- Upstream pull requests merge only with green CI.
+- When upstream merges, the issue closes, and the status epic #352 is updated.
+
+If the maintainer finds a problem, they comment on the issue; the status goes back to `status:in-progress` and the worker continues on the same branch.
 
 ## 3. Tags and claiming
 
@@ -312,6 +342,7 @@ Vocabulary, one line each. "One" means exactly one value.
 | size (one) | `size:s` one PR, one crate, under a day; `size:m` one PR, several crates; `size:l` several PRs or an epic |
 | machine (zero or more) | `machine:neoden-yy1` `machine:eufymake-e1` `machine:snapmaker-cnc` `machine:commarker-b6` |
 | status (one) | `status:open` `status:claimed` `status:in-progress` `status:pr-open` `status:blocked` |
+| status (one) | `status:open` `status:claimed` `status:in-progress` `status:pr-open` `status:needs-owner-test` `status:blocked` `status:review` |
 | stage (one) | `stage:research` `stage:enrich` `ready` (bare; an issue never carries both `ready` and a `stage:` tag) |
 | research | `research:needed` `research:done` `research:n/a` |
 | enrich | `enrich:done` (an `### Enrichment` comment exists) |
@@ -404,7 +435,7 @@ These come from AGENTS.md and apply to every change.
 
 - **Unit tests** live beside the code in each crate (`#[cfg(test)]` modules) and cover validation bounds, rejections and the happy path. Name them as sentences: `padstack_rejects_chamfer_ratio_out_of_range`.
 - **Golden fixtures** cover every file writer and reader. Put fixture files under `crates/<crate>/tests/fixtures/` and compare whole outputs, not substrings. For output that an independent parser exists for, read the output back with that parser as a dev-dependency. Fixtures from external libraries keep their license file beside them.
-- **End-to-end tests** are named `a_newcomer_<does something>`. They drive the real `App` headlessly with the `frame`, `tap`, `paints_text` and `scrolled_to` helpers, and every assertion message is a plain sentence that someone who has never seen the app could follow ("the matching part stays in the list"). One test per user-visible feature. They live in `crates/ui-egui/src/e2e/<area>.rs` (helpers in `src/e2e/support.rs`), one file per area (library, nets, rules, builds, board, checks, artifacts, layout, layers, shell). Put new tests in the matching area file, or add a new area file plus one `mod <area>;` line in `src/e2e/mod.rs`, and never add one to lib.rs. CI runs the full e2e suite as a required check, uploads a screenshot sheet, and fails if any control lacks a tooltip or an e2e story.
+- **End-to-end tests** are named `a_newcomer_<does something>`. They drive the real `App` headlessly with the `frame`, `tap`, `paints_text` and `scrolled_to` helpers, and every assertion message is a plain sentence that someone who has never seen the app could follow ("the matching part stays in the list"). One test per user-visible feature. They live in `crates/ui-egui/src/e2e/<area>.rs` (helpers in `src/e2e/support.rs`), one file per area (library, nets, rules, builds, board, checks, artifacts, layout, layers, shell). Put new tests in the matching area file, or add a new area file plus one `mod <area>;` line in `src/e2e/mod.rs`, and never add one to lib.rs. CI does not run the e2e suite and does not capture a screenshot sheet. Run `cargo xtask e2e` and `cargo xtask screenshots` locally when you need them.
 - **Engine round trips** for any new document field: save and load a project carrying it and compare.
 - **Screenshots for UI changes.** Render the change and put before and after images in the pull request body. On `main` today:
   ```sh
@@ -414,6 +445,8 @@ These come from AGENTS.md and apply to every change.
   ```
   `cargo xtask screenshots --out target/screenshots` (from the CI pipeline, #164) captures the standard views, and CI uploads a side-by-side sheet of base and head. Add a view there when a new tab or dialog deserves one. If your issue carries `track:ui-design`, you produce the screenshots yourself and put the sheet path in your report; never ask the owner for evidence you can produce.
 - **Where to run.** CI runs on GitHub Actions on wdunn001/pcbcraft. Open the pull request early (as a draft if you like) and use the run as proof. A local `cargo xtask ci` is optional.
+  `cargo xtask screenshots --out target/screenshots` captures the standard views locally. Add a view there when a new tab or dialog deserves one. If your issue carries `track:ui-design`, you produce the screenshots yourself and put the sheet path in your report; never ask the owner for evidence you can produce. CI does not capture images.
+- **Where to run.** CI runs on GitHub Actions on the owner's fork. Push early and use the run as proof. A local `cargo xtask ci` is optional.
 
 ## 7. Branches, commits, merge flow
 

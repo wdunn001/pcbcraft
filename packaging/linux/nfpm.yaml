@@ -13,7 +13,7 @@ vendor: PCBCraft contributors
 homepage: https://github.com/wdunn001/pcbcraft
 license: GPL-3.0-or-later
 description: |-
-  Open-source Rust PCB design: schematic, layout, checks, and KiCad export.
+  Open-source Rust PCB design: schematic, layout, checks, and manufacturing outputs.
   Includes pcbcraft-cli for headless commands and an MCP server for agents.
 
 overrides:

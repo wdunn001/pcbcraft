@@ -7,3 +7,5 @@ Getting started: [../getting-started.md](../getting-started.md).
 - **Check:** acceptance list, enrichment tests, section 5 rules, conflict lane respected, tooltips, no forbidden product names.
 - **Verdict:** approved for integration or changes requested, posted on the pull request. Read and run; never edit the worker branch.
 - **UI:** open screenshot sheet for `track:ui-design`.
+- **Verdict:** approved for integration or changes requested. Read and run; never edit the worker branch.
+- **UI:** screenshots are local only (`cargo xtask screenshots`); CI does not capture them.
