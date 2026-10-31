@@ -3,7 +3,7 @@
 The target is a complete Rust EDA application with MCP access to every feature.
 This checklist records implementation, not an estimated parity percentage.
 Each open line names the tracker issue that carries it. The program status epic,
-tangency-labs/pcbcraft#352, mirrors this list with what is in flight and the open
+wdunn001/pcbcraft#95 (issue numbers below are from the old tracker; a migrated issue's body says `Migrated from tangency-labs/pcbcraft#N`), mirrors this list with what is in flight and the open
 owner decisions. Milestone names here match the `milestone:` tags described in
 CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 `milestone:m5`, M6 is `milestone:m6`.

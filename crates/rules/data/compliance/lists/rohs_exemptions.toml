@@ -1,0 +1,20 @@
+schema = 1
+id = "rohs_exemptions"
+title = "RoHS Annex III exemptions (bundled snapshot)"
+source_url = "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32011L0065"
+published = "2026-01-01"
+retrieved = "2026-03-28"
+licence = "EUR-Lex reuse policy; exemption numbers are public law references."
+cadence_days = 365
+
+[[exemptions]]
+number = "7(a)-I"
+description = "Synthetic teaching exemption still in force."
+expires = "2028-12-31"
+citation = "Bundled teaching snapshot."
+
+[[exemptions]]
+number = "6(a)"
+description = "Synthetic teaching exemption that expired for stale tests."
+expires = "2024-06-30"
+citation = "Bundled teaching snapshot."
