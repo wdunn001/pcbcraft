@@ -94,5 +94,6 @@ pub(crate) fn footprint(kind: &str) -> Option<FootprintDefinition> {
         rules: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        retained: Vec::new(),
     })
 }

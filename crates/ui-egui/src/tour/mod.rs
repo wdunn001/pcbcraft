@@ -1,10 +1,4 @@
-//! In-app tours: data (#769), anchors (#772), replay in CI (#774), overlay (#770).
+//! In-app tours: data files beside the string catalog and validation only.
+//! Drawing and anchors live in sibling modules (#770, #772).
 
-pub mod anchor;
-mod app;
 pub mod data;
-mod layout;
-pub mod replay;
-pub mod state;
-
-pub(crate) use layout::step_layout;

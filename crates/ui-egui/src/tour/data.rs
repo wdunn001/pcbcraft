@@ -3,7 +3,7 @@
 //! Files live in `crates/text/tours/` beside `strings/`. Step words are catalog
 //! keys; the TOML carries ids, anchors, placement and optional wait rules only.
 
-use pcbcraft_text::{valid_key, ENGLISH};
+use pcbcraft_text::{ENGLISH, valid_key};
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashSet};
 
@@ -76,9 +76,20 @@ pub fn embedded() -> Result<Doc, String> {
     Ok(doc)
 }
 
-/// Validate every rule on a parsed document.
+/// Embedded tours for the shell. Invalid shipped data yields an empty catalog so the app still opens.
+pub fn embedded_for_shell() -> Doc {
+    match embedded() {
+        Ok(doc) => doc,
+        Err(_) => Doc::default(),
+    }
+}
+
+/// Validate every rule on a parsed document against the English catalog.
 pub fn validate(doc: &Doc) -> Result<(), String> {
-    let keys = catalog_keys();
+    validate_with_catalog(doc, &catalog_keys())
+}
+
+fn validate_with_catalog(doc: &Doc, keys: &BTreeSet<String>) -> Result<(), String> {
     let command_ids = command_ids();
     let mut tour_ids = HashSet::new();
     for tour in &doc.tour {
@@ -106,7 +117,7 @@ pub fn validate(doc: &Doc) -> Result<(), String> {
                 "tour `{}`: expected {MIN_STEPS} to {MAX_STEPS} steps, found {step_count}"
             ));
         }
-        require_catalog_key(&keys, &tour.list_key(), &format!("tour `{}` list", tour.id))?;
+        require_catalog_key(keys, &tour.list_key(), &format!("tour `{}` list", tour.id))?;
         let mut step_ids = HashSet::new();
         for step in &tour.steps {
             if !valid_key(&step.id) {
@@ -134,8 +145,8 @@ pub fn validate(doc: &Doc) -> Result<(), String> {
                 ));
             }
             let ctx = format!("tour `{}` step `{}`", tour.id, step.id);
-            require_catalog_key(&keys, &step.title, &format!("{ctx} title"))?;
-            require_catalog_key(&keys, &step.body, &format!("{ctx} body"))?;
+            require_catalog_key(keys, &step.title, &format!("{ctx} title"))?;
+            require_catalog_key(keys, &step.body, &format!("{ctx} body"))?;
             if let Some(cond) = &step.condition {
                 if !CONDITIONS.contains(&cond.as_str()) {
                     return Err(format!("{ctx}: unknown condition `{cond}`"));
@@ -182,50 +193,33 @@ fn require_catalog_key(keys: &BTreeSet<String>, key: &str, label: &str) -> Resul
 fn validate_wait_for(raw: &str, command_ids: &BTreeSet<String>) -> Result<(), String> {
     match raw {
         "document_changed" | "selection:part" | "selection:any" => Ok(()),
-        _ if raw.starts_with("click:") => {
-            let anchor = raw.strip_prefix("click:").unwrap_or("");
-            if anchor.is_empty() {
-                Err("wait_for click: needs an anchor id".into())
-            } else {
-                Ok(())
-            }
-        }
-        _ if raw.starts_with("tool:") => {
-            let name = raw.strip_prefix("tool:").unwrap_or("");
-            if name.is_empty() {
-                Err("wait_for tool: needs a tool name".into())
-            } else {
-                Ok(())
-            }
-        }
-        _ if raw.starts_with("tab:") => {
-            let tab = raw.strip_prefix("tab:").unwrap_or("");
-            if WORKSPACES.contains(&tab) {
-                Ok(())
-            } else {
-                Err(format!("wait_for tab: unknown workspace `{tab}`"))
-            }
-        }
-        _ if raw.starts_with("panel_open:") => {
-            let panel = raw.strip_prefix("panel_open:").unwrap_or("");
-            if panel.is_empty() {
+        _ if raw.starts_with("click:") => match raw.strip_prefix("click:") {
+            Some(anchor) if !anchor.is_empty() => Ok(()),
+            _ => Err("wait_for click: needs an anchor id".into()),
+        },
+        _ if raw.starts_with("tool:") => match raw.strip_prefix("tool:") {
+            Some(name) if !name.is_empty() => Ok(()),
+            _ => Err("wait_for tool: needs a tool name".into()),
+        },
+        _ if raw.starts_with("tab:") => match raw.strip_prefix("tab:") {
+            Some(tab) if WORKSPACES.contains(&tab) => Ok(()),
+            Some(tab) => Err(format!("wait_for tab: unknown workspace `{tab}`")),
+            None => Err("wait_for tab: needs a workspace id".into()),
+        },
+        _ if raw.starts_with("panel_open:") => match raw.strip_prefix("panel_open:") {
+            Some(panel) if PANEL_TABS.contains(&panel) => Ok(()),
+            Some(panel) if panel.is_empty() => {
                 Err("wait_for panel_open: needs a region tab id".into())
-            } else if PANEL_TABS.contains(&panel) {
-                Ok(())
-            } else {
-                Err(format!("wait_for panel_open: unknown region tab `{panel}`"))
             }
-        }
-        _ if raw.starts_with("command:") => {
-            let id = raw.strip_prefix("command:").unwrap_or("");
-            if id.is_empty() {
-                Err("wait_for command: needs a command id".into())
-            } else if command_ids.contains(id) {
-                Ok(())
-            } else {
-                Err(format!("wait_for command: unknown command `{id}`"))
-            }
-        }
+            Some(panel) => Err(format!("wait_for panel_open: unknown region tab `{panel}`")),
+            None => Err("wait_for panel_open: needs a region tab id".into()),
+        },
+        _ if raw.starts_with("command:") => match raw.strip_prefix("command:") {
+            Some(id) if id.is_empty() => Err("wait_for command: needs a command id".into()),
+            Some(id) if command_ids.contains(id) => Ok(()),
+            Some(id) => Err(format!("wait_for command: unknown command `{id}`")),
+            None => Err("wait_for command: needs a command id".into()),
+        },
         _ => Err(format!("unknown wait_for `{raw}`")),
     }
 }
@@ -233,6 +227,17 @@ fn validate_wait_for(raw: &str, command_ids: &BTreeSet<String>) -> Result<(), St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture_catalog_keys() -> BTreeSet<String> {
+        let mut keys = catalog_keys();
+        keys.insert("tour.validator-fixture.list".into());
+        keys.insert("tour.validator-fixture.list.tip".into());
+        keys
+    }
+
+    fn validate_fixture(doc: &Doc) -> Result<(), String> {
+        validate_with_catalog(doc, &fixture_catalog_keys())
+    }
 
     fn good_tour_toml() -> String {
         r#"
@@ -280,25 +285,7 @@ wait_for = "document_changed"
     #[test]
     fn a_good_file_loads() -> Result<(), String> {
         let doc = parse_toml(&good_tour_toml())?;
-        // Fixture uses menu.help keys; add list keys only in this test via fake validate path.
-        // Shipped tours must define tour.<id>.list in en.txt; inject for the fixture id.
-        let mut keys = catalog_keys();
-        keys.insert("tour.validator-fixture.list".into());
-        keys.insert("tour.validator-fixture.list.tip".into());
-        let command_ids = command_ids();
-        let mut tour_ids = HashSet::new();
-        for tour in &doc.tour {
-            tour_ids.insert(tour.id.clone());
-            require_catalog_key(&keys, &tour.list_key(), "list")?;
-            for step in &tour.steps {
-                require_catalog_key(&keys, &step.title, "title")?;
-                require_catalog_key(&keys, &step.body, "body")?;
-                if let Some(wait) = &step.wait_for {
-                    validate_wait_for(wait, &command_ids)?;
-                }
-            }
-        }
-        Ok(())
+        validate_fixture(&doc)
     }
 
     #[test]
@@ -351,7 +338,7 @@ placement = "auto"
             "wait_for = \"not-a-real-wait\"",
         );
         let doc = parse_toml(&text)?;
-        let err = validate(&doc).expect_err("bad wait_for");
+        let err = validate_fixture(&doc).expect_err("bad wait_for");
         assert!(
             err.contains("unknown wait_for"),
             "expected wait_for error, got {err}"
@@ -361,12 +348,9 @@ placement = "auto"
 
     #[test]
     fn duplicate_step_ids_are_rejected() -> Result<(), String> {
-        let text = good_tour_toml().replace(
-            "id = \"three\"",
-            "id = \"two\"",
-        );
+        let text = good_tour_toml().replace("id = \"three\"", "id = \"two\"");
         let doc = parse_toml(&text)?;
-        let err = validate(&doc).expect_err("duplicate step");
+        let err = validate_fixture(&doc).expect_err("duplicate step");
         assert!(
             err.contains("duplicate step id"),
             "expected duplicate step error, got {err}"
@@ -376,12 +360,9 @@ placement = "auto"
 
     #[test]
     fn missing_string_keys_are_rejected() -> Result<(), String> {
-        let text = good_tour_toml().replace(
-            "menu.help.shortcuts",
-            "tour.no.such.title",
-        );
+        let text = good_tour_toml().replace("menu.help.shortcuts", "tour.no.such.title");
         let doc = parse_toml(&text)?;
-        let err = validate(&doc).expect_err("missing key");
+        let err = validate_fixture(&doc).expect_err("missing key");
         assert!(
             err.contains("missing catalog key"),
             "expected missing key error, got {err}"
@@ -391,12 +372,9 @@ placement = "auto"
 
     #[test]
     fn missing_tip_keys_are_rejected() -> Result<(), String> {
-        let text = good_tour_toml().replace(
-            "menu.help.shortcuts",
-            "menu.help",
-        );
+        let text = good_tour_toml().replace("menu.help.shortcuts", "menu.help");
         let doc = parse_toml(&text)?;
-        let err = validate(&doc).expect_err("missing tip");
+        let err = validate_fixture(&doc).expect_err("missing tip");
         assert!(
             err.contains(".tip"),
             "expected missing tip error, got {err}"
@@ -411,10 +389,58 @@ placement = "auto"
             "placement = \"top\"\nif = \"never.registered\"",
         );
         let doc = parse_toml(&text)?;
-        let err = validate(&doc).expect_err("bad condition");
+        let err = validate_fixture(&doc).expect_err("bad condition");
         assert!(
             err.contains("unknown condition"),
             "expected condition error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn duplicate_tour_ids_are_rejected() -> Result<(), String> {
+        let text = format!("{}\n{}", good_tour_toml().trim(), good_tour_toml().trim());
+        let doc = parse_toml(&text)?;
+        let err = validate_fixture(&doc).expect_err("duplicate tour");
+        assert!(
+            err.contains("duplicate tour id"),
+            "expected duplicate tour error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_workspace_is_rejected() -> Result<(), String> {
+        let text = good_tour_toml().replace("workspace = \"files\"", "workspace = \"pcb\"");
+        let doc = parse_toml(&text)?;
+        let err = validate_fixture(&doc).expect_err("bad workspace");
+        assert!(
+            err.contains("unknown workspace"),
+            "expected workspace error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_trigger_is_rejected() -> Result<(), String> {
+        let text = good_tour_toml().replace("trigger = \"manual\"", "trigger = \"always\"");
+        let doc = parse_toml(&text)?;
+        let err = validate_fixture(&doc).expect_err("bad trigger");
+        assert!(
+            err.contains("unknown trigger"),
+            "expected trigger error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_placement_is_rejected() -> Result<(), String> {
+        let text = good_tour_toml().replace("placement = \"auto\"", "placement = \"center\"");
+        let doc = parse_toml(&text)?;
+        let err = validate_fixture(&doc).expect_err("bad placement");
+        assert!(
+            err.contains("unknown placement"),
+            "expected placement error, got {err}"
         );
         Ok(())
     }
