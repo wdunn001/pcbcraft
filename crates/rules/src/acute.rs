@@ -147,7 +147,8 @@ pub(crate) fn acute_angle_findings(project: &Project) -> Vec<Finding> {
 mod tests {
     use super::super::Finding;
     use super::super::drc;
-    use pcbcraft_doc::{Layer, Net, Track};
+    use pcbcraft_doc::{Id, Layer, Net, Track};
+    use pcbcraft_geom::Point;
 
     fn track(p: &mut pcbcraft_doc::Project, id: Id, a: Point, b: Point) {
         p.board.tracks.push(Track {

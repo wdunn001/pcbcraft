@@ -800,6 +800,7 @@ fn base_footprint(
         rules: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     }
 }
 
