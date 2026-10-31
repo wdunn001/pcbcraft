@@ -16828,7 +16828,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 return Err(Error::Invalid("an artifact with that name exists".into()));
             }
             let id = allocate(next)?;
-            p.artifacts.push(Artifact {
+            let record = Artifact {
                 id,
                 name: name.into(),
                 kind: a.kind,
@@ -16839,7 +16839,13 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 generated_at_revision: None,
                 generated_hash: None,
                 job: a.job,
-            });
+            };
+            if !record.valid() {
+                return Err(Error::Invalid(
+                    "artifact record is invalid for this kind".into(),
+                ));
+            }
+            p.artifacts.push(record);
             Ok(json!({"id": id, "name": name}))
         }
         "artifact.set" => {
@@ -33441,6 +33447,36 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         }
         assert!(out.to_string().contains("FeederSheet.csv"));
         let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    #[test]
+    fn placement_yy1_artifact_exports_through_the_artifact_pipeline() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute("machine.add", json!({"preset":"neoden-yy1"}), None)?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-yy1-artifact-{}", std::process::id()));
+        let id = s.execute(
+            "artifact.add",
+            json!({
+                "name": "NeoDen YY1",
+                "kind": "placement_yy1",
+                "machine": "neoden-yy1",
+                "path": "yy1/",
+                "settings": {"side": "top", "layout": "native"},
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "artifact.export",
+            json!({"id": id, "directory": directory.to_string_lossy()}),
+            None,
+        )?;
+        assert!(directory.join("yy1/Top.csv").exists());
+        assert!(directory.join("yy1/FeederSheet.csv").exists());
+        let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
 
