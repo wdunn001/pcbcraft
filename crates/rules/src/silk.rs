@@ -365,6 +365,7 @@ mod tests {
                     }),
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             });
         }

@@ -4,8 +4,8 @@ mod machine_profile;
 mod outline;
 pub use machine_profile::*;
 pub use outline::{
-    MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_sagitta, flatten_outline, outline_extent,
-    segment_arc, validate_outline_arcs,
+    MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_chord_worst_error, arc_polyline, arc_sagitta,
+    flatten_outline, outline_extent, segment_arc, validate_outline_arcs,
 };
 mod panel;
 pub use component_kind::{
@@ -6567,6 +6567,7 @@ mod drill_tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         validate_footprint_support(&definition)?;
         Ok(())
@@ -6876,6 +6877,7 @@ mod drill_tests {
             extends: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         let text = serde_json::to_string(&def).map_err(|e| e.to_string())?;
         assert!(text.contains("Power bits"), "the set travels in the file");
@@ -7129,6 +7131,7 @@ mod drill_tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         validate_footprint_support(&definition)?;
         Ok(())
@@ -7147,6 +7150,7 @@ mod drill_tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         validate_footprint_support(&definition)?;
         let mut p = Project::default();
