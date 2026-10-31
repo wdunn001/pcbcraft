@@ -292,10 +292,7 @@ fn part_from_product(p: ProductJson, retrieved_at: u64) -> Option<PartResult> {
 }
 
 fn random_nonce() -> String {
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+    let seed = pcbcraft_clock::unix_nanos();
     format!("{:016x}", (seed as u64) ^ (seed >> 64) as u64)
 }
 

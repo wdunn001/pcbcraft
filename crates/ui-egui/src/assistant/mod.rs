@@ -527,7 +527,7 @@ impl App {
         } else {
             None
         };
-        let started = std::time::Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let result = pcbcraft_mcp::call_tool(&self.session, &request.name, &request.args);
         let took = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         self.refresh();

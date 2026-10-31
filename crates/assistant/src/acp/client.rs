@@ -338,10 +338,10 @@ impl ChatBackend for AcpBackend {
 /// answered (its name and version), or what went wrong (it isn't signed in, it didn't answer).
 pub fn test_agent(argv: &[String], cwd: &std::path::Path) -> Result<String, String> {
     let mut p = AgentProcess::spawn(argv, cwd, ENV_REMOVE, || {})?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let deadline = pcbcraft_clock::instant_now() + std::time::Duration::from_secs(20);
     let wait_for = |p: &AgentProcess, id: u64| -> Result<Value, String> {
         loop {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let left = deadline.saturating_duration_since(pcbcraft_clock::instant_now());
             match p.from_agent.recv_timeout(left) {
                 Ok(FromAgent::Line(l)) => {
                     if let Some(Incoming::Reply { id: got, result }) = protocol::parse(&l)

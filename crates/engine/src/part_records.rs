@@ -4,13 +4,9 @@ use pcbcraft_library::records::{
     self, AttachRecords, OrderablePartRecord, pin_to_pad_from_pin_numbers,
 };
 use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    pcbcraft_clock::unix_secs()
 }
 
 pub fn link_inputs(project: &Project, component: &Component) -> (Option<(String, String)>, Option<(String, String)>, BTreeMap<String, String>) {

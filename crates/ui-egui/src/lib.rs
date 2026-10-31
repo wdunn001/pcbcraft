@@ -1662,10 +1662,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
 impl App {
     /// How long ago a snapshot was written, in words.
     fn ago(saved_at: u64) -> String {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = pcbcraft_clock::unix_secs();
         let seconds = now.saturating_sub(saved_at);
         match seconds {
             0..=59 => "just now".into(),
@@ -2211,7 +2208,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         }
         let view = self.tour_shell_view();
         self.tour
-            .sync_triggers(view, std::time::Instant::now());
+            .sync_triggers(view, pcbcraft_clock::instant_now());
     }
     fn tour_panel_hints(&mut self, ui: &mut egui::Ui) {
         let ids: Vec<String> = self.tour.hint_tours().map(|m| m.id.clone()).collect();
@@ -2557,7 +2554,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             self.needs_fit = true;
         }
         self.tour
-            .note_tab_change(std::time::Instant::now());
+            .note_tab_change(pcbcraft_clock::instant_now());
         self.tab = tab;
         self.tool = Tool::Select;
         self.drag = None;

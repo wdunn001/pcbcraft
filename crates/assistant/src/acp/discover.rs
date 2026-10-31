@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// An agent PCBCraft knows how to start in ACP mode.
 pub struct Known {
@@ -337,7 +337,7 @@ fn version(program: &Path, limit: Duration) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let start = Instant::now();
+    let start = pcbcraft_clock::instant_now();
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
@@ -399,7 +399,7 @@ pub fn detect() -> Detection {
 }
 
 fn detect_in(dirs: &[PathBuf], home: Option<&Path>) -> Detection {
-    let t0 = Instant::now();
+    let t0 = pcbcraft_clock::instant_now();
     let mut d = Detection::default();
     for k in KNOWN {
         let Some(path) = k.programs.iter().find_map(|p| find_in(p, dirs)) else {
@@ -758,7 +758,7 @@ mod tests {
             let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));
         }
         let dirs = vec![bin.clone()];
-        let start = Instant::now();
+        let start = pcbcraft_clock::instant_now();
         let _ = find_in("pcbcraft-fake-agent", &dirs);
         assert!(
             start.elapsed() < Duration::from_secs(4),

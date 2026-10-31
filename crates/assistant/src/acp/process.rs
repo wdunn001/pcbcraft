@@ -11,7 +11,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(unix)]
 use nix::sys::signal::{Signal, killpg};
@@ -108,7 +108,7 @@ fn kill_tree(pid: u32) {
 
 /// Wait up to `limit` for the child to end; whether it did.
 fn wait_for(child: &mut Child, limit: Duration) -> bool {
-    let start = Instant::now();
+    let start = pcbcraft_clock::instant_now();
     loop {
         match child.try_wait() {
             Ok(Some(_)) => return true,
@@ -317,7 +317,7 @@ mod tests {
         );
         p.shutdown(true);
         // Orphaned helpers are reaped by init a moment after they end.
-        let start = Instant::now();
+        let start = pcbcraft_clock::instant_now();
         while pids.iter().any(|&pid| alive(pid)) && start.elapsed() < Duration::from_secs(5) {
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -360,7 +360,7 @@ mod tests {
         };
         let helper: u32 = l.trim().parse().unwrap();
         drop(p);
-        let start = Instant::now();
+        let start = pcbcraft_clock::instant_now();
         while (alive(helper) || alive(leader)) && start.elapsed() < Duration::from_secs(8) {
             std::thread::sleep(Duration::from_millis(50));
         }

@@ -115,10 +115,7 @@ fn io_err(e: std::io::Error) -> DatasheetError {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    pcbcraft_clock::unix_secs()
 }
 
 /// Lowercase hex SHA-256 of `bytes`.
@@ -527,7 +524,7 @@ fn stored_pdfs(dir: &Path) -> Vec<StoredPdf> {
 
 fn touch(path: &Path) {
     if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
-        let _ = f.set_modified(SystemTime::now());
+        let _ = f.set_modified(crate::wall_clock::system_time_now());
     }
 }
 

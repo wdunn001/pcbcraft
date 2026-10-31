@@ -167,17 +167,7 @@ impl State {
 
 /// Seconds since 1970, or 0 where the platform has no clock.
 fn now_secs() -> u64 {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        0
-    }
+    pcbcraft_clock::unix_secs()
 }
 
 /// A picture of the board in a file: top copper over the board colour.
