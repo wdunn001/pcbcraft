@@ -5614,6 +5614,10 @@ impl Project {
                 || n.length_tolerance
                     .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
+                || n.current
+                    .is_some_and(|i| !i.is_finite() || !(0.001..=100.0).contains(&i))
+                || n.temperature_rise
+                    .is_some_and(|t| !t.is_finite() || !(1.0..=100.0).contains(&t))
             {
                 return Err("invalid net length target or tolerance".into());
             }
