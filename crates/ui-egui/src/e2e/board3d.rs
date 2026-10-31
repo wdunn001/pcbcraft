@@ -201,6 +201,7 @@ fn open_3d_with_model(model_path: &str) -> Result<(egui::Context, App, Id), Stri
                     raw_source: String::new(),
                 }),
                 rules: None,
+                box_body: None,
                 raw_source: String::new(),
                 unsupported: vec![],
                 retained: vec![],
