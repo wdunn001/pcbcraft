@@ -359,13 +359,6 @@ impl GerberLayer {
         Ok(())
     }
 
-    fn clear_fill(&mut self, code: u32, points: &[(f64, f64)]) -> Result<(), String> {
-        self.body.push_str("%LPC*%\n");
-        self.fill(code, points)?;
-        self.body.push_str("%LPD*%\n");
-        Ok(())
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn arc_segment(
         &mut self,
@@ -847,29 +840,9 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     let mut paste_front = GerberLayer::new(scale);
     let mut paste_back = GerberLayer::new(scale);
 
-    for z in &p.board.zones {
-        if !z.filled {
-            continue;
-        }
-        let is_back = z.layer == Layer::Back;
-        let file = if is_back { &mut back } else { &mut front };
-        let code = file.code(Ap::Circle(1))?;
-        let outline: Vec<(f64, f64)> = z
-            .outline
-            .iter()
-            .map(|q| mirror(q.x, q.y, is_back))
-            .collect();
-        file.push_attrs(net_name(p, z.net), None);
-        file.fill(code, &outline)?;
-        for cutout in &z.cutouts {
-            if cutout.len() < 3 {
-                continue;
-            }
-            let ring: Vec<(f64, f64)> = cutout.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
-            file.clear_fill(code, &ring)?;
-        }
-    }
-
+    // Poured copper ships from `gerber_files_report` in lib.rs, which writes
+    // the computed fill. The copper files built here are not shipped, so zones
+    // are not written again as raw outlines.
     for t in &p.board.tracks {
         let is_back = t.layer == Layer::Back;
         let file = if is_back { &mut back } else { &mut front };
