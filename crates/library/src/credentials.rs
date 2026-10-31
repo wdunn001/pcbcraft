@@ -10,6 +10,13 @@ pub mod keys {
     pub const DIGIKEY_CLIENT_ID: &str = "digikey.client_id";
     pub const DIGIKEY_CLIENT_SECRET: &str = "digikey.client_secret";
     pub const MOUSER_API_KEY: &str = "mouser.api_key";
+    pub const ELEMENT14_API_KEY: &str = "element14.api_key";
+    pub const ELEMENT14_STORE_ID: &str = "element14.store_id";
+    pub const LCSC_API_KEY: &str = "lcsc.api_key";
+    pub const LCSC_API_SECRET: &str = "lcsc.api_secret";
+    pub const JLCPCB_APP_ID: &str = "jlcpcb.app_id";
+    pub const JLCPCB_ACCESS_KEY: &str = "jlcpcb.access_key";
+    pub const JLCPCB_SECRET_KEY: &str = "jlcpcb.secret_key";
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]

@@ -160,6 +160,8 @@ pub(super) struct Sheet {
     pub rows: usize,
     pub size: String,
     pub title: String,
+    /// The revision typed in Project settings, empty when none.
+    pub revision: String,
     pub date: String,
     pub revision: String,
     pub company: String,
@@ -220,10 +222,18 @@ fn title_block_width(sheet_width: f64) -> f64 {
 
 /// Today's date as `YYYY-MM-DD` in UTC, for a project that records none.
 fn today() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+let secs = crate::wall_clock::unix_secs_now();
+    let z = (secs / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
     let z = (secs / 86_400) as i64 + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -301,11 +311,15 @@ pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
         rows: ((h / 50.0).round() as usize).clamp(3, 16),
         size: size.to_string(),
         title,
+revision: p
+            .meta
+            .get("revision")
+            .map(|r| r.trim().to_owned())
+            .unwrap_or_else(|| settings.revision.clone()),
         date: Some(settings.date.clone())
             .filter(|d| !d.is_empty())
             .or_else(|| p.meta.get("date").cloned())
             .unwrap_or_else(today),
-        revision: settings.revision.clone(),
         company: settings.company.clone(),
         drawn_by: settings.drawn_by.clone(),
         title_shown: !settings.title_hidden,
@@ -513,6 +527,15 @@ fn paint_title_block(
         &sheet.title,
         &FontId::monospace((height * 0.22).clamp(9.0, 19.0)),
     );
+    if !sheet.revision.is_empty() {
+        painter.text(
+            block.right_top() + Vec2::new(-pad, pad * 0.6),
+            Align2::RIGHT_TOP,
+            format!("{} {}", t!("schematic.sheet.revision"), sheet.revision),
+            caption.clone(),
+            sc.muted,
+        );
+    }
     place(
         Pos2::new(cells[0], split),
         t!("schematic.sheet.sheet").to_uppercase(),
@@ -683,6 +706,7 @@ pub(super) fn run_point(run: (Point, Point), fraction: f64) -> Point {
 ///
 /// # Do not
 /// - Draw a wire the caller still paints.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_power(
     painter: &egui::Painter,
     rect: Rect,
@@ -691,12 +715,17 @@ pub(super) fn paint_power(
     kinds: &HashMap<Id, PowerKind>,
     sc: &SheetColours,
     show_wires: bool,
+    page: Id,
 ) {
     let stub = Stroke::new(2.5, sc.wire);
     let mut ends: HashMap<(i64, i64), usize> = HashMap::new();
     let key = |q: Point| ((q.x * 100.0).round() as i64, (q.y * 100.0).round() as i64);
     let mut ruled: Vec<Id> = Vec::new();
-    for w in p.wires.iter().filter(|_| show_wires) {
+    for w in p
+        .wires
+        .iter()
+        .filter(|w| show_wires && p.on_schematic_page(page, w.id))
+    {
         match kinds.get(&w.net) {
             Some(PowerKind::Ground) => {
                 let name = p.net_name(w.net);
@@ -758,7 +787,11 @@ pub(super) fn paint_power(
             );
         }
     }
-    for l in p.labels.iter().filter(|l| l.kind == "power") {
+    for l in p
+        .labels
+        .iter()
+        .filter(|l| l.kind == "power" && p.on_schematic_page(page, l.id))
+    {
         let name = p.net_name(l.net);
         match kinds.get(&l.net) {
             Some(PowerKind::Ground) => ground_symbol(painter, rect, camera, l.position, name, sc),
