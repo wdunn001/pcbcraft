@@ -20,12 +20,17 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
+use crate::cam::{CncProfile, isolation_gcode, isolation_options_from_value};
+use crate::machine_profile::builtin_machine_profile;
+use crate::snapmaker::{snapmaker_cnc_profile, snapmaker_files, snapmaker_settings};
 use crate::{
-    FabLayer, RasterDepth, RasterOptions, RegMarkShape, RegistrationMarks, bom_csv, cmp_text,
-    drill_chart_csv, dxf_board, fab_layer_from_name, gencad_text, gerber_files, hpgl_plot,
-    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, layer_raster, netlist_text,
-    odb_package, pdf_document, placement_text, plot_csv, postscript, raster_bmp, raster_png,
-    raster_svg, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, vrml_board,
+PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, compliance_report_markdown, drill_chart_csv, dxf_board,
+    gencad_text, gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text,
+    netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
+    postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, testpoints_csv,
+    vrml_board, impedance_table_csv, fab_drawing_pdf, si_net_results_csv, spice_netlist, touchstone_text,
+    bundled_placement_flavours, placement_flavoured, ComplianceReportOptions, gerber_files_with_options,
+    GerberArcOptions, PACKAGE_CREATION_DATE
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -54,7 +59,9 @@ pub enum GeneratedOutput {
 /// output job entry, so old files keep exporting the same outputs.
 ///
 /// # Rules
-/// - Runs only when `artifacts` is empty and `output_jobs` is not.
+/// - Artifacts: runs only when `artifacts` is empty and `output_jobs` is not.
+/// - Sourcing: copies free-form `MPN`, `Manufacturer`, `Description` and supplier number
+///   fields into the typed record (`Project::adopt_free_form_sourcing`); originals stay.
 /// - Ids start above the highest id in use.
 ///
 /// # Dependencies
@@ -67,6 +74,7 @@ pub fn migrate_loaded_project(project: &mut Project) -> Result<(), String> {
         let mut next = project.ids().max().unwrap_or(0).saturating_add(1);
         project.migrate_output_jobs_to_artifacts(&mut next)?;
     }
+    project.adopt_free_form_sourcing();
     Ok(())
 }
 
@@ -110,6 +118,42 @@ fn nibble(value: u8) -> char {
     }
 }
 
+/// The placement artifact: the classic file, or a bundled flavour when the
+/// artifact settings name one (`flavour`, optionally `variant`).
+///
+/// # Rules
+/// - No `flavour` setting keeps the output of `placement_text` exactly.
+/// - One file comes back as text; a split flavour comes back as named files.
+///
+/// # Dependencies
+/// - `crates/io/src/placement_flavour.rs`
+///
+/// # Do not
+/// - Read a flavour from anywhere but the bundled table here; user records go
+///   through `placement_flavoured` directly.
+fn placement_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let Some(id) = artifact.settings.get("flavour").and_then(|v| v.as_str()) else {
+        return Ok(GeneratedOutput::Text(placement_text(p)?));
+    };
+    let flavour = bundled_placement_flavours()?
+        .into_iter()
+        .find(|f| f.id == id)
+        .ok_or_else(|| format!("no placement flavour named {id}"))?;
+    let options = PlacementOptions {
+        variant: artifact
+            .settings
+            .get("variant")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        offsets: Vec::new(),
+    };
+    let mut files = placement_flavoured(p, &flavour, &options)?.files;
+    if files.len() == 1 {
+        return Ok(GeneratedOutput::Text(files.remove(0).1));
+    }
+    Ok(GeneratedOutput::Files(files.into_iter().collect()))
+}
+
 fn settings_view(settings: &serde_json::Value) -> &str {
     settings
         .get("view")
@@ -125,10 +169,40 @@ fn copper_gerber_name(layer: &str) -> Option<&'static str> {
     }
 }
 
+fn isolation_gcode_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let opts = isolation_options_from_value(&artifact.settings)?;
+    let files = if let Some(machine_id) = artifact.machine.as_deref() {
+        let profile = builtin_machine_profile(machine_id)?;
+        if profile.kind != "cnc_mill" {
+            return Err(format!(
+                "machine profile {machine_id} is not a CNC mill profile"
+            ));
+        }
+        if profile.output.dialect == "snapmaker" {
+            let settings = snapmaker_settings(&profile, false)?;
+            let out = isolation_gcode(p, &opts, &snapmaker_cnc_profile(&settings))?;
+            snapmaker_files(out.files, &settings)?
+        } else {
+            let out = isolation_gcode(p, &opts, &CncProfile::default())?;
+            out.files
+        }
+    } else {
+        let out = isolation_gcode(p, &opts, &CncProfile::default())?;
+        out.files
+    };
+    let mut map = BTreeMap::new();
+    for (name, body) in files {
+        map.insert(name, body);
+    }
+    Ok(GeneratedOutput::Files(map))
+}
+
 fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
     let path = artifact.path.as_str();
     if path == "gerber/" || path.starts_with("gerber/") {
-        let files = gerber_files(p)?;
+        let opts = GerberArcOptions::default_for(p, &artifact.settings);
+        let (files, _report) =
+            gerber_files_with_options(p, PACKAGE_CREATION_DATE, opts)?;
         if path == "gerber/" {
             return Ok(GeneratedOutput::Files(files));
         }
@@ -143,10 +217,14 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         return Ok(GeneratedOutput::Text(text));
     }
     if path.ends_with(".odb.zip") {
-        return Ok(GeneratedOutput::Bytes(odb_package(p)?));
+        let bytes = odb_package(p)?;
+        crate::validate_odb_package(&bytes)?;
+        return Ok(GeneratedOutput::Bytes(bytes));
     }
     if path.ends_with(".xml") {
-        return Ok(GeneratedOutput::Text(ipc2581_text(p)?));
+        let text = ipc2581_text(p)?;
+        crate::validate_ipc2581_document(&text)?;
+        return Ok(GeneratedOutput::Text(text));
     }
     let text_output = |text: String| Ok(GeneratedOutput::Text(text));
     match path {
@@ -159,10 +237,12 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "pcb.dxf" => text_output(dxf_board(p)?),
         "pcb.cmp" => text_output(cmp_text(p)?),
         "board.idf" => text_output(idf_board(p)?),
+        "library.idf" => text_output(idf_library(p)?),
         "board.wrl" => text_output(vrml_board(p)?),
         "board.step" => text_output(step_board(p)?),
         "pcb.dsn" => text_output(specctra_dsn(p)?),
         "test.brd" => text_output(ipc356_netlist(p)?),
+        "testpoints.csv" => text_output(testpoints_csv(p)?),
         "board.gencad" => text_output(gencad_text(p)?),
         "netlist.csv" => text_output(hyperlynx_csv(p)?),
         "plot-report.csv" => text_output(plot_csv(p)?),
@@ -171,6 +251,25 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
         "board-stackup.txt" => text_output(stackup_text(p)?),
         "board-stats.csv" => text_output(stats_text(p)?),
+"board.step" => text_output(step_board(p)?),
+        "pcb.dsn" => text_output(specctra_dsn(p)?),
+        "test.brd" => text_output(ipc356_netlist(p)?),
+        "testpoints.csv" => text_output(testpoints_csv(p)?),
+        "board.gencad" => text_output(gencad_text(p)?),
+        "netlist.csv" => text_output(hyperlynx_csv(p)?),
+        "plot-report.csv" => text_output(plot_csv(p)?),
+        "board-report.txt" => text_output(report_text(p)?),
+        "pcb.ps" => text_output(postscript(p, "pcb")?),
+        "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
+        "board-stackup.txt" => text_output(stackup_text(p)?),
+        "board-stats.csv" => text_output(stats_text(p)?),
+        "compliance-report.md" => {
+            text_output(compliance_report_markdown(p, &ComplianceReportOptions::default())?)
+        }
+        "schematic.cir" => text_output(spice_netlist(p)?),
+        "si-net-results.csv" => text_output(si_net_results_csv(p)?),
+        "impedance-table.csv" => text_output(impedance_table_csv(p)?),
+        "touchstone.s2p" => text_output(touchstone_text(p)?),
         other => Err(format!(
             "package output for {other} is not available yet; see issue #322"
         )),
@@ -195,14 +294,14 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
     }
     match artifact.kind.as_str() {
         "bom" => Ok(GeneratedOutput::Text(bom_csv(p, &[], None)?)),
-        "placement" => Ok(GeneratedOutput::Text(placement_text(p)?)),
+        "placement" => placement_artifact(p, artifact),
         "drill_map" => Ok(GeneratedOutput::Text(drill_chart_csv(p)?)),
-        "fab_drawing" => Ok(GeneratedOutput::Bytes(pdf_document(
+        "fab_drawing" => Ok(GeneratedOutput::Bytes(fab_drawing_pdf(p)?)),
+        "assembly_drawing" => Ok(GeneratedOutput::Bytes(pdf_document(p, "schematic")?)),
+        "raster_image" => Ok(GeneratedOutput::Text(svg(
             p,
             settings_view(&artifact.settings),
         )?)),
-        "assembly_drawing" => Ok(GeneratedOutput::Bytes(pdf_document(p, "schematic")?)),
-        "raster_image" => generate_raster_image(p, artifact),
         "package" => package_from_path(p, artifact),
         "copper_plot" => {
             let layer = artifact
@@ -226,7 +325,7 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
         "drill_plated" | "drill_unplated" => {
             Err("split drill artifacts are not available yet; see issue #276".into())
         }
-        "isolation_gcode" => Err("isolation gcode is not available yet; see issue #329".into()),
+        "isolation_gcode" => isolation_gcode_artifact(p, artifact),
         "drill_gcode" => Err("drill gcode is not available yet; see issue #330".into()),
         "outline_gcode" => Err("outline gcode is not available yet; see issue #331".into()),
         "stencil" => Err("stencil output is not available yet; see issue #325".into()),
@@ -303,169 +402,6 @@ pub fn write_generated(
     }
 }
 
-fn raster_image_is_legacy_preview(artifact: &Artifact) -> bool {
-    if artifact
-        .settings
-        .get("view")
-        .and_then(|v| v.as_str())
-        .is_some()
-    {
-        return true;
-    }
-    artifact.path == "board.svg"
-        && artifact.layers.is_empty()
-        && artifact.settings.as_object().is_some_and(|o| o.is_empty())
-}
-
-fn raster_format_from_artifact(artifact: &Artifact) -> Result<&str, String> {
-    if let Some(format) = artifact.settings.get("format").and_then(|v| v.as_str()) {
-        match format {
-            "png" | "bmp" | "svg" => return Ok(format),
-            other => return Err(format!("raster format {other} is not supported")),
-        }
-    }
-    let path = artifact.path.to_ascii_lowercase();
-    if path.ends_with(".bmp") {
-        Ok("bmp")
-    } else if path.ends_with(".svg") {
-        Ok("svg")
-    } else {
-        Ok("png")
-    }
-}
-
-fn fab_layer_is_bottom(layer: FabLayer) -> bool {
-    matches!(
-        layer,
-        FabLayer::CopperBottom
-            | FabLayer::MaskBottom
-            | FabLayer::LegendBottom
-            | FabLayer::PasteBottom
-    )
-}
-
-fn parse_raster_depth(settings: &serde_json::Value) -> Result<RasterDepth, String> {
-    match settings
-        .get("depth")
-        .and_then(|v| v.as_str())
-        .unwrap_or("grey8")
-    {
-        "1bit" | "bits1" => Ok(RasterDepth::Bits1),
-        "grey8" | "grey" => Ok(RasterDepth::Grey8),
-        "rgba8" | "rgba" => Ok(RasterDepth::Rgba8),
-        other => Err(format!("raster depth {other} is not supported")),
-    }
-}
-
-fn parse_registration(settings: &serde_json::Value) -> Result<Option<RegistrationMarks>, String> {
-    let Some(reg) = settings.get("registration") else {
-        return Ok(None);
-    };
-    let inset_mm = reg
-        .get("inset_mm")
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| "registration needs inset_mm".to_string())?;
-    let size_mm = reg
-        .get("size_mm")
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| "registration needs size_mm".to_string())?;
-    let shape = match reg.get("shape").and_then(|v| v.as_str()).unwrap_or("cross") {
-        "cross" => RegMarkShape::Cross,
-        "ring" => RegMarkShape::Ring,
-        other => return Err(format!("registration shape {other} is not supported")),
-    };
-    Ok(Some(RegistrationMarks {
-        inset_mm,
-        size_mm,
-        shape,
-    }))
-}
-
-fn raster_options_for_artifact(p: &Project, artifact: &Artifact) -> Result<RasterOptions, String> {
-    let layer_name = artifact
-        .layers
-        .first()
-        .map(|s| s.as_str())
-        .unwrap_or("F.Cu");
-    let layer = fab_layer_from_name(p, layer_name)?;
-    let settings = &artifact.settings;
-    let mut dpi = settings
-        .get("dpi")
-        .and_then(|v| v.as_u64())
-        .map(|d| d as u32)
-        .unwrap_or(1200);
-    let mirror_setting = settings.get("mirror").and_then(|v| v.as_bool());
-    let invert_setting = settings.get("invert").and_then(|v| v.as_bool());
-    let mut mirror = mirror_setting.unwrap_or(false);
-    let mut invert = invert_setting.unwrap_or(false);
-    if let Some(machine_id) = &artifact.machine {
-        let Some(profile) = p.machine_profiles.iter().find(|m| m.id == *machine_id) else {
-            return Err(format!("machine profile {machine_id} is not in the design"));
-        };
-        profile.validate()?;
-        if invert_setting.is_none() && profile.output.invert {
-            invert = true;
-        }
-        if mirror_setting.is_none() && profile.output.mirror_bottom && fab_layer_is_bottom(layer) {
-            mirror = true;
-        }
-        if settings.get("dpi").is_none()
-            && profile.kind == "uv_printer"
-            && let Some(print) = &profile.uv_printer.print
-            && print.default_dpi >= 300
-        {
-            dpi = print.default_dpi;
-        }
-    }
-    let outline = settings
-        .get("outline")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let margin_mm = settings
-        .get("margin_mm")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
-    let drill_marks = settings
-        .get("drill_marks_mm")
-        .and_then(|v| v.as_f64())
-        .filter(|m| *m > 0.0);
-    let depth = parse_raster_depth(settings)?;
-    let registration = parse_registration(settings)?;
-    let opts = RasterOptions {
-        layer,
-        dpi,
-        mirror,
-        invert,
-        outline,
-        registration,
-        drill_marks,
-        margin_mm,
-        depth,
-    };
-    opts.validate()?;
-    Ok(opts)
-}
-
-fn generate_raster_image(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
-    if raster_image_is_legacy_preview(artifact) {
-        return Ok(GeneratedOutput::Text(svg(
-            p,
-            settings_view(&artifact.settings),
-        )?));
-    }
-    let format = raster_format_from_artifact(artifact)?;
-    let opts = raster_options_for_artifact(p, artifact)?;
-    if format == "svg" {
-        return Ok(GeneratedOutput::Text(raster_svg(p, &opts)?));
-    }
-    let raster = layer_raster(p, &opts)?;
-    match format {
-        "png" => Ok(GeneratedOutput::Bytes(raster_png(&raster)?)),
-        "bmp" => Ok(GeneratedOutput::Bytes(raster_bmp(&raster)?)),
-        other => Err(format!("raster format {other} is not supported")),
-    }
-}
-
 fn write_parent(path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -496,48 +432,46 @@ mod generate_tests {
     }
 
     #[test]
-    fn raster_image_artifact_writes_a_png_with_pixel_dimensions() -> Result<(), String> {
-        let project = Project::default();
+    fn generate_isolation_gcode_returns_nc_file() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.width = 20.0;
+        project.board.height = 20.0;
+        project.board.thickness = 1.6;
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..pcbcraft_doc::Net::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 1,
+            net: 1,
+            start: pcbcraft_geom::Point::new(5.0, 10.0),
+            end: pcbcraft_geom::Point::new(15.0, 10.0),
+            width: 0.4,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: None,
+        });
         let artifact = Artifact {
             id: 2,
-            name: "front copper film".into(),
-            kind: "raster_image".into(),
-            layers: vec!["F.Cu".into()],
-            settings: serde_json::json!({"dpi": 1000, "format": "png"}),
+            name: "isolation".into(),
+            kind: "isolation_gcode".into(),
+            layers: vec![],
+            settings: serde_json::json!({
+                "side":"top",
+                "tool":{"diameter_mm":0.1,"feed_mm_min":300.0,"plunge_mm_min":60.0,"depth_mm":0.08,"passes":1,"spindle_rpm":18000}
+            }),
             machine: None,
-            path: "films/front-copper.png".into(),
+            path: "cam/".into(),
             generated_at_revision: None,
             generated_hash: None,
             job: None,
         };
         let out = generate(&project, &artifact)?;
-        let GeneratedOutput::Bytes(bytes) = out else {
-            return Err("expected png bytes".into());
+        let GeneratedOutput::Files(map) = out else {
+            return Err("expected a file map".into());
         };
-        assert!(bytes.starts_with(b"\x89PNG"));
-        Ok(())
-    }
-
-    #[test]
-    fn legacy_board_svg_artifact_keeps_the_preview_vector() -> Result<(), String> {
-        let project = Project::default();
-        let artifact = Artifact {
-            id: 3,
-            name: "board svg".into(),
-            kind: "raster_image".into(),
-            layers: vec![],
-            settings: serde_json::json!({}),
-            machine: None,
-            path: "board.svg".into(),
-            generated_at_revision: None,
-            generated_hash: None,
-            job: Some("fab".into()),
-        };
-        let out = generate(&project, &artifact)?;
-        let GeneratedOutput::Text(text) = out else {
-            return Err("expected svg text".into());
-        };
-        assert!(text.contains("<svg"));
+        assert!(map.contains_key("isolation-top.nc"));
+        assert!(map["isolation-top.nc"].starts_with("G21\n"));
         Ok(())
     }
 
@@ -561,6 +495,61 @@ mod generate_tests {
             return Err("expected a file map".into());
         };
         assert_eq!(map, gerber_files(&project)?);
+        Ok(())
+    }
+
+    fn placement_artifact_with(settings: serde_json::Value) -> Artifact {
+        Artifact {
+            id: 2,
+            name: "placement".into(),
+            kind: "placement".into(),
+            layers: vec![],
+            settings,
+            machine: None,
+            path: "placement.txt".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        }
+    }
+
+    #[test]
+    fn placement_artifact_without_a_flavour_keeps_the_classic_file() -> Result<(), String> {
+        let project = Project::default();
+        let out = generate(&project, &placement_artifact_with(serde_json::json!({})))?;
+        assert_eq!(out, GeneratedOutput::Text(placement_text(&project)?));
+        Ok(())
+    }
+
+    #[test]
+    fn placement_artifact_with_a_flavour_writes_that_flavour() -> Result<(), String> {
+        let project = Project::default();
+        let one = generate(
+            &project,
+            &placement_artifact_with(serde_json::json!({"flavour": "cpl_mm"})),
+        )?;
+        assert_eq!(
+            one,
+            GeneratedOutput::Text("Designator,Mid X,Mid Y,Rotation,Layer\n".into())
+        );
+        let split = generate(
+            &project,
+            &placement_artifact_with(serde_json::json!({"flavour": "cpl_inch"})),
+        )?;
+        let GeneratedOutput::Files(map) = split else {
+            return Err("a split flavour returns files".into());
+        };
+        assert_eq!(
+            map.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["placement-bottom.csv", "placement-top.csv"]
+        );
+        assert!(
+            generate(
+                &project,
+                &placement_artifact_with(serde_json::json!({"flavour": "nope"})),
+            )
+            .is_err()
+        );
         Ok(())
     }
 }

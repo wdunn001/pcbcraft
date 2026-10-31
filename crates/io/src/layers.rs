@@ -65,57 +65,10 @@ pub fn fabrication_point(p: &Project, board: Point) -> Point {
     Point::new(x, y)
 }
 
-/// Map a copper, mask, silk or machine layer name to a fabrication layer.
-pub fn fab_layer_from_name(p: &Project, name: &str) -> Result<FabLayer, String> {
-    match name {
-        "F.Cu" => Ok(FabLayer::CopperTop),
-        "B.Cu" => Ok(FabLayer::CopperBottom),
-        "F.Mask" => Ok(FabLayer::MaskTop),
-        "B.Mask" => Ok(FabLayer::MaskBottom),
-        "F.SilkS" | "F.Silkscreen" => Ok(FabLayer::LegendTop),
-        "B.SilkS" | "B.Silkscreen" => Ok(FabLayer::LegendBottom),
-        "F.Paste" => Ok(FabLayer::PasteTop),
-        "B.Paste" => Ok(FabLayer::PasteBottom),
-        "Edge.Cuts" | "Profile" => Ok(FabLayer::Profile),
-        "Drill" => Ok(FabLayer::Drill),
-        other => {
-            let Some(art) = p.board.user_layers.iter().find(|l| l.name == other) else {
-                return Err(format!("layer {other} is not a fabrication raster layer"));
-            };
-            Ok(FabLayer::User(art.id))
-        }
-    }
-}
-
-/// Every drill centre on the board in fabrication coordinates.
-pub fn drill_centers(p: &Project) -> Vec<Point> {
-    let mut out = Vec::new();
-    for v in &p.board.vias {
-        if v.drill > 0.0 {
-            out.push(fabrication_point(p, v.position));
-        }
-    }
-    for h in &p.board.holes {
-        out.push(fabrication_point(p, h.position));
-    }
-    for f in &p.board.footprints {
-        for pad in &f.pads {
-            let Some(g) = pad.geometry.as_ref() else {
-                continue;
-            };
-            let Some(drill) = g.drill.as_ref() else {
-                continue;
-            };
-            let d = drill.size.x.min(drill.size.y);
-            if d <= 0.0 {
-                continue;
-            }
-            let local = pad.offset.offset(drill.offset.rotate(-g.rotation));
-            let world = f.position.offset(local.rotate(-f.rotation));
-            out.push(fabrication_point(p, world));
-        }
-    }
-    out
+/// Same transform as [`fabrication_point`], as a coordinate pair.
+pub fn fabrication_xy(p: &Project, x: f64, y: f64) -> (f64, f64) {
+    let f = fabrication_point(p, Point::new(x, y));
+    (f.x, f.y)
 }
 
 fn footprint_rules(f: &Footprint, project: &Project) -> pcbcraft_library::FootprintRules {
@@ -234,12 +187,12 @@ fn push_zone(shapes: &mut Vec<Shape>, zone: &CopperZone, p: &Project) {
 
 fn push_track(shapes: &mut Vec<Shape>, track: &Track, p: &Project) {
     if let Some(arc) = track.curve() {
-        let steps = 32;
-        let mut points = Vec::with_capacity(steps + 1);
-        for i in 0..=steps {
-            let t = i as f64 / steps as f64;
-            points.push(fabrication_point(p, arc.point_at(t)));
-        }
+        let centerline =
+            pcbcraft_doc::arc_polyline(&arc, crate::DEFAULT_MAX_DEVIATION_MM);
+        let mut points: Vec<Point> = centerline
+            .into_iter()
+            .map(|pt| fabrication_point(p, pt))
+            .collect();
         shapes.push(Shape::Stroke(
             points,
             track.width,
@@ -380,20 +333,10 @@ fn push_board_text(
 }
 
 pub(crate) fn profile_edge(p: &Project) -> Vec<Point> {
-    match &p.board.outline {
-        Some(o) => o.iter().map(|pt| fabrication_point(p, *pt)).collect(),
-        None => {
-            let w = p.board.width;
-            let h = p.board.height;
-            vec![
-                fabrication_point(p, Point::new(0.0, 0.0)),
-                fabrication_point(p, Point::new(w, 0.0)),
-                fabrication_point(p, Point::new(w, h)),
-                fabrication_point(p, Point::new(0.0, h)),
-                fabrication_point(p, Point::new(0.0, 0.0)),
-            ]
-        }
-    }
+    crate::board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR)
+        .into_iter()
+        .map(|pt| fabrication_point(p, pt))
+        .collect()
 }
 
 fn push_drill_hole(shapes: &mut Vec<Shape>, pos: Point, diameter: f64, mark: f64, p: &Project) {
@@ -815,6 +758,7 @@ mod tests {
             cutouts: vec![],
             filled: true,
             kind: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         project.board.vias.push(Via {
@@ -823,9 +767,12 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
+            covering_bottom: None,
         });
         let pad = pcbcraft_doc::Pad {
             number: "1".into(),
@@ -870,9 +817,13 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad, pad2],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -913,9 +864,12 @@ mod tests {
                     rules: None,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.validate()?;
         let shape_front = copper_shape_counts(&project, true)?;
