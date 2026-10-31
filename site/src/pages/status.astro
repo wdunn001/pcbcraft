@@ -1,0 +1,215 @@
+---
+import MarketingLayout from '../layouts/MarketingLayout.astro';
+import { SITE } from '../lib/site';
+import { STATE_LABELS, STATE_COLORS, STATE_DESCRIPTIONS, MATURITY_LABELS, MATURITY_DESCRIPTIONS, MILESTONE_GROUP_LABELS, MILESTONE_GROUP_DESCRIPTIONS } from '../data/status-definitions';
+import statusData from '../data/status.json';
+
+const { features, issues } = statusData;
+
+// Group features by milestone
+const featuresByMilestone = features.reduce((acc, feature) => {
+  if (!acc[feature.milestone]) acc[feature.milestone] = [];
+  acc[feature.milestone].push(feature);
+  return acc;
+}, {} as Record<string, typeof features>);
+
+// Group features by state for the milestone cards
+const featuresByState = features.reduce((acc, feature) => {
+  if (!acc[feature.state]) acc[feature.state] = [];
+  acc[feature.state].push(feature);
+  return acc;
+}, {} as Record<string, typeof features>);
+
+// Count issues by state
+const issuesByState = issues.reduce((acc, issue) => {
+  if (!acc[issue.state]) acc[issue.state] = 0;
+  acc[issue.state]++;
+  return acc;
+}, {} as Record<string, number>);
+
+// Platform tiers based on CI status
+const platformTiers = {
+  linux: features.filter(f => f.ci && f.ci.linux && !f.ci.windows && !f.ci.macos).length,
+  windows: features.filter(f => f.ci && f.ci.windows && !f.ci.linux && !f.ci.macos).length,
+  macos: features.filter(f => f.ci && f.ci.macos && !f.ci.linux && !f.ci.windows).length,
+  cross: features.filter(f => f.ci && f.ci.linux && f.ci.windows && f.ci.macos).length,
+  no_ci: features.filter(f => !f.ci).length,
+};
+---
+
+<MarketingLayout title={`${SITE.name} Status`} description="Track the progress of PCBCraft features and issues">
+  <main class="prose dark:prose-invert max-w-none">
+    <h1>{SITE.name} Status</h1>
+    <p>Last updated: {statusData.generated_at}</p>
+    <p>Total features: {features.length} | Total issues: {issues.length} | API requests: {statusData.api_requests}</p>
+
+    <h2>Platform Support</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="card bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+        <h3>Linux</h3>
+        <p class="text-2xl font-bold">{platformTiers.linux} features</p>
+        <p class="text-sm opacity-75">Native Linux support</p>
+      </div>
+      <div class="card bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+        <h3>Windows</h3>
+        <p class="text-2xl font-bold">{platformTiers.windows} features</p>
+        <p class="text-sm opacity-75">Native Windows support</p>
+      </div>
+      <div class="card bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
+        <h3>macOS</h3>
+        <p class="text-2xl font-bold">{platformTiers.macos} features</p>
+        <p class="text-sm opacity-75">Native macOS support</p>
+      </div>
+    </div>
+    <div class="card bg-amber-50 dark:bg-amber-900/20 p-4 rounded-lg mt-4">
+      <h3>Cross-Platform</h3>
+      <p class="text-2xl font-bold">{platformTiers.cross} features</p>
+      <p class="text-sm opacity-75">Supports all platforms</p>
+    </div>
+    <div class="card bg-gray-50 dark:bg-gray-900/20 p-4 rounded-lg mt-4">
+      <h3>No CI</h3>
+      <p class="text-2xl font-bold">{platformTiers.no_ci} features</p>
+      <p class="text-sm opacity-75">No automated testing yet</p>
+    </div>
+
+    <h2>Milestones</h2>
+    {Object.entries(featuresByMilestone).sort().map(([milestone, milestoneFeatures]) => (
+      <section class="mb-8">
+        <h3 class="text-xl font-bold mb-4">{milestone}</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Object.entries(MILESTONE_GROUP_LABELS).map(([groupKey, groupLabel]) => {
+            const groupFeatures = milestoneFeatures.filter(f => {
+              const nowGroups = ['in-progress', 'awaiting-test'];
+              const nextGroups = ['ready'];
+              const laterGroups = ['planned'];
+              if (groupKey === 'now') return nowGroups.includes(f.state);
+              if (groupKey === 'next') return nextGroups.includes(f.state);
+              if (groupKey === 'later') return laterGroups.includes(f.state);
+              return false;
+            });
+            if (groupFeatures.length === 0) return null;
+            return (
+              <div class="card bg-white dark:bg-slate-800 p-4 rounded-lg">
+                <h4 class="font-semibold mb-2">{groupLabel}</h4>
+                <ul class="space-y-2">
+                  {groupFeatures.map(feature => (
+                    <li>
+                      <span class={`inline-block px-2 py-1 rounded text-sm ${STATE_COLORS[feature.state]}`}>
+                        {STATE_LABELS[feature.state]}
+                      </span>
+                      <span class="ml-2 font-medium">{feature.title}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    ))}
+
+    <h2>Features by State</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {Object.entries(STATE_LABELS).map(([stateKey, stateLabel]) => {
+        const stateFeatures = featuresByState[stateKey] || [];
+        const hasIssues = stateFeatures.some(f => f.issues.length > 0);
+        return (
+          <div class="card bg-white dark:bg-slate-800 p-4 rounded-lg">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-semibold">{stateLabel}</h3>
+              <span class={`px-2 py-1 rounded text-sm ${STATE_COLORS[stateKey]}`}>
+                {stateFeatures.length}
+              </span>
+            </div>
+            {stateFeatures.length === 0 ? (
+              <p class="text-sm opacity-75">No features</p>
+            ) : (
+              <ul class="space-y-2 text-sm">
+                {stateFeatures.map(feature => (
+                  <li>
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium">{feature.title}</span>
+                      {feature.maturity === 'tested' && (
+                        <span class="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 px-1.5 py-0.5 rounded">
+                          {MATURITY_LABELS[feature.maturity]}
+                        </span>
+                      )}
+                    </div>
+                    {feature.issues.length > 0 && (
+                      <p class="text-xs opacity-75 mt-1">
+                        {feature.issues.length} issue{feature.issues.length !== 1 ? 's' : ''}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
+
+    <h2>Issues</h2>
+    <div class="card bg-white dark:bg-slate-800 p-4 rounded-lg">
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <div>
+          <h3 class="font-semibold">Open Issues</h3>
+          <p class="text-2xl font-bold">{issuesByState['open'] || 0}</p>
+        </div>
+        <div>
+          <h3 class="font-semibold">Closed Issues</h3>
+          <p class="text-2xl font-bold">{issuesByState['closed'] || 0}</p>
+        </div>
+      </div>
+      {issues.length > 0 && (
+        <ul class="space-y-2">
+          {issues.slice(0, 20).map(issue => (
+            <li class="flex items-start gap-2">
+              <span class="font-mono text-sm opacity-75">#{issue.number}</span>
+              <a href={issue.url} target="_blank" class="hover:underline flex-1">
+                {issue.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+
+    <h2>Status Definitions</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="card bg-white dark:bg-slate-800 p-4 rounded-lg">
+        <h3 class="font-semibold mb-2">Feature States</h3>
+        <dl class="space-y-2 text-sm">
+          {Object.entries(STATE_LABELS).map(([key, label]) => (
+            <div>
+              <dt class="inline font-semibold">{label}:</dt>
+              <dd class="inline opacity-75 ml-1">{STATE_DESCRIPTIONS[key]}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <div class="card bg-white dark:bg-slate-800 p-4 rounded-lg">
+        <h3 class="font-semibold mb-2">Feature Maturity</h3>
+        <dl class="space-y-2 text-sm">
+          {Object.entries(MATURITY_LABELS).map(([key, label]) => (
+            <div>
+              <dt class="inline font-semibold">{label}:</dt>
+              <dd class="inline opacity-75 ml-1">{MATURITY_DESCRIPTIONS[key]}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <div class="card bg-white dark:bg-slate-800 p-4 rounded-lg">
+        <h3 class="font-semibold mb-2">Milestone Groups</h3>
+        <dl class="space-y-2 text-sm">
+          {Object.entries(MILESTONE_GROUP_LABELS).map(([key, label]) => (
+            <div>
+              <dt class="inline font-semibold">{label}:</dt>
+              <dd class="inline opacity-75 ml-1">{MILESTONE_GROUP_DESCRIPTIONS[key]}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </div>
+  </main>
+</MarketingLayout>

@@ -82,7 +82,7 @@ To capture the actual UI, use the desktop's `--capture /absolute/path.png` optio
 
 ## Library workflow
 
-`library.list` filters part listings (the open project's saved parts, installed libraries and any `listings` you pass) with one
+`library.list` filters part listings (embedded Samtec connector series records, the open project's saved parts, installed libraries and any `listings` you pass) with one
 filter (`categories`, `packages`, `value_min`, `value_max`, `voltage_min`,
 `temp_range`, `stock_min`, `lifecycle`, `sources`, `rohs`, `text`), `limit`
 (1-100) and a `cursor` from the previous answer. It returns `items`,
@@ -91,7 +91,7 @@ numeric filter. Results are grouped by source in each source's own order and are
 not ranked across sources. Optional `listings` carries already loaded
 distributor pages to filter with the same rules. It is read-only.
 
-`library.catalog` discovers host folders. `library.search` accepts `path`, `kind`
+`library.catalog` discovers host folders and returns `configurable_connectors` (the embedded Samtec series catalog; see docs/samtec-library.md). `library.search` accepts `path`, `kind`
 (`symbol` or `footprint`), optional `query`, and `limit` (1–100). A symbol path is
 a `.kicad_sym` file; a footprint search path is a `.pretty` directory. Results
 report search and directory-scan truncation. `library.inspect_symbol` accepts
@@ -107,6 +107,13 @@ embeds the used definitions, and makes assignment undoable. `board.sync` returns
 `unassigned_components` rather than inventing packages for imported symbols.
 These commands also work in atomic batches and the live desktop bridge.
 
+`part.attach_source` records distributor answers on a placed component in one undo
+step. It requires component `id`, non-empty `manufacturer` and `mpn`, and accepts
+optional `datasheet`, `distributor`, and `sku`. It writes named properties
+`Manufacturer`, `MPN`, `Datasheet`, and either `SKU` or `<distributor> SKU` when a
+seller line is present. Length and control-character checks match `component.field`.
+The library crate searches online part sources; the engine does not call them.
+
 `component.move` and `component.rotate` accept optional `unit` (default 1) for
 independent schematic unit placement. All package pins still use the same
 component ID and physical pin number. `track.route` accepts `layer` (`F.Cu` default
@@ -116,6 +123,11 @@ pads connect their own front/back copper; two different pads are never bridged.
 declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
 routes both nets with coupled orthogonal L geometry and refuses when the pair gap
 cannot be kept.
+
+`track.tune_skew` takes a differential pair `id` or `name`, optional `layer`
+(default `F.Cu`), and a declared `length_tolerance` on the pair. It serpentines
+the shorter net until skew is within tolerance, in one undo step.
+
 `track.drag` takes a track `id`, which `end` ("start" or "end"), a `position` and an
 optional `mode` (`octilinear` by default, or `octilinear_shove`). The other end stays
 put and the track is re-laid as 45-degree copper around pads, cutouts and other
@@ -195,7 +207,7 @@ MCP hints, so a client can decide when to ask the user first.
 
 | Kind | Tools | readOnly | destructive | idempotent |
 | --- | --- | --- | --- | --- |
-| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
+| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.drop_in_check`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
 | Writes files outside the project | `*.write`, `*.export`, `export`, `save`, `library.save`, `library.export_*`, `output_job.package` | no | no | yes |
 | Replaces the whole design | `new_design`, `sample_design`, `open` | no | yes | no |
 | Everything else (`execute`, `batch`, `undo`, `redo`, engine commands, `library.add_folder`, `library.remove_folder`) | edits that can be undone | no | no | no |
@@ -218,19 +230,15 @@ curl -s http://127.0.0.1:7992/mcp -H "Authorization: Bearer $(cat ~/.pcbcraft-mc
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-What the listener does and does not do:
+The full guide, with sessions, progress streaming, cancellation and the remote opt-in, is in
+[mcp-http.md](mcp-http.md). In short:
 
-- It binds only a literal loopback address (`127.0.0.1` or `::1`). There is no flag to
-  bind elsewhere, and names such as `localhost` are refused.
-- Every request needs `Authorization: Bearer <token>` (401 otherwise). A browser `Origin`
-  header that is not `http://127.0.0.1`, `http://localhost` or `http://[::1]` (any port)
-  gets 403; a request with no `Origin` is allowed.
-- POST only. GET and DELETE get 405 (there is no event stream), other paths 404, bodies over
-  1 MiB 413, a wrong `MCP-Protocol-Version` 400, a missing JSON `Accept` 406.
-- A request gets 200 with one JSON object. A notification or a client response gets 202 with
-  no body. A JSON array (batching) gets 400.
-- It is stateless: no `MCP-Session-Id` is issued, so the initialize gate of the stdio server
-  does not apply. Requests run one at a time against one design session.
+- It binds a literal loopback address by default; another address needs `--allow-remote`.
+- Every request needs `Authorization: Bearer <token>` (401 otherwise). A foreign `Origin` or
+  `Host` gets 403; a request with no `Origin` is allowed.
+- POST carries requests (200 with JSON, or an event stream with progress when asked), a
+  notification gets 202, `DELETE` ends a session, GET gets 405.
+- `initialize` issues an `MCP-Session-Id`. `notifications/cancelled` stops a queued call.
 - It reuses `handle_rpc`, the same dispatcher as stdio and the `--control` bridge.
 
 ## Resources
@@ -242,6 +250,7 @@ design; it goes through the active design like the tools do.
 | URI | Type | Content |
 | --- | --- | --- |
 | `pcbcraft://design` | JSON | Same as `inspect_design` |
+| `pcbcraft://summary` | JSON | Same as `design.summary` |
 | `pcbcraft://commands` | JSON | Same as `list_commands` |
 | `pcbcraft://checks` | JSON | Runs `checks` when read; there is no stored last result |
 | `pcbcraft://design/preview/{view}` | PNG blob | `schematic` or `pcb`, same renderer as `screenshot` |
@@ -257,6 +266,7 @@ The server advertises `prompts` (no list-changed notice) and answers `prompts/li
 | Prompt | Argument | What it asks the model to do |
 | --- | --- | --- |
 | `review_board` | `focus`: `placement`, `power` or `signal` (optional) | Call `inspect_design` and `checks`, review, report by object id, edit nothing |
+| `fix_findings` | none | Call `checks`, fix the findings by object id with `execute` or `batch`, check again |
 | `fix_unrouted_nets` | none | Call `checks`, route the unrouted nets with `execute` or `batch`, check again |
 | `prepare_fabrication` | `fab`: short text (optional) | Run `checks`, stop on errors, else write outputs with `gerber.export`, `bom.write`, `placement.write` |
 

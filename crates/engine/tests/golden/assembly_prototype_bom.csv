@@ -1,0 +1,4 @@
+quantity,references,value,kind,footprint
+1,R1,330 Ω,resistor,starter pads
+1,J1,5V input,connector,starter pads
+1,D1,Green LED,led,starter pads

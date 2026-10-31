@@ -36,7 +36,10 @@ impl App {
     /// # Do not
     /// - Keep the temporary file open; it is only read once.
     pub(crate) fn open_showcase(&mut self) -> bool {
-        let path = std::env::temp_dir().join("pcbcraft-showcase-sensor-node.pcbcraft");
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-showcase-sensor-node-{}.pcbcraft",
+            std::process::id()
+        ));
         if let Err(error) = std::fs::write(&path, SHOWCASE) {
             self.message = error.to_string();
             return false;

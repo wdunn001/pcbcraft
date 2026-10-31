@@ -64,8 +64,14 @@ fn finding_counts_split_by_loudness() {
         "erc": [{"severity":"error"},{"severity":"warning"}],
         "drc": [{"severity":"error"},{"severity":"info"},{}]
     });
-    assert_eq!(App::finding_counts(&checks), (2, 1, 2));
-    assert_eq!(App::finding_counts(&json!({})), (0, 0, 0));
+    let counts = finding_set::FindingSet::build(&checks, &[]).counts();
+    assert_eq!((counts.errors, counts.warnings, counts.notes), (2, 1, 2));
+    assert_eq!(
+        finding_set::FindingSet::build(&json!({}), &[])
+            .counts()
+            .total(),
+        0
+    );
 }
 
 #[test]
