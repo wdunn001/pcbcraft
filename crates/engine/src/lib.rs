@@ -25608,6 +25608,20 @@ mod tests {
             "an absent scale is unit"
         );
         assert_eq!(m["rotate"][2], 90.0);
+        s.execute(
+            "library.footprint.set_model",
+            json!({"name":"R_0805_2012Metric","path":"parts/housing.solidcraft","cad_part":"Body"}),
+            None,
+        )?;
+        let solid = s.inspect()["project"]["library"]["footprints"][0]["model"].clone();
+        assert_eq!(solid["path"], "parts/housing.solidcraft");
+        assert_eq!(solid["cad_part"], "Body");
+        assert!(
+            solid["raw_source"]
+                .as_str()
+                .is_some_and(|s| s.contains("(cad_part \"Body\")")),
+            "cad_part is stored in the footprint model source"
+        );
         let board_now = pcbcraft_io::kicad_board(&s.project)?;
         assert!(
             board_now.contains("R_0805_2012Metric.step"),
