@@ -57,10 +57,7 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
 
     let mut pours: BTreeSet<(Layer, Id)> = BTreeSet::new();
     for zone in &project.board.zones {
-        if zone.filled
-            && ground.contains(&zone.net)
-            && ref_layers.contains(&zone.layer)
-        {
+        if zone.filled && ground.contains(&zone.net) && ref_layers.contains(&zone.layer) {
             pours.insert((zone.layer, zone.id));
         }
     }
@@ -280,9 +277,9 @@ fn reference_pieces(
 }
 
 fn point_on_reference(point: Point, pieces: &[PourPiece]) -> bool {
-    pieces.iter().any(|(outer, holes)| {
-        inside(point, outer) && !holes.iter().any(|hole| inside(point, hole))
-    })
+    pieces
+        .iter()
+        .any(|(outer, holes)| inside(point, outer) && !holes.iter().any(|hole| inside(point, hole)))
 }
 
 fn sample_track(track: &Track) -> Vec<Point> {
@@ -308,9 +305,11 @@ fn sample_track(track: &Track) -> Vec<Point> {
 }
 
 fn has_stitch_near(project: &Project, at: Point, ground: &BTreeSet<Id>, radius: f64) -> bool {
-    project.board.vias.iter().any(|v| {
-        ground.contains(&v.net) && v.position.distance(at) <= radius + 1e-9
-    })
+    project
+        .board
+        .vias
+        .iter()
+        .any(|v| ground.contains(&v.net) && v.position.distance(at) <= radius + 1e-9)
 }
 
 #[cfg(test)]
