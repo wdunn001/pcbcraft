@@ -72,35 +72,7 @@ pub(crate) fn flavour_of(values: &BTreeMap<String, String>) -> &'static BomFlavo
 /// The option values a fresh bill starts with: the flavour's file type, every column of
 /// the flavour and of the project, grouping as the flavour says.
 pub(crate) fn default_values(project: &Project, flavour: &BomFlavour) -> BTreeMap<String, String> {
-<<<<<<< ours
-<<<<<<< ours
-    // Description and supplier columns only start ticked when some part has the data,
-    // so a bill with none keeps its familiar columns.
-    let has = |token: &str| match token {
-        "description" => project
-            .components
-            .iter()
-            .any(|c| !c.description().is_empty()),
-        "suppliers" => project
-            .components
-            .iter()
-            .any(|c| !c.sourcing.suppliers.is_empty()),
-        _ => true,
-    };
-    let mut columns: Vec<String> = flavour
-        .columns
-        .iter()
-        .filter(|(t, _)| has(t))
-=======
-    let mut columns: Vec<String> = flavour
-        .columns
-        .iter()
->>>>>>> theirs
-        .map(|(t, _)| (*t).to_owned())
-        .collect();
-=======
     let mut columns: Vec<String> = flavour.columns.iter().map(|c| c.token.clone()).collect();
->>>>>>> theirs
     columns.extend(
         project
             .bom_fields
@@ -210,20 +182,6 @@ fn mount_of(project: &Project, reference: &str) -> String {
 pub(crate) fn table(project: &Project, o: &Options) -> Result<Table, String> {
     let wants = |token: &str| o.columns.iter().any(|c| c == token);
     let mut keys: Vec<String> = vec![];
-<<<<<<< ours
-<<<<<<< ours
-    for (token, key) in [
-        ("mpn", "MPN"),
-        ("manufacturer", "Manufacturer"),
-        ("description", "Description"),
-        ("suppliers", "Suppliers"),
-    ] {
-=======
-    for (token, key) in [("mpn", "MPN"), ("manufacturer", "Manufacturer")] {
->>>>>>> theirs
-        if wants(token) && o.flavour.columns.iter().any(|(t, _)| *t == token) {
-            keys.push(key.to_owned());
-=======
     let ask = |keys: &mut Vec<String>, field: &PartField| {
         for key in std::iter::once(field.key).chain(field.alias) {
             if !keys.iter().any(|k| k == key) && keys.len() < 16 {
@@ -252,7 +210,6 @@ pub(crate) fn table(project: &Project, o: &Options) -> Result<Table, String> {
     for key in o.flavour.requires.iter().chain(&o.flavour.requires_any) {
         if let Some(field) = part_field(key) {
             ask(&mut keys, field);
->>>>>>> theirs
         }
     }
     let mut extra: Vec<(String, String)> = vec![];
@@ -318,16 +275,6 @@ pub(crate) fn table(project: &Project, o: &Options) -> Result<Table, String> {
             .map(|c| match c.token.as_str() {
                 "value" => text(&item["value"]),
                 "footprint" => text(&item["footprint"]),
-<<<<<<< ours
-                "mpn" => field("MPN"),
-                "manufacturer" => field("Manufacturer"),
-<<<<<<< ours
-                "description" => field("Description"),
-                "suppliers" => field("Suppliers"),
-=======
->>>>>>> theirs
-                _ => String::new(),
-=======
                 "mount" => mount_of(project, &first),
                 "part_key" => {
                     let by = |k: &str| {
@@ -343,7 +290,6 @@ pub(crate) fn table(project: &Project, o: &Options) -> Result<Table, String> {
                     .find(|f| f.token == token)
                     .map(|f| part_value(item, f))
                     .unwrap_or_default(),
->>>>>>> theirs
             })
             .collect();
         cells.extend(extra.iter().map(|(key, _)| field(key)));
@@ -589,15 +535,7 @@ mod tests {
         assert!(
             render(&t, "csv").starts_with("Reference,Value,Footprint,MPN,Manufacturer,Quantity\n")
         );
-<<<<<<< ours
-<<<<<<< ours
         assert!(render(&t, "json").contains("\"Reference\""));
-=======
-        assert!(render(&t, "json").contains("\"Designator\"") == false);
->>>>>>> theirs
-=======
-        assert!(render(&t, "json").contains("\"Reference\""));
->>>>>>> theirs
         assert_eq!(file_name(&o), "bom.csv");
         Ok(())
     }

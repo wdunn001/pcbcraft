@@ -28,20 +28,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-<<<<<<< ours
-<<<<<<< ours
-=======
->>>>>>> theirs
 /// Option values keyed by the registry label.
 pub(crate) type Values = BTreeMap<String, String>;
 /// A menu pick: the format id and the options to fill in, either may be absent.
 type Pick = (Option<String>, Option<Values>);
 
-<<<<<<< ours
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
 /// Most entries a Recent list keeps.
 pub(crate) const RECENT_MAX: usize = 5;
 /// Rows the preview shows inside the dialog.
@@ -124,10 +115,6 @@ pub(crate) struct DialogState {
     pub preview_open: bool,
     /// (revision, rows) of the plain bill, for the Manufacture row count.
     pub count: Option<(u64, usize)>,
-<<<<<<< ours
-<<<<<<< ours
-=======
->>>>>>> theirs
     /// The scripted clicks of a `--show` capture.
     pub script: CaptureScript,
 }
@@ -150,11 +137,6 @@ impl CaptureScript {
     pub(crate) fn ready(&self) -> bool {
         self.show.as_deref() != Some("file-export") || (self.step >= 2 && self.wait >= 10)
     }
-<<<<<<< ours
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
 }
 
 fn spec(id: &str) -> Option<&'static FormatSpec> {
@@ -342,24 +324,10 @@ impl App {
             Mode::Import => self.preferences.recent_files.imports.clone(),
             _ => self.preferences.recent_files.exports.clone(),
         };
-<<<<<<< ours
-<<<<<<< ours
         let mut picked: Option<Pick> = None;
         let button = ui.menu_button(label, |ui| {
             if !recent.is_empty() {
                 ui.label(crate::fonts::caption("Recent").color(self.muted()));
-=======
-        let mut picked: Option<(Option<String>, Option<BTreeMap<String, String>>)> = None;
-        ui.menu_button(label, |ui| {
-            if !recent.is_empty() {
-                ui.label(egui::RichText::new("Recent").small().color(self.muted()));
->>>>>>> theirs
-=======
-        let mut picked: Option<Pick> = None;
-        let button = ui.menu_button(label, |ui| {
-            if !recent.is_empty() {
-                ui.label(crate::fonts::caption("Recent").color(self.muted()));
->>>>>>> theirs
                 for r in &recent {
                     if ui
                         .button(&r.summary)
@@ -372,15 +340,7 @@ impl App {
                 }
                 ui.separator();
             }
-<<<<<<< ours
-<<<<<<< ours
             ui.label(crate::fonts::caption("Common").color(self.muted()));
-=======
-            ui.label(egui::RichText::new("Common").small().color(self.muted()));
->>>>>>> theirs
-=======
-            ui.label(crate::fonts::caption("Common").color(self.muted()));
->>>>>>> theirs
             for f in formats::listed(mode.direction(), mode.scope())
                 .into_iter()
                 .filter(|f| f.common)
@@ -402,10 +362,6 @@ impl App {
                 picked = Some((None, None));
                 ui.close();
             }
-<<<<<<< ours
-<<<<<<< ours
-=======
->>>>>>> theirs
         });
         if self.capture.is_some() {
             self.edit
@@ -415,14 +371,6 @@ impl App {
                 .insert(label, button.response.rect.center());
         }
         button.response.on_hover_text(tip);
-<<<<<<< ours
-=======
-        })
-        .response
-        .on_hover_text(tip);
->>>>>>> theirs
-=======
->>>>>>> theirs
         if let Some((format, values)) = picked {
             self.open_dialog(mode, format.as_deref(), values, vec![]);
         }
@@ -447,19 +395,9 @@ impl App {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-<<<<<<< ours
-<<<<<<< ours
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .default_width(780.0)
-=======
-            .default_width(700.0)
->>>>>>> theirs
-=======
-            .order(egui::Order::Foreground)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .default_width(780.0)
->>>>>>> theirs
             .show(ctx, |ui| {
                 ui.add_space(6.0);
                 ui.horizontal_top(|ui| {
@@ -474,15 +412,7 @@ impl App {
                     ui.separator();
                     ui.add_space(12.0);
                     ui.vertical(|ui| {
-<<<<<<< ours
-<<<<<<< ours
                         ui.set_width(520.0);
-=======
-                        ui.set_width(430.0);
->>>>>>> theirs
-=======
-                        ui.set_width(520.0);
->>>>>>> theirs
                         match spec(&d.format) {
                             None => {
                                 ui.label(
@@ -720,14 +650,7 @@ impl App {
             .collect();
         let muted = self.muted();
         ui.add_space(8.0);
-<<<<<<< ours
-<<<<<<< ours
         egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| {
-=======
->>>>>>> theirs
-=======
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| {
->>>>>>> theirs
         egui::Frame::group(ui.style())
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
@@ -738,26 +661,11 @@ impl App {
                     ui.label(egui::RichText::new(format!("{rows} rows")).color(muted));
                 });
                 ui.label(
-<<<<<<< ours
-<<<<<<< ours
                     crate::fonts::caption(if jobs.is_empty() {
-=======
-                    egui::RichText::new(if jobs.is_empty() {
->>>>>>> theirs
-=======
-                    crate::fonts::caption(if jobs.is_empty() {
->>>>>>> theirs
                         "Not in an output job yet.".to_owned()
                     } else {
                         format!("Also written by the output jobs: {}.", jobs.join(", "))
                     })
-<<<<<<< ours
-<<<<<<< ours
-=======
-                    .small()
->>>>>>> theirs
-=======
->>>>>>> theirs
                     .color(muted),
                 );
                 ui.add_space(4.0);
@@ -778,14 +686,7 @@ impl App {
                     }
                 });
             });
-<<<<<<< ours
-<<<<<<< ours
         });
-=======
->>>>>>> theirs
-=======
-        });
->>>>>>> theirs
     }
 
     fn bom_preview_window(&mut self, ctx: &egui::Context) {
@@ -876,15 +777,7 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
             .collect()
     };
     for (heading, list) in groups {
-<<<<<<< ours
-<<<<<<< ours
         ui.label(crate::fonts::caption(heading).color(muted));
-=======
-        ui.label(egui::RichText::new(heading).small().color(muted));
->>>>>>> theirs
-=======
-        ui.label(crate::fonts::caption(heading).color(muted));
->>>>>>> theirs
         for f in list {
             let chosen = d.format == f.id;
             if ui
@@ -903,15 +796,7 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
         ui.add_space(8.0);
     }
     if d.mode == Mode::Export {
-<<<<<<< ours
-<<<<<<< ours
         ui.label(crate::fonts::caption("Packages").color(muted));
-=======
-        ui.label(egui::RichText::new("Packages").small().color(muted));
->>>>>>> theirs
-=======
-        ui.label(crate::fonts::caption("Packages").color(muted));
->>>>>>> theirs
         if packages().is_empty() {
             ui.label(egui::RichText::new("No packages yet.").color(muted))
                 .on_hover_text(
@@ -938,15 +823,7 @@ fn detail(
     browser: bool,
     go: &mut bool,
 ) {
-<<<<<<< ours
-<<<<<<< ours
     ui.label(crate::fonts::title(f.label));
-=======
-    ui.label(egui::RichText::new(f.label).strong().size(15.0));
->>>>>>> theirs
-=======
-    ui.label(crate::fonts::title(f.label));
->>>>>>> theirs
     ui.label(egui::RichText::new(f.tip).color(muted));
     ui.add_space(8.0);
     for o in f.options {
@@ -958,22 +835,8 @@ fn detail(
     ui.add_space(8.0);
     match d.mode {
         Mode::Export => {
-<<<<<<< ours
-<<<<<<< ours
             ui.label(crate::fonts::caption(format!("Saves into {make_dir}")).color(muted))
                 .on_hover_text("The make folder. Change it in Settings under Make files.");
-=======
-            ui.label(
-                egui::RichText::new(format!("Saves into {make_dir}"))
-                    .small()
-                    .color(muted),
-            )
-            .on_hover_text("The make folder. Change it in Settings under Make files.");
->>>>>>> theirs
-=======
-            ui.label(crate::fonts::caption(format!("Saves into {make_dir}")).color(muted))
-                .on_hover_text("The make folder. Change it in Settings under Make files.");
->>>>>>> theirs
         }
         Mode::SaveAs | Mode::Import => {
             let before = d.path.clone();
@@ -1240,10 +1103,6 @@ fn option_row(
     }
     let _ = f;
 }
-<<<<<<< ours
-<<<<<<< ours
-=======
->>>>>>> theirs
 
 /// The option values a fresh bill of the given flavour starts with.
 #[cfg(test)]
@@ -1280,28 +1139,18 @@ impl App {
                 );
             }
             Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
             Some(scene) if scene.starts_with("files-") => self.files_capture_scene(scene),
-=======
             Some("export-flavour") => {
                 self.open_dialog(Mode::Export, Some("bom"), None, vec![]);
                 if let Some(flavour) = formats::bom_flavour("asm_proto_a") {
                     self.edit.dialog.values = bom_export::default_values(&self.project, flavour);
                 }
             }
->>>>>>> theirs
-=======
             Some(scene) if scene.starts_with("library-") => self.capture_library_scene(scene),
->>>>>>> theirs
-            _ => {}
-=======
             Some(scene) => {
                 self.capture_project_settings(scene);
             }
             None => {}
->>>>>>> theirs
         }
     }
 
@@ -1343,13 +1192,6 @@ impl App {
         }
     }
 }
-<<<<<<< ours
-<<<<<<< ours
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
 
 /// Command parameters from the option values of a format whose options all name a parameter.
 ///
@@ -1407,4 +1249,3 @@ fn gerber_preview(ui: &mut egui::Ui, d: &DialogState, f: &FormatSpec, project: &
             }
         });
 }
->>>>>>> theirs
