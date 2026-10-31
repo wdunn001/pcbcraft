@@ -1060,7 +1060,11 @@ mod tests {
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
         assert_eq!(body.family, "soic");
-        comp.library_footprint.as_mut().unwrap().definition.name = "Mystery".into();
+        let lf = comp
+            .library_footprint
+            .as_mut()
+            .ok_or_else(|| "missing footprint".to_string())?;
+        lf.definition.name = "Mystery".into();
         let body2 = resolve(
             &footprint(vec![
                 pad_at("1", 0.0, 0.0, 1.0, 1.0, "rect"),
@@ -1104,6 +1108,38 @@ mod tests {
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
         assert_eq!(body.family, "chip");
         assert!(close(body.height, 0.5));
+        Ok(())
+    }
+
+    #[test]
+    fn led_footprint_name_is_chip_with_polarity_mark() -> Result<(), String> {
+        let mut gen = nominal_params();
+        gen.name = "LED_0805_2012Metric".into();
+        gen.body_length = 2.0;
+        gen.body_width = 1.25;
+        gen.pin_count = 2;
+        let def = generate_footprint("chip_2terminal", LandPatternDensity::Nominal, &gen)?;
+        let pads = pads_from_def(&def);
+        let comp = Component {
+            id: 1,
+            reference: "D1".into(),
+            value: String::new(),
+            kind: "led".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            pins: vec![],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "g".into(),
+                definition: def,
+            }),
+            fields: vec![],
+            sheet: 0,
+        };
+        let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
+        assert_eq!(body.family, "chip");
+        assert!(body.polarity.is_some());
         Ok(())
     }
 
