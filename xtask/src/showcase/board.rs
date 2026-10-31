@@ -74,7 +74,7 @@ pub fn bad_count(g: &Gen) -> usize {
     let started = pcbcraft_clock::instant_now();
     let n = pcbcraft_rules::drc(&g.s.project)
         .iter()
-        .filter(|f| f.code != "unrouted")
+        .filter(|f| f.code != "unrouted" && f.code != "via_in_pad_not_capped")
         .count();
     CHECKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     CHECK_MICROS.fetch_add(
@@ -453,6 +453,14 @@ pub fn build(g: &mut Gen) -> Res<()> {
             json!({"name": name, "kind": kind, "thickness": t}),
         )?;
     }
+    g.cmd(
+        "board.set_copper_layer_role",
+        json!({"layer": "In1.Cu", "role": "ground"}),
+    )?;
+    g.cmd(
+        "board.set_copper_layer_role",
+        json!({"layer": "In2.Cu", "role": "power"}),
+    )?;
     g.cmd("board.set_finish", json!({"finish": "ENIG"}))?;
     g.cmd("board.rules.set", json!({"clearance": 0.15}))?;
     for (reference, x, y, rot) in layout::PLACEMENT {
@@ -499,6 +507,7 @@ pub fn build(g: &mut Gen) -> Res<()> {
     super::finish::planes(g)?;
     println!("planes done {:?}", started.elapsed());
     super::finish::artwork(g)?;
+    super::finish::cap_vias_in_pads(g)?;
     super::finish::builds(g)?;
     report(g);
     for f in pcbcraft_rules::drc(&g.s.project)

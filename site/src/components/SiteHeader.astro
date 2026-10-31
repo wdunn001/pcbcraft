@@ -11,7 +11,7 @@ interface Props {
 }
 const { current = Astro.url.pathname } = Astro.props;
 
-const isCurrent = (path: string) => current.startsWith(url(path));
+const isCurrent = (path: string) => !path.startsWith('#') && current.startsWith(url(path));
 ---
 
 <div class="bar">
@@ -29,12 +29,12 @@ const isCurrent = (path: string) => current.startsWith(url(path));
       }
     </ul>
   </nav>
-  <details class="more">
+  {MORE.length > 0 && <details class="more">
     <summary>More</summary>
     <ul class="panel">
       {MORE.map((item) => (<li><a href={url(item.path)} aria-current={isCurrent(item.path) ? 'page' : undefined}>{item.label}</a></li>))}
     </ul>
-  </details>
+  </details>}
   <div class="tools">
     <slot name="search" />
     <slot name="theme" />
