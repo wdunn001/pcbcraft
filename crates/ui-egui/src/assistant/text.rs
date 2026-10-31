@@ -418,3 +418,312 @@ pub(super) fn switched_off_body() -> String {
 pub(super) fn settings_heading_tip() -> String {
     t!("assistant.settings_heading.tip")
 }
+
+// Steps, review card, undo card and next-step cards.
+pub(super) fn step_tip() -> String {
+    t!("assistant.step.tip")
+}
+
+pub(super) fn step_state_waiting() -> String {
+    t!("assistant.step.state_waiting")
+}
+
+pub(super) fn step_state_running() -> String {
+    t!("assistant.step.state_running")
+}
+
+pub(super) fn step_state_done() -> String {
+    t!("assistant.step.state_done")
+}
+
+pub(super) fn step_state_failed() -> String {
+    t!("assistant.step.state_failed")
+}
+
+pub(super) fn step_quick() -> String {
+    t!("assistant.step.quick")
+}
+
+pub(super) fn step_commands() -> String {
+    t!("assistant.step.commands")
+}
+
+pub(super) fn step_commands_tip() -> String {
+    t!("assistant.step.commands.tip")
+}
+
+pub(super) fn run_working() -> String {
+    t!("assistant.run.working")
+}
+
+pub(super) fn run_working_tip() -> String {
+    t!("assistant.run.working.tip")
+}
+
+pub(super) fn run_tip() -> String {
+    t!("assistant.run.tip")
+}
+
+pub(super) fn digest_done() -> String {
+    t!("assistant.digest.done")
+}
+
+pub(super) fn digest_nothing() -> String {
+    t!("assistant.digest.nothing")
+}
+
+pub(super) fn digest_changed() -> String {
+    t!("assistant.digest.changed")
+}
+
+pub(super) fn digest_removed() -> String {
+    t!("assistant.digest.removed")
+}
+
+pub(super) fn digest_declined() -> String {
+    t!("assistant.digest.declined")
+}
+
+pub(super) fn review_caption() -> String {
+    t!("assistant.review.caption")
+}
+
+pub(super) fn review_title() -> String {
+    t!("assistant.review.title")
+}
+
+pub(super) fn review_applied() -> String {
+    t!("assistant.review.applied")
+}
+
+pub(super) fn review_discarded() -> String {
+    t!("assistant.review.discarded")
+}
+
+pub(super) fn review_row_parts() -> String {
+    t!("assistant.review.row_parts")
+}
+
+pub(super) fn review_row_nets() -> String {
+    t!("assistant.review.row_nets")
+}
+
+pub(super) fn review_row_tracks() -> String {
+    t!("assistant.review.row_tracks")
+}
+
+pub(super) fn review_row_vias() -> String {
+    t!("assistant.review.row_vias")
+}
+
+pub(super) fn review_row_untouched() -> String {
+    t!("assistant.review.row_untouched")
+}
+
+pub(super) fn review_row_size() -> String {
+    t!("assistant.review.row_size")
+}
+
+pub(super) fn review_row_parts_tip() -> String {
+    t!("assistant.review.row_parts.tip")
+}
+
+pub(super) fn review_row_nets_tip() -> String {
+    t!("assistant.review.row_nets.tip")
+}
+
+pub(super) fn review_row_tracks_tip() -> String {
+    t!("assistant.review.row_tracks.tip")
+}
+
+pub(super) fn review_row_vias_tip() -> String {
+    t!("assistant.review.row_vias.tip")
+}
+
+pub(super) fn review_row_untouched_tip() -> String {
+    t!("assistant.review.row_untouched.tip")
+}
+
+pub(super) fn review_row_size_tip() -> String {
+    t!("assistant.review.row_size.tip")
+}
+
+pub(super) fn review_list() -> String {
+    t!("assistant.review.list")
+}
+
+pub(super) fn review_list_tip() -> String {
+    t!("assistant.review.list.tip")
+}
+
+pub(super) fn review_step_hint() -> String {
+    t!("assistant.review.step_hint")
+}
+
+pub(super) fn apply_each() -> String {
+    t!("assistant.apply_each")
+}
+
+pub(super) fn apply_each_tip() -> String {
+    t!("assistant.apply_each.tip")
+}
+
+pub(super) fn undo_caption() -> String {
+    t!("assistant.undo.caption")
+}
+
+pub(super) fn undo_body() -> String {
+    t!("assistant.undo.body")
+}
+
+pub(super) fn undo_key() -> String {
+    t!("assistant.undo.key")
+}
+
+pub(super) fn undo_done() -> String {
+    t!("assistant.undo.done")
+}
+
+pub(super) fn undo_title_one() -> String {
+    t!("assistant.undo.title_one")
+}
+
+pub(super) fn next_caption() -> String {
+    t!("assistant.next.caption")
+}
+
+pub(super) fn next_recommended() -> String {
+    t!("assistant.next.recommended")
+}
+
+pub(super) fn next_tip() -> String {
+    t!("assistant.next.tip")
+}
+
+pub(super) fn next_recommended_tip() -> String {
+    t!("assistant.next.recommended.tip")
+}
+
+pub(super) fn input_hint_next() -> String {
+    t!("assistant.input_hint_next")
+}
+
+/// The plain name of a step kind, from the catalog key `assistant.step.<id>`.
+pub(super) fn step_name(kind: pcbcraft_assistant::StepKind) -> String {
+    match kind {
+        pcbcraft_assistant::StepKind::Parts => t!("assistant.step.parts"),
+        pcbcraft_assistant::StepKind::Placing => t!("assistant.step.placing"),
+        pcbcraft_assistant::StepKind::Connecting => t!("assistant.step.connecting"),
+        pcbcraft_assistant::StepKind::Routing => t!("assistant.step.routing"),
+        pcbcraft_assistant::StepKind::Board => t!("assistant.step.board"),
+        pcbcraft_assistant::StepKind::Checking => t!("assistant.step.checking"),
+        pcbcraft_assistant::StepKind::Looking => t!("assistant.step.looking"),
+        pcbcraft_assistant::StepKind::Picture => t!("assistant.step.picture"),
+        pcbcraft_assistant::StepKind::Files => t!("assistant.step.files"),
+        pcbcraft_assistant::StepKind::Other => t!("assistant.step.other"),
+    }
+}
+
+pub(super) fn step_secs(n: u64) -> String {
+    t!("assistant.step.secs", n = n)
+}
+
+pub(super) fn run_summary(n: usize, secs: &str) -> String {
+    if n == 1 {
+        t!("assistant.run.one", secs = secs)
+    } else {
+        t!("assistant.run.many", n = n, secs = secs)
+    }
+}
+
+/// The sentence for a counted result, from the catalog key `assistant.digest.<id>`.
+pub(super) fn digest(d: &pcbcraft_assistant::Digest) -> String {
+    let (a, b) = (d.numbers[0], d.numbers[1]);
+    match d.id {
+        "found" => t!("assistant.digest.found", a = a),
+        "checks_clean" => t!("assistant.digest.checks_clean"),
+        "checks_unrouted" => t!("assistant.digest.checks_unrouted", a = a),
+        _ => t!("assistant.digest.checks_found", a = a, b = b),
+    }
+}
+
+pub(super) fn digest_added(list: &str) -> String {
+    t!("assistant.digest.added", list = list)
+}
+
+pub(super) fn digest_failed(reason: &str) -> String {
+    t!("assistant.digest.failed", reason = reason)
+}
+
+pub(super) fn count_parts(n: usize) -> String {
+    if n == 1 {
+        t!("assistant.digest.part_one")
+    } else {
+        t!("assistant.digest.part_many", n = n)
+    }
+}
+
+pub(super) fn count_tracks(n: usize) -> String {
+    if n == 1 {
+        t!("assistant.digest.track_one")
+    } else {
+        t!("assistant.digest.track_many", n = n)
+    }
+}
+
+pub(super) fn count_vias(n: usize) -> String {
+    if n == 1 {
+        t!("assistant.digest.via_one")
+    } else {
+        t!("assistant.digest.via_many", n = n)
+    }
+}
+
+pub(super) fn count_other(n: usize) -> String {
+    if n == 1 {
+        t!("assistant.digest.other_one")
+    } else {
+        t!("assistant.digest.other_many", n = n)
+    }
+}
+
+pub(super) fn review_of(a: usize, b: usize) -> String {
+    t!("assistant.review.of", a = a, b = b)
+}
+
+pub(super) fn review_kb(a: &str, b: &str) -> String {
+    t!("assistant.review.kb", a = a, b = b)
+}
+
+pub(super) fn review_share(n: usize) -> String {
+    t!("assistant.review.share", n = n)
+}
+
+pub(super) fn review_more(n: usize) -> String {
+    t!("assistant.review.more", n = n)
+}
+
+pub(super) fn review_line(
+    parts: usize,
+    nets: usize,
+    tracks: usize,
+    kept: usize,
+    total: usize,
+) -> String {
+    t!(
+        "assistant.review.line",
+        parts = parts,
+        nets = nets,
+        tracks = tracks,
+        kept = kept,
+        total = total
+    )
+}
+
+pub(super) fn step_n(n: usize, total: usize) -> String {
+    t!("assistant.step_n", n = n, total = total)
+}
+
+pub(super) fn undo_title(n: u32) -> String {
+    t!("assistant.undo.title", n = n)
+}
