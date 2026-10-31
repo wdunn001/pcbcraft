@@ -1,6 +1,7 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod artifacts;
 mod authoring;
+pub mod collab;
 mod dry_run;
 mod images;
 pub mod library;
@@ -14,6 +15,10 @@ pub mod wirelength;
 pub mod library;
 pub mod profiles;
 pub mod recents;
+pub use collab::{
+    CollabSnapshot, OrderedRoomApply, RoomOp, apply_room_command, command_lock_scope,
+    shareable_room_command,
+};
 pub use dry_run::{ChangeSummary, DryRun};
 mod datasheet_annotations;
 mod route;
@@ -162,10 +167,10 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "project.import",
-            "Replace the open design from an interchange board or schematic file on disk in one undo step",
+            "Replace the open design from an interchange file on disk; schematic text is supported today",
             schema(
-                json!({"format":{"type":"string","enum":["board","schematic"]},"path":{"type":"string","minLength":1,"maxLength":4096}}),
-                &["format", "path"],
+                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"format":{"type":"string","enum":["schematic"]}}),
+                &["path", "format"],
             ),
         ),
         (
@@ -371,7 +376,15 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-"component.set_compliance",
+"component.set_kind",
+            "Set the closed component kind slug used by profile and companion rules",
+            schema(
+                json!({"id":id_schema(),"kind":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id", "kind"],
+            ),
+        ),
+        (
+            "component.set_compliance",
             "Set typed compliance on a placed part: country of origin, product role, declarations and substances",
             schema(
                 json!({"id":id_schema(),"compliance":{"type":"object"}}),
@@ -407,39 +420,6 @@ pub fn commands() -> Vec<CommandSpec> {
             "Find placed footprints by component reference wildcard, exact component value, or lock state; * matches any run of characters and ? matches one",
             schema(
                 json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"locked":{"type":"boolean"}}),
-                &[],
-            ),
-        ),
-        (
-            "manufacturer.set",
-            "Add or replace one row in the project manufacturer table, including aliases and country",
-            schema(
-                json!({"name":{"type":"string","maxLength":128},"aliases":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":128}},"country":{"type":"string","maxLength":2},"parent":{"type":["string","null"],"maxLength":128},"supplier_responsibility_on_file":{"type":"boolean"}}),
-                &["name"],
-            ),
-        ),
-        (
-            "project.compliance.set",
-            "Choose compliance rule sets, organisation role and target markets for this design",
-            schema(
-                json!({"rule_sets":{"type":"array","maxItems":16,"items":{"type":"string","maxLength":64}},"org_role":{"type":["string","null"],"enum":["maker_seller","integrator","buyer",null]},"target_markets":{"type":"array","maxItems":16,"items":{"type":"string","maxLength":256}}}),
-                &[],
-            ),
-        ),
-        (
-            "compliance.finding.mute",
-            "Mute one compliance finding for a rule and component or manufacturer, storing a reason on the project",
-            schema(
-                json!({"rule":{"type":"string","maxLength":64},"component":{"type":["integer","null"]},"manufacturer":{"type":["string","null"],"maxLength":128},"reason":{"type":"string","maxLength":512}}),
-                &["rule", "reason"],
-            ),
-        ),
-        (
-            "compliance.check",
-            "Run bundled compliance rule sets against the bill of materials and return findings with rule, evidence and citation",
-            schema(json!({}), &[]),
-        ),
-        (
             "component.find",
             "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
             schema(
@@ -2555,6 +2535,21 @@ impl Session {
         }
         Ok(())
     }
+    /// Next id the session would allocate. Exposed for collab parity checks.
+    pub fn collab_next_id(&self) -> Id {
+        self.next_id
+    }
+
+    /// Apply one relay-ordered room edit (`expected` is always [`None`]).
+    pub fn apply_room_command(&mut self, id: &str, params: Value) -> Result<Value, Error> {
+        collab::apply_room_command(self, id, params)
+    }
+
+    /// Revision, next id and canonical project bytes for collab parity tests.
+    pub fn collab_snapshot(&self) -> Result<CollabSnapshot, Error> {
+        CollabSnapshot::from_session(self)
+    }
+
     pub fn execute(
         &mut self,
         id: &str,
@@ -2623,7 +2618,7 @@ impl Session {
         let mut candidate = self.project.clone();
         let mut next = self.next_id;
         let mut results = vec![];
-        let auto_sync = candidate.auto_sync && !candidate.board_only;
+        let auto_sync = candidate.auto_sync;
         let mut needs_sync = false;
         let manual_sync = commands.iter().any(|c| c.command == "board.sync");
         for command in commands {
@@ -3607,7 +3602,6 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
             staging_index += 1;
             let id = allocate(next)?;
             p.board.footprints.push(Footprint {
-                preserved: pcbcraft_doc::PreservedSource::default(),
                 id,
                 component: c.id,
                 position: Point::new(staging_x + col as f64 * 12.0, 10.0 + row as f64 * 8.0),
@@ -3745,6 +3739,9 @@ fn assign_to(
         library,
         definition: definition.clone(),
     });
+    if let Some(symbol) = &c.library_symbol {
+        c.kind = pcbcraft_doc::assign_kind_from_library(&symbol.definition, Some(definition));
+    }
     Some(())
 }
 #[derive(Deserialize)]
@@ -3766,6 +3763,12 @@ struct Rotate {
 struct ValueParams {
     id: Id,
     value: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetKindParams {
+    id: Id,
+    kind: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3811,8 +3814,8 @@ struct ArchivePathParams {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectImportParams {
-    format: String,
     path: String,
+    format: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4489,21 +4492,8 @@ struct TeardropParams {
     #[serde(default = "teardrop_depth")]
     depth: f64,
 }
-/// Rewrite a library path whose first segment names a project library table
-/// entry onto the folder that entry points at, so designs opened on another
-/// machine find their libraries without retyping absolute folders.
 fn resolve_library_path(p: &Project, path: &str) -> String {
-    if let Some((head, rest)) = path.split_once(['/', '\\'])
-        && let Some(link) = p.library_table.iter().find(|l| l.name == head)
-    {
-        let sep = if link.path.ends_with('/') || link.path.ends_with('\\') {
-            ""
-        } else {
-            "/"
-        };
-        return format!("{}{sep}{rest}", link.path);
-    }
-    path.to_string()
+    pcbcraft_io::resolve_library_path(p, path)
 }
 
 fn teardrop_depth() -> f64 {
@@ -6294,7 +6284,10 @@ fn filter_matches(filter: &ComponentFilter, c: &Component) -> bool {
         .as_deref()
         .is_none_or(|r| class_pattern_matches(r, &c.reference))
         && filter.value.as_deref().is_none_or(|v| c.value == v)
-        && filter.kind.as_deref().is_none_or(|k| c.kind == k)
+        && filter
+            .kind
+            .as_deref()
+            .is_none_or(|k| pcbcraft_doc::kind_matches(&c.kind, k))
 }
 /// Center of an align item's bounding box on the requested axis.
 /// True when any design object (component, net, wire, footprint, track, via,
@@ -7567,24 +7560,6 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
     }
     Ok(())
 }
-
-fn count_preserved_nodes(p: &Project) -> usize {
-    let mut n = p.board.preserved.nodes.len();
-    for f in &p.board.footprints {
-        n += f.preserved.nodes.len();
-    }
-    for t in &p.board.tracks {
-        n += t.preserved.nodes.len();
-    }
-    for v in &p.board.vias {
-        n += v.preserved.nodes.len();
-    }
-    for z in &p.board.zones {
-        n += z.preserved.nodes.len();
-    }
-    n
-}
-
 /// Run one command with named parameters resolved, then record what it bound.
 /// A plain number written where a parameter could stand releases that field,
 /// so a later parameter change never overrides a deliberate edit.
@@ -8121,38 +8096,17 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
         }
         "project.import" => {
             let a: ProjectImportParams = parse(params)?;
+            if a.format != "schematic" {
+                return Err(Error::Invalid(
+                    "only schematic interchange import is supported".into(),
+                ));
+            }
             let path = std::path::Path::new(&a.path);
             let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
-            let (imported, summary) = match a.format.as_str() {
-                "board" => {
-                    let (imported, report) = pcbcraft_io::read_board_interchange_report(&text)
-                        .map_err(Error::Invalid)?;
-                    let preserved_nodes = count_preserved_nodes(&imported);
-                    let summary = json!({
-                        "format": "board",
-                        "components": imported.components.len(),
-                        "nets": imported.nets.len(),
-                        "footprints": imported.board.footprints.len(),
-                        "tracks": imported.board.tracks.len(),
-                        "vias": imported.board.vias.len(),
-                        "zones": imported.board.zones.len(),
-                        "layers": imported.copper_layer_count(),
-                        "preserved_nodes": preserved_nodes,
-                        "notices": report.notices,
-                    });
-                    (imported, summary)
-                }
-                "schematic" => {
-                    let imported = pcbcraft_io::read_schematic_interchange_path(path, &text)
-                        .map_err(Error::Invalid)?;
-                    let summary = pcbcraft_io::import_summary(&imported, 0);
-                    (imported, summary)
-                }
-                _ => return Err(Error::Invalid("unsupported import format".into())),
-            };
+            let (imported, preserved_bytes) = pcbcraft_io::read_schematic_interchange_path(path, &text)
+                .map_err(Error::Invalid)?;
+            let summary = pcbcraft_io::import_summary(&imported, preserved_bytes);
             *p = imported;
-            // New objects must not reuse an id the import already took.
-            *next = (*next).max(p.ids().max().unwrap_or(0).saturating_add(1));
             Ok(summary)
         }
         "component.add" => {
@@ -8834,6 +8788,17 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 put(key, &a.sku)?;
             }
             Ok(json!({"id": a.id, "fields": written}))
+        }
+        "component.set_kind" => {
+            let a: SetKindParams = parse(params)?;
+            let kind = pcbcraft_doc::parse_component_kind(&a.kind).map_err(Error::Invalid)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.kind = kind.clone();
+            Ok(json!({"id": a.id, "kind": kind}))
         }
         "component.find" => {
             let a: FindParams = parse(params)?;
@@ -11286,7 +11251,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             }
             let id = allocate(next)?;
             p.sheets.push(Sheet {
-                interchange_uuid: None,
                 id,
                 name: a.name,
                 parent: None,
@@ -11579,7 +11543,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 net: a.net,
                 sheet: a.sheet,
                 position: a.position,
-                interchange_uuid: None,
             });
             Ok(json!({"id":id,"name":a.name,"sheet":a.sheet}))
         }
@@ -11693,7 +11656,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             }
             let sheet = allocate(next)?;
             p.sheets.push(Sheet {
-                interchange_uuid: None,
                 id: sheet,
                 name: name.clone(),
                 parent: None,
@@ -11784,7 +11746,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                     net,
                     sheet,
                     position: item.position,
-                    interchange_uuid: None,
                 });
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))
@@ -11962,8 +11923,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                     width,
                     layer,
                     arc: None,
-
-                    preserved: pcbcraft_doc::PreservedSource::default(),
                 });
                 ids.push(id);
             }
@@ -13208,7 +13167,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 position: a.position,
                 diameter,
                 drill,
-                preserved: pcbcraft_doc::PreservedSource::default(),
                 from_layer,
                 to_layer,
                 covering: None,
@@ -13353,7 +13311,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                         position,
                         diameter: a.diameter,
                         drill: a.drill,
-                        preserved: pcbcraft_doc::PreservedSource::default(),
                         from_layer: None,
                         to_layer: None,
                         covering: None,
@@ -13380,7 +13337,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 cutouts: vec![],
                 filled: true,
                 kind: None,
-                preserved: pcbcraft_doc::PreservedSource::default(),
                 pour: None,
             });
             Ok(json!({"id":id}))
@@ -13775,7 +13731,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                     cutouts: vec![],
                     filled: true,
                     kind: Some("teardrop".into()),
-                    preserved: pcbcraft_doc::PreservedSource::default(),
                     pour: None,
                 });
                 added += 1;
@@ -16831,12 +16786,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
             }
-            if p.board_only {
-                return Err(Error::Invalid(
-                    "this board came from an imported file and has no schematic to sync from"
-                        .into(),
-                ));
-            }
             sync_board_from_schematic(p, next)
         }
         "board.resize" => {
@@ -17210,8 +17159,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 width,
                 layer,
                 arc: None,
-
-                preserved: pcbcraft_doc::PreservedSource::default(),
             });
             Ok(json!({"id":id, "width": width}))
         }
@@ -17239,8 +17186,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 width,
                 layer,
                 arc: Some(a.mid),
-
-                preserved: pcbcraft_doc::PreservedSource::default(),
             });
             Ok(json!({
                 "id": id,
@@ -17315,8 +17260,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 width,
                 layer,
                 arc: None,
-
-                preserved: pcbcraft_doc::PreservedSource::default(),
             });
             Ok(json!({"id":id,"kept":a.id}))
         }
@@ -17414,8 +17357,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 width,
                 layer,
                 arc: None,
-
-                preserved: pcbcraft_doc::PreservedSource::default(),
             });
             Ok(json!({"id": id, "a": a.a, "b": a.b}))
         }
@@ -17466,8 +17407,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                         width,
                         layer,
                         arc: None,
-
-                        preserved: pcbcraft_doc::PreservedSource::default(),
                     });
                 }
             }
@@ -17545,8 +17484,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                     width,
                     layer: a.layer,
                     arc: None,
-
-                    preserved: pcbcraft_doc::PreservedSource::default(),
                 });
             }
             for (from, to) in segs_n {
@@ -17560,8 +17497,6 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                     width,
                     layer: a.layer,
                     arc: None,
-
-                    preserved: pcbcraft_doc::PreservedSource::default(),
                 });
             }
             let touched: Vec<Id> = ids_p.iter().chain(ids_n.iter()).copied().collect();
@@ -23541,47 +23476,6 @@ mod tests {
     }
 
     #[test]
-    fn project_import_board_replaces_session_undo_once() -> Result<(), Error> {
-        let fixture = include_str!("../../io/tests/fixtures/board_import_simple_2layer.kicad_pcb");
-        let path = std::env::temp_dir().join(format!(
-            "pcbcraft-board-import-{}.kicad_pcb",
-            std::process::id()
-        ));
-        std::fs::write(&path, fixture).map_err(|e| Error::Invalid(e.to_string()))?;
-        let path = path.to_string_lossy().to_string();
-        let mut s = Session::default();
-        s.execute(
-            "component.add",
-            json!({"kind":"led","reference":"D9","value":"LED","position":{"x":1,"y":1}}),
-            None,
-        )?;
-        let before = s.project.clone();
-        let undo_depth = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
-        let summary = s.execute(
-            "project.import",
-            json!({"format":"board","path":path}),
-            None,
-        )?;
-        assert_eq!(summary["result"]["format"], "board");
-        assert!(summary["result"]["notices"].is_array());
-        assert!(summary["result"]["layers"].as_u64().is_some_and(|n| n >= 2));
-        assert!(
-            summary["result"]["footprints"]
-                .as_u64()
-                .is_some_and(|n| n > 0)
-        );
-        assert_ne!(s.project, before);
-        assert_eq!(
-            s.inspect()["history"]["undo"].as_u64().unwrap_or(0),
-            undo_depth + 1
-        );
-        s.undo()?;
-        assert_eq!(s.project, before);
-        std::fs::remove_file(&path).ok();
-        Ok(())
-    }
-
-    #[test]
     fn project_import_schematic_replaces_session_undo_once() -> Result<(), Error> {
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../io/tests/fixtures/schematic_import_flat.kicad_sch");
@@ -23598,70 +23492,6 @@ mod tests {
         assert_ne!(session.project, before);
         session.undo()?;
         assert_eq!(session.project, before);
-        Ok(())
-    }
-
-    #[test]
-    fn board_sync_on_an_imported_board_changes_nothing() -> Result<(), Error> {
-        let fixture = include_str!("../../io/tests/fixtures/board_import_simple_2layer.kicad_pcb");
-        let path = std::env::temp_dir().join(format!(
-            "pcbcraft-board-sync-{}.kicad_pcb",
-            std::process::id()
-        ));
-        std::fs::write(&path, fixture).map_err(|e| Error::Invalid(e.to_string()))?;
-        let mut s = Session::default();
-        s.execute(
-            "project.import",
-            json!({"format":"board","path":path.to_string_lossy()}),
-            None,
-        )?;
-        std::fs::remove_file(&path).ok();
-        assert!(s.project.board_only);
-        let before = s.project.clone();
-        assert!(s.execute("board.sync", json!({}), None).is_err());
-        assert_eq!(s.project, before, "Update must not touch an imported board");
-        // Editing keeps every imported part: automatic sync stays off.
-        s.execute("project.set_auto_sync", json!({"auto_sync": true}), None)?;
-        s.execute(
-            "component.add",
-            json!({"kind":"led","reference":"D99","value":"LED","position":{"x":1,"y":1}}),
-            None,
-        )?;
-        assert!(
-            before.board.footprints.iter().all(|f| s
-                .project
-                .board
-                .footprints
-                .iter()
-                .any(|g| g.id == f.id))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn project_import_board_invalid_leaves_project_unchanged() -> Result<(), Error> {
-        let path = std::env::temp_dir().join(format!(
-            "pcbcraft-board-bad-{}.kicad_pcb",
-            std::process::id()
-        ));
-        std::fs::write(&path, b"(kicad_pcb (segment (start 0 0)\n")
-            .map_err(|e| Error::Invalid(e.to_string()))?;
-        let path = path.to_string_lossy().to_string();
-        let mut s = Session::default();
-        let before = s.project.clone();
-        let rejected = s.execute(
-            "project.import",
-            json!({"format":"board","path":path}),
-            None,
-        );
-        assert!(rejected.is_err(), "malformed board must be refused");
-        let msg = match rejected {
-            Err(e) => e.to_string(),
-            Ok(_) => return Err(Error::Invalid("expected import failure".into())),
-        };
-        assert!(msg.contains("line"), "error should name a line: {msg}");
-        assert_eq!(s.project, before);
-        std::fs::remove_file(&path).ok();
         Ok(())
     }
 
@@ -23848,7 +23678,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn library_footprint_model_auto_align_recovers_pad_shift() -> Result<(), Error> {
+fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error> {
         let mut s = Session::default();
         let pitch = 3.0;
         let half = pitch / 2.0;
@@ -23899,9 +23729,69 @@ mod tests {
         )?;
         s.execute(
             "library.footprint.set_model",
-            json!({"name":"AlignChip","path":"chip.wrl"}),
+            json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]}),
             None,
         )?;
+        s.execute(
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_model",
+json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_model_transform",
+            json!({"name":"R_0805_2012Metric","offset":[1,2,3]}),
+            None,
+        )?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["offset"],
+            json!([1.0, 2.0, 3.0])
+        );
+        s.execute(
+            "library.footprint.set_model_transform",
+            json!({"name":"R_0805_2012Metric","preset":"rotate_90"}),
+            None,
+        )?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["rotate"][2].as_f64(),
+            Some(90.0),
+            "rotate_90 turns the model about Z"
+        );
+        s.execute(
+            "library.footprint.set_model_transform",
+            json!({"name":"R_0805_2012Metric","preset":"mirror"}),
+            None,
+        )?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["scale"][0].as_f64(),
+            Some(-1.0),
+            "mirror negates X scale for a vertical-axis flip"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["offset"],
+            json!([1.0, 2.0, 3.0])
+        );
+        assert!(
+            commands()
+                .iter()
+                .any(|c| c.id == "library.footprint.set_model_transform"),
+            "typed command surface lists set_model_transform"
+        );
+        assert!(
+            s.execute(
+                "library.footprint.set_model_transform",
+                json!({"name":"R_0805_2012Metric","preset":"nope"}),
+                None
+            )
+            .is_err(),
+            "unknown presets are refused"
+        );
         let mesh = pcbcraft_io::shift_mesh(&pcbcraft_io::test_chip_mesh(pitch), 0.3, -0.15, 0.0);
         let flat: Vec<f64> = mesh.positions.iter().flat_map(|p| p.iter().copied()).collect();
         let out = s.execute(
@@ -37718,6 +37608,46 @@ mod tests {
         Ok(())
     }
     #[test]
+    #[test]
+    fn a_newcomer_saves_a_four_layer_board_and_the_file_names_the_bottom_layer(
+    ) -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":1.0,"y":1.0},"end":{"x":5.0,"y":1.0},"width":0.2,"layer":"B.Cu"}),
+            None,
+        )?;
+        s.execute("board.stackup_add_pair", json!({"after":"F.Cu"}), None)?;
+        assert_eq!(s.project.copper_layer_count(), 4);
+        let dir = tempfile::tempdir().map_err(|e| Error::Invalid(e.to_string()))?;
+        let path = dir.path().join("four-layer.pcbcraft");
+        pcbcraft_io::save(&s.project, &path).map_err(Error::Invalid)?;
+        let first = std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?;
+        let text = String::from_utf8(first.clone()).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(
+            text.contains("\"layer\": \"B.Cu\""),
+            "saved file must name bottom copper from the stackup"
+        );
+        assert!(
+            !text.contains("In3.Cu"),
+            "saved file must not use index-derived bottom names"
+        );
+        let loaded = pcbcraft_io::load(&path).map_err(Error::Invalid)?;
+        assert_eq!(
+            loaded.board.tracks[0].layer.index(),
+            3,
+            "legacy and stackup names must load to the same layer"
+        );
+        let again = dir.path().join("four-layer-again.pcbcraft");
+        pcbcraft_io::save(&loaded, &again).map_err(Error::Invalid)?;
+        let second = std::fs::read(&again).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(first, second, "a second save must be byte-identical");
+        Ok(())
+    }
+
     fn via_set_span_updates_range() -> Result<(), Error> {
         let (mut s, net) = six_layer_session()?;
         let id = s.execute(

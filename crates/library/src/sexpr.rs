@@ -89,8 +89,6 @@ impl Default for Limits {
 /// # Dependencies
 /// - crates/library/src/sexpr.rs none outside this file
 ///
-/// # Do not
-/// - Expose this type publicly; it is an internal parser result.
 #[derive(Clone, Debug)]
 pub struct Node {
     /// Atom text, or None for lists.
