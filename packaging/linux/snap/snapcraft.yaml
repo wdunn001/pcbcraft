@@ -18,11 +18,11 @@ description: |
   The command-line tool is `pcbcraft.cli` (for example `pcbcraft.cli help`).
 adopt-info: pcbcraft
 license: GPL-3.0-or-later
-contact: https://github.com/tangency-labs/pcbcraft/issues
-website: https://github.com/tangency-labs/pcbcraft
-source-code: https://github.com/tangency-labs/pcbcraft
-issues: https://github.com/tangency-labs/pcbcraft/issues
-icon: stage/share/icons/hicolor/512x512/apps/io.github.tangency-labs.pcbcraft.png
+contact: https://github.com/wdunn001/pcbcraft/issues
+website: https://github.com/wdunn001/pcbcraft
+source-code: https://github.com/wdunn001/pcbcraft
+issues: https://github.com/wdunn001/pcbcraft/issues
+icon: stage/share/icons/hicolor/512x512/apps/io.github.tangency_labs.pcbcraft.png
 base: core24
 grade: stable
 confinement: strict
@@ -34,8 +34,8 @@ platforms:
 apps:
   pcbcraft:
     command: usr/bin/pcbcraft
-    desktop: usr/share/applications/io.github.tangency-labs.pcbcraft.desktop
-    common-id: io.github.tangency-labs.pcbcraft
+    desktop: usr/share/applications/io.github.tangency_labs.pcbcraft.desktop
+    common-id: io.github.tangency_labs.pcbcraft
     extensions: [gnome]
     plugs:
       - desktop
@@ -63,5 +63,5 @@ parts:
       craftctl set version="$(cat "$CRAFT_PROJECT_DIR/version.txt")"
     override-prime: |
       craftctl default
-      sed -i 's|^Icon=.*|Icon=${SNAP}/usr/share/icons/hicolor/256x256/apps/io.github.tangency-labs.pcbcraft.png|' \
-        usr/share/applications/io.github.tangency-labs.pcbcraft.desktop
+      sed -i 's|^Icon=.*|Icon=${SNAP}/usr/share/icons/hicolor/256x256/apps/io.github.tangency_labs.pcbcraft.png|' \
+        usr/share/applications/io.github.tangency_labs.pcbcraft.desktop

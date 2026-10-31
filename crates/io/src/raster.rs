@@ -567,6 +567,7 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
@@ -601,6 +602,8 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         p.validate()?;
         Ok(p)

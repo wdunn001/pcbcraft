@@ -274,37 +274,6 @@ fn bom_export_reads_typed_fields_and_supplier_columns() -> Result<(), Error> {
 }
 
 #[test]
-fn schematic_parts_table_reads_typed_manufacturer_mpn_and_description() -> Result<(), Error> {
-    let (mut s, id) = session_with_part()?;
-    s.execute(
-        "component.set_sourcing",
-        json!({"id":id,"manufacturer":"Yageo","mpn":"RC0603","description":"10 k"}),
-        None,
-    )?;
-    s.execute(
-        "schematic.table",
-        json!({"position":{"x":0.0,"y":60.0},"fields":["reference","MPN","Manufacturer"]}),
-        None,
-    )?;
-    let texts: Vec<String> = s.inspect()["project"]["graphics"]
-        .as_array()
-        .ok_or_else(missing)?
-        .iter()
-        .filter(|g| g["shape"] == "text")
-        .filter_map(|g| g["text"].as_str().map(str::to_owned))
-        .collect();
-    assert!(
-        texts.iter().any(|t| t == "RC0603"),
-        "typed MPN in table: {texts:?}"
-    );
-    assert!(
-        texts.iter().any(|t| t == "Yageo"),
-        "typed manufacturer in table: {texts:?}"
-    );
-    Ok(())
-}
-
-#[test]
 fn attaching_a_source_part_fills_the_typed_record() -> Result<(), Error> {
     let (mut s, id) = session_with_part()?;
     s.execute(

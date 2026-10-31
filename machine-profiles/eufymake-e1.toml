@@ -1,3 +1,5 @@
+# Source: eufyMake E1 product sheet and UV print limits.
+# Retrieved: 2026-10-28
 id = "eufymake-e1"
 name = "eufyMake E1"
 kind = "uv_printer"

@@ -18,9 +18,6 @@
 
 use crate::{Component, Project};
 use pcbcraft_library::listing::Lifecycle;
-use pcbcraft_library::{
-    DESCRIPTION, MANUFACTURER, MPN, SUPPLIER_KEY_PREFIX, SUPPLIERS,
-};
 use serde::{Deserialize, Serialize};
 
 /// Longest manufacturer, part number, supplier name or description, in bytes.
@@ -234,6 +231,10 @@ fn supplier_of_key(key: &str) -> Option<String> {
     None
 }
 
+/// The standard key a typed value answers to in BOM columns: `Supplier:<name>` reads a
+/// supplier's number.
+pub const SUPPLIER_KEY_PREFIX: &str = "Supplier:";
+
 impl Component {
     /// Copy matching free-form fields into the typed record, leaving the originals alone.
     ///
@@ -328,6 +329,15 @@ impl Component {
     /// # Dependencies
     /// - `crates/engine/src/lib.rs` `bom_export` reads every column through it.
     pub fn bom_value(&self, key: &str) -> String {
+if matches!(
+            key,
+            "Country of origin"
+                | "Country of origin basis"
+                | "Country of origin date"
+                | "Part role"
+        ) {
+            return self.compliance_bom_value(key).unwrap_or_default();
+        }
         let yes_no = |v: Option<bool>| match v {
             Some(true) => "yes".to_owned(),
             Some(false) => "no".to_owned(),
@@ -335,10 +345,22 @@ impl Component {
         };
         let s = &self.sourcing;
         match key {
-            k if k == MANUFACTURER => self.manufacturer().to_owned(),
-            k if k == MPN => self.mpn().to_owned(),
-            k if k == DESCRIPTION => self.description().to_owned(),
-            k if k == SUPPLIERS => s
+            "Manufacturer" => self.manufacturer().to_owned(),
+            "MPN" => self.mpn().to_owned(),
+            "Description" => self.description().to_owned(),
+            "Suppliers" => s
+                .suppliers
+        let yes_no = |v: Option<bool>| match v {
+            Some(true) => "yes".to_owned(),
+            Some(false) => "no".to_owned(),
+            None => String::new(),
+        };
+        let s = &self.sourcing;
+        match key {
+            "Manufacturer" => self.manufacturer().to_owned(),
+            "MPN" => self.mpn().to_owned(),
+            "Description" => self.description().to_owned(),
+            "Suppliers" => s
                 .suppliers
                 .iter()
                 .map(|p| format!("{}: {}", p.supplier, p.part_number))

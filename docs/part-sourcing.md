@@ -44,11 +44,8 @@ the record wins. The free-form properties stay in place and stay readable; the s
 `bom.export` reads these keys through `Component::bom_value`: `Manufacturer`, `MPN`, `Description`, `Lifecycle`,
 `Moisture level`, `RoHS`, `REACH`, `Halogen free`, `Suppliers` (every supplier as `Name: number`, joined by `; `)
 and `Supplier:<name>` (one supplier's number). Any other key reads the free-form property. The Export dialog's
-generic CSV flavour still lists the usual columns; Description and supplier numbers are available as standard keys
-in `bom.export`, project BOM columns and the UI lane that wires flavour tokens (issue #591).
+generic CSV offers Description and Supplier part numbers columns, ticked when some part has the data.
 
-## Parts table and BOM field keys
+## In the app
 
-`Manufacturer`, `MPN` and `Description` are reserved standard keys (`pcbcraft_library::part_fields`).
-Schematic parts tables and `bom.export` read them through `Component::bom_value`. Supplier numbers
-use `Suppliers` or `Supplier:<name>`.
+Properties of a part has a Sourcing section with the fields above, each with a tooltip.
