@@ -2,10 +2,16 @@
 //!
 //! `library.list` filters part listings with one `PartFilter` and pages them
 //! grouped by source; it never merges sources by rank and never mutates.
+//! Open-library cards pick up distributor stock through
+//! [`join_open_library_cards`] (crates/library/src/sources.rs).
+//!
 //! Dependencies: `crates/library/src/listing.rs` for `PartListing` and `PartFilter`;
 //! `crates/library/src/listing_adapters.rs` for the symbol adapters.
 use pcbcraft_library::listing::{ListingSource, PartFilter, PartListing};
 use pcbcraft_library::listing_adapters::listings_from_symbols;
+use pcbcraft_library::sources::{
+    PartResult, PartSource, ResponseCache, SourceError, join_distributor_into_cards,
+};
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 use serde_json::{Value, json};
 use std::io::Read;
@@ -583,6 +589,28 @@ fn source_rank(source: ListingSource) -> u8 {
         ListingSource::Installed => 2,
         ListingSource::Distributor => 3,
     }
+}
+
+/// Attach distributor stock to open-library search cards when a key is set.
+///
+/// # Rules
+/// - Delegates to `join_distributor_into_cards` in crates/library/src/sources.rs.
+/// - With `key_set` false, returns `cards` unchanged.
+///
+/// # Dependencies
+/// - crates/library/src/sources.rs `ResponseCache`
+/// - crates/library/src/sources.rs `PartSource`
+///
+/// # Do not
+/// - Persist distributor keys in the project.
+pub fn join_open_library_cards(
+    cards: Vec<PartResult>,
+    distributor: Option<&dyn PartSource>,
+    cache: &mut ResponseCache,
+    now: u64,
+    key_set: bool,
+) -> Result<Vec<PartResult>, SourceError> {
+    join_distributor_into_cards(cards, distributor, cache, now, key_set)
 }
 
 /// Filter listings and return one page, grouped by source.
