@@ -164,7 +164,7 @@ pub const PARTS: &[Part] = &[
         "TP_PAD",
         "VBAT",
         "Test_Pad",
-0,
+        0,
         (190.5, 66.04),
         0.0,
         0.1,

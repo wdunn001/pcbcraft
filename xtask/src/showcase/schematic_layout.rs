@@ -155,8 +155,8 @@ impl AuditResult {
         }
         if !self.frame_overruns.is_empty() {
             lines.push("Frame overruns:");
-            for ref in &self.frame_overruns {
-                lines.push(format!("  {ref} is outside the frame"));
+            for designator in &self.frame_overruns {
+                lines.push(format!("  {designator} is outside the frame"));
             }
         }
         if self.is_clean() {
@@ -196,9 +196,9 @@ pub fn audit(parts: &[PartPlacement]) -> AuditResult {
     }
 
     // Check for frame overruns.
-    for (ref, bbox) in &bboxes {
+    for (designator, bbox) in &bboxes {
         if !bbox.inside(&frame) {
-            frame_overruns.push(ref.clone());
+            frame_overruns.push(designator.clone());
         }
     }
 
@@ -313,10 +313,7 @@ pub fn audit_labels(parts: &[crate::showcase::design::Part]) -> Result<(), Strin
     for i in 0..labels.len() {
         for j in (i + 1)..labels.len() {
             if labels[i].overlaps(&labels[j]) {
-                problems.push(format!(
-                    "{} overlaps {}",
-                    labels[i].name, labels[j].name
-                ));
+                problems.push(format!("{} overlaps {}", labels[i].name, labels[j].name));
             }
         }
     }

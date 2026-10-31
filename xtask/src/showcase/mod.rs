@@ -27,8 +27,8 @@ mod finish;
 mod layout;
 mod parts;
 mod routes;
-mod schematic_layout;
 mod schematic;
+mod schematic_layout;
 
 use design::{PARTS, PINS, SHEETS};
 use parts::{BoxUnit, PinSpec};
@@ -477,7 +477,7 @@ pub fn build(g: &mut Gen) -> Res<()> {
     }
     // The other units of the microcontroller sit on their own spots of the page.
     let u3 = g.id_of("U3")?;
-g.cmd(
+    g.cmd(
         "component.move",
         json!({"id": u3, "unit": 2, "position": {"x": 195.58, "y": 81.28}}),
     )?;

@@ -24,11 +24,13 @@ fn check_bundled_metadata(root: &Path) -> Result<(), String> {
         }
     }
     let lists_dir = root.join("compliance-lists");
-    for entry in std::fs::read_dir(&lists_dir).map_err(|e| format!("{}: {e}", lists_dir.display()))?
+    for entry in
+        std::fs::read_dir(&lists_dir).map_err(|e| format!("{}: {e}", lists_dir.display()))?
     {
         let path = entry.map_err(|e| e.to_string())?.path();
         if path.extension().is_some_and(|e| e == "toml") {
-            let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let text =
+                std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
             let snapshot: ComplianceListSnapshot = compliance_list_from_toml(&text)?;
             if !snapshot.bundled_metadata_ok() {
                 return Err(format!(
@@ -59,11 +61,15 @@ fn check_rust_leaks(root: &Path) -> Result<(), String> {
         {
             continue;
         }
-        let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let text =
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let lower = text.to_lowercase();
         for token in &tokens {
             if lower.contains(token) {
-                hits.push(format!("{} contains list name token `{token}`", path.display()));
+                hits.push(format!(
+                    "{} contains list name token `{token}`",
+                    path.display()
+                ));
             }
         }
     }
@@ -81,7 +87,10 @@ fn collect_rust(dir: PathBuf, out: &mut Vec<PathBuf>) -> Result<(), String> {
     for entry in std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let path = entry.map_err(|e| e.to_string())?.path();
         if path.is_dir() {
-            if path.file_name().is_some_and(|n| n == "target" || n == "tests") {
+            if path
+                .file_name()
+                .is_some_and(|n| n == "target" || n == "tests")
+            {
                 continue;
             }
             collect_rust(path, out)?;

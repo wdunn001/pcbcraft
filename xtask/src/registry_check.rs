@@ -22,8 +22,7 @@ pub fn run(repo: &Path, bless: bool) -> Result<(), String> {
         serde_json::from_str(&on_disk_text).map_err(|e| e.to_string())?;
     if built != on_disk {
         return Err(
-            "catalogue.json does not match publications; run cargo xtask registry bless"
-                .into(),
+            "catalogue.json does not match publications; run cargo xtask registry bless".into(),
         );
     }
     let html_path = root.join("index.html");
