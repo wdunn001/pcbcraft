@@ -227,22 +227,10 @@ fn attribute_value(value: &str) -> String {
 }
 
 /// Current time as an ISO 8601 UTC timestamp, the form the specification uses
-/// for `CreationDate`, for example `2026-10-28T22:05:11+00:00`.
-#[cfg(not(target_arch = "wasm32"))]
+/// for `CreationDate`, for example `2026-10-28T22:05:11+00:00`. The clock comes
+/// from `crates/clock`, which also works in the browser.
 pub(crate) fn now_utc() -> String {
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    iso8601_utc(seconds)
-}
-
-/// The browser standard library has no clock, so a manifest built there
-/// carries the epoch rather than failing; the browser build cannot write a
-/// package to disk yet either.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn now_utc() -> String {
-    iso8601_utc(0)
+    iso8601_utc(pcbcraft_clock::unix_secs())
 }
 
 /// Civil date from Unix seconds, by the days-to-civil algorithm the calendar
@@ -318,6 +306,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project
     }
