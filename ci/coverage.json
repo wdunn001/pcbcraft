@@ -1,0 +1,16 @@
+{
+  "gate": {
+    "mode": "workspace",
+    "minimum_lines": 70,
+    "ratchet_tolerance": 0.5
+  },
+  "exclude": [
+    { "glob": "xtask/*", "reason": "Repository automation, including the generator of the showcase example data; it checks the product and is not part of it." },
+    { "glob": "apps/*/src/main.rs", "reason": "Binary entry glue: argument parsing and starting the event loop. The logic it calls lives in library crates." },
+    { "glob": "apps/pcbcraft-web/*", "reason": "Browser entry point, compiled for wasm32 only and checked by the WebAssembly job." },
+    { "glob": "*/tests/*", "reason": "Integration test and fixture code is test-only." },
+    { "glob": "crates/testkit/*", "reason": "Shared test helpers; only dev-dependencies use them." },
+    { "glob": "*/tests.rs", "reason": "Test-only module file (#[cfg(test)] mod tests;)." },
+    { "glob": "crates/ui-egui/src/e2e/*", "reason": "The end-to-end story harness and stories are test-only." }
+  ]
+}

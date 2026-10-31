@@ -1,0 +1,52 @@
+[package]
+name = "datasheet-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+
+# Standalone: not a member of the app workspace, own lockfile, no app changes.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hayro = "0.8"
+hayro-syntax = "0.8"
+hayro-interpret = "0.8"
+
+[[bin]]
+name = "spike"
+path = "src/bin/spike.rs"
+
+# Optional comparison of the text layer from pdf_oxide (MIT or Apache-2.0). Off by default so the
+# hayro-only wasm build stays small.
+[features]
+oxide = ["dep:pdf_oxide"]
+
+[dependencies.pdf_oxide]
+version = "0.3.78"
+optional = true
+default-features = false
+
+[[bin]]
+name = "oxide-text"
+path = "src/bin/oxide_text.rs"
+required-features = ["oxide"]
+
+# Tuned profiles for the wasm size measurement (`--profile size` / `--profile lean`).
+[profile.size]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.lean]
+inherits = "release"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

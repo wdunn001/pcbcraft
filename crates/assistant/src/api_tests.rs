@@ -2,14 +2,16 @@
 
 use crate::api::*;
 use crate::backend::{
-    ChatBackend, Event, HttpFn, HttpRequest, PromptPart, StartContext, ToolStatus,
+ChatBackend, Event, HttpFn, HttpRequest, HttpStreamPart, PromptPart, StartContext, ToolStatus,
+    deliver_streamed_body,
+};
 };
 use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
 use serde_json::{Value, json};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 type Log = Arc<Mutex<Vec<HttpRequest>>>;
 
@@ -31,10 +33,13 @@ fn fake(reply: impl Fn(usize) -> (u16, Value) + Send + Sync + 'static) -> (HttpF
             l.iter().filter(|x| x.method == "POST").count()
         };
         if r.method == "GET" {
-            return Ok((200, b"{\"data\":[]}".to_vec()));
+            return Ok(HttpResponse::ok(b"{\"data\":[]}".to_vec()));
         }
         let (status, body) = reply(n);
-        Ok((status, body.to_string().into_bytes()))
+        Ok(HttpResponse::with_status(
+            status,
+            body.to_string().into_bytes(),
+        ))
     });
     (http, log)
 }
@@ -56,6 +61,7 @@ fn cfg(protocol: Protocol) -> ApiConfig {
         model: "m".into(),
         key: None,
         system_note: String::new(),
+        retrieval: None,
     }
 }
 
@@ -83,9 +89,9 @@ fn host(text: &'static str) -> (StartContext, Arc<Mutex<Vec<String>>>) {
 
 /// Poll until `done` matches an event, giving up after ten seconds.
 fn run_until(b: &mut ApiBackend, done: impl Fn(&Event) -> bool) -> Result<Vec<Event>, String> {
-    let end = Instant::now() + Duration::from_secs(10);
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(10);
     let mut all = Vec::new();
-    while Instant::now() < end {
+    while pcbcraft_clock::instant_now() < end {
         for e in b.poll() {
             let stop = done(&e);
             all.push(e);
@@ -227,8 +233,8 @@ fn the_turn_stops_after_twenty_four_requests_and_tells_the_model() -> Result<(),
     );
     // The next message carries the stop note, so the model reports instead of carrying on.
     say(&mut b, "again");
-    let end = Instant::now() + Duration::from_secs(10);
-    while posts(&log).len() < 25 && Instant::now() < end {
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(10);
+    while posts(&log).len() < 25 && pcbcraft_clock::instant_now() < end {
         std::thread::sleep(Duration::from_millis(5));
     }
     let sent = posts(&log);
@@ -311,6 +317,14 @@ fn a_401_reply_becomes_a_plain_sentence_without_the_key_in_it() -> Result<(), St
 }
 
 #[test]
+fn http_error_429_and_500_use_plain_reasons() {
+    let busy = http_error(429, &json!({"error": {"message": "x"}}));
+    assert!(busy.contains("the endpoint is busy"));
+    let down = http_error(500, &json!({"error": {"message": "x"}}));
+    assert!(down.contains("the endpoint had an error"));
+}
+
+#[test]
 fn a_key_never_goes_to_a_plain_http_address_off_this_computer() {
     assert!(key_safe_for("https://api.example.com/v1"));
     assert!(key_safe_for("http://localhost:11434/v1"));
@@ -347,8 +361,7 @@ fn model_list_reads_the_data_ids() -> Result<(), String> {
     let http2: HttpFn = Arc::new(move |r: &HttpRequest| {
         assert_eq!(r.url, "http://h/v1/models");
         http(r)?;
-        Ok((
-            200,
+        Ok(HttpResponse::ok(
             br#"{"data":[{"id":"a"},{"id":"b"},{"nope":1}]}"#.to_vec(),
         ))
     });
@@ -365,8 +378,7 @@ fn test_anthropic_endpoint_returns_the_model_text_on_200_and_the_error_sentence_
 -> Result<(), String> {
     let ok: HttpFn = Arc::new(|r: &HttpRequest| {
         assert_eq!(r.url, "https://h/v1/messages");
-        Ok((
-            200,
+        Ok(HttpResponse::ok(
             br#"{"content":[{"type":"text","text":"Hi there"}]}"#.to_vec(),
         ))
     });
@@ -374,7 +386,12 @@ fn test_anthropic_endpoint_returns_the_model_text_on_200_and_the_error_sentence_
         test_anthropic_endpoint(&ok, "https://h", None, "m")?,
         "Hi there"
     );
-    let bad: HttpFn = Arc::new(|_| Ok((404, br#"{"error":{"message":"no such model"}}"#.to_vec())));
+    let bad: HttpFn = Arc::new(|_| {
+        Ok(HttpResponse::with_status(
+            404,
+            br#"{"error":{"message":"no such model"}}"#.to_vec(),
+        ))
+    });
     let err = test_anthropic_endpoint(&bad, "https://h", None, "m")
         .err()
         .ok_or("expected an error")?;
@@ -669,5 +686,130 @@ fn a_cut_reply_with_tool_calls_runs_none_of_them() -> Result<(), String> {
         .iter()
         .any(|m| m.get("tool_calls").is_some());
     assert!(!dangling);
+    Ok(())
+}
+
+fn streaming_openai_text(text: &str) -> HttpFn {
+    let text = text.to_string();
+    Arc::new(move |r: &HttpRequest| {
+        if r.method == "GET" {
+            return Ok((200, b"{\"data\":[]}".to_vec()));
+        }
+        let Some(out) = &r.stream_out else {
+            return Ok((200, openai_text(&text).to_string().into_bytes()));
+        };
+        let first = format!(
+            "data: {{\"choices\":[{{\"delta\":{{\"content\":{}}}}}]}}\n\n",
+            serde_json::to_string(&text).map_err(|e| e.to_string())?
+        );
+        std::thread::sleep(Duration::from_millis(80));
+        let tail = "data: {\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{}}]}\n\n\
+                    data: [DONE]\n\n";
+        let mut sse = first;
+        sse.push_str(tail);
+        deliver_streamed_body(out, 200, sse.as_bytes())?;
+        Ok((200, Vec::new()))
+    })
+}
+
+#[test]
+fn an_openai_stream_shows_text_before_the_turn_ends() -> Result<(), String> {
+    let http = streaming_openai_text("early");
+    let (ctx, _) = host("ok");
+    let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
+    say(&mut b, "hi");
+    let end = Instant::now() + Duration::from_secs(10);
+    let mut saw_early = false;
+    let mut saw_end = false;
+    while Instant::now() < end {
+        for e in b.poll() {
+            if matches!(&e, Event::Text { text, .. } if text == "early") {
+                saw_early = true;
+            }
+            if matches!(e, Event::TurnEnded { .. }) {
+                saw_end = true;
+            }
+        }
+        if saw_early && !saw_end {
+            break;
+        }
+        if saw_end {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(saw_early, "expected streamed text before the turn ended");
+    assert!(!saw_end, "the turn ended before streamed text arrived");
+    run_until(&mut b, ended)?;
+    Ok(())
+}
+
+fn slow_openai_stream() -> HttpFn {
+    Arc::new(move |r: &HttpRequest| {
+        if r.method == "GET" {
+            return Ok((200, b"{\"data\":[]}".to_vec()));
+        }
+        let Some(out) = &r.stream_out else {
+            return Ok((200, openai_text("late").to_string().into_bytes()));
+        };
+        let chunk = b"data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n";
+        out.send(Ok(HttpStreamPart::Chunk(chunk.to_vec())))
+            .map_err(|_| "The stream ended early.".to_string())?;
+        std::thread::sleep(Duration::from_secs(30));
+        let _ = out.send(Ok(HttpStreamPart::End { status: 200 }));
+        Ok((200, Vec::new()))
+    })
+}
+
+#[test]
+fn stop_cancels_an_openai_stream_within_a_second() -> Result<(), String> {
+    let http = slow_openai_stream();
+    let (ctx, _) = host("ok");
+    let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
+    say(&mut b, "wait");
+    std::thread::sleep(Duration::from_millis(50));
+    let t = Instant::now();
+    b.cancel();
+    let end = t + Duration::from_secs(1);
+    while Instant::now() < end {
+        for e in b.poll() {
+            if matches!(e, Event::TurnEnded { reason } if reason == "cancelled") {
+                assert!(t.elapsed() < Duration::from_secs(1));
+                return Ok(());
+            }
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    Err("Stop did not cancel the stream within one second.".into())
+}
+
+#[test]
+fn chat_requests_ask_for_streaming_on_both_protocols() -> Result<(), String> {
+    for protocol in [Protocol::OpenAi, Protocol::Anthropic] {
+        let (http, log) = fake(move |_| {
+            (
+                200,
+                match protocol {
+                    Protocol::OpenAi => openai_text("ok"),
+                    Protocol::Anthropic => {
+                        json!({"content":[{"type":"text","text":"ok"}], "stop_reason":"end_turn"})
+                    }
+                },
+            )
+        });
+        let (ctx, _) = host("ok");
+        let mut b = ApiBackend::start(cfg(protocol), ctx, http)?;
+        say(&mut b, "hi");
+        run_until(&mut b, ended)?;
+        let body = posts(&log).pop().ok_or("no post")?;
+        assert_eq!(body.get("stream").and_then(Value::as_bool), Some(true));
+        if protocol == Protocol::OpenAi {
+            assert_eq!(
+                body.pointer("/stream_options/include_usage")
+                    .and_then(Value::as_bool),
+                Some(true)
+            );
+        }
+    }
     Ok(())
 }
