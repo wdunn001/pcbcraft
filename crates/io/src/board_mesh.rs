@@ -106,6 +106,8 @@ pub struct ModelPlacement {
     pub matrix: [f64; 16],
     /// True once [`with_models`] replaced the default box by the file's triangles.
     pub loaded: bool,
+    /// Decoded from the footprint when the project carries a compact model.
+    pub preloaded: Option<std::sync::Arc<LoadedModel>>,
 }
 
 /// Shared triangle list for instanced part bodies and loaded models.
@@ -998,7 +1000,7 @@ pub fn with_models(
         match lookup(model) {
             ModelLookup::Loading => notes.push((id, ModelStatus::Loading)),
             ModelLookup::Failed(reason) => notes.push((id, ModelStatus::Failed(reason))),
-            ModelLookup::Ready(m) => {
+ModelLookup::Ready(m) => {
                 let proto = file_prototypes
                     .entry(model.path.clone())
                     .or_insert_with(|| {
@@ -1541,6 +1543,21 @@ part.model = Some(ModelPlacement {
                         thickness,
                     ),
                     loaded: false,
+                    preloaded: (!model.embedded.is_empty())
+                        .then(|| crate::decode_compact_base64(&model.embedded).ok())
+                        .flatten()
+                        .map(std::sync::Arc::new),
+                });
+                    path: model.path.clone(),
+                    matrix: model_matrix(
+                        model,
+                        fp.position,
+                        fp.rotation,
+                        bottom,
+                        thickness,
+                    ),
+                    loaded: false,
+                    preloaded,
                 });
             }
             let z_base = thickness + body.standoff;
@@ -2015,6 +2032,49 @@ instance: None,
             cad_part: None,
             raw_source: String::new(),
         }
+    }
+
+    #[test]
+    fn embedded_model_renders_without_a_file_lookup() -> Check {
+        let source = include_bytes!("../tests/fixtures/box.step");
+        let loaded = crate::load_model("box.step", source).map_err(|e| e.0)?;
+        let digest = crate::source_digest(source);
+        let embedded = crate::encode_compact_base64(&loaded, crate::LOADER_VERSION, 0.05, &digest)
+            .map_err(|e| e.0)?;
+        let mut mesh = BoardMesh {
+            parts: vec![MeshPart {
+                kind: PartKind::Body,
+                name: "U1".into(),
+                component: Some(1),
+                family: Some("chip".into()),
+                height_source: Some("default"),
+                model: Some(ModelPlacement {
+                    path: "missing/box.step".into(),
+                    matrix: [
+                        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+                        0.0, 1.0,
+                    ],
+                    loaded: false,
+                    preloaded: Some(std::sync::Arc::new(loaded)),
+                }),
+                color: None,
+                positions: vec![[0.0; 3]; 8],
+                indices: vec![0; 36],
+            }],
+            ..Default::default()
+        };
+        let lookup_ran = std::cell::Cell::new(false);
+        let notes = with_models(&mut mesh, |_| {
+            lookup_ran.set(true);
+            ModelLookup::Failed("lookup should not run for an embedded model".into())
+        });
+        if lookup_ran.get() {
+            return Err("lookup must not run when the project embeds the model".into());
+        }
+        assert_eq!(notes, vec![(1, ModelStatus::Loaded)]);
+        assert!(mesh.parts[0].model.as_ref().is_some_and(|m| m.loaded));
+        assert_eq!(embedded.len() > 20, true);
+        Ok(())
     }
 
     #[test]
