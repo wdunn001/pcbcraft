@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "publication_id": "sample-led-board",
+      "version_label": "1.0.0",
+      "title": "Sample LED board",
+      "kind": "design",
+      "bundle_root_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tags": ["demo", "beginner"],
+      "yanked": false
+    }
+  ],
+  "next_cursor": null
+}

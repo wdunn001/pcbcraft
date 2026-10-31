@@ -9,14 +9,18 @@ mod footprint_generate;
 pub mod model_transform;
 mod footprint_pad_outline;
 pub mod listing;
+pub mod listing_compare;
 pub mod listing_adapters;
 pub mod part_search;
 pub mod online_import;
+pub mod cc0_component;
 pub mod open_library;
+pub mod open_pool;
 mod paths;
 mod reader;
 mod sexpr;
 pub mod sources;
+pub mod static_registry;
 mod symbol_check;
 mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
@@ -29,6 +33,10 @@ pub use connector_series_generate::{
     pin1_position,
 };
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+pub use model_align::{
+    SNAP_RADIUS_MM, SnapTarget, SnapTargetKind, footprint_snap_targets, pad_centres, pad_centroid,
+    snap_point,
+};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};

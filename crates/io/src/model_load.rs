@@ -13,7 +13,7 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// Bumped whenever the reader changes what a file produces, so a cache of
 /// older results is never served.
@@ -40,6 +40,41 @@ pub struct LoadedModel {
     pub body_colors: Option<Vec<[f32; 3]>>,
 }
 impl LoadedModel {
+    pub(crate) fn push_triangles(
+        &mut self,
+        indices: &[u32],
+        diffuse: Option<[f32; 3]>,
+    ) -> Result<(), ModelError> {
+        let tri_count = indices.len() / 3;
+        let (class, authored) = diffuse
+            .map(classify_model_color)
+            .unwrap_or((MaterialClass::MouldCompound, [0.0; 3]));
+        self.triangle_materials
+            .extend(std::iter::repeat_n(class, tri_count));
+        let rgb = if class == MaterialClass::Authored {
+            authored
+        } else {
+            [0.0; 3]
+        };
+        self.authored_colors
+            .extend(std::iter::repeat_n(rgb, tri_count));
+        Ok(())
+    }
+
+    pub(crate) fn finish_materials(&mut self) -> Result<(), ModelError> {
+        let tris = self.indices.len() / 3;
+        if tris == 0 {
+            return Ok(());
+        }
+        if self.triangle_materials.len() == tris {
+            return Ok(());
+        }
+        self.triangle_materials.clear();
+        self.authored_colors.clear();
+        let batch = self.indices.clone();
+        self.push_triangles(&batch, self.color)
+    }
+
     /// Axis-aligned bounds, or `None` for an empty model.
     pub fn bounds(&self) -> Option<([f64; 3], [f64; 3])> {
         let first = *self.positions.first()?;
@@ -132,14 +167,15 @@ fn extension(path: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// Read one model file from its bytes. `path` picks the format by extension
-/// and the folder for a glTF that points at a separate `.bin` file.
+fn default_import_cache() -> &'static crate::ImportCache {
+    static CACHE: OnceLock<crate::ImportCache> = OnceLock::new();
+    CACHE.get_or_init(crate::ImportCache::default)
+}
+
+/// Read one model file from its bytes, using the user disk cache when available.
 ///
 /// # Rules
-/// Refuses files over [`MAX_MODEL_BYTES`], [`MAX_MODEL_VERTICES`] or
-/// [`MAX_MODEL_FACES`] with a plain reason.
-/// # Dependencies
-/// `gltf` crate with default features off (no image decoding).
+/// Same limits as [`load_model_uncached`]; cache hits skip parsing.
 /// # Do not
 /// Do not place the model on the board here; that is `board_mesh::with_models`.
 pub fn load_model(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
@@ -315,10 +351,14 @@ impl Walk<'_> {
             }
             self.out.indices.extend(tri.iter().map(|i| base as u32 + i));
         }
-        if self.out.color.is_none() {
+        let diffuse = {
             let c = prim.material().pbr_metallic_roughness().base_color_factor();
-            self.out.color = Some([c[0], c[1], c[2]]);
+            Some([c[0], c[1], c[2]])
+        };
+        if self.out.color.is_none() {
+            self.out.color = diffuse;
         }
+        self.out.push_triangles(&indices, diffuse)?;
         Ok(())
     }
 }
@@ -361,6 +401,7 @@ fn load_gltf(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     if walk.out.indices.is_empty() {
         return err("The model file holds no triangles.");
     }
+    walk.out.finish_materials()?;
     Ok(walk.out)
 }
 

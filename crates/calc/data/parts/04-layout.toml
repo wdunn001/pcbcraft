@@ -1,0 +1,135 @@
+# Glossary part 04-layout
+schema = 1
+
+[[term]]
+id = "track_width"
+term = "Track width"
+category = "layout"
+short = "Finished copper width of a route on the outer or inner layer."
+long = "Widen a route to carry more current or to move toward a target impedance. Narrow routes save space but raise resistance and often impedance."
+synonyms = ["trace width", "copper width", "line width"]
+related = ["clearance", "impedance", "current"]
+units = "mm"
+in_pcbcraft = ["track.set_width", "track.set_width_net"]
+search = "thicker track width copper trace widen narrow route"
+calculator = "trace_width"
+source = "PCB layout practice"
+
+[[term]]
+id = "clearance"
+term = "Clearance"
+category = "layout"
+short = "Minimum copper to copper spacing on a layer."
+long = "Clearance prevents shorts and sets voltage isolation. Net classes and process rules define the smallest allowed gap."
+synonyms = ["spacing", "isolation"]
+related = ["track_width", "creepage"]
+units = "mm"
+in_pcbcraft = ["rules.severity"]
+search = "clearance spacing copper gap drc"
+calculator = "conductor_spacing_ipc2221"
+source = "Design rule practice"
+
+[[term]]
+id = "layer"
+term = "Copper layer"
+category = "layout"
+short = "Conductive sheet used for routes, planes or artwork."
+long = "Outer layers carry components while inner layers often host planes. Layer names such as F.Cu and B.Cu identify top and bottom copper."
+synonyms = ["F.Cu", "B.Cu"]
+related = ["stackup", "plane"]
+units = ""
+in_pcbcraft = ["track.set_layer"]
+search = "layer copper top bottom inner"
+source = "PCB fabrication practice"
+
+[[term]]
+id = "stackup"
+term = "Board stackup"
+category = "layout"
+short = "Ordered list of copper and dielectric layers with thicknesses."
+long = "Stackup sets impedance and crosstalk. Fabricators publish standard builds that balance cost and electrical performance."
+synonyms = ["layer stack"]
+related = ["prepreg", "core", "impedance"]
+units = "mm"
+in_pcbcraft = []
+search = "stackup dielectric thickness layer count"
+source = "Fabrication practice"
+
+[[term]]
+id = "prepreg"
+term = "Prepreg"
+category = "layout"
+short = "Glass and resin sheet that bonds layers during lamination."
+long = "Prepreg thickness between signal and reference planes sets microstrip height. It flows during press and fills around copper."
+synonyms = ["bonding sheet"]
+related = ["stackup", "core"]
+units = "mm"
+in_pcbcraft = []
+search = "prepreg dielectric laminate resin"
+source = "Fabrication practice"
+
+[[term]]
+id = "core"
+term = "Core"
+category = "layout"
+short = "Rigid dielectric slab with copper foil already bonded."
+long = "Cores define fixed thickness between adjacent copper. Multilayer boards stack cores and prepreg to reach total thickness."
+synonyms = ["laminate core"]
+related = ["prepreg", "stackup"]
+units = "mm"
+in_pcbcraft = []
+search = "core laminate rigid thickness"
+source = "Fabrication practice"
+
+[[term]]
+id = "plane"
+term = "Copper plane"
+category = "layout"
+short = "Large poured copper area often used for ground or power."
+long = "Planes lower inductance and spread heat. Cutouts and splits create return path detours that hurt high speed signals."
+synonyms = ["copper pour", "zone"]
+related = ["ground_plane", "zone"]
+units = ""
+in_pcbcraft = ["zone.place"]
+search = "plane pour ground power zone"
+source = "PCB layout practice"
+
+[[term]]
+id = "ground_plane"
+term = "Ground plane"
+category = "layout"
+short = "Continuous reference copper tied to ground nets."
+long = "A solid ground plane under signals gives a short return path. Avoid routing gaps that force return current to detour."
+synonyms = ["GND plane"]
+related = ["ground", "plane"]
+units = ""
+in_pcbcraft = ["zone.place"]
+search = "ground plane reference return"
+source = "PCB layout practice"
+
+[[term]]
+id = "zone"
+term = "Copper zone"
+category = "layout"
+short = "Filled polygon tied to a net on one layer."
+long = "Zones implement planes and flood areas. Thermals connect pads while limiting heat loss during soldering."
+synonyms = ["copper fill"]
+related = ["plane", "thermal"]
+units = ""
+in_pcbcraft = ["zone.place"]
+search = "zone fill pour polygon"
+source = "PCB layout practice"
+
+[[term]]
+id = "silkscreen"
+term = "Silkscreen"
+category = "layout"
+short = "Non conductive ink layer for reference labels and outlines."
+long = "Silkscreen aids assembly and service. Keep text readable and avoid covering exposed copper pads."
+synonyms = ["legend", "silk"]
+related = ["reference_designator", "assembly"]
+units = ""
+in_pcbcraft = ["text.place"]
+search = "silkscreen legend print text"
+source = "Fabrication practice"
+

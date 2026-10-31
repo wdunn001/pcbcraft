@@ -191,6 +191,15 @@ pub struct PartListing {
     pub lifecycle_raw: String,
     /// Whether the part is RoHS compliant.
     pub rohs: Option<bool>,
+    /// Whether the part has no REACH substance of very high concern.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reach: Option<bool>,
+    /// True when the part is halogen free.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub halogen_free: Option<bool>,
+    /// Moisture sensitivity level, 1 to 6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moisture_level: Option<u8>,
     /// Link to the datasheet.
     pub datasheet_url: Option<String>,
     /// Link to a schematic symbol.
@@ -721,7 +730,7 @@ fn leading_count(text: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
-fn rohs_from(text: &str) -> Option<bool> {
+pub fn rohs_from(text: &str) -> Option<bool> {
     let t = text.trim().to_lowercase();
     if t.contains("non") || t.contains("not") || t == "no" || t == "false" {
         Some(false)
@@ -730,6 +739,53 @@ fn rohs_from(text: &str) -> Option<bool> {
     } else {
         None
     }
+}
+
+/// Read a REACH answer from distributor text.
+pub fn reach_from(text: &str) -> Option<bool> {
+    let t = text.trim().to_lowercase();
+    if t.contains("svhc") && (t.contains("no") || t.contains("none") || t.contains("free")) {
+        Some(true)
+    } else if t.contains("affected") || t.contains("contains") {
+        Some(false)
+    } else if t.contains("unaffected") || t.contains("compliant") {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+/// Read a halogen-free claim from compliance text.
+pub fn halogen_from(text: &str) -> Option<bool> {
+    let t = text.trim().to_lowercase();
+    if t.contains("halogen") && (t.contains("free") || t.contains("no halogen")) {
+        Some(true)
+    } else if t.contains("contains halogen") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Read a moisture sensitivity level between 1 and 6.
+pub fn moisture_level_from(text: &str) -> Option<u8> {
+    let t = text.trim().to_lowercase();
+    for level in (1..=6).rev() {
+        let needle = level.to_string();
+        if t.contains(&format!("level {needle}"))
+            || t.contains(&format!("msl {needle}"))
+            || t == needle
+            || t.ends_with(&format!(" {needle}"))
+        {
+            return Some(level);
+        }
+    }
+    t.chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse::<u8>()
+        .ok()
+        .filter(|m| (1..=6).contains(m))
 }
 
 fn some_text(text: &str) -> Option<String> {
@@ -840,6 +896,21 @@ pub fn listing_from_result(
         lifecycle: lifecycle_from(&lifecycle_raw),
         lifecycle_raw,
         rohs: attr(attributes, &["RoHS", "RoHS Status"]).and_then(rohs_from),
+        reach: attr(attributes, &["REACH", "REACH-SVHC", "REACH SVHC"]).and_then(reach_from),
+        halogen_free: attr(
+            attributes,
+            &["Halogen free", "Halogen Free", "ProductCompliance"],
+        )
+        .and_then(halogen_from),
+        moisture_level: attr(
+            attributes,
+            &[
+                "Moisture Sensitivity Level (MSL)",
+                "Moisture Sensitivity Level",
+                "MSL",
+            ],
+        )
+        .and_then(moisture_level_from),
         datasheet_url: some_text(&result.datasheet_url),
         symbol: None,
         footprint: None,

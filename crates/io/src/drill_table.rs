@@ -18,7 +18,7 @@
 //!
 //! # Do not
 //! - Count holes anywhere but `collect_drill_hits`.
-//! - Add back-drill rows here; they arrive with the back-drill feature.
+//! - Count back-drills anywhere but `backdrill::collect_backdrill_hits`; they are unplated rows of function Back-drill and stay out of `collect_drill_hits`.
 
 use crate::fab_export::{DrillFunction, collect_drill_hits};
 use pcbcraft_doc::Project;
@@ -53,6 +53,7 @@ impl DrillFunction {
             DrillFunction::Via => "Via",
             DrillFunction::ComponentPad => "Component pad",
             DrillFunction::Mounting => "Mounting",
+            DrillFunction::BackDrill => "Back-drill",
         }
     }
 }
@@ -104,6 +105,12 @@ pub fn drill_table(p: &Project) -> Result<Vec<DrillRow>, String> {
     for h in &hits {
         *rows
             .entry((h.span.0, h.span.1, !h.plated, h.function, h.d_um, h.span_um))
+            .or_default() += 1;
+    }
+    for h in crate::backdrill::collect_backdrill_hits(p) {
+        let (a, b) = h.range();
+        *rows
+            .entry((a, b, true, DrillFunction::BackDrill, h.d_um, 0))
             .or_default() += 1;
     }
     Ok(rows

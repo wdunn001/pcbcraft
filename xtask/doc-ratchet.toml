@@ -7,6 +7,7 @@ pcbcraft-doc = 272
 pcbcraft-library = 159
 pcbcraft-datasheet = 0
 pcbcraft-rules = 19
+pcbcraft-plugin = 0
 pcbcraft-io = 250
 pcbcraft-engine = 49
 pcbcraft-mcp = 11

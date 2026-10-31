@@ -1,0 +1,51 @@
+schema = 1
+id = "export_and_trade"
+title = "Export and trade"
+summary = "Summarises declared export codes, origin, party screening and informational tariff exposure from the bill of materials. Findings describe data only; they never state a licence requirement."
+
+[[rules]]
+id = "highest_eccn"
+kind = "classification_report"
+severity_hit = "warning"
+severity_unverified = "info"
+text = "The highest declared ECCN on the bill is shown as a prompt for the exporter, not as a classification of the finished product."
+citation = "EAR ECCN declarations on parts"
+evidence = "eccn"
+
+[[rules]]
+id = "party_screening"
+kind = "entity_list"
+list_id = "party_screening_fixture"
+severity_hit = "error"
+severity_unverified = "info"
+text = "Manufacturer names are matched against the selected party screening list snapshot."
+citation = "Bundled screening list snapshot"
+evidence = "manufacturer"
+
+[[rules]]
+id = "country_of_origin"
+kind = "origin"
+severity_hit = "info"
+severity_unverified = "warning"
+text = "Country-of-origin claims are summarised by ISO code for export paperwork."
+citation = "Part country-of-origin fields"
+evidence = "origin"
+
+[[rules]]
+id = "tariff_exposure"
+kind = "attribute_limit"
+severity_hit = "info"
+severity_unverified = "info"
+text = "Tariff exposure uses the user-maintained HTS and origin table; rates are informational estimates only."
+citation = "Project tariff exposure table"
+evidence = "hts"
+
+[[rules]]
+id = "itar_reminder"
+kind = "declaration_required"
+regime = "itar_user_flag"
+severity_hit = "warning"
+severity_unverified = "info"
+text = "When the user sets the ITAR flag, the report records that choice without implying authorization."
+citation = "Project ITAR reminder flag"
+evidence = "itar"

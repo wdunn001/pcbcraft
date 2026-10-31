@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "upload_id": "upl_01HZZZZZZZZZZZZZZZZZZZZZZZ",
+      "publication_id": "sample-led-board",
+      "version_label": "1.0.0",
+      "publisher_slug": "demo-publisher",
+      "trust_tier": "new",
+      "title": "Sample LED board",
+      "bundle_root_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": 1730000000,
+      "stage0_flags": ["licence-hardware-missing"]
+    }
+  ]
+}

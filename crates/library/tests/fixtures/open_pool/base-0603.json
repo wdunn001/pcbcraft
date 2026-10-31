@@ -1,0 +1,25 @@
+{
+    "MPN": [
+        false,
+        "base 0603 resistor"
+    ],
+    "entity": "3ce770af-7be0-4f72-b2af-2c8010911aaf",
+    "inherit_tags": false,
+    "manufacturer": [
+        false,
+        ""
+    ],
+    "package": "fe22ac1d-25b9-4a47-8414-51c990d7f94b",
+    "pad_map": {},
+    "parametric": {},
+    "tags": [
+        "passive",
+        "resistor"
+    ],
+    "type": "part",
+    "uuid": "cbeda48c-7fb0-4cfb-a4de-d9672e8cc190",
+    "value": [
+        false,
+        ""
+    ]
+}

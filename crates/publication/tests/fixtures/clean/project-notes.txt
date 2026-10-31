@@ -1,0 +1,6 @@
+Dual op-amp breakout board notes.
+
+Board size 25 mm by 40 mm. Default net labels follow the schematic sheet.
+Supply decoupling uses 100 nF on each rail near the IC.
+
+Reference documentation uses https://example.com/docs/manual only.

@@ -19,6 +19,7 @@
 //! - crates/library/src/reader.rs
 //! - crates/engine/src/online.rs
 use crate::cad::{CadKind, CadRef, CadSource};
+use crate::open_pool::{OpenPoolPackageRecord, OpenPoolPartRecord};
 use crate::sources::SourceError;
 use crate::{
     FootprintDefinition, Graphic, Model3D, SymbolDefinition, SymbolPin, UnitGraphic,
@@ -262,6 +263,53 @@ pub fn import_footprint_only(
 pub fn footprint_ref_from_field(field: &str) -> Option<CadRef> {
     let (library, name) = field.trim().split_once(':')?;
     CadRef::new(CadKind::Footprint, library, name).ok()
+}
+
+/// STEP path when a part record points at a package that names a default model.
+///
+/// # Rules
+/// - Returns nothing when the package id on the part does not match the package record.
+///
+/// # Do not
+/// - Load or draw the model; callers cache the path on import.
+pub fn open_pool_step_path(
+    part: &OpenPoolPartRecord,
+    package: &OpenPoolPackageRecord,
+) -> Option<String> {
+    if part.package_id != package.uuid {
+        return None;
+    }
+    package.default_step_path().map(str::to_owned)
+}
+
+/// Build a footprint model reference from a cached file and the package default entry.
+///
+/// # Rules
+/// - Offset values from the pool file are converted from nanometres to millimetres.
+/// - Returns nothing when the package names no default model id.
+///
+/// # Dependencies
+/// - crates/library/src/open_pool.rs
+///
+/// # Do not
+/// - Read the STEP file; pass the path already stored in the import cache.
+pub fn open_pool_model3d(cached_path: &str, package: &OpenPoolPackageRecord) -> Option<Model3D> {
+    if package.default_model_id.is_empty() {
+        return None;
+    }
+    let mref = package.models.get(&package.default_model_id)?;
+    let nm_to_mm = |n: i64| n as f64 / 1_000_000.0;
+    Some(Model3D {
+        path: cached_path.to_owned(),
+        offset: [
+            nm_to_mm(mref.offset_nm[0]),
+            nm_to_mm(mref.offset_nm[1]),
+            nm_to_mm(mref.offset_nm[2]),
+        ],
+        scale: [1.0, 1.0, 1.0],
+        rotate: mref.rotate_deg,
+        raw_source: String::new(),
+    })
 }
 
 impl ImportedPart {

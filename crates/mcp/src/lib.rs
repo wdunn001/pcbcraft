@@ -8,6 +8,7 @@ pub mod http;
 pub use gated_bridge::{ToolRequest, start_gated_bridge};
 mod prompts;
 mod resources;
+mod tool_files;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
 use pcbcraft_engine::user_config::UserConfig;
@@ -95,7 +96,7 @@ pub fn tool_list() -> Value {
     let command = json!({"type":"object","properties":{"command":{"type":"string"},"params":{"type":"object"}},"required":["command","params"],"additionalProperties":false});
     let mut tools = vec![
         json!({"name":"library.save","description":"Atomically save the editable project library to a .pcbcraft-lib collection","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"creation_date":{"type":"string","description":"optional ISO 8601 UTC timestamp for the Gerber job CreationDate; when omitted the export stamps the current time"}}),&["path"])}),
         json!({"name":"netlist.write","description":"Write a plain-text netlist, one line per net with its component pins, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.export_footprint","description":"Write one project-library footprint to a .kicad_mod footprint library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_symbol","description":"Write one project-library symbol to a .kicad_sym symbol library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
@@ -302,6 +303,19 @@ pub fn call_tool(session: &SharedSession, name: &str, args: &Value) -> Value {
         Err(e) => error_result(e),
     }
 }
+
+/// Produce the files a write-style MCP tool would create, without touching the host filesystem.
+pub fn write_tool_files(
+    session: &SharedSession,
+    name: &str,
+    args: &Value,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    validate_tool_schema(name, args)?;
+    let s = session
+        .lock()
+        .map_err(|_| "session unavailable after internal failure".to_string())?;
+    tool_files::write_tool_files(&s.project, name, args)
+}
 /// Check a tool call's arguments against the tool's schema, and for `execute` and `batch` each
 /// command's parameters against that command's schema, without running anything. The assistant
 /// gate uses it to refuse a malformed call with the engine's own reason.
@@ -498,7 +512,21 @@ pub(crate) fn invoke_session(
         }
         "gerber.export" => {
             let directory = string(args, "path")?;
-            let files = pcbcraft_io::gerber_files(&s.project)?;
+            let files = match args.get("creation_date") {
+                None => pcbcraft_io::gerber_files(&s.project)?,
+                Some(value) => {
+                    let stamp = value
+                        .as_str()
+                        .ok_or("creation_date must be a string")?
+                        .trim();
+                    if stamp.is_empty() || stamp.len() > 64 {
+                        return Err(
+                            "creation_date must be a non-empty ISO 8601 UTC timestamp".into(),
+                        );
+                    }
+                    pcbcraft_io::gerber_files_at(&s.project, stamp)?
+                }
+            };
             let mut written = Vec::new();
             for (name, text) in &files {
                 pcbcraft_io::atomic_write(&Path::new(directory).join(name), text.as_bytes())?;
@@ -749,6 +777,7 @@ pub(crate) fn invoke_session(
                     "clearance",
                     "copper_short",
                     "track_width",
+                    "track_radius",
                     "stub_length",
                     "acute_angle",
                     "unrouted",
@@ -1881,6 +1910,44 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
         );
         Ok(())
     }
+
+    #[test]
+    fn gerber_export_twice_under_a_fixed_clock_is_byte_identical() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = directory.path().to_string_lossy();
+        let pinned = pcbcraft_io::with_fixed_clock(1_800_000_000, || {
+            let first = call_tool(&session, "gerber.export", &json!({"path": path}));
+            std::thread::sleep(std::time::Duration::from_millis(1_100));
+            let first_job = std::fs::read(directory.path().join("pcb-job.gbrjob"))
+                .map_err(|e| e.to_string())?;
+            let second = call_tool(&session, "gerber.export", &json!({"path": path}));
+            let second_job = std::fs::read(directory.path().join("pcb-job.gbrjob"))
+                .map_err(|e| e.to_string())?;
+            assert_eq!(
+                first_job, second_job,
+                "two exports in the same pinned clock share CreationDate bytes"
+            );
+            Ok::<_, String>((first, second))
+        })?;
+        assert_eq!(pinned.0.get("isError"), Some(&json!(false)));
+        assert_eq!(pinned.1.get("isError"), Some(&json!(false)));
+        let stamp = "2026-06-15T12:34:56+00:00";
+        let stamped_export = call_tool(
+            &session,
+            "gerber.export",
+            &json!({"path": path, "creation_date": stamp}),
+        );
+        assert_eq!(stamped_export.get("isError"), Some(&json!(false)));
+        let stamped = std::fs::read(directory.path().join("pcb-job.gbrjob"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            stamped.windows(stamp.len()).any(|w| w == stamp.as_bytes()),
+            "creation_date is written into the job file"
+        );
+        Ok(())
+    }
+
     #[test]
     fn dsn_write_exports_a_board_file_without_editing_history() -> Result<(), String> {
         let session = shared(Session::default());
@@ -3040,6 +3107,45 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
             .get("isError"),
             Some(&json!(true))
         );
+        let listing = |name: &str, package: &str| {
+            json!({
+                "label": name,
+                "pins": 2,
+                "listing": {
+                    "source": "fixture",
+                    "source_id": "sample",
+                    "source_ref": name,
+                    "manufacturer": "",
+                    "mpn": name,
+                    "description": "",
+                    "category": "resistor",
+                    "source_category": "",
+                    "package_key": "",
+                    "package_text": package,
+                    "price_breaks": [{"quantity": 1, "unit_price": 0.1, "currency": "USD"}],
+                    "lifecycle": "unknown",
+                    "lifecycle_raw": "",
+                    "stock": 5,
+                }
+            })
+        };
+        let parts = call_tool(
+            &session,
+            "library.compare",
+            &json!({
+                "kind": "parts",
+                "parts": [listing("A", "1206"), listing("B", "0603")],
+                "quantity": 1
+            }),
+        );
+        assert_eq!(parts.get("isError"), Some(&json!(false)));
+        assert_eq!(parts.pointer("/structuredContent/kind"), Some(&json!("parts")));
+        assert_eq!(
+            parts
+                .pointer("/structuredContent/table/differing_rows")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
         let locked = session.lock().map_err(|_| "session unavailable")?;
         assert_eq!(locked.revision, 0);
         assert!(locked.project.components.is_empty());
@@ -3320,6 +3426,19 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
         let locked = session.lock().map_err(|_| "session unavailable")?;
         assert_eq!(locked.revision, 0);
         Ok(())
+    }
+
+    #[test]
+    fn tool_list_includes_help_glossary_and_help_term() {
+        let tools = tool_list();
+        let names: Vec<&str> = tools["tools"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert!(names.iter().any(|n| *n == "help.glossary"));
+        assert!(names.iter().any(|n| *n == "help.term"));
     }
 
     #[test]

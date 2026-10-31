@@ -28,11 +28,12 @@ pub(super) fn commands() -> Vec<CommandSpec> {
     let import_props = json!({
         "symbol":{"type":"object","description":"a symbol definition as the library readers emit it"},
         "footprint":{"type":"object","description":"an optional footprint definition as the library readers emit it"},
-        "model":{"type":"object","description":"an optional 3D model reference for the footprint: path with optional offset, scale and rotate",
+        "model":{"type":"object","description":"an optional 3D model reference for the footprint: path with optional offset, scale and rotate, and an optional SolidCraft part name when the file holds more than one component",
             "properties":{"path":{"type":"string","maxLength":1024},
                 "offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},
                 "scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},
-                "rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},
+                "rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},
+                "cad_part":{"type":"string","maxLength":128}},
             "required":["path"],"additionalProperties":false},
         "notices":{"type":"array","maxItems":MAX_NOTICES,"items":{"type":"string","maxLength":MAX_NOTICE_BYTES},"description":"source and licence notices to record with the part"},
         "on_conflict":{"type":"string","enum":["refuse","replace","keep_both"],"default":"refuse","description":"what to do when a different part already holds the same name"}
@@ -88,6 +89,8 @@ struct ModelRef {
     scale: Option<[f64; 3]>,
     #[serde(default)]
     rotate: Option<[f64; 3]>,
+    #[serde(default)]
+    cad_part: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -331,6 +334,7 @@ fn import(
             offset: m.offset,
             scale: m.scale,
             rotate: m.rotate,
+            cad_part: m.cad_part,
         })?;
         fp.model = Some(built);
     }

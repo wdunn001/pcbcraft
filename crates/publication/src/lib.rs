@@ -1,28 +1,36 @@
-//! Publication manifest schema and Stage 0 checks for shared designs and parts.
+//! Privacy, licence and bundle checks for shared publications.
 //!
-//! Bundles carry a versioned `publication.json`, a flat ZIP of content files,
-//! and a content address over the sorted file hash list. Stage 0 validates
-//! structure, licences, paths, and library content before a human queue or
-//! registry ingest runs later stages.
+//! One library for the app upload step, CI on a static registry, and the portal
+//! service. Hard failures block upload; review outcomes go to the human queue.
+//!
+//! # Rules
+//! - A privacy hit is a hard fail with a remove-and-retry action.
+//! - Licence pairs come from `data/licence_compat.toml`; unknown pairs are review.
+//! - Datasheets are link, title and hash only; copied PDF bytes are refused.
+//!
+//! # Dependencies
+//! - crates/publication/data/*.toml
+//! - crates/engine/src/publication.rs
+//!
+//! # Do not
+//! - Certify compliance claims; they are publisher statements only.
+//! - Copy datasheet PDFs into bundles when terms do not allow it.
 
-mod check;
-mod hash;
+mod bundle;
+mod compliance;
+mod datasheet;
 mod licence;
-mod manifest;
-mod zip_read;
+mod privacy;
+mod scan;
 
-pub use check::{
-    CheckResult, CheckVerdict, Stage0Report, stage0_from_manifest_and_files, stage0_from_zip,
-    CONTROLLED_ROLES, CONTROLLED_TAGS,
+pub use bundle::refused_path;
+pub use compliance::{ComplianceInput, compliance_notes};
+pub use datasheet::{DatasheetRef, check_datasheet_refs, check_embedded_datasheet_bytes};
+pub use licence::{
+    LicenceVerdict, bundled_part, design_licence, is_restricted_source, licence_table,
 };
-pub use hash::{bundle_root_hash, sha256_hex};
-pub use licence::{lineage_compatible, spdx_allowed, ALLOWED_SPDX};
-pub use manifest::{
-    Author, BomLine, BomSummary, ComplianceClaim, FileEntry, Identity, LayerLicences, LineageEntry,
-    LineageRelation, PreviewEntry, ProvenanceBlock, PublicationManifest, PublisherSignature,
-    VersionInfo, MAX_CHANGELOG_LEN, MAX_ID_LEN, MAX_MANIFEST_FILES, MAX_NAME_LEN, SCHEMA_VERSION,
+pub use privacy::{PrivacyOptions, scan_privacy_text, scan_privacy_bytes};
+pub use scan::{
+    BundleFile, BundledPart, PublicationScanInput, PublicationScanResult, ScanOutcome,
+    ScanRequest, scan,
 };
-pub use zip_read::{read_stored_zip, ZipEntry, MAX_BUNDLE_ENTRIES, MAX_BUNDLE_UNCOMPRESSED};
-
-/// JSON Schema for [`PublicationManifest`] at [`SCHEMA_VERSION`].
-pub const PUBLICATION_SCHEMA_V1: &str = include_str!("../schema/publication.v1.schema.json");

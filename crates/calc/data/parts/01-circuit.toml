@@ -1,0 +1,653 @@
+# Glossary part 01-circuit
+schema = 1
+
+[[term]]
+id = "voltage"
+term = "Voltage"
+category = "circuit"
+short = "Electrical potential difference between two points, in volts."
+long = "Voltage drives current through a closed path. Most digital boards use a few fixed supply rails while analog sections may need tighter regulation."
+synonyms = ["potential", "V"]
+related = ["current", "resistance", "ohms_law"]
+units = "V"
+in_pcbcraft = []
+search = "volt potential difference supply rail"
+calculator = "ohms_law"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "current"
+term = "Current"
+category = "circuit"
+short = "Flow of electric charge through a conductor, in amperes."
+long = "Current sets how much heat a copper route carries and how much voltage drops across resistive paths. Return paths must carry the same net current as the supply."
+synonyms = ["ampere", "I"]
+related = ["voltage", "resistance", "track_width"]
+units = "A"
+in_pcbcraft = []
+search = "ampere flow charge conductor"
+calculator = "ohms_law"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "resistance"
+term = "Resistance"
+category = "circuit"
+short = "Opposition to direct current flow, in ohms."
+long = "Resistance converts electrical energy to heat. Copper routes, vias and component terminals all add small resistance that matters at high current."
+synonyms = ["ohm", "R"]
+related = ["voltage", "current", "ohms_law"]
+units = "ohm"
+in_pcbcraft = []
+search = "ohm opposition resistor drop"
+calculator = "ohms_law"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "ohms_law"
+term = "Ohm's law"
+category = "circuit"
+short = "Relates voltage, current and resistance as V equals I times R."
+long = "Ohm's law is the first check for power dissipation and drop budgets. Any two of voltage, current and resistance determine the third in a linear resistive path."
+synonyms = ["V equals IR"]
+related = ["voltage", "current", "resistance"]
+units = ""
+in_pcbcraft = []
+search = "ohm law voltage current resistance"
+calculator = "ohms_law"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "capacitance"
+term = "Capacitance"
+category = "circuit"
+short = "Ability to store charge per volt, in farads."
+long = "Capacitors block direct current while passing changing signals. Decoupling capacitors sit close to power pins to supply brief current pulses."
+synonyms = ["capacitor", "C"]
+related = ["inductance", "decoupling", "reactance"]
+units = "F"
+in_pcbcraft = []
+search = "capacitor charge store farad"
+calculator = "reactance"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "inductance"
+term = "Inductance"
+category = "circuit"
+short = "Opposition to changes in current, in henries."
+long = "Inductors resist fast current steps and store energy in a magnetic field. Long return paths and narrow slots raise effective inductance on power nets."
+synonyms = ["inductor", "L"]
+related = ["capacitance", "reactance", "decoupling"]
+units = "H"
+in_pcbcraft = []
+search = "inductor henry magnetic field"
+calculator = "reactance"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "reactance"
+term = "Reactance"
+category = "circuit"
+short = "Frequency dependent opposition from capacitors or inductors."
+long = "Reactance combines with resistance to form impedance. Filters and matching networks rely on reactance changing with frequency."
+synonyms = ["Xc", "Xl"]
+related = ["impedance", "capacitance", "inductance"]
+units = "ohm"
+in_pcbcraft = []
+search = "ac capacitor inductor frequency"
+calculator = "reactance"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "impedance"
+term = "Impedance"
+category = "circuit"
+short = "Total opposition to alternating current, in ohms."
+long = "Impedance sets how signals reflect at transitions. Controlled routes target a characteristic impedance such as fifty ohms for many serial links."
+synonyms = ["Z", "characteristic impedance"]
+related = ["microstrip", "differential_pair", "reflection", "track_width"]
+units = "ohm"
+in_pcbcraft = ["net.impedance"]
+search = "ohm ac transmission line match fifty"
+calculator = "microstrip"
+source = "Transmission line theory"
+
+[[term]]
+id = "microstrip"
+term = "Microstrip line"
+category = "circuit"
+short = "Route on an outer layer over a reference plane."
+long = "Microstrip impedance depends on width, dielectric thickness and permittivity. It is the common default for controlled fifty ohm digital routes."
+synonyms = ["surface microstrip"]
+related = ["impedance", "stackup", "track_width"]
+units = ""
+in_pcbcraft = ["net.impedance"]
+search = "microstrip surface controlled impedance width"
+calculator = "microstrip"
+source = "Transmission line theory"
+
+[[term]]
+id = "propagation_delay"
+term = "Propagation delay"
+category = "circuit"
+short = "Time for a signal to travel along a route."
+long = "Delay grows with route length and effective dielectric constant. Matching lengths on buses and differential pairs limits skew."
+synonyms = ["flight time"]
+related = ["skew", "frequency", "impedance"]
+units = "ps"
+in_pcbcraft = ["net.lengths"]
+search = "propagation delay length velocity factor"
+calculator = "propagation_delay"
+source = "Signal integrity practice"
+
+[[term]]
+id = "frequency"
+term = "Frequency"
+category = "circuit"
+short = "How many cycles occur each second, in hertz."
+long = "Rise time and clock rate set which harmonics matter. Higher frequency needs shorter return paths and tighter coupling control."
+synonyms = ["hertz", "Hz"]
+related = ["reactance", "propagation_delay", "emc"]
+units = "Hz"
+in_pcbcraft = []
+search = "hertz clock rate bandwidth"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "ground"
+term = "Ground"
+category = "circuit"
+short = "Reference node that other voltages are measured against."
+long = "Ground is both a schematic symbol and a physical return path. A solid ground plane lowers inductance and gives signals a predictable return."
+synonyms = ["GND", "reference", "return"]
+related = ["ground_plane", "net"]
+units = ""
+in_pcbcraft = []
+search = "gnd reference return plane"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "power_rail"
+term = "Power rail"
+category = "circuit"
+short = "Conductive net that delivers a regulated supply voltage."
+long = "Each rail feeds a group of loads. Wide copper, enough vias and local decoupling keep rail impedance low at the frequencies your loads draw."
+synonyms = ["supply", "Vcc", "Vdd"]
+related = ["decoupling", "ldo", "power_plane"]
+units = "V"
+in_pcbcraft = []
+search = "supply vcc vdd buck ldo"
+calculator = "decoupling_capacitor"
+source = "Power distribution practice"
+
+[[term]]
+id = "decoupling"
+term = "Decoupling"
+category = "circuit"
+short = "Local capacitors that supply fast current near an integrated circuit."
+long = "Decoupling capacitors sit between power and ground at each active device. Their loop area to the chip power pins should stay small on the board."
+synonyms = ["bypass", "bulk cap"]
+related = ["power_rail", "capacitance", "via"]
+units = ""
+in_pcbcraft = []
+search = "bypass capacitor ic power pin"
+calculator = "decoupling_capacitor"
+source = "Power integrity practice"
+
+[[term]]
+id = "series"
+term = "Series connection"
+category = "circuit"
+short = "Components connected end to end so the same current flows through each."
+long = "Series elements share one current path. Total resistance adds while voltage divides across each element."
+synonyms = ["in series"]
+related = ["parallel", "voltage_divider"]
+units = ""
+in_pcbcraft = []
+search = "series resistor chain same current"
+calculator = "series_parallel"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "parallel"
+term = "Parallel connection"
+category = "circuit"
+short = "Components connected across the same two nodes."
+long = "Parallel branches share the same voltage. Conductances add so equivalent resistance drops when more paths are placed in parallel."
+synonyms = ["in parallel"]
+related = ["series", "current"]
+units = ""
+in_pcbcraft = []
+search = "parallel branch same voltage"
+calculator = "series_parallel"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "voltage_divider"
+term = "Voltage divider"
+category = "circuit"
+short = "Two resistors that scale a supply to a lower sense voltage."
+long = "A divider sets a reference or sense point. Load current drawn from the tap changes the output, so high value resistors need careful tolerance."
+synonyms = ["resistive divider"]
+related = ["series", "resistance"]
+units = "V"
+in_pcbcraft = []
+search = "divider tap sense reference"
+calculator = "voltage_divider"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "pull_up"
+term = "Pull up resistor"
+category = "circuit"
+short = "Resistor from a signal line to the positive supply."
+long = "Pull ups define a default high level on open drain or open collector lines. Value trades off rise time against static current when the line is low."
+synonyms = ["pullup"]
+related = ["pull_down", "i2c", "open_drain"]
+units = "ohm"
+in_pcbcraft = []
+search = "pullup open drain idle high"
+calculator = "i2c_pullup"
+source = "Interface design practice"
+
+[[term]]
+id = "pull_down"
+term = "Pull down resistor"
+category = "circuit"
+short = "Resistor from a signal line to ground."
+long = "Pull downs define a default low when nothing else drives the net. They appear on reset and mode strap inputs."
+synonyms = ["pulldown"]
+related = ["pull_up", "reset"]
+units = "ohm"
+in_pcbcraft = []
+search = "pulldown strap reset default low"
+source = "Interface design practice"
+
+[[term]]
+id = "open_drain"
+term = "Open drain output"
+category = "circuit"
+short = "Output that only pulls low and needs an external pull up."
+long = "Open drain stages wire OR several devices on one bus. The pull up sets how fast the line rises when all drivers release."
+synonyms = ["open collector"]
+related = ["pull_up", "i2c"]
+units = ""
+in_pcbcraft = []
+search = "open drain bus wired or"
+source = "Interface design practice"
+
+[[term]]
+id = "differential_signal"
+term = "Differential signal"
+category = "circuit"
+short = "Pair of traces carrying equal and opposite swings."
+long = "Differential signaling rejects common mode noise. Length and spacing of the pair must stay matched through connectors and vias."
+synonyms = ["diff pair"]
+related = ["differential_pair", "common_mode", "impedance"]
+units = ""
+in_pcbcraft = ["board.set_diffpair"]
+search = "differential pair opposite polarity"
+calculator = "differential_pair"
+source = "High speed signaling practice"
+
+[[term]]
+id = "common_mode"
+term = "Common mode voltage"
+category = "circuit"
+short = "Average level shared by both legs of a differential pair."
+long = "Receivers tolerate only a limited common mode range. Bias networks and coupling caps keep common mode within the input specification."
+synonyms = ["CM voltage"]
+related = ["differential_signal", "differential_pair"]
+units = "V"
+in_pcbcraft = []
+search = "common mode bias differential receiver"
+source = "High speed signaling practice"
+
+[[term]]
+id = "reflection"
+term = "Signal reflection"
+category = "circuit"
+short = "Energy that bounces when impedance changes along a route."
+long = "Reflections cause overshoot and ringing at fast edges. Matching trace width to target impedance and terminating lines limits reflections."
+synonyms = ["ringing", "overshoot"]
+related = ["impedance", "termination"]
+units = ""
+in_pcbcraft = ["net.impedance"]
+search = "reflection ringing overshoot mismatch"
+source = "Transmission line theory"
+
+[[term]]
+id = "termination"
+term = "Line termination"
+category = "circuit"
+short = "Resistor network that matches line impedance at a receiver."
+long = "Termination absorbs incident energy so edges do not reflect. Series and parallel schemes trade power against simplicity."
+synonyms = ["matched load"]
+related = ["reflection", "impedance"]
+units = "ohm"
+in_pcbcraft = []
+search = "terminate resistor match line"
+source = "Transmission line theory"
+
+[[term]]
+id = "esd"
+term = "Electrostatic discharge"
+category = "circuit"
+short = "Sudden charge transfer that can damage sensitive inputs."
+long = "ESD structures and layout guards shunt spikes away from core circuits. Keep protected pins away from board edges when possible."
+synonyms = ["ESD strike"]
+related = ["tvs", "emc"]
+units = ""
+in_pcbcraft = []
+search = "esd discharge static shock"
+source = "Reliability practice"
+
+[[term]]
+id = "tvs"
+term = "Transient voltage suppressor"
+category = "circuit"
+short = "Device that clamps short overvoltage events."
+long = "TVS diodes sit near connectors to limit spikes. Placement and copper width to ground affect how quickly they act."
+synonyms = ["TVS diode", "clamp"]
+related = ["esd", "emc"]
+units = ""
+in_pcbcraft = []
+search = "tvs clamp surge connector"
+source = "Reliability practice"
+
+[[term]]
+id = "ferrite_bead"
+term = "Ferrite bead"
+category = "circuit"
+short = "Frequency selective element that adds loss at high frequency."
+long = "Beads isolate noisy rails from quiet analog supplies. They behave like a small inductor with rising resistance at RF."
+synonyms = ["chip ferrite"]
+related = ["decoupling", "emc"]
+units = ""
+in_pcbcraft = []
+search = "ferrite bead noise filter rail"
+source = "Power integrity practice"
+
+[[term]]
+id = "rc_filter"
+term = "RC filter"
+category = "circuit"
+short = "Resistor and capacitor network that rolls off high frequencies."
+long = "RC filters set bandwidth for sensors and reset circuits. Source impedance and load input capacitance shift the corner frequency."
+synonyms = ["low pass RC"]
+related = ["capacitance", "resistance"]
+units = ""
+in_pcbcraft = []
+search = "rc low pass filter corner"
+calculator = "rc_rl_time_constant"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "lc_filter"
+term = "LC filter"
+category = "circuit"
+short = "Inductor and capacitor network for sharper frequency selectivity."
+long = "LC filters appear in power supplies and RF matching. Layout parasitics move resonances so keep loops compact."
+synonyms = ["tank circuit"]
+related = ["inductance", "capacitance"]
+units = ""
+in_pcbcraft = []
+search = "lc bandpass resonator filter"
+calculator = "lc_resonance"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "quiescent_current"
+term = "Quiescent current"
+category = "circuit"
+short = "Static supply current with no switching activity."
+long = "Quiescent current sets battery life for always on circuits. Sleep modes reduce it at the cost of wake latency."
+synonyms = ["Iq", "idle current"]
+related = ["power_rail", "battery_life"]
+units = "A"
+in_pcbcraft = []
+search = "iq idle sleep battery"
+calculator = "battery_life"
+source = "Power design practice"
+
+[[term]]
+id = "inrush"
+term = "Inrush current"
+category = "circuit"
+short = "Brief high current when capacitors charge at power on."
+long = "Inrush can trip supplies or weld contacts. Soft start and thermistors limit the peak while still reaching full rail voltage."
+synonyms = ["startup surge"]
+related = ["power_rail", "capacitance"]
+units = "A"
+in_pcbcraft = []
+search = "inrush surge soft start power on"
+source = "Power design practice"
+
+[[term]]
+id = "brownout"
+term = "Brownout"
+category = "circuit"
+short = "Supply voltage dipping below what logic needs to run reliably."
+long = "Brownouts cause resets or memory errors. Supervisors hold reset until the rail is stable and monitor margin during load steps."
+synonyms = ["undervoltage"]
+related = ["power_rail", "reset"]
+units = "V"
+in_pcbcraft = []
+search = "brownout undervoltage supervisor reset"
+source = "Power design practice"
+
+[[term]]
+id = "reset"
+term = "Reset circuit"
+category = "circuit"
+short = "Logic that holds a processor in a known state until supplies are valid."
+long = "Reset pins need a defined pulse width and often a pull up or down. Capacitors delay release to meet power sequencing."
+synonyms = ["POR", "power on reset"]
+related = ["pull_down", "brownout"]
+units = ""
+in_pcbcraft = []
+search = "reset por supervisor pulse"
+source = "Digital design practice"
+
+[[term]]
+id = "crystal"
+term = "Crystal oscillator"
+category = "circuit"
+short = "Mechanical resonator that sets a stable clock frequency."
+long = "Crystals need load capacitors matched to the device specification. Keep the loop area small and away from noisy switching nets."
+synonyms = ["XTAL", "quartz"]
+related = ["frequency", "load_capacitance"]
+units = "Hz"
+in_pcbcraft = []
+search = "crystal xtal clock oscillator"
+calculator = "crystal_load_capacitors"
+source = "Clock design practice"
+
+[[term]]
+id = "load_capacitance"
+term = "Crystal load capacitance"
+category = "circuit"
+short = "Total capacitance the crystal sees including stray board capacitance."
+long = "Wrong load capacitance pulls frequency off target. Data sheet values include pin and trace parasitics that layout adds."
+synonyms = ["Cl"]
+related = ["crystal", "capacitance"]
+units = "pF"
+in_pcbcraft = []
+search = "load cap crystal trim frequency"
+calculator = "crystal_load_capacitors"
+source = "Clock design practice"
+
+[[term]]
+id = "opamp"
+term = "Operational amplifier"
+category = "circuit"
+short = "High gain block used for conditioning and filtering analog signals."
+long = "Opamps need stable supplies and careful input common mode range. Feedback networks set gain and bandwidth."
+synonyms = ["op amp"]
+related = ["gain", "filter"]
+units = ""
+in_pcbcraft = []
+search = "opamp amplifier feedback gain"
+calculator = "opamp_gain"
+source = "Analog design practice"
+
+[[term]]
+id = "gain"
+term = "Voltage gain"
+category = "circuit"
+short = "Ratio of output swing to input swing."
+long = "Gain can be fixed with resistors or set digitally. Bandwidth falls as closed loop gain rises in most amplifiers."
+synonyms = ["amplification"]
+related = ["opamp", "decibel"]
+units = ""
+in_pcbcraft = []
+search = "gain amplify ratio dB"
+calculator = "opamp_gain"
+source = "Analog design practice"
+
+[[term]]
+id = "decibel"
+term = "Decibel"
+category = "circuit"
+short = "Logarithmic measure of power or amplitude ratio."
+long = "Decibels compress wide dynamic ranges. Ten decibels means ten times the power while twenty decibels means ten times the voltage."
+synonyms = ["dB"]
+related = ["gain", "filter"]
+units = "dB"
+in_pcbcraft = []
+search = "decibel db log ratio"
+calculator = "decibel"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "filter"
+term = "Filter"
+category = "circuit"
+short = "Network that passes some frequencies and attenuates others."
+long = "Filters protect inputs and limit emissions. Order and topology set roll off and group delay."
+synonyms = ["low pass", "band pass"]
+related = ["rc_filter", "lc_filter"]
+units = ""
+in_pcbcraft = []
+search = "filter cutoff bandwidth roll off"
+source = "Analog design practice"
+
+[[term]]
+id = "adc"
+term = "Analog to digital converter"
+category = "circuit"
+short = "Block that samples an analog voltage into digital codes."
+long = "ADC reference noise and layout around the input cap dominate accuracy. Keep analog return separate from noisy digital switching."
+synonyms = ["A/D converter"]
+related = ["reference", "ground"]
+units = ""
+in_pcbcraft = []
+search = "adc sample convert analog digital"
+source = "Mixed signal practice"
+
+[[term]]
+id = "dac"
+term = "Digital to analog converter"
+category = "circuit"
+short = "Block that turns digital codes into an analog voltage or current."
+long = "DAC outputs may need buffering and filtering. Supply decoupling at the device limits code dependent glitches."
+synonyms = ["D/A converter"]
+related = ["reference", "filter"]
+units = ""
+in_pcbcraft = []
+search = "dac output analog code"
+source = "Mixed signal practice"
+
+[[term]]
+id = "reference"
+term = "Voltage reference"
+category = "circuit"
+short = "Stable precise voltage used by converters and comparators."
+long = "References drift with temperature and load. Place bypass capacitors close and avoid routing heavy return current under the part."
+synonyms = ["Vref"]
+related = ["adc", "dac"]
+units = "V"
+in_pcbcraft = []
+search = "vref bandgap precision adc"
+source = "Mixed signal practice"
+
+[[term]]
+id = "comparator"
+term = "Comparator"
+category = "circuit"
+short = "Block whose output switches when inputs cross."
+long = "Comparators need hysteresis on noisy signals. Output rise time and pull ups affect downstream timing."
+synonyms = ["voltage comparator"]
+related = ["reference", "schmitt_trigger"]
+units = ""
+in_pcbcraft = []
+search = "comparator threshold hysteresis"
+source = "Analog design practice"
+
+[[term]]
+id = "schmitt_trigger"
+term = "Schmitt trigger"
+category = "circuit"
+short = "Input with hysteresis so small noise does not toggle output."
+long = "Schmitt inputs clean up slow or noisy edges. Separate upper and lower thresholds set noise immunity."
+synonyms = ["hysteresis input"]
+related = ["comparator", "reset"]
+units = ""
+in_pcbcraft = []
+search = "schmitt hysteresis clean edge"
+source = "Digital design practice"
+
+[[term]]
+id = "led"
+term = "Light emitting diode"
+category = "circuit"
+short = "Diode that emits light when forward current flows."
+long = "LEDs need a current limiting resistor or constant current drive. Color sets forward voltage and brightness per milliamp."
+synonyms = ["indicator LED"]
+related = ["current", "resistor"]
+units = ""
+in_pcbcraft = []
+search = "led indicator light current limit"
+calculator = "led_resistor"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "diode"
+term = "Diode"
+category = "circuit"
+short = "Two terminal device that conducts primarily in one direction."
+long = "Diodes block reverse voltage and drop forward voltage when conducting. They appear in ORing, clamping and ESD protection."
+synonyms = ["rectifier"]
+related = ["tvs", "esd"]
+units = ""
+in_pcbcraft = []
+search = "diode forward reverse clamp"
+source = "Elementary circuit theory"
+
+[[term]]
+id = "mosfet"
+term = "MOSFET"
+category = "circuit"
+short = "Voltage controlled switch used for power and logic level translation."
+long = "MOSFETs need gate charge and body diode awareness in switching supplies. Layout resistance on source paths adds loss."
+synonyms = ["FET"]
+related = ["inrush", "power_rail"]
+units = ""
+in_pcbcraft = []
+search = "mosfet switch gate driver"
+source = "Power design practice"
+
+[[term]]
+id = "bjt"
+term = "Bipolar junction transistor"
+category = "circuit"
+short = "Current controlled amplifier or switch with base, collector and emitter."
+long = "BJTs provide gain at the cost of base current. They still appear in discrete regulators and level shifters."
+synonyms = ["NPN", "PNP"]
+related = ["gain", "current"]
+units = ""
+in_pcbcraft = []
+search = "bjt npn pnp base current"
+source = "Elementary circuit theory"
+

@@ -37,12 +37,24 @@ fn main() {
         }
     });
 }
+
+#[cfg(target_arch = "wasm32")]
+mod wasm_host;
+
 #[cfg(target_arch = "wasm32")]
 async fn start() -> Result<(), wasm_bindgen::JsValue> {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    use pcbcraft_web::transport::{
+        BrowserTransport, CrossOriginStatus, PollingFetcher, cross_origin_status,
+    };
     use wasm_bindgen::JsCast;
+
     let document = web_sys::window()
         .and_then(|window| window.document())
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("browser document unavailable"))?;
+    let _wasm_host = wasm_host::WasmHost::mount(&document)?;
     let canvas = document
         .get_element_by_id("pcbcraft")
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("missing pcbcraft canvas"))?

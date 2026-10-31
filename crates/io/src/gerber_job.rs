@@ -368,6 +368,7 @@ mod tests {
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project
     }

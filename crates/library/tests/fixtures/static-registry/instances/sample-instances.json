@@ -1,0 +1,7 @@
+{
+  "format": "pcbcraft-instance-feed",
+  "schema_version": 1,
+  "instance_id": "fixture-peer",
+  "title": "Fixture peer",
+  "catalogue_path": "instances/fixture-peer-catalogue.json"
+}
