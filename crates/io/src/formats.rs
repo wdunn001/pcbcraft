@@ -104,7 +104,7 @@ pub enum OptionKind {
     Variant,
     /// The columns of a bill of materials.
     Columns,
-    /// The vendor flavours of a bill of materials ([`BOM_FLAVOURS`]).
+    /// The vendor flavours of a bill of materials ([`crate::bom_profiles()`]).
     Flavour,
 }
 
@@ -212,11 +212,85 @@ const BOM_OPTIONS: &[OptionSpec] = &[
     },
 ];
 
+const GERBER_OPTIONS: &[OptionSpec] = &[
+    OptionSpec {
+        param: Some("naming"),
+        label: "File names",
+        tip: "How the files are named. Project names start with pcb-. Plain .gbr puts the layer in the name. Three-letter extensions are the classic .GTL and .GBL style that online prototype fabs read.",
+        kind: OptionKind::Choice {
+            choices: &[
+                ("project", "Project names"),
+                ("plain", "Plain .gbr"),
+                ("protel", "Three-letter extensions"),
+            ],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("drill_files"),
+        label: "Drill files",
+        tip: "Plated and non-plated holes in two files, or in one file. Some fabs merge them for you, others want them apart.",
+        kind: OptionKind::Choice {
+            choices: &[("split", "Two files"), ("merged", "One file")],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("drill_units"),
+        label: "Drill units",
+        tip: "Millimetres or inches in the drill files. Project uses the unit of this design.",
+        kind: OptionKind::Choice {
+            choices: &[("project", "Project"), ("mm", "mm"), ("inch", "Inch")],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("zero_suppression"),
+        label: "Drill numbers",
+        tip: "Decimal points write every number in full. Leading or trailing zero suppression writes shorter numbers for older machines (2.4 for inch, 3.3 for mm).",
+        kind: OptionKind::Choice {
+            choices: &[
+                ("decimal", "Decimal"),
+                ("leading", "Drop leading zeros"),
+                ("trailing", "Drop trailing zeros"),
+            ],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("drill_map"),
+        label: "Drill map",
+        tip: "Add a drawing that marks every hole size with a symbol.",
+        kind: OptionKind::Bool { default: true },
+    },
+    OptionSpec {
+        param: Some("job_file"),
+        label: "Job file",
+        tip: "Add the .gbrjob file that lists every layer, its function and the board stackup.",
+        kind: OptionKind::Bool { default: true },
+    },
+];
+
 const USE_OUTLINE: &[OptionSpec] = &[OptionSpec {
     param: Some("use_outline"),
     label: "Use as board outline",
     tip: "Trace a closed shape in the file as the board outline.",
     kind: OptionKind::Bool { default: false },
+}];
+
+const COMPLIANCE_REPORT_OPTIONS: &[OptionSpec] = &[OptionSpec {
+    param: Some("format"),
+    label: "Format",
+    tip: "File type for the report body.",
+    kind: OptionKind::Choice {
+        choices: &[
+            ("markdown", "Markdown"),
+            ("csv", "CSV"),
+            ("html", "HTML"),
+            ("pdf", "PDF"),
+        ],
+        default: 0,
+    },
 }];
 
 const VIEW: &[OptionSpec] = &[OptionSpec {
@@ -346,14 +420,17 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Assembly,
         Run::Kind("ipc2581"),
     ),
-    common(output(
-        "gerbers",
-        "Copper and drill files",
-        "Gerber copper layers, the board outline and drill files that a board maker needs.",
-        &["gbr", "drl"],
-        Group::Fabrication,
-        Run::Kind("gerbers"),
-    )),
+    common(FormatSpec {
+        options: GERBER_OPTIONS,
+        ..output(
+            "gerbers",
+            "Copper and drill files",
+            "Gerber copper layers, the board outline and drill files that a board maker needs.",
+            &["gbr", "drl"],
+            Group::Fabrication,
+            Run::Engine("gerber.files"),
+        )
+    }),
     output(
         "drill_chart",
         "Drill chart",
@@ -377,6 +454,14 @@ pub static FORMATS: &[FormatSpec] = &[
         &["ipc"],
         Group::Fabrication,
         Run::Kind("ipc356"),
+    ),
+    output(
+        "bring_up",
+        "Bring-up test plan",
+        "Markdown and CSV checklist of rails, headers, continuity and nets missing a probe pad.",
+        &["md", "csv"],
+        Group::Documentation,
+        Run::Kind("bring_up"),
     ),
     common(output(
         "pdf",
@@ -419,6 +504,19 @@ pub static FORMATS: &[FormatSpec] = &[
         Run::Kind("stats"),
     ),
     FormatSpec {
+        id: "compliance_report",
+        label: "Compliance data report",
+        tip: "Part declarations, list snapshots and supplier questions as a data-quality aid, not a certification.",
+        extensions: &["md", "csv", "html", "pdf"],
+        scope: Scope::Output,
+        group: Group::Documentation,
+        open: None,
+        import: None,
+        export: Some(Run::Engine("compliance.report")),
+        options: COMPLIANCE_REPORT_OPTIONS,
+        common: false,
+    },
+    FormatSpec {
         id: "picture",
         label: "Picture (PNG)",
         tip: "A picture of the board or the schematic.",
@@ -458,7 +556,7 @@ pub static FORMATS: &[FormatSpec] = &[
     output(
         "idf",
         "Mechanical drawing (IDF)",
-        "Board size and each part's position, for enclosure design.",
+        "Board outline and placements plus a library of footprint outlines and heights.",
         &["idf"],
         Group::Exchange,
         Run::Kind("idf"),
@@ -470,6 +568,48 @@ pub static FORMATS: &[FormatSpec] = &[
         &["dsn"],
         Group::Exchange,
         Run::Kind("dsn"),
+    ),
+output(
+        "spice",
+        "Circuit netlist (SPICE)",
+        "A passive circuit netlist from sim.model fields for an outside solver.",
+        &["cir"],
+        Group::Exchange,
+        Run::Kind("spice"),
+    ),
+    output(
+        "touchstone",
+        "Touchstone (S-parameters)",
+        "A stored S-parameter file copied from the project attachment touchstone.s2p.",
+        &["s2p"],
+        Group::Exchange,
+        Run::Kind("touchstone"),
+    ),
+    output(
+        "si_net_results",
+        "Signal integrity results (CSV)",
+        "Per-net impedance estimate, length, differential pair data and optional DC volts.",
+        &["csv"],
+        Group::Documentation,
+        Run::Kind("si_net_results"),
+    ),
+    output(
+        "impedance_table",
+        "Impedance table (CSV)",
+        "Per-net impedance estimates and validity notes for the fab package.",
+        &["csv"],
+        Group::Documentation,
+        Run::Kind("impedance_table"),
+    ),
+    #[cfg(feature = "plugin-firmware-target")]
+    output(
+        "firmware_target",
+        "Flight controller target",
+        "Board config header and manifest from the firmware pin map (plugin).",
+        &["h", "json"],
+        Group::Exchange,
+        Run::Engine("firmware.target.export"),
+    ),
     ),
     FormatSpec {
         id: "board_interchange",
@@ -551,7 +691,7 @@ pub struct BomFlavour {
     /// `csv`, `tsv` or `json`.
     pub file_type: &'static str,
     /// (column token, header text), in file order. Tokens: reference, value, footprint,
-    /// mpn, manufacturer, quantity.
+/// mpn, manufacturer, quantity, description, suppliers (every supplier as `Name: number`).
     pub columns: &'static [(&'static str, &'static str)],
     /// True gives one row per kind of part.
     pub group: bool,
@@ -572,6 +712,14 @@ pub static BOM_FLAVOURS: &[BomFlavour] = &[BomFlavour {
         ("mpn", "MPN"),
         ("manufacturer", "Manufacturer"),
         ("quantity", "Quantity"),
+("reference", "Reference"),
+        ("value", "Value"),
+        ("footprint", "Footprint"),
+        ("mpn", "MPN"),
+        ("manufacturer", "Manufacturer"),
+        ("quantity", "Quantity"),
+        ("description", "Description"),
+        ("suppliers", "Supplier part numbers"),
     ],
     group: true,
     reference_separator: ", ",

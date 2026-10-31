@@ -51,6 +51,18 @@ fn metadata(raw: &str, unsupported: &[String]) -> Result<(), Error> {
     }
     Ok(())
 }
+fn retained_nodes(retained: &[String]) -> Result<(), Error> {
+    if retained.len() > 256 {
+        return Err(Error::Limit("retained source nodes"));
+    }
+    for s in retained {
+        if s.len() > 256 * 1024 {
+            return Err(bad("retained node exceeds size limit"));
+        }
+        text(s)?;
+    }
+    Ok(())
+}
 impl Graphic {
     /// Validate that all geometry values are finite and within bounds.
     ///
@@ -173,6 +185,7 @@ impl SymbolDefinition {
             text(parent)?;
         }
         metadata(&self.raw_source, &self.unsupported)?;
+        retained_nodes(&self.retained)?;
         let mut keys = BTreeSet::new();
         for p in &self.pins {
             text(&p.number)?;
@@ -250,6 +263,7 @@ impl FootprintDefinition {
             text(s)?;
         }
         metadata(&self.raw_source, &self.unsupported)?;
+        retained_nodes(&self.retained)?;
         if let Some(m) = &self.model {
             text(&m.path)?;
             metadata(&m.raw_source, &[])?;

@@ -46,6 +46,29 @@ fn near(a: f64, b: f64) -> bool {
 }
 
 #[test]
+fn land_pattern_density_suffix_matches_ipc_level_letter() -> Result<(), String> {
+    if LandPatternDensity::Most.suffix() != 'M' {
+        return Err("Most suffix must be M".into());
+    }
+    if LandPatternDensity::Nominal.suffix() != 'N' {
+        return Err("Nominal suffix must be N".into());
+    }
+    if LandPatternDensity::Least.suffix() != 'L' {
+        return Err("Least suffix must be L".into());
+    }
+    if LandPatternDensity::parse("nominal") != Some(LandPatternDensity::Nominal) {
+        return Err("nominal must parse".into());
+    }
+    if LandPatternDensity::parse("N") != Some(LandPatternDensity::Nominal) {
+        return Err("N must parse to nominal".into());
+    }
+    if LandPatternDensity::parse("unknown").is_some() {
+        return Err("unknown level must not parse".into());
+    }
+    Ok(())
+}
+
+#[test]
 fn chip_two_terminal_matches_0805_fixture_span() -> Result<(), String> {
     let mut p = nominal_params();
     p.body_length = 2.0;
@@ -254,6 +277,7 @@ fn check_reports_overlapping_pads() -> Result<(), String> {
         box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     let findings = check_footprint(&overlap);
     if findings
