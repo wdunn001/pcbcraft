@@ -11,7 +11,7 @@ follow [AGENTS.md](../AGENTS.md) invariants before editing Rust.
 
 PCBCraft follows the Craft application structure, with a headless design engine
 that is the sole mutation boundary. The delivered application is Rust-only.
-GPL-3.0-or-later.
+MIT OR Apache-2.0.
 
 | Layer | Crates | Responsibility |
 |---|---|---|
@@ -33,6 +33,11 @@ an allocated ID. Read tools expose actual project state and current limitations.
 Headless MCP owns a session. Live MCP forwards calls over a loopback-only JSON-lines
 bridge into the exact session displayed by the desktop. The bridge is local trusted
 automation, not a remotely exposed service; do not bind to all interfaces.
+
+The desktop may keep up to eight designs open at once. Shared tab title and dirty
+rules live in `pcbcraft_engine::design_document`; the live bridge routes tools through
+`DocumentHub` in `pcbcraft_mcp`. Per-design workbench tab and selection snapshots live in
+`pcbcraft_engine::design_document`; the desktop shell mirrors them through each slot (see issue #268).
 
 ### Single-window flow
 

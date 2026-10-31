@@ -83,8 +83,17 @@ fn fresh_stale_and_expired_with_a_fake_clock() -> Result<(), SourceError> {
 
     cache.set_offline(true);
     let stale = cache.search(&source, "abc", 1_150)?;
-    assert_eq!(stale.age, AnswerAge::Stale { retrieved_at: 1_000 });
-    assert_eq!(source.hits.load(Ordering::SeqCst), 1, "offline keeps the dated answer");
+    assert_eq!(
+        stale.age,
+        AnswerAge::Stale {
+            retrieved_at: 1_000
+        }
+    );
+    assert_eq!(
+        source.hits.load(Ordering::SeqCst),
+        1,
+        "offline keeps the dated answer"
+    );
 
     cache.purge_expired(&source, 1_200)?;
     assert!(
@@ -162,10 +171,7 @@ fn pacer_never_exceeds_the_configured_rate() -> Result<(), SourceError> {
     }
     for window in 1..=30u64 {
         let start = now.saturating_sub(window);
-        let count = granted
-            .iter()
-            .filter(|&&t| t >= start && t <= now)
-            .count() as f64;
+        let count = granted.iter().filter(|&&t| t >= start && t <= now).count() as f64;
         assert!(
             count <= max_rps * window as f64 + 1.0,
             "window {window}s saw {count} grants at t={now}"

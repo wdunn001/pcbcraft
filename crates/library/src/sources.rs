@@ -124,8 +124,8 @@ pub enum SourceError {
 ///
 /// # Implementations
 /// - crates/library/src/sources.rs `FixtureSource` (this module): recorded answers from JSON files.
-/// - crates/library/src/sources.rs Live distributor sources: separate crates that implement this trait and
-///   are discovered through the source registry.
+/// - crates/library/src/digikey.rs `DigiKeySource`: live distributor keyword search and product details.
+/// - crates/library/src/mouser.rs `MouserSource`: live distributor part number search.
 ///
 /// # Do not
 /// - Return unbounded result lists; truncate to `MAX_RESULTS`.
@@ -190,15 +190,31 @@ impl ResponseCache {
     fn search_key(source: &str, query: &str) -> String {
         format!("{source}\u{1f}search\u{1f}{}", query.trim().to_lowercase())
     }
-self.entries.insert(
-            key,
-            CacheEntry {
-                stored_at: now,
-                results,
-            },
-        );
+fn fetch_key(source: &str, mpn: &str) -> String {
+        format!("{source}\u{1f}fetch\u{1f}{}", mpn.trim().to_lowercase())
     }
 }
+        if self.entries.len() >= MAX_CACHE_ENTRIES
+            && let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.stored_at)
+                .map(|(k, _)| k.clone())
+        {
+            self.entries.remove(&oldest);
+        }
+fn store(&mut self, key: String, stored_at: u64, results: Vec<PartResult>) {
+        if self.entries.len() >= MAX_CACHE_ENTRIES
+            && let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.stored_at)
+                .map(|(k, _)| k.clone())
+        {
+            self.entries.remove(&oldest);
+        }
+        self.entries.insert(
+            key,
         if self.entries.len() >= MAX_CACHE_ENTRIES
             && let Some(oldest) = self
                 .entries

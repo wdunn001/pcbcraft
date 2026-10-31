@@ -80,7 +80,16 @@ fn with_fake_model() -> App {
 }
 
 fn with_calls(calls: Vec<(String, Value)>) -> App {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    with_calls_in(calls, &pcbcraft_engine::user_config::UserConfig::detached())
+}
+
+/// The fake-model window keeping its settings (and so its saved
+/// conversation) in `config`.
+fn with_calls_in(
+    calls: Vec<(String, Value)>,
+    config: &pcbcraft_engine::user_config::UserConfig,
+) -> App {
+    let shared = super::support::session_with(config);
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     app.preferences.aside_lower_tab = 1;
@@ -244,8 +253,7 @@ fn a_newcomer_sees_a_malformed_change_refused_with_the_reason() -> Result<(), St
 fn fake_http(calls: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> pcbcraft_assistant::HttpFn {
     std::sync::Arc::new(move |_| {
         calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok((
-            200,
+        Ok(pcbcraft_assistant::HttpResponse::ok(
             br#"{"data":[{"id":"small-model"},{"id":"big-model"}]}"#.to_vec(),
         ))
     })
@@ -448,8 +456,8 @@ fn own_design_path(tag: &str) -> String {
     format!("/tmp/pcbcraft-story-{}-{tag}.pcbcraft", std::process::id())
 }
 
-fn forget_file(path: &str) {
-    if let Some(file) = pcbcraft_assistant::transcript_path(Some(path)) {
+fn forget_file(config: &pcbcraft_engine::user_config::UserConfig, path: &str) {
+    if let Some(file) = pcbcraft_assistant::transcript_path(config, Some(path)) {
         pcbcraft_assistant::clear_transcript(&file);
     }
 }
@@ -457,7 +465,8 @@ fn forget_file(path: &str) {
 #[test]
 fn a_newcomer_closes_the_app_and_finds_the_conversation_where_she_left_it() -> Result<(), String> {
     let path = own_design_path("reopen");
-    let mut app = with_fake_model();
+    let (config, folder) = super::support::private_config("reopen")?;
+    let mut app = with_calls_in(vec![add_part("R1", "10k", 20.0)], &config);
     app.path = path.clone();
     let ctx = egui::Context::default();
     settle(&ctx, &mut app);
@@ -469,13 +478,14 @@ fn a_newcomer_closes_the_app_and_finds_the_conversation_where_she_left_it() -> R
     app.assistant_save();
     drop(app);
 
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let shared = super::support::session_with(&config);
     let mut reopened = App::create(shared, Preferences::default(), None, None)
         .with_project_path(Some(path.clone()));
     reopened.refresh();
     reopened.preferences.aside_lower_tab = 1;
     let found = paints_text(&ctx, &mut reopened, "add a 10k resistor")?;
-    forget_file(&path);
+    forget_file(&config, &path);
+    let _ = std::fs::remove_dir_all(&folder);
     assert!(found, "the earlier message is on screen again");
     Ok(())
 }
@@ -483,7 +493,8 @@ fn a_newcomer_closes_the_app_and_finds_the_conversation_where_she_left_it() -> R
 #[test]
 fn a_newcomer_forgets_a_conversation_and_the_design_stays() -> Result<(), String> {
     let path = own_design_path("forget");
-    let mut app = with_fake_model();
+    let (config, folder) = super::support::private_config("forget")?;
+    let mut app = with_calls_in(vec![add_part("R1", "10k", 20.0)], &config);
     app.path = path.clone();
     let ctx = egui::Context::default();
     settle(&ctx, &mut app);
@@ -502,9 +513,10 @@ fn a_newcomer_forgets_a_conversation_and_the_design_stays() -> Result<(), String
     );
     authoring::tests::tap(&ctx, &mut app, "Forget")?;
     settle(&ctx, &mut app);
-    let file = pcbcraft_assistant::transcript_path(Some(&path));
+    let file = pcbcraft_assistant::transcript_path(&config, Some(&path));
     let gone = file.as_ref().is_some_and(|f| !f.exists());
-    forget_file(&path);
+    forget_file(&config, &path);
+    let _ = std::fs::remove_dir_all(&folder);
     assert!(app.assistant.transcript.items.is_empty());
     assert!(gone, "the saved file is gone too");
     assert_eq!(app.revision, revision, "the design did not change");

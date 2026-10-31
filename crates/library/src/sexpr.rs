@@ -89,8 +89,6 @@ impl Default for Limits {
 /// # Dependencies
 /// - crates/library/src/sexpr.rs none outside this file
 ///
-/// # Do not
-/// - Expose this type publicly; it is an internal parser result.
 #[derive(Clone, Debug)]
 pub struct Node {
     /// Atom text, or None for lists.
@@ -402,6 +400,30 @@ mod tests {
         assert_eq!(tree.value(1), "µΩ\"\n");
         for input in ["(\"unterminated)", "(\"escape\\", "(a) (b)", ")"] {
             assert!(parse(input).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn field_reads_named_kicad_properties() -> Result<(), Error> {
+        let fp = parse(
+            "(footprint \"R_0805\" (layer \"F.Cu\") (descr \"0805 resistor\") (tags \"R\"))",
+        )?;
+        if fp.field("layer") != "F.Cu" {
+            return Err(Error::Invalid("layer field mismatch".into()));
+        }
+        if fp.field("descr") != "0805 resistor" {
+            return Err(Error::Invalid("descr field mismatch".into()));
+        }
+        if fp.field("tags") != "R" {
+            return Err(Error::Invalid("tags field mismatch".into()));
+        }
+        if !fp.field("missing").is_empty() {
+            return Err(Error::Invalid("missing field must be empty".into()));
+        }
+        let prop = parse("(property \"Reference\" \"R\")")?;
+        if prop.field("Reference") != "R" {
+            return Err(Error::Invalid("Reference property mismatch".into()));
         }
         Ok(())
     }
