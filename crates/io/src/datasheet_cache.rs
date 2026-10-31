@@ -1,7 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use sha2::{Digest, Sha256};
 #[cfg(not(target_arch = "wasm32"))]
-use std::io::Write;
+use std::io::{Read, Write};
 
 pub struct DatasheetCacheResult {
     pub sha256: String,
@@ -20,24 +20,28 @@ pub fn fetch_datasheet_cache(
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("datasheet URL must be http or https".into());
     }
-    let mut call = ureq::get(url);
-    for (name, value) in extra_headers {
-        if name.is_empty() || name.len() > 128 || value.len() > 4096 {
-            return Err("fetch header invalid".into());
-        }
-        call = call.set(name, value);
-    }
-    let body = call
+    const MAX_BYTES: usize = 32 * 1024 * 1024;
+    let response = ureq::get(url)
         .call()
-        .map_err(|e| format!("download failed: {e}"))?
-        .into_body()
-        .read_to_string()
+        .map_err(|e| format!("download failed: {e}"))?;
+    if let Some(len) = response
+        .header("content-length")
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        && len > MAX_BYTES
+    {
+        return Err("datasheet exceeds 32 MiB".into());
+    }
+    let mut body = Vec::new();
+    response
+        .into_reader()
+        .take(MAX_BYTES as u64 + 1)
+        .read_to_end(&mut body)
         .map_err(|e| format!("read body: {e}"))?;
-    if body.len() > 32 * 1024 * 1024 {
+    if body.len() > MAX_BYTES {
         return Err("datasheet exceeds 32 MiB".into());
     }
     let mut hasher = Sha256::new();
-    hasher.update(body.as_bytes());
+    hasher.update(&body);
     let digest = hasher.finalize();
     let sha256 = digest.iter().map(|b| format!("{b:02x}")).collect::<String>();
     let dir = cache_dir()?;
@@ -45,7 +49,7 @@ pub fn fetch_datasheet_cache(
     let path = dir.join(format!("{sha256}.pdf"));
     if !path.is_file() {
         let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
-        file.write_all(body.as_bytes()).map_err(|e| e.to_string())?;
+        file.write_all(&body).map_err(|e| e.to_string())?;
     }
     let retrieved_at = format_timestamp();
     Ok(DatasheetCacheResult {

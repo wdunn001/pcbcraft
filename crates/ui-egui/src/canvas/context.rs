@@ -282,6 +282,7 @@ impl App {
         else {
             return Vec::new();
         };
+        let bottom = self.project.bottom_layer();
         let faces: Vec<Entry<CanvasAct>> = [
             (
                 Layer::Front,
@@ -289,7 +290,7 @@ impl App {
                 "Move this wire to the front copper layer.",
             ),
             (
-                Layer::Back,
+                bottom,
                 "Back",
                 "Move this wire to the back copper layer.",
             ),
@@ -382,9 +383,16 @@ impl App {
             (CanvasAct::ClearSelection, _) => self.select(None),
             (CanvasAct::Copy, _) => self.copy_selection(ctx),
             (CanvasAct::StartWire, CanvasMenuKind::Pin(pin)) => {
+                if let Some(at) = self.project.pin_position(&PinRef {
+                    component: pin.component,
+                    pin: pin.pin.clone(),
+                }) {
+                    self.wire_route = vec![at];
+                }
                 self.tool = Tool::Wire(Some(PinRef {
                     component: pin.component,
                     pin: pin.pin.clone(),
+                    unit: None,
                 }));
             }
             (CanvasAct::MarkNoConnect, _) => self.tool = Tool::NoConnect,
@@ -416,11 +424,7 @@ impl App {
             }
             (CanvasAct::AssignLayer(layer), _) => {
                 if let Some(id) = id {
-                    let name = if layer == Layer::Front {
-                        "F.Cu"
-                    } else {
-                        "B.Cu"
-                    };
+                    let name = self.project.layer_name(layer);
                     self.run("track.set_layer", json!({"id": id, "layer": name}));
                 }
             }

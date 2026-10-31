@@ -1,16 +1,39 @@
-schema = 1
+schema = 2
+
+[record]
+kind = "interface_profile"
+license = "MIT"
+source = "PCBCraft built-in interface profiles"
 
 [profile]
 id = "uart"
 name = "UART async"
 category = "interface"
-summary = "UART async rule starting points."
+summary = "Asynchronous UART TX and RX as single-ended signals."
+
+[bus]
+name = "UART"
+schematic_type = "UART"
+
+[bus.limits]
+edge_rate_band = "async"
+reference_plane = "recommended"
+
+[[signal]]
+name = "TX"
+pattern = "*TX*"
+electrical_class = "single-ended"
+
+[[signal]]
+name = "RX"
+pattern = "*RX*"
+electrical_class = "single-ended"
 
 [[net_class]]
-name = "SIG"
+name = "UART"
 clearance = 0.15
 width = 0.2
-patterns = ["*"]
+patterns = ["UART_*", "*_TX", "*_RX"]
 
 [[value_source]]
 field = "net_class.width"
