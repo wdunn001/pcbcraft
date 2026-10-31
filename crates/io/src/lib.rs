@@ -3774,6 +3774,99 @@ pub fn ipc356_netlist(p: &Project) -> Result<String, String> {
     Ok(out)
 }
 
+fn component_is_test_point(c: &pcbcraft_doc::Component) -> bool {
+    if let Some(sym) = &c.library_symbol {
+        if sym
+            .definition
+            .description
+            .eq_ignore_ascii_case("test point")
+        {
+            return true;
+        }
+        if sym.definition.reference == "TP" {
+            return true;
+        }
+    }
+    if let Some(fp) = &c.library_footprint {
+        let name = fp.definition.name.as_str();
+        if name.starts_with("Test_") {
+            return true;
+        }
+    }
+    false
+}
+
+fn pad_size_mm(pad: &pcbcraft_doc::Pad) -> f64 {
+    if let Some(g) = &pad.geometry {
+        g.size.x.max(g.size.y).max(pad.diameter)
+    } else {
+        pad.diameter
+    }
+}
+
+/// Test-point CSV for fixture builders: one row per pad on a test-point
+/// footprint with net name, reference designator, centre coordinates, copper
+/// side and pad size. Comment lines state millimetre units and the side
+/// vocabulary; write it beside the IPC-D-356 netlist from the same export job.
+pub fn testpoints_csv(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_POINTS: usize = 5_000;
+    let names: BTreeMap<u64, String> = p.nets.iter().map(|n| (n.id, n.name.clone())).collect();
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+    let title = if p.name.trim().is_empty() {
+        "untitled board"
+    } else {
+        p.name.trim()
+    };
+    let mut rows: Vec<(String, String, f64, f64, &'static str, f64)> = Vec::new();
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+        if !component_is_test_point(c) {
+            continue;
+        }
+        let back = f.board_side() == pcbcraft_doc::Layer::Back;
+        let side = if back { "bottom" } else { "top" };
+        for pad in &f.pads {
+            let world = f.position.offset(pad.offset.rotate(-f.rotation));
+            if !world.x.is_finite() || !world.y.is_finite() {
+                return Err("pad position is not a number".into());
+            }
+            let net = pad
+                .net
+                .and_then(|id| names.get(&id).cloned())
+                .unwrap_or_default();
+            let size = pad_size_mm(pad);
+            if size <= 0.0 || !size.is_finite() {
+                return Err("test pad size is not a positive number".into());
+            }
+            rows.push((net, c.reference.clone(), world.x, world.y, side, size));
+        }
+    }
+    if rows.len() > MAX_POINTS {
+        return Err("test-point list exceeds the pad limit".into());
+    }
+    rows.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+    let mut out = format!("# Test points for {title}\n");
+    out.push_str("# Coordinates and pad size in millimetres\n");
+    out.push_str("# Side column: top or bottom (front or back copper)\n");
+    out.push_str("NET,DESIGNATOR,X_MM,Y_MM,SIDE,PAD_SIZE_MM\n");
+    for (net, designator, x, y, side, size) in rows {
+        out.push_str(&format!(
+            "{},{},{:.3},{:.3},{},{:.3}\n",
+            csv_cell(&net),
+            csv_cell(&designator),
+            x,
+            y,
+            side,
+            size
+        ));
+    }
+    Ok(out)
+}
+
 /// Pick-and-place placement file: one row per placed footprint in the classic
 /// centroid format (`SMT|THT,reference,X,Y,rotation,side,package`), sorted by
 /// reference. Side comes from the pad layers; height is unknown to this tool.
@@ -10196,6 +10289,106 @@ mod tests {
             "pad coordinates follow the rotated footprint"
         );
         assert!(lines[1].ends_with("0001000000010000"));
+        Ok(())
+    }
+
+    #[test]
+    fn testpoints_csv_lists_test_point_pads_with_side_and_units_in_the_header() -> Result<(), String>
+    {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 7,
+            name: "VBAT".into(),
+            ..Default::default()
+        });
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 1,
+            reference: "TP1".into(),
+            value: "VBAT".into(),
+            kind: "library".into(),
+            position: Point::new(4.0, 44.0),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                name: "TP".into(),
+                offset: Point::default(),
+                net: Some(7),
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            }],
+            units: vec![],
+            library_symbol: Some(pcbcraft_doc::LibrarySymbol {
+                library: "project".into(),
+                unit: 1,
+                definition: pcbcraft_library::SymbolDefinition {
+                    name: "TP_PAD".into(),
+                    reference: "TP".into(),
+                    value: "TP".into(),
+                    description: "Test point".into(),
+                    keywords: String::new(),
+                    footprint: "Test_Pad".into(),
+                    set: String::new(),
+                    pins: vec![],
+                    graphics: vec![],
+                    extends: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            }),
+            library_footprint: None,
+            fields: vec![],
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(4.0, 44.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.0,
+                net: Some(7),
+                castellated: None,
+                geometry: None,
+            }],
+        });
+        let text = testpoints_csv(&project)?;
+        assert!(
+            text.contains("# Coordinates and pad size in millimetres"),
+            "header states units"
+        );
+        assert!(
+            text.contains("# Side column: top or bottom"),
+            "header states side vocabulary"
+        );
+        let data: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.starts_with("NET,"))
+            .collect();
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0], "VBAT,TP1,4.000,44.000,top,1.000");
+        Ok(())
+    }
+
+    #[test]
+    fn testpoints_csv_matches_the_showcase_test_pads() -> Result<(), String> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/showcase.pcbcraft");
+        let project = load(&path)?;
+        let text = testpoints_csv(&project)?;
+        let data: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.starts_with("NET,"))
+            .collect();
+        assert_eq!(data.len(), 2, "showcase carries two test points");
+        assert!(
+            data.iter().any(|r| r.starts_with("VBAT,TP1,")),
+            "TP1 on VBAT"
+        );
+        assert!(data.iter().any(|r| r.starts_with("3V3,TP2,")), "TP2 on 3V3");
         Ok(())
     }
 
