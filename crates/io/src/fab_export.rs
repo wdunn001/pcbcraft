@@ -1183,7 +1183,7 @@ mod fab_export_tests {
 
     #[test]
     fn tented_via_has_no_mask_opening() -> Result<(), String> {
-        let board = pcbcraft_doc::Board::default();
+        let board = pcbcraft_doc::Project::default().board;
         let open = Via {
             id: 1,
             net: 1,
@@ -1193,9 +1193,11 @@ mod fab_export_tests {
             from_layer: None,
             to_layer: None,
             covering: Some(ViaCovering::Open),
+            covering_bottom: None,
         };
         let tented = Via {
             covering: Some(ViaCovering::Tented),
+            covering_bottom: None,
             ..open.clone()
         };
         assert!(via_mask_opening(&open, &board));
@@ -1217,6 +1219,7 @@ mod fab_export_tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         p.board.vias.push(Via {
             id: 11,
@@ -1227,6 +1230,7 @@ mod fab_export_tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         p.board.holes.push(Hole {
             id: 12,
