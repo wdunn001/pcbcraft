@@ -57,6 +57,41 @@ pub fn shared(session: Session) -> SharedSession {
 }
 pub fn tool_list() -> Value {
     let object = |properties: Value, required: &[&str]| json!({"type":"object","properties":properties,"required":required,"additionalProperties":false});
+    let loose = |properties: Value, required: &[&str]| json!({"type":"object","properties":properties,"required":required,"additionalProperties":true});
+    let point = loose(
+        json!({"x":{"type":"number"},"y":{"type":"number"}}),
+        &["x", "y"],
+    );
+    let finding = loose(
+        json!({"code":{"type":"string"},"severity":{"type":"string"},"message":{"type":"string"},"objects":{"type":"array","items":{"type":"integer"}}}),
+        &["code", "severity", "message", "objects"],
+    );
+    let airwire = loose(
+        json!({"net":{"type":"integer"},"from":point.clone(),"to":point,"from_object":{"type":"integer"},"to_object":{"type":"integer"}}),
+        &["net", "from", "to", "from_object", "to_object"],
+    );
+    let inspect_output = loose(
+        json!({
+            "revision":{"type":"integer","minimum":0},
+            "project":loose(json!({}),&[]),
+            "history":loose(json!({"undo":{"type":"integer","minimum":0},"redo":{"type":"integer","minimum":0}}),&["undo","redo"]),
+            "capabilities":loose(json!({}),&[]),
+            "active_index":{"type":"integer","minimum":0},
+            "path":{"type":"string"},
+            "name":{"type":"string"}
+        }),
+        &["revision", "project", "history", "capabilities"],
+    );
+    let checks_output = loose(
+        json!({
+            "revision":{"type":"integer","minimum":0},
+            "erc":{"type":"array","items":finding.clone()},
+            "drc":{"type":"array","items":finding},
+            "airwires":{"type":"array","items":airwire},
+            "scope":{"type":"string"}
+        }),
+        &["revision", "erc", "drc", "airwires", "scope"],
+    );
     let command = json!({"type":"object","properties":{"command":{"type":"string"},"params":{"type":"object"}},"required":["command","params"],"additionalProperties":false});
     let mut tools = vec![
         json!({"name":"library.save","description":"Atomically save the editable project library to a .pcbcraft-lib collection","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -104,9 +139,9 @@ pub fn tool_list() -> Value {
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
         json!({"name":"library.samtec.manufacturer_page","description":"Build the public Samtec product page URL for a part number so the user can download official CAD files in the browser","inputSchema":object(json!({"mpn":{"type":"string","minLength":1,"maxLength":64}}),&["mpn"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
-        json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
+        json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[]),"outputSchema":inspect_output}),
         json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
-        json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, stub length, unrouted, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[])}),
+        json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, stub length, unrouted, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[]),"outputSchema":checks_output}),
         json!({"name":"execute","description":"Execute one engine command atomically, optionally rejecting a stale revision","inputSchema":object(json!({"command":{"type":"string"},"params":{"type":"object"},"expected_revision":{"type":"integer","minimum":0}}),&["command","params"])}),
         json!({"name":"batch","description":"Execute 1–128 commands as one transaction and undo step; any failure rolls back everything","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
         json!({"name":"dry_run","description":"Preview 1–128 commands on a copy: returns each result and a summary of what would be added, removed, moved or changed. Nothing is applied and the revision does not change","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
@@ -2990,6 +3025,45 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
         assert!(locked.project.components.is_empty());
         Ok(())
     }
+    fn output_schema_for(name: &str) -> Result<Value, String> {
+        tool_list()["tools"]
+            .as_array()
+            .and_then(|list| {
+                list.iter()
+                    .find(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+            })
+            .and_then(|tool| tool.get("outputSchema").cloned())
+            .ok_or_else(|| format!("{name} has no outputSchema"))
+    }
+
+    #[test]
+    fn inspect_design_result_validates_against_its_output_schema() -> Result<(), String> {
+        let session = shared(Session::default());
+        let reply = call_tool(&session, "inspect_design", &json!({}));
+        assert_eq!(reply.get("isError"), Some(&json!(false)), "{reply}");
+        let content = reply
+            .get("structuredContent")
+            .ok_or("missing structuredContent")?;
+        validate_schema(
+            content,
+            &output_schema_for("inspect_design")?,
+            "structuredContent",
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn checks_result_validates_against_its_output_schema() -> Result<(), String> {
+        let session = shared(Session::default());
+        let reply = call_tool(&session, "checks", &json!({}));
+        assert_eq!(reply.get("isError"), Some(&json!(false)), "{reply}");
+        let content = reply
+            .get("structuredContent")
+            .ok_or("missing structuredContent")?;
+        validate_schema(content, &output_schema_for("checks")?, "structuredContent")?;
+        Ok(())
+    }
+
     #[test]
     fn schemas_reject_bad_arguments_before_mutation() {
         let session = shared(Session::default());
