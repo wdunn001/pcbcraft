@@ -674,25 +674,24 @@ fn visual_gate(_args: &[String]) -> Result<(), String> {
         }
 
         if !current.is_file() {
-            differences.push(format!(
-                "current screenshot missing: {}",
-                current.display()
-            ));
+            differences.push(format!("current screenshot missing: {}", current.display()));
             continue;
         }
 
         // Compare images by checking file sizes first (quick check)
-        let baseline_size = std::fs::metadata(&baseline).map_err(|e| e.to_string())?.len();
-        let current_size = std::fs::metadata(&current).map_err(|e| e.to_string())?.len();
+        let baseline_size = std::fs::metadata(&baseline)
+            .map_err(|e| e.to_string())?
+            .len();
+        let current_size = std::fs::metadata(&current)
+            .map_err(|e| e.to_string())?
+            .len();
 
         // Allow 1% difference in file size (compression variations)
         let max_diff = (baseline_size as f64 * 0.01) as u64;
         if (baseline_size as i64 - current_size as i64).abs() as u64 > max_diff {
             differences.push(format!(
                 "screenshot differs: {} (baseline: {} bytes, current: {} bytes)",
-                stem,
-                baseline_size,
-                current_size
+                stem, baseline_size, current_size
             ));
         }
         checked += 1;
