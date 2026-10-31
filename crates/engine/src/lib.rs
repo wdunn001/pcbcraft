@@ -19600,7 +19600,7 @@ mod tests {
             .ok_or_else(missing)?;
         let mirrored_x = -centre.x;
         assert!(
-            gerber["pcb-B.Cu.gbr"].contains(&format!("{mirrored_x:.6}")),
+            gerber["pcb-B.Cu.gbr"].contains(&format!("X{}Y", (mirrored_x * 1_000_000.0).round() as i64)),
             "bottom copper carries the mirrored pad flash"
         );
         assert!(
@@ -31793,7 +31793,7 @@ mod tests {
         let front = std::fs::read_to_string(directory.join("pcb-F.Cu.gbr"))
             .map_err(|e| Error::Invalid(e.to_string()))?;
         assert!(
-            front.contains("X20.000000Y30.000000"),
+            front.contains("X20000000Y30000000"),
             "the new track is exported"
         );
         s.execute(
