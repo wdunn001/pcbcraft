@@ -1,8 +1,9 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
-pub mod datasheet_extract;
-pub mod drop_in_check;
+pub mod datasheet;
+pub mod datasheet_annotations;
+pub mod connector_catalog;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
@@ -11,33 +12,42 @@ pub mod listing_adapters;
 pub mod listing_search;
 pub mod online_import;
 pub mod open_library;
-pub mod part_compare;
-pub mod part_substitutes;
-pub mod starter_models;
 mod paths;
 mod reader;
+pub mod samtec;
 mod sexpr;
+pub mod credentials;
+pub mod http_client;
+pub mod rate_limit;
+pub mod source_log;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod element14;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+pub mod source_errors;
+pub mod source_hosts;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
-pub use drop_in_check::{DropInFinding, DropInPart, DropInPin, DropInReport, drop_in_check};
-pub mod web_transport;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
-pub use part_compare::{
-    compare_one_part, compare_symbol_fields, effective_footprint_name, FootprintPadCompare,
-    PartCompareEntry, PartFieldRow, PartPinCompare, MAX_PART_COMPARE_OTHERS,
-};
-pub use part_substitutes::{
-    AlternatePart, PartSubstitutes, SecondSource, read_sidecar, sidecar_path_for_symbol,
-    write_sidecar, MAX_SUBSTITUTES_EACH, MAX_SUBSTITUTE_TEXT, PART_SIDECAR_FORMAT,
-    PART_SIDECAR_SUFFIX, PART_SIDECAR_VERSION,
+pub use datasheet::{
+    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
+    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
+    MAX_REDIRECTS, MAX_URL_BYTES,
 };
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
-pub use sexpr::{Error, Limits, Node, line_number_at_offset, parse, parse_limits};
-pub use sexpr::{parse as parse_sexpr, parse_limits as parse_sexpr_limits};
+pub use sexpr::{Error, Limits};
 pub use symbol_check::check_symbol;
 pub use validation::custom_polygon_error;
 

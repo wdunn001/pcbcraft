@@ -6,80 +6,61 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
+mod datasheet;
 mod bitmap_trace;
-mod board_import;
-mod board_edge;
 mod board_mesh;
-mod parametric_body;
 mod diff;
 mod drawn;
-pub mod export_package;
-pub use export_package::{
-    PackageOutput, availability, build_package, bundled_packages, find_package,
-};
-mod drill_table;
+mod export_validate;
+mod fab_drawing;
 mod fab_export;
-pub mod formats;
 mod generate;
 mod gerber;
 mod gerber_job;
-mod gerber_pour;
+mod idf;
 mod laser;
 mod layers;
 mod library_render;
 mod machine_profile;
-mod board_mesh;
-mod diff;
-mod drawn;
-mod drill_table;
-mod fab_export;
-pub mod formats;
-mod generate;
-mod gerber;
-mod gerber_job;
-mod gerber_pour;
-mod laser;
-mod layers;
-mod library_render;
-mod machine_profile;
-mod migrate;
+mod model_align;
 mod model_load;
 mod neoden_yy1;
 mod package;
 mod panel_export;
+mod schematic_sim;
+mod si_export;
 mod part_bodies;
-mod placement_flavour;
 mod plot_read;
-#[cfg(feature = "plugin-firmware-target")]
-pub mod plugins;
-mod raster;
-mod schematic_import;
-mod solidcraft_write;
-mod starter_models;
 mod step_merge;
+mod raster;
 mod step_read;
 mod uv_print;
 mod vrml_read;
+/// Bitmap trace constants, options, and functions for converting images to polygon traces.
+/// # Dependencies
+/// - crates/io/src/bitmap_trace.rs
 pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
 };
-/// Bitmap trace constants, options, and functions for converting images to polygon traces.
-/// # Dependencies
-/// - crates/io/src/bitmap_trace.rs
-pub use board_import::{
-    ImportCounts, ImportReport, read_board_interchange, read_board_interchange_report,
-    read_board_interchange_with_rules,
-};
-pub use board_edge::{DxfOutlineSource, dxf_import_outline};
 mod cam;
 mod cam_drill;
 mod cam_shapes;
+mod compliance_report;
 mod snapmaker;
+mod solidcraft;
+mod solidcraft_format;
+/// 3D board mesh types and functions for generating mesh representations of PCBs.
+/// # Dependencies
+/// - crates/io/src/board_mesh.rs
+pub use model_align::{
+    AutoAlignResult, COARSE_ALIGN_MM, auto_align_model, model_lead_points, shift_mesh, test_chip_mesh,
+};
 pub use board_mesh::{
-    BodyPrototype, BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers,
-    MeshPart, ModelLookup, ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix,
-    bench_project_600_parts, board_mesh, footprint_body_matrix, model_matrix, with_models,
+    BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
+    ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
+    with_models,
 };
 pub use cam::{
     CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
@@ -91,11 +72,30 @@ pub use cam_drill::{
     drill_gcode, drill_tools, outline_gcode,
 };
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
+pub use compliance_report::{
+    ComplianceReportFormat, ComplianceReportOptions, RuleSetLine, SnapshotLine, WaiverLine,
+    compliance_report_bytes, compliance_report_markdown,
+};
 pub use diff::{DesignChange, DesignDiff, project_diff};
+#[cfg(not(target_arch = "wasm32"))]
+pub use datasheet::HttpDatasheetTransport;
 /// Functions for generating layer plots from drawn graphics.
 /// # Dependencies
 /// - crates/io/src/drawn.rs
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
+pub use diff::{DesignChange, DesignDiff, project_diff};
+#[cfg(not(target_arch = "wasm32"))]
+pub use datasheet::HttpDatasheetTransport;
+/// Functions for generating layer plots from drawn graphics.
+/// # Dependencies
+/// - crates/io/src/drawn.rs
+pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use export_validate::{
+    stored_zip_entry, stored_zip_entry_names, validate_fabrication_package_file,
+    validate_ipc2581_document, validate_odb_package,
+};
+pub use fab_drawing::fab_drawing_pdf;
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
@@ -106,7 +106,7 @@ pub use gerber::{gerber_copper, gerber_silk};
 /// Gerber job file generation and zipping.
 /// # Dependencies
 /// - crates/io/src/gerber_job.rs
-pub use gerber_job::{gerber_job, gerber_zip, with_fixed_clock};
+pub use gerber_job::{gerber_job, gerber_zip};
 /// Re-export of the RGBA image type from the image crate for use by callers.
 pub use image::RgbaImage;
 /// Laser marking job types, profiles, and export functions.
@@ -129,29 +129,17 @@ pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
 };
-pub use layers::{
-    FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
-    fabrication_point, gerber_copper_counts, layer_shapes, legend_shapes,
-};
-use library_render::*;
-pub use machine_profile::{
-    builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
-    machine_profile_to_toml,
-};
-pub use migrate::{CURRENT_VERSION, migrate, read_project};
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
 };
-pub use starter_models::{cache_subdir, materialize, resolve_path};
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
 /// # Dependencies
 /// - crates/io/src/package.rs
 pub use package::{
-    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, REVISION_NOTES_NAME,
-    attach_revision_notes_entry, package_manifest, package_revision_notes,
-    package_stored_zip_entries, package_zip, previous_bom_from_package,
+    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
+    package_zip,
 };
 /// Panel fabrication file and placement text generation.
 /// # Dependencies
@@ -161,15 +149,6 @@ pub use panel_export::{panel_fabrication_files, panel_placement_text};
 /// # Dependencies
 /// - crates/doc/src/lib.rs
 pub use pcbcraft_doc::Layer;
-/// Placement list flavours: layouts of the pick-and-place file as data.
-/// # Dependencies
-/// - crates/io/src/placement_flavour.rs
-pub use placement_flavour::{
-    AngleRange, BottomRotation, ColumnField, DnpRule, PlacedRow, PlacementColumn, PlacementFlavour,
-    PlacementOptions, PlacementOrigin, PlacementOutput, PlacementUnits, RotationOffset,
-    bundled_placement_flavours, flavour_rotation, placed_rows, placement_flavour_from_toml,
-    placement_flavoured,  placement_flavour_from_toml
-};
 /// Plot file reading types and functions for parsing Gerber and Excellon files.
 /// # Dependencies
 /// - crates/io/src/plot_read.rs
@@ -185,22 +164,26 @@ pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
     layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg, rasterize_shapes,
 };
-/// 3D board mesh types and functions for generating mesh representations of PCBs.
-/// # Dependencies
-/// - crates/io/src/board_mesh.rs
-pub use schematic_import::{
-    import_summary, read_schematic_interchange, read_schematic_interchange_path,
-};
 pub use snapmaker::{
     SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
     snapmaker_settings, spindle_percent, spindle_percent_for_tool,
 };
-/// SolidCraft design export of the board.
+/// SolidCraft design subset reader and writer (plain JSON and stored ZIP containers).
 /// # Dependencies
-/// - crates/io/src/solidcraft_write.rs
-pub use solidcraft_write::{
-    SOLIDCRAFT_FORMAT, SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA, SolidcraftLayers,
-    solidcraft_board,
+/// - crates/io/src/solidcraft_format.rs
+pub use solidcraft_format::{
+    CONTAINER_VERSION, MAX_CONTAINER_ENTRIES, MAX_CONTAINER_EXPANDED, SUPPORTED_FORMAT,
+    SolidcraftAppearances, SolidcraftComponent, SolidcraftDesign, SolidcraftOccurrence,
+    read_solidcraft, read_solidcraft_container, read_solidcraft_json, write_solidcraft_container,
+    write_solidcraft_json,
+};
+/// SolidCraft board export and interchange test helpers.
+/// # Dependencies
+/// - crates/io/src/solidcraft/mod.rs
+pub use solidcraft::{
+    SOLIDCRAFT_FORMAT, SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA, Bounds, PartSnapshot,
+    SolidcraftLayers, bounds_close, design_as_value, designs_equal, part_snapshots,
+    solidcraft_board, solidcraft_counts, transforms_close,
 };
 /// UV printing types, profiles, and job file generation functions.
 /// # Dependencies
@@ -209,6 +192,8 @@ pub use uv_print::{
     UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer,
     eufymake_e1_profile, uv_print_artwork, write_uv_print_job_files,
 };
+pub use schematic_sim::{SchematicNetlist, build_schematic_netlist, spice_netlist};
+pub use si_export::{impedance_table_csv, si_net_results_csv, touchstone_text};
 
 /// Maximum size in bytes for project files, 8 MiB.
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
@@ -218,13 +203,12 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 /// - Validates the loaded project structure
 /// # Do not
 /// - Call with paths to non-JSON files
-/// Read a design file, running its format migrations first.
 pub fn load(path: &Path) -> Result<Project, String> {
-    let mut project = read_project(&read_text(path)?)?;
+    let text = read_text(path)?;
+    let mut project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     migrate_loaded_project(&mut project)?;
     project.validate()?;
     Ok(project)
-}
 }
 /// Read a text file at the given path, enforcing the 8 MiB size limit.
 /// # Do not
@@ -501,7 +485,12 @@ pub fn archive_project(bytes: &[u8]) -> Result<Project, String> {
     }
     let design = design.ok_or_else(|| "archive holds no design.json".to_string())?;
     let text = std::str::from_utf8(design).map_err(|_| "design.json is not UTF-8".to_string())?;
-    read_project(text).map_err(|e| format!("design.json is invalid: {e}"))
+    let project: Project =
+        serde_json::from_str(text).map_err(|e| format!("design.json is invalid: {e}"))?;
+    project
+        .validate()
+        .map_err(|e| format!("archived design is invalid: {e}"))?;
+    Ok(project)
 }
 
 /// A small vector PDF writer: the drawing is collected as path and text
@@ -773,12 +762,18 @@ fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
     let ink = [0.05, 0.05, 0.05];
     let wire_green = [0.0, 0.45, 0.35];
     if view == "pcb" {
-        page.path(
-            &board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR),
-            copper_edge,
-            0.2,
-            true,
-        )?;
+        match &p.board.outline {
+            Some(o) => page.path(o, copper_edge, 0.2, true)?,
+            None => {
+                let rect = [
+                    Point::new(0.0, 0.0),
+                    Point::new(p.board.width, 0.0),
+                    Point::new(p.board.width, p.board.height),
+                    Point::new(0.0, p.board.height),
+                ];
+                page.path(&rect, copper_edge, 0.2, true)?;
+            }
+        }
         for c in &p.board.cutouts {
             page.circle(c.center, c.radius, [1.0, 1.0, 1.0], 0.1, true)?;
         }
@@ -992,19 +987,9 @@ fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
     Ok(())
 }
 
-/// Export the design as a one-page vector PDF document, in bytes.
-pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
-    p.validate()?;
-    if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
-    }
-    let (min, max) = preview_bounds(p, view);
-    let mut page = PdfPage::new();
-    page.fit(min, max);
-    page.color([1.0, 1.0, 1.0], false)?;
-    page.op("0 0 842 595 re f")?;
-    pdf_draw(&mut page, p, view)?;
-    let content = page.ops.as_bytes();
+/// Wrap one page content stream as a single-page PDF document.
+pub(crate) fn pdf_bytes_from_ops(ops: String) -> Result<Vec<u8>, String> {
+    let content = ops.as_bytes();
     let mut pdf: Vec<u8> = Vec::new();
     let mut offsets = [0u32; 5];
     pdf.extend_from_slice(b"%PDF-1.4\n");
@@ -1037,6 +1022,85 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
         format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
     );
     Ok(pdf)
+}
+
+fn pdf_literal_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' | '(' | ')' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ if ch.is_ascii() => out.push(ch),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Export the design as a one-page vector PDF document, in bytes.
+pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
+    p.validate()?;
+    if view != "pcb" && view != "schematic" {
+        return Err("view must be pcb or schematic".into());
+    }
+    let (min, max) = preview_bounds(p, view);
+    let mut page = PdfPage::new();
+    page.fit(min, max);
+    page.color([1.0, 1.0, 1.0], false)?;
+    page.op("0 0 842 595 re f")?;
+    pdf_draw(&mut page, p, view)?;
+    pdf_bytes_from_ops(page.ops)
+}
+
+/// One-page PDF whose body is plain text lines (compliance report export).
+pub fn pdf_plain_text_document(body: &str) -> Result<Vec<u8>, String> {
+    const MAX_LINES: usize = 500;
+    let mut stream = String::from("BT /F1 9 Tf 72 750 Td ");
+    for (index, line) in body.lines().take(MAX_LINES).enumerate() {
+        if index > 0 {
+            stream.push_str("0 -12 Td ");
+        }
+        stream.push('(');
+        stream.push_str(&pdf_literal_escape(line));
+        stream.push_str(") Tj ");
+    }
+    stream.push_str("ET");
+    let content = stream.as_bytes();
+    let mut pdf: Vec<u8> = Vec::new();
+    let mut offsets = [0u32; 5];
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    for (index, body_obj) in [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>".to_string(),
+        format!(
+            "<< /Length {} >>\nstream\n{}endstream",
+            content.len(),
+            String::from_utf8_lossy(content)
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ]
+    .iter()
+    .enumerate()
+    {
+        offsets[index] = pdf.len() as u32;
+        pdf.extend_from_slice(
+            format!("{} 0 obj\n{}\nendobj\n", index + 1, body_obj)
+                .as_bytes(),
+        );
+    }
+    let xref_at = pdf.len() as u32;
+    pdf.extend_from_slice(b"xref\n0 5\n0000000000 65535 f \n");
+    for offset in offsets.iter() {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
+    );
+    Ok(pdf)
+}
 }
 
 /// Draw one view as a standalone PostScript document: the same path, circle
@@ -1324,7 +1388,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
         if !z.filled {
             continue;
         }
-        let back = p.is_bottom(z.layer);
+        let back = z.layer == pcbcraft_doc::Layer::Back;
         let file = if back { &mut bottom } else { &mut top };
         let outline: Vec<(f64, f64)> = z.outline.iter().map(|q| (mirror(q.x, back), q.y)).collect();
         let holes: Vec<Vec<(f64, f64)>> = z
@@ -1335,7 +1399,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
         file.surface(&outline, &holes)?;
     }
     for t in &p.board.tracks {
-        let back = p.is_bottom(t.layer);
+        let back = t.layer == pcbcraft_doc::Layer::Back;
         let file = if back { &mut bottom } else { &mut top };
         let (x1, y1) = (mirror(t.start.x, back), t.start.y);
         let (x2, y2) = (mirror(t.end.x, back), t.end.y);
@@ -1533,7 +1597,6 @@ struct StepDoc {
     next: u32,
 }
 
-/// Contract: crates/io/src/step_merge.rs
 impl step_merge::StepWriter for StepDoc {
     fn next_id(&self) -> u32 {
         self.next
@@ -1728,9 +1791,7 @@ fn thin_ring(points: &[Point]) -> Vec<Point> {
 /// Result of a STEP export that may include vendor model bodies.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StepExport {
-    /// The STEP exchange text, with every placed model body merged in.
     pub text: String,
-    /// One line per part whose vendor model was skipped, with the reason.
     pub notes: Vec<String>,
 }
 
@@ -1738,7 +1799,7 @@ pub struct StepExport {
 /// project folder passed by the export caller.
 pub fn project_step_loader<'a>(
     project: &'a Project,
-    base: Option<&'a Path>,
+    base: Option<&Path>,
 ) -> impl Fn(&str) -> Option<Vec<u8>> + 'a {
     move |path| {
         if path.is_empty() {
@@ -1797,12 +1858,21 @@ pub fn step_board_with_models(
 ) -> Result<StepExport, String> {
     p.validate()?;
     let depth = p.board.thickness;
-    let outline: Vec<Point> = board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR);
+    let outline: Vec<Point> = match &p.board.outline {
+        Some(o) if o.len() >= 3 => o.clone(),
+        _ => vec![
+            Point::new(0.0, 0.0),
+            Point::new(p.board.width, 0.0),
+            Point::new(p.board.width, p.board.height),
+            Point::new(0.0, p.board.height),
+        ],
+    };
     let mut doc = StepDoc::new();
     doc.add("PRODUCT('BOARD','pcbcraft board','',('Mechanical Design'))")?;
     doc.add("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#1,.NOT_KNOWN.)")?;
     doc.add("PRODUCT_CONTEXT('',#1,'mechanical')")?;
-    let board_product_definition = doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
+    let board_product_definition =
+        doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
     doc.add("PRODUCT_DEFINITION_SHAPE('','',#4)")?;
     let shape = doc.add("SHAPE_REPRESENTATION('board',(#14,#15),#7)")?;
     doc.add("(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#16))GLOBAL_UNIT_ASSIGNED_CONTEXT((#8,#9,#10))REPRESENTATION_CONTEXT('','',''))")?;
@@ -1834,68 +1904,72 @@ pub fn step_board_with_models(
         p.components.iter().map(|c| (c.id, c)).collect();
     for body in part_bodies::part_boxes(p) {
         let mut placed_vendor = false;
-        if let Some(fp) = p.board.footprints.iter().find(|f| {
-            refs.get(&f.component)
-                .is_some_and(|c| c.reference == body.name)
-        }) && let Some(model) = refs
-            .get(&fp.component)
-            .and_then(|c| c.library_footprint.as_ref())
-            .and_then(|l| l.definition.model.as_ref())
-            .filter(|m| step_path_is_exchange(&m.path))
+        if let Some(fp) = p
+            .board
+            .footprints
+            .iter()
+            .find(|f| refs.get(&f.component).is_some_and(|c| c.reference == body.name))
         {
-            if let Some(bytes) = loader(&model.path) {
-                if bytes.len() > step_merge::MAX_EXCHANGE_BYTES {
-                    notes.push(format!(
-                        "{}: the model file is over the size limit for a board export",
-                        body.name
-                    ));
-                } else {
-                    let text = String::from_utf8_lossy(&bytes).into_owned();
-                    match step_merge::parse_exchange(&text) {
-                        Ok(exchange) => {
-                            let mut model = model.clone();
-                            model.offset = [0.0; 3];
-                            let matrix = model_matrix(
-                                &model,
-                                fp.position,
-                                fp.rotation,
-                                part_bodies::is_bottom_side(fp),
-                                depth,
-                            );
-                            match step_merge::append_body(&mut doc, exchange, &body.name) {
-                                Ok(links) => {
-                                    if step_merge::write_occurrence(
-                                        &mut doc,
-                                        board_product_definition,
-                                        &links,
-                                        &matrix,
-                                        &body.name,
-                                        axis,
-                                        reference,
-                                    )
-                                    .is_ok()
-                                    {
-                                        placed_vendor = true;
-                                    } else {
-                                        notes.push(format!(
-                                            "{}: the model could not be placed on the board",
-                                            body.name
-                                        ));
+            if let Some(model) = refs
+                .get(&fp.component)
+                .and_then(|c| c.library_footprint.as_ref())
+                .and_then(|l| l.definition.model.as_ref())
+                .filter(|m| step_path_is_exchange(&m.path))
+            {
+                if let Some(bytes) = loader(&model.path) {
+                    if bytes.len() > step_merge::MAX_EXCHANGE_BYTES {
+                        notes.push(format!(
+                            "{}: the model file is over the size limit for a board export",
+                            body.name
+                        ));
+                    } else {
+                        let text = String::from_utf8_lossy(&bytes).into_owned();
+                        match step_merge::parse_exchange(&text) {
+                            Ok(exchange) => {
+                                let mut model = model.clone();
+                                model.offset = [0.0; 3];
+                                let matrix = model_matrix(
+                                    &model,
+                                    fp.position,
+                                    fp.rotation,
+                                    part_bodies::is_bottom_side(fp),
+                                    depth,
+                                );
+                                match step_merge::append_body(&mut doc, exchange, &body.name) {
+                                    Ok(links) => {
+                                        if step_merge::write_occurrence(
+                                            &mut doc,
+                                            board_product_definition,
+                                            &links,
+                                            &matrix,
+                                            &body.name,
+                                            axis,
+                                            reference,
+                                        )
+                                        .is_ok()
+                                        {
+                                            placed_vendor = true;
+                                        } else {
+                                            notes.push(format!(
+                                                "{}: the model could not be placed on the board",
+                                                body.name
+                                            ));
+                                        }
+                                    }
+                                    Err(reason) => {
+                                        notes.push(format!("{}: {reason}", body.name));
                                     }
                                 }
-                                Err(reason) => {
-                                    notes.push(format!("{}: {reason}", body.name));
-                                }
                             }
+                            Err(reason) => notes.push(format!("{}: {reason}", body.name)),
                         }
-                        Err(reason) => notes.push(format!("{}: {reason}", body.name)),
                     }
+                } else {
+                    notes.push(format!(
+                        "{}: no model file was found at {}",
+                        body.name, model.path
+                    ));
                 }
-            } else {
-                notes.push(format!(
-                    "{}: no model file was found at {}",
-                    body.name, model.path
-                ));
             }
         }
         if placed_vendor {
@@ -1948,7 +2022,15 @@ pub fn vrml_board(p: &Project) -> Result<String, String> {
     const MAX_PRISMS: usize = 20_000;
     const MAX_FACES: usize = 200_000;
     let depth = p.board.thickness;
-    let outline: Vec<Point> = board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR);
+    let outline: Vec<Point> = match &p.board.outline {
+        Some(o) if o.len() >= 3 => o.clone(),
+        _ => vec![
+            Point::new(0.0, 0.0),
+            Point::new(p.board.width, 0.0),
+            Point::new(p.board.width, p.board.height),
+            Point::new(0.0, p.board.height),
+        ],
+    };
     let mut rings = vec![(outline, 0.0, depth)];
     for footprint in &p.board.footprints {
         for pad in &footprint.pads {
@@ -2049,12 +2131,9 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let b = &p.board;
     let mut s = format!(
-        "(kicad_pcb (version 20240108) (generator \"pcbcraft\")\n (general (thickness {})) (paper \"A4\")\n (layers{} (34 \"B.Paste\" user) (35 \"F.Paste\" user) (36 \"B.SilkS\" user \"b.silkscreen\") (37 \"F.SilkS\" user \"f.silkscreen\") (38 \"B.Mask\" user) (39 \"F.Mask\" user) (44 \"Edge.Cuts\" user) (46 \"B.CrtYd\" user) (47 \"F.CrtYd\" user) (48 \"B.Fab\" user) (49 \"F.Fab\" user))\n (setup{} (pad_to_mask_clearance 0))\n (net 0 \"\")\n",
-        f64s(b.thickness),
-        kicad_copper_layers(p),
-        kicad_stackup(p)
+        "(kicad_pcb (version 20240108) (generator \"pcbcraft\")\n (general (thickness {})) (paper \"A4\")\n (layers (0 \"F.Cu\" signal) (31 \"B.Cu\" signal) (34 \"B.Paste\" user) (35 \"F.Paste\" user) (36 \"B.SilkS\" user \"b.silkscreen\") (37 \"F.SilkS\" user \"f.silkscreen\") (38 \"B.Mask\" user) (39 \"F.Mask\" user) (44 \"Edge.Cuts\" user) (46 \"B.CrtYd\" user) (47 \"F.CrtYd\" user) (48 \"B.Fab\" user) (49 \"F.Fab\" user))\n (setup (pad_to_mask_clearance 0))\n (net 0 \"\")\n",
+        b.thickness
     );
-    write_preserved(&mut s, &b.preserved);
     for (i, n) in p.nets.iter().enumerate() {
         s.push_str(&format!(" (net {} {})\n", i + 1, quote(&n.name)));
     }
@@ -2093,7 +2172,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
         let label_x = (min.x + max.x) / 2.0;
         let reference_y = min.y - 1.2;
         let value_y = max.y + 1.2;
-        s.push_str(&format!(" (footprint {} (layer \"{}\") {} (at {} {} {})\n (property \"Reference\" {} (at {label_x} {reference_y} {}) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))\n (property \"Value\" {} (at {label_x} {value_y} {}) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))\n (attr {attr})\n",quote(&name),if f.board_side() == pcbcraft_doc::Layer::Back { "B.Cu" } else { "F.Cu" },uuid_node(&f.preserved, f.id, 1),f64s(f.position.x),f64s(f.position.y),f64s(f.rotation),quote(&c.reference),f64s(f.rotation),quote(&c.value),f64s(f.rotation)));
+        s.push_str(&format!(" (footprint {} (layer \"F.Cu\") (uuid {}) (at {} {} {})\n (property \"Reference\" {} (at {label_x} {reference_y} {}) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))\n (property \"Value\" {} (at {label_x} {value_y} {}) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))\n (attr {attr})\n",quote(&name),uuid(f.id,1),f.position.x,f.position.y,f.rotation,quote(&c.reference),f.rotation,quote(&c.value),f.rotation));
         if let Some(library) = &c.library_footprint {
             if let Some(m) = &library.definition.model {
                 s.push_str(&format!(
@@ -2131,11 +2210,10 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
             let net = pad.net.map(|n| p.net_name(n)).unwrap_or("");
             let (pad_type, shape, size, rotation, layers, ratio, drill) =
                 if let Some(g) = &pad.geometry {
-                    if !matches!(g.pad_type.as_str(), "smd" | "thru_hole" | "unplated")
+                    if !matches!(g.pad_type.as_str(), "smd" | "thru_hole")
                         || matches!(g.shape_kind(), pcbcraft_library::PadShape::Unsupported)
                         || (g.pad_type == "smd" && g.drill.is_some())
-                        || ((g.pad_type == "thru_hole" || g.pad_type == "unplated")
-                            && g.drill.is_none())
+                        || (g.pad_type == "thru_hole" && g.drill.is_none())
                     {
                         return Err(
                         "KiCad export supports standard SMD or plated through-hole pad geometry"
@@ -2143,11 +2221,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                     );
                     }
                     (
-                        if g.pad_type == "unplated" {
-                            "np_thru_hole"
-                        } else {
-                            g.pad_type.as_str()
-                        },
+                        g.pad_type.as_str(),
                         match g.shape_kind() {
                             pcbcraft_library::PadShape::Chamfered(_) => "roundrect",
                             _ => g.shape.as_str(),
@@ -2183,229 +2257,55 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                         String::new(),
                     )
                 };
-            s.push_str(&format!(
-                " (pad {} {pad_type} {shape} (at {} {} {}) (size {} {}) (layers {layers}){ratio}{drill} (net {} {}) (uuid {}))\n",
-                quote(&pad.number),
-                pad.offset.x,
-                pad.offset.y,
-                rotation,
-                size.x,
-                size.y,
-                ordinal(pad.net),
-                quote(net),
-                uuid(f.id, i + 2),
-            ));
+            s.push_str(&format!(" (pad {} {pad_type} {shape} (at {} {} {rotation}) (size {} {}) (layers {layers}){ratio}{drill} (net {} {}) (uuid {}))\n",quote(&pad.number),pad.offset.x,pad.offset.y,size.x,size.y,ordinal(pad.net),quote(net),uuid(f.id,i+2)));
         }
-        write_preserved_inline(&mut s, &f.preserved);
         s.push_str(" )\n");
     }
     for t in &b.tracks {
         match t.arc {
-            Some(mid) => {
-                s.push_str(&format!(
-                    " (arc (start {} {}) (mid {} {}) (end {} {}) (width {}) (layer {}) (net {}) {}",
-                    t.start.x,
-                    t.start.y,
-                    mid.x,
-                    mid.y,
-                    t.end.x,
-                    t.end.y,
-                    t.width,
-                    quote(&p.layer_name(t.layer)),
-                    ordinal(Some(t.net)),
-                    uuid_node(&t.preserved, t.id, 1)
-                ));
-                write_preserved_inline(&mut s, &t.preserved);
-                s.push_str(")\n");
-            }
-            None => {
-                s.push_str(&format!(
-                    " (segment (start {} {}) (end {} {}) (width {}) (layer {}) (net {}) {}",
-                    t.start.x,
-                    t.start.y,
-                    t.end.x,
-                    t.end.y,
-                    t.width,
-                    quote(&p.layer_name(t.layer)),
-                    ordinal(Some(t.net)),
-                    uuid_node(&t.preserved, t.id, 1)
-                ));
-                write_preserved_inline(&mut s, &t.preserved);
-                s.push_str(")\n");
-            }
+            Some(mid) => s.push_str(&format!(
+                " (arc (start {} {}) (mid {} {}) (end {} {}) (width {}) (layer {}) (net {}) (uuid {}))\n",
+                t.start.x,
+                t.start.y,
+                mid.x,
+                mid.y,
+                t.end.x,
+                t.end.y,
+                t.width,
+                quote(&p.layer_name(t.layer)),
+                ordinal(Some(t.net)),
+                uuid(t.id, 1)
+            )),
+            None => s.push_str(&format!(
+                " (segment (start {} {}) (end {} {}) (width {}) (layer {}) (net {}) (uuid {}))\n",
+                t.start.x,
+                t.start.y,
+                t.end.x,
+                t.end.y,
+                t.width,
+                quote(&p.layer_name(t.layer)),
+                ordinal(Some(t.net)),
+                uuid(t.id, 1)
+            )),
         }
-    }
-    for v in &b.vias {
-        let (top, bottom) = p.via_span(v);
-        s.push_str(&format!(
-            " (via (at {} {}) (size {}) (drill {}) (layers {} {}) (net {}) {}",
-            v.position.x,
-            v.position.y,
-            v.diameter,
-            v.drill,
-            quote(&p.layer_name(top)),
-            quote(&p.layer_name(bottom)),
-            ordinal(Some(v.net)),
-            uuid_node(&v.preserved, v.id, 1)
-        ));
-        write_preserved_inline(&mut s, &v.preserved);
-        s.push_str(")\n");
-    }
-    for z in &b.zones {
-        s.push_str(&format!(
-            " (zone (net {}) (net_name {}) (layer {}) {} (hatch edge 0.508) (connect_pads (clearance 0.508)) (min_thickness 0.254) (filled {})\n  (polygon (pts",
-            ordinal(Some(z.net)),
-            quote(p.net_name(z.net)),
-            quote(&p.layer_name(z.layer)),
-            uuid_node(&z.preserved, z.id, 1),
-            if z.filled { "yes" } else { "no" }
-        ));
-        for pt in z.outline.iter().take(z.outline.len().saturating_sub(1)) {
-            s.push_str(&format!(" (xy {} {})", pt.x, pt.y));
-        }
-        s.push_str("))\n");
-        write_preserved_inline(&mut s, &z.preserved);
-        s.push_str(" )\n");
-    }
-    for a in b.rule_areas.iter().filter(|a| a.keepout.is_some()) {
-        let Some(k) = a.keepout else { continue };
-        let allowed = |on: bool| if on { "not_allowed" } else { "allowed" };
-        let layer = match a.layer {
-            Some(l) => format!("(layer {})", quote(&p.layer_name(l))),
-            None => "(layers \"F&B.Cu\")".to_string(),
-        };
-        let r = &a.region;
-        s.push_str(&format!(
-            " (zone (net 0) (net_name \"\") {layer} (uuid {}) (hatch edge 0.508) (keepout (tracks {}) (vias {}) (pads {}) (copperpour {}) (footprints allowed))\n  (polygon (pts (xy {} {}) (xy {} {}) (xy {} {}) (xy {} {}))))\n",
-            quote(&uuid(a.id, 3)),
-            allowed(k.tracks),
-            allowed(k.vias),
-            allowed(k.pads),
-            allowed(k.zones),
-            r.x, r.y, r.x + r.width, r.y, r.x + r.width, r.y + r.height, r.x, r.y + r.height
-        ));
     }
     match &b.outline {
         Some(o) => {
             s.push_str(" (gr_poly (pts");
             for pt in o {
-                s.push_str(&format!(" (start {} {})", f64s(pt.x), f64s(pt.y)));
+                s.push_str(&format!(" (start {} {})", pt.x, pt.y));
             }
             s.push_str(
                 ") (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\"))\n",
             );
         }
-        None => s.push_str(&format!(
-            " (gr_rect (start 0 0) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\"))\n",
-            f64s(b.width),
-            f64s(b.height)
-        )),
+        None => s.push_str(&format!(" (gr_rect (start 0 0) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\"))\n",b.width,b.height)),
     }
     for c in &b.cutouts {
-        s.push_str(&format!(
-            " (gr_circle (center {} {}) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\") (uuid {}))\n",
-            f64s(c.center.x),
-            f64s(c.center.y),
-            f64s(c.center.x + c.radius),
-            f64s(c.center.y),
-            uuid(c.id, 1)
-        ));
+        s.push_str(&format!(" (gr_circle (center {} {}) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\") (uuid {}))\n",c.center.x,c.center.y,c.center.x+c.radius,c.center.y,uuid(c.id,1)));
     }
     s.push_str(")\n");
     Ok(s)
-}
-
-/// Copper layer entries of the layer table, top to bottom, with the classic
-/// numbering: top 0, inner 1 to 30, bottom 31.
-fn kicad_copper_layers(p: &Project) -> String {
-    let count = p.copper_layer_count();
-    let mut out = String::new();
-    for i in 0..count {
-        let ordinal = if i == 0 {
-            0
-        } else if i + 1 == count {
-            31
-        } else {
-            u32::from(i)
-        };
-        if let Ok(layer) = pcbcraft_doc::Layer::from_index(i) {
-            out.push_str(&format!(
-                " ({ordinal} {} signal)",
-                quote(&p.layer_name(layer))
-            ));
-        }
-    }
-    out
-}
-
-/// Stackup block for the setup section, written only when the project
-/// records stack rows.
-fn kicad_stackup(p: &Project) -> String {
-    let rows = &p.board.layer_records;
-    if rows.is_empty() {
-        return String::new();
-    }
-    let first = rows.iter().position(|r| r.kind == "copper").unwrap_or(0);
-    let mut out = String::from(" (stackup");
-    for (i, r) in rows.iter().enumerate() {
-        let side = if i < first { "Top" } else { "Bottom" };
-        let kind = match r.kind.as_str() {
-            "copper" => "copper".to_string(),
-            "core" => "core".to_string(),
-            "prepreg" => "prepreg".to_string(),
-            "soldermask" => format!("{side} Solder Mask"),
-            "silkscreen" => format!("{side} Silk Screen"),
-            "paste" => format!("{side} Solder Paste"),
-            _ => "user".to_string(),
-        };
-        out.push_str(&format!(
-            " (layer {} (type {}) (thickness {})",
-            quote(&r.name),
-            quote(&kind),
-            r.thickness
-        ));
-        if let Some(m) = &r.material {
-            out.push_str(&format!(" (material {})", quote(m)));
-        }
-        if let Some(dk) = r.dk {
-            out.push_str(&format!(" (epsilon_r {dk})"));
-        }
-        if let Some(df) = r.df {
-            out.push_str(&format!(" (loss_tangent {df})"));
-        }
-        out.push(')');
-    }
-    out.push(')');
-    out
-}
-
-/// The uuid node an object writes: the preserved source one when present,
-/// else one made from the object id.
-fn uuid_node(preserved: &pcbcraft_doc::PreservedSource, id: u64, kind: usize) -> String {
-    preserved
-        .nodes
-        .iter()
-        .find(|n| n.starts_with("(uuid"))
-        .map(|n| n.trim().to_string())
-        .unwrap_or_else(|| format!("(uuid {})", uuid(id, kind)))
-}
-
-/// Preserved nodes written inside the object that owns them; the uuid node is
-/// written separately.
-fn write_preserved_inline(s: &mut String, preserved: &pcbcraft_doc::PreservedSource) {
-    for node in preserved.nodes.iter().filter(|n| !n.starts_with("(uuid")) {
-        s.push(' ');
-        s.push_str(node.trim());
-    }
-}
-
-fn write_preserved(s: &mut String, preserved: &pcbcraft_doc::PreservedSource) {
-    for node in &preserved.nodes {
-        s.push_str(node);
-        if !node.ends_with('\n') {
-            s.push('\n');
-        }
-    }
 }
 
 /// Shape-specific pad expressions. A chamfered pad is a KiCad roundrect with
@@ -2511,7 +2411,15 @@ fn preview_bounds(p: &Project, view: &str) -> (Point, Point) {
 /// Edge.Cuts corner or vertex list for fabrication output: the traced
 /// outline when the board has one, the plain rectangle otherwise.
 fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
-    board_edge::flat_tuples(p, pcbcraft_doc::VALIDATION_CHORD_ERROR)
+    match &p.board.outline {
+        Some(o) => o.iter().map(|pt| (pt.x, pt.y)).collect(),
+        None => vec![
+            (0.0, 0.0),
+            (p.board.width, 0.0),
+            (p.board.width, p.board.height),
+            (0.0, p.board.height),
+        ],
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -2688,9 +2596,7 @@ fn excellon_drill_file(
 }
 
 /// RS-274X copper/outline layers plus an Excellon drill file, as filename to
-/// text. One copper file per copper layer (`pcb-F.Cu.gbr`, `pcb-In<n>.Cu.gbr`,
-/// `pcb-B.Cu.gbr`) carries that layer's poured regions, tracks, via and pad
-/// copper (`gerber_files_report` also returns the warnings); the outline
+/// text. Copper layers carry zones, tracks, via and pad copper; the outline
 /// layer carries the board edge and circular cutouts; the drill file carries
 /// every plated and unplated hole, round holes as single hits and oval holes
 /// as G85 spans along the rotated long axis. Back-copper coordinates are
@@ -2702,73 +2608,24 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 /// job file records given by the caller. Directory exports and packages pin
 /// that date so two runs over the same design produce the same bytes.
 pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
-    gerber_files_report(p, creation).map(|(files, _notes)| files)
-}
-/// The files of `gerber_files_at` plus the export warnings. A warning names a
-/// pour left out of a copper layer because it would not fit the layer's
-/// operation budget even thinned; it is also a G04 comment in that layer file
-/// and a line in the README.
-///
-/// # Rules
-/// - A warning never stops the export: every other file and object still ships.
-/// - Only the bottom copper file is mirrored about x=0.
-///
-/// # Dependencies
-/// - crates/io/src/gerber_pour.rs simplify_piece, order_containers_first
-/// - crates/doc/src/fill.rs zone_fill
-///
-/// # Do not
-/// - Raise `MAX_COPPER_LAYER_OPS` to hide a pour that will not fit; thin it or
-///   report it.
-pub fn gerber_files_report(
-    p: &Project,
-    creation: &str,
-) -> Result<(BTreeMap<String, String>, Vec<String>), String> {
-    gerber_files_with_budget(p, creation, gerber_pour::MAX_COPPER_LAYER_OPS)
-}
-/// `gerber_files_report` with the per-layer operation budget stated by the
-/// caller. The default budget is `MAX_COPPER_LAYER_OPS`; a smaller one lets a
-/// test or a low-memory caller see the over-budget behaviour on a small board.
-pub fn gerber_files_with_budget(
-    p: &Project,
-    creation: &str,
-    max_ops: usize,
-) -> Result<(BTreeMap<String, String>, Vec<String>), String> {
     p.validate()?;
-    let max_ops_limit = max_ops;
+    const MAX_OPS: usize = 100_000;
     const MAX_APERTURES: usize = 64;
     // An inch project gets imperial fabrication files; coordinates are still
     // stored in millimetres, so every written value is rescaled here.
     let inch = p.unit == "inch";
     let scale = if inch { 1.0 / 25.4 } else { 1.0 };
-
-    /// Millimetres to 4.6 fixed-point coordinate integers.
-    fn coordinate(value: f64) -> i64 {
-        (value * 1_000_000.0).round() as i64
-    }
-    /// Millimetres to 3 decimal places (thousandths) for aperture definitions.
-    fn aperture_mm(value: f64) -> String {
-        let text = format!("{:.3}", value);
-        let text = text.trim_end_matches('0').trim_end_matches('.');
-        if text == "-0" || text.is_empty() {
-            "0".into()
-        } else {
-            text.into()
-        }
-    }
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     enum Ap {
         Circle(u64),
         Rect(u64, u64),
         Obround(u64, u64),
         Round(u64, u64, u64),
-        /// A via pad, kept apart from a pad circle of the same diameter so the
-        /// X2 aperture function names it a via pad. The specification gives
-        /// `ViaPad` no specifier.
-        ViaPad(u64),
         /// A track stroke, kept apart from a pad or via circle of the same
         /// diameter so the X2 aperture function names it a conductor.
         Track(u64),
+        /// A via pad, kept apart from component pads of the same diameter.
+        Via(u64),
     }
     #[derive(Clone)]
     struct LayerFile {
@@ -2777,34 +2634,16 @@ pub fn gerber_files_with_budget(
         arcs: String,
         ops: usize,
         scale: f64,
-        /// Operations the file may carry.
-        limit: usize,
-        /// Plain file label for error text, for example `F.Cu`.
-        name: String,
-        /// Warnings written as G04 comments after the header.
-        notes: Vec<String>,
     }
     impl LayerFile {
-        fn new(scale: f64, limit: usize) -> Self {
-            Self::named(scale, "layer", limit)
-        }
-        fn named(scale: f64, name: &str, limit: usize) -> Self {
+        fn new(scale: f64) -> Self {
             Self {
                 apertures: BTreeMap::new(),
                 body: String::new(),
                 arcs: String::new(),
                 ops: 0,
                 scale,
-                limit,
-                name: name.to_owned(),
-                notes: Vec::new(),
             }
-        }
-        fn over_limit(&self) -> String {
-            format!(
-                "gerber export exceeds the object limit: layer {} needs more than {} operations; split the board's copper into fewer or smaller objects",
-                self.name, self.limit
-            )
         }
         fn code(&mut self, ap: Ap) -> Result<u32, String> {
             if let Some(code) = self.apertures.get(&ap) {
@@ -2819,61 +2658,51 @@ pub fn gerber_files_with_budget(
         }
         fn flash(&mut self, code: u32, x: f64, y: f64) -> Result<(), String> {
             self.ops += 1;
-            if self.ops > self.limit {
-                return Err(self.over_limit());
+            if self.ops > MAX_OPS {
+                return Err("gerber export exceeds the object limit".into());
             }
             self.body.push_str(&format!(
-                "D{code}X{}Y{}D03*\n",
-                coordinate(x * self.scale),
-                coordinate(y * self.scale)
+                "D{code}X{:.6}Y{:.6}D03*\n",
+                x * self.scale,
+                y * self.scale
             ));
             Ok(())
         }
         fn stroke(&mut self, code: u32, points: &[(f64, f64)], closed: bool) -> Result<(), String> {
             self.ops += points.len();
-            if self.ops > self.limit {
-                return Err(self.over_limit());
+            if self.ops > MAX_OPS {
+                return Err("gerber export exceeds the object limit".into());
             }
             self.body.push_str(&format!("D{code}D02*\n"));
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
-                    "X{}Y{}D0{}*\n",
-                    coordinate(x * self.scale),
-                    coordinate(y * self.scale),
+                    "X{:.6}Y{:.6}D0{}*\n",
+                    x * self.scale,
+                    y * self.scale,
                     if i == 0 { 2 } else { 1 }
                 ));
             }
             if closed && let Some((x, y)) = points.first() {
                 self.body.push_str(&format!(
-                    "X{}Y{}D01*\n",
-                    coordinate(x * self.scale),
-                    coordinate(y * self.scale)
+                    "X{:.6}Y{:.6}D01*\n",
+                    x * self.scale,
+                    y * self.scale
                 ));
             }
             Ok(())
         }
         fn fill(&mut self, code: u32, points: &[(f64, f64)]) -> Result<(), String> {
             self.ops += points.len();
-            if self.ops > self.limit {
-                return Err(self.over_limit());
+            if self.ops > MAX_OPS {
+                return Err("gerber export exceeds the object limit".into());
             }
             self.body.push_str(&format!("G36*\nD{code}D02*\n"));
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
-                    "X{}Y{}D0{}*\n",
-                    coordinate(x * self.scale),
-                    coordinate(y * self.scale),
+                    "X{:.6}Y{:.6}D0{}*\n",
+                    x * self.scale,
+                    y * self.scale,
                     if i == 0 { 2 } else { 1 }
-                ));
-            }
-            // A region contour ends where it began.
-            if let (Some((fx, fy)), Some((lx, ly))) = (points.first(), points.last())
-                && (fx != lx || fy != ly)
-            {
-                self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D01*\n",
-                    fx * self.scale,
-                    fy * self.scale
                 ));
             }
             self.body.push_str("G37*\n");
@@ -2889,40 +2718,36 @@ pub fn gerber_files_with_budget(
             if let Some(ff) = file_function {
                 out.push_str(&format!("%TF.FileFunction,{ff}*%\n"));
             }
-            for note in &self.notes {
-                out.push_str(&format!("G04 {note} *\n"));
-            }
             for (ap, code) in &self.apertures {
                 if matches!(ap, Ap::Track(_)) {
                     out.push_str("%TA.AperFunction,Conductor,Cu*%\n");
-                }
-                if matches!(ap, Ap::ViaPad(_)) {
+                } else if matches!(ap, Ap::Via(_)) {
                     out.push_str("%TA.AperFunction,ViaPad*%\n");
                 }
                 match *ap {
-                    Ap::Circle(d) | Ap::Track(d) | Ap::ViaPad(d) => out.push_str(&format!(
-                        "%ADD{code}C,{}*%\n",
-                        aperture_mm(d as f64 / 1000.0 * self.scale)
+                    Ap::Circle(d) | Ap::Track(d) | Ap::Via(d) => out.push_str(&format!(
+                        "%ADD{code}C,{:.6}*%\n",
+                        d as f64 / 1000.0 * self.scale
                     )),
                     Ap::Rect(w, h) => out.push_str(&format!(
-                        "%ADD{code}R,{}X{}*%\n",
-                        aperture_mm(w as f64 / 1000.0 * self.scale),
-                        aperture_mm(h as f64 / 1000.0 * self.scale)
+                        "%ADD{code}R,{:.6}X{:.6}*%\n",
+                        w as f64 / 1000.0 * self.scale,
+                        h as f64 / 1000.0 * self.scale
                     )),
                     Ap::Obround(w, h) => out.push_str(&format!(
-                        "%ADD{code}O,{}X{}*%\n",
-                        aperture_mm(w as f64 / 1000.0 * self.scale),
-                        aperture_mm(h as f64 / 1000.0 * self.scale)
+                        "%ADD{code}O,{:.6}X{:.6}*%\n",
+                        w as f64 / 1000.0 * self.scale,
+                        h as f64 / 1000.0 * self.scale
                     )),
                     Ap::Round(w, h, r) => out.push_str(&format!(
-                        "%ADD{code}R2,{} R1,{}X{} {r} 0 0*%\n",
+                        "%ADD{code}R2,{} R1,{:.6}X{:.6} {r} 0 0*%\n",
                         if r * 2 == h {
                             "0".to_string()
                         } else {
-                            aperture_mm(r as f64 / 1000.0 * self.scale)
+                            format!("{:.6}", r as f64 / 1000.0 * self.scale)
                         },
-                        aperture_mm(w as f64 / 1000.0 * self.scale),
-                        aperture_mm(h as f64 / 1000.0 * self.scale)
+                        w as f64 / 1000.0 * self.scale,
+                        h as f64 / 1000.0 * self.scale
                     )),
                 }
             }
@@ -2933,128 +2758,50 @@ pub fn gerber_files_with_budget(
             out
         }
     }
-    // One file per copper layer, top first. Copper layers beyond the two
-    // outer ones are inner layers; the last one is the bottom.
-    let layer_count = usize::from(p.copper_layer_count()).max(2);
-    let bottom = layer_count - 1;
-    let layer_label = |index: usize| -> String {
-        if index == 0 {
-            "F.Cu".into()
-        } else if index == bottom {
-            "B.Cu".into()
-        } else {
-            let raw = pcbcraft_doc::Layer::from_index(index as u8)
-                .map(|l| p.layer_name(l))
-                .unwrap_or_else(|_| format!("In{index}.Cu"));
-            let clean: String = raw
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || c == '.' || c == '_' {
-                        c
-                    } else {
-                        '_'
-                    }
-                })
-                .collect();
-            if clean.is_empty() {
-                format!("In{index}.Cu")
-            } else {
-                clean
-            }
-        }
-    };
-    let mut copper: Vec<LayerFile> = (0..layer_count)
-        .map(|i| LayerFile::named(scale, &layer_label(i), max_ops_limit))
-        .collect();
-    let mut warnings: Vec<String> = Vec::new();
-    let mirror_for = |x: f64, y: f64, index: usize| -> (f64, f64) {
-        if index == bottom {
-            (-x + 0.0, y)
-        } else {
-            (x, y)
-        }
-    };
-    // Pours first, so a clear-polarity hole never erases a track or pad that is
-    // written after it. The fill is what ships: gaps round foreign copper,
-    // thermal spokes and the island policy are already applied.
-    let mut pours: BTreeMap<usize, Vec<(u64, Vec<pcbcraft_geom::poly::Piece>)>> = BTreeMap::new();
+    let mut front = LayerFile::new(scale);
+    let mut back = LayerFile::new(scale);
+    let mirror =
+        |x: f64, y: f64, back: bool| -> (f64, f64) { if back { (-x + 0.0, y) } else { (x, y) } };
     for z in &p.board.zones {
         if !z.filled {
             continue;
         }
-let index = usize::from(z.layer.index()).min(bottom);
-        let is_back = p.is_bottom(z.layer);
+        let is_back = z.layer == pcbcraft_doc::Layer::Back;
         let fill = pcbcraft_doc::zone_fill(p, z)?;
-        pours.entry(index).or_default().push((z.id, fill.pieces));
-        let fill = pcbcraft_doc::zone_fill(p, z)?;
-        pours.entry(index).or_default().push((z.id, fill.pieces));
-    }
-    for (index, zones) in pours {
-        let file = &mut copper[index];
+        let file = if is_back { &mut back } else { &mut front };
         let code = file.code(Ap::Circle(1))?;
-        // Every zone of the layer is thinned and checked against the layer
-        // budget on its own, so one oversized pour cannot sink the rest.
-        let mut layer_pieces: Vec<pcbcraft_geom::poly::Piece> = Vec::new();
-        let mut used = file.ops;
-        for (zone_id, pieces) in zones {
-            let mut chosen: Option<Vec<pcbcraft_geom::poly::Piece>> = None;
-            let mut best = usize::MAX;
-            for tolerance in gerber_pour::TOLERANCES_MM {
-                let thinned: Vec<pcbcraft_geom::poly::Piece> = pieces
-                    .iter()
-                    .filter_map(|piece| gerber_pour::simplify_piece(piece, tolerance))
-                    .collect();
-                let vertices: usize = thinned.iter().map(gerber_pour::piece_vertices).sum();
-                best = vertices;
-                if used.saturating_add(vertices) <= max_ops_limit {
-                    used += vertices;
-                    chosen = Some(thinned);
-                    break;
-                }
-            }
-            match chosen {
-                Some(thinned) => layer_pieces.extend(thinned),
-                None => {
-                    let note = format!(
-                        "Pour (zone {zone_id}) on {} was left out: it needs {best} operations at the coarsest tolerance and the layer allows {max_ops_limit}. Split the zone into smaller zones or raise its minimum width, then export again.",
-                        file.name
-                    );
-                    file.notes.push(note.clone());
-                    warnings.push(note);
-                }
-            }
-        }
-        // Containers first: a hole is cleared with LPC right after its piece,
-        // which would also erase anything already written inside it.
-        gerber_pour::order_containers_first(&mut layer_pieces);
-        for piece in &layer_pieces {
-            for (ring_index, ring) in piece.iter().enumerate() {
+        // The fill is what ships: gaps round foreign copper, thermal spokes and
+        // the island policy are already applied. Each piece is one G36 region
+        // and each hole is cleared with LPC immediately after it, before any
+        // track or pad is drawn, because LPC would clear those too.
+        for piece in &fill.pieces {
+            for (index, ring) in piece.iter().enumerate() {
                 let points: Vec<(f64, f64)> =
-                    ring.iter().map(|q| mirror_for(q.x, q.y, index)).collect();
-                if ring_index > 0 {
+                    ring.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
+                if index > 0 {
                     file.body.push_str("%LPC*%\n");
                 }
                 file.fill(code, &points)?;
-                if ring_index > 0 {
+                if index > 0 {
                     file.body.push_str("%LPD*%\n");
                 }
             }
         }
     }
     for t in &p.board.tracks {
-let index = usize::from(t.layer.index()).min(bottom);
-        let file = if p.is_bottom(t.layer) { &mut back } else { &mut front };
+        let is_back = t.layer == pcbcraft_doc::Layer::Back;
+        let file = if is_back { &mut back } else { &mut front };
         let w = (t.width * 1_000.0).round() as u64;
         let code = file.code(Ap::Track(w.max(1)))?;
         if let Some(arc) = t.curve() {
             file.ops += 1;
-            if file.ops > file.limit {
-                return Err(file.over_limit());
+            if file.ops > MAX_OPS {
+                return Err("gerber export exceeds the object limit".into());
             }
-            let (sx, sy) = mirror_for(t.start.x, t.start.y, index);
-            let (ex, ey) = mirror_for(t.end.x, t.end.y, index);
-            let (cx, cy) = mirror_for(arc.center.x, arc.center.y, index);
-            let clockwise = if index == bottom {
+            let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
+            let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
+            let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
+            let clockwise = if is_back {
                 arc.sweep > 0.0
             } else {
                 arc.sweep < 0.0
@@ -3073,8 +2820,8 @@ let index = usize::from(t.layer.index()).min(bottom);
             file.stroke(
                 code,
                 &[
-                    mirror_for(t.start.x, t.start.y, index),
-                    mirror_for(t.end.x, t.end.y, index),
+                    mirror(t.start.x, t.start.y, is_back),
+                    mirror(t.end.x, t.end.y, is_back),
                 ],
                 false,
             )?;
@@ -3121,23 +2868,25 @@ let index = usize::from(t.layer.index()).min(bottom);
                 }
                 _ => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
             };
-            let targets: Vec<usize> = if through {
-                (0..layer_count).collect()
+            let (front_code, back_code) = if through {
+                (front.code(ap.clone())?, back.code(ap.clone())?)
             } else if is_back {
-                vec![bottom]
+                (0, back.code(ap)?)
             } else {
-                vec![0]
+                (front.code(ap)?, 0)
             };
-            for index in targets {
-                let code = copper[index].code(ap.clone())?;
-                let (x, y) = mirror_for(world.x, world.y, index);
-                copper[index].flash(code, x, y)?;
+            if front_code != 0 {
+                front.flash(front_code, world.x, world.y)?;
+            }
+            if back_code != 0 {
+                let (x, y) = mirror(world.x, world.y, true);
+                back.flash(back_code, x, y)?;
             }
         }
     }
     for v in &p.board.vias {
         let d = (v.diameter * 1_000.0).round() as u64;
-let ap = Ap::Circle(d.max(1));
+        let ap = Ap::Via(d.max(1));
         let (reaches_top, reaches_bottom) = fab_export::via_reaches_outer(p, v);
         if reaches_top {
             let front_code = front.code(ap.clone())?;
@@ -3148,37 +2897,21 @@ let ap = Ap::Circle(d.max(1));
             let (x, y) = mirror(v.position.x, v.position.y, true);
             back.flash(back_code, x, y)?;
         }
-        for layer in p.via_span_layers(v) {
-            let index = usize::from(layer.index()).min(bottom);
-            let code = copper[index].code(ap.clone())?;
-            let (x, y) = mirror_for(v.position.x, v.position.y, index);
-            copper[index].flash(code, x, y)?;
-        }
-        }
     }
-    let mut outline = LayerFile::new(scale, max_ops_limit);
+    let mut outline = LayerFile::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
-    outline.body.push_str(&format!("D{edge_code}D02*\n"));
-    let (edge_body, edge_ops) = board_edge::gerber_body(scale, p)?;
-    outline.ops += edge_ops;
-    if outline.ops > MAX_OPS {
-        return Err("gerber export exceeds the object limit".into());
-    }
-    outline.body.push_str(&edge_body);
+    outline.stroke(edge_code, &board_edge_points(p), true)?;
     for c in &p.board.cutouts {
         outline.ops += 1;
-        if outline.ops > outline.limit {
-            return Err(outline.over_limit());
+        if outline.ops > MAX_OPS {
+            return Err("gerber export exceeds the object limit".into());
         }
-        let x = (c.center.x - c.radius) * scale;
-        let y = c.center.y * scale;
-        let r = c.radius * scale;
         outline.arcs.push_str(&format!(
-            "X{}Y{}D02*\nI{}J{}G02*\n",
-            coordinate(x),
-            coordinate(y),
-            coordinate(r),
-            coordinate(0.0)
+            "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
+            (c.center.x - c.radius) * scale,
+            c.center.y * scale,
+            c.radius * scale,
+            0.0
         ));
     }
     let hits = project_drill_hits(p)?;
@@ -3188,23 +2921,14 @@ let ap = Ap::Circle(d.max(1));
     let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false));
     let drill_map = fab_export::drill_map_plot(p)?;
     let mut files = BTreeMap::new();
-    for (index, file) in copper.iter().enumerate() {
-        let (side, comment) = if index == 0 {
-            ("Top", "front copper layer".to_owned())
-        } else if index == bottom {
-            ("Bot", "back copper layer".to_owned())
-        } else {
-            ("Inr", format!("inner copper layer {}", file.name))
-        };
-        files.insert(
-            format!("pcb-{}.gbr", file.name),
-            file.finish(
-                index == bottom,
-                &comment,
-                Some(&format!("Copper,L{},{side}", index + 1)),
-            ),
-        );
-    }
+    files.insert(
+        "pcb-F.Cu.gbr".into(),
+        front.finish(false, "front copper layer", Some("Copper,L1,Top")),
+    );
+    files.insert(
+        "pcb-B.Cu.gbr".into(),
+        back.finish(true, "back copper layer", Some("Copper,L2,Bot")),
+    );
     for (layer, name) in [
         (pcbcraft_doc::Layer::Front, "F"),
         (pcbcraft_doc::Layer::Back, "B"),
@@ -3265,15 +2989,11 @@ let ap = Ap::Circle(d.max(1));
     let mut names: Vec<String> = files.keys().cloned().collect();
     names.push("README-fabrication.txt".into());
     names.sort();
-    let mut readme = fab_export::fab_readme_text(p, &names)?;
-    if !warnings.is_empty() {
-        readme.push_str("\nExport warnings\n");
-        for warning in &warnings {
-            readme.push_str(&format!("- {warning}\n"));
-        }
-    }
-    files.insert("README-fabrication.txt".into(), readme);
-    Ok((files, warnings))
+    files.insert(
+        "README-fabrication.txt".into(),
+        fab_export::fab_readme_text(p, &names)?,
+    );
+    Ok(files)
 }
 
 /// Gerber drill-map layer with one marker per tool and a legend table.
@@ -3286,8 +3006,7 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     fab_export::fab_readme_text(p, file_names)
 }
 
-pub use drill_table::{DRILL_TABLE_HEADER, DrillRow, SpanKind, drill_table, drill_table_lines};
-pub use fab_export::{DrillFunction, via_mask_opening, via_mask_opening_on};
+pub use fab_export::{via_mask_opening, via_mask_opening_on_face};
 /// Bill of materials as CSV: identical parts collapsed into one row with a
 /// sorted, quoted reference list. Requested property keys become extra
 /// columns; with no request, the columns the project itself defines are
@@ -3335,7 +3054,7 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
     };
     let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
     for c in &p.components {
-        if !c.in_bom() || variant.is_some_and(|v| v.dnp.contains(&c.id)) {
+        if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
             continue;
         }
         let footprint = match variant
@@ -3378,29 +3097,6 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
     }
     Ok(out)
 }
-
-/// Designator references that appear on the bill of materials for one variant.
-pub fn bom_references(p: &Project, variant: Option<&str>) -> Result<BTreeSet<String>, String> {
-    p.validate()?;
-    let variant = match variant.map(str::trim) {
-        None | Some("") => None,
-        Some(name) => Some(
-            p.variants
-                .iter()
-                .find(|v| v.name == name)
-                .ok_or_else(|| format!("no variant named {name}"))?,
-        ),
-    };
-    let mut refs = BTreeSet::new();
-    for c in &p.components {
-        if !c.in_bom() || variant.is_some_and(|v| v.dnp.contains(&c.id)) {
-            continue;
-        }
-        refs.insert(c.reference.clone());
-    }
-    Ok(refs)
-}
-
 /// Quote a CSV cell only when it needs it: commas, quotes or newlines.
 fn csv_cell(text: &str) -> String {
     if text.contains([',', '"', '\n']) {
@@ -3568,12 +3264,7 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
             "<LAYER name=\"{name}\" copper=\"{layer_name}\">\n"
         ));
         count(1)?;
-        for track in p
-            .board
-            .tracks
-            .iter()
-            .filter(|t| t.layer == p.face_layer(layer))
-        {
+        for track in p.board.tracks.iter().filter(|t| t.layer == layer) {
             out.push_str(&format!(
                 "<TRACK start_x=\"{:.3}\" start_y=\"{:.3}\" end_x=\"{:.3}\" end_y=\"{:.3}\" width=\"{:.3}\" net=\"{}\"/>\n",
                 track.start.x,
@@ -3587,7 +3278,7 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
         }
         for f in &p.board.footprints {
             for pad in &f.pads {
-                if !p.pad_on_copper(f, pad, layer) {
+                if !f.pad_on_copper(pad, layer) {
                     continue;
                 }
                 let position = f.position.offset(pad.offset.rotate(f.rotation));
@@ -4006,7 +3697,7 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
          Substrate permittivity: {:.2}\n\
          Surface finish: {}\n\
          Drill origin: {:.3}, {:.3} mm\n\n\
-         Layer notes:\nNAME,KIND,THICKNESS_MM,ON_COPPER\n",
+         Layer notes:\nNAME,KIND,THICKNESS_MM\n",
         p.board.width,
         p.board.height,
         p.board.thickness,
@@ -4020,18 +3711,23 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
     }
     let mut total = 0.0;
     for l in &p.board.layer_records {
-        let on_copper = if pcbcraft_doc::layer_kind_names_copper(&l.kind) {
-            p.linked_copper(&l.name).unwrap_or_default()
-        } else {
-            String::new()
-        };
-        out.push_str(&format!(
-            "{},{},{:.3},{on_copper}\n",
-            l.name, l.kind, l.thickness
-        ));
+        out.push_str(&format!("{},{},{:.3}\n", l.name, l.kind, l.thickness));
         total += l.thickness;
     }
     out.push_str(&format!("Total recorded thickness: {:.3} mm\n", total));
+    let roles: Vec<_> = p
+        .copper_layers()
+        .filter_map(|layer| {
+            p.copper_layer_plane_role(layer)
+                .map(|role| (p.layer_name(layer), role))
+        })
+        .collect();
+    if !roles.is_empty() {
+        out.push_str("\nInner copper plane roles:\nLAYER,ROLE\n");
+        for (name, role) in roles {
+            out.push_str(&format!("{name},{role}\n"));
+        }
+    }
     if let Some(m) = &p.board.machining {
         out.push_str("\nMachining notes:\n");
         if let Some(v) = m.edge_plating {
@@ -4167,7 +3863,7 @@ fn component_is_test_point(c: &pcbcraft_doc::Component) -> bool {
     }
     if let Some(fp) = &c.library_footprint {
         let name = fp.definition.name.as_str();
-        if name.starts_with("Test_") {
+        if name.starts_with("Test_") || name.contains("TestPoint") {
             return true;
         }
     }
@@ -4288,7 +3984,11 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
             i + 1,
             f.position.x,
             f.position.y,
-            if p.is_bottom(f.layer) { "B" } else { "T" }
+            if f.layer == pcbcraft_doc::Layer::Back {
+                "B"
+            } else {
+                "T"
+            }
         ));
     }
     rows.sort_by(|a, b| {
@@ -4615,71 +4315,7 @@ pub fn gencad_text(p: &Project) -> Result<String, String> {
     }
     Ok(out)
 }
-/// Board as an IDF mechanical drawing for enclosure tools: board size, origin
-/// and reference, one entry per placed footprint with its position, side and
-/// rotation, and a matching default-height entry per component. The native
-/// format stores no component heights, so heights are emitted as 1 mm.
-pub fn idf_board(p: &Project) -> Result<String, String> {
-    p.validate()?;
-    const MAX_PLACED: usize = 5_000;
-    if p.board.footprints.len() > MAX_PLACED {
-        return Err("mechanical drawing exceeds the placed-object limit".into());
-    }
-    if p.board.footprints.is_empty() {
-        return Err("board has no placed footprints to export".into());
-    }
-    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
-        p.components.iter().map(|c| (c.id, c)).collect();
-    let n3 = |v: f64| -> String {
-        let r = (v * 1000.0).round() / 1000.0;
-        if r == 0.0 {
-            "0.000".into()
-        } else {
-            format!("{r:.3}")
-        }
-    };
-    let mut body = String::new();
-    for (pin, f) in p.board.footprints.iter().enumerate() {
-        let c = refs
-            .get(&f.component)
-            .ok_or("footprint references an unknown component")?;
-        let back = f.board_side() == pcbcraft_doc::Layer::Back;
-        body.push_str(&format!(
-            ".END_BODY {}\t{}\t{}\t{}\t{}\t{}\n",
-            c.reference,
-            n3(f.position.x),
-            n3(f.position.y),
-            if back { "BACK" } else { "FRONT" },
-            n3(f.rotation),
-            pin
-        ));
-    }
-    let mut pinbody = String::new();
-    for f in &p.board.footprints {
-        let c = refs
-            .get(&f.component)
-            .ok_or("footprint references an unknown component")?;
-        pinbody.push_str(&format!(
-            ".END_PIN {{\t}}\t{}\t{}\t{}\t0.000\t0.000\t1.000\t0\n",
-            c.reference,
-            n3(f.position.x),
-            n3(f.position.y)
-        ));
-    }
-    Ok(format!(
-        ".FILE_IDF\n.3DIDF VERSION: 2.0\n.UNITS:\tmillmm\n\
-         .BOARD_PATH\n\t.BODY {w} {h} 0.000 0.000\n\t.OFFSET 0.000 0.000\n\t.REFERENCE \"{name}\"\n.END_BOARD_PATH\n\
-         .PINUP 0\n.PINUP_END\n.TPIN 0\n.TPIN_END\n.PLPIN 0\n.PLPIN_END\n\
-         .ELEC_PATH\n{body}.END_ELEC_PATH\n\
-         .PIN_FILE\n.PIN {count}\n{pin}.END_PIN_FILE\n.END_FILE_IDF\n",
-        w = n3(p.board.width),
-        h = n3(p.board.height),
-        name = p.name.replace('"', "'"),
-        body = body,
-        count = p.board.footprints.len(),
-        pin = pinbody,
-    ))
-}
+pub use idf::{idf_board, idf_library};
 /// Board as a Specctra-style board file for external autorouters: the board
 /// boundary, layer stack with a through via type, net classes, every net with
 /// its pins, component and pin placements, track wires (arcs sampled into
@@ -4813,7 +4449,11 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for t in &p.board.tracks {
         bump(&mut count)?;
-        let layer = if p.is_bottom(t.layer) { "B.Cu" } else { "F.Cu" };
+        let layer = if t.layer == pcbcraft_doc::Layer::Back {
+            "B.Cu"
+        } else {
+            "F.Cu"
+        };
         let width = um(t.width)?;
         let net = net_number(Some(t.net))?;
         let segments: Vec<(Point, Point)> = match t.curve() {
@@ -4848,7 +4488,11 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for z in &p.board.zones {
         bump(&mut count)?;
-        let layer = if p.is_bottom(z.layer) { "B.Cu" } else { "F.Cu" };
+        let layer = if z.layer == pcbcraft_doc::Layer::Back {
+            "B.Cu"
+        } else {
+            "F.Cu"
+        };
         let net = net_number(Some(z.net))?;
         let path: Result<Vec<String>, String> = z.outline.iter().map(point).collect();
         out.push_str(&format!(
@@ -4859,7 +4503,11 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     for area in &p.board.rule_areas {
         bump(&mut count)?;
         let layers: Vec<&str> = match area.layer {
-            Some(l) => vec![if p.is_bottom(l) { "B.Cu" } else { "F.Cu" }],
+            Some(l) => vec![if l == pcbcraft_doc::Layer::Back {
+                "B.Cu"
+            } else {
+                "F.Cu"
+            }],
             None => vec!["F.Cu", "B.Cu"],
         };
         let lo = Point::new(area.region.x, area.region.y);
@@ -5061,12 +4709,17 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         (q.x, q.y)
     }
     let mut w = DxfWriter::new();
-    board_edge::write_dxf_edge(&mut w, p)?;
+    let corners = board_edge_points(p);
+    w.polyline("Edge", &corners, true)?;
     for c in &p.board.cutouts {
         w.circle("Edge", c.center.x, c.center.y, c.radius)?;
     }
     for t in &p.board.tracks {
-        let layer = if p.is_bottom(t.layer) { "B_Cu" } else { "F_Cu" };
+        let layer = if t.layer == pcbcraft_doc::Layer::Back {
+            "B_Cu"
+        } else {
+            "F_Cu"
+        };
         match t.curve() {
             Some(arc) => {
                 let deg = |a: f64| {
@@ -5137,7 +4790,11 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         }
     }
     for z in &p.board.zones {
-        let layer = if p.is_bottom(z.layer) { "B_Cu" } else { "F_Cu" };
+        let layer = if z.layer == pcbcraft_doc::Layer::Back {
+            "B_Cu"
+        } else {
+            "F_Cu"
+        };
         w.polyline(layer, &z.outline.iter().map(xy).collect::<Vec<_>>(), true)?;
         for cutout in &z.cutouts {
             w.polyline(layer, &cutout.iter().map(xy).collect::<Vec<_>>(), true)?;
@@ -5184,7 +4841,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         }
     }
     for t in &p.board.texts {
-        let layer = if p.is_bottom(t.layer) {
+        let layer = if t.layer == pcbcraft_doc::Layer::Back {
             "B_Silk"
         } else {
             "F_Silk"
@@ -5491,10 +5148,16 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
         min.y - 8.0
     );
     if view == "pcb" {
-        let edge_d = board_edge::svg_path_d(p);
-        s.push_str(&format!(
-            "<path d=\"{edge_d}\" fill=\"#193a36\" stroke=\"#5ae0bc\" stroke-width=\"0.15\"/>"
-        ));
+        match &p.board.outline {
+            Some(o) => {
+                s.push_str("<polygon points=\"");
+                for pt in o {
+                    s.push_str(&format!("{},{} ", pt.x, pt.y));
+                }
+                s.push_str("\" fill=\"#193a36\" stroke=\"#5ae0bc\" stroke-width=\"0.15\"/>");
+            }
+            None => s.push_str(&format!("<rect width=\"{}\" height=\"{}\" rx=\"0.4\" fill=\"#193a36\" stroke=\"#5ae0bc\" stroke-width=\"0.15\"/>",p.board.width,p.board.height)),
+        }
         for c in &p.board.cutouts {
             s.push_str(&format!("<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#131c29\" stroke=\"#5ae0bc\" stroke-width=\"0.1\"/>",c.center.x,c.center.y,c.radius));
         }
@@ -7641,8 +7304,6 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: Some(Point::new(20.0, 20.0)),
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 102,
@@ -7650,11 +7311,10 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -7727,7 +7387,6 @@ mod tests {
             ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 501,
             net: 500,
             position: Point::new(10.0, 10.0),
@@ -7736,7 +7395,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 502,
@@ -7745,7 +7404,6 @@ mod tests {
             end: None,
         });
         project.board.tracks.push(pcbcraft_doc::Track {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 503,
             net: 500,
             start: Point::new(0.0, 0.0),
@@ -7813,7 +7471,6 @@ mod tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
             id: 600,
             reference: "R1".into(),
@@ -7845,6 +7502,8 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 601,
@@ -7854,8 +7513,6 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 602,
@@ -7863,11 +7520,10 @@ mod tests {
             position: Point::new(30.0, 40.0),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.validate()?;
         let text = stats_text(&project)?;
@@ -7908,11 +7564,10 @@ mod tests {
             position: Point::new(10.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -7920,11 +7575,10 @@ mod tests {
             position: Point::new(20.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 503,
@@ -8019,7 +7673,7 @@ mod tests {
         assert!(drill.ends_with("M30\n"));
         let map = &files["pcb-DrillMap.gbr"];
         assert!(
-            map.contains("X10000000Y10000000D02*\nX14000000Y10000000D01*\n"),
+            map.contains("X10.000000Y10.000000D02*\nX14.000000Y10.000000D01*\n"),
             "the drill map draws the slot as a stroke from end to end: {map}"
         );
         Ok(())
@@ -8027,25 +7681,27 @@ mod tests {
     #[test]
     fn stackup_text_lists_layer_notes_and_machining_tolerances() -> Result<(), String> {
         let mut project = Project::default();
-        project.board.layer_records.push(pcbcraft_doc::LayerRecord {
-            name: "L1".into(),
-            kind: "copper".into(),
-            thickness: 0.035,
-            copper_role: None,
-            ..Default::default()
-        });
-        project.board.layer_records.push(pcbcraft_doc::LayerRecord {
-            name: "core".into(),
-            kind: "core".into(),
-            thickness: 1.2,
-            copper_role: None,
-            ..Default::default()
-        });
+        for (name, kind, thickness) in [
+            ("F.Cu", "copper", 0.035),
+            ("core", "core", 1.2),
+            ("In1.Cu", "copper", 0.035),
+            ("B.Cu", "copper", 0.035),
+        ] {
+            project.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: name.into(),
+                kind: kind.into(),
+                thickness,
+                copper_role: None,
+                ..Default::default()
+            });
+        }
         project.board.machining = Some(pcbcraft_doc::MachiningNotes {
             edge_plating: Some(true),
             drill_tolerance: Some(0.05),
             edge_tolerance: None,
         });
+        let inner = pcbcraft_doc::Layer::from_index(1)?;
+        project.set_copper_layer_plane_role(inner, "ground")?;
         project.validate()?;
         let text = stackup_text(&project)?;
         assert!(
@@ -8053,12 +7709,16 @@ mod tests {
             "the sheet names the design"
         );
         assert!(
-            text.contains("L1,copper,0.035,") && text.contains("core,core,1.200,"),
+            text.contains("F.Cu,copper,0.035") && text.contains("core,core,1.200"),
             "every recorded layer note is listed with its role and thickness"
         );
         assert!(
-            text.contains("Total recorded thickness: 1.235 mm"),
+            text.contains("Total recorded thickness: 1.305 mm"),
             "the recorded layers are totalled"
+        );
+        assert!(
+            text.contains("Inner copper plane roles:") && text.contains("In1.Cu,ground"),
+            "recorded plane roles reach the stackup sheet"
         );
         assert!(
             text.contains("Edge plating: yes") && text.contains("Drill tolerance: +/- 0.050 mm"),
@@ -8092,8 +7752,6 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -8101,11 +7759,10 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.validate()?;
         let pcb = hpgl_plot(&project, "pcb")?;
@@ -8143,8 +7800,6 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -8152,11 +7807,10 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.validate()?;
         let package = odb_package(&project)?;
@@ -8211,8 +7865,6 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: Some(Point::new(20.0, 20.0)),
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 102,
@@ -8220,11 +7872,10 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -8494,13 +8145,13 @@ mod tests {
         (lo, hi)
     }
 
-    fn fixture_bytes(name: &str) -> Result<Vec<u8>, String> {
+    fn fixture_bytes(name: &str) -> Vec<u8> {
         std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures")
                 .join(name),
         )
-        .map_err(|_| format!("fixture {name}"))
+        .unwrap_or_else(|_| panic!("fixture {name}"))
     }
 
     #[test]
@@ -8532,12 +8183,12 @@ mod tests {
     #[test]
     fn step_board_places_a_model_with_the_footprint_matrix() -> Result<(), String> {
         let mut project = two_part_project(false, 90.0)?;
-        if let Some(lib) = project.components[1].library_footprint.as_mut()
-            && let Some(model) = lib.definition.model.as_mut()
-        {
-            model.path = "offset_box.step".into();
+        if let Some(lib) = project.components[1].library_footprint.as_mut() {
+            if let Some(model) = lib.definition.model.as_mut() {
+                model.path = "offset_box.step".into();
+            }
         }
-        let bytes = fixture_bytes("offset_box.step")?;
+        let bytes = fixture_bytes("offset_box.step");
         let export = step_board_with_models(&project, &|path| {
             if path.ends_with("offset_box.step") {
                 Some(bytes.clone())
@@ -8708,7 +8359,6 @@ mod tests {
             .collect();
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),
@@ -8728,6 +8378,8 @@ mod tests {
                 definition: footprint,
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 2,
@@ -8737,8 +8389,6 @@ mod tests {
             locked: None,
             side: None,
             pads,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.validate()?;
         Ok(project)
@@ -9156,7 +8806,6 @@ mod tests {
 
             kind: None,
 
-            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         project.validate()?;
@@ -9207,8 +8856,6 @@ mod tests {
             width: 0.508,
             layer: pcbcraft_doc::Layer::Back,
             arc: None,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 4,
@@ -9216,11 +8863,10 @@ mod tests {
             position: Point::new(50.8, 25.4),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.unit = "inch".into();
         project.validate()?;
@@ -9231,11 +8877,11 @@ mod tests {
             "the format statement declares inches"
         );
         assert!(
-            back.contains("X-1000000Y1000000D02*"),
+            back.contains("X-1.000000Y1.000000D02*"),
             "25.4 mm becomes exactly one inch, mirrored on the back: {back}"
         );
         assert!(
-            back.contains("C,0.02*%"),
+            back.contains("C,0.020000*%"),
             "a 0.508 mm track is a 0.02 inch flash: {back}"
         );
         let drill = &files["pcb-Plated.drl"];
@@ -9306,8 +8952,6 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Back,
             arc: None,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 4,
@@ -9315,11 +8959,10 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
@@ -9337,7 +8980,6 @@ mod tests {
 
             kind: None,
 
-            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         project.board.cutouts.push(pcbcraft_doc::Cutout {
@@ -9388,11 +9030,8 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![through_pad, pad2],
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),
@@ -9437,6 +9076,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -9480,11 +9121,11 @@ mod tests {
             "the drill map legend lists the first tool"
         );
         assert!(
-            map.contains("X30000000Y10000000D03*\n"),
+            map.contains("X30.000000Y10.000000D03*\n"),
             "the via hole is flashed on the map"
         );
         assert!(
-            map.contains("X2000000Y0D03*\n"),
+            map.contains("X2.000000Y0.000000D03*\n"),
             "the plated pad hole is flashed on the map"
         );
         assert!(map.ends_with("M02*\n"), "the map ends cleanly");
@@ -9494,10 +9135,13 @@ mod tests {
                 && front.contains("%TF.FileFunction,Copper,L1,Top*%")
                 && front.contains("%FSLAX46Y46*%")
         );
-        assert!(front.contains("%ADD10C,0.001*%\n"), "zone fill aperture");
-        assert!(front.contains("%ADD12C,0.6*%\n"), "via copper aperture");
+        assert!(front.contains("%ADD10C,0.001000*%\n"), "zone fill aperture");
         assert!(
-            front.contains("%ADD11C,1.6*%\n"),
+            front.contains("%ADD12C,0.600000*%\n"),
+            "via copper aperture"
+        );
+        assert!(
+            front.contains("%ADD11C,1.600000*%\n"),
             "through-hole pad aperture"
         );
         assert!(
@@ -9505,11 +9149,11 @@ mod tests {
             "the poured zone must appear as a filled region"
         );
         assert!(
-            front.contains("X30000000Y10000000D03*\n"),
+            front.contains("X30.000000Y10.000000D03*\n"),
             "the via must flash on the front layer"
         );
         assert!(
-            front.contains("X2000000Y0D03*\n"),
+            front.contains("X2.000000Y0.000000D03*\n"),
             "the plated pad must flash on the front layer"
         );
         assert!(front.ends_with("M02*\n"));
@@ -9519,20 +9163,20 @@ mod tests {
             "back copper carries its file function"
         );
         assert!(
-            back.contains("X-30000000Y10000000D01*\n"),
+            back.contains("X-30.000000Y10.000000D01*\n"),
             "the back track end carries the mirrored coordinate"
         );
         assert!(
-            back.contains("X-30000000Y10000000D03*\n"),
+            back.contains("X-30.000000Y10.000000D03*\n"),
             "the via must flash on the back layer too"
         );
         let outline = &files["pcb-Edge.gbr"];
         assert!(
-            outline.contains("X0Y0D02*\nX60000000Y0D01*\n"),
+            outline.contains("X0.000000Y0.000000D02*\nX60.000000Y0.000000D01*\n"),
             "the board edge must be traced"
         );
         assert!(
-            outline.contains("X44000000Y20000000D02*\nI2000000J0G02*\n"),
+            outline.contains("X44.000000Y20.000000D02*\nI2.000000J0.000000G02*\n"),
             "the circular cutout must trace a circle"
         );
         let drill = &files["pcb-Plated.drl"];
@@ -9558,7 +9202,6 @@ mod tests {
             ..Default::default()
         });
         project.board.tracks.push(pcbcraft_doc::Track {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 3,
             net: 8,
             start: Point::new(10.0, 10.0),
@@ -9568,7 +9211,6 @@ mod tests {
             arc: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             net: 8,
             position: Point::new(30.0, 10.0),
@@ -9577,7 +9219,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -9632,11 +9274,9 @@ mod tests {
                 castellated: None,
                 geometry: Some(oval_geometry()),
             }],
-            preserved: pcbcraft_doc::PreservedSource::default(),
         };
         for id in 1..=2u64 {
             project.components.push(pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: format!("J{id}"),
@@ -9670,6 +9310,8 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             });
             project.board.footprints.push(oval_pad(id));
         }
@@ -9727,7 +9369,6 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -9772,6 +9413,8 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             };
         let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
             pcbcraft_doc::Footprint {
@@ -9799,7 +9442,6 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
-                preserved: pcbcraft_doc::PreservedSource::default(),
             }
         };
         project.components.push(component(1, "R5", "R0603", false));
@@ -9847,7 +9489,6 @@ mod tests {
         };
         for (id, reference) in [(1, "R1"), (2, "D1")] {
             project.components.push(pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -9879,6 +9520,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             });
         }
         project.nets.push(pcbcraft_doc::Net {
@@ -9938,7 +9581,6 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -9983,6 +9625,8 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             };
         let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
             pcbcraft_doc::Footprint {
@@ -10010,7 +9654,6 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
-                preserved: pcbcraft_doc::PreservedSource::default(),
             }
         };
         project.nets.push(pcbcraft_doc::Net {
@@ -10096,7 +9739,6 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -10141,6 +9783,8 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             };
         let footprint =
             |id: u64, component: u64, x: f64, y: f64, back: bool| pcbcraft_doc::Footprint {
@@ -10168,7 +9812,6 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
-                preserved: pcbcraft_doc::PreservedSource::default(),
             };
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
@@ -10194,8 +9837,6 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 30,
@@ -10203,11 +9844,10 @@ mod tests {
             position: Point::new(15.0, 11.0),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
@@ -10275,7 +9915,6 @@ mod tests {
             polygon: Vec::new(),
         };
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R5".into(),
@@ -10309,9 +9948,10 @@ mod tests {
                 },
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
             id: 2,
             reference: "U1".into(),
@@ -10345,6 +9985,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 10,
@@ -10361,8 +10003,6 @@ mod tests {
                 castellated: None,
                 geometry: Some(geometry("1", -1.0)),
             }],
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 11,
@@ -10379,36 +10019,138 @@ mod tests {
                 castellated: None,
                 geometry: Some(geometry("1", 0.0)),
             }],
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.validate()?;
-        let text = idf_board(&project)?;
+        let board = idf_board(&project)?;
         assert!(
-            text.starts_with(".FILE_IDF\n.3DIDF VERSION: 2.0\n.UNITS:\tmillmm\n"),
-            "a mechanical drawing declares itself in millimetres"
+            board.starts_with(".HEADER\nBOARD_FILE 3.0"),
+            "the board file declares IDF version 3"
         );
         assert!(
-            text.contains(".BODY 60.000 40.000 0.000 0.000"),
-            "the board outline size is carried"
+            board.contains(".BOARD_OUTLINE ECAD\n") && board.contains("0 60.000 0.0 0.0\n"),
+            "the rectangular board outline is carried in millimetres"
         );
         assert!(
-            text.contains(".END_BODY R5\t12.500\t8.250\tFRONT\t90.000\t0\n"),
-            "front parts list position, side and rotation"
+            board.contains("TEST_ONE Test/TEST_ONE R5\n12.500 8.250 0.0 90.000 TOP PLACED\n"),
+            "front parts list geometry, position, side and rotation"
         );
         assert!(
-            text.contains(".END_BODY U1\t30.000\t20.000\tFRONT\t0.000\t1\n"),
+            board.contains("TEST_ONE Test/TEST_ONE U1\n30.000 20.000 0.0 0.000 TOP PLACED\n"),
             "every part is listed in placement order"
         );
-        assert!(
-            text.contains(".PIN 2\n") && text.matches(".END_PIN {\t}").count() == 2,
-            "the embedded pin file lists every part with a default height"
-        );
-        assert!(text.ends_with(".END_FILE_IDF\n"), "the file closes");
+        assert!(board.ends_with(".END_PLACEMENT\n"), "the board file closes");
         assert_eq!(
             idf_board(&Project::default()).err(),
             Some("board has no placed footprints to export".into()),
             "an empty board is rejected"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn idf_pair_lists_each_footprint_once_and_board_references_names() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.width = 60.0;
+        project.board.height = 40.0;
+        let geometry = |number: &str, x: f64| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
+        };
+        for (id, reference, pad_x) in [(1, "R5", -1.0), (2, "U1", 0.0)] {
+            project.components.push(pcbcraft_doc::Component {
+                sheet: 0,
+                id,
+                reference: reference.into(),
+                value: "1k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: vec![pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::new(-1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                }],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                    library: "Test".into(),
+                    definition: pcbcraft_library::FootprintDefinition {
+                        name: "TEST_ONE".into(),
+                        description: String::new(),
+                        keywords: String::new(),
+                        pads: vec![geometry("1", pad_x)],
+                        graphics: vec![],
+                        model: None,
+                        rules: None,
+                        raw_source: String::new(),
+                        unsupported: vec![],
+                    },
+                }),
+                fields: vec![],
+            });
+        }
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 10,
+            component: 1,
+            position: Point::new(12.5, 8.25),
+            rotation: 90.0,
+            locked: None,
+            side: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::new(-1.0, 0.0),
+                diameter: 1.0,
+                net: None,
+                castellated: None,
+                geometry: Some(geometry("1", -1.0)),
+            }],
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 11,
+            component: 2,
+            position: Point::new(30.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::new(0.0, 0.0),
+                diameter: 1.0,
+                net: None,
+                castellated: None,
+                geometry: Some(geometry("1", 0.0)),
+            }],
+        });
+        project.validate()?;
+        let library = idf_library(&project)?;
+        assert_eq!(
+            library.matches(".ELECTRICAL\n").count(),
+            1,
+            "two instances of the same footprint share one library outline"
+        );
+        assert!(
+            library.contains("TEST_ONE Test/TEST_ONE MM 1.5\n"),
+            "the library entry uses the shared geometry name, part id and default body height"
+        );
+        let board = idf_board(&project)?;
+        assert!(
+            board.contains("TEST_ONE Test/TEST_ONE R5\n")
+                && board.contains("TEST_ONE Test/TEST_ONE U1\n"),
+            "the board references the library geometry for every placement"
         );
         Ok(())
     }
@@ -10470,12 +10212,12 @@ mod tests {
             via_drill: None,
             pair_width: None,
             pair_gap: None,
+            target_impedance: None,
             nets: vec![5],
             profile: None,
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -10499,6 +10241,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             };
         project
             .components
@@ -10520,8 +10264,6 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, Some(5))],
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 4,
@@ -10531,8 +10273,6 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, None)],
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 6,
@@ -10542,8 +10282,6 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 7,
@@ -10551,11 +10289,10 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.6,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
@@ -10632,7 +10369,6 @@ mod tests {
         ]);
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -10656,6 +10392,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             };
         project.components.push(component(1, "R2", [None, Some(9)]));
         project
@@ -10677,8 +10415,6 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad("1", -1.0, 0.0, None), pad("2", 1.0, 0.0, Some(9))],
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 4,
@@ -10688,8 +10424,6 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad("1", 0.0, 0.0, Some(5)), pad("2", 2.0, 0.0, Some(9))],
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         let text = ipc356_netlist(&project)?;
         let lines: Vec<&str> = text.lines().filter(|l| !l.starts_with('*')).collect();
@@ -10832,11 +10566,10 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
@@ -10852,7 +10585,7 @@ mod tests {
         );
         let copper = &files["pcb-F.Cu.gbr"];
         assert!(
-            copper.contains("X30000000Y20000000"),
+            copper.contains("X30.000000Y20.000000") || copper.contains("X30.000Y20.000"),
             "copper layers keep absolute coordinates"
         );
         project.board.drill_origin = Point::new(-5.0, 0.0);
@@ -10883,13 +10616,13 @@ mod tests {
         let files = gerber_files(&project)?;
         let outline = &files["pcb-Edge.gbr"];
         assert!(
-            outline.contains("X30000000Y40000000D01*")
-                && outline.contains("X30000000Y20000000D01*"),
+            outline.contains("X30.000000Y40.000000D01*")
+                && outline.contains("X30.000000Y20.000000D01*"),
             "the gerber edge layer traces every vertex"
         );
         let drawing = svg(&project, "pcb")?;
         assert!(
-            drawing.contains("<path") && !drawing.contains("<rect width=\"60\""),
+            drawing.contains("<polygon") && !drawing.contains("<rect width=\"60\""),
             "the preview draws the traced shape"
         );
         let dxf = dxf_board(&project)?;
@@ -10915,8 +10648,6 @@ mod tests {
             width: 0.2,
             layer: pcbcraft_doc::Layer::Front,
             arc: Some(Point::new(15.0, 12.0)),
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.validate()?;
         let board = kicad_board(&project)?;
@@ -10943,51 +10674,6 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn gerber_edge_layer_draws_true_arcs() -> Result<(), String> {
-        let mut project = Project::default();
-        project.board.outline = Some(vec![
-            Point::new(0.0, 2.0),
-            Point::new(20.0, 2.0),
-            Point::new(20.0, 22.0),
-            Point::new(0.0, 22.0),
-        ]);
-        project.board.outline_arcs = vec![Some(Point::new(10.0, 0.0)), None, None, None];
-        project.board.width = 20.0;
-        project.board.height = 22.0;
-        project.validate()?;
-        let files = gerber_files(&project)?;
-        let edge = &files["pcb-Edge.gbr"];
-        assert!(
-            edge.contains("G75*") && (edge.contains("G02") || edge.contains("G03")),
-            "the edge layer draws the bulged segment as a circular arc"
-        );
-        assert!(
-            edge.contains("G01*"),
-            "linear interpolation is restored before the next edge segment"
-        );
-        Ok(())
-    }
-    #[test]
-    fn dxf_board_writes_arc_entities_for_arced_edges() -> Result<(), String> {
-        let mut project = Project::default();
-        project.board.outline = Some(vec![
-            Point::new(0.0, 2.0),
-            Point::new(20.0, 2.0),
-            Point::new(20.0, 22.0),
-            Point::new(0.0, 22.0),
-        ]);
-        project.board.outline_arcs = vec![Some(Point::new(10.0, 0.0)), None, None, None];
-        project.board.width = 20.0;
-        project.board.height = 22.0;
-        project.validate()?;
-        let dxf = dxf_board(&project)?;
-        assert!(
-            dxf.contains("0\nARC\n8\nEdge\n"),
-            "arced outline segments become DXF arc entities on the Edge layer"
-        );
-        Ok(())
-    }
-    #[test]
     fn dxf_board_draws_tracks_vias_arcs_and_labels_as_entities() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
@@ -11003,8 +10689,6 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 11,
@@ -11012,11 +10696,10 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 12,
@@ -11030,7 +10713,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 13,
@@ -11040,7 +10722,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 14,
@@ -11169,7 +10850,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         let text = dxf_board(&project)?;
         let entities = dxf_entities(&text)?;
@@ -11212,7 +10892,6 @@ mod tests {
             (4, "C1", "100n"),
         ] {
             project.components.push(pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -11256,6 +10935,8 @@ mod tests {
                         "".into()
                     },
                 }],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             });
         }
         project.validate()?;
@@ -11309,7 +10990,6 @@ mod tests {
     fn bom_csv_prints_project_defined_columns_under_their_labels() -> Result<(), String> {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),
@@ -11350,6 +11030,8 @@ mod tests {
                     value: "0.1W".into(),
                 },
             ],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.bom_fields = vec![
             pcbcraft_doc::BomField {
@@ -11391,7 +11073,6 @@ mod tests {
         let mut project = Project::default();
         for (id, reference) in [(1, "R1"), (2, "R2")] {
             project.components.push(pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -11414,6 +11095,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             });
         }
         project.variants.push(pcbcraft_doc::Variant {
@@ -11554,7 +11237,6 @@ mod tests {
         }
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -11586,6 +11268,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             });
         }
         project.validate()?;
@@ -11606,98 +11290,6 @@ mod tests {
         assert!(!text.contains("R1.2"), "a pin with no net is left out");
         Ok(())
     }
-
-    fn normalize_board_import_round_trip(project: &mut Project) {
-        project.board.preserved = pcbcraft_doc::PreservedSource::default();
-        for track in &mut project.board.tracks {
-            track.preserved = pcbcraft_doc::PreservedSource::default();
-        }
-        for via in &mut project.board.vias {
-            via.preserved = pcbcraft_doc::PreservedSource::default();
-        }
-        for zone in &mut project.board.zones {
-            zone.preserved = pcbcraft_doc::PreservedSource::default();
-        }
-        for footprint in &mut project.board.footprints {
-            footprint.preserved = pcbcraft_doc::PreservedSource::default();
-        }
-        for component in &mut project.components {
-            component.library_footprint = None;
-        }
-        for footprint in &mut project.board.footprints {
-            for pad in &mut footprint.pads {
-                pad.geometry = None;
-            }
-        }
-    }
-
-    fn assert_board_import_round_trip_equivalent(a: &Project, b: &Project) {
-        assert_eq!(a.name, b.name);
-        assert_eq!(a.unit, b.unit);
-        assert_eq!(a.nets, b.nets);
-        assert_eq!(a.components, b.components);
-        assert_eq!(a.board.tracks, b.board.tracks);
-        assert_eq!(a.board.vias, b.board.vias);
-        assert_eq!(a.board.zones, b.board.zones);
-        assert_eq!(a.board.footprints, b.board.footprints);
-        assert_eq!(a.board.cutouts, b.board.cutouts);
-        assert_eq!(a.board.width, b.board.width);
-        assert_eq!(a.board.height, b.board.height);
-        assert_eq!(a.board.outline, b.board.outline);
-        assert_eq!(a.board.thickness, b.board.thickness);
-        assert_eq!(a.board.finish, b.board.finish);
-    }
-
-    #[test]
-    fn board_import_round_trip_simple_project_eq() -> Result<(), String> {
-        let fixture = include_str!("../tests/fixtures/board_import_simple_2layer.kicad_pcb");
-        let mut first = read_board_interchange(fixture)?;
-        let text = kicad_board(&first)?;
-        let mut second = read_board_interchange(&text)?;
-        normalize_board_import_round_trip(&mut first);
-        normalize_board_import_round_trip(&mut second);
-        assert_board_import_round_trip_equivalent(&first, &second);
-        Ok(())
-    }
-
-    #[test]
-    fn board_import_round_trip_zones_and_vias_project_eq() -> Result<(), String> {
-        let fixture = include_str!("../tests/fixtures/board_import_zones_vias.kicad_pcb");
-        let mut first = read_board_interchange(fixture)?;
-        let text = kicad_board(&first)?;
-        let mut second = read_board_interchange(&text)?;
-        normalize_board_import_round_trip(&mut first);
-        normalize_board_import_round_trip(&mut second);
-        assert_board_import_round_trip_equivalent(&first, &second);
-        Ok(())
-    }
-
-    #[test]
-    fn board_import_unknown_nodes_survive_export_text() -> Result<(), String> {
-        let fixture = include_str!("../tests/fixtures/board_import_unknown_nodes.kicad_pcb");
-        let project = read_board_interchange(fixture)?;
-        let text = kicad_board(&project)?;
-        for token in [
-            "legacy_board_tag",
-            "legacy_footprint_tag",
-            "legacy_segment_tag",
-            "legacy_zone_tag",
-        ] {
-            assert!(text.contains(token), "export must preserve {token}");
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn board_import_malformed_refuses_with_line_number() -> Result<(), String> {
-        let text = "(kicad_pcb\n (segment (start 0 0)\n";
-        let err = read_board_interchange(text)
-            .err()
-            .ok_or("expected malformed board import to fail")?;
-        assert!(err.contains("line"), "expected a line number in {err:?}");
-        Ok(())
-    }
-
     #[test]
     fn gencad_text_records_components_pins_and_nets_in_mils() -> Result<(), String> {
         let project = real_library_project()?;
@@ -11795,7 +11387,6 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -11840,6 +11431,8 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             };
         let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
             pcbcraft_doc::Footprint {
@@ -11867,7 +11460,6 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
-                preserved: pcbcraft_doc::PreservedSource::default(),
             }
         };
         project.nets.push(pcbcraft_doc::Net {
@@ -11941,7 +11533,6 @@ mod tests {
             ..geometry.clone()
         };
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),
@@ -11986,6 +11577,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 11,
@@ -12012,8 +11605,6 @@ mod tests {
                     geometry: Some(geometry_two),
                 },
             ],
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 21,
@@ -12023,8 +11614,6 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Back,
             arc: None,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 31,
@@ -12032,11 +11621,10 @@ mod tests {
             position: Point::new(4.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
@@ -12129,7 +11717,6 @@ mod tests {
         }
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -12161,6 +11748,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             });
         }
         project.validate()?;
@@ -12191,11 +11780,10 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 1.4,
             drill: 0.8,
-            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -12218,7 +11806,6 @@ mod tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
             id: 3,
             reference: "R9".into(),
@@ -12250,6 +11837,8 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.drawn_wires.push(pcbcraft_doc::DrawnWire {
             id: 2,
@@ -12306,7 +11895,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 2,
@@ -12316,7 +11904,6 @@ mod tests {
             width: 1.5,
             text: "REV B".into(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 3,
@@ -12326,7 +11913,6 @@ mod tests {
             width: 4.0,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.validate()?;
         let schematic = svg(&project, "schematic")?;
@@ -12666,7 +12252,6 @@ mod tests {
         symbol.validate().map_err(|e| e.to_string())?;
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "U1".into(),
@@ -12691,6 +12276,8 @@ mod tests {
             }),
             library_footprint: None,
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.validate()?;
         let png = preview_png(&project, "schematic")?;
@@ -12962,8 +12549,6 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.validate()?;
         Ok(project)
@@ -13291,8 +12876,6 @@ mod tests {
             locked: None,
             side: None,
             pads: placed,
-
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.validate()?;
         Ok(project)
@@ -13416,7 +12999,6 @@ mod tests {
             ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             net: 8,
             position: Point::new(5.0, 5.0),
@@ -13425,7 +13007,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -13451,7 +13033,6 @@ mod tests {
             ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 4,
             net: 8,
             position: Point::new(5.0, 5.0),
@@ -13460,7 +13041,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -13847,129 +13428,6 @@ mod tests {
         Ok(())
     }
 
-    fn fixture_dir() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-    }
-
-    fn schematic_snapshot(project: &Project) -> serde_json::Value {
-        let mut components: Vec<String> = project
-            .components
-            .iter()
-            .map(|c| c.reference.clone())
-            .collect();
-        components.sort();
-        let mut nets: Vec<String> = project.nets.iter().map(|n| n.name.clone()).collect();
-        nets.sort();
-        serde_json::json!({
-            "name": project.name,
-            "components": components,
-            "nets": nets,
-            "junctions": project.labels.iter().filter(|l| l.kind == "junction").count(),
-            "no_connects": project.no_connects.len(),
-            "drawn_wires": project.drawn_wires.len(),
-            "sheets": project.sheets.len(),
-            "ports": project.ports.len(),
-            "bus_labels": project.labels.iter().filter(|l| l.kind == "bus").count(),
-        })
-    }
-
-    fn load_schematic_golden(name: &str) -> Result<serde_json::Value, String> {
-        let path = fixture_dir().join(name);
-        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&text).map_err(|e| e.to_string())
-    }
-
-    #[test]
-    fn schematic_import_flat_matches_golden_json() -> Result<(), String> {
-        let text = std::fs::read_to_string(fixture_dir().join("schematic_import_flat.kicad_sch"))
-            .map_err(|e| e.to_string())?;
-        let project = read_schematic_interchange(&text)?;
-        let snapshot = schematic_snapshot(&project);
-        let golden = load_schematic_golden("schematic_import_flat.golden.json")?;
-        assert_eq!(snapshot["name"], golden["name"]);
-        assert_eq!(snapshot["components"], golden["components"]);
-        assert_eq!(snapshot["nets"], golden["nets"]);
-        assert_eq!(snapshot["junctions"], golden["junctions"]);
-        assert_eq!(snapshot["no_connects"], golden["no_connects"]);
-        assert_eq!(snapshot["drawn_wires"], golden["drawn_wires"]);
-        Ok(())
-    }
-
-    #[test]
-    fn schematic_import_hierarchy_matches_golden_json() -> Result<(), String> {
-        let path = fixture_dir().join("schematic_import_hierarchy_root.kicad_sch");
-        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let project = read_schematic_interchange_path(&path, &text)?;
-        let snapshot = schematic_snapshot(&project);
-        let golden = load_schematic_golden("schematic_import_hierarchy.golden.json")?;
-        assert_eq!(snapshot["components"], golden["components"]);
-        assert_eq!(snapshot["nets"], golden["nets"]);
-        assert_eq!(snapshot["sheets"], golden["sheets"]);
-        assert_eq!(snapshot["ports"], golden["ports"]);
-        let net = project
-            .nets
-            .iter()
-            .find(|n| n.name == "IN1")
-            .ok_or("missing IN1 net")?;
-        let root_pin = project
-            .components
-            .iter()
-            .find(|c| c.reference == "R1")
-            .and_then(|c| c.pins.iter().find(|p| p.number == "1"))
-            .and_then(|p| p.net);
-        let child_pin = project
-            .components
-            .iter()
-            .find(|c| c.reference == "R2")
-            .and_then(|c| c.pins.iter().find(|p| p.number == "1"))
-            .and_then(|p| p.net);
-        if root_pin != Some(net.id) || child_pin != Some(net.id) {
-            return Err("cross-page net did not reach both pages".into());
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn schematic_import_bus_derives_member_nets() -> Result<(), String> {
-        let text = std::fs::read_to_string(fixture_dir().join("schematic_import_bus.kicad_sch"))
-            .map_err(|e| e.to_string())?;
-        let project = read_schematic_interchange(&text)?;
-        let golden = load_schematic_golden("schematic_import_bus.golden.json")?;
-        let mut nets: Vec<String> = project.nets.iter().map(|n| n.name.clone()).collect();
-        nets.sort();
-        assert_eq!(
-            serde_json::to_value(&nets).map_err(|e| e.to_string())?,
-            golden["member_nets"]
-        );
-        assert_eq!(
-            project.labels.iter().filter(|l| l.kind == "bus").count(),
-            golden["bus_labels"].as_u64().unwrap_or(0) as usize
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn schematic_import_malformed_refuses_with_line_number() {
-        let err = read_schematic_interchange("(kicad_sch (version 20250114)\n(broken")
-            .err()
-            .unwrap_or_default();
-        assert!(
-            err.contains("line"),
-            "malformed import should name a line number: {err}"
-        );
-    }
-
-    #[test]
-    fn schematic_import_legacy_cache_library_refused() {
-        let text = std::fs::read_to_string(fixture_dir().join("schematic_import_legacy.kicad_sch"))
-            .unwrap_or_default();
-        let err = read_schematic_interchange(&text).err().unwrap_or_default();
-        assert!(
-            err.contains("embedded symbol definitions"),
-            "legacy file should be refused plainly: {err}"
-        );
-    }
-
     #[test]
     fn mask_and_paste_layers_export_for_smd_pads_with_rules_margins() -> Result<(), String> {
         let smd = pcbcraft_library::FootprintPad {
@@ -13988,7 +13446,6 @@ mod tests {
         };
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "C1".into(),
@@ -14026,9 +13483,10 @@ mod tests {
                 },
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 2,
             component: 1,
             position: Point::new(12.0, 8.0),
@@ -14121,7 +13579,6 @@ mod tests {
     fn six_layer_three_span_drill_files() -> Result<(), String> {
         let mut project = six_layer_project();
         let via = |id, x, from: Option<u8>, to: Option<u8>| pcbcraft_doc::Via {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id,
             net: 1,
             position: Point::new(x, 5.0),
@@ -14130,7 +13587,7 @@ mod tests {
             from_layer: from.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             covering: None,
-            covering_bottom: None,
+            covering_scope: None,
         };
         project.board.vias.push(via(10, 5.0, None, None));
         project.board.vias.push(via(11, 7.0, None, Some(1)));
@@ -14261,7 +13718,6 @@ mod tests {
         project.board.via_covering_default = default;
         for (id, x, covering) in [(10, 10.0, own), (11, 20.0, None)] {
             project.board.vias.push(pcbcraft_doc::Via {
-                preserved: pcbcraft_doc::PreservedSource::default(),
                 id,
                 net: 1,
                 position: Point::new(x, 10.0),
@@ -14270,7 +13726,7 @@ mod tests {
                 from_layer: None,
                 to_layer: None,
                 covering,
-                covering_bottom: None,
+                covering_scope: None,
             });
         }
         project.validate()?;
@@ -14345,8 +13801,8 @@ mod tests {
             "{drill}"
         );
         assert!(
-            !drill.contains("via protection:"),
-            "the comment line is gone: {drill}"
+            !drill.contains("; via protection:"),
+            "covering travels in the tool attribute: {drill}"
         );
         assert_eq!(
             drill.matches("; #@! TD\n").count(),
@@ -14378,7 +13834,6 @@ mod tests {
             ]
         };
         p.board.zones.push(pcbcraft_doc::CopperZone {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 10,
             net: 1,
             layer: pcbcraft_doc::Layer::Front,
@@ -14463,7 +13918,6 @@ mod tests {
             p.components.push(c);
         }
         p.board.footprints.push(pcbcraft_doc::Footprint {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 20,
             component: 4,
             position: Point::new(20.0, 20.0),

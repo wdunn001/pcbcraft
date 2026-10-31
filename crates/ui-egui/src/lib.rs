@@ -48,6 +48,7 @@ mod hover_affordance;
 mod icons;
 mod impedance_panel;
 mod keymap;
+mod layer_visibility;
 mod layers_tree;
 mod library;
 mod library_builtin;
@@ -92,19 +93,25 @@ mod pour_panel;
 mod properties;
 mod reference_panel;
 mod route_drag;
+mod rules_fab;
+mod sheet_rows;
+mod showcase;
+mod sources;
+mod sourcing_panel;
+mod pages;
+mod palette;
+mod plot_viewer;
+mod pour_panel;
+mod properties;
+mod reference_panel;
+mod route_drag;
+mod setup_wizard;
 mod library_quality;
 mod minimap;
 mod modifier_ui;
 mod motion;
 mod number_entry;
-mod pages;
-mod palette;
-mod plot_viewer;
-mod pour_panel;
-mod properties;
-mod reference_panel;
-mod route_drag;
-mod rules_fab;
+mod outline_arcs;
 mod sheet_rows;
 mod modifier_ui;
 mod motion;
@@ -118,6 +125,7 @@ mod reference_panel;
 mod route_drag;
 mod rules_fab;
 mod sheet_rows;
+mod schematic_port;
 mod showcase;
 mod sources;
 mod sourcing_panel;
@@ -491,6 +499,7 @@ fn tool_hint(tool: &Tool) -> String {
             t!("board.tool_hint.lmb_click_two_points_to", common = common)
         }
         Tool::Via => t!("board.tool_hint.lmb_via", common = common),
+        Tool::Port => t!("schematic.port.tool_hint", common = common),
     }
 }
 
@@ -753,6 +762,9 @@ struct Preferences {
     /// Library cards the person starred, by card key.
     #[serde(default)]
     library_favourites: Vec<String>,
+    /// When on, placing an open-library part also fetches its 3D model into the local cache.
+    #[serde(default)]
+    fetch_open_library_3d: bool,
     /// Region layout per workspace id; missing means the workspace default.
     #[serde(default)]
     layouts: std::collections::BTreeMap<String, workspace::RegionLayout>,
@@ -823,6 +835,9 @@ struct Preferences {
     /// Remapped tool modifiers and tool hotkeys; empty means classic defaults.
     #[serde(default)]
     modifiers: tool_modifiers::Bindings,
+    /// After the design setup wizard is finished or skipped, do not open it on every new design.
+    #[serde(default)]
+    setup_wizard_seen: bool,
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -859,6 +874,7 @@ impl Default for Preferences {
             aside_lower_tab: 0,
             left_tab: 0,
             library_favourites: Vec::new(),
+            fetch_open_library_3d: false,
             layouts: std::collections::BTreeMap::new(),
             language: default_language(),
             recent_files: Default::default(),
@@ -903,6 +919,7 @@ dark: true,
             active_keymap_profile: default_keymap_profile(),
             keymap_profiles: default_keymap_profiles(),
             modifiers: Default::default(),
+            setup_wizard_seen: false,
         }
     }
 }
@@ -1052,6 +1069,7 @@ enum Tool {
     DrawLayer,
     Measure,
     Via,
+    Port,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -1276,6 +1294,7 @@ pub struct App {
     sync_behind: Option<(u64, bool)>,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
+    setup_wizard: setup_wizard::State,
     /// Left edge of the central page, so tests can check text keeps its margin.
     page_left: f32,
     schematic: Camera,
@@ -1283,10 +1302,13 @@ pub struct App {
     active_page: Id,
     /// The net each page's Add power port picker holds.
     power_pick: std::collections::BTreeMap<Id, Id>,
+    /// Name the Port tool places on the next canvas click.
+    port_pick_name: String,
     pcb: Camera,
     plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
     route_drag: route_drag::State,
+    outline_ui: outline_arcs::OutlineUi,
     drag_offset: Point,
     cursor: Option<Point>,
     canvas_rect: Rect,
@@ -2044,8 +2066,10 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             pinned_view: None,
             sync_behind: None,
             renumber_open: false,
+            setup_wizard: setup_wizard::State::default(),
             active_page: 0,
             power_pick: std::collections::BTreeMap::new(),
+            port_pick_name: String::new(),
             page_left: 0.0,
             schematic: Camera {
                 mirror: false,
@@ -2064,6 +2088,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             },
             drag: None,
             route_drag: route_drag::State::default(),
+            outline_ui: outline_arcs::OutlineUi::default(),
             drag_offset: Point::default(),
             cursor: None,
             canvas_rect: Rect::NOTHING,
@@ -2359,6 +2384,9 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             self.assistant_design_opened(name);
             self.needs_fit = true;
         }
+        if success && name == "new_design" && !self.preferences.setup_wizard_seen {
+            self.open_setup_wizard();
+        }
         success
     }
 
@@ -2381,6 +2409,9 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         self.selected = id;
         self.edit.extra.clear();
         self.selected_unit = 1;
+        if id.is_some() {
+            self.outline_ui.clear_pick();
+        }
         self.load_properties();
     }
     fn load_properties(&mut self) {
@@ -2448,11 +2479,25 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         self.layer_shown(&layers_tree::page_row_name(page, row))
     }
     fn layer_shown(&self, name: &str) -> bool {
-        !self
-            .preferences
-            .hidden_layers
-            .iter()
-            .any(|hidden| hidden == name)
+        !layer_visibility::hidden_contains_legacy(&self.preferences.hidden_layers, name)
+    }
+    pub(crate) fn board_sub_effective(
+        &self,
+        side_path: &str,
+        sub: layer_visibility::SubLayer,
+    ) -> bool {
+        layer_visibility::sub_effective(&self.preferences.hidden_layers, side_path, sub)
+    }
+    pub(crate) fn board_sub_effective_on_layer(
+        &self,
+        layer: pcbcraft_doc::Layer,
+        sub: layer_visibility::SubLayer,
+    ) -> bool {
+        let side = layer_visibility::side_path_for_layer(
+            self.project.copper_layer_count(),
+            layer,
+        );
+        self.board_sub_effective(&side, sub)
     }
     fn stackup_section(&mut self, ui: &mut egui::Ui) {
         ui.label(
@@ -3472,7 +3517,46 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    home_btn,
+[300.0, 48.0],
+                                    egui::Button::new(
+                                        egui::RichText::new("Design setup wizard").size(14.0),
+                                    ),
+                                )
+                                .on_hover_text(
+                                    "Reopen the guided board setup for size, layers, and rules.",
+                                )
+                                .clicked()
+                            {
+                                self.open_setup_wizard();
+                                self.home_open = false;
+                            }
+                            ui.add_space(6.0);
+                            if ui
+                                .add_sized(
+                                    [300.0, 64.0],
+                                    egui::Button::new((
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.worked_example"
+                                        ))
+                                        .size(16.0)
+                                        .strong(),
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.a_small_battery_resistor_and"
+                                        ))
+                                        .small()
+                                        .color(self.muted()),
+                                    )),
+                                )
+                                .on_hover_text(t!("dialogs.start_home.begin_with_a_blank_page.tip"))
+                                .clicked()
+                            {
+                                self.tool_call("new_design", json!({}));
+                                self.select(None);
+                                self.home_open = false;
+                            }
+                            ui.add_space(6.0);
+                            if ui
+                                .add_sized(
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.worked_example"
@@ -4874,6 +4958,15 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         ui.add_space(10.0);
         ui.heading(t!("settings.settings_tab.settings"));
         self.stackup_section(ui);
+        if ui
+            .button("Open design setup wizard")
+            .on_hover_text(
+                "Walk through board size, layers, fabrication preset, and starter net classes.",
+            )
+            .clicked()
+        {
+            self.open_setup_wizard();
+        }
         ui.separator();
         ui.label(t!("settings.settings_tab.how_the_app_looks_and"));
         ui.add_space(10.0);
@@ -4979,11 +5072,6 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 .size(10.0)
                 .color(self.muted()),
         );
-        ui.checkbox(
-            &mut self.preferences.chamfer_corners,
-            t!("settings.settings_tab.chamfer_corners"),
-        )
-        .on_hover_text(t!("settings.settings_tab.chamfer_corners.tip"));
         route_drag::shove_checkbox(self, ui);
         modifier_ui::keys_section(self, ui);
         ui.add_space(16.0);
@@ -5687,6 +5775,30 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 .small()
                 .color(self.muted()),
         );
+        if let Some(rules) = self.project.board.rules.as_ref() {
+            ui.label(
+                egui::RichText::new("Fabrication minimums")
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            if let Some(name) = rules.preset.as_deref() {
+                ui.label(format!("Preset: {name}"))
+                    .on_hover_text("Named fabrication preset applied to this board.");
+            }
+            if let Some(v) = rules.min_track {
+                ui.label(format!("Min track {v:.3} mm"))
+                    .on_hover_text("Smallest routed width the fab accepts.");
+            }
+            if let Some(v) = rules.min_space {
+                ui.label(format!("Min space {v:.3} mm"))
+                    .on_hover_text("Smallest copper gap the fab accepts.");
+            }
+            if let Some(v) = rules.min_drill {
+                ui.label(format!("Min drill {v:.3} mm"))
+                    .on_hover_text("Smallest drilled hole the fab accepts.");
+            }
+            ui.add_space(8.0);
+        }
         if let Some(pick) = &self.class_pick
             && !self.project.nets.iter().any(|n| n.name == *pick)
         {
@@ -6936,10 +7048,27 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.draw_tool_options(ui));
                     }
+                    if matches!(self.tool, Tool::Port) {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.port_tool_options(ui));
+                    }
                     if let Some(page) = self.hovered_page_preview() {
                         self.page_properties(ui, page, true);
                     } else if self.selected.is_none() && self.tree.selected_key.is_some() {
                         self.tree_row_properties(ui);
+                    } else if self.selected.is_none()
+                        && self.project.board.outline.is_some()
+                        && (self.outline_ui.segment.is_some()
+                            || self
+                                .tree
+                                .selected_key
+                                .as_deref()
+                                .is_some_and(|k| k == "edge" || k.ends_with("/edge")))
+                    {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.outline_inspector(ui));
                     } else if let Some(id) = self
                         .selected
                         .filter(|id| datums::is_datum(&self.project, *id))
@@ -7854,7 +7983,19 @@ impl App {
         self.footer(ui);
 self.recovery_window(ui);
         self.renumber_window(&ctx);
+return;
+        }
+        self.file_shortcuts(&ctx);
+        self.shortcuts(&ctx);
+        if self.compare_open {
+            self.compare_window(&ctx);
+        }
+        self.edit_events(&ctx);
+        self.header(ui);
+        self.footer(ui);
+        self.setup_wizard_window(&ctx);
         self.recovery_window(ui);
+        self.renumber_window(&ctx);
         if self.home_open {
             self.start_home(ui);
         } else {

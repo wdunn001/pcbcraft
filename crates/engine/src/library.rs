@@ -348,28 +348,11 @@ fn built_in_roots() -> Vec<PathBuf> {
     }
     roots
 }
-fn starter_models_list() -> Result<Value, String> {
-    let models: Vec<Value> = pcbcraft_library::starter_models::all()
-        .iter()
-        .map(|m| {
-            json!({
-                "id": m.id,
-                "file_name": m.file_name,
-                "bytes": m.bytes.len(),
-                "footprint_names": m.footprint_names,
-                "license_title": m.license_title,
-                "source": m.source,
-            })
-        })
-        .collect();
-    Ok(json!({
-        "models": models,
-        "license_file": "crates/library/assets/starter_models/LICENSE.md",
-    }))
-}
-
 pub fn catalog() -> Result<Value, String> {
-    catalog_paths(paths(), 4096)
+    let mut out = catalog_paths(paths(), 4096)?;
+    out["configurable_connectors"] =
+        pcbcraft_library::connector_catalog::ConnectorCatalog::summary_json()?;
+    Ok(out)
 }
 fn catalog_paths(roots: Vec<PathBuf>, scan_limit: usize) -> Result<Value, String> {
     let mut symbol_files = vec![];
@@ -578,7 +561,7 @@ const DEFAULT_LIST_LIMIT: usize = 30;
 
 fn source_rank(source: ListingSource) -> u8 {
     match source {
-        ListingSource::Fixture => 0,
+        ListingSource::Fixture | ListingSource::Generated => 0,
         ListingSource::Project => 1,
         ListingSource::Installed => 2,
         ListingSource::OpenLibrary => 3,
@@ -807,6 +790,7 @@ pub fn list_over(
     roots: Vec<PathBuf>,
 ) -> Result<Value, String> {
     let (filter, limit, cursor, mut listings) = list_args(args)?;
+    listings.extend(pcbcraft_library::connector_catalog::ConnectorCatalog::listings()?);
     listings.extend(project.map(project_listings).unwrap_or_default());
     let room = MAX_LISTINGS.saturating_sub(listings.len());
     let (installed, found) = installed_listings(roots, room);
@@ -827,7 +811,6 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     };
     match name {
         "library.catalog" => catalog(),
-        "library.starter_models.list" => starter_models_list(),
         "library.sources" => sources(),
         "library.list" => list_with_project(args, None),
         "design.recents" => Ok(json!({"designs": crate::recents::load_recent_paths()})),
@@ -912,17 +895,10 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
                 &optional("name_b")?,
             )
         }
-        "library.drop_in_check" => {
-            let part = |key: &str| -> Result<pcbcraft_library::DropInPart, String> {
-                args.get(key)
-                    .ok_or_else(|| format!("missing {key}"))
-                    .and_then(|v| {
-                        serde_json::from_value(v.clone())
-                            .map_err(|e| format!("{key} could not be read: {e}"))
-                    })
-            };
-            let report = pcbcraft_library::drop_in_check(&part("incumbent")?, &part("candidate")?)?;
-            Ok(serde_json::to_value(report).map_err(|e| e.to_string())?)
+        "library.samtec.manufacturer_page" => {
+            let url = pcbcraft_library::samtec::manufacturer_page_url(text("mpn")?)
+                .map_err(|e| e.to_string())?;
+            Ok(json!({"url": url}))
         }
         _ => Err("unknown library query".into()),
     }
@@ -937,7 +913,10 @@ mod tests {
     impl TestDirectory {
         fn new() -> Result<Self, String> {
             static NEXT: AtomicU64 = AtomicU64::new(0);
-            let timestamp = pcbcraft_clock::unix_nanos();
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_nanos();
             let path = std::env::temp_dir().join(format!(
                 "pcbcraft-library-test-{}-{timestamp}-{}",
                 std::process::id(),
@@ -1105,17 +1084,6 @@ mod tests {
         Ok(())
     }
     #[test]
-    #[test]
-    fn starter_models_list_returns_the_bundled_catalog() -> Result<(), String> {
-        let list = read_tool("library.starter_models.list", &json!({}))?;
-        let models = list["models"]
-            .as_array()
-            .ok_or("models must be an array")?;
-        assert!(!models.is_empty());
-        assert!(models.iter().any(|m| m["id"] == "chip_resistor_0603"));
-        Ok(())
-    }
-
     fn library_source_tools_answer_through_the_read_tool_router() -> Result<(), String> {
         let _guard = SOURCES_TEST_LOCK
             .lock()
@@ -1202,12 +1170,52 @@ mod tests {
     }
 
     #[test]
+    fn library_list_includes_embedded_samtec_connector_series() -> Result<(), String> {
+        let out = list_over(
+            &json!({"filter": {"text": "TSW"}, "limit": 10}),
+            None,
+            vec![],
+        )?;
+        let mpns: Vec<String> = out["items"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item["mpn"].as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(mpns.iter().any(|mpn| mpn == "TSW"));
+        let sources: Vec<&str> = out["items"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item["source"].as_str())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(sources.contains(&"generated"));
+        Ok(())
+    }
+
+    #[test]
     fn library_list_refuses_a_bad_limit_and_too_many_categories() {
         for limit in [0, 101] {
             assert!(read_tool("library.list", &json!({"limit": limit})).is_err());
         }
         let many = json!({"categories": vec!["led"; 17]});
         assert!(read_tool("library.list", &json!({"filter": many})).is_err());
+    }
+
+    #[test]
+    fn samtec_manufacturer_page_query_returns_the_product_url() -> Result<(), String> {
+        let out = read_tool(
+            "library.samtec.manufacturer_page",
+            &json!({"mpn":"TSW-103-07-G-S"}),
+        )?;
+        assert_eq!(out["url"], "https://www.samtec.com/products/tsw-103-07-g-s");
+        Ok(())
     }
 
     #[test]
@@ -1250,35 +1258,6 @@ mod tests {
             "{kinds:?}"
         );
         assert_eq!(kinds[0], "fixture", "groups follow the fixed source order");
-        Ok(())
-    }
-
-    #[test]
-    fn library_drop_in_check_routes_through_the_read_tool() -> Result<(), String> {
-        let part = json!({
-            "footprint": "lib/resistor-0603",
-            "package_key": "chip-0603",
-            "pads": ["1", "2"],
-            "pins": [
-                {"number": "1", "name": "~", "electrical_type": "passive"},
-                {"number": "2", "name": "~", "electrical_type": "passive"}
-            ],
-            "category": "resistor",
-            "lifecycle": "active",
-            "value": 10000.0,
-            "value_unit": "ohm",
-            "tolerance_pct": [1.0, 1.0],
-            "rated_voltage_v": 50.0,
-            "temp_min_c": -55.0,
-            "temp_max_c": 155.0,
-            "power_w": 0.1,
-            "height_mm": 0.55
-        });
-        let out = read_tool(
-            "library.drop_in_check",
-            &json!({"incumbent": part.clone(), "candidate": part}),
-        )?;
-        assert_eq!(out["drop_in"], json!(true));
         Ok(())
     }
 }

@@ -453,6 +453,14 @@ pub fn build(g: &mut Gen) -> Res<()> {
             json!({"name": name, "kind": kind, "thickness": t}),
         )?;
     }
+    g.cmd(
+        "board.set_copper_layer_role",
+        json!({"layer": "In1.Cu", "role": "ground"}),
+    )?;
+    g.cmd(
+        "board.set_copper_layer_role",
+        json!({"layer": "In2.Cu", "role": "power"}),
+    )?;
     g.cmd("board.set_finish", json!({"finish": "ENIG"}))?;
     g.cmd("board.rules.set", json!({"clearance": 0.15}))?;
     for (reference, x, y, rot) in layout::PLACEMENT {

@@ -459,6 +459,33 @@ fn a_newcomer_finds_a_chip_package_by_name_and_places_it_on_the_board() -> Resul
     Ok(())
 }
 
+#[test]
+fn open_library_3d_models_fetch_only_when_the_person_asks() -> Result<(), String> {
+    use crate::library_online;
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    use_recorded_library(&mut app, "real-part")?;
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let off = library_online::import_open(&source, "Device/R", false)?;
+    assert!(off.get("model").is_none());
+    assert_eq!(off["notices"].as_array().map(|a| a.len()), Some(2));
+    let on = library_online::import_open(&source, "Device/R", true)?;
+    assert!(on.get("model").is_some());
+    assert_eq!(on["notices"].as_array().map(|a| a.len()), Some(3));
+    assert!(
+        on["notices"]
+            .as_array()
+            .and_then(|a| a.last())
+            .and_then(|v| v.as_str())
+            .is_some_and(|n| n.contains("CC-BY-SA 4.0") && n.contains(".step")),
+        "the model notice carries the licence and file"
+    );
+    Ok(())
+}
+
 /// A footprint whose two pads sit on top of each other, saved into the
 /// project library the way an import would.
 fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {

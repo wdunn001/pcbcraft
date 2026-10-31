@@ -99,6 +99,7 @@ mod library_workspace;
 mod minimap;
 mod modifiers;
 mod nets;
+mod outline_arcs;
 mod pairs;
 mod part_listing;
 mod pours;
