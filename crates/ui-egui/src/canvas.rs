@@ -115,6 +115,7 @@ pub(crate) fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
     Camera {
         mirror: false,
         turns: 0,
+        up: false,
         center: Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0),
         zoom,
     }
@@ -414,9 +415,7 @@ impl App {
             let top_left = Align2::CENTER_CENTER.anchor_size(center, galley.size()).min;
             painter.add(
                 egui::epaint::TextShape::new(top_left, galley, color).with_angle_and_anchor(
-                    ((-angle - rotation) * if camera.mirror { -1.0 } else { 1.0 }).to_radians()
-                        as f32
-                        + camera.turns as f32 * std::f32::consts::FRAC_PI_2,
+                    camera.text_angle((-angle - rotation).to_radians()),
                     Align2::CENTER_CENTER,
                 ),
             );
@@ -484,7 +483,7 @@ impl App {
         let resized = fitted_at.is_some_and(|last| last != size);
         if (self.needs_fit || resized) && rect.width() > 40.0 && rect.height() > 40.0 {
             let (lo, hi) = view_bounds(&self.project, self.tab == Tab::Pcb);
-            let (keep_mirror, keep_turns) = (camera.mirror, camera.turns);
+            let (keep_mirror, keep_turns, keep_up) = (camera.mirror, camera.turns, camera.up);
             let panel = if keep_turns % 2 == 1 {
                 (rect.height(), rect.width())
             } else {
@@ -493,6 +492,7 @@ impl App {
             camera = fit_camera(lo, hi, panel);
             camera.mirror = keep_mirror;
             camera.turns = keep_turns;
+            camera.up = keep_up;
             self.needs_fit = false;
             ui.ctx().data_mut(|d| d.insert_temp(fit_key, size));
         }
@@ -502,7 +502,7 @@ impl App {
             && let Some(id) = self.selected
             && let Some((lo, hi)) = selection_bounds(&self.project, id)
         {
-            let (keep_mirror, keep_turns) = (camera.mirror, camera.turns);
+            let (keep_mirror, keep_turns, keep_up) = (camera.mirror, camera.turns, camera.up);
             let panel = if keep_turns % 2 == 1 {
                 (rect.height(), rect.width())
             } else {
@@ -511,6 +511,7 @@ impl App {
             camera = fit_camera(lo, hi, panel);
             camera.mirror = keep_mirror;
             camera.turns = keep_turns;
+            camera.up = keep_up;
             self.needs_zoom_selection = false;
         }
         let held = crate::tool_modifiers::held_now(ui.ctx());
@@ -2311,9 +2312,15 @@ sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
                     Point::new(m.x.max(p.x), m.y.max(p.y))
                 });
             let label_x = (min.x + max.x) / 2.0;
-            let reference_at = camera.screen(f.position.offset(Point::new(label_x, min.y)), rect)
+            // The reference reads above the part and the value below it on screen.
+            let (top_y, bottom_y) = if camera.up {
+                (max.y, min.y)
+            } else {
+                (min.y, max.y)
+            };
+            let reference_at = camera.screen(f.position.offset(Point::new(label_x, top_y)), rect)
                 - Vec2::new(0.0, 12.0);
-            let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
+            let value_at = camera.screen(f.position.offset(Point::new(label_x, bottom_y)), rect)
                 + Vec2::new(0.0, 12.0);
             let silk_fade = stack.silk_alpha(on_bottom);
             let color = if let Some(kind) = self.compare_tint.get(&f.id).copied() {
@@ -2560,6 +2567,7 @@ mod library_render_tests {
                 let camera = Camera {
                     mirror: false,
                     turns: 0,
+                    up: false,
                     center: Point::default(),
                     zoom: 10.0,
                 };
@@ -2656,6 +2664,7 @@ mod library_render_tests {
                         Camera {
                             mirror: false,
                             turns: 0,
+                            up: false,
                             center: Point::default(),
                             zoom: 20.0,
                         },

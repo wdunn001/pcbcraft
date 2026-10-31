@@ -1069,8 +1069,10 @@ enum DrawShape {
 /// so drawing and picking cannot disagree.
 ///
 /// # Rules
-/// - Order: shift to the centre, mirror x, turn clockwise by `turns` quarters,
-///   then scale. `turns` is always 0 to 3.
+/// - Order: shift to the centre, mirror x, lift y when `up` is set, turn
+///   clockwise by `turns` quarters, then scale. `turns` is always 0 to 3.
+/// - The board view sets `up`: world +y points up the screen, as in the
+///   manufacturing files and the 3D view. The schematic keeps y down.
 ///
 /// # Do not
 /// - Offset the centre by screen amounts; use [`Camera::pan_screen`].
@@ -1082,11 +1084,16 @@ struct Camera {
     mirror: bool,
     /// Quarter turns clockwise on screen.
     turns: u8,
+    /// World +y points up the screen (the board view). Off, y runs down.
+    up: bool,
 }
 impl Camera {
     /// A zoom-free offset taken through the mirror and the turns.
     fn turn(self, dx: f64, dy: f64) -> (f64, f64) {
-        let (mut x, mut y) = (if self.mirror { -dx } else { dx }, dy);
+        let (mut x, mut y) = (
+            if self.mirror { -dx } else { dx },
+            if self.up { -dy } else { dy },
+        );
         for _ in 0..(self.turns % 4) {
             (x, y) = (-y, x);
         }
@@ -1098,7 +1105,10 @@ impl Camera {
         for _ in 0..(self.turns % 4) {
             (x, y) = (y, -x);
         }
-        (if self.mirror { -x } else { x }, y)
+        (
+            if self.mirror { -x } else { x },
+            if self.up { -y } else { y },
+        )
     }
     fn screen(self, p: Point, rect: Rect) -> egui::Pos2 {
         let (x, y) = self.turn(p.x - self.center.x, p.y - self.center.y);
@@ -1117,6 +1127,19 @@ impl Camera {
         let z = self.zoom as f64;
         let (x, y) = self.unturn(d.x as f64 / z, d.y as f64 / z);
         self.center = self.center.offset(Point::new(-x, -y));
+    }
+    /// The on-screen angle (egui: clockwise, radians) of text whose baseline
+    /// runs along world angle `world` (radians, from +x toward +y). Mirrored
+    /// views keep the text readable instead of reversing it.
+    fn text_angle(self, world: f64) -> f32 {
+        let (dx, dy) = self.turn(world.cos(), world.sin());
+        let screen = dy.atan2(dx) as f32;
+        let flipped = screen + std::f32::consts::PI;
+        match (self.mirror, flipped > std::f32::consts::PI) {
+            (false, _) => screen,
+            (true, false) => flipped,
+            (true, true) => flipped - std::f32::consts::TAU,
+        }
     }
     /// Where world +x and +y point on screen, as unit vectors.
     fn axes(self) -> (Vec2, Vec2) {
@@ -1989,6 +2012,7 @@ impl App {
             schematic: Camera {
                 mirror: false,
                 turns: 0,
+                up: false,
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
@@ -1996,6 +2020,7 @@ impl App {
             pcb: Camera {
                 mirror: false,
                 turns: 0,
+                up: true,
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
