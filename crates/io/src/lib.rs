@@ -7,8 +7,7 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
-#[cfg(not(target_arch = "wasm32"))]
-mod datasheet;
+mod assembly_profiles;
 mod bitmap_trace;
 mod board_mesh;
 mod datasheet_cache;
@@ -31,10 +30,6 @@ mod interface_profile;
 mod machine_profile;
 mod diff;
 mod drawn;
-pub mod export_package;
-pub use export_package::{
-    PackageOutput, availability, build_package, bundled_packages, find_package,
-};
 mod fab_export;
 mod generate;
 mod gerber;
@@ -44,6 +39,7 @@ mod idf;
 mod laser;
 mod layers;
 mod library_render;
+mod compliance_list;
 mod machine_profile;
 mod import_cache;
 mod model_cache;
@@ -92,8 +88,14 @@ mod cam_drill;
 mod cam_shapes;
 mod compliance_report;
 mod snapmaker;
-mod solidcraft;
-mod solidcraft_format;
+/// Assembly house profiles for centroid files and Gerber component layers.
+/// # Dependencies
+/// - crates/io/src/assembly_profiles.rs
+pub use assembly_profiles::{
+    AssemblyPlacementProfile, BottomRotationPolicy, PlacementColumn, PlacementField, PlacementRow,
+    PlacementUnits, export_rotation, gerber_component_layers, placement_rows,
+    placement_text_with_profile,
+};
 /// 3D board mesh types and functions for generating mesh representations of PCBs.
 /// # Dependencies
 /// - crates/io/src/board_mesh.rs
@@ -104,6 +106,10 @@ pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
     ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh,
     board_mesh_with_dir, model_matrix, with_models,
+};
+pub use companion_cad::{
+    COMPANION_METADATA_KEY, COMPANION_SCHEMA, companion_cache_token, content_sha256_hex,
+    is_companion_project_path, model_reference, resolve_step_bytes, write_footprint_body,
 };
 pub use cam::{
     CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
@@ -143,6 +149,7 @@ pub use fab_drawing::fab_drawing_pdf;
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
+use gerber::coordinate;
 /// Gerber file generation for copper and silk layers.
 /// # Dependencies
 /// - crates/io/src/gerber.rs
@@ -173,8 +180,11 @@ pub use layers::{
     legend_shapes,
 };
 use library_render::*;
-pub use interface_profile::{
-    interface_profile_content_hash, interface_profile_from_toml, interface_profile_to_toml,
+pub use compliance_list::{
+    EntityMatch, EntityMatchConfidence, ListUpdateSummary, builtin_compliance_list,
+    builtin_compliance_list_ids, bundled_list_name_tokens, collect_snapshot_tokens,
+    compliance_list_from_toml, compliance_list_to_toml, diff_compliance_lists,
+    match_entity_name, normalize_compliance_name, snapshot_staleness_note,
 };
 pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
@@ -184,9 +194,9 @@ pub use import_cache::{default_import_cache_dir, ImportCache};
 pub use model_cache::ModelCache;
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
-    ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
+    ModelCacheKey, ModelError, SharedModel, companion_model_cache_key, load_model,
+    load_model_with_part, model_cache_key, model_extension_supported,
 };
-pub use model_resolve::{resolve_library_path, resolve_model_path};
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
 /// # Dependencies
@@ -2821,7 +2831,9 @@ fn excellon_drill_file(
 }
 
 /// RS-274X copper/outline layers plus an Excellon drill file, as filename to
-/// text. Copper layers carry zones, tracks, via and pad copper; the outline
+/// text. One copper file per copper layer (`pcb-F.Cu.gbr`, `pcb-In<n>.Cu.gbr`,
+/// `pcb-B.Cu.gbr`) carries that layer's poured regions, tracks, via and pad
+/// copper (`gerber_files_report` also returns the warnings); the outline
 /// layer carries the board edge and circular cutouts; the drill file carries
 /// every plated and unplated hole, round holes as single hits and oval holes
 /// as routed slots. Back-copper coordinates are
@@ -2869,25 +2881,62 @@ pub fn gerber_files_with_options(
         /// A via pad, kept apart from component pads of the same diameter.
         Via(u64),
     }
+        /// A track stroke, kept apart from a pad or via circle of the same
+        /// diameter so the X2 aperture function names it a conductor.
+        Track(u64),
+    }
     #[derive(Clone)]
     struct LayerFile {
         apertures: BTreeMap<Ap, u32>,
-        ap_fn: BTreeMap<u32, &'static str>,
+        /// Pad and shaped flashes keyed by aperture identity.
+        shaped: BTreeMap<String, (u32, String)>,
         body: String,
         arcs: String,
         ops: usize,
         scale: f64,
+        /// Operations the file may carry.
+        limit: usize,
+        /// Plain file label for error text, for example `F.Cu`.
+        name: String,
+        /// Warnings written as G04 comments after the header.
+        notes: Vec<String>,
+        /// Aperture selected last, so a select statement is written only on change.
+        current: Option<u32>,
     }
     impl LayerFile {
-        fn new(scale: f64) -> Self {
+        fn new(scale: f64, limit: usize) -> Self {
+            Self::named(scale, "layer", limit)
+        }
+        fn named(scale: f64, name: &str, limit: usize) -> Self {
             Self {
                 apertures: BTreeMap::new(),
-                ap_fn: BTreeMap::new(),
+                shaped: BTreeMap::new(),
                 body: String::new(),
                 arcs: String::new(),
                 ops: 0,
                 scale,
+                limit,
+                name: name.to_owned(),
+                notes: Vec::new(),
+                current: None,
             }
+        }
+        fn aperture_slots(&self) -> usize {
+            self.apertures.len() + self.shaped.len()
+        }
+        /// Select an aperture with its own `D<code>*` statement; the combined
+        /// select-and-operate form is deprecated and strict readers drop it.
+        fn select(&mut self, code: u32) {
+            if self.current != Some(code) {
+                self.body.push_str(&format!("D{code}*\n"));
+                self.current = Some(code);
+            }
+        }
+        fn over_limit(&self) -> String {
+            format!(
+                "gerber export exceeds the object limit: layer {} needs more than {} operations; split the board's copper into fewer or smaller objects",
+                self.name, self.limit
+            )
         }
         fn code(&mut self, ap: Ap) -> Result<u32, String> {
             self.code_fn(ap, None)
@@ -2899,47 +2948,60 @@ pub fn gerber_files_with_options(
                 }
                 return Ok(*code);
             }
-            if self.apertures.len() >= MAX_APERTURES {
+            if self.aperture_slots() >= MAX_APERTURES {
                 return Err("gerber export needs more than 64 distinct apertures".into());
             }
-            let code = 10 + self.apertures.len() as u32;
+            let code = 10 + self.aperture_slots() as u32;
             self.apertures.insert(ap, code);
             if let Some(f) = function {
                 self.ap_fn.insert(code, f);
             }
             Ok(code)
         }
+        fn code_shaped(&mut self, aperture: &gerber::Aperture) -> Result<u32, String> {
+            let key = aperture.key();
+            if let Some((code, _)) = self.shaped.get(&key) {
+                return Ok(*code);
+            }
+            if self.aperture_slots() >= MAX_APERTURES {
+                return Err("gerber export needs more than 64 distinct apertures".into());
+            }
+            let code = 10 + self.aperture_slots() as u32;
+            self.shaped.insert(key, (code, aperture.definition(code)));
+            Ok(code)
+        }
         fn flash(&mut self, code: u32, x: f64, y: f64) -> Result<(), String> {
             self.ops += 1;
-            if self.ops > MAX_OPS {
-                return Err("gerber export exceeds the object limit".into());
+            if self.ops > self.limit {
+                return Err(self.over_limit());
             }
+            self.select(code);
             self.body.push_str(&format!(
-                "D{code}X{:.6}Y{:.6}D03*\n",
-                x * self.scale,
-                y * self.scale
+                "X{}Y{}D03*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale)
             ));
             Ok(())
         }
         fn stroke(&mut self, code: u32, points: &[(f64, f64)], closed: bool) -> Result<(), String> {
             self.ops += points.len();
-            if self.ops > MAX_OPS {
-                return Err("gerber export exceeds the object limit".into());
+            if self.ops > self.limit {
+                return Err(self.over_limit());
             }
-            self.body.push_str(&format!("D{code}D02*\n"));
+            self.select(code);
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D0{}*\n",
-                    x * self.scale,
-                    y * self.scale,
+                    "X{}Y{}D0{}*\n",
+                    coordinate(x * self.scale),
+                    coordinate(y * self.scale),
                     if i == 0 { 2 } else { 1 }
                 ));
             }
             if closed && let Some((x, y)) = points.first() {
                 self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D01*\n",
-                    x * self.scale,
-                    y * self.scale
+                    "X{}Y{}D01*\n",
+                    coordinate(x * self.scale),
+                    coordinate(y * self.scale)
                 ));
             }
             Ok(())
@@ -2981,35 +3043,54 @@ pub fn gerber_files_with_options(
         }
         fn fill(&mut self, code: u32, points: &[(f64, f64)]) -> Result<(), String> {
             self.ops += points.len();
-            if self.ops > MAX_OPS {
-                return Err("gerber export exceeds the object limit".into());
+            if self.ops > self.limit {
+                return Err(self.over_limit());
             }
-            self.body.push_str(&format!("G36*\nD{code}D02*\n"));
+            self.select(code);
+            self.body.push_str("G36*\n");
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D0{}*\n",
-                    x * self.scale,
-                    y * self.scale,
+                    "X{}Y{}D0{}*\n",
+                    coordinate(x * self.scale),
+                    coordinate(y * self.scale),
                     if i == 0 { 2 } else { 1 }
+                ));
+            }
+            // A region contour ends where it began.
+            if let (Some((fx, fy)), Some((lx, ly))) = (points.first(), points.last())
+                && (fx != lx || fy != ly)
+            {
+                self.body.push_str(&format!(
+                    "X{}Y{}D01*\n",
+                    coordinate(fx * self.scale),
+                    coordinate(fy * self.scale)
                 ));
             }
             self.body.push_str("G37*\n");
             Ok(())
         }
-        fn finish(&self, _mirror: bool, name: &str, file_function: Option<&str>) -> String {
+        fn finish(
+            &self,
+            creation: &str,
+            name: &str,
+            file_function: &str,
+            polarity: &str,
+            same_coordinates: bool,
+        ) -> String {
             let mo = if self.scale != 1.0 {
                 "%MOIN*%"
             } else {
                 "%MOMM*%"
             };
-            let mut out = format!("G04 {name} generated by PCBCraft *\n%FSLAX46Y46*%\n{mo}\n");
-            if let Some(ff) = file_function {
-                out.push_str(&format!("%TF.FileFunction,{ff}*%\n"));
+            let mut head = format!("G04 {name} generated by PCBCraft *\n");
+            for note in &self.notes {
+                head.push_str(&format!("G04 {note} *\n"));
             }
+            let mut rest = format!("%FSLAX46Y46*%\n{mo}\n");
+            let mut defined: Vec<(u32, String)> = Vec::new();
             for (ap, code) in &self.apertures {
-                if let Some(f) = self.ap_fn.get(code) {
-                    out.push_str(&format!("%TA.AperFunction,{f}*%\n"));
-                } else if matches!(ap, Ap::Track(_)) {
+                let mut block = String::new();
+                if matches!(ap, Ap::Track(_)) {
                     out.push_str("%TA.AperFunction,Conductor,Cu*%\n");
                 } else if matches!(ap, Ap::Via(_)) {
                     out.push_str("%TA.AperFunction,ViaPad*%\n");
@@ -3024,57 +3105,153 @@ pub fn gerber_files_with_options(
                         w as f64 / 1000.0 * self.scale,
                         h as f64 / 1000.0 * self.scale
                     )),
-                    Ap::Obround(w, h) => out.push_str(&format!(
+                    Ap::Obround(w, h) => block.push_str(&format!(
                         "%ADD{code}O,{:.6}X{:.6}*%\n",
                         w as f64 / 1000.0 * self.scale,
                         h as f64 / 1000.0 * self.scale
                     )),
-                    Ap::Round(w, h, r) => out.push_str(&format!(
-                        "%ADD{code}R2,{} R1,{:.6}X{:.6} {r} 0 0*%\n",
-                        if r * 2 == h {
-                            "0".to_string()
-                        } else {
-                            format!("{:.6}", r as f64 / 1000.0 * self.scale)
-                        },
+                    Ap::Macro(name) => block.push_str(&format!("%ADD{code}{}*%\n", name)),
+                        "%ADD{code}C,{:.6}*%\n",
+                        d as f64 / 1000.0 * self.scale
+                    )),
+                    Ap::Rect(w, h) => block.push_str(&format!(
+                        "%ADD{code}R,{:.6}X{:.6}*%\n",
+                        w as f64 / 1000.0 * self.scale,
+                        h as f64 / 1000.0 * self.scale
+                    )),
+                    Ap::Obround(w, h) => block.push_str(&format!(
+                        "%ADD{code}O,{:.6}X{:.6}*%\n",
                         w as f64 / 1000.0 * self.scale,
                         h as f64 / 1000.0 * self.scale
                     )),
                 }
+                defined.push((*code, block));
             }
-            out.push_str("%LPD*%\nG01*\n");
-            out.push_str(&self.body);
-            out.push_str(&self.arcs);
-            out.push_str("M02*\n");
-            gerber_fidelity::attach_gerber_md5(out)
+            for (_, (code, block)) in &self.shaped {
+                defined.push((*code, block.clone()));
+            }
+            defined.sort_by_key(|(code, _)| *code);
+            for (_, block) in defined {
+                rest.push_str(&block);
+            }
+            rest.push_str("%LPD*%\nG01*\n");
+            rest.push_str(&self.body);
+            rest.push_str(&self.arcs);
+            rest.push_str("M02*\n");
+            let digest = gerber::md5_hex(format!("{head}{rest}").as_bytes());
+            head.push_str(&gerber::x2_header(
+                creation,
+                file_function,
+                Some(polarity),
+                same_coordinates,
+                Some(&digest),
+            ));
+            head.push_str(&rest);
+            head
         }
     }
-    let mut copper: BTreeMap<pcbcraft_doc::Layer, LayerFile> = BTreeMap::new();
-    for layer in p.copper_layers() {
-        copper.insert(layer, LayerFile::new(scale));
-    }
-    let mirror = |x: f64, y: f64, flip: bool| -> (f64, f64) { if flip { (-x, y) } else { (x, y) } };
+    // One file per copper layer, top first. Copper layers beyond the two
+    // outer ones are inner layers; the last one is the bottom.
+    let layer_count = usize::from(p.copper_layer_count()).max(2);
+    let bottom = layer_count - 1;
+    let layer_label = |index: usize| -> String {
+        if index == 0 {
+            "F.Cu".into()
+        } else if index == bottom {
+            "B.Cu".into()
+        } else {
+            let raw = pcbcraft_doc::Layer::from_index(index as u8)
+                .map(|l| p.layer_name(l))
+                .unwrap_or_else(|_| format!("In{index}.Cu"));
+            let clean: String = raw
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '.' || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            if clean.is_empty() {
+                format!("In{index}.Cu")
+            } else {
+                clean
+            }
+        }
+    };
+    let mut copper: Vec<LayerFile> = (0..layer_count)
+        .map(|i| LayerFile::named(scale, &layer_label(i), max_ops_limit))
+        .collect();
+    let mut warnings: Vec<String> = Vec::new();
+    let mirror_for = |x: f64, y: f64, index: usize| -> (f64, f64) {
+        if index == bottom {
+            (-x + 0.0, y)
+        } else {
+            (x, y)
+        }
+    };
+    // Pours first, so a clear-polarity hole never erases a track or pad that is
+    // written after it. The fill is what ships: gaps round foreign copper,
+    // thermal spokes and the island policy are already applied.
+    let mut pours: BTreeMap<usize, Vec<(u64, Vec<pcbcraft_geom::poly::Piece>)>> = BTreeMap::new();
     for z in &p.board.zones {
         if !z.filled {
             continue;
         }
         let is_back = z.layer == pcbcraft_doc::Layer::Back;
         let fill = pcbcraft_doc::zone_fill(p, z)?;
-        let Some(file) = copper.get_mut(&layer) else {
-            continue;
-        };
+        pours.entry(index).or_default().push((z.id, fill.pieces));
+        let fill = pcbcraft_doc::zone_fill(p, z)?;
+        pours.entry(index).or_default().push((z.id, fill.pieces));
+    }
+    for (index, zones) in pours {
+        let file = &mut copper[index];
         let code = file.code(Ap::Circle(1))?;
-        // The fill is what ships: gaps round foreign copper, thermal spokes and
-        // the island policy are already applied. Each piece is one G36 region
-        // and each hole is cleared with LPC immediately after it, before any
-        // track or pad is drawn, because LPC would clear those too.
-        for piece in &fill.pieces {
-            for (index, ring) in piece.iter().enumerate() {
-                let points: Vec<(f64, f64)> = ring.iter().map(|q| mirror(q.x, q.y, flip)).collect();
-                if index > 0 {
+        // Every zone of the layer is thinned and checked against the layer
+        // budget on its own, so one oversized pour cannot sink the rest.
+        let mut layer_pieces: Vec<pcbcraft_geom::poly::Piece> = Vec::new();
+        let mut used = file.ops;
+        for (zone_id, pieces) in zones {
+            let mut chosen: Option<Vec<pcbcraft_geom::poly::Piece>> = None;
+            let mut best = usize::MAX;
+            for tolerance in gerber_pour::TOLERANCES_MM {
+                let thinned: Vec<pcbcraft_geom::poly::Piece> = pieces
+                    .iter()
+                    .filter_map(|piece| gerber_pour::simplify_piece(piece, tolerance))
+                    .collect();
+                let vertices: usize = thinned.iter().map(gerber_pour::piece_vertices).sum();
+                best = vertices;
+                if used.saturating_add(vertices) <= max_ops_limit {
+                    used += vertices;
+                    chosen = Some(thinned);
+                    break;
+                }
+            }
+            match chosen {
+                Some(thinned) => layer_pieces.extend(thinned),
+                None => {
+                    let note = format!(
+                        "Pour (zone {zone_id}) on {} was left out: it needs {best} operations at the coarsest tolerance and the layer allows {max_ops_limit}. Split the zone into smaller zones or raise its minimum width, then export again.",
+                        file.name
+                    );
+                    file.notes.push(note.clone());
+                    warnings.push(note);
+                }
+            }
+        }
+        // Containers first: a hole is cleared with LPC right after its piece,
+        // which would also erase anything already written inside it.
+        gerber_pour::order_containers_first(&mut layer_pieces);
+        for piece in &layer_pieces {
+            for (ring_index, ring) in piece.iter().enumerate() {
+                let points: Vec<(f64, f64)> =
+                    ring.iter().map(|q| mirror_for(q.x, q.y, index)).collect();
+                if ring_index > 0 {
                     file.body.push_str("%LPC*%\n");
                 }
                 file.fill(code, &points)?;
-                if index > 0 {
+                if ring_index > 0 {
                     file.body.push_str("%LPD*%\n");
                 }
             }
@@ -3116,8 +3293,8 @@ pub fn gerber_files_with_options(
             file.stroke(
                 code,
                 &[
-                    mirror(t.start.x, t.start.y, flip),
-                    mirror(t.end.x, t.end.y, flip),
+                    mirror_for(t.start.x, t.start.y, index),
+                    mirror_for(t.end.x, t.end.y, index),
                 ],
                 false,
             )?;
@@ -3132,46 +3309,25 @@ pub fn gerber_files_with_options(
                 continue;
             }
             let world = f.pad_world_position(pad);
-            let ap = match g.shape.as_str() {
-                "circle" => {
-                    let w = (g.size.x * 1_000.0).round() as u64;
-                    Ap::Circle(w.max(1))
-                }
-                "rect" => {
-                    let w = (g.size.x * 1_000.0).round() as u64;
-                    let h = (g.size.y * 1_000.0).round() as u64;
-                    Ap::Rect(w.max(1), h.max(1))
-                }
-                "oval" => {
-                    let w = (g.size.x * 1_000.0).round() as u64;
-                    let h = (g.size.y * 1_000.0).round() as u64;
-                    Ap::Obround(w.max(1), h.max(1))
-                }
-                "roundrect" => {
-                    let w = (g.size.x * 1_000.0).round() as u64;
-                    let h = (g.size.y * 1_000.0).round() as u64;
-                    Ap::Round(
-                        w.max(1),
-                        h.max(1),
-                        ((w.min(h) as f64 * g.roundrect_ratio.unwrap_or(0.0))
-                            .round()
-                            .max(1.0)) as u64,
-                    )
-                }
-                _ => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
+            let through = g.pad_type == "thru_hole" || g.drill.is_some();
+            let layers = f.pad_geometry_layers(pad);
+            let on_back = f.board_side() == pcbcraft_doc::Layer::Back
+                || (!layers.is_empty() && !layers.iter().any(|l| l.starts_with("F.")));
+            let targets: Vec<usize> = if through {
+                (0..layer_count).collect()
+            } else if on_back {
+                vec![bottom]
+            } else {
+                vec![0]
             };
-            for layer in p.copper_layers() {
-                if !f.pad_on_copper(pad, layer) {
-                    continue;
-                }
-                let function = gerber_fidelity::pad_copper_aperture_function(p, layer, f, pad);
-                let Some(file) = copper.get_mut(&layer) else {
-                    continue;
-                };
-                let code = file.code_fn(ap.clone(), function)?;
-                let flip = gerber_fidelity::copper_layer_is_back(p, layer);
-                let (x, y) = mirror(world.x, world.y, flip);
-                file.flash(code, x, y)?;
+            for index in targets {
+                let aperture = gerber::pad_aperture(pad, world, f, |point| {
+                    let (px, py) = mirror_for(point.x, point.y, index);
+                    pcbcraft_geom::Point::new(px, py)
+                })?;
+                let code = copper[index].code_shaped(&aperture)?;
+                let (x, y) = mirror_for(world.x, world.y, index);
+                copper[index].flash(code, x, y)?;
             }
         }
     }
@@ -3189,17 +3345,21 @@ pub fn gerber_files_with_options(
             file.flash(code, x, y)?;
         }
         if reaches_top {
-            let front_code = front.code(ap.clone())?;
-            front.flash(front_code, v.position.x, v.position.y)?;
+            let index = usize::from(front.index()).min(bottom);
+            let front_code = copper[index].code(ap.clone())?;
+            let (x, y) = mirror_for(v.position.x, v.position.y, index);
+            copper[index].flash(front_code, x, y)?;
         }
         if reaches_bottom {
-            let back_code = back.code(ap)?;
-            let (x, y) = mirror(v.position.x, v.position.y, true);
-            back.flash(back_code, x, y)?;
+            let index = usize::from(back.index()).min(bottom);
+            let back_code = copper[index].code(ap.clone())?;
+            let (x, y) = mirror_for(v.position.x, v.position.y, index);
+            copper[index].flash(back_code, x, y)?;
+        }
         }
         }
     }
-    let mut outline = LayerFile::new(scale);
+    let mut outline = LayerFile::new(scale, max_ops_limit);
     let edge_code = outline.code(Ap::Circle(100))?;
     if let Some(points) = &p.board.outline {
         if opts.arcs {
@@ -3283,11 +3443,24 @@ pub fn gerber_files_with_options(
     let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false))?;
     let drill_map = fab_export::drill_map_plot(p)?;
     let mut files = BTreeMap::new();
-    for (layer, file) in &copper {
-        let name = gerber_fidelity::copper_gerber_basename(p, *layer);
-        let ff = gerber_fidelity::copper_file_function(p, *layer);
-        let comment = format!("{} copper layer", p.layer_name(*layer));
-        files.insert(name, file.finish(false, &comment, Some(&ff)));
+    for (index, file) in copper.iter().enumerate() {
+        let (side, comment) = if index == 0 {
+            ("Top", "front copper layer".to_owned())
+        } else if index == bottom {
+            ("Bot", "back copper layer".to_owned())
+        } else {
+            ("Inr", format!("inner copper layer {}", file.name))
+        };
+        files.insert(
+            format!("pcb-{}.gbr", file.name),
+            file.finish(
+                creation,
+                &comment,
+                &format!("Copper,L{},{side}", index + 1),
+                "Positive",
+                index != bottom,
+            ),
+        );
     }
     for (layer, name) in [
         (pcbcraft_doc::Layer::Front, "F"),
@@ -3308,13 +3481,16 @@ pub fn gerber_files_with_options(
     }
     files.insert(
         "pcb-Edge.gbr".into(),
-        outline.finish(false, "board outline", Some("Profile,NP")),
+        outline.finish(creation, "board outline", "Profile,NP", "Positive", true),
     );
     files.insert("pcb-DrillMap.gbr".into(), drill_map);
     files.insert("pcb-Drill.drl".into(), drill);
     files.insert("pcb-Plated.drl".into(), plated_drill.clone());
     files.insert("pcb-NPTH.drl".into(), npth_drill.clone());
     for (name, text) in drawn::gerber_layer_files(p)? {
+        files.insert(name, text);
+    }
+    for (name, text) in assembly_profiles::gerber_component_layers(p, None)? {
         files.insert(name, text);
     }
     let extras = fab_export::gerber_files(p)?;
@@ -4460,63 +4636,7 @@ pub fn testpoints_csv(p: &Project) -> Result<String, String> {
 /// centroid format (`SMT|THT,reference,X,Y,rotation,side,package`), sorted by
 /// reference. Side comes from the pad layers; height is unknown to this tool.
 pub fn placement_text(p: &Project) -> Result<String, String> {
-    p.validate()?;
-    const MAX_PLACED: usize = 5_000;
-    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
-        p.components.iter().map(|c| (c.id, c)).collect();
-    if p.board.footprints.len() > MAX_PLACED {
-        return Err("placement file exceeds the placed-object limit".into());
-    }
-    let mut rows: Vec<String> = Vec::new();
-    for f in &p.board.footprints {
-        let c = refs
-            .get(&f.component)
-            .ok_or("footprint references an unknown component")?;
-        let back = f.board_side() == pcbcraft_doc::Layer::Back;
-        let tht = f.pads.iter().any(|pad| {
-            pad.geometry
-                .as_ref()
-                .is_some_and(|g| g.pad_type == "thru_hole")
-        });
-        let package = match &c.library_footprint {
-            Some(footprint) => footprint.definition.name.clone(),
-            None => c.kind.clone(),
-        };
-        rows.push(format!(
-            "{},\"{}\",{:.3},{:.3},{:.1},{},\"{}\"",
-            if tht { "THT" } else { "SMT" },
-            c.reference,
-            f.position.x,
-            f.position.y,
-            f.rotation.rem_euclid(360.0),
-            if back { "B" } else { "T" },
-            package
-        ));
-    }
-    for (i, f) in p.board.fiducials.iter().enumerate() {
-        rows.push(format!(
-            "SMT,\"FID{:02}\",{:.3},{:.3},0.0,{},FIDUCIAL",
-            i + 1,
-            f.position.x,
-            f.position.y,
-            if f.layer == pcbcraft_doc::Layer::Back {
-                "B"
-            } else {
-                "T"
-            }
-        ));
-    }
-    rows.sort_by(|a, b| {
-        a.split('"')
-            .nth(1)
-            .unwrap_or("")
-            .cmp(b.split('"').nth(1).unwrap_or(""))
-    });
-    Ok(format!(
-        "File Format,ASCII,\n#\n#\tPick and Place File\t{}\n#\nSMT,THT,X,Y,Rotation,Side,Package\n{}\n",
-        p.name,
-        rows.join("\n")
-    ))
+    placement_text_with_profile(p, None)
 }
 /// Fabrication plot report as CSV: one row per copper layer counting the
 /// elements a plot of that layer would draw (pads, tracks, vias, zones,
@@ -8407,7 +8527,7 @@ mod tests {
         assert!(drill.ends_with("M30\n"));
         let map = &files["pcb-DrillMap.gbr"];
         assert!(
-            map.contains("X10.000000Y10.000000D02*\nX14.000000Y10.000000D01*\n"),
+            map.contains("X10000000Y10000000D02*\nX14000000Y10000000D01*\n"),
             "the drill map draws the slot as a stroke from end to end: {map}"
         );
         Ok(())
@@ -8840,6 +8960,8 @@ mod tests {
                 offset: [0.0; 3],
                 scale: [1.0; 3],
                 rotate: [0.0; 3],
+                cad_part: None,
+                body_id: None,
                 raw_source: String::new(),
             });
         }
@@ -9616,7 +9738,7 @@ mod tests {
             "the format statement declares inches"
         );
         assert!(
-            back.contains("X-1.000000Y1.000000D02*"),
+            back.contains("X-1000000Y1000000D02*"),
             "25.4 mm becomes exactly one inch, mirrored on the back: {back}"
         );
         assert!(
@@ -9662,7 +9784,7 @@ mod tests {
                     .lines()
                     .filter(|l| {
                         let l = l.trim_end();
-                        l.ends_with("D01*") || l.ends_with("G02*") || l.ends_with("G03*")
+                        l.ends_with("D01*")
                     })
                     .count();
                 assert_eq!(layer.draw_count, raw_draws, "raw draw count for {name}");
@@ -9835,6 +9957,7 @@ mod tests {
             files.keys().collect::<Vec<_>>(),
             vec![
                 "README-fabrication.txt",
+                "pcb-B.Cmp.gbr",
                 "pcb-B.Cu.gbr",
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
@@ -9842,6 +9965,7 @@ mod tests {
                 "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
+                "pcb-F.Cmp.gbr",
                 "pcb-F.Cu.gbr",
                 "pcb-F.Mask.gbr",
                 "pcb-F.Paste.gbr",
@@ -9871,18 +9995,22 @@ mod tests {
             "the drill map legend lists the first tool"
         );
         assert!(
-            map.contains("X30.000000Y10.000000D03*\n"),
+            map.contains("X30000000Y10000000D03*\n"),
             "the via hole is flashed on the map"
         );
         assert!(
-            map.contains("X2.000000Y0.000000D03*\n"),
+            map.contains("X2000000Y0D03*\n"),
             "the plated pad hole is flashed on the map"
         );
         assert!(map.ends_with("M02*\n"), "the map ends cleanly");
         let front = &files["pcb-F.Cu.gbr"];
         assert!(
             front.starts_with("G04 front copper layer generated by PCBCraft *\n")
+                && front.contains("%TF.GenerationSoftware,Tangency Labs,PCBCraft*%")
                 && front.contains("%TF.FileFunction,Copper,L1,Top*%")
+                && front.contains("%TF.FilePolarity,Positive*%")
+                && front.contains("%TF.SameCoordinates,PCBCraft*%")
+                && front.contains("%TF.MD5,")
                 && front.contains("%FSLAX46Y46*%")
         );
         assert!(front.contains("%ADD10C,0.001000*%\n"), "zone fill aperture");
@@ -9899,11 +10027,11 @@ mod tests {
             "the poured zone must appear as a filled region"
         );
         assert!(
-            front.contains("X30.000000Y10.000000D03*\n"),
+            front.contains("X30000000Y10000000D03*\n"),
             "the via must flash on the front layer"
         );
         assert!(
-            front.contains("X2.000000Y0.000000D03*\n"),
+            front.contains("X2000000Y0D03*\n"),
             "the plated pad must flash on the front layer"
         );
         assert!(front.ends_with("M02*\n"));
@@ -9913,20 +10041,25 @@ mod tests {
             "back copper carries its file function"
         );
         assert!(
-            back.contains("X-30.000000Y10.000000D01*\n"),
+            !back.contains("%TF.SameCoordinates,"),
+            "mirrored back film is not same-coordinates"
+        );
+        assert!(
+            back.contains("X-30000000Y10000000D01*\n"),
             "the back track end carries the mirrored coordinate"
         );
         assert!(
-            back.contains("X-30.000000Y10.000000D03*\n"),
+            back.contains("X-30000000Y10000000D03*\n"),
             "the via must flash on the back layer too"
         );
         let outline = &files["pcb-Edge.gbr"];
         assert!(
-            outline.contains("X0.000000Y0.000000D02*\nX60.000000Y0.000000D01*\n"),
+            outline.contains("X0Y0D02*\nX60000000Y0D01*\n"),
             "the board edge must be traced"
         );
         assert!(
-            outline.contains("X44.000000Y20.000000D02*\nI2.000000J0.000000G02*\n"),
+            outline
+                .contains("X44000000Y20000000D02*\nG75*\nG02*\nX44000000Y20000000I2000000J0D01*\n"),
             "the circular cutout must trace a circle"
         );
         let drill = &files["pcb-Plated.drl"];
@@ -10431,9 +10564,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "PWR".into(),
-            target_length: None,
-            length_tolerance: None,
-            instance: None,
+            ..Default::default()
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -10607,9 +10738,7 @@ assert!(
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "P&&R".into(),
-            target_length: None,
-            length_tolerance: None,
-            instance: None,
+            ..Default::default()
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -11030,7 +11159,15 @@ assert!(
             target_impedance: None,
             nets: vec![5],
             profile: None,
-            fast: false,
+            impedance_target: None,
+            impedance_tolerance_pct: None,
+            line_structure: None,
+            reference_layers: vec![],
+            current: None,
+            temperature_rise: None,
+            working_voltage: None,
+            insulation: None,
+            return_path_rule: None,
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
@@ -11540,7 +11677,7 @@ assert!(
         );
         let copper = &files["pcb-F.Cu.gbr"];
         assert!(
-            copper.contains("X30.000000Y20.000000") || copper.contains("X30.000Y20.000"),
+            copper.contains("X30000000Y20000000"),
             "copper layers keep absolute coordinates"
         );
         project.board.drill_origin = Point::new(-5.0, 0.0);
@@ -11571,8 +11708,8 @@ assert!(
         let files = gerber_files(&project)?;
         let outline = &files["pcb-Edge.gbr"];
         assert!(
-            outline.contains("X30.000000Y40.000000D01*")
-                && outline.contains("X30.000000Y20.000000D01*"),
+            outline.contains("X30000000Y40000000D01*")
+                && outline.contains("X30000000Y20000000D01*"),
             "the gerber edge layer traces every vertex"
         );
         let drawing = svg(&project, "pcb")?;
@@ -11703,7 +11840,7 @@ assert!(
         let files = gerber_files(&project)?;
         let copper = &files["pcb-F.Cu.gbr"];
         assert!(
-            copper.contains("G02*") && copper.contains("J-5.250000"),
+            copper.contains("G02*") && copper.contains("J-5250000"),
             "the gerber draws a clockwise arc to the computed centre"
         );
         let drawing = svg(&project, "pcb")?;
@@ -12726,9 +12863,7 @@ assert!(
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "PWR".into(),
-            target_length: None,
-            length_tolerance: None,
-            instance: None,
+            ..Default::default()
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -13821,9 +13956,7 @@ assert!(
         project.nets.push(pcbcraft_doc::Net {
             id: 7,
             name: "probe".into(),
-            target_length: None,
-            length_tolerance: None,
-            instance: None,
+            ..Default::default()
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 8,
@@ -14026,8 +14159,18 @@ assert!(
             std::fs::write(&fixture, &text).map_err(|e| e.to_string())?;
         }
         let expected = std::fs::read_to_string(&fixture).map_err(|e| e.to_string())?;
+        let strip_volatile = |s: &str| -> String {
+            s.lines()
+                .filter(|line| {
+                    !line.starts_with("%TF.MD5,") && !line.starts_with("%TF.CreationDate,")
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n"
+        };
         assert_eq!(
-            text, expected,
+            strip_volatile(&text),
+            strip_volatile(&expected),
             "Gerber output drifted from the reviewed fixture"
         );
         assert!(text.contains("%FSLAX46Y46*%") && text.contains("%MOMM*%"));
@@ -14216,7 +14359,7 @@ assert!(
         );
         let front = &files["pcb-F.Cu.gbr"];
         assert!(
-            !front.contains("X5.000000Y15.000000D03"),
+            !front.contains("X5000000Y15000000D03"),
             "unplated pegs must not flash copper"
         );
         Ok(())

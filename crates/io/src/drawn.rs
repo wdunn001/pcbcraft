@@ -162,7 +162,7 @@ fn append_drawn_layer_figures(out: &mut String, layer: &ArtLayer) -> Result<(), 
             && !dotted
         {
             out.push_str(&format!(
-                "X{}Y{}D02*\nG75*\nG03X{}Y{}I{}J0D01*\nG01*\n",
+                "X{}Y{}D02*\nG75*\nG03*\nX{}Y{}I{}J0D01*\nG01*\n",
                 gerber_units(center.x - radius),
                 gerber_units(center.y),
                 gerber_units(center.x - radius),

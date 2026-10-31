@@ -9,7 +9,6 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-mod acute;
 mod compliance;
 mod courtyard;
 mod diffpair_impedance;
@@ -17,8 +16,12 @@ mod decoupling;
 mod drill;
 mod silk;
 mod stub;
+pub mod compliance;
 
-pub use compliance::{compliance_check, ComplianceFinding};
+pub use compliance::{
+    check as compliance_check, load_list_snapshot, ComplianceFinding, EU_MARKET_RULE_SET,
+    RESPONSIBLE_SOURCING_RULE_SET,
+};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
@@ -270,6 +273,9 @@ push_on_copper_layers(project, item, &mut result);
                             copy.layer = layer;
                             result.push(copy);
                         }
+                        let mut layer_item = item.clone();
+                        layer_item.layer = layer;
+                        result.push(layer_item);
                     }
                     result.push(item);
                 }
@@ -360,6 +366,18 @@ push_on_copper_layers(project, item, &mut result);
         };
         // One pad per copper layer in the via's span; it conducts nowhere else.
         for layer in project.via_span_layers(v) {
+            if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer) {
+                if !pcbcraft_doc::fill::plated_item_connected_on_layer(
+                    project,
+                    v.net,
+                    v.position,
+                    v.diameter / 2.0,
+                    layer,
+                    pcbcraft_doc::fill::PlatedConnectKind::Via,
+                ) {
+                    continue;
+                }
+            }
             let mut pad = item.clone();
             pad.layer = layer;
             result.push(pad);
@@ -2145,6 +2163,26 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             hint: None,
         });
     }
+    for net in &project.nets {
+        if project.rule_disabled("impedance_target_incomplete") {
+            continue;
+        }
+        let Some(target) = project.net_effective_impedance_target(net) else {
+            continue;
+        };
+        if !project.net_effective_reference_layers(net).is_empty() {
+            continue;
+        }
+        result.push(Finding {
+            code: "impedance_target_incomplete",
+            severity: project.rule_severity("impedance_target_incomplete", "warning"),
+            message: format!(
+                "{} targets {:.1} ohm but names no reference layer",
+                net.name, target
+            ),
+            objects: vec![net.id],
+        });
+    }
     result.extend(panel_findings(project));
     result.extend(placement_machine_findings(project));
     result.extend(via_findings(project));
@@ -2325,7 +2363,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 objects: vec![zone.id],
                 hint: None,
             });
-} else if fill.islands > 0 {
+        } else {
             let remaining = fill.islands.saturating_sub(fill.removed);
             if remaining > 0 {
                 let dropped = if fill.removed > 0 {
@@ -2343,7 +2381,6 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         remaining,
                     ),
                     objects: vec![zone.id],
-                    hint: None,
                 });
             } else if fill.removed > 0 {
                 result.push(Finding {
@@ -2356,10 +2393,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         fill.removed
                     ),
                     objects: vec![zone.id],
-                    hint: None,
                 });
             }
-        }
         }
     }
     match pcbcraft_doc::keepout_hits(project) {
@@ -4347,9 +4382,7 @@ covering_scope: None,
         p.nets.push(Net {
             id: 4,
             name: "gnd".into(),
-            target_length: None,
-            length_tolerance: None,
-            instance: None,
+            ..Default::default()
         });
         p.board.clearance = clearance;
         if let Some(pad) = p

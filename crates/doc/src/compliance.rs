@@ -1,105 +1,39 @@
-//! Typed compliance facts on a placed part: where it was made, what role it plays
-//! in the product, dated declarations against named regimes, and optional substance
-//! notes. Project-level manufacturer aliases live on [`Project::manufacturers`].
-//!
-//! # Rules
-//! - Plain data with bounded text; empty records are not saved on the component.
-//! - Quick RoHS, REACH and halogen-free flags on [`crate::Sourcing`] appear as
-//!   synthetic declarations only when no explicit declaration exists for that regime.
-//!
-//! # Dependencies
-//! - `crates/doc/src/lib.rs` for `Component` and `Project`.
-//! - `crates/engine/src/lib.rs` for `component.set_compliance`, `manufacturer.set`,
-//!   `project.compliance.set`, `compliance.check` and `compliance.finding.mute`.
-//! - `crates/rules/src/compliance/` for bundled rule set evaluation.
-
-use crate::{Component, Project, Sourcing};
+//! Dated compliance claims on parts and project-level compliance settings.
+use crate::{Id, Project};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
-/// Longest regime id, status detail, source label, substance name, and similar text.
-pub const MAX_COMPLIANCE_TEXT: usize = 256;
-/// Longest declaration source link.
-pub const MAX_COMPLIANCE_LINK: usize = 512;
-/// Most declarations or declared substances on one part.
 pub const MAX_DECLARATIONS: usize = 64;
 pub const MAX_SUBSTANCES: usize = 64;
-/// Most manufacturer records in the project table.
-pub const MAX_MANUFACTURERS: usize = 256;
-/// Most aliases on one manufacturer record.
-pub const MAX_ALIASES: usize = 32;
-/// Longest canonical manufacturer or alias name.
-pub const MAX_MANUFACTURER_NAME: usize = 128;
+pub const MAX_COMPLIANCE_TEXT: usize = 256;
+pub const MAX_COMPLIANCE_LINK: usize = 512;
 
-/// ISO 3166-1 alpha-2 country code with the basis of the claim and an optional date.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct CountryOfOrigin {
-    /// Two-letter country code, such as `US` or `DE`.
-    pub code: String,
-    /// Why this code applies, such as `manufactured` or `substantial transformation`.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub basis: String,
-    /// Calendar date of the claim in `YYYY-MM-DD` form; empty when unknown.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub as_of: String,
-}
-
-/// The part's role in the product for drone and radio compliance rules.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum PartRole {
-    FlightController,
-    Esc,
-    RadioLink,
-    Camera,
-    Gimbal,
-    Gnss,
-    Battery,
-    Motor,
-    CompanionComputer,
-    #[default]
-    Other,
-}
-
-/// One compliance answer for a named regime.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct Declaration {
-    /// Stable regime id, such as `rohs` or `reach`; new regimes need no schema change.
+/// One regulatory declaration on a part.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ComplianceDeclaration {
     pub regime: String,
-    pub status: DeclarationStatus,
+    pub status: ComplianceStatus,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub detail: String,
-    pub source: DeclarationSource,
-    /// Calendar date of the declaration in `YYYY-MM-DD` form; empty when unknown.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub as_of: String,
+    pub source: ComplianceSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum DeclarationStatus {
+pub enum ComplianceStatus {
     DeclaredCompliant,
     DeclaredExempt,
     DeclaredNoncompliant,
     NotApplicable,
+    #[default]
     Unknown,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum DeclarationSourceKind {
-    Manufacturer,
-    Distributor,
-    User,
-    Imported,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct DeclarationSource {
-    pub kind: DeclarationSourceKind,
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ComplianceSource {
+    pub kind: ComplianceSourceKind,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -107,125 +41,90 @@ pub struct DeclarationSource {
     pub document_ref: Option<String>,
 }
 
-/// Optional free-form substance note on a part.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct DeclaredSubstance {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub note: String,
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComplianceSourceKind {
+    Manufacturer,
+    Distributor,
+    User,
+    Imported,
 }
 
-/// Typed compliance record on one component. Empty records are not saved.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DeclaredSubstance {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cas: Option<String>,
+    pub weight_percent: f64,
+}
+
+/// Compliance record on one schematic component.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct Compliance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub country_of_origin: Option<CountryOfOrigin>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<PartRole>,
+    pub role: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub declarations: Vec<Declaration>,
+    pub declarations: Vec<ComplianceDeclaration>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub substances: Vec<DeclaredSubstance>,
-}
-
-/// One row of the project manufacturer table.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct ManufacturerRecord {
-    pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub aliases: Vec<String>,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub country: String,
+    pub radio_bands_mhz: Vec<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub supplier_responsibility_on_file: bool,
+    pub radio_max_power_dbm: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radio_grant: Option<RadioGrant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub silicon_vendor_country: Option<String>,
 }
 
-fn bounded(name: &str, text: &str, max: usize) -> Result<(), String> {
-    if text.len() > max || text.chars().any(char::is_control) {
-        return Err(format!(
-            "{name} must be at most {max} bytes without control characters"
-        ));
-    }
-    Ok(())
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct CountryOfOrigin {
+    pub code: String,
+    pub basis: String,
+    pub as_of: String,
 }
 
-fn valid_iso3166_alpha2(code: &str) -> bool {
-    code.len() == 2
-        && code
-            .bytes()
-            .all(|b| b.is_ascii_uppercase() || b.is_ascii_lowercase())
-}
-
-/// True when `date` is empty or a calendar date in `YYYY-MM-DD` form.
-pub fn valid_date(date: &str) -> bool {
-    date.is_empty()
-        || (date.len() == 10
-            && date.as_bytes()[4] == b'-'
-            && date.as_bytes()[7] == b'-'
-            && date.chars().all(|c| c.is_ascii_digit() || c == '-'))
-}
-
-/// True when `left` is on or before `right` as calendar dates.
-pub fn date_le(left: &str, right: &str) -> bool {
-    if !valid_date(left) || !valid_date(right) {
-        return false;
-    }
-    compliance_day_number(left) <= compliance_day_number(right)
-}
-
-fn compliance_day_number(text: &str) -> i64 {
-    let y: i64 = text.get(0..4).and_then(|s| s.parse().ok()).unwrap_or(0);
-    let m: i64 = text.get(5..7).and_then(|s| s.parse().ok()).unwrap_or(0);
-    let d: i64 = text.get(8..10).and_then(|s| s.parse().ok()).unwrap_or(0);
-    y * 372 + m * 31 + d
-}
-
-pub const MAX_COMPLIANCE_RULE_SETS: usize = 16;
-pub const MAX_COMPLIANCE_MARKETS: usize = 16;
-pub const MAX_COMPLIANCE_MUTES: usize = 256;
-pub const MAX_COMPLIANCE_MUTE_REASON: usize = 512;
-
-/// How the project team relates to the product for compliance rule sets.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ComplianceOrgRole {
-    MakerSeller,
-    Integrator,
-    Buyer,
-    #[default]
-    Unset,
-}
-
-/// Rule sets, role and markets chosen for this design.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ComplianceProjectSettings {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_sets: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub org_role: Option<ComplianceOrgRole>,
+    pub role: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub target_markets: Vec<String>,
+    /// RoHS exemption number applied at board level when leaded finish is chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_rohs_exemption: Option<String>,
 }
 
-/// A muted compliance finding with a reason stored on the project.
+/// A conflict-minerals reporting template kept on file for one manufacturer.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct ComplianceFindingMute {
-    pub rule: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub component: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub manufacturer: Option<String>,
-    pub reason: String,
+pub struct MineralsReportOnFile {
+    /// Template id, such as `cmrt` or `emrt`.
+    pub template: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub as_of: String,
 }
 
-/// Lowercase letters and digits only, for alias lookup.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ManufacturerRecord {
+    pub id: Id,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minerals_report: Option<MineralsReportOnFile>,
+}
+
+/// Lowercase letters and digits only, for manufacturer alias lookup.
 pub fn normalize_manufacturer_name(name: &str) -> String {
     name.chars()
         .filter(|c| c.is_ascii_alphanumeric())
@@ -233,166 +132,63 @@ pub fn normalize_manufacturer_name(name: &str) -> String {
         .collect()
 }
 
-impl CountryOfOrigin {
-    pub fn validate(&self) -> Result<(), String> {
-        let code = self.code.trim();
-        if !valid_iso3166_alpha2(code) {
-            return Err("country of origin code must be two letters".into());
-        }
-        bounded("country of origin basis", &self.basis, MAX_COMPLIANCE_TEXT)?;
-        if !valid_date(&self.as_of) {
-            return Err("country of origin date must be YYYY-MM-DD or empty".into());
-        }
-        Ok(())
+pub fn valid_compliance_text(text: &str) -> bool {
+    text.len() <= MAX_COMPLIANCE_TEXT
+}
+
+pub fn valid_compliance_link(text: &str) -> bool {
+    text.len() <= MAX_COMPLIANCE_LINK
+}
+
+impl ComplianceDeclaration {
+    pub fn valid(&self) -> bool {
+        !self.regime.is_empty()
+            && self.regime.len() <= MAX_COMPLIANCE_TEXT
+            && valid_compliance_text(&self.detail)
+            && self.source.valid()
+            && self.as_of.as_ref().is_none_or(|d| valid_date(d))
     }
 }
 
-impl DeclarationSource {
-    pub fn validate(&self) -> Result<(), String> {
-        bounded("declaration source label", &self.label, MAX_COMPLIANCE_TEXT)?;
-        if let Some(url) = &self.url {
-            bounded("declaration source link", url, MAX_COMPLIANCE_LINK)?;
-        }
-        if let Some(doc) = &self.document_ref {
-            bounded("declaration document reference", doc, MAX_COMPLIANCE_TEXT)?;
-        }
-        Ok(())
-    }
-}
-
-impl Declaration {
-    pub fn validate(&self) -> Result<(), String> {
-        let regime = self.regime.trim();
-        if regime.is_empty() || regime.len() > MAX_COMPLIANCE_TEXT {
-            return Err("declaration regime must be 1 to 256 bytes".into());
-        }
-        bounded("declaration detail", &self.detail, MAX_COMPLIANCE_TEXT)?;
-        if !valid_date(&self.as_of) {
-            return Err("declaration date must be YYYY-MM-DD or empty".into());
-        }
-        self.source.validate()
+impl ComplianceSource {
+    pub fn valid(&self) -> bool {
+        valid_compliance_text(&self.label)
+            && self.url.as_ref().is_none_or(|u| valid_compliance_link(u))
+            && self
+                .document_ref
+                .as_ref()
+                .is_none_or(|r| valid_compliance_text(r))
     }
 }
 
 impl DeclaredSubstance {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.name.trim().is_empty() {
-            return Err("a declared substance needs a name".into());
-        }
-        bounded("substance name", &self.name, MAX_COMPLIANCE_TEXT)?;
-        bounded("substance note", &self.note, MAX_COMPLIANCE_TEXT)?;
-        Ok(())
+    pub fn valid(&self) -> bool {
+        !self.name.is_empty()
+            && valid_compliance_text(&self.name)
+            && self.weight_percent.is_finite()
+            && (0.0..=100.0).contains(&self.weight_percent)
+            && self.cas.as_ref().is_none_or(|c| valid_compliance_text(c))
     }
 }
 
-impl ComplianceProjectSettings {
-    pub fn is_empty(&self) -> bool {
-        self.rule_sets.is_empty()
-            && self.org_role.is_none()
-            && self.target_markets.is_empty()
-    }
-
-    pub fn validate(&self) -> Result<(), String> {
-        if self.rule_sets.len() > MAX_COMPLIANCE_RULE_SETS {
-            return Err(format!(
-                "a project selects at most {MAX_COMPLIANCE_RULE_SETS} compliance rule sets"
-            ));
-        }
-        let mut seen = BTreeSet::new();
-        for id in &self.rule_sets {
-            if id.trim().is_empty() || id.len() > 64 {
-                return Err("each rule set id must be 1 to 64 bytes".into());
-            }
-            if !seen.insert(id.clone()) {
-                return Err("rule set ids must be unique".into());
-            }
-        }
-        if self.target_markets.len() > MAX_COMPLIANCE_MARKETS {
-            return Err(format!(
-                "a project lists at most {MAX_COMPLIANCE_MARKETS} target markets"
-            ));
-        }
-        for market in &self.target_markets {
-            bounded("target market", market, MAX_COMPLIANCE_TEXT)?;
-        }
-        Ok(())
-    }
-}
-
-impl ComplianceFindingMute {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.rule.trim().is_empty() || self.rule.len() > 64 {
-            return Err("mute rule id must be 1 to 64 bytes".into());
-        }
-        if self.reason.trim().is_empty() {
-            return Err("muting a compliance finding needs a reason".into());
-        }
-        bounded("mute reason", &self.reason, MAX_COMPLIANCE_MUTE_REASON)?;
-        if let Some(name) = &self.manufacturer {
-            bounded("mute manufacturer", name, MAX_MANUFACTURER_NAME)?;
-        }
-        Ok(())
-    }
-}
-
-impl Compliance {
-    pub fn declaration_for(&self, regime: &str) -> Option<&Declaration> {
-        let key = regime.trim().to_ascii_lowercase();
-        self.declarations
-            .iter()
-            .find(|d| d.regime.trim().eq_ignore_ascii_case(&key))
-    }
-
-    pub fn is_empty(&self) -> bool {
-        *self == Self::default()
-    }
-
-    pub fn validate(&self) -> Result<(), String> {
-        if let Some(origin) = &self.country_of_origin {
-            origin.validate()?;
-        }
-        if self.declarations.len() > MAX_DECLARATIONS {
-            return Err(format!("a part carries at most {MAX_DECLARATIONS} declarations"));
-        }
-        let mut regimes = BTreeSet::new();
-        for d in &self.declarations {
-            d.validate()?;
-            let key = d.regime.trim().to_ascii_lowercase();
-            if !regimes.insert(key) {
-                return Err("each declaration regime may appear once on a part".into());
-            }
-        }
-        if self.substances.len() > MAX_SUBSTANCES {
-            return Err(format!("a part lists at most {MAX_SUBSTANCES} substances"));
-        }
-        for s in &self.substances {
-            s.validate()?;
-        }
-        Ok(())
+impl MineralsReportOnFile {
+    pub fn valid(&self) -> bool {
+        let template = self.template.trim();
+        (template == "cmrt" || template == "emrt")
+            && !self.version.trim().is_empty()
+            && self.version.len() <= MAX_COMPLIANCE_TEXT
+            && (self.as_of.is_empty() || valid_date(&self.as_of))
     }
 }
 
 impl ManufacturerRecord {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.name.trim().is_empty() || self.name.len() > MAX_MANUFACTURER_NAME {
-            return Err("manufacturer name must be 1 to 128 bytes".into());
-        }
-        if self.aliases.len() > MAX_ALIASES {
-            return Err(format!("a manufacturer lists at most {MAX_ALIASES} aliases"));
-        }
-        for alias in &self.aliases {
-            if alias.trim().is_empty() || alias.len() > MAX_MANUFACTURER_NAME {
-                return Err("manufacturer aliases must be 1 to 128 bytes".into());
-            }
-        }
-        let country = self.country.trim();
-        if !country.is_empty() && !valid_iso3166_alpha2(country) {
-            return Err("manufacturer country must be two letters or empty".into());
-        }
-        if let Some(parent) = &self.parent {
-            bounded("manufacturer parent", parent, MAX_MANUFACTURER_NAME)?;
-        }
-        Ok(())
+    pub fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= MAX_COMPLIANCE_TEXT
+            && self
+                .minerals_report
+                .as_ref()
+                .is_none_or(MineralsReportOnFile::valid)
     }
 
     pub fn matches_name(&self, name: &str) -> bool {
@@ -407,257 +203,110 @@ impl ManufacturerRecord {
             .iter()
             .any(|a| normalize_manufacturer_name(a) == key)
     }
+
+    pub fn minerals_report_on_file(&self) -> bool {
+        self.minerals_report
+            .as_ref()
+            .is_some_and(MineralsReportOnFile::valid)
+    }
+}
+
+impl Compliance {
+    pub fn valid(&self) -> bool {
+        self.declarations.len() <= MAX_DECLARATIONS
+            && self.substances.len() <= MAX_SUBSTANCES
+            && self.declarations.iter().all(ComplianceDeclaration::valid)
+            && self.substances.iter().all(DeclaredSubstance::valid)
+            && self
+                .country_of_origin
+                .as_ref()
+                .is_none_or(|c| valid_compliance_text(&c.code) && valid_date(&c.as_of))
+    }
+
+    pub fn declaration_for(&self, regime: &str) -> Option<&ComplianceDeclaration> {
+        self.declarations
+            .iter()
+            .find(|d| d.regime == regime)
+    }
 }
 
 impl Project {
-    pub fn validate_manufacturers(&self) -> Result<(), String> {
-        if self.manufacturers.len() > MAX_MANUFACTURERS {
-            return Err(format!(
-                "the manufacturer table holds at most {MAX_MANUFACTURERS} entries"
-            ));
-        }
-        let mut keys = BTreeSet::new();
-        for record in &self.manufacturers {
-            record.validate()?;
-            let key = normalize_manufacturer_name(&record.name);
-            if key.is_empty() || !keys.insert(key.clone()) {
-                return Err("manufacturer names must be unique after normalisation".into());
-            }
-            let mut alias_keys = BTreeSet::new();
-            for alias in &record.aliases {
-                let alias_key = normalize_manufacturer_name(alias);
-                if alias_key.is_empty() || alias_key == key || !alias_keys.insert(alias_key) {
-                    return Err("manufacturer aliases must be unique and differ from the name".into());
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Resolve a maker name through the manufacturer table, including aliases.
     pub fn resolve_manufacturer(&self, name: &str) -> Option<&ManufacturerRecord> {
         self.manufacturers
             .iter()
             .find(|record| record.matches_name(name))
     }
-
-    pub fn validate_compliance_mutes(&self) -> Result<(), String> {
-        if self.compliance_mutes.len() > MAX_COMPLIANCE_MUTES {
-            return Err(format!(
-                "a project stores at most {MAX_COMPLIANCE_MUTES} compliance mutes"
-            ));
-        }
-        for mute in &self.compliance_mutes {
-            mute.validate()?;
-            if let Some(id) = mute.component {
-                if !self.components.iter().any(|c| c.id == id) {
-                    return Err(format!("mute references missing component {id}"));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub fn compliance_muted(&self, rule: &str, component: u64, manufacturer: Option<&str>) -> bool {
-        self.compliance_mutes.iter().any(|m| {
-            if m.rule != rule {
-                return false;
-            }
-            if let Some(id) = m.component {
-                return id == component;
-            }
-            if let Some(name) = m.manufacturer.as_deref() {
-                return manufacturer.is_some_and(|maker| {
-                    normalize_manufacturer_name(maker) == normalize_manufacturer_name(name)
-                });
-            }
-            false
-        })
-    }
-
-    pub fn upsert_manufacturer(&mut self, record: ManufacturerRecord) -> Result<bool, String> {
-        record.validate()?;
-        self.validate_manufacturers_insert(&record)?;
-        if let Some(existing) = self
-            .manufacturers
-            .iter_mut()
-            .find(|r| normalize_manufacturer_name(&r.name) == normalize_manufacturer_name(&record.name))
-        {
-            *existing = record;
-            return Ok(true);
-        }
-        if self.manufacturers.len() >= MAX_MANUFACTURERS {
-            return Err(format!(
-                "the manufacturer table holds at most {MAX_MANUFACTURERS} entries"
-            ));
-        }
-        self.manufacturers.push(record);
-        Ok(false)
-    }
-
-    fn validate_manufacturers_insert(&self, record: &ManufacturerRecord) -> Result<(), String> {
-        let key = normalize_manufacturer_name(&record.name);
-        for other in &self.manufacturers {
-            if normalize_manufacturer_name(&other.name) == key {
-                continue;
-            }
-            if other.matches_name(&record.name) {
-                return Err("that name matches another manufacturer entry".into());
-            }
-            for alias in &record.aliases {
-                if other.matches_name(alias) {
-                    return Err("an alias matches another manufacturer entry".into());
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
-fn sourcing_declaration(regime: &str, flag: bool) -> Declaration {
-    Declaration {
-        regime: regime.to_owned(),
-        status: if flag {
-            DeclarationStatus::DeclaredCompliant
-        } else {
-            DeclarationStatus::DeclaredNoncompliant
-        },
-        detail: String::new(),
-        source: DeclarationSource {
-            kind: DeclarationSourceKind::User,
-            label: String::new(),
-            url: None,
-            document_ref: None,
-        },
-        as_of: String::new(),
-    }
+pub fn valid_date(text: &str) -> bool {
+    let b = text.as_bytes();
+    b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b[..4].iter().all(|c| c.is_ascii_digit())
+        && b[5..7].iter().all(|c| c.is_ascii_digit())
+        && b[8..10].iter().all(|c| c.is_ascii_digit())
 }
 
-impl Component {
-    /// Declarations stored on the part plus synthetic ones from quick sourcing flags
-    /// when no explicit declaration exists for that regime.
-    pub fn effective_declarations(&self) -> Vec<Declaration> {
-        self.effective_declarations_with_sourcing(&self.sourcing)
-    }
-
-    pub fn effective_declarations_with_sourcing(&self, sourcing: &Sourcing) -> Vec<Declaration> {
-        let mut out = self.compliance.declarations.clone();
-        let regimes: BTreeSet<String> = out
-            .iter()
-            .map(|d| d.regime.trim().to_ascii_lowercase())
-            .collect();
-        for (regime, value) in [
-            ("rohs", sourcing.rohs),
-            ("reach", sourcing.reach),
-            ("halogen_free", sourcing.halogen_free),
-        ] {
-            if regimes.contains(regime) {
-                continue;
-            }
-            if let Some(flag) = value {
-                out.push(sourcing_declaration(regime, flag));
-            }
-        }
-        out
-    }
-
-    /// Bill-of-materials column text for compliance keys; unset fields are empty strings.
-    pub fn compliance_bom_value(&self, key: &str) -> Option<String> {
-        let c = &self.compliance;
-        match key {
-            "Country of origin" => c.country_of_origin.as_ref().map(|o| o.code.to_ascii_uppercase()),
-            "Country of origin basis" => c
-                .country_of_origin
-                .as_ref()
-                .map(|o| o.basis.clone())
-                .filter(|s| !s.is_empty()),
-            "Country of origin date" => c
-                .country_of_origin
-                .as_ref()
-                .map(|o| o.as_of.clone())
-                .filter(|s| !s.is_empty()),
-            "Part role" => c.role.map(part_role_text).map(str::to_owned),
-            _ => None,
-        }
-    }
+pub fn date_le(a: &str, b: &str) -> bool {
+    valid_date(a) && valid_date(b) && a <= b
 }
 
-pub fn part_role_text(role: PartRole) -> &'static str {
-    match role {
-        PartRole::FlightController => "flight controller",
-        PartRole::Esc => "esc",
-        PartRole::RadioLink => "radio link",
-        PartRole::Camera => "camera",
-        PartRole::Gimbal => "gimbal",
-        PartRole::Gnss => "gnss",
-        PartRole::Battery => "battery",
-        PartRole::Motor => "motor",
-        PartRole::CompanionComputer => "companion computer",
-        PartRole::Other => "other",
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Project;
 
-/// Write distributor-sourced declarations onto a part after a listing is applied.
-pub fn apply_listing_declarations(
-    compliance: &mut Compliance,
-    fetch_date: &str,
-    distributor: &str,
-    rohs: Option<bool>,
-    reach: Option<bool>,
-    halogen_free: Option<bool>,
-) -> Result<(), String> {
-    let label = distributor.trim();
-    if label.is_empty() {
-        return Err("a listing needs a distributor name for its declarations".into());
-    }
-    bounded("distributor", label, MAX_COMPLIANCE_TEXT)?;
-    if !valid_date(fetch_date) {
-        return Err("listing fetch date must be YYYY-MM-DD".into());
-    }
-    for (regime, value) in [
-        ("rohs", rohs),
-        ("reach", reach),
-        ("halogen_free", halogen_free),
-    ] {
-        let Some(flag) = value else {
-            continue;
-        };
-        let status = if flag {
-            DeclarationStatus::DeclaredCompliant
-        } else {
-            DeclarationStatus::DeclaredNoncompliant
-        };
-        compliance.set_declaration(Declaration {
-            regime: regime.to_owned(),
-            status,
-            detail: String::new(),
-            source: DeclarationSource {
-                kind: DeclarationSourceKind::Distributor,
-                label: label.to_owned(),
-                url: None,
-                document_ref: None,
+    #[test]
+    fn compliance_records_survive_a_save_and_reload() {
+        let mut p = Project::default();
+        p.compliance_by_component.insert(
+            1,
+            Compliance {
+                role: Some("other".into()),
+                declarations: vec![ComplianceDeclaration {
+                    regime: "eu.rohs".into(),
+                    status: ComplianceStatus::DeclaredCompliant,
+                    detail: String::new(),
+                    source: ComplianceSource {
+                        kind: ComplianceSourceKind::User,
+                        label: "lab".into(),
+                        url: None,
+                        document_ref: None,
+                    },
+                    as_of: Some("2026-03-28".into()),
+                }],
+                ..Compliance::default()
             },
-            as_of: fetch_date.to_owned(),
-        })?;
+        );
+        let json = serde_json::to_string(&p).expect("serialize");
+        let back: Project = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.compliance_by_component.len(), 1);
+        assert!(back.compliance_by_component.get(&1).is_some_and(Compliance::valid));
     }
-    Ok(())
-}
 
-impl Compliance {
-    pub fn set_declaration(&mut self, declaration: Declaration) -> Result<(), String> {
-        declaration.validate()?;
-        if let Some(existing) = self
-            .declarations
-            .iter_mut()
-            .find(|d| d.regime.trim().eq_ignore_ascii_case(&declaration.regime))
-        {
-            *existing = declaration;
-            return self.validate();
+    #[test]
+    fn compliance_bounds_refuse_oversized_declarations() {
+        let mut decls = Vec::new();
+        for i in 0..=MAX_DECLARATIONS {
+            decls.push(ComplianceDeclaration {
+                regime: format!("r{i}"),
+                status: ComplianceStatus::Unknown,
+                detail: String::new(),
+                source: ComplianceSource {
+                    kind: ComplianceSourceKind::User,
+                    label: String::new(),
+                    url: None,
+                    document_ref: None,
+                },
+                as_of: None,
+            });
         }
-        if self.declarations.len() >= MAX_DECLARATIONS {
-            return Err(format!("a part carries at most {MAX_DECLARATIONS} declarations"));
-        }
-        self.declarations.push(declaration);
-        self.validate()
+        let c = Compliance {
+            declarations: decls,
+            ..Compliance::default()
+        };
+        assert!(!c.valid());
     }
 }

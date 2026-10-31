@@ -514,7 +514,15 @@ fn find_or_create_class<'a>(
         target_impedance: None,
         nets: Vec::new(),
         profile: Some(profile_id.to_string()),
-        fast: false,
+        impedance_target: None,
+        impedance_tolerance_pct: None,
+        line_structure: None,
+        reference_layers: vec![],
+        current: None,
+        temperature_rise: None,
+        working_voltage: None,
+        insulation: None,
+        return_path_rule: None,
     });
     p.net_classes
         .last_mut()

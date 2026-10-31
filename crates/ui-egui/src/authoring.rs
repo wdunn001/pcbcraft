@@ -1428,6 +1428,14 @@ impl App {
         });
         ui.separator();
         match self.library.editor.mode {
+            1 if self.datasheet.open => {
+                self.datasheet.ui(
+                    ui,
+                    self.accent(),
+                    self.muted(),
+                    &mut self.library.editor.mode,
+                );
+            }
             2 => self.library_editor(ui),
             _ => {
                 self.library.editor.mode = 0;
@@ -1980,6 +1988,13 @@ impl App {
                 if let Some(i) = remove {
                     def.graphics.remove(i);
                 }
+                ui.separator();
+                crate::model_transform::footprint_model_transform_panel(
+                    ui,
+                    self,
+                    &def.name,
+                    def,
+                );
             }
                 }
             });
