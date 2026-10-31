@@ -2214,7 +2214,7 @@ json!({"code":{"type":"string","description":"check code: unassigned_pin, single
             "output_job.package",
             "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
             schema(
-json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64},"previous":{"type":"string","minLength":1,"maxLength":4096}}),
+json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":pcbcraft_doc::OUTPUT_KINDS.to_vec()},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64},"previous":{"type":"string","minLength":1,"maxLength":4096}}),
                 &["path"],
             ),
         ),
@@ -2336,6 +2336,21 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
             schema(
                 json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"ids":{"type":"array","items":id_schema(),"maxItems":4096,"description":"only these components; omit for every part"},"group":{"type":"boolean","default":true,"description":"false prints one row per part"}}),
                 &[],
+            ),
+        ),
+        (
+            "compliance.report",
+            "Write a compliance data report for the open design: rule sets, list snapshots, a part-by-regime matrix, evidence, waivers and supplier questions",
+            schema(
+                json!({
+                    "directory":{"type":"string","minLength":1,"maxLength":4096},
+                    "format":{"type":"string","enum":["csv","markdown","html","pdf"],"default":"markdown"},
+                    "rule_sets":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":64},"version":{"type":"string","maxLength":64}},"required":["id"]}},
+                    "regimes":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":256}},
+                    "snapshots":{"type":"array","maxItems":32,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":128},"as_of":{"type":"string","maxLength":32},"licence":{"type":"string","maxLength":256},"source":{"type":"string","maxLength":512}},"required":["id"]}},
+                    "waivers":{"type":"array","maxItems":256,"items":{"type":"object","properties":{"rule":{"type":"string","maxLength":128},"subject":{"type":"string","maxLength":256},"reason":{"type":"string","maxLength":512}},"required":["rule","subject","reason"]}}
+                }),
+                &["directory"],
             ),
         ),
         (
@@ -2939,6 +2954,11 @@ fn render_kind(
         "stats" => out.push((
             "board-stats.csv".into(),
             pcbcraft_io::stats_text(p)?.into_bytes(),
+        )),
+        "compliance_report" => out.push((
+            "compliance-report.md".into(),
+            pcbcraft_io::compliance_report_markdown(p, &pcbcraft_io::ComplianceReportOptions::default())?
+                .into_bytes(),
         )),
         "laser_job" => {
             let profile = pcbcraft_io::laser_galvo_profile_for_export(p, "commarker-b6-mopa")
@@ -5218,6 +5238,113 @@ struct FindParams {
 /// are listed apart, the reference.
 type BomGroups =
     std::collections::BTreeMap<(String, String, String, Vec<String>, String), Vec<String>>;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComplianceRuleSetParam {
+    id: String,
+    #[serde(default)]
+    version: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComplianceSnapshotParam {
+    id: String,
+    #[serde(default)]
+    as_of: String,
+    #[serde(default)]
+    licence: String,
+    #[serde(default)]
+    source: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComplianceWaiverParam {
+    rule: String,
+    subject: String,
+    reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComplianceReportParams {
+    directory: String,
+    #[serde(default = "default_compliance_report_format")]
+    format: String,
+    #[serde(default)]
+    rule_sets: Vec<ComplianceRuleSetParam>,
+    #[serde(default)]
+    regimes: Vec<String>,
+    #[serde(default)]
+    snapshots: Vec<ComplianceSnapshotParam>,
+    #[serde(default)]
+    waivers: Vec<ComplianceWaiverParam>,
+}
+
+fn default_compliance_report_format() -> String {
+    "markdown".into()
+}
+
+fn compliance_options_from_params(
+    a: &ComplianceReportParams,
+) -> Result<pcbcraft_io::ComplianceReportOptions, Error> {
+    let options = pcbcraft_io::ComplianceReportOptions {
+        rule_sets: a
+            .rule_sets
+            .iter()
+            .map(|rs| pcbcraft_io::RuleSetLine {
+                id: rs.id.clone(),
+                version: rs.version.clone(),
+            })
+            .collect(),
+        snapshots: a
+            .snapshots
+            .iter()
+            .map(|snap| pcbcraft_io::SnapshotLine {
+                id: snap.id.clone(),
+                as_of: snap.as_of.clone(),
+                licence: snap.licence.clone(),
+                source: snap.source.clone(),
+            })
+            .collect(),
+        regimes: a.regimes.clone(),
+        waivers: a
+            .waivers
+            .iter()
+            .map(|w| pcbcraft_io::WaiverLine {
+                rule: w.rule.clone(),
+                subject: w.subject.clone(),
+                reason: w.reason.clone(),
+            })
+            .collect(),
+    };
+    options.validate().map_err(Error::Invalid)?;
+    Ok(options)
+}
+
+/// Write a compliance data report into a directory without editing the project.
+pub fn compliance_report_write(p: &Project, params: &Value) -> Result<Value, Error> {
+    let a: ComplianceReportParams = parse(params)?;
+    if a.directory.trim().is_empty() || a.directory.len() > 4096 {
+        return Err(Error::Invalid("output directory is out of range".into()));
+    }
+    let format = pcbcraft_io::ComplianceReportFormat::parse(&a.format).map_err(Error::Invalid)?;
+    let options = compliance_options_from_params(&a)?;
+    let bytes =
+        pcbcraft_io::compliance_report_bytes(p, format, &options).map_err(Error::Invalid)?;
+    let directory = std::path::Path::new(a.directory.trim());
+    std::fs::create_dir_all(directory).map_err(|e| Error::Invalid(e.to_string()))?;
+    let name = format.file_name();
+    pcbcraft_io::atomic_write(&directory.join(name), &bytes).map_err(Error::Invalid)?;
+    Ok(json!({
+        "directory": a.directory.trim(),
+        "file": name,
+        "bytes": bytes.len(),
+        "format": a.format,
+    }))
+}
 
 /// The bill of materials as data: rows grouped by value, kind, footprint and
 /// the requested properties, or one row per part when `group` is false.
@@ -13208,6 +13335,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 from_layer,
                 to_layer,
                 covering: None,
+            covering_scope: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -13351,6 +13479,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                         from_layer: None,
                         to_layer: None,
                         covering: None,
+                        covering_scope: None,
                     });
                     ids.push(id);
                 }
@@ -16784,6 +16913,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             Ok(json!({"name": name, "count": p.variants.len()}))
         }
         "bom.export" => bom_export(p, params),
+        "compliance.report" => compliance_report_write(p, params),
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
@@ -26413,6 +26543,56 @@ mod tests {
         assert!(s.project.validate().is_ok());
         Ok(())
     }
+    #[test]
+    #[test]
+    fn a_newcomer_exports_a_compliance_report() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory = std::env::temp_dir().join(format!(
+            "pcbcraft-compliance-report-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.set_compliance",
+            json!({
+                "id": r1,
+                "compliance": {
+                    "declarations": [{
+                        "regime": "rohs",
+                        "status": "declared_compliant",
+                        "source": {"kind": "user", "label": "lab"},
+                        "as_of": "2024-06-01"
+                    }]
+                }
+            }),
+            None,
+        )?;
+        let params = json!({
+            "directory": directory.to_string_lossy(),
+            "rule_sets": [{"id": "eu_market", "version": "1"}],
+            "waivers": [{"rule": "reach", "subject": "R1", "reason": "supplier letter on file"}]
+        });
+        let first = s.execute("compliance.report", params.clone(), None)?["result"].clone();
+        assert_eq!(first["file"], "compliance-report.md");
+        let path = directory.join("compliance-report.md");
+        let bytes_a = std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?;
+        let _second = s.execute("compliance.report", params, None)?;
+        let bytes_b = std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(bytes_a, bytes_b);
+        let text = String::from_utf8(bytes_a).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(text.contains("supplier letter on file"));
+        assert!(!text.to_ascii_lowercase().contains("product is compliant"));
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
     #[test]
     fn compliance_is_set_in_one_undo_step_and_bounds_refuse_change() -> Result<(), Error> {
         let mut s = Session::default();

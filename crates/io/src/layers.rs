@@ -765,6 +765,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         let pad = pcbcraft_doc::Pad {

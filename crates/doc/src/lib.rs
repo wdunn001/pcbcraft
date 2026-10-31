@@ -1420,6 +1420,22 @@ pub struct Via {
     /// board default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covering: Option<ViaCovering>,
+    /// Which outer faces use the covering. Absent means both faces, which
+    /// matches boards saved before per-side protection existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covering_scope: Option<ViaCoveringScope>,
+}
+/// Which outer faces of a via use its covering type.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ViaCoveringScope {
+    /// The covering applies on both outer faces.
+    #[default]
+    Both,
+    /// The covering applies on the top face only; the bottom stays open.
+    Top,
+    /// The covering applies on the bottom face only; the top stays open.
+    Bottom,
 }
 /// How a via hole is protected, named after the seven types of the via
 /// protection standard (IPC-4761). The types that close the hole under the
@@ -1483,15 +1499,94 @@ impl ViaCovering {
             ViaCovering::FilledCapped => "filled_capped",
         }
     }
-    /// Whether the solder mask keeps an opening around the hole.
+    /// Whether the solder mask keeps an opening around the hole on every face.
     pub fn keeps_mask_opening(self) -> bool {
         self == ViaCovering::Open
+    }
+    /// Whether the solder mask keeps an opening on one outer face.
+    pub fn mask_open_on_face(self, scope: ViaCoveringScope, top: bool) -> bool {
+        if self == ViaCovering::Open {
+            return true;
+        }
+        match scope {
+            ViaCoveringScope::Both => false,
+            ViaCoveringScope::Top => !top,
+            ViaCoveringScope::Bottom => top,
+        }
+    }
+    /// Gerber `ViaDrill` protection field for this covering and face scope.
+    pub fn gerber_via_drill(self, scope: ViaCoveringScope) -> ViaGerberDrill {
+        match self {
+            ViaCovering::Open => ViaGerberDrill::None,
+            ViaCovering::Tented => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::Ib,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::Ia,
+            },
+            ViaCovering::TentedCovered => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::IIb,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IIa,
+            },
+            ViaCovering::Plugged => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::IIIb,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IIIa,
+            },
+            ViaCovering::PluggedCovered => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::IVb,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IVa,
+            },
+            ViaCovering::Filled => ViaGerberDrill::V,
+            ViaCovering::FilledCovered => ViaGerberDrill::VI,
+            ViaCovering::FilledCapped => ViaGerberDrill::VII,
+        }
+    }
+}
+/// Twelve Gerber `ViaDrill` protection values plus `None` for an open via.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ViaGerberDrill {
+    None,
+    Ia,
+    Ib,
+    IIa,
+    IIb,
+    IIIa,
+    IIIb,
+    IVa,
+    IVb,
+    V,
+    VI,
+    VII,
+}
+impl ViaGerberDrill {
+    pub fn token(self) -> &'static str {
+        match self {
+            ViaGerberDrill::None => "None",
+            ViaGerberDrill::Ia => "Ia",
+            ViaGerberDrill::Ib => "Ib",
+            ViaGerberDrill::IIa => "IIa",
+            ViaGerberDrill::IIb => "IIb",
+            ViaGerberDrill::IIIa => "IIIa",
+            ViaGerberDrill::IIIb => "IIIb",
+            ViaGerberDrill::IVa => "IVa",
+            ViaGerberDrill::IVb => "IVb",
+            ViaGerberDrill::V => "V",
+            ViaGerberDrill::VI => "VI",
+            ViaGerberDrill::VII => "VII",
+        }
     }
 }
 impl Via {
     /// The covering that applies to this via: its own, else the board default.
     pub fn effective_covering(&self, board: &Board) -> ViaCovering {
         self.covering.unwrap_or(board.via_covering_default)
+    }
+    /// Which outer faces use the covering on this via.
+    pub fn effective_covering_scope(&self) -> ViaCoveringScope {
+        self.covering_scope.unwrap_or(ViaCoveringScope::Both)
+    }
+    /// Gerber `ViaDrill` value for fabrication output.
+    pub fn gerber_via_drill(&self, board: &Board) -> ViaGerberDrill {
+        self.effective_covering(board)
+            .gerber_via_drill(self.effective_covering_scope())
     }
 }
 /// What a via is, derived from its span and the stackup.
@@ -1899,7 +1994,36 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 33] = [
+"gerbers",
+    "netlist",
+    "bom",
+    "placement",
+    "dxf",
+    "cmp",
+    "idf",
+    "vrml",
+    "step",
+    "pdf",
+    "svg",
+    "ipc2581",
+    "odb++",
+    "specctra_dsn",
+    "specctrum_dsn",
+    "gdsii",
+    "oas",
+    "png",
+    "jpg",
+    "jpeg",
+    "tiff",
+    "bmp",
+    "gif",
+    "webp",
+    "avif",
+    "heic",
+    "heif",
+    "jxl",
+    "av1",
+    "avif"
     "gerbers",
     "netlist",
     "bom",
@@ -1924,6 +2048,7 @@ pub const OUTPUT_KINDS: [&str; 33] = [
     "stackup",
     "drill_chart",
     "stats",
+    "compliance_report",
     "layer_plots",
     "panel",
     "raster",
@@ -2132,6 +2257,19 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
         "hpgl" => ("package", "board.hpgl"),
         "stackup" => ("package", "board-stackup.txt"),
         "stats" => ("package", "board-stats.csv"),
+"vrml" => ("package", "board.wrl"),
+        "step" => ("package", "board.step"),
+        "dsn" => ("package", "pcb.dsn"),
+        "ipc356" => ("package", "test.brd"),
+        "gencad" => ("package", "board.gencad"),
+        "hyperlynx" => ("package", "netlist.csv"),
+        "plot" => ("package", "plot-report.csv"),
+        "report" => ("package", "board-report.txt"),
+        "ps" => ("package", "pcb.ps"),
+        "hpgl" => ("package", "board.hpgl"),
+        "stackup" => ("package", "board-stackup.txt"),
+        "stats" => ("package", "board-stats.csv"),
+        "compliance_report" => ("package", "compliance-report.md"),
         "spice" => ("package", "schematic.cir"),
         "si_net_results" => ("package", "si-net-results.csv"),
         "impedance_table" => ("package", "impedance-table.csv"),
@@ -6857,6 +6995,7 @@ mod via_covering_tests {
             from_layer: None,
             to_layer: None,
             covering,
+            covering_scope: None,
         });
         p
     }
