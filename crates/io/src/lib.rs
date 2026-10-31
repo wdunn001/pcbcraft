@@ -47,6 +47,7 @@ pub use bitmap_trace::{
 mod cam;
 mod cam_drill;
 mod cam_shapes;
+mod compliance_report;
 mod snapmaker;
 mod solidcraft;
 mod solidcraft_format;
@@ -71,6 +72,10 @@ pub use cam_drill::{
     drill_gcode, drill_tools, outline_gcode,
 };
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
+pub use compliance_report::{
+    ComplianceReportFormat, ComplianceReportOptions, RuleSetLine, SnapshotLine, WaiverLine,
+    compliance_report_bytes, compliance_report_markdown,
+};
 pub use diff::{DesignChange, DesignDiff, project_diff};
 #[cfg(not(target_arch = "wasm32"))]
 pub use datasheet::HttpDatasheetTransport;
@@ -1019,6 +1024,21 @@ pub(crate) fn pdf_bytes_from_ops(ops: String) -> Result<Vec<u8>, String> {
     Ok(pdf)
 }
 
+fn pdf_literal_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' | '(' | ')' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ if ch.is_ascii() => out.push(ch),
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Export the design as a one-page vector PDF document, in bytes.
 pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     p.validate()?;
@@ -1032,6 +1052,55 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     page.op("0 0 842 595 re f")?;
     pdf_draw(&mut page, p, view)?;
     pdf_bytes_from_ops(page.ops)
+}
+
+/// One-page PDF whose body is plain text lines (compliance report export).
+pub fn pdf_plain_text_document(body: &str) -> Result<Vec<u8>, String> {
+    const MAX_LINES: usize = 500;
+    let mut stream = String::from("BT /F1 9 Tf 72 750 Td ");
+    for (index, line) in body.lines().take(MAX_LINES).enumerate() {
+        if index > 0 {
+            stream.push_str("0 -12 Td ");
+        }
+        stream.push('(');
+        stream.push_str(&pdf_literal_escape(line));
+        stream.push_str(") Tj ");
+    }
+    stream.push_str("ET");
+    let content = stream.as_bytes();
+    let mut pdf: Vec<u8> = Vec::new();
+    let mut offsets = [0u32; 5];
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    for (index, body_obj) in [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>".to_string(),
+        format!(
+            "<< /Length {} >>\nstream\n{}endstream",
+            content.len(),
+            String::from_utf8_lossy(content)
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ]
+    .iter()
+    .enumerate()
+    {
+        offsets[index] = pdf.len() as u32;
+        pdf.extend_from_slice(
+            format!("{} 0 obj\n{}\nendobj\n", index + 1, body_obj)
+                .as_bytes(),
+        );
+    }
+    let xref_at = pdf.len() as u32;
+    pdf.extend_from_slice(b"xref\n0 5\n0000000000 65535 f \n");
+    for offset in offsets.iter() {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
+    );
+    Ok(pdf)
+}
 }
 
 /// Draw one view as a standalone PostScript document: the same path, circle
