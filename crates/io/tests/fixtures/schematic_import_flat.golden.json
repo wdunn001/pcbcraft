@@ -1,0 +1,8 @@
+{
+  "name": "Flat import fixture",
+  "components": ["R1", "R2"],
+  "nets": ["SHARED"],
+  "junctions": 1,
+  "no_connects": 1,
+  "drawn_wires": 1
+}

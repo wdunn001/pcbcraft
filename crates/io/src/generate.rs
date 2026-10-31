@@ -25,6 +25,7 @@ use crate::{
     gencad_text, gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text,
     netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
     postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, vrml_board,
+    testpoints_csv
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -201,6 +202,7 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "board.step" => text_output(step_board(p)?),
         "pcb.dsn" => text_output(specctra_dsn(p)?),
         "test.brd" => text_output(ipc356_netlist(p)?),
+        "testpoints.csv" => text_output(testpoints_csv(p)?),
         "board.gencad" => text_output(gencad_text(p)?),
         "netlist.csv" => text_output(hyperlynx_csv(p)?),
         "plot-report.csv" => text_output(plot_csv(p)?),

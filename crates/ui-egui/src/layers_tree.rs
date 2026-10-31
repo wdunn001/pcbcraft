@@ -179,6 +179,18 @@ pub(crate) enum Action {
     ExportBom { selection: bool },
     /// Leave a part off the bill of materials, or put it back.
     ToggleBomExclude(Id),
+/// Move an inner copper layer up or down.
+    StackMove { name: String, up: bool },
+    /// Delete a document object (same as the Delete key on the drawing).
+    Delete(Id),
+    /// Remove a machine layer and everything drawn on it.
+    RemoveArtLayer(Id),
+    /// Add a machine layer.
+    NewArtLayer,
+    /// Open Export on the bill of materials: all parts, or only the selected ones.
+    ExportBom { selection: bool },
+    /// Leave a part off the bill of materials, or put it back.
+    ToggleBomExclude(Id),
     /// Show or hide one fixed row of a page (`symbols`, `power`, `drawing`, `title`).
     SetPageRowShown {
         page: Id,
@@ -193,6 +205,7 @@ pub(crate) enum Action {
     TitleShown { page: Id, on: bool },
     /// Place a power port on a page, tied to the first power net.
     AddPowerPort(Id),
+}
 }
 
 /// The read-only inputs of one frame.
@@ -210,8 +223,21 @@ pub(crate) struct Env<'a> {
     pub revision: u64,
     /// How many parts are selected, for the Export BOM for selection entry.
     pub parts_selected: usize,
+pub tab: TreeTab,
+    pub colours: ThemeColours,
+    /// The app's `hidden_layers` list.
+    pub hidden: &'a [String],
+    pub focus: Option<&'a str>,
+    pub selected: Option<Id>,
+    /// What the drawing tools draw on; its row carries the Active badge.
+    pub target: Target,
+    /// Bumps on every document change; part of the row cache key.
+    pub revision: u64,
+    /// How many parts are selected, for the Export BOM for selection entry.
+    pub parts_selected: usize,
     /// Show the fixed rows of a page even when they hold nothing.
     pub show_empty: bool,
+}
 }
 
 /// The canvas toggles each tab's layer rows may switch.
@@ -584,8 +610,8 @@ fn top_level(env: &Env) -> Vec<Row> {
     root.swatch = Some(c.warn);
     root.sub = t!(
         "tree.board_size",
-        w = format!("{}", board.width),
-        h = format!("{}", board.height)
+        w = size_text(board.width),
+        h = size_text(board.height)
     );
     out.push(root);
     for item in stack(env) {
@@ -1038,8 +1064,8 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 RowKind::Leaf,
                 t!(
                     "tree.edge",
-                    w = format!("{}", board.width),
-                    h = format!("{}", board.height)
+                    w = size_text(board.width),
+                    h = size_text(board.height)
                 ),
             );
             edge.dim = true;
@@ -2749,6 +2775,18 @@ enum RowAct {
     ExportBom,
     ExportBomSelection,
     ToggleBomExclude,
+NetClass(Option<Id>),
+    Properties,
+    Highlight,
+    ToggleExpand,
+    AddPair,
+    StackRename,
+    MoveUp,
+    MoveDown,
+    RemoveLayer,
+    ExportBom,
+    ExportBomSelection,
+    ToggleBomExclude,
     PageAdd,
     PageRemove,
     SelectAll,
@@ -2756,6 +2794,7 @@ enum RowAct {
     TitleToggle,
     /// Remove on a fixed row of a page; the menu always shows it disabled.
     Remove,
+}
 }
 
 /// The kind name capture mode uses to open the first menu of this kind.
@@ -3613,6 +3652,7 @@ impl crate::App {
                 target: self.current_target(),
                 revision: self.revision,
                 parts_selected: self.selected_part_components().len(),
+show_empty: self.tree.show_empty,
                 show_empty: self.tree.show_empty,
             };
             show(ui, &env, &mut self.tree)
@@ -3925,6 +3965,13 @@ pub(crate) fn layers_tab(ui: &mut Ui, app: &mut crate::App) {
     app.layers_tree_panel(ui);
 }
 
+/// A board size in millimetres to two decimals with trailing zeros dropped,
+/// so an imported 37.94230200896579 reads 37.94 and 60.0 reads 60.
+fn size_text(v: f64) -> String {
+    let t = format!("{v:.2}");
+    t.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3947,7 +3994,13 @@ mod tests {
             target: Target::Copper(Layer::Front),
             revision: 1,
             parts_selected: 0,
-            show_empty: false,
+show_empty: false,
+            hidden,
+            focus: None,
+            selected: None,
+            target: Target::Copper(Layer::Front),
+            revision: 1,
+            parts_selected: 0,
         }
     }
 
@@ -3955,6 +4008,7 @@ mod tests {
     fn renamable_rows_are_nets_layers_and_pages_only() {
         let mut project = sample();
         project.sheets.push(pcbcraft_doc::Sheet {
+            interchange_uuid: None,
             id: 9001,
             name: "Power".into(),
             parent: None,

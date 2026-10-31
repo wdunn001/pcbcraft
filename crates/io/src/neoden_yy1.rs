@@ -537,6 +537,7 @@ mod tests {
             sheet: 0,
         });
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: id + 100,
             component: id,
             position: Point::new(at.0, at.1),

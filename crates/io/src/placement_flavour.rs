@@ -333,6 +333,17 @@ pub struct PlacedRow {
     pub fitted: bool,
 }
 type Row = PlacedRow;
+struct Row {
+    reference: String,
+    x: f64,
+    y: f64,
+    rotation: f64,
+    bottom: bool,
+    package: String,
+    value: String,
+    tht: bool,
+    fitted: bool,
+}
 
 fn truthy(v: &str) -> bool {
     matches!(
@@ -475,6 +486,36 @@ fn collect_rows(
     fl: &PlacementFlavour,
     options: &PlacementOptions,
 ) -> Result<Vec<Row>, String> {
+/// Write the placement list or lists for a design in one flavour.
+///
+/// # Rules
+/// - Validates the design and the flavour first; an unknown variant is an error.
+/// - Rows sort by reference in natural order, fiducials last.
+/// - With `split_by_side` the files are `<stem>-top.<ext>` and `<stem>-bottom.<ext>`,
+///   both written even when one is empty; otherwise the one file is `<stem>.<ext>`.
+/// - Lines end in `\n`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// # Do not
+/// - Change `placement_text` or reorder columns away from the flavour's order.
+pub fn placement_flavoured(
+    p: &Project,
+    flavour: &PlacementFlavour,
+    options: &PlacementOptions,
+) -> Result<PlacementOutput, String> {
+    p.validate()?;
+    render(p, flavour, options)
+}
+
+/// The export without the whole-design check, so tests can put parts on the
+/// bottom face of a design that cannot hold them yet.
+fn render(
+    p: &Project,
+    fl: &PlacementFlavour,
+    options: &PlacementOptions,
+) -> Result<PlacementOutput, String> {
     fl.validate()?;
     if options.offsets.len() > MAX_OFFSETS
         || options
