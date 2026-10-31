@@ -4,9 +4,14 @@
 #
 # Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
 # repackage jobs. No Snap Store or Flathub upload in CI.
+# Release builds for every platform. Called by nightly.yml and release.yml so
+# nightly runs exercise the exact packaging that a tagged release uses.
+# No build cache here: release artifacts are built from a clean state.
 #
-# docs-agent (D451): when Linux installers land, extend docs/ci.md Releases section with
-# AppImage (+ .zsync), .deb, and .rpm per arch; point packaging/linux/package.sh for repro.
+# Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
+# repackage jobs. No Snap Store or Flathub upload in CI.
+# Windows: MSI and portable zip via WiX 5 (packaging/windows/package.ps1), plus legacy loose zip.
+#
 name: Build distributables
 
 on:
@@ -24,6 +29,34 @@ on:
         required: false
         type: number
         default: 14
+      sign:
+        description: When true, sign Windows and macOS artifacts when repository secrets are set
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      WINDOWS_CERTIFICATE:
+        required: false
+      WINDOWS_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_CODESIGN_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_APP_SPECIFIC_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APPLE_NOTARY_KEY:
+        required: false
+      APPLE_NOTARY_KEY_ID:
+        required: false
+      APPLE_NOTARY_ISSUER_ID:
+        required: false
 
 permissions: {}
 
@@ -33,6 +66,27 @@ env:
   CARGO_NET_RETRY: 10
 
 jobs:
+  icons:
+    name: Package (icons)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Install icon tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends librsvg2-bin imagemagick
+      - name: Draw Windows icon from SVG
+        run: bash packaging/windows/make-icon.sh icons
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-icons
+          path: icons/*
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+
   native:
     name: Package (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
@@ -50,9 +104,6 @@ jobs:
             os: ubuntu-22.04-arm
             targets: aarch64-unknown-linux-gnu
             deb: arm64
-          - platform: windows-x86_64
-            os: windows-2025
-            targets: x86_64-pc-windows-msvc
           - platform: macos-universal
             os: macos-15
             targets: aarch64-apple-darwin,x86_64-apple-darwin
@@ -72,11 +123,28 @@ jobs:
         env:
           NFPM_VERSION: 2.47.0
         run: |
-          sudo apt-get install -y --no-install-recommends desktop-file-utils appstream zsync rpm \
-            librsvg2-bin
+          sudo apt-get install -y --no-install-recommends desktop-file-utils appstream zsync rpm
           curl -fsSL -o "$RUNNER_TEMP/nfpm.deb" \
             "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_${{ matrix.deb }}.deb"
           sudo dpkg -i "$RUNNER_TEMP/nfpm.deb"
+      - name: Validate Linux desktop entry and metainfo
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          APP_ID: io.github.tangency_labs.pcbcraft
+        run: |
+          set -euo pipefail
+          desktop="assets/platforms/linux/$APP_ID.desktop"
+          metainfo="assets/platforms/linux/$APP_ID.metainfo.xml.in"
+          for field in GenericName Comment Keywords TryExec StartupNotify StartupWMClass Categories; do
+            grep -q "^${field}=" "$desktop" || { echo "missing $field in $desktop" >&2; exit 1; }
+          done
+          grep -q 'Science;Engineering;Electronics;' "$desktop" || { echo "wrong Categories in $desktop" >&2; exit 1; }
+          for field in id name summary description developer url categories keywords; do
+            grep -q "<${field}" "$metainfo" || { echo "missing <$field> in $metainfo" >&2; exit 1; }
+          done
+          grep -q '<category>Science</category>' "$metainfo" || { echo "missing Science category in $metainfo" >&2; exit 1; }
+          echo "desktop entry and metainfo validated"
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
@@ -89,6 +157,13 @@ jobs:
           for target in ${TARGETS//,/ }; do
             cargo build --locked --release -p pcbcraft -p pcbcraft-cli --target "$target"
           done
+      - name: Sign Windows binaries
+        if: inputs.sign && matrix.platform == 'windows-x86_64'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: ./.github/scripts/sign-windows.ps1
       - name: Package Linux installers
         if: runner.os == 'Linux'
         shell: bash
@@ -115,11 +190,35 @@ jobs:
             "$appimage" --appimage-updateinformation | grep -F 'gh-releases-zsync|'
             test -s "$appimage.zsync"
           done
+      - name: Package smoke test (install .deb, start CLI)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          deb_file="dist/pcbcraft-${VERSION}-${PLATFORM}.deb"
+          test -s "$deb_file" || { echo "missing .deb $deb_file" >&2; exit 1; }
+          sudo apt-get install -y --no-install-recommends "./$deb_file"
+          pcbcraft-cli help
+          echo "package smoke test passed"
       - name: Package
         shell: bash
         env:
           PLATFORM: ${{ matrix.platform }}
           VERSION: ${{ inputs.version }}
+          PCBCRAFT_SIGN: ${{ inputs.sign == true && '1' || '0' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
         run: bash .github/scripts/package.sh "$PLATFORM" "$VERSION" dist
       - name: Linux FHS tarball for Flatpak and Snap
         if: runner.os == 'Linux'
@@ -132,6 +231,66 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+
+  windows:
+    name: Package (windows-x86_64)
+    needs: icons
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-icons
+          path: icons
+      - name: Stage Windows icons for the build
+        shell: pwsh
+        run: |
+          $dest = 'assets/icons/app/windows/exports'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item icons/pcbcraft.ico, icons/pcbcraft-executable.ico $dest
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - name: Install WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
+      - name: Build MSI, portable zip, and standalone exe
+        shell: pwsh
+        env:
+          PCBCRAFT_DIST_TAG: ${{ inputs.version }}
+          DIST: ${{ github.workspace }}/dist
+          PCBCRAFT_ICONS: ${{ github.workspace }}/icons
+        run: ./packaging/windows/package.ps1
+      - name: Legacy zip (loose exes)
+        shell: bash
+        env:
+          PLATFORM: windows-x86_64
+          VERSION: ${{ inputs.version }}
+        run: bash .github/scripts/package.sh "$PLATFORM" "$VERSION" dist
+      - name: Check Windows packages
+        shell: pwsh
+        env:
+          TAG: ${{ inputs.version }}
+        run: |
+          Get-ChildItem dist | Format-Table Name, Length
+          if (-not (Test-Path "dist/pcbcraft-$env:TAG-windows-x86_64.msi")) { throw 'missing MSI' }
+          if (-not (Test-Path "dist/pcbcraft-$env:TAG-windows-x86_64-portable.zip")) { throw 'missing portable zip' }
+          if (-not (Test-Path "dist/PCBCraft-$env:TAG-windows-x86_64.exe")) { throw 'missing standalone exe' }
+          if (-not (Test-Path "dist/pcbcraft-$env:TAG-windows-x86_64.zip")) { throw 'missing legacy zip' }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-windows-x86_64
           path: dist/*
           if-no-files-found: error
           retention-days: ${{ inputs.retention-days }}
@@ -268,6 +427,13 @@ jobs:
       - name: Build the browser bundle
         working-directory: apps/pcbcraft-web
         run: trunk build --release --public-url ./
+      - name: Ship fonts beside the bundle
+        # The browser fetches fonts/<file> only when a language needs it;
+        # the .br mirror lets a brotli-aware server answer with less data.
+        run: |
+          mkdir -p apps/pcbcraft-web/dist/fonts
+          cp crates/ui-egui/assets/fonts/NotoSansJP-Regular.otf crates/ui-egui/assets/fonts/NotoSansSC-Regular.otf crates/ui-egui/assets/fonts/OFL-NotoSansCJK.txt apps/pcbcraft-web/dist/fonts/
+          brotli -q 11 apps/pcbcraft-web/dist/fonts/NotoSansJP-Regular.otf apps/pcbcraft-web/dist/fonts/NotoSansSC-Regular.otf
       - name: Package
         env:
           VERSION: ${{ inputs.version }}

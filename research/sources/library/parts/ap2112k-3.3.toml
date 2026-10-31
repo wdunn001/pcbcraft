@@ -1,0 +1,19 @@
+[part]
+manufacturer = "Diodes Incorporated"
+mpn = "AP2112K-3.3"
+datasheet_path = "research/sources/library/datasheets/diodes/ap2112k-3.3.pdf"
+datasheet_url = "https://www.diodes.com/assets/Datasheets/AP2112.pdf"
+
+package = "SOT-23-5"
+pin_count = 5
+land_pattern_ref = "See recommended land pattern"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[requirement]]
+type = "decoupling"
+text = "Follow manufacturer decoupling and layout guidance in the datasheet."
+page = 1
+confirmed = false
