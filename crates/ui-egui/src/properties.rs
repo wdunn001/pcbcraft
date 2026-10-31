@@ -6,7 +6,7 @@
 //! Local rules: every edit goes through an engine command (`component.value`,
 //! `footprint.move`, `footprint.rotate`, `footprint.flip`, `footprint.set_locked`,
 //! `board.resize`); a field commits on Enter or when it loses focus; every control has
-//! a tooltip from the catalog.
+//! a tooltip from the catalog. The Sourcing section lives in `sourcing_panel.rs`.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/ui_kit/section.rs, form_row.rs, number_field.rs, segmented.rs
@@ -39,7 +39,7 @@ impl App {
     pub(crate) fn properties_header(&self, ui: &mut egui::Ui, title: &str, caption: &str) {
         let t = theme::tokens(ui.ctx());
         egui::Frame::NONE
-            .inner_margin(egui::Margin::symmetric(16, 10))
+            .inner_margin(egui::Margin::ZERO)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.label(fonts::title(title).color(t.text));
@@ -342,13 +342,23 @@ impl App {
                     .clicked()
                         && let Some(url) = sheet.clone()
                     {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        self.open_datasheet(ui.ctx(), url);
                     }
                 });
             },
         );
+if self
+            .project
+            .board
+            .footprints
+            .iter()
+            .any(|f| f.component == c.id)
+        {
+            self.placement_machine_section(ui, c.id);
+        }
+        self.sourcing_section(ui, c);
         egui::Frame::NONE
-            .inner_margin(egui::Margin::symmetric(16, 12))
+            .inner_margin(egui::Margin::ZERO)
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     if secondary_button(
@@ -524,7 +534,7 @@ impl App {
             },
         );
         egui::Frame::NONE
-            .inner_margin(egui::Margin::symmetric(16, 0))
+            .inner_margin(egui::Margin::ZERO)
             .show(ui, |ui| {
                 ui.label(fonts::caption(t!("props.board_more")).color(t.muted));
                 self.holes_section(ui);

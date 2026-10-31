@@ -82,9 +82,7 @@ pub struct PageRect {
 pub fn check_rect(rect: &PageRect) -> Result<(), String> {
     let in_unit = |v: f64| v.is_finite() && (0.0..=1.0).contains(&v);
     if !(in_unit(rect.x0) && in_unit(rect.y0) && in_unit(rect.x1) && in_unit(rect.y1)) {
-        return Err(invalid(
-            "rect corners must be finite numbers from 0 to 1",
-        ));
+        return Err(invalid("rect corners must be finite numbers from 0 to 1"));
     }
     if rect.x0 > rect.x1 || rect.y0 > rect.y1 {
         return Err(invalid("rect must have x0 <= x1 and y0 <= y1"));
@@ -118,7 +116,9 @@ pub fn check_entry(entry: &DatasheetEntry) -> Result<(), String> {
         return Err(invalid("entry id must be 1 to 32 bytes"));
     }
     if entry.id.chars().any(|c| c.is_control() || c == '/') {
-        return Err(invalid("entry id must not contain control characters or slashes"));
+        return Err(invalid(
+            "entry id must not contain control characters or slashes",
+        ));
     }
     if entry.page == 0 || entry.page > MAX_PAGE {
         return Err(invalid("page must be from 1 to 10000"));
@@ -131,7 +131,9 @@ pub fn check_entry(entry: &DatasheetEntry) -> Result<(), String> {
         return Err(invalid("label must be at most 128 characters"));
     }
     if entry.note.chars().any(char::is_control) || entry.label.chars().any(char::is_control) {
-        return Err(invalid("note and label must not contain control characters"));
+        return Err(invalid(
+            "note and label must not contain control characters",
+        ));
     }
     match entry.kind {
         EntryKind::Highlight => {}
@@ -178,7 +180,9 @@ pub fn load_file() -> Result<DatasheetAnnotationsFile, String> {
     let parsed: DatasheetAnnotationsFile = serde_json::from_str(&text)
         .map_err(|_| invalid("datasheet annotations file could not be parsed"))?;
     if parsed.version != FILE_VERSION {
-        return Err(invalid("datasheet annotations file version is not supported"));
+        return Err(invalid(
+            "datasheet annotations file version is not supported",
+        ));
     }
     Ok(parsed)
 }
@@ -203,7 +207,9 @@ fn save_file(file: &DatasheetAnnotationsFile) -> Result<(), String> {
     let text = serde_json::to_string_pretty(file).map_err(|e| e.to_string())?;
     let temp = path.with_extension("tmp");
     let mut handle = fs::File::create(&temp).map_err(|e| e.to_string())?;
-    handle.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    handle
+        .write_all(text.as_bytes())
+        .map_err(|e| e.to_string())?;
     handle.sync_all().map_err(|e| e.to_string())?;
     fs::rename(&temp, &path).map_err(|e| e.to_string())?;
     Ok(())
@@ -223,14 +229,13 @@ pub fn upsert_entry(document_hash: &str, entry: DatasheetEntry) -> Result<Datash
     check_document_hash(document_hash)?;
     check_entry(&entry)?;
     let mut file = load_file()?;
-    let doc = file
-        .documents
-        .entry(document_hash.to_owned())
-        .or_default();
+    let doc = file.documents.entry(document_hash.to_owned()).or_default();
     if doc.entries.len() >= MAX_ENTRIES_PER_DOCUMENT
         && !doc.entries.iter().any(|e| e.id == entry.id)
     {
-        return Err(invalid("this document already has the maximum number of entries"));
+        return Err(invalid(
+            "this document already has the maximum number of entries",
+        ));
     }
     if let Some(existing) = doc.entries.iter_mut().find(|e| e.id == entry.id) {
         *existing = entry.clone();
@@ -289,7 +294,9 @@ pub fn import_file(payload: &DatasheetAnnotationsFile, mode: ImportMode) -> Resu
     for (hash, doc) in &payload.documents {
         check_document_hash(hash)?;
         if doc.entries.len() > MAX_ENTRIES_PER_DOCUMENT {
-            return Err(invalid("import payload has too many entries on one document"));
+            return Err(invalid(
+                "import payload has too many entries on one document",
+            ));
         }
         for entry in &doc.entries {
             check_entry(entry)?;
@@ -370,19 +377,14 @@ mod tests {
 
     fn lock_store(path: PathBuf) -> MutexGuard<'static, ()> {
         static LOCK: Mutex<()> = Mutex::new(());
-        let guard = LOCK
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let guard = LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
         set_store_path_for_test(Some(path));
         guard
     }
 
     #[test]
     fn annotations_survive_when_only_the_hash_is_used() -> Result<(), String> {
-        let dir = std::env::temp_dir().join(format!(
-            "pcbcraft-ds-anno-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("pcbcraft-ds-anno-{}", std::process::id()));
         let _guard = lock_store(dir.join("store.json"));
         let hash = "abc12345deadbeef";
         let entry = DatasheetEntry {
@@ -409,10 +411,7 @@ mod tests {
 
     #[test]
     fn export_and_import_round_trip() -> Result<(), String> {
-        let dir = std::env::temp_dir().join(format!(
-            "pcbcraft-ds-anno-rt-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("pcbcraft-ds-anno-rt-{}", std::process::id()));
         let _guard = lock_store(dir.join("store.json"));
         let hash = "0011223344556677";
         upsert_entry(
