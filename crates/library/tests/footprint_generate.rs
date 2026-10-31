@@ -46,13 +46,26 @@ fn near(a: f64, b: f64) -> bool {
 }
 
 #[test]
-fn land_pattern_density_suffix_matches_ipc_level_letter() {
-    assert_eq!(LandPatternDensity::Most.suffix(), 'M');
-    assert_eq!(LandPatternDensity::Nominal.suffix(), 'N');
-    assert_eq!(LandPatternDensity::Least.suffix(), 'L');
-    assert_eq!(LandPatternDensity::parse("nominal"), Some(LandPatternDensity::Nominal));
-    assert_eq!(LandPatternDensity::parse("N"), Some(LandPatternDensity::Nominal));
-    assert!(LandPatternDensity::parse("unknown").is_none());
+fn land_pattern_density_suffix_matches_ipc_level_letter() -> Result<(), String> {
+    if LandPatternDensity::Most.suffix() != 'M' {
+        return Err("Most suffix must be M".into());
+    }
+    if LandPatternDensity::Nominal.suffix() != 'N' {
+        return Err("Nominal suffix must be N".into());
+    }
+    if LandPatternDensity::Least.suffix() != 'L' {
+        return Err("Least suffix must be L".into());
+    }
+    if LandPatternDensity::parse("nominal") != Some(LandPatternDensity::Nominal) {
+        return Err("nominal must parse".into());
+    }
+    if LandPatternDensity::parse("N") != Some(LandPatternDensity::Nominal) {
+        return Err("N must parse to nominal".into());
+    }
+    if LandPatternDensity::parse("unknown").is_some() {
+        return Err("unknown level must not parse".into());
+    }
+    Ok(())
 }
 
 #[test]
