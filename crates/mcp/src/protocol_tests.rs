@@ -21,7 +21,7 @@ fn initialize(version: &str) -> Value {
 }
 
 fn call(hub: &DocumentHub, request: Value) -> Result<Value, String> {
-    handle_rpc(hub, request, None).ok_or_else(|| "expected a reply".to_string())
+    handle_rpc(hub, request, None, None).ok_or_else(|| "expected a reply".to_string())
 }
 
 #[test]
@@ -63,9 +63,29 @@ fn a_notification_never_gets_a_reply() -> Result<(), String> {
         "notifications/cancelled",
         "nonsense",
     ] {
-        let reply = handle_rpc(&hub, json!({"jsonrpc":"2.0","method":method}), None);
+        let reply = handle_rpc(&hub, json!({"jsonrpc":"2.0","method":method}), None, None);
         assert!(reply.is_none(), "{method} got {reply:?}");
     }
+    Ok(())
+}
+
+#[test]
+fn cancelled_notification_for_an_unknown_request_is_ignored() -> Result<(), String> {
+    let hub = hub()?;
+    let cancel = json!({
+        "jsonrpc":"2.0",
+        "method":"notifications/cancelled",
+        "params":{"requestId":424242}
+    });
+    assert!(handle_rpc(&hub, cancel.clone(), None).is_none());
+    let initialize = initialize("2025-11-25");
+    let ping = json!({"jsonrpc":"2.0","id":2,"method":"ping"});
+    let input = format!("{initialize}\n{cancel}\n{ping}\n");
+    let (replies, outcome) = serve_lines(input.as_bytes())?;
+    assert!(outcome.is_ok(), "{outcome:?}");
+    assert_eq!(replies.len(), 2, "cancel must not produce stdout");
+    assert_eq!(replies[0]["result"]["protocolVersion"], "2025-11-25");
+    assert_eq!(replies[1]["result"], json!({}));
     Ok(())
 }
 
@@ -108,7 +128,7 @@ fn serve_lines(input: &[u8]) -> Result<(Vec<Value>, Result<(), String>), String>
     let hub = hub()?;
     let mut output = vec![];
     let mut reader = input;
-    let outcome = serve(&mut reader, &mut output, &hub, None);
+    let outcome = serve(&mut reader, &mut output, &hub, None, None);
     let replies = String::from_utf8(output)
         .map_err(|e| e.to_string())?
         .lines()

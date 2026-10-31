@@ -21,12 +21,15 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
+        ("library.footprint.set_model_transform","Change the offset, scale or rotation on an existing project-library 3D model without replacing its file path; use preset rotate_90, mirror or pin1_cycle for quick alignment, or give offset, scale and rotate arrays in millimetres and degrees; placed instances keep their embedded copy until footprint.refresh",schema(json!({"name":{"type":"string"},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"preset":{"type":"string","enum":["rotate_90","mirror","pin1_cycle"]}}),&["name"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
+        ("library.footprint.set_box_body","Set an explicit box body width, depth and height in millimetres on a project-library footprint for the 3D view and mechanical exports; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"width":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent in x, millimetres"},"depth":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent in y, millimetres"},"height":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent above the board, millimetres"}}),&["name","width","depth","height"])),
+        ("library.footprint.clear_box_body","Remove the explicit box body from a project-library footprint so 3D and exports fall back to pad-derived defaults",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.renumber_pads","Renumber pads on a project-library footprint with an ordered old-to-new map; embedded copies, their placed pads and matching component pins follow, and a target number already held by an untouched pad is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
         ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
-        ("library.footprint.generate","Build an IPC-style land pattern from a bounded family name and package parameters, then create or replace that footprint in the project library",schema(json!({"family":{"type":"string","enum":["chip_2terminal","sot","soic","qfp","qfn","bga","dip","header_single","header_double","radial","axial"]},"density":{"type":"string","enum":["A","B","C"],"default":"B"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string"},"keywords":{"type":"string"},"pitch":{"type":"number"},"pin_count":{"type":"integer","minimum":1,"maximum":256},"body_x":{"type":"number"},"body_y":{"type":"number"},"body_z":{"type":"number"},"rows":{"type":"integer","minimum":2,"maximum":50},"cols":{"type":"integer","minimum":2,"maximum":50},"row_spacing":{"type":"number"},"terminal_width":{"type":"number"},"thermal":{"type":"boolean"}}),&["family","name"])),
+        ("library.footprint.generate","Build an IPC-style land pattern from a bounded family name and package parameters, then create or replace that footprint in the project library",schema(json!({"family":{"type":"string","enum":["chip_2terminal","sot","soic","tssop","ssop","msop","qfp","qfn","dfn","bga","lga","dip","header_single","header_double","radial","axial","sod","to_single"]},"density":{"type":"string","enum":["A","B","C"],"default":"B"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string"},"keywords":{"type":"string"},"pitch":{"type":"number"},"pin_count":{"type":"integer","minimum":1,"maximum":256},"body_x":{"type":"number"},"body_y":{"type":"number"},"body_z":{"type":"number"},"rows":{"type":"integer","minimum":2,"maximum":50},"cols":{"type":"integer","minimum":2,"maximum":50},"row_spacing":{"type":"number"},"terminal_width":{"type":"number"},"thermal":{"type":"boolean"}}),&["family","name"])),
         ("library.footprint.check","Read-only library-quality check on a project-library footprint by name or on an inline definition; returns structured findings",schema(json!({"name":{"type":"string"},"definition":{"type":"object"}}),&[])),
         ("library.footprint.pad_set","Add or replace one pad on a project-library footprint by its number, so custom packages gain exposed pads, thermal vias or extra terminals without rewriting the whole definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"object","description":"a full pad: number, shape, size, position, layers and optional drill, as library readers emit them"}}),&["name","pad"])),
         ("library.footprint.pad_remove","Remove one pad from a project-library footprint by its number; the footprint keeps at least one pad, and placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"}}),&["name","pad"])),
@@ -411,6 +414,19 @@ pub(super) struct ModelParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ModelTransformParams {
+    name: String,
+    #[serde(default)]
+    offset: Option<[f64; 3]>,
+    #[serde(default)]
+    scale: Option<[f64; 3]>,
+    #[serde(default)]
+    rotate: Option<[f64; 3]>,
+    #[serde(default)]
+    preset: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RulesParams {
     name: String,
     #[serde(default)]
@@ -419,6 +435,14 @@ struct RulesParams {
     mask_margin: Option<f64>,
     #[serde(default)]
     paste_margin: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoxBodyParams {
+    name: String,
+    width: f64,
+    depth: f64,
+    height: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -490,6 +514,65 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
         raw_source,
     })
 }
+
+fn transform_triple_sane(t: &[f64; 3], positive_scale: bool) -> bool {
+    t.iter()
+        .all(|x| x.is_finite() && x.abs() <= 100_000.0 && (!positive_scale || *x != 0.0))
+}
+
+fn apply_model_transform(
+    model: &mut pcbcraft_library::Model3D,
+    a: &ModelTransformParams,
+) -> Result<(), Error> {
+    if a.preset.is_none() && a.offset.is_none() && a.scale.is_none() && a.rotate.is_none() {
+        return Err(Error::Invalid(
+            "set offset, scale, rotate or a preset".into(),
+        ));
+    }
+    if let Some(preset) = &a.preset {
+        if a.offset.is_some() || a.scale.is_some() || a.rotate.is_some() {
+            return Err(Error::Invalid("preset cannot mix with explicit transforms".into()));
+        }
+        match preset.as_str() {
+            "rotate_90" => pcbcraft_library::model_rotate_z_90(model),
+            "mirror" => pcbcraft_library::model_mirror_y(model),
+            "pin1_cycle" => pcbcraft_library::model_pin1_cycle(model),
+            other => return Err(Error::Invalid(format!("unknown preset {other}"))),
+        }
+        return Ok(());
+    }
+    if let Some(offset) = a.offset {
+        if !transform_triple_sane(&offset, false) {
+            return Err(Error::Invalid(
+                "model offsets must be finite and within 100000 mm".into(),
+            ));
+        }
+        model.offset = offset;
+    }
+    if let Some(scale) = a.scale {
+        if !transform_triple_sane(&scale, true) {
+            return Err(Error::Invalid(
+                "model scales must be finite, non-zero and within 100000".into(),
+            ));
+        }
+        model.scale = scale;
+    }
+    if let Some(rotate) = a.rotate {
+        if !transform_triple_sane(&rotate, false) {
+            return Err(Error::Invalid(
+                "model rotations must be finite and within 100000 degrees".into(),
+            ));
+        }
+        model.rotate = [
+            pcbcraft_library::normalize_degrees(rotate[0]),
+            pcbcraft_library::normalize_degrees(rotate[1]),
+            pcbcraft_library::normalize_degrees(rotate[2]),
+        ];
+    }
+    pcbcraft_library::refresh_model_raw_source(model);
+    Ok(())
+}
+
 pub(super) fn run(
     p: &mut Project,
     next: &mut Id,
@@ -568,6 +651,26 @@ pub(super) fn run(
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name, "path": def.model.as_ref().map(|m| m.path.clone())}))
         }
+        "library.footprint.set_model_transform" => {
+            let a: ModelTransformParams = parse(params)?;
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            let model = def.model.as_mut().ok_or_else(|| {
+                Error::Invalid("footprint has no 3D model to transform".into())
+            })?;
+            apply_model_transform(model, &a)?;
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({
+                "name": a.name,
+                "offset": model.offset,
+                "scale": model.scale,
+                "rotate": model.rotate,
+            }))
+        }
         "library.footprint.clear_model" => {
             let a: Name = parse(params)?;
             let def = p
@@ -620,6 +723,38 @@ pub(super) fn run(
                 return Err(missing());
             }
             def.rules = None;
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({"name": a.name}))
+        }
+        "library.footprint.set_box_body" => {
+            let a: BoxBodyParams = parse(params)?;
+            let body = pcbcraft_library::FootprintBoxBody {
+                width: a.width,
+                depth: a.depth,
+                height: a.height,
+            };
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            def.box_body = Some(body);
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({"name": a.name, "box_body": body}))
+        }
+        "library.footprint.clear_box_body" => {
+            let a: Name = parse(params)?;
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            if def.box_body.is_none() {
+                return Err(missing());
+            }
+            def.box_body = None;
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name}))
         }
@@ -994,7 +1129,9 @@ pub(super) fn run(
                         )
                     })?;
                     if footprint.is_empty() || footprint.len() > 128 {
-                        return Err(Error::Invalid("footprint must be 1 to 128 bytes".into()));
+                        return Err(Error::Invalid(
+                            "footprint must be 1 to 128 bytes".into(),
+                        ));
                     }
                     let def = p
                         .library
@@ -2532,6 +2669,11 @@ pub(super) fn run(
                     *axis = scale_dim(*axis)?;
                 }
             }
+            if let Some(body) = &mut footprint.box_body {
+                body.width = scale_dim(body.width)?;
+                body.depth = scale_dim(body.depth)?;
+                body.height = scale_dim(body.height)?;
+            }
             let counts = (footprint.pads.len(), count);
             footprint
                 .validate()
@@ -2622,6 +2764,7 @@ pub(super) fn run(
                     .ok_or_else(missing)?;
                 let footprint_id = allocate(next)?;
                 p.board.footprints.push(Footprint {
+                    preserved: pcbcraft_doc::PreservedSource::default(),
                     id: footprint_id,
                     component: id,
                     position: a.position,
@@ -2629,7 +2772,9 @@ pub(super) fn run(
                     locked: None,
                     side: None,
                     pads,
-                });
+                
+                    preserved: pcbcraft_doc::PreservedSource::default(),
+});
                 out["footprint"] = json!(footprint_id);
             }
             Ok(out)

@@ -1,0 +1,19 @@
+[part]
+manufacturer = "Diodes Incorporated"
+mpn = "2N7002"
+datasheet_path = "research/sources/library/datasheets/diodes/2n7002.pdf"
+datasheet_url = "https://www.diodes.com/assets/Datasheets/2N7002.pdf"
+
+package = "SOT-23"
+pin_count = 3
+land_pattern_ref = "See mechanical data"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[requirement]]
+type = "decoupling"
+text = "Follow manufacturer decoupling and layout guidance in the datasheet."
+page = 1
+confirmed = false

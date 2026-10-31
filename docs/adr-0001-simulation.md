@@ -1,6 +1,6 @@
 # ADR 0001: Circuit simulation
 
-Status: Proposed. The owner confirms or changes it in the #352 register (line "#292: simulation approach"). Epic: #292.
+Status: Proposed. The owner confirms or changes it in the #95 register (old #352) (line "#292: simulation approach"). Epic: #292.
 
 ## 1. Decision
 

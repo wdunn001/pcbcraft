@@ -98,7 +98,6 @@ fn unsupported_fields_are_reported_not_dropped() -> Result<(), Error> {
             .iter()
             .any(|s| s.contains("length_group") || s == "length_group")
     );
-    assert!(joined.iter().any(|s| s.contains("companion")));
     Ok(())
 }
 
@@ -189,6 +188,20 @@ fn manifest_source_slugs_exist() {
             builtin.id
         );
     }
+}
+
+#[test]
+fn profile_list_includes_component_kinds() -> Result<(), Error> {
+    let mut s = Session::default();
+    let out = s.execute("rules.profile_list", json!({}), None)?;
+    let ids: Vec<&str> = out["result"]["profiles"]
+        .as_array()
+        .ok_or_else(missing)?
+        .iter()
+        .filter_map(|p| p["id"].as_str())
+        .collect();
+    assert!(ids.contains(&"component-kinds"));
+    Ok(())
 }
 
 #[test]

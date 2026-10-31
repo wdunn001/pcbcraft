@@ -2,6 +2,8 @@
 
 | Component | Source | Revision / license | Use |
 |---|---|---|---|
+| ipc2581 | https://github.com/diodeinc/pcb | 0.3.3; MIT OR Apache-2.0 | Native dependency: IPC-2581C XSD validation before fabrication packages; schema file IPC-2581C.xsd ships in the crate |
+| craft-ui | https://github.com/storytold/craft-libs | 1aa81a773aa9198a0e4c0daeda954d622475af38; MIT OR Apache-2.0 | Shared egui tab and widget components, Cargo dependency |
 | craft-ui | https://github.com/wdunn001/craft-libs | 0e9d4a61affd665b2e00d5e107cfe4a88ad15df5; MIT OR Apache-2.0 | Shared egui tab and widget components, Cargo dependency |
 | SolidCraft architecture | https://github.com/bherbruck/solidcraft | README / AGENTS consulted; MIT OR Apache-2.0 | Architectural reference; no implementation copied |
 | SolidCraft recovery design | https://github.com/bherbruck/solidcraft | crates/engine/src/recovery.rs and the recovery screen in crates/ui-egui/src/lib.rs read; MIT OR Apache-2.0 | Design of the per-design autosave entry, lock and offer prompt, adapted to PCBCraft's session, project and atomic write; no source copied |
@@ -10,9 +12,11 @@
 | SolidCraft agent chat test script backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/script.rs` |
 | SolidCraft agent chat API backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/api.rs` |
 | SolidCraft agent chat gate | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/gate.rs` |
+| SolidCraft agent chat ACP | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/acp/` |
 | SolidCraft agent chat connections and presets | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/connections.rs` |
 | SolidCraft agent chat settings page | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted in shape into `crates/ui-egui/src/assistant/settings.rs` |
 | SolidCraft Linux packaging | https://github.com/bherbruck/solidcraft | packaging/linux and packaging/env.sh at 2026-03; MIT OR Apache-2.0 | Adapted AppImage, deb, and rpm scripts, nfpm config, AppRun, and postinst for PCBCraft |
+| SolidCraft Windows packaging | https://github.com/bherbruck/solidcraft | packaging/windows and assets/platforms/windows at 2026-03; MIT OR Apache-2.0 | Adapted WiX sources, icon scripts, and package.ps1 for PCBCraft MSI and portable zip |
 | IBM Plex Sans (SemiBold) | https://github.com/IBM/plex | Copyright IBM Corp., Reserved Font Name "Plex"; SIL Open Font License 1.1, text in `assets/brand/fonts/OFL.txt` | Outlined to paths in the wordmark masters under `assets/brand/`; the font file is kept there only so `assets/brand/build.sh` can regenerate them |
 | KiCad board format | https://dev-docs.kicad.org/en/file-formats/sexpr-pcb/ | Public format documentation | Original limited board writer |
 | KiCad library formats | https://dev-docs.kicad.org/en/file-formats/ | Public format documentation | Original Rust symbol/footprint readers |
