@@ -1,6 +1,9 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod datasheet;
+pub mod datasheet_annotations;
+pub mod connector_catalog;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
@@ -10,11 +13,35 @@ pub mod online_import;
 pub mod open_library;
 mod paths;
 mod reader;
+pub mod samtec;
 mod sexpr;
+pub mod credentials;
+pub mod http_client;
+pub mod rate_limit;
+pub mod source_log;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod element14;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+pub mod source_errors;
+pub mod source_hosts;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use datasheet::{
+    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
+    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
+    MAX_REDIRECTS, MAX_URL_BYTES,
+};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};

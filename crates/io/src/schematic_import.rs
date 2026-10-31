@@ -1,10 +1,10 @@
 //! Read interchange schematic text into a native [`Project`].
 use pcbcraft_doc::{
-    Component, ComponentField, DrawnWire, Label, LibrarySymbol, Net, NoConnectFlag, Port,
-    Project, ProjectLibrary, Sheet,
+    Component, ComponentField, DrawnWire, Label, LibrarySymbol, Net, NoConnectFlag, Port, Project,
+    ProjectLibrary, Sheet,
 };
 use pcbcraft_geom::Point;
-use pcbcraft_library::{parse_sexpr, read_symbols, Node, SymbolDefinition};
+use pcbcraft_library::{Node, SymbolDefinition, parse_sexpr, read_symbols};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -16,11 +16,22 @@ const MAX_LABELS: usize = 4096;
 const MAX_SHEETS: usize = 64;
 const MAX_PRESERVED_BYTES: usize = 512 * 1024;
 
+/// Read a flat schematic file into a project; sub-sheets need the path form.
+///
+/// # Rules
+/// - Same limits and errors as [`read_schematic_interchange_path`].
 pub fn read_schematic_interchange(text: &str) -> Result<Project, String> {
-    read_schematic_interchange_path(Path::new("."), text).map(|(project, _)| project)
+    read_schematic_interchange_path(Path::new("."), text)
 }
 
-pub fn read_schematic_interchange_path(path: &Path, text: &str) -> Result<(Project, usize), String> {
+/// Read a schematic file and the sub-sheets it names, next to `path`.
+///
+/// # Rules
+/// - Refuses symbols that use features the model lacks, with a message.
+///
+/// # Dependencies
+/// - `crates/library/src/reader.rs` reads the embedded symbols.
+pub fn read_schematic_interchange_path(path: &Path, text: &str) -> Result<Project, String> {
     let root = parse_sexpr(text).map_err(format_sexpr_error(text))?;
     if root.name() != "kicad_sch" {
         return Err("expected a schematic interchange root".into());
@@ -47,6 +58,12 @@ pub fn read_schematic_interchange_path(path: &Path, text: &str) -> Result<(Proje
         if child_root.name() != "kicad_sch" {
             return Err("expected a schematic interchange root".into());
         }
+        // A sub-sheet carries the symbols it places.
+        if let Some(lib) = child_root.child("lib_symbols") {
+            for (name, def) in read_embedded_symbols(&child_text, lib)? {
+                ctx.symbols.entry(name).or_insert(def);
+            }
+        }
         ctx.parse_page(
             job.sheet_id,
             job.instance_uuid,
@@ -69,10 +86,11 @@ fn format_sexpr_error(text: &str) -> impl Fn(pcbcraft_library::Error) -> String 
 }
 
 fn line_number(text: &str, offset: usize) -> usize {
-    text.get(..offset.min(text.len()))
-        .map(|prefix| prefix.lines().count())
-        .unwrap_or(1)
-        .max(1)
+    text.as_bytes()[..offset.min(text.len())]
+        .iter()
+        .filter(|b| **b == b'\n')
+        .count()
+        + 1
 }
 
 fn parse_version(raw: &str) -> Result<i64, String> {
@@ -80,7 +98,10 @@ fn parse_version(raw: &str) -> Result<i64, String> {
         .map_err(|_| format!("invalid schematic version {raw:?}"))
 }
 
-fn read_embedded_symbols(source: &str, lib: &Node) -> Result<BTreeMap<String, SymbolDefinition>, String> {
+fn read_embedded_symbols(
+    source: &str,
+    lib: &Node,
+) -> Result<BTreeMap<String, SymbolDefinition>, String> {
     let mut body = String::from("(kicad_symbol_lib (version 20250114)\n");
     for child in lib.children.iter().filter(|c| c.name() == "symbol") {
         body.push_str(&source[child.span.clone()]);
@@ -88,16 +109,10 @@ fn read_embedded_symbols(source: &str, lib: &Node) -> Result<BTreeMap<String, Sy
     }
     body.push(')');
     let defs = read_symbols(&body).map_err(|e| e.to_string())?;
-    if defs.is_empty() {
-        return Err("schematic carries no embedded symbol definitions".into());
-    }
     if defs.len() > MAX_SYMBOLS {
         return Err("schematic embeds too many symbol definitions".into());
     }
-    Ok(defs
-        .into_iter()
-        .map(|d| (d.name.clone(), d))
-        .collect())
+    Ok(defs.into_iter().map(|d| (d.name.clone(), d)).collect())
 }
 
 fn prop(node: &Node, name: &str) -> Option<String> {
@@ -206,7 +221,12 @@ impl ImportCtx {
         if self.pages.len() >= MAX_SHEETS {
             return Err("schematic hierarchy exceeds sheet limit".into());
         }
-        let sheet_name = prop(root, "title")
+        let titled = root
+            .child("title_block")
+            .map(|t| t.field("title").to_owned())
+            .filter(|t| !t.is_empty());
+        let sheet_name = titled
+            .or_else(|| prop(root, "title"))
             .or_else(|| prop(root, "Sheetname"))
             .unwrap_or_else(|| {
                 if sheet_id == 0 {
@@ -245,14 +265,14 @@ impl ImportCtx {
                 "label" => {
                     let (pos, rot) = label_anchor(child)?;
                     let text = child.value(1).to_owned();
-                    draft.labels.push(("label".into(), text, pos, rot, String::new()));
+                    draft
+                        .labels
+                        .push(("label".into(), text, pos, rot, String::new()));
                 }
                 "global_label" => {
                     let (pos, rot) = label_anchor(child)?;
                     let text = child.value(1).to_owned();
-                    draft
-                        .global_labels
-                        .push((text.clone(), pos));
+                    draft.global_labels.push((text.clone(), pos));
                     draft
                         .labels
                         .push(("global".into(), text, pos, rot, String::new()));
@@ -261,13 +281,9 @@ impl ImportCtx {
                     let (pos, rot) = label_anchor(child)?;
                     let text = child.value(1).to_owned();
                     draft.hierarchical_labels.push((text.clone(), pos));
-                    draft.labels.push((
-                        "hierarchical".into(),
-                        text,
-                        pos,
-                        rot,
-                        String::new(),
-                    ));
+                    draft
+                        .labels
+                        .push(("hierarchical".into(), text, pos, rot, String::new()));
                 }
                 "bus_label" => {
                     let (pos, rot) = label_anchor(child)?;
@@ -320,9 +336,8 @@ impl ImportCtx {
         node: &Node,
         _source: &str,
     ) -> Result<(), String> {
-        let sheetfile = prop(node, "Sheetfile").ok_or_else(|| {
-            "hierarchical sheet is missing a sheet file reference".to_string()
-        })?;
+        let sheetfile = prop(node, "Sheetfile")
+            .ok_or_else(|| "hierarchical sheet is missing a sheet file reference".to_string())?;
         if sheetfile.is_empty() || sheetfile.len() > 256 {
             return Err("sheet file reference is out of range".into());
         }
@@ -454,40 +469,40 @@ impl ImportCtx {
                 .filter(|s| !s.is_empty())
                 .unwrap_or("GND")
                 .to_owned();
-            if let Some(pin) = component.pins.first() {
-                if let Some(pos) = component.pin_position(&pin.number) {
-                    draft.power_nets.push((net_name, pos));
-                }
+            if let Some(pin) = component.pins.first()
+                && let Some(pos) = component.pin_position(&pin.number)
+            {
+                draft.power_nets.push((net_name, pos));
             }
         }
         Ok(component)
     }
 
-    fn finish(mut self) -> Result<(Project, usize), String> {
+    fn finish(mut self) -> Result<Project, String> {
         let pages = std::mem::take(&mut self.pages);
-        let mut project = Project::default();
-        project.name = pages
-            .first()
-            .map(|p| p.sheet_name.clone())
-            .unwrap_or_else(|| "Imported schematic".into());
+        let mut project = Project {
+            name: pages
+                .first()
+                .map(|p| p.sheet_name.clone())
+                .unwrap_or_else(|| "Imported schematic".into()),
+            ..Project::default()
+        };
         project.library = ProjectLibrary {
-            symbols: self.symbols.into_values().collect(),
+            symbols: std::mem::take(&mut self.symbols).into_values().collect(),
             ..ProjectLibrary::default()
         };
         for page in &pages {
             if page.sheet_id != 0 {
                 project.sheets.push(Sheet {
+                    entry: None,
+                    parent: None,
                     id: page.sheet_id,
                     name: page.sheet_name.clone(),
-                    parent: Some(0),
-                    entry: None,
+                    interchange_uuid: page.sheet_uuid.clone(),
                 });
             }
         }
-        project.components = pages
-            .iter()
-            .flat_map(|p| p.components.clone())
-            .collect();
+        project.components = pages.iter().flat_map(|p| p.components.clone()).collect();
 
         let mut uf = UnionFind::new();
         let mut keys: HashMap<(u64, i64, i64), usize> = HashMap::new();
@@ -531,8 +546,7 @@ impl ImportCtx {
                 attach_net_name(&mut named, &mut keys, &mut uf, text, page.sheet_id, *pos)?;
                 for (pin_name, parent_sheet, parent_pos) in &page.parent_links {
                     if pin_name == text {
-                        let child_idx =
-                            connection_key(&mut keys, &mut uf, page.sheet_id, *pos);
+                        let child_idx = connection_key(&mut keys, &mut uf, page.sheet_id, *pos);
                         let parent_idx =
                             connection_key(&mut keys, &mut uf, *parent_sheet, *parent_pos);
                         uf.union(child_idx, parent_idx);
@@ -544,8 +558,16 @@ impl ImportCtx {
             }
         }
 
+        let label_names: BTreeSet<&str> = pages
+            .iter()
+            .flat_map(|p| p.labels.iter().map(|l| l.1.as_str()))
+            .collect();
         for page in &pages {
             for (pin_name, pos, _) in &page.sheet_pins {
+                // A sheet pin nothing else names or wires is not a net.
+                if !label_names.contains(pin_name.as_str()) {
+                    continue;
+                }
                 attach_net_name(
                     &mut named,
                     &mut keys,
@@ -595,8 +617,21 @@ impl ImportCtx {
 
         let mut orphan = 1usize;
         let roots: BTreeSet<usize> = keys.values().map(|&idx| uf.find(idx)).collect();
+        // A lone pin on a bare wire stub is not a net; two or more joined pins are.
+        let mut pins_on_root: BTreeMap<usize, usize> = BTreeMap::new();
+        for page in &pages {
+            for component in &page.components {
+                for pin in &component.pins {
+                    if let Some(pos) = component.pin_position(&pin.number)
+                        && let Some(idx) = keys.get(&snap_key(component.sheet, pos)).copied()
+                    {
+                        *pins_on_root.entry(uf.find(idx)).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
         for root in roots {
-            if net_ids.contains_key(&root) {
+            if net_ids.contains_key(&root) || pins_on_root.get(&root).copied().unwrap_or(0) < 2 {
                 continue;
             }
             let id = self.alloc();
@@ -613,9 +648,9 @@ impl ImportCtx {
         for page in &pages {
             for wire in &page.wires {
                 let id = self.alloc();
-                let net = wire.first().and_then(|p| {
-                    lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *p)
-                });
+                let net = wire
+                    .first()
+                    .and_then(|p| lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *p));
                 project.drawn_wires.push(DrawnWire {
                     id,
                     net,
@@ -625,11 +660,13 @@ impl ImportCtx {
             for (kind, text, pos, rot, bus) in &page.labels {
                 let id = self.alloc();
                 let net = if kind == "bus" {
-                    0
+                    // A bus label stands for its member nets and carries none.
+                    Some(0)
                 } else {
-                    lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos).ok_or_else(
-                        || format!("label {text} is not on a derived net"),
-                    )?
+                    lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos)
+                };
+                let Some(net) = net else {
+                    return Err(format!("label {text} is not on a derived net"));
                 };
                 project.labels.push(Label {
                     id,
@@ -653,16 +690,16 @@ impl ImportCtx {
                     text: String::new(),
                 });
             }
-            for (pin_name, pos, _) in &page.sheet_pins {
+            for (pin_name, pos, uuid) in &page.sheet_pins {
                 let id = self.alloc();
-                let net = lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos)
-                    .ok_or_else(|| format!("sheet pin {pin_name} is not on a derived net"))?;
+                let net = lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos).unwrap_or(0);
                 project.ports.push(Port {
                     id,
                     name: pin_name.clone(),
                     net,
                     sheet: page.sheet_id,
                     position: *pos,
+                    interchange_uuid: uuid.clone(),
                 });
             }
         }
@@ -708,7 +745,7 @@ impl ImportCtx {
 
         project.nets = nets;
         project.validate()?;
-        Ok((project, self.preserved_bytes))
+        Ok(project)
     }
 }
 
@@ -719,9 +756,7 @@ fn connection_key(
     point: Point,
 ) -> usize {
     let key = snap_key(sheet, point);
-    *keys
-        .entry(key)
-        .or_insert_with(|| uf.insert())
+    *keys.entry(key).or_insert_with(|| uf.insert())
 }
 
 fn attach_net_name(
@@ -752,18 +787,14 @@ fn lookup_net_id(
     net_ids.get(&root).copied()
 }
 
-fn find_pin_at(
-    components: &[Component],
-    sheet: u64,
-    point: Point,
-) -> Option<(u64, String)> {
+fn find_pin_at(components: &[Component], sheet: u64, point: Point) -> Option<(u64, String)> {
     let target = snap_key(sheet, point);
     for component in components.iter().filter(|c| c.sheet == sheet) {
         for pin in &component.pins {
-            if let Some(pos) = component.pin_position(&pin.number) {
-                if snap_key(sheet, pos) == target {
-                    return Some((component.id, pin.number.clone()));
-                }
+            if let Some(pos) = component.pin_position(&pin.number)
+                && snap_key(sheet, pos) == target
+            {
+                return Some((component.id, pin.number.clone()));
             }
         }
     }
@@ -826,6 +857,7 @@ impl UnionFind {
     }
 }
 
+/// Counts of a schematic import, as the JSON `project.import` returns.
 pub fn import_summary(project: &Project, preserved_bytes: usize) -> serde_json::Value {
     serde_json::json!({
         "name": project.name,

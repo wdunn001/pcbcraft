@@ -327,6 +327,16 @@ impl Parser<'_> {
     }
 }
 
+/// Line number (1-based) for a byte offset in interchange text.
+pub fn line_number_at_offset(text: &str, offset: usize) -> u32 {
+    let capped = offset.min(text.len());
+    (text.as_bytes()[..capped]
+        .iter()
+        .filter(|b| **b == b'\n')
+        .count() as u32)
+        .saturating_add(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
