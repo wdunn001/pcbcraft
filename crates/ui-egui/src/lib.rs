@@ -48,6 +48,7 @@ mod hover_affordance;
 mod icons;
 mod impedance_panel;
 mod keymap;
+mod layer_visibility;
 mod layers_tree;
 mod library;
 mod library_builtin;
@@ -2457,11 +2458,25 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         self.layer_shown(&layers_tree::page_row_name(page, row))
     }
     fn layer_shown(&self, name: &str) -> bool {
-        !self
-            .preferences
-            .hidden_layers
-            .iter()
-            .any(|hidden| hidden == name)
+        !layer_visibility::hidden_contains_legacy(&self.preferences.hidden_layers, name)
+    }
+    pub(crate) fn board_sub_effective(
+        &self,
+        side_path: &str,
+        sub: layer_visibility::SubLayer,
+    ) -> bool {
+        layer_visibility::sub_effective(&self.preferences.hidden_layers, side_path, sub)
+    }
+    pub(crate) fn board_sub_effective_on_layer(
+        &self,
+        layer: pcbcraft_doc::Layer,
+        sub: layer_visibility::SubLayer,
+    ) -> bool {
+        let side = layer_visibility::side_path_for_layer(
+            self.project.copper_layer_count(),
+            layer,
+        );
+        self.board_sub_effective(&side, sub)
     }
     fn stackup_section(&mut self, ui: &mut egui::Ui) {
         ui.label(
