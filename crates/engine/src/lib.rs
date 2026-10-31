@@ -19,6 +19,7 @@ pub mod design_document;
 pub mod library;
 mod online;
 mod outline;
+mod part_records;
 pub mod profiles;
 pub mod recents;
 pub mod scope;
@@ -373,10 +374,26 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "part.attach_source",
-            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU)",
+            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU), and copied component and orderable records are stored on the project library",
             schema(
                 json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256}}),
                 &["id", "manufacturer", "mpn"],
+            ),
+        ),
+        (
+            "part.make_orderable",
+            "Point a placed generic part at an orderable part record already stored on the project library in one undo step; schematic and board geometry stay unchanged while Manufacturer, MPN and related properties follow the record",
+            schema(
+                json!({"id":id_schema(),"orderable_id":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id", "orderable_id"],
+            ),
+        ),
+        (
+            "part.make_generic",
+            "Clear the active orderable binding on a placed part in one undo step, remove distributor-specific properties, and leave schematic and board geometry unchanged",
+            schema(
+                json!({"id":id_schema()}),
+                &["id"],
             ),
         ),
         (
@@ -5762,6 +5779,20 @@ struct AttachSourceParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct MakeOrderableParams {
+    id: Id,
+    orderable_id: String,
+}
+fn bounded_record_id(id: &str) -> Result<(), Error> {
+    if id.is_empty() || id.len() > 64 || id.chars().any(char::is_control) {
+        return Err(Error::Invalid(
+            "record id must be 1 to 64 bytes without control characters".into(),
+        ));
+    }
+    Ok(())
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FieldParams {
     id: Id,
     key: String,
@@ -9451,32 +9482,95 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             bounded("datasheet", &a.datasheet, 256)?;
             bounded("distributor", &a.distributor, 48)?;
             bounded("sku", &a.sku, 256)?;
-            let component = p
-                .components
-                .iter_mut()
-                .find(|c| c.id == a.id)
-                .ok_or_else(missing)?;
-            let mut written: Vec<String> = vec![];
-            let mut put = |key: String, value: &str| -> Result<(), Error> {
-                if value.is_empty() {
-                    return Ok(());
-                }
-                set_component_field(component, &key, Some(value))?;
-                written.push(key);
-                Ok(())
-            };
-            put("Manufacturer".into(), a.manufacturer.trim())?;
-            put("MPN".into(), a.mpn.trim())?;
-            put("Datasheet".into(), &a.datasheet)?;
-            if !a.sku.is_empty() {
-                let key = if a.distributor.trim().is_empty() {
-                    "SKU".to_string()
-                } else {
-                    format!("{} SKU", a.distributor.trim())
+            let written = {
+                let component = p
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == a.id)
+                    .ok_or_else(missing)?;
+                let mut written: Vec<String> = vec![];
+                let mut put = |key: String, value: &str| -> Result<(), Error> {
+                    if value.is_empty() {
+                        return Ok(());
+                    }
+                    set_component_field(component, &key, Some(value))?;
+                    written.push(key);
+                    Ok(())
                 };
-                put(key, &a.sku)?;
+                put("Manufacturer".into(), a.manufacturer.trim())?;
+                put("MPN".into(), a.mpn.trim())?;
+                put("Datasheet".into(), &a.datasheet)?;
+                if !a.sku.is_empty() {
+                    let key = if a.distributor.trim().is_empty() {
+                        "SKU".to_string()
+                    } else {
+                        format!("{} SKU", a.distributor.trim())
+                    };
+                    put(key, &a.sku)?;
+                }
+                written
+            };
+            let records = part_records::attach_source_records(
+                p,
+                a.id,
+                a.manufacturer.trim(),
+                a.mpn.trim(),
+                &a.datasheet,
+                &a.distributor,
+                &a.sku,
+            )?;
+            Ok(json!({
+                "id": a.id,
+                "fields": written,
+                "component_record": records.component.id,
+                "orderable_record": records.orderable.id,
+            }))
+        }
+        "part.make_orderable" => {
+            let a: MakeOrderableParams = parse(params)?;
+            bounded_record_id(&a.orderable_id)?;
+            let orderable = p
+                .library
+                .orderable_parts
+                .iter()
+                .find(|o| o.id == a.orderable_id)
+                .ok_or_else(|| Error::Invalid("no such orderable part record".into()))?
+                .clone();
+            {
+                let component = p
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == a.id)
+                    .ok_or_else(missing)?;
+                part_records::apply_orderable_fields(component, &orderable)?;
             }
-            Ok(json!({"id": a.id, "fields": written}))
+            p.part_links.insert(
+                a.id,
+                PlacedPartLink {
+                    component_id: orderable.component_id.clone(),
+                    orderable_part_id: Some(orderable.id.clone()),
+                },
+            );
+            Ok(json!({
+                "id": a.id,
+                "orderable_id": orderable.id,
+                "component_record": orderable.component_id,
+            }))
+        }
+        "part.make_generic" => {
+            let a: IdParams = parse(params)?;
+            {
+                let component = p
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == a.id)
+                    .ok_or_else(missing)?;
+                part_records::clear_orderable_fields(component)?;
+            }
+            if let Some(link) = p.part_links.get_mut(&a.id) {
+                link.orderable_part_id = None;
+            }
+            Ok(json!({"id": a.id, "generic": true}))
         }
         "component.set_kind" => {
             let a: SetKindParams = parse(params)?;
@@ -29733,6 +29827,13 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         assert_eq!(c.field("MPN"), Some("SAMPLE-R-10K"));
         assert_eq!(c.field("Datasheet"), Some("https://example.invalid/d.pdf"));
         assert_eq!(c.field("Sample Shop SKU"), Some("SS-1"));
+        assert_eq!(s.project.library.orderable_parts.len(), 1);
+        assert!(s.project.part_links.contains_key(&r1));
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let back: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        back.validate().map_err(Error::Invalid)?;
+        assert_eq!(back.library.orderable_parts[0].mpn, "SAMPLE-R-10K");
         assert!(
             s.execute(
                 "part.attach_source",
@@ -29749,6 +29850,47 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
                 .fields
                 .is_empty()
         );
+        assert!(s.project.library.orderable_parts.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn make_orderable_and_generic_leave_geometry_and_use_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "part.attach_source",
+            json!({"id":r1,"manufacturer":"Example Components","mpn":"SAMPLE-R-10K"}),
+            None,
+        )?;
+        let orderable_id = s.project.library.orderable_parts[0].id.clone();
+        s.execute(
+            "part.make_generic",
+            json!({"id":r1}),
+            None,
+        )?;
+        assert!(s.project.component(r1).ok_or_else(missing)?.field("MPN").is_none());
+        let before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        s.execute(
+            "part.make_orderable",
+            json!({"id":r1,"orderable_id":orderable_id}),
+            None,
+        )?;
+        let after = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        assert_eq!(after, before + 1);
+        assert_eq!(
+            s.project.component(r1).ok_or_else(missing)?.field("MPN"),
+            Some("SAMPLE-R-10K")
+        );
+        let pos = s.project.component(r1).ok_or_else(missing)?.position;
+        s.execute("part.make_generic", json!({"id":r1}), None)?;
+        assert_eq!(s.project.component(r1).ok_or_else(missing)?.position, pos);
         Ok(())
     }
 
