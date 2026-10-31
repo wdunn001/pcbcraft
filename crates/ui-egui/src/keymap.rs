@@ -39,6 +39,7 @@ pub enum KeyAction {
     ToggleAutoSync,
     UpdateBoardFromSchematic,
     ToggleAssistant,
+    MinimapPeek,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -450,6 +451,19 @@ const SPECS: &[ActionSpec] = &[
         }),
     },
     ActionSpec {
+        action: KeyAction::MinimapPeek,
+        label: "Hold to peek at the minimap",
+        tooltip: "Show the map of the whole board or sheet while the key is held; release over a region to go.",
+        context: ShortcutContext::Anywhere,
+        rebindable: true,
+        default_chord: Some(KeyChord {
+            key: Key::G,
+            ctrl: false,
+            shift: false,
+            alt: false,
+        }),
+    },
+    ActionSpec {
         action: KeyAction::ToggleAssistant,
         label: "Show or hide the Assistant tab",
         tooltip: "Open the Assistant in the lower-right aside, or return to Properties.",
@@ -791,6 +805,14 @@ impl Keymap {
         let known: HashSet<KeyAction> = SPECS.iter().map(|s| s.action).collect();
         self.bindings.retain(|action, _| known.contains(action));
         self.extra_chords.retain(|action, _| known.contains(action));
+        // A profile saved before the minimap existed gets its default key,
+        // unless the person already gave that key to something else.
+        if !self.bindings.contains_key(&KeyAction::MinimapPeek)
+            && let Some(chord) = spec(KeyAction::MinimapPeek).and_then(|s| s.default_chord)
+            && !self.bindings.values().any(|c| *c == chord)
+        {
+            self.bindings.insert(KeyAction::MinimapPeek, chord);
+        }
     }
 
     pub fn reset_to_default(&mut self) {
