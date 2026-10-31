@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+pcbcraft-clock.workspace = true
 pcbcraft-geom.workspace = true
 pcbcraft-library.workspace = true
 pcbcraft-doc.workspace = true
@@ -26,8 +27,14 @@ craft-ui.workspace = true
 serde_json.workspace = true
 image.workspace = true
 serde.workspace = true
+web-time.workspace = true
+toml.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon.workspace = true
 
 [dev-dependencies]
 pcbcraft-text = { workspace = true, features = ["fixture"] }
 base64.workspace = true
 tempfile.workspace = true
+skrifa = "0.44"

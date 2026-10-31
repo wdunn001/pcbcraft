@@ -1,26 +1,50 @@
-//! Datasheet PDF text layer: glyph boxes, search, and selection in page coordinates.
+//! Datasheet PDF gate, cache records, LRU and page rendering (no egui).
 //!
-//! Context: the Library tab reader (#695) needs selectable, searchable text drawn over a
-//! rendered page. This crate holds the pure logic; egui paints highlights and forwards
-//! copy and accessibility.
+//! Context: issue #695 children share one cache record shape. The browser build
+//! (#720) stores bytes in browser storage; the desktop fetch module (#701) writes
+//! the same metadata beside files on disk.
 //!
-//! Rules: page index is 0-based; boxes use page points with the origin at the top left;
-//! failures are `String`, never panics on bad input.
+//! Rules: no unwrap on input-derived values; failures are `String` messages.
 //!
-//! Dependencies: `hayro` for parse, render, and glyph extraction.
+//! # Dependencies
+//! - `hayro` for page rasterisation
 //!
-//! Do not: fetch URLs or touch the network from here.
+//! # Do not
+//! - Pull in egui or the engine; UI lives in `pcbcraft-ui-egui`.
 
-mod document;
-mod fixtures;
-mod render;
-mod search;
-mod selection;
-mod text;
+pub mod gate;
+pub mod lru;
+pub mod record;
+pub mod render;
 
-pub use document::Document;
-pub use fixtures::Fixture;
-pub use render::{Bitmap, MAX_SIDE_PX, render_page};
-pub use search::{DocHit, DocSearch, Hit, find, search_document};
-pub use selection::{Selection, char_at_point, selected_text};
-pub use text::{CharBox, open, page_has_text, page_size, plain_text, text_layer};
+#[cfg(any(test, feature = "fixtures"))]
+pub mod fixture_pdf;
+
+/// Ingest PDF bytes after validation; returns the cache record and the digest key.
+pub fn ingest_pdf(
+    bytes: Vec<u8>,
+    source_url: Option<String>,
+    etag: Option<String>,
+    now: &str,
+) -> Result<(record::CacheRecord, Vec<u8>), String> {
+    gate::validate_pdf_bytes(&bytes)?;
+    let sha256 = gate::sha256_hex(&bytes);
+    let record = record::CacheRecord::new(sha256, source_url, etag, bytes.len() as u64, now);
+    Ok((record, bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_minimal_pdf_renders_page_one() -> Result<(), String> {
+        let bytes = fixture_pdf::one_page_text();
+        let (record, _) = ingest_pdf(bytes.clone(), None, None, "2026-01-01T00:00:00Z")?;
+        assert_eq!(record.byte_len, bytes.len() as u64);
+        let page = render::render_page(&bytes, 0, 96.0)?;
+        assert!(page.width > 0 && page.height > 0);
+        assert_eq!(page.rgba.len(), (page.width * page.height * 4) as usize);
+        Ok(())
+    }
+}

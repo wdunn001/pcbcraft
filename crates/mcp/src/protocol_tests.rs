@@ -1,8 +1,8 @@
 //! Protocol conformance tests: each test walks one row of `docs/mcp-conformance.md`.
 //!
 //! Local rules: tests talk to `handle_rpc` and `serve` the way a client does, over JSON
-//! values, with a fresh `DocumentHub`. Lifecycle-gate tests live in `lib.rs` (#637) and
-//! annotation tests in `lib.rs` (#636); do not repeat them here.
+//! values, with a fresh `DocumentHub`. Lifecycle-gate tests live in `lib.rs` (#477) and
+//! annotation tests in `lib.rs` (#476); do not repeat them here.
 //!
 //! # Dependencies
 //! `crates/mcp/src/lib.rs` (`handle_rpc`, `serve`, `tool_list`, `MAX_MESSAGE`),
@@ -21,7 +21,7 @@ fn initialize(version: &str) -> Value {
 }
 
 fn call(hub: &DocumentHub, request: Value) -> Result<Value, String> {
-    handle_rpc(hub, request, None).ok_or_else(|| "expected a reply".to_string())
+    handle_rpc(hub, request, None, None).ok_or_else(|| "expected a reply".to_string())
 }
 
 #[test]
@@ -63,9 +63,29 @@ fn a_notification_never_gets_a_reply() -> Result<(), String> {
         "notifications/cancelled",
         "nonsense",
     ] {
-        let reply = handle_rpc(&hub, json!({"jsonrpc":"2.0","method":method}), None);
+        let reply = handle_rpc(&hub, json!({"jsonrpc":"2.0","method":method}), None, None);
         assert!(reply.is_none(), "{method} got {reply:?}");
     }
+    Ok(())
+}
+
+#[test]
+fn cancelled_notification_for_an_unknown_request_is_ignored() -> Result<(), String> {
+    let hub = hub()?;
+    let cancel = json!({
+        "jsonrpc":"2.0",
+        "method":"notifications/cancelled",
+        "params":{"requestId":424242}
+    });
+    assert!(handle_rpc(&hub, cancel.clone(), None).is_none());
+    let initialize = initialize("2025-11-25");
+    let ping = json!({"jsonrpc":"2.0","id":2,"method":"ping"});
+    let input = format!("{initialize}\n{cancel}\n{ping}\n");
+    let (replies, outcome) = serve_lines(input.as_bytes())?;
+    assert!(outcome.is_ok(), "{outcome:?}");
+    assert_eq!(replies.len(), 2, "cancel must not produce stdout");
+    assert_eq!(replies[0]["result"]["protocolVersion"], "2025-11-25");
+    assert_eq!(replies[1]["result"], json!({}));
     Ok(())
 }
 
@@ -108,7 +128,7 @@ fn serve_lines(input: &[u8]) -> Result<(Vec<Value>, Result<(), String>), String>
     let hub = hub()?;
     let mut output = vec![];
     let mut reader = input;
-    let outcome = serve(&mut reader, &mut output, &hub, None);
+    let outcome = serve(&mut reader, &mut output, &hub, None, None);
     let replies = String::from_utf8(output)
         .map_err(|e| e.to_string())?
         .lines()
@@ -150,7 +170,7 @@ fn every_tool_name_is_one_to_128_letters_digits_underscore_hyphen_or_dot() -> Re
     Ok(())
 }
 
-// Changes with #643 and #644 only if they add tools; resources and prompts are not tools.
+// Changes with #483 and #484 only if they add tools; resources and prompts are not tools.
 #[test]
 fn an_unknown_tool_name_is_a_protocol_error_but_bad_arguments_are_a_tool_error_with_is_error_true()
 -> Result<(), String> {
@@ -210,7 +230,7 @@ fn a_message_over_one_mebibyte_is_refused_and_stdout_stays_json_only() -> Result
     Ok(())
 }
 
-// Resources (#643) and prompts (#644) are advertised; logging and completion are not.
+// Resources (#483) and prompts (#484) are advertised; logging and completion are not.
 #[test]
 fn capabilities_advertise_only_tools_and_resources_and_prompts_calls_are_method_not_found()
 -> Result<(), String> {
@@ -228,4 +248,63 @@ fn capabilities_advertise_only_tools_and_resources_and_prompts_calls_are_method_
         assert_eq!(reply["error"]["code"], -32601, "{method}");
     }
     Ok(())
+}
+
+fn output_schema(name: &str) -> Result<Value, String> {
+    tool_list()["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|tool| tool["name"] == name))
+        .map(|tool| tool["outputSchema"].clone())
+        .filter(|schema| schema.is_object())
+        .ok_or_else(|| format!("{name} has no outputSchema"))
+}
+
+#[test]
+fn inspect_design_result_validates_against_its_output_schema() -> Result<(), String> {
+    let hub = DocumentHub::new(Session::sample().map_err(|e| e.to_string())?, None)?;
+    let result = hub.call_tool("inspect_design", &json!({}));
+    validate_schema(
+        &result["structuredContent"],
+        &output_schema("inspect_design")?,
+        "structuredContent",
+    )?;
+    let schema = output_schema("inspect_design")?;
+    for key in ["revision", "project", "history", "capabilities"] {
+        assert!(
+            schema["required"]
+                .as_array()
+                .is_some_and(|r| r.iter().any(|k| k == key))
+        );
+    }
+    // The schema must be able to fail: a result without a revision is refused.
+    let mut broken = result["structuredContent"].clone();
+    if let Some(object) = broken.as_object_mut() {
+        object.remove("revision");
+    }
+    assert!(validate_schema(&broken, &schema, "structuredContent").is_err());
+    Ok(())
+}
+
+#[test]
+fn checks_result_validates_against_its_output_schema() -> Result<(), String> {
+    let hub = DocumentHub::new(Session::sample().map_err(|e| e.to_string())?, None)?;
+    let schema = output_schema("checks")?;
+    for args in [json!({}), json!({"copper_only":true})] {
+        let result = hub.call_tool("checks", &args);
+        validate_schema(&result["structuredContent"], &schema, "structuredContent")?;
+    }
+    assert!(validate_schema(&json!({"erc":[]}), &schema, "structuredContent").is_err());
+    Ok(())
+}
+
+#[test]
+fn only_inspect_design_and_checks_carry_an_output_schema() {
+    let names: Vec<String> = tool_list()["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|tool| tool.get("outputSchema").is_some())
+        .filter_map(|tool| tool["name"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(names, ["inspect_design", "checks"]);
 }
