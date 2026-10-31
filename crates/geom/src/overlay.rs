@@ -97,6 +97,26 @@ pub fn polygon_union(polys: &[Ring]) -> Vec<Ring> {
     rings_from_shapes(&acc)
 }
 
+/// Parts of the subject rings that lie outside every clip ring.
+pub fn polygon_difference(subject: &[Ring], clip: &[Ring]) -> Vec<Ring> {
+    let mut shapes: Vec<Vec<Vec<Point>>> = vec![];
+    for ring in subject {
+        if let Some(shape) = ring_to_shape(ring) {
+            shapes.push(shape);
+        }
+    }
+    if shapes.is_empty() {
+        return vec![];
+    }
+    for clip_ring in polygon_union(clip) {
+        let Some(clip_shape) = ring_to_shape(&clip_ring) else {
+            continue;
+        };
+        shapes = shapes.overlay(&clip_shape, OverlayRule::Difference, FillRule::EvenOdd);
+    }
+    rings_from_shapes(&shapes)
+}
+
 /// Expand (positive delta) or shrink (negative delta) polygon rings.
 pub fn polygon_offset(polys: &[Ring], delta_mm: f64, join: OffsetJoin) -> Vec<Ring> {
     if polys.is_empty() || delta_mm.abs() < 1e-12 {
@@ -175,5 +195,27 @@ mod tests {
         let once = polygon_offset(std::slice::from_ref(&s), 0.15, OffsetJoin::Round);
         let twice = polygon_offset(&[s], 0.15, OffsetJoin::Round);
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn polygon_difference_cuts_a_hole_from_a_square() {
+        let outer = square(5.0);
+        let hole = square(1.0);
+        let mut inner = open_ring(&hole);
+        for p in &mut inner {
+            p.x += 2.0;
+            p.y += 2.0;
+        }
+        let mut hole_ring = inner.clone();
+        if let Some(first) = hole_ring.first().copied() {
+            hole_ring.push(first);
+        }
+        let cut = polygon_difference(&[outer], &[hole_ring]);
+        assert_eq!(cut.len(), 1);
+        assert!(crate::polygon_area(&open_ring(&cut[0])).abs() > 95.0);
+        assert!(!crate::point_in_polygon(
+            Point::new(3.0, 3.0),
+            &open_ring(&cut[0])
+        ));
     }
 }
