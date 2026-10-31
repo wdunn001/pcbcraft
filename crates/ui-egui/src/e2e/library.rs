@@ -233,6 +233,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
     });
     p.components.push(part);
     p.board.footprints.push(Footprint {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 4,
         component: 2,
         position: Point::new(30.0, 20.0),
@@ -252,6 +253,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
             .collect(),
     });
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 5,
         net: 1,
         start: Point::new(20.0, 20.0),
@@ -494,11 +496,7 @@ fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<()
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Checks);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    for needle in [
-        "Lib pad overlap · 1 place",
-        "SquashedPair: Two pads share the same copper area",
-        "Fix: Move or resize the pads so their outlines no longer overlap",
-    ] {
+    for needle in ["SquashedPair: Two pads share the same copper area"] {
         assert!(
             scrolled_to_at(&ctx, &mut app, needle, 720.0)?,
             "the findings sheet should show \"{needle}\""

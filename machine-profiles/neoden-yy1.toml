@@ -20,6 +20,10 @@ mirror_bottom = true
 mirror_axis = "x"
 invert = false
 
+[pick_place]
+nozzle_slots = 4
+default_speed_pct = 75
+
 [pick_place.board]
 max_x_mm = 350.0
 max_y_mm = 249.0
@@ -53,41 +57,50 @@ last = 99
 [[pick_place.nozzle]]
 id = "CN030"
 diameter_mm = 0.3
+outer_diameter_mm = 0.6
 packages = ["0201"]
 
 [[pick_place.nozzle]]
 id = "CN040"
 diameter_mm = 0.4
+outer_diameter_mm = 0.8
 packages = ["0402"]
 
 [[pick_place.nozzle]]
 id = "CN065"
 diameter_mm = 0.7
-packages = ["0603"]
+outer_diameter_mm = 1.0
+packages = ["0402", "0603"]
 
 [[pick_place.nozzle]]
 id = "CN100"
 diameter_mm = 1.0
-packages = ["0805", "SOD-123", "SMA"]
+outer_diameter_mm = 1.8
+packages = ["0805", "SOD-", "SMA"]
 
 [[pick_place.nozzle]]
 id = "CN140"
 diameter_mm = 1.4
-packages = ["1206", "1210", "1812", "2010", "SOT-23", "5050"]
+outer_diameter_mm = 2.0
+packages = ["1206", "1210", "1812", "2010", "5050", "SOT-23"]
 
 [[pick_place.nozzle]]
 id = "CN220"
 diameter_mm = 2.2
-packages = ["SOP", "SOIC", "SOT-89", "SOT-223", "SOT-252", "TO-252", "TSSOP"]
+outer_diameter_mm = 3.6
+packages = ["SOT-89", "SOT-223", "SOT-252", "TO-252", "SOP", "SOIC", "TSSOP"]
 
 [[pick_place.nozzle]]
 id = "CN400"
 diameter_mm = 4.0
+outer_diameter_mm = 5.0
 packages = ["QFN", "QFP", "DFN", "TQFP"]
 
 [[pick_place.nozzle]]
 id = "CN750"
 diameter_mm = 7.5
+outer_diameter_mm = 9.0
+packages = []
 
 [[pick_place.rotation_offset]]
 comment = ""
@@ -110,6 +123,14 @@ footprint = "TSSOP"
 offset_deg = 0.0
 
 [[pick_place.footprint_alias]]
+pattern = "^Chip_0201.*"
+replacement = "0201"
+
+[[pick_place.footprint_alias]]
+pattern = "^LED_0201.*"
+replacement = "0201"
+
+[[pick_place.footprint_alias]]
 pattern = "^R_0201.*"
 replacement = "0201"
 
@@ -124,6 +145,14 @@ replacement = "0201"
 [[pick_place.footprint_alias]]
 pattern = "^D_0201.*"
 replacement = "0201"
+
+[[pick_place.footprint_alias]]
+pattern = "^Chip_0402.*"
+replacement = "0402"
+
+[[pick_place.footprint_alias]]
+pattern = "^LED_0402.*"
+replacement = "0402"
 
 [[pick_place.footprint_alias]]
 pattern = "^R_0402.*"
@@ -142,6 +171,14 @@ pattern = "^D_0402.*"
 replacement = "0402"
 
 [[pick_place.footprint_alias]]
+pattern = "^Chip_0603.*"
+replacement = "0603"
+
+[[pick_place.footprint_alias]]
+pattern = "^LED_0603.*"
+replacement = "0603"
+
+[[pick_place.footprint_alias]]
 pattern = "^R_0603.*"
 replacement = "0603"
 
@@ -156,6 +193,14 @@ replacement = "0603"
 [[pick_place.footprint_alias]]
 pattern = "^D_0603.*"
 replacement = "0603"
+
+[[pick_place.footprint_alias]]
+pattern = "^Chip_0805.*"
+replacement = "0805"
+
+[[pick_place.footprint_alias]]
+pattern = "^LED_0805.*"
+replacement = "0805"
 
 [[pick_place.footprint_alias]]
 pattern = "^R_0805.*"
@@ -174,6 +219,14 @@ pattern = "^D_0805.*"
 replacement = "0805"
 
 [[pick_place.footprint_alias]]
+pattern = "^Chip_1206.*"
+replacement = "1206"
+
+[[pick_place.footprint_alias]]
+pattern = "^LED_1206.*"
+replacement = "1206"
+
+[[pick_place.footprint_alias]]
 pattern = "^R_1206.*"
 replacement = "1206"
 
@@ -188,3 +241,300 @@ replacement = "1206"
 [[pick_place.footprint_alias]]
 pattern = "^D_1206.*"
 replacement = "1206"
+
+[[pick_place.footprint_alias]]
+pattern = "^Chip_1210.*"
+replacement = "1210"
+
+[[pick_place.footprint_alias]]
+pattern = "^LED_1210.*"
+replacement = "1210"
+
+[[pick_place.footprint_alias]]
+pattern = "^R_1210.*"
+replacement = "1210"
+
+[[pick_place.footprint_alias]]
+pattern = "^C_1210.*"
+replacement = "1210"
+
+[[pick_place.footprint_alias]]
+pattern = "^L_1210.*"
+replacement = "1210"
+
+[[pick_place.footprint_alias]]
+pattern = "^D_1210.*"
+replacement = "1210"
+
+[[pick_place.footprint_alias]]
+pattern = "^Chip_1812.*"
+replacement = "1812"
+
+[[pick_place.footprint_alias]]
+pattern = "^LED_1812.*"
+replacement = "1812"
+
+[[pick_place.footprint_alias]]
+pattern = "^R_1812.*"
+replacement = "1812"
+
+[[pick_place.footprint_alias]]
+pattern = "^C_1812.*"
+replacement = "1812"
+
+[[pick_place.footprint_alias]]
+pattern = "^L_1812.*"
+replacement = "1812"
+
+[[pick_place.footprint_alias]]
+pattern = "^D_1812.*"
+replacement = "1812"
+
+[[pick_place.footprint_alias]]
+pattern = "^Chip_2010.*"
+replacement = "2010"
+
+[[pick_place.footprint_alias]]
+pattern = "^LED_2010.*"
+replacement = "2010"
+
+[[pick_place.footprint_alias]]
+pattern = "^R_2010.*"
+replacement = "2010"
+
+[[pick_place.footprint_alias]]
+pattern = "^C_2010.*"
+replacement = "2010"
+
+[[pick_place.footprint_alias]]
+pattern = "^L_2010.*"
+replacement = "2010"
+
+[[pick_place.footprint_alias]]
+pattern = "^D_2010.*"
+replacement = "2010"
+
+[[pick_place.footprint_alias]]
+pattern = "^Chip_2512.*"
+replacement = "2512"
+
+[[pick_place.footprint_alias]]
+pattern = "^LED_2512.*"
+replacement = "2512"
+
+[[pick_place.footprint_alias]]
+pattern = "^R_2512.*"
+replacement = "2512"
+
+[[pick_place.footprint_alias]]
+pattern = "^C_2512.*"
+replacement = "2512"
+
+[[pick_place.footprint_alias]]
+pattern = "^L_2512.*"
+replacement = "2512"
+
+[[pick_place.footprint_alias]]
+pattern = "^D_2512.*"
+replacement = "2512"
+
+[[pick_place.placement_rule]]
+package = "Test"
+skip = true
+note = "A test point is a copper pad, not a part; nothing is picked."
+
+[[pick_place.placement_rule]]
+package = "Fiducial"
+skip = true
+note = "A fiducial is a mark, not a part."
+
+[[pick_place.placement_rule]]
+max_size_mm = 13.0
+min_height_mm = 5.0
+nozzle = "CN400"
+speed_pct = 50
+note = "Tall body (electrolytic, connector, tall inductor): the ICs 5 to 12 mm nozzle gives the widest suction face, run slower. Not in the maker guidance; check on the machine."
+
+[[pick_place.placement_rule]]
+min_size_mm = 13.01
+min_height_mm = 5.0
+nozzle = "CN750"
+speed_pct = 50
+note = "Tall and large: the largest regular nozzle, slower. Not in the maker guidance."
+
+[[pick_place.placement_rule]]
+package = "0201"
+nozzle = "CN030"
+speed_pct = 60
+note = "Vendor guidance (manual table 1-2): 0201."
+
+[[pick_place.placement_rule]]
+package = "0402"
+nozzle = "CN040"
+note = "Vendor guidance (manual table 1-2): 0402 (optimal on the 0402 nozzle)."
+
+[[pick_place.placement_rule]]
+package = "0603"
+nozzle = "CN065"
+note = "Vendor guidance (manual table 1-2): 0402, 0603."
+
+[[pick_place.placement_rule]]
+package = "0805"
+nozzle = "CN100"
+note = "Vendor guidance (manual table 1-2): 0805, diodes."
+
+[[pick_place.placement_rule]]
+package = "SOD-"
+nozzle = "CN100"
+note = "Vendor guidance (manual table 1-2): diodes."
+
+[[pick_place.placement_rule]]
+package = "SMA"
+nozzle = "CN100"
+note = "Vendor guidance (manual table 1-2): diodes (SMA face 4.0 x 2.5 mm)."
+
+[[pick_place.placement_rule]]
+package = "SMB"
+nozzle = "CN140"
+note = "SMB face 4.0 x 3.3 mm, from the maker size table; nozzle inferred."
+
+[[pick_place.placement_rule]]
+package = "SMC"
+nozzle = "CN400"
+note = "SMC face 6.6 x 5.6 mm, from the maker size table; nozzle inferred."
+
+[[pick_place.placement_rule]]
+package = "1206"
+nozzle = "CN140"
+note = "Vendor guidance (manual table 1-2): 1206, 1210 (listed under two nozzles; the larger is chosen)."
+
+[[pick_place.placement_rule]]
+package = "1210"
+nozzle = "CN140"
+note = "Vendor guidance (manual table 1-2): 1206, 1210."
+
+[[pick_place.placement_rule]]
+package = "1812"
+nozzle = "CN140"
+note = "Vendor guidance (manual table 1-2): 1812."
+
+[[pick_place.placement_rule]]
+package = "2010"
+nozzle = "CN140"
+note = "Vendor guidance (manual table 1-2): 2010."
+
+[[pick_place.placement_rule]]
+package = "2512"
+nozzle = "CN220"
+note = "2512 is larger than anything the maker lists for the 1.4 mm class; nozzle inferred."
+
+[[pick_place.placement_rule]]
+package = "5050"
+nozzle = "CN140"
+note = "Vendor guidance (manual table 1-2): 5050."
+
+[[pick_place.placement_rule]]
+package = "SOT-23"
+nozzle = "CN140"
+note = "Vendor guidance (manual table 1-2): SOT23 (all SOT-23 pin counts)."
+
+[[pick_place.placement_rule]]
+package = "SOT-89"
+nozzle = "CN220"
+note = "Vendor guidance (manual table 1-2): SOT89."
+
+[[pick_place.placement_rule]]
+package = "SOT-223"
+nozzle = "CN220"
+note = "Vendor guidance (manual table 1-2): SOT223."
+
+[[pick_place.placement_rule]]
+package = "SOT-252"
+nozzle = "CN220"
+note = "Vendor guidance (manual table 1-2): SOT252."
+
+[[pick_place.placement_rule]]
+package = "TO-252"
+nozzle = "CN220"
+note = "Vendor guidance (manual table 1-2): TO252."
+
+[[pick_place.placement_rule]]
+package = "SOIC"
+nozzle = "CN220"
+note = "Vendor guidance (manual table 1-2): SOP series ICs."
+
+[[pick_place.placement_rule]]
+package = "SOP"
+nozzle = "CN220"
+note = "Vendor guidance (manual table 1-2): SOP series ICs."
+
+[[pick_place.placement_rule]]
+package = "TSSOP"
+nozzle = "CN220"
+note = "Vendor guidance (manual table 1-2): SOP series ICs."
+
+[[pick_place.placement_rule]]
+package = "MSOP"
+nozzle = "CN220"
+note = "Vendor guidance (manual table 1-2): SOP series ICs."
+
+[[pick_place.placement_rule]]
+package = "Tact"
+nozzle = "CN400"
+speed_pct = 60
+note = "Tactile switch: wide flat top, ICs 5 to 12 mm nozzle, slower. Not in the maker guidance."
+
+[[pick_place.placement_rule]]
+package = "Crystal"
+max_size_mm = 5.0
+nozzle = "CN140"
+note = "Small crystal (3225 class): the 1.4 mm class nozzle. Not in the maker guidance."
+
+[[pick_place.placement_rule]]
+package = "QFN"
+max_size_mm = 3.5
+nozzle = "CN140"
+note = "Leadless IC under 2.5 mm body: the maker lists no nozzle below SOP size; the 1.4 mm class is inferred."
+
+[[pick_place.placement_rule]]
+package = "DFN"
+max_size_mm = 3.5
+nozzle = "CN140"
+note = "As QFN under 2.5 mm body."
+
+[[pick_place.placement_rule]]
+package = "QFN"
+max_size_mm = 5.9
+nozzle = "CN220"
+note = "Leadless IC under 5 mm body: inferred between SOP and the 5 to 12 mm class."
+
+[[pick_place.placement_rule]]
+package = "DFN"
+max_size_mm = 5.9
+nozzle = "CN220"
+note = "As QFN under 5 mm body."
+
+[[pick_place.placement_rule]]
+max_size_mm = 2.4
+nozzle = "CN065"
+note = "Any other small part by pad span: the 0402/0603 nozzle."
+
+[[pick_place.placement_rule]]
+max_size_mm = 4.6
+nozzle = "CN140"
+note = "Any other part up to 3.6 mm body by pad span: the 1.4 mm class."
+
+[[pick_place.placement_rule]]
+max_size_mm = 6.2
+nozzle = "CN220"
+note = "Any other part up to about 5 mm body: the 2.2 mm class."
+
+[[pick_place.placement_rule]]
+max_size_mm = 13.0
+nozzle = "CN400"
+note = "Vendor guidance (manual table 1-2): ICs from 5 to 12 mm (QFN, QFP, BGA, connectors) by pad span."
+
+[[pick_place.placement_rule]]
+min_size_mm = 13.01
+nozzle = "CN750"
+note = "Vendor guidance (manual table 1-2): ICs bigger than 12 mm."

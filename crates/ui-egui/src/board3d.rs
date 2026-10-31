@@ -68,6 +68,8 @@ pub(crate) struct View3d {
     /// Per part: did its model file load, or why did the box stay.
     notes: std::collections::BTreeMap<Id, ModelStatus>,
     error: Option<String>,
+    /// Whether the list of parts without a model file is open.
+    pub(crate) notes_open: bool,
     /// Where the viewport was painted last frame, so tests and picking agree.
     pub rect: Rect,
 pub dist: f64,
@@ -123,6 +125,7 @@ impl Default for View3d {
             model_gen: 0,
             notes: Default::default(),
             error: None,
+            notes_open: false,
             rect: Rect::NOTHING,
 keep_camera: false,
             frame: None,
@@ -131,11 +134,50 @@ keep_camera: false,
     }
 }
 
-struct Basis {
+pub(crate) struct Basis {
     eye: V,
     fwd: V,
     right: V,
     up: V,
+}
+
+/// Fixed camera for benchmarks and tests outside the tab.
+pub struct BenchBasis(Basis);
+
+impl BenchBasis {
+    pub fn isometric(target: V, dist: f64) -> Self {
+        let view = View3d {
+            yaw: FIT_YAW,
+            pitch: FIT_PITCH,
+            dist,
+            target,
+            ..View3d::default()
+        };
+        Self(view.basis())
+    }
+    pub(crate) fn inner(&self) -> &Basis {
+        &self.0
+    }
+}
+
+/// Headless render entry for performance tests.
+pub fn bench_render(
+    mesh: &BoardMesh,
+    basis: &BenchBasis,
+    w: usize,
+    h: usize,
+) -> egui::ColorImage {
+    raster::render(
+        mesh,
+        basis.inner(),
+        w,
+        h,
+        &raster::Look {
+            gold: false,
+            selected: None,
+            ss: 2,
+        },
+    )
 }
 
 impl View3d {
@@ -204,6 +246,26 @@ impl View3d {
         let mut best: Option<(Id, f64)> = None;
         for part in &mesh.parts {
             let Some(id) = part.component else { continue };
+            if let (Some(proto), Some(m)) = (&part.prototype, &part.instance) {
+                for tri in proto.indices.as_chunks::<3>().0.iter() {
+                    let (Some(a), Some(b), Some(c)) = (
+                        proto.positions.get(tri[0] as usize),
+                        proto.positions.get(tri[1] as usize),
+                        proto.positions.get(tri[2] as usize),
+                    ) else {
+                        continue;
+                    };
+                    let a = pcbcraft_io::apply_matrix(m, *a);
+                    let b = pcbcraft_io::apply_matrix(m, *b);
+                    let c = pcbcraft_io::apply_matrix(m, *c);
+                    if let Some(t) = ray_triangle(o, d, a, b, c)
+                        && best.is_none_or(|(_, bt)| t < bt)
+                    {
+                        best = Some((id, t));
+                    }
+                }
+                continue;
+            }
             for tri in part.indices.as_chunks::<3>().0.iter() {
                 let (Some(a), Some(b), Some(c)) = (
                     part.positions.get(tri[0] as usize),
@@ -225,6 +287,11 @@ impl View3d {
     pub(crate) fn build_error(&self) -> Option<String> {
         self.error.clone()
     }
+    /// Record a part whose model file was not found, as a load would.
+    #[cfg(test)]
+    pub(crate) fn note_failed(&mut self, id: Id, why: &str) {
+        self.notes.insert(id, ModelStatus::Failed(why.into()));
+    }
     /// How the model file of this part loaded, when it names one.
     pub(crate) fn model_status(&self, id: Id) -> Option<ModelStatus> {
         self.notes.get(&id).cloned()
@@ -236,7 +303,12 @@ impl View3d {
         mesh.parts
             .iter()
             .find(|p| p.kind == PartKind::Body && p.component == Some(id))
-            .map(|p| p.triangle_count())
+            .map(|p| {
+                p.prototype
+                    .as_ref()
+                    .map(|proto| proto.indices.len() / 3)
+                    .unwrap_or_else(|| p.triangle_count())
+            })
     }
     /// The box around this part's body in board millimetres.
     pub(crate) fn body_bounds(&self, id: Id) -> Option<(V, V)> {
@@ -448,7 +520,10 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
         .iter()
         .filter_map(|(id, status)| match status {
             ModelStatus::Failed(why) => {
-                let name = env.project.component(*id)?.reference.clone();
+                let name = env
+                    .project
+                    .component(*id)
+                    .map_or_else(|| format!("#{id}"), |c| c.reference.clone());
                 Some(format!("Box kept. {name}: {why}"))
             }
             _ => None,
@@ -473,15 +548,20 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     if let Some(e) = &view.error {
         ui.label(t!("board.board3d.the_3d_view_could_not", e = e));
     }
-    for note in &kept {
-        ui.add(
-            egui::Label::new(
-                egui::RichText::new(note)
-                    .font(crate::fonts::Role::Caption.font())
-                    .color(env.muted),
-            )
-            .wrap(),
-        );
+    // A few notes read inline; many collapse into the footer line, with the
+    // full list in a scrollable window on demand, so they never push the
+    // board out of view.
+    if kept.len() <= 3 {
+        for note in &kept {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(note)
+                        .font(crate::fonts::Role::Caption.font())
+                        .color(env.muted),
+                )
+                .wrap(),
+            );
+        }
     }
     let size = ui.available_size_before_wrap();
     let (rect, response) = ui.allocate_exact_size(
@@ -530,15 +610,63 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
             Color32::WHITE,
         );
     }
-    ui.label(
-        egui::RichText::new(if loading {
-            t!("board.board3d.loading_models_note")
-        } else {
-            t!("board.board3d.part_bodies_are_default_boxes")
-        })
-        .font(crate::fonts::Role::Caption.font())
-        .color(env.muted),
-    );
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(if loading {
+                t!("board.board3d.loading_models_note")
+            } else {
+                t!("board.board3d.part_bodies_are_default_boxes")
+            })
+            .font(crate::fonts::Role::Caption.font())
+            .color(env.muted),
+        );
+        if kept.len() > 3 {
+            ui.label(
+                egui::RichText::new(format!(
+                    "· {}",
+                    t!("board.board3d.models_missing", n = kept.len())
+                ))
+                .font(crate::fonts::Role::Caption.font())
+                .color(env.muted),
+            );
+            let label = if view.notes_open {
+                t!("board.board3d.models_hide")
+            } else {
+                t!("board.board3d.models_show")
+            };
+            if ui
+                .small_button(label)
+                .on_hover_text(t!("board.board3d.models_show.tip"))
+                .clicked()
+            {
+                view.notes_open = !view.notes_open;
+            }
+        }
+    });
+    if kept.len() > 3 && view.notes_open {
+        let mut open = true;
+        egui::Window::new(t!("board.board3d.models_missing", n = kept.len()))
+            .id(egui::Id::new("board3d_missing_models"))
+            .open(&mut open)
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-12.0, -40.0])
+            .default_width(360.0)
+            .show(ui.ctx(), |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(200.0)
+                    .show(ui, |ui| {
+                        for note in &kept {
+                            ui.label(
+                                egui::RichText::new(note)
+                                    .font(crate::fonts::Role::Caption.font())
+                                    .color(env.muted),
+                            );
+                        }
+                    });
+            });
+        if !open {
+            view.notes_open = false;
+        }
+    }
     picked
 }
 
