@@ -459,6 +459,10 @@ pub struct NetClass {
     /// Default coupling gap for differential pairs on member nets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pair_gap: Option<f64>,
+    /// Target single-ended impedance in ohms for member nets; stored for
+    /// profiles and future checks, not enforced by differential-pair rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_impedance: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -510,6 +514,13 @@ pub struct DiffPair {
     /// Rule profile that last applied this differential pair, when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// Target differential impedance in ohms; absent means no impedance check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_impedance: Option<f64>,
+    /// Allowed fractional deviation from the target, for example 0.1 for ten
+    /// percent; defaults to zero when a target is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_tolerance: Option<f64>,
 }
 impl DiffPair {
     fn valid(&self) -> bool {
@@ -523,6 +534,16 @@ impl DiffPair {
             && self
                 .length_tolerance
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
+            && self.target_impedance.is_none_or(|z| {
+                z.is_finite()
+                    && (1.0..=2000.0).contains(&z)
+                    && self
+                        .impedance_tolerance
+                        .is_none_or(|t| t.is_finite() && (0.0..=1.0).contains(&t))
+            })
+            && self.impedance_tolerance.is_none_or(|t| {
+                self.target_impedance.is_some() && t.is_finite() && (0.0..=1.0).contains(&t)
+            })
     }
 }
 /// Which kinds of copper a keepout keeps out. Every kind is forbidden unless
@@ -1994,7 +2015,36 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 33] = [
+"gerbers",
+    "netlist",
+    "bom",
+    "placement",
+    "dxf",
+    "cmp",
+    "idf",
+    "vrml",
+    "step",
+    "pdf",
+    "svg",
+    "ipc2581",
+    "odb++",
+    "specctra_dsn",
+    "specctrum_dsn",
+    "gdsii",
+    "oas",
+    "png",
+    "jpg",
+    "jpeg",
+    "tiff",
+    "bmp",
+    "gif",
+    "webp",
+    "avif",
+    "heic",
+    "heif",
+    "jxl",
+    "av1",
+    "avif"
     "gerbers",
     "netlist",
     "bom",
@@ -2019,6 +2069,7 @@ pub const OUTPUT_KINDS: [&str; 33] = [
     "stackup",
     "drill_chart",
     "stats",
+    "compliance_report",
     "layer_plots",
     "panel",
     "raster",
@@ -2227,6 +2278,19 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
         "hpgl" => ("package", "board.hpgl"),
         "stackup" => ("package", "board-stackup.txt"),
         "stats" => ("package", "board-stats.csv"),
+"vrml" => ("package", "board.wrl"),
+        "step" => ("package", "board.step"),
+        "dsn" => ("package", "pcb.dsn"),
+        "ipc356" => ("package", "test.brd"),
+        "gencad" => ("package", "board.gencad"),
+        "hyperlynx" => ("package", "netlist.csv"),
+        "plot" => ("package", "plot-report.csv"),
+        "report" => ("package", "board-report.txt"),
+        "ps" => ("package", "pcb.ps"),
+        "hpgl" => ("package", "board.hpgl"),
+        "stackup" => ("package", "board-stackup.txt"),
+        "stats" => ("package", "board-stats.csv"),
+        "compliance_report" => ("package", "compliance-report.md"),
         "spice" => ("package", "schematic.cir"),
         "si_net_results" => ("package", "si-net-results.csv"),
         "impedance_table" => ("package", "impedance-table.csv"),
@@ -4901,6 +4965,8 @@ self.validate_manufacturers()?;
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
                 || c.pair_gap
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 10.0)
+                || c.target_impedance
+                    .is_some_and(|z| !z.is_finite() || !(1.0..=2000.0).contains(&z))
             {
                 return Err("invalid net class".into());
             }

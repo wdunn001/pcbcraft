@@ -2935,6 +2935,7 @@ dependencies = [
  "embed-resource",
  "keyring",
  "pcbcraft-assistant",
+ "pcbcraft-clock",
  "pcbcraft-engine",
  "pcbcraft-io",
  "pcbcraft-library",
@@ -2949,6 +2950,7 @@ dependencies = [
 name = "pcbcraft-assistant"
 version = "0.1.0"
 dependencies = [
+ "pcbcraft-clock",
  "pcbcraft-engine",
  "pcbcraft-mcp",
  "serde",
@@ -2975,6 +2977,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pcbcraft-clock"
+version = "0.1.0"
+dependencies = [
+ "web-time",
+]
+
+[[package]]
 name = "pcbcraft-doc"
 version = "0.1.0"
 dependencies = [
@@ -2990,6 +2999,7 @@ name = "pcbcraft-engine"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "pcbcraft-clock",
  "pcbcraft-doc",
  "pcbcraft-geom",
  "pcbcraft-io",
@@ -3019,6 +3029,7 @@ dependencies = [
  "base64",
  "gltf",
  "image",
+ "pcbcraft-clock",
  "pcbcraft-doc",
  "pcbcraft-geom",
  "pcbcraft-library",
@@ -3039,6 +3050,7 @@ dependencies = [
 name = "pcbcraft-library"
 version = "0.1.0"
 dependencies = [
+ "pcbcraft-clock",
  "pcbcraft-geom",
  "serde",
  "serde_json",
@@ -3068,6 +3080,7 @@ dependencies = [
  "pcbcraft-geom",
  "pcbcraft-library",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3089,6 +3102,7 @@ dependencies = [
  "egui_extras",
  "image",
  "pcbcraft-assistant",
+ "pcbcraft-clock",
  "pcbcraft-doc",
  "pcbcraft-engine",
  "pcbcraft-geom",
@@ -5687,6 +5701,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "pcbcraft-clock",
  "pcbcraft-doc",
  "pcbcraft-engine",
  "pcbcraft-geom",

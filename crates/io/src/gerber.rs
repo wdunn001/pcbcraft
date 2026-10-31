@@ -914,6 +914,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         }
     sourcing: Default::default(),
     compliance: Default::default(),
