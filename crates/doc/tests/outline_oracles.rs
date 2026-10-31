@@ -8,16 +8,17 @@ use pcbcraft_library::FootprintPad;
 type T = Result<(), String>;
 
 #[test]
-fn circle_through_finds_the_circumcircle_of_an_equilateral_triangle() {
+fn circle_through_finds_the_circumcircle_of_an_equilateral_triangle() -> T {
     let a = Point::new(0.0, 0.0);
     let b = Point::new(2.0, 0.0);
     let c = Point::new(1.0, 3.0_f64.sqrt());
-    let (centre, radius) = circle_through(a, b, c).expect("non-collinear triangle");
+    let (centre, radius) = circle_through(a, b, c).ok_or("non-collinear triangle")?;
     assert!((centre.x - 1.0).abs() < 1e-9);
     assert!((centre.y - 3.0_f64.sqrt() / 3.0).abs() < 1e-9);
     let want_r = 2.0 / 3.0_f64.sqrt();
     assert!((radius - want_r).abs() < 1e-9);
     assert!(circle_through(a, b, Point::new(1.0, 0.0)).is_none());
+    Ok(())
 }
 
 #[test]
@@ -49,6 +50,14 @@ fn validate_closed_outline_accepts_a_square_and_rejects_degenerate() -> T {
         Point::new(0.0, 1.0),
     ];
     assert!(validate_closed_outline(&open).is_err());
+    let bowtie = vec![
+        Point::new(0.0, 0.0),
+        Point::new(10.0, 10.0),
+        Point::new(10.0, 0.0),
+        Point::new(0.0, 10.0),
+        Point::new(0.0, 0.0),
+    ];
+    assert!(validate_closed_outline(&bowtie).is_err());
     Ok(())
 }
 
@@ -89,7 +98,7 @@ fn pad_outline_error_and_contact_radius_match_hand_formulas() {
 }
 
 #[test]
-fn pad_drill_outline_points_sample_the_plated_hole() {
+fn pad_drill_outline_points_sample_the_plated_hole() -> T {
     let pad = Pad {
         number: "1".into(),
         offset: Point::default(),
@@ -116,7 +125,12 @@ fn pad_drill_outline_points_sample_the_plated_hole() {
     };
     let outline = pad.drill_outline_points();
     assert!(outline.len() >= 4, "a round hole closes with sampled vertices");
-    let first = outline.first().copied().unwrap_or_default();
-    let last = outline.last().copied().unwrap_or_default();
+    let first = *outline.first().ok_or("hole outline empty")?;
+    let last = *outline.last().ok_or("hole outline empty")?;
     assert!(first.distance(last) < 1e-6, "hole outline closes");
+    let drill_r = 0.4;
+    for pt in &outline {
+        assert!((pt.distance(Point::default()) - drill_r).abs() < 1e-6);
+    }
+    Ok(())
 }

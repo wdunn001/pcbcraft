@@ -57,29 +57,47 @@ fn footprint_drawing_points_include_pad_outlines() -> T {
 
 #[test]
 fn footprint_pad_world_position_rotates_offsets() {
+    let pad = Pad {
+        number: "1".into(),
+        offset: Point::new(2.0, 0.0),
+        diameter: 1.0,
+        net: None,
+        castellated: None,
+        geometry: None,
+    };
     let fp = Footprint {
         id: 1,
         component: 1,
-        position: Point::new(10.0, 0.0),
-        rotation: 90.0,
+        position: Point::new(10.0, 5.0),
+        rotation: 0.0,
         locked: None,
         side: None,
-        pads: vec![Pad {
-            number: "1".into(),
-            offset: Point::new(1.0, 0.0),
-            diameter: 1.0,
-            net: None,
-            castellated: None,
-            geometry: None,
-        }],
+        pads: vec![pad.clone()],
     };
-    let world = fp.pad_world_position(&fp.pads[0]);
-    assert!((world.x - 10.0).abs() < 1e-9 && (world.y - 1.0).abs() < 1e-9);
-    assert_eq!(fp.pad_position("1"), Some(world));
+    let at_zero = fp.pad_world_position(&fp.pads[0]);
+    assert!((at_zero.x - 12.0).abs() < 1e-9 && (at_zero.y - 5.0).abs() < 1e-9);
+    assert_eq!(fp.pad_position("1"), Some(at_zero));
+    assert!(fp.pad_position("missing").is_none());
+    let fp180 = Footprint {
+        rotation: 180.0,
+        ..fp
+    };
+    let at_180 = fp180.pad_world_position(&fp180.pads[0]);
+    assert!((at_180.x - 8.0).abs() < 1e-9 && (at_180.y - 5.0).abs() < 1e-9);
 }
 
 #[test]
-fn track_curve_and_layer_labels_follow_geometry() {
+fn track_curve_and_layer_labels_follow_geometry() -> T {
+    let straight = Track {
+        id: 0,
+        net: 1,
+        start: Point::new(0.0, 0.0),
+        end: Point::new(2.0, 0.0),
+        width: 0.2,
+        layer: Layer::Front,
+        arc: None,
+    };
+    assert!(straight.curve().is_none());
     let track = Track {
         id: 1,
         net: 1,
@@ -89,7 +107,7 @@ fn track_curve_and_layer_labels_follow_geometry() {
         layer: Layer::Front,
         arc: Some(Point::new(1.0, 1.0)),
     };
-    let arc = track.curve().expect("midpoint defines an arc");
+    let arc = track.curve().ok_or("midpoint defines an arc")?;
     assert!(arc.length() > track.start.distance(track.end));
     assert_eq!(Layer::Front.index(), 0);
     assert_eq!(Layer::Front.label(), "Top");
@@ -97,6 +115,7 @@ fn track_curve_and_layer_labels_follow_geometry() {
     assert_eq!(ViaCovering::Filled.label(), "filled");
     assert_eq!(ArtKind::Mask.label(), "solder mask");
     assert_eq!(KeepoutKind::Pads.label(), "pad");
+    Ok(())
 }
 
 #[test]
@@ -153,8 +172,19 @@ fn project_net_and_copper_layer_queries() -> T {
         arc: None,
     });
     assert_eq!(p.max_copper_layer_index_used(), Some(1));
-    let reason = p.stack_shrink_blocked_reason(1).expect("blocked");
+    let reason = p.stack_shrink_blocked_reason(1).ok_or("blocked")?;
     assert!(reason.contains("track"));
+    let mut only_front = Project::default();
+    only_front.board.tracks.push(Track {
+        id: 1,
+        net: 1,
+        start: Point::default(),
+        end: Point::new(1.0, 0.0),
+        width: 0.2,
+        layer: Layer::Front,
+        arc: None,
+    });
+    assert!(only_front.stack_shrink_blocked_reason(4).is_none());
     Ok(())
 }
 

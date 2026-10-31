@@ -23,6 +23,10 @@ fn fab_preset_carries_vendor_minimums_and_passes_valid() -> T {
     assert!((rules.plating_allowance.unwrap_or(0.0) - 0.025).abs() < 1e-12);
     assert!(rules.valid());
     assert!(fab_preset("not a vendor").is_none());
+    for name in FAB_PRESET_NAMES {
+        let preset = fab_preset(name).ok_or("listed preset missing")?;
+        assert!(preset.rules.valid(), "preset {name} must validate");
+    }
     Ok(())
 }
 
