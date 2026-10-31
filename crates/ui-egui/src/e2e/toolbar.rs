@@ -38,8 +38,13 @@ fn a_newcomer_picks_the_layer_to_draw_on_from_the_layers_tree() -> Result<(), St
 }
 
 #[test]
-fn a_newcomer_turns_corners_between_45_and_90_degrees() -> Result<(), String> {
+fn a_newcomer_switches_the_route_tool_between_45_and_90_corners() -> Result<(), String> {
     let (ctx, mut app) = layout_page();
+    tap_strip(&ctx, &mut app, "icon:tool-route")?;
+    assert!(
+        matches!(app.tool, Tool::Route(_)),
+        "Route must be active for the Corners control"
+    );
     assert!(app.preferences.chamfer_corners, "corners start at 45");
     tap_toolbar_corner(&ctx, &mut app, false)?;
     assert!(
@@ -54,9 +59,9 @@ fn a_newcomer_turns_corners_between_45_and_90_degrees() -> Result<(), String> {
     Ok(())
 }
 
-/// Press the 45 (true) or 90 (false) choice of the Corners switch: the two
-/// choices read the same to the gate, so go by their place in the row.
-fn tap_toolbar_corner(ctx: &egui::Context, app: &mut App, chamfer: bool) -> Result<(), String> {
+/// Press the 45 (true) or 90 (false) choice of the Corners control while Route
+/// is active: the two choices read the same to the gate, so go by their place.
+pub(crate) fn tap_toolbar_corner(ctx: &egui::Context, app: &mut App, chamfer: bool) -> Result<(), String> {
     let mut found: Vec<_> = super::audit::controls(ctx, app)
         .into_iter()
         .filter(|c| c.id.as_deref() == Some("radiobutton:#") && c.rect.center().y < 120.0)
