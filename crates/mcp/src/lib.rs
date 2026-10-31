@@ -32,7 +32,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbol","description":"Write one project-library symbol to a .kicad_sym symbol library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_footprint_svg","description":"Write one project-library footprint to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_symbol_svg","description":"Write one project-library symbol to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
-        json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist and a test-point CSV for fixture builders into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ps.write","description":"Write a one-page PostScript drawing of either view with copper, pads, zones and text as real stroke and fill operators, without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"]}}),&["path"])}),
         json!({"name":"stats.write","description":"Write a CSV board statistics sheet counting parts, nets, pins, routing, vias and zones, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"drill_chart.write","description":"Write a CSV drill tool chart listing every distinct drill size with its plating and hole count, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -96,8 +96,51 @@ pub fn tool_list() -> Value {
             .to_string();
         tool["title"] = json!(title_for(&name));
         tool["annotations"] = annotations_for(&name);
+        if let Some(schema) = output_schema_for(&name) {
+            tool["outputSchema"] = schema;
+        }
     }
     json!({"tools":tools})
+}
+
+/// The `outputSchema` of the tools whose result shape is stable.
+///
+/// # Rules
+/// Only `inspect_design` and `checks`. Both stay loose (`additionalProperties` true) because
+/// their reports grow. `checks` with `copper_only` has no `revision`, so it is not required.
+///
+/// # Dependencies
+/// `crates/engine/src/lib.rs` (`Session::inspect`, `Session::checks`) define the shapes.
+///
+/// # Do not
+/// Do not add a tool here whose result is not always `structuredContent`.
+fn output_schema_for(name: &str) -> Option<Value> {
+    match name {
+        "inspect_design" => Some(json!({
+            "type":"object",
+            "properties":{
+                "revision":{"type":"integer","minimum":0},
+                "project":{"type":"object"},
+                "history":{"type":"object","properties":{"undo":{"type":"integer"},"redo":{"type":"integer"}},"required":["undo","redo"]},
+                "capabilities":{"type":"object"}
+            },
+            "required":["revision","project","history","capabilities"],
+            "additionalProperties":true
+        })),
+        "checks" => Some(json!({
+            "type":"object",
+            "properties":{
+                "revision":{"type":"integer","minimum":0},
+                "erc":{"type":"array"},
+                "drc":{"type":"array"},
+                "airwires":{"type":"array"},
+                "scope":{"type":"string"}
+            },
+            "required":["erc","drc","airwires","scope"],
+            "additionalProperties":true
+        })),
+        _ => None,
+    }
 }
 
 /// Which family a tool belongs to, for its client-facing hints.
@@ -110,8 +153,9 @@ enum ToolKind {
 }
 
 fn tool_kind(name: &str) -> ToolKind {
-    const READ_ONLY: [&str; 15] = [
+    const READ_ONLY: [&str; 16] = [
         "inspect_design",
+        "design.summary",
         "list_commands",
         "checks",
         "board_mesh",
@@ -436,9 +480,12 @@ pub(crate) fn invoke_session(
         }
         "step.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::step_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.step"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.step","bytes":text.len()})
+            let base = Path::new(&directory);
+            let loader = pcbcraft_io::project_step_loader(&s.project, Some(base));
+            let export = pcbcraft_io::step_board_with_models(&s.project, &loader)
+                .map_err(|e| e.to_string())?;
+            pcbcraft_io::atomic_write(&base.join("board.step"), export.text.as_bytes())?;
+            json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
         }
         "wrl.write" => {
             let directory = string(args, "path")?;
@@ -525,7 +572,12 @@ pub(crate) fn invoke_session(
             let directory = string(args, "path")?;
             let text = pcbcraft_io::ipc356_netlist(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("test.brd"), text.as_bytes())?;
-            json!({"directory":directory,"file":"test.brd"})
+            let csv = pcbcraft_io::testpoints_csv(&s.project)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("testpoints.csv"),
+                csv.as_bytes(),
+            )?;
+            json!({"directory":directory,"files":["test.brd","testpoints.csv"]})
         }
         "netlist.write" => {
             let directory = string(args, "path")?;
@@ -1015,6 +1067,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bridge_tests;
 #[cfg(test)]
 mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1675,7 +1729,7 @@ mod tests {
             "front copper carries its file function attribute"
         );
         assert!(
-            front.contains("X10.000000Y10.000000D02*\n"),
+            front.contains("X10000000Y10000000D02*\n"),
             "the exported copper should contain the drawn track"
         );
         assert_eq!(
@@ -2230,6 +2284,10 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         let export = call_tool(&session, "ipc356.write", &json!({"path":directory.path()}));
         assert_eq!(export.get("isError"), Some(&json!(false)));
+        assert!(
+            directory.path().join("testpoints.csv").exists(),
+            "test netlist export should include testpoints.csv"
+        );
         let text = std::fs::read_to_string(directory.path().join("test.brd"))
             .map_err(|e| e.to_string())?;
         let rows: Vec<&str> = text.lines().filter(|l| !l.starts_with('*')).collect();

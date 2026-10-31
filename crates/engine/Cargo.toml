@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+pcbcraft-clock.workspace = true
 pcbcraft-geom.workspace = true
 pcbcraft-library.workspace = true
 pcbcraft-doc.workspace = true

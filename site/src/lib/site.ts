@@ -25,6 +25,12 @@ export const MORE: NavItem[] = [];
 
 export const REPO_URL = 'https://github.com/wdunn001/pcbcraft';
 
+/** Site metadata for the status page and other pages. */
+export const SITE = {
+  name: 'PCBCraft',
+  description: 'A free and open-source EDA tool for PCB design',
+};
+
 export interface FooterColumn {
   title: string;
   links: { label: string; href: string; external?: boolean }[];
