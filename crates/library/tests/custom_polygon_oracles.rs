@@ -31,9 +31,7 @@ fn custom_polygon_error_rejects_too_few_vertices_and_bad_anchor() -> Result<(), 
         Point::new(1.0, -1.0),
     ];
     if custom_polygon_error(anchor, &bowtie)
-        != Some(
-            "custom pad polygon must be simple, with non-zero area and no repeated vertices",
-        )
+        != Some("custom pad polygon must be simple, with non-zero area and no repeated vertices")
     {
         return Err("self-crossing bowtie must fail".into());
     }
