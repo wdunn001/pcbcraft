@@ -37,7 +37,7 @@ export DIST
 
 export PCBCRAFT_BUILD_DATE="${PCBCRAFT_BUILD_DATE:-$(date -u +%Y-%m-%d)}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
-APP_ID=io.github.tangency-labs.pcbcraft
+APP_ID=io.github.tangency_labs.pcbcraft
 export APP_ID
 
 warn() {
