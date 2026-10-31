@@ -13,12 +13,13 @@
 //! # Dependencies
 //! - `crates/ui-egui/src/tool_modifiers.rs` bindings, rows and hotkeys.
 //! - `crates/ui-egui/src/canvas/gestures.rs` calls [`status_hint`].
-//! - `crates/ui-egui/src/lib.rs` calls [`tip`], [`menu_hint`] and [`keys_section`].
+//! - `crates/ui-egui/src/lib.rs` calls [`tip`], [`menu_rows`] and [`keys_section`].
 //!
 //! # Do not
 //! - Hard-code a chord in a string; build it from the binding.
 
-use crate::a11y::Named;
+use crate::a11y::{self, Named};
+use crate::targets::TapButton;
 use egui::Key;
 use pcbcraft_text::t;
 
@@ -142,9 +143,30 @@ pub fn tip(
     }
 }
 
-/// The line under the context menu: how modifiers change a click.
-pub fn menu_hint(bindings: &Bindings, tool: ToolKind, platform: Platform) -> String {
-    tool_lines(bindings, tool, platform)
+/// The rows under the context menu: one per modifier click, as (key, action).
+///
+/// Why: the menu shows a short key list. Drag modifiers are left out; the status
+/// bar names them while a drag is under way.
+///
+/// # Rules
+/// - Only click bindings; the action starts with a capital letter.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/ui_kit/menu.rs (`Menu::footer`).
+pub fn menu_rows(bindings: &Bindings, tool: ToolKind, platform: Platform) -> Vec<(String, String)> {
+    tm::tool_bindings(tool)
+        .0
+        .iter()
+        .filter(|b| b.phase == Phase::Click && !bindings.chords_for(b).is_empty())
+        .map(|b| {
+            let key = format!("{}+click", chord_label(bindings, b.action, tool, platform));
+            let mut action = effect(b.action);
+            if let Some(first) = action.get(..1) {
+                action = format!("{}{}", first.to_uppercase(), &action[1..]);
+            }
+            (key, action)
+        })
+        .collect()
 }
 
 /// The status-bar text for the hovered target and held keys.
@@ -282,13 +304,14 @@ fn keys_rows(app: &mut crate::App, ui: &mut egui::Ui, platform: Platform) {
                 .response
                 .named(&hotkey_words(h))
                 .on_hover_text(t!("modifier.prefs.hotkey.tip"));
-            if app.preferences.modifiers.key_for(h) != h.default_key()
-                && ui
-                    .small_button(t!("modifier.prefs.reset"))
-                    .on_hover_text(t!("modifier.prefs.reset.tip"))
-                    .clicked()
-            {
-                app.preferences.modifiers.reset_key(h);
+            if app.preferences.modifiers.key_for(h) != h.default_key() {
+                let reset = ui
+                    .tap_button(t!("modifier.prefs.reset"))
+                    .on_hover_text(t!("modifier.prefs.reset.tip"));
+                a11y::name_control(&reset, "Reset tool key", None);
+                if reset.clicked() {
+                    app.preferences.modifiers.reset_key(h);
+                }
             }
         });
         if chosen != current
@@ -332,13 +355,14 @@ fn keys_rows(app: &mut crate::App, ui: &mut egui::Ui, platform: Platform) {
             if let Some(p) = pick {
                 app.preferences.modifiers.set_chord(action, p);
             }
-            if app.preferences.modifiers.is_custom(action)
-                && ui
-                    .small_button(t!("modifier.prefs.reset"))
-                    .on_hover_text(t!("modifier.prefs.reset.tip"))
-                    .clicked()
-            {
-                app.preferences.modifiers.reset_chord(action);
+            if app.preferences.modifiers.is_custom(action) {
+                let reset = ui
+                    .tap_button(t!("modifier.prefs.reset"))
+                    .on_hover_text(t!("modifier.prefs.reset.tip"));
+                a11y::name_control(&reset, "Reset modifier chord", None);
+                if reset.clicked() {
+                    app.preferences.modifiers.reset_chord(action);
+                }
             }
         });
     }

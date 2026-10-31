@@ -5,6 +5,8 @@
 //! in `lib.rs` and use the same `run()`.
 //! Rules: a dry run never touches the session (revision, project, undo, redo and `next_id` stay);
 //! lists are bounded at `LIST_LIMIT` entries with the overflow counted in `more`.
+//! The summary also carries what the review card shows: counts per kind, new net names, new
+//! track length, untouched objects and the saved size before and after.
 //! Do not: turn `squash_undo_since` into a tool; outside agents must not rewrite history.
 
 use super::{Command, Error, Session, run};
@@ -33,6 +35,20 @@ pub struct ChangeSummary {
     pub board_changed: bool,
     /// Entries left out of the lists above because of `LIST_LIMIT`.
     pub more: usize,
+    /// How many objects of each kind are new, counted past `LIST_LIMIT` (for the review card).
+    pub added_counts: BTreeMap<String, usize>,
+    /// Names of the nets the batch would add, at most `LIST_LIMIT`.
+    pub nets_added: Vec<String>,
+    /// Total length in millimetres of the new tracks, straight start to end (an arc counts as its chord).
+    pub track_mm_added: f64,
+    /// Objects the batch leaves exactly as they are.
+    pub untouched: usize,
+    /// Objects in the project before the batch (the base of `untouched`).
+    pub total: usize,
+    /// Size of the saved project before the batch, in bytes.
+    pub bytes_before: usize,
+    /// Size of the saved project after the batch, in bytes.
+    pub bytes_after: usize,
 }
 
 /// The results of the commands plus what they would change.
@@ -70,6 +86,8 @@ impl Session {
                 &mut next,
                 &command.command,
                 &command.params,
+                self.revision.saturating_add(1),
+                true,
             )?);
             candidate.validate()?;
         }
@@ -99,9 +117,9 @@ impl Session {
 }
 
 /// Rows of the collections that are arrays of objects with an `id`, keyed by id.
-fn rows(project: &Value) -> BTreeMap<(String, u64), &Value> {
+fn rows<'a>(project: &'a Value) -> BTreeMap<(String, u64), &'a Value> {
     let mut out = BTreeMap::new();
-    if let Some(map) = project.as_object() {
+    let mut take = |map: &'a serde_json::Map<String, Value>| {
         for (name, value) in map {
             if let Some(list) = value.as_array() {
                 for row in list {
@@ -110,6 +128,13 @@ fn rows(project: &Value) -> BTreeMap<(String, u64), &Value> {
                     }
                 }
             }
+        }
+    };
+    if let Some(map) = project.as_object() {
+        take(map);
+        // Tracks, vias and zones live inside the board object.
+        if let Some(board) = map.get("board").and_then(Value::as_object) {
+            take(board);
         }
     }
     out
@@ -142,6 +167,24 @@ fn only_moved(a: &Value, b: &Value) -> bool {
             .all(|k| a.get(k) == b.get(k))
 }
 
+/// Straight-line length of a track row, 0 when its ends are missing.
+fn track_mm(row: &Value) -> f64 {
+    let at = |end: &str, axis: &str| {
+        row.get(end)
+            .and_then(|p| p.get(axis))
+            .and_then(Value::as_f64)
+    };
+    match (
+        at("start", "x"),
+        at("start", "y"),
+        at("end", "x"),
+        at("end", "y"),
+    ) {
+        (Some(a), Some(b), Some(c), Some(d)) => (c - a).hypot(d - b),
+        _ => 0.0,
+    }
+}
+
 fn push(list: &mut Vec<(String, String)>, more: &mut usize, entry: (String, String)) {
     if list.len() < LIST_LIMIT {
         list.push(entry);
@@ -157,14 +200,28 @@ fn summarize(before: &Project, after: &Project) -> ChangeSummary {
     let (old, new) = (rows(&a), rows(&b));
     let mut s = ChangeSummary {
         board_changed: a.get("board") != b.get("board"),
+        total: old.len(),
+        bytes_before: a.to_string().len(),
+        bytes_after: b.to_string().len(),
         ..ChangeSummary::default()
     };
     for ((name, id), row) in &new {
         let entry = (kind(name), label(row, *id));
         match old.get(&(name.clone(), *id)) {
-            None if name == "nets" => s.nets_changed += 1,
-            None => push(&mut s.added, &mut s.more, entry),
-            Some(was) if was == row => {}
+            None if name == "nets" => {
+                s.nets_changed += 1;
+                if s.nets_added.len() < LIST_LIMIT {
+                    s.nets_added.push(entry.1);
+                }
+            }
+            None => {
+                *s.added_counts.entry(entry.0.clone()).or_default() += 1;
+                if name == "tracks" {
+                    s.track_mm_added += track_mm(row);
+                }
+                push(&mut s.added, &mut s.more, entry);
+            }
+            Some(was) if was == row => s.untouched += 1,
             Some(_) if name == "nets" => s.nets_changed += 1,
             Some(was) if only_moved(was, row) => push(&mut s.moved, &mut s.more, entry),
             Some(_) => push(&mut s.changed, &mut s.more, entry),
@@ -208,6 +265,51 @@ mod tests {
                 .any(|(k, r)| k == "component" && r == "R1")
         );
         assert_eq!(s.history_len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn dry_run_counts_board_tracks_vias_and_unchanged_objects() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(s.batch(&[add("R1", 10.0)], None).is_ok());
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("net id".into()))?;
+        let dry = s.dry_run(
+            &[Command {
+                command: "track.add".into(),
+                params: json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":30.0,"y":40.0},"width":0.2}),
+            }],
+            Some(s.revision),
+        )?;
+        assert_eq!(dry.summary.added_counts.get("track"), Some(&1));
+        assert!((dry.summary.track_mm_added - 50.0).abs() < 1e-6);
+        assert_eq!(dry.summary.untouched, 3, "R1 and its pads are unchanged");
+        assert_eq!(dry.summary.total, 4);
+        assert!(dry.summary.bytes_after > dry.summary.bytes_before);
+        let via = s.dry_run(
+            &[Command {
+                command: "via.place".into(),
+                params: json!({"net":net,"position":{"x":5.0,"y":5.0},"diameter":0.8,"drill":0.4}),
+            }],
+            Some(s.revision),
+        )?;
+        assert_eq!(via.summary.added_counts.get("via"), Some(&1));
+        Ok(())
+    }
+
+    #[test]
+    fn dry_run_lists_new_net_names() -> Result<(), Error> {
+        let s = Session::default();
+        let dry = s.dry_run(
+            &[Command {
+                command: "net.create".into(),
+                params: json!({"name":"CLK"}),
+            }],
+            None,
+        )?;
+        assert_eq!(dry.summary.nets_added, vec!["CLK".to_string()]);
+        assert_eq!(dry.summary.nets_changed, 1);
         Ok(())
     }
 

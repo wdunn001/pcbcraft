@@ -1,3 +1,26 @@
+//! KiCad library file readers.
+//!
+//! Parses .kicad_sym symbol libraries, .kicad_mod footprint files, and
+//! Specctra design session files into typed definitions. All readers validate
+//! inputs, bound output sizes, and record unsupported features in the
+//! `unsupported` field rather than failing.
+//!
+//! # Rules
+//! - Coordinates are validated for finite range and bounded magnitude
+//! - Inheritance chains are depth-limited and cycle-checked
+//! - Duplicate symbol names in a library are errors
+//! - Unsupported features are preserved in raw_source with a note
+//!
+//! # Dependencies
+//! - crates/library/src/lib.rs SymbolDefinition, FootprintDefinition, and other public types
+//! - crates/library/src/sexpr.rs S-expression parser for KiCad file format
+//! - crates/geom/src/lib.rs Point type
+//!
+//! # Do not
+//! - Change coordinate system handling (y-flip for symbol pins)
+//! - Add support for features without explicit design approval
+//! - Remove unsupported-feature tracking
+
 use crate::{
     sexpr::{self, Node},
     *,
@@ -403,8 +426,10 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                 return Err(invalid("invalid reference point size"));
             }
         } else if child.name() == "pad" {
+            // A drill record with an offset but no diameter drills nothing.
             let drill = child
                 .child("drill")
+                .filter(|d| !d.value(1).is_empty())
                 .map(|d| {
                     let oval = d.value(1) == "oval";
                     let x = num(d.value(if oval { 2 } else { 1 }))?;
@@ -419,7 +444,7 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     })
                 })
                 .transpose()?;
-            let layers = child
+            let layers: Vec<String> = child
                 .child("layers")
                 .ok_or_else(|| invalid("missing pad layers"))?
                 .children
@@ -469,6 +494,12 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
             let pad_type = match child.value(2) {
                 "np_thru_hole" => "unplated".into(),
                 token => token.to_owned(),
+            };
+            // A mounting hole lists copper layers in some files; it has none.
+            let layers: Vec<String> = if pad_type == "unplated" {
+                layers.into_iter().filter(|l| !l.ends_with(".Cu")).collect()
+            } else {
+                layers
             };
             s.pads.push(FootprintPad {
                 number,

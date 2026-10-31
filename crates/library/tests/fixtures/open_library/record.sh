@@ -66,10 +66,15 @@ def raw(key, path, fname):
 tree("symbols", "Device.kicad_symdir", {"R.kicad_sym","R_Small.kicad_sym","C.kicad_sym","LED.kicad_sym","L.kicad_sym","D.kicad_sym"}, "symbols-Device.json")
 tree("symbols", "Connector_Generic.kicad_symdir", {"Conn_01x02.kicad_sym","Conn_01x04.kicad_sym"}, "symbols-Connector_Generic.json")
 tree("footprints", "Resistor_SMD.pretty", None, "footprints-Resistor_SMD.json")
+# The package family folder, trimmed to the 64-pin quad flat packages and relatives.
+tree("footprints", "Package_QFP.pretty", None, "footprints-Package_QFP.json")
+_trim = json.load(open("footprints-Package_QFP.json"))
+json.dump([i for i in _trim if i["name"].startswith(("LQFP-", "TQFP-64"))], open("footprints-Package_QFP.json", "w"), indent=1)
 tree("models", "Resistor_SMD.3dshapes", None, "models-Resistor_SMD.json")
 raw("symbols", "Device.kicad_symdir/R.kicad_sym", "Device-R.kicad_sym")
 raw("symbols", "Device.kicad_symdir/C.kicad_sym", "Device-C.kicad_sym")
 raw("footprints", "Resistor_SMD.pretty/R_0603_1608Metric.kicad_mod", "R_0603_1608Metric.kicad_mod")
+raw("footprints", "Package_QFP.pretty/LQFP-64_10x10mm_P0.5mm.kicad_mod", "LQFP-64_10x10mm_P0.5mm.kicad_mod")
 raw("models", "Resistor_SMD.3dshapes/R_0603_1608Metric.step", "R_0603_1608Metric.step")
 json.dump(index, open("index.json", "w"), indent=1, sort_keys=True)
 PY

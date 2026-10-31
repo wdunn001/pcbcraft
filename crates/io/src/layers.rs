@@ -1,4 +1,18 @@
 //! Shared fabrication layer geometry for raster export, Gerber, stencil, and UV artwork.
+//!
+//! Collects all geometry for a single fabrication layer into a `FabLayer` value
+//! that can be rasterised or plotted. Used by the Gerber, stencil, silk, and
+//! mask exporters to avoid duplicating geometry collection logic.
+//!
+//! # Rules
+//! - Geometry is collected in board coordinates (millimetres).
+//! - Pads are included only for footprints placed on the board.
+//! - Vias are included on the layers they connect through.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs ArtShape, BoardText, CopperZone, Fiducial, Footprint, Id, Layer, Project, Track, Via
+//! - crates/geom/src/lib.rs Point
+//! - crates/library/src/lib.rs Graphic
 use pcbcraft_doc::{
     ArtShape, BoardText, CopperZone, Fiducial, Footprint, Id, Layer, Project, Track, Via,
 };
@@ -313,20 +327,10 @@ fn push_board_text(
 }
 
 pub(crate) fn profile_edge(p: &Project) -> Vec<Point> {
-    match &p.board.outline {
-        Some(o) => o.iter().map(|pt| fabrication_point(p, *pt)).collect(),
-        None => {
-            let w = p.board.width;
-            let h = p.board.height;
-            vec![
-                fabrication_point(p, Point::new(0.0, 0.0)),
-                fabrication_point(p, Point::new(w, 0.0)),
-                fabrication_point(p, Point::new(w, h)),
-                fabrication_point(p, Point::new(0.0, h)),
-                fabrication_point(p, Point::new(0.0, 0.0)),
-            ]
-        }
-    }
+    crate::board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR)
+        .into_iter()
+        .map(|pt| fabrication_point(p, pt))
+        .collect()
 }
 
 fn push_drill_hole(shapes: &mut Vec<Shape>, pos: Point, diameter: f64, mark: f64, p: &Project) {
@@ -748,6 +752,7 @@ mod tests {
             cutouts: vec![],
             filled: true,
             kind: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             pour: None,
         });
         project.board.vias.push(Via {
@@ -756,9 +761,11 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         let pad = pcbcraft_doc::Pad {
             number: "1".into(),
@@ -803,8 +810,10 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad, pad2],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),

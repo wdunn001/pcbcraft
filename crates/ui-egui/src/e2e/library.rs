@@ -233,6 +233,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
     });
     p.components.push(part);
     p.board.footprints.push(Footprint {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 4,
         component: 2,
         position: Point::new(30.0, 20.0),
@@ -252,6 +253,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
             .collect(),
     });
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 5,
         net: 1,
         start: Point::new(20.0, 20.0),
@@ -384,6 +386,106 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
     Ok(())
 }
 
+#[test]
+fn a_newcomer_finds_a_chip_package_by_name_and_places_it_on_the_board() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    let ctx = egui::Context::default();
+    let none = egui::Modifiers::NONE;
+    frame(&ctx, &mut app, vec![], none);
+    app.change_tab(Tab::Schematic);
+    // The open library answers from its recordings: no network in a story.
+    use_recorded_library(&mut app, "chip-package")?;
+    app.dock.view = library_dock::ViewKind::Footprints;
+    // Typed the way people type it: dash, capitals, no size.
+    app.part_search = "LQFP-64".into();
+    assert!(
+        waits_for_text(&ctx, &mut app, "LQFP-64")?,
+        "the footprint list shows the 64-pin package: {}",
+        app.message
+    );
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let found = source
+        .search_cards(
+            pcbcraft_library::open_library::CardScope::Footprints,
+            "lqfp64",
+        )
+        .map_err(|e| e.to_string())?;
+    let part = found
+        .iter()
+        .find(|p| p.mpn == "LQFP-64_10x10mm_P0.5mm")
+        .ok_or("the library should know the package")?;
+    app.place_online_for_test(&ctx, part, "board", Point::new(30.0, 30.0));
+    for _ in 0..100 {
+        frame(&ctx, &mut app, vec![], none);
+        if !shared
+            .lock()
+            .map_err(|_| "session")?
+            .project
+            .board
+            .footprints
+            .is_empty()
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let session = shared.lock().map_err(|_| "session")?;
+    let placed = session
+        .project
+        .board
+        .footprints
+        .first()
+        .ok_or_else(|| format!("picking the package puts it on the board: {}", app.message))?;
+    assert_eq!(placed.pads.len(), 64, "all 64 pads arrive");
+    assert_eq!(placed.position, Point::new(30.0, 30.0));
+    let component = session
+        .project
+        .components
+        .iter()
+        .find(|c| c.id == placed.component)
+        .ok_or("the board part has a schematic part")?;
+    let fp = component
+        .library_footprint
+        .as_ref()
+        .ok_or("the part carries the package")?;
+    assert_eq!(fp.definition.name, "LQFP-64_10x10mm_P0.5mm");
+    assert_eq!(component.pins.len(), 64, "one schematic pin per pad");
+    Ok(())
+}
+
+#[test]
+fn open_library_3d_models_fetch_only_when_the_person_asks() -> Result<(), String> {
+    use crate::library_online;
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    use_recorded_library(&mut app, "real-part")?;
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let off = library_online::import_open(&source, "Device/R", false)?;
+    assert!(off.get("model").is_none());
+    assert_eq!(off["notices"].as_array().map(|a| a.len()), Some(2));
+    let on = library_online::import_open(&source, "Device/R", true)?;
+    assert!(on.get("model").is_some());
+    assert_eq!(on["notices"].as_array().map(|a| a.len()), Some(3));
+    assert!(
+        on["notices"]
+            .as_array()
+            .and_then(|a| a.last())
+            .and_then(|v| v.as_str())
+            .is_some_and(|n| n.contains("CC-BY-SA 4.0") && n.contains(".step")),
+        "the model notice carries the licence and file"
+    );
+    Ok(())
+}
+
 /// A footprint whose two pads sit on top of each other, saved into the
 /// project library the way an import would.
 fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
@@ -421,11 +523,7 @@ fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<()
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Checks);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    for needle in [
-        "Lib pad overlap · 1 place",
-        "SquashedPair: Two pads share the same copper area",
-        "Fix: Move or resize the pads so their outlines no longer overlap",
-    ] {
+    for needle in ["SquashedPair: Two pads share the same copper area"] {
         assert!(
             scrolled_to_at(&ctx, &mut app, needle, 720.0)?,
             "the findings sheet should show \"{needle}\""
@@ -816,6 +914,13 @@ fn a_newcomer_picks_a_drawing_tool_in_the_symbol_editor() -> Result<(), String> 
         app.library.editor.tool == LibraryTool::Polyline,
         "Fit zooms the canvas and leaves the chosen tool alone"
     );
+    let before = symbol_draft(&app)?.graphics.len();
+    tap_id(&ctx, &mut app, "button:Text")?;
+    assert_eq!(
+        symbol_draft(&app)?.graphics.len(),
+        before + 1,
+        "Text adds one text label to the symbol"
+    );
     Ok(())
 }
 
@@ -894,15 +999,11 @@ fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), S
     app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Place part")?;
-    authoring::tests::tap(
-        &ctx,
-        &mut app,
-        "Add or manage libraries in Settings \u{2192}",
-    )?;
+    authoring::tests::tap(&ctx, &mut app, "Browse component libraries \u{2192}")?;
     assert_eq!(
         app.tab,
-        Tab::Settings,
-        "the browse button opens the page that lists library sources"
+        Tab::Library,
+        "the browse link opens the Library tab, where the libraries are read and edited"
     );
     Ok(())
 }

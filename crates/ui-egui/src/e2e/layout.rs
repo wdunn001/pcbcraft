@@ -302,8 +302,12 @@ const KNOWN_REFLOW_DEFECTS: [&str; 13] = [
     "Board3d: \"Manufacture\" ends at 328",
     "Rules: \"Manufacture\" ends at 328",
     "Settings: \"Manufacture\" ends at 328",
+    // The tab row does not scroll or wrap (#827). With the Library tab added the Manufacture tab
+    // starts past the edge of a 320 point window, so it no longer counts as text that spills over
+    // it; it is still out of reach there until #827 lands.
     // The 3D controls row is wider than the window (#827).
     "Board3d: \"Reset view\" ends at 371",
+];
 ];
 
 #[test]

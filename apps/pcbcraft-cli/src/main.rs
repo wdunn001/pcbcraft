@@ -1,6 +1,6 @@
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn option<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
     args.iter()
@@ -8,6 +8,77 @@ fn option<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
         .and_then(|i| args.get(i + 1))
         .map(String::as_str)
 }
+
+fn flag(args: &[String], key: &str) -> bool {
+    args.iter().any(|a| a == key)
+}
+
+fn empty_session(name: Option<&str>) -> Result<Session, String> {
+    let mut session = Session::default();
+    if let Some(title) = name {
+        session
+            .execute("project.rename", json!({"name": title}), None)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(session)
+}
+
+fn write_new_project(path: &Path, name: Option<&str>) -> Result<(), String> {
+    if path.exists() {
+        return Err(format!("{} already exists", path.display()));
+    }
+    let session = empty_session(name)?;
+    pcbcraft_io::save(&session.project, path)?;
+    Ok(())
+}
+
+fn scaffold_build_json(name: Option<&str>) -> Value {
+    let mut commands: Vec<Command> = Vec::new();
+    if let Some(title) = name {
+        commands.push(Command {
+            command: "project.rename".into(),
+            params: json!({"name": title}),
+        });
+    }
+    json!({"commands": commands})
+}
+
+fn init_project_directory(dir: &Path, name: Option<&str>, force: bool) -> Result<PathBuf, String> {
+    if dir.exists() {
+        if !dir.is_dir() {
+            return Err(format!("{} is not a directory", dir.display()));
+        }
+        if !force {
+            let mut entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
+            if entries.next().is_some() {
+                return Err(format!(
+                    "{} is not empty; pass --force to scaffold anyway",
+                    dir.display()
+                ));
+            }
+        }
+    } else {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let design = dir.join("design.pcbcraft");
+    if design.exists() && !force {
+        return Err(format!("{} already exists", design.display()));
+    }
+    write_new_project(&design, name)?;
+    let build_path = dir.join("build.json");
+    if build_path.exists() && !force {
+        return Err(format!("{} already exists", build_path.display()));
+    }
+    let script = scaffold_build_json(name);
+    pcbcraft_io::atomic_write(
+        &build_path,
+        serde_json::to_string_pretty(&script)
+            .map_err(|e| e.to_string())?
+            .as_bytes(),
+    )?;
+    Ok(design)
+}
+
 fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let action = args.first().map(String::as_str).unwrap_or("help");
@@ -54,10 +125,40 @@ fn run() -> Result<(), String> {
             if let Some(address) = option(&args, "--http") {
                 // The endpoint and token go to stderr (or a 0600 file); stdout stays unused.
                 let token_file = option(&args, "--token-file").map(Path::new);
-                let (listener, token) =
-                    pcbcraft_mcp::http::start_http(address, token_file, &mut std::io::stderr())?;
-                pcbcraft_mcp::http::serve_listener(&hub, &listener, &token);
+                let allow_remote = flag(&args, "--allow-remote");
+                let allow_origins: Vec<String> = args
+                    .windows(2)
+                    .filter(|pair| pair[0] == "--allow-origin")
+                    .map(|pair| pair[1].clone())
+                    .collect();
+                if allow_origins
+                    .iter()
+                    .any(|origin| origin == "*" || origin == "null")
+                {
+                    return Err(
+                        "--allow-origin needs an exact origin such as https://app.example".into(),
+                    );
+                }
+                if !allow_origins.is_empty() && !allow_remote {
+                    return Err("--allow-origin only applies together with --allow-remote".into());
+                }
+                let (listener, token) = pcbcraft_mcp::http::start_http_with(
+                    address,
+                    allow_remote,
+                    token_file,
+                    &mut std::io::stderr(),
+                )?;
+                let options = pcbcraft_mcp::http::HttpOptions {
+                    token,
+                    allow_remote,
+                    allow_origins,
+                };
+                let server = pcbcraft_mcp::http::Server::new(hub, options);
+                pcbcraft_mcp::http::serve_server(std::sync::Arc::new(server), &listener);
                 return Ok(());
+            }
+            if flag(&args, "--allow-remote") || flag(&args, "--token-file") {
+                return Err("--allow-remote and --token-file only apply with --http".into());
             }
             pcbcraft_mcp::serve(
                 &mut std::io::stdin().lock(),
@@ -91,6 +192,29 @@ fn run() -> Result<(), String> {
             }
             println!("{result}");
         }
+        "new" => {
+            let path = option(&args, "--out").ok_or("new requires --out design.pcbcraft")?;
+            let title = option(&args, "--name");
+            write_new_project(Path::new(path), title)?;
+            println!("{}", json!({"path":path,"name":title}));
+        }
+        "init" => {
+            let dir = option(&args, "--dir")
+                .or_else(|| args.get(1).map(String::as_str))
+                .ok_or("init requires DIRECTORY or --dir PATH")?;
+            let title = option(&args, "--name");
+            let force = flag(&args, "--force");
+            let design = init_project_directory(Path::new(dir), title, force)?;
+            println!(
+                "{}",
+                json!({
+                    "directory": dir,
+                    "design": design.to_string_lossy(),
+                    "build": Path::new(dir).join("build.json").to_string_lossy(),
+                    "name": title,
+                })
+            );
+        }
         "sample" => {
             let path = option(&args, "--out").ok_or("sample requires --out design.pcbcraft")?;
             let sample = Session::sample().map_err(|e| e.to_string())?;
@@ -112,16 +236,111 @@ fn run() -> Result<(), String> {
             pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
             println!("{}", json!({"path":path,"view":view}));
         }
+        "diff" => {
+            let path_a = args
+                .get(1)
+                .ok_or("usage: pcbcraft-cli diff PATH_A PATH_B [--format text|json]")?;
+            let path_b = args
+                .get(2)
+                .ok_or("usage: pcbcraft-cli diff PATH_A PATH_B [--format text|json]")?;
+            let format = option(&args, "--format").unwrap_or("text");
+            let left = pcbcraft_io::load(Path::new(path_a))?;
+            let right = pcbcraft_io::load(Path::new(path_b))?;
+            let diff = pcbcraft_io::project_diff(&left, &right);
+            match format {
+                "json" => println!("{}", diff.to_json()),
+                "text" => {
+                    if diff.is_empty() {
+                        println!("designs match");
+                    } else {
+                        println!("{}", diff.to_text());
+                    }
+                }
+                other => return Err(format!("unknown diff format: {other}")),
+            }
+            if !diff.is_empty() {
+                std::process::exit(1);
+            }
+        }
         "help" | "--help" | "-h" => println!(
-            "PCBCraft — Rust EDA, MCP-first\n\ncommands | inspect | checks | sample | run | export | snapshot | tool | mcp\n\nCommon: --sample or --project FILE\nTool: pcbcraft-cli tool NAME --args JSON [--save FILE]\nMCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991 | --http 127.0.0.1:PORT [--token-file FILE]]\nDesktop: pcbcraft --sample --control 127.0.0.1:7991\nSee README.md and docs/mcp.md for schemas and examples."
+            "PCBCraft — Rust EDA, MCP-first\n\n\
+commands | inspect | checks | new | init | sample | run | export | snapshot | diff | tool | mcp\n\n\
+Common: --sample or --project FILE\n\
+new: pcbcraft-cli new --out design.pcbcraft [--name TITLE]\n\
+init: pcbcraft-cli init DIRECTORY [--name TITLE] [--force]\n\
+Diff: pcbcraft-cli diff FILE_A FILE_B [--format text|json] (exit 1 when designs differ)\n\
+Tool: pcbcraft-cli tool NAME --args JSON [--save FILE]\n\
+MCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991 | --http 127.0.0.1:PORT [--token-file FILE] [--allow-remote [--allow-origin ORIGIN]...]]\n\
+Desktop: pcbcraft --sample --control 127.0.0.1:7991\n\
+See README.md and docs/mcp.md for schemas and examples."
         ),
         _ => return Err(format!("unknown action: {action}")),
     }
     Ok(())
 }
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("pcbcraft-cli: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pcbcraft_io::load;
+
+    #[test]
+    fn new_writes_an_empty_native_project_file() -> Result<(), String> {
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("blank.pcbcraft");
+        write_new_project(&path, None)?;
+        let project = load(&path)?;
+        assert_eq!(project.name, "Untitled circuit");
+        assert!(project.components.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn new_applies_the_optional_title() -> Result<(), String> {
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("named.pcbcraft");
+        write_new_project(&path, Some("Bench power"))?;
+        let project = load(&path)?;
+        assert_eq!(project.name, "Bench power");
+        Ok(())
+    }
+
+    #[test]
+    fn init_scaffolds_a_directory_with_design_and_build_json() -> Result<(), String> {
+        let root = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let folder = root.path().join("my-board");
+        let design = init_project_directory(&folder, Some("My board"), false)?;
+        assert_eq!(design, folder.join("design.pcbcraft"));
+        let loaded = load(&design)?;
+        assert_eq!(loaded.name, "My board");
+        let build_text = pcbcraft_io::read_text(&folder.join("build.json"))?;
+        let build: Value = serde_json::from_str(&build_text).map_err(|e| e.to_string())?;
+        let commands = build
+            .get("commands")
+            .and_then(Value::as_array)
+            .map(|v| v.len())
+            .unwrap_or(0);
+        assert_eq!(commands, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn init_refuses_a_nonempty_directory_without_force() -> Result<(), String> {
+        let root = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let folder = root.path().join("busy");
+        std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+        std::fs::write(folder.join("notes.txt"), b"keep").map_err(|e| e.to_string())?;
+        let err = init_project_directory(&folder, None, false)
+            .err()
+            .ok_or("expected init to fail on a non-empty directory")?;
+        assert!(err.contains("not empty"));
+        Ok(())
     }
 }

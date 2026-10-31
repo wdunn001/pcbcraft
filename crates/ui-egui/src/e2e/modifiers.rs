@@ -345,6 +345,9 @@ fn a_newcomer_deletes_a_connection_with_ctrl_in_the_wire_tool() -> Result<(), St
 
 #[test]
 fn hovering_a_part_paints_its_outline_inside_the_frame_budget() -> Result<(), String> {
+    let _turn = crate::hover_affordance::AFFORDANCE_BUDGET_TEST_LOCK
+        .lock()
+        .map_err(|_| "affordance budget lock unavailable")?;
     let (mut app, ctx) = sample(Tab::Schematic);
     let (first, _) = two_parts(&app)?;
     let at = centre_of(&app, first)?;
@@ -354,6 +357,12 @@ fn hovering_a_part_paints_its_outline_inside_the_frame_budget() -> Result<(), St
     assert!(app.edit.hover.is_some(), "the part is hovered");
     let camera = app.schematic;
     let rect = app.canvas_rect;
+    for _ in 0..15 {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.paint_affordance(&ui.painter().clone(), rect, camera);
+        });
+        out.textures_delta.clear();
+    }
     let frames = 30u32;
     let mut total = std::time::Duration::ZERO;
     for _ in 0..frames {
@@ -369,6 +378,26 @@ fn hovering_a_part_paints_its_outline_inside_the_frame_budget() -> Result<(), St
         total / frames < std::time::Duration::from_millis(2),
         "overlay took {:?} a frame",
         total / frames
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_the_tool_keys_in_settings() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Settings);
+    let ctx = egui::Context::default();
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    }
+    super::support::scrolled_to_at(&ctx, &mut app, "Keys", 720.0)?;
+    crate::authoring::tests::tap(&ctx, &mut app, "Keys")?;
+    assert!(
+        super::support::paints_text(&ctx, &mut app, "Select tool")?,
+        "the Keys section lists each tool hotkey"
     );
     Ok(())
 }

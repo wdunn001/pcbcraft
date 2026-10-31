@@ -10,6 +10,8 @@ struct FakeModel {
     calls: Vec<(String, Value)>,
     events: Vec<Event>,
     answers: Vec<Receiver<Value>>,
+    /// Text sent as the last words of every message, after its tool calls are answered.
+    closing: Option<String>,
 }
 
 impl FakeModel {
@@ -22,6 +24,7 @@ impl FakeModel {
                 images: false,
             }],
             answers: Vec::new(),
+            closing: None,
         }
     }
 }
@@ -32,6 +35,12 @@ impl ChatBackend for FakeModel {
         let before = self.answers.len();
         self.answers.retain(|answer| answer.try_recv().is_err());
         if before > 0 && self.answers.is_empty() {
+            if let Some(text) = self.closing.take() {
+                out.push(Event::Text {
+                    thought: false,
+                    text,
+                });
+            }
             out.push(Event::TurnEnded {
                 reason: String::new(),
             });
@@ -118,7 +127,7 @@ fn a_newcomer_asks_the_assistant_to_add_a_resistor() -> Result<(), String> {
         "the card names the change"
     );
     assert!(!has_r1(&app), "nothing runs before the user answers");
-    authoring::tests::tap(&ctx, &mut app, "Allow")?;
+    authoring::tests::tap(&ctx, &mut app, "Apply")?;
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
@@ -140,12 +149,12 @@ fn a_newcomer_denies_a_change_and_the_design_stays_as_it_was() -> Result<(), Str
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
-    authoring::tests::tap(&ctx, &mut app, "Deny")?;
+    authoring::tests::tap(&ctx, &mut app, "Discard")?;
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
     assert!(!has_r1(&app));
-    assert!(paints_text(&ctx, &mut app, "Denied")?);
+    assert!(paints_text(&ctx, &mut app, "Discarded")?);
     Ok(())
 }
 
@@ -172,11 +181,11 @@ fn a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo() -> Result<(
         "the tab counts the two questions waiting"
     );
     assert!(
-        paints_text(&ctx, &mut app, "adds R1")?,
+        paints_text(&ctx, &mut app, "Parts added")?,
         "the card previews the change"
     );
     for _ in 0..2 {
-        authoring::tests::tap(&ctx, &mut app, "Allow")?;
+        authoring::tests::tap(&ctx, &mut app, "Apply")?;
         settle(&ctx, &mut app);
     }
     assert!(has_r1(&app));
@@ -216,8 +225,8 @@ fn a_newcomer_sees_a_malformed_change_refused_with_the_reason() -> Result<(), St
     authoring::tests::tap(&ctx, &mut app, "Send")?;
     settle(&ctx, &mut app);
     assert!(
-        !paints_text(&ctx, &mut app, "Allow")?,
-        "a refused change has no Allow button"
+        !paints_text(&ctx, &mut app, "Apply")?,
+        "a refused change has no Apply button"
     );
     assert!(app.project.components.is_empty());
     assert!(
@@ -455,7 +464,7 @@ fn a_newcomer_closes_the_app_and_finds_the_conversation_where_she_left_it() -> R
     app.assistant.input = "add a 10k resistor".into();
     authoring::tests::tap(&ctx, &mut app, "Send")?;
     settle(&ctx, &mut app);
-    authoring::tests::tap(&ctx, &mut app, "Allow")?;
+    authoring::tests::tap(&ctx, &mut app, "Apply")?;
     settle(&ctx, &mut app);
     app.assistant_save();
     drop(app);
@@ -481,7 +490,7 @@ fn a_newcomer_forgets_a_conversation_and_the_design_stays() -> Result<(), String
     app.assistant.input = "add a 10k resistor".into();
     authoring::tests::tap(&ctx, &mut app, "Send")?;
     settle(&ctx, &mut app);
-    authoring::tests::tap(&ctx, &mut app, "Allow")?;
+    authoring::tests::tap(&ctx, &mut app, "Apply")?;
     settle(&ctx, &mut app);
     app.assistant_save();
     let revision = app.revision;
@@ -702,5 +711,199 @@ fn a_newcomer_turns_the_assistant_off_and_every_trace_of_it_goes() -> Result<(),
         "the shortcut does nothing"
     );
     assert_eq!(http.calls(), 0);
+    Ok(())
+}
+
+fn with_closing(calls: Vec<(String, Value)>, closing: &str) -> App {
+    let mut app = with_calls(calls);
+    let shared = app.assistant.start_context(std::path::PathBuf::new());
+    let mut model = FakeModel::new(
+        shared.tools.unwrap_or_else(|| channel().0),
+        vec![("design.summary".into(), json!({}))],
+    );
+    model.closing = Some(closing.to_string());
+    app.assistant_use(Box::new(model));
+    app
+}
+
+fn batch_of(commands: Vec<Value>) -> (String, Value) {
+    ("batch".into(), json!({ "commands": commands }))
+}
+
+fn add_command(reference: &str, x: f64) -> Value {
+    json!({"command":"component.add","params":{
+        "kind":"resistor","reference":reference,"value":"10k","position":{"x":x,"y":20.0}}})
+}
+
+#[test]
+fn a_newcomer_watches_the_assistant_steps_and_expands_one() -> Result<(), String> {
+    let mut app = with_calls(vec![
+        ("checks".into(), json!({})),
+        add_part("R1", "10k", 20.0),
+    ]);
+    app.preferences.assistant_mode = pcbcraft_assistant::Mode::Edits;
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add a 10k resistor and check".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    assert!(has_r1(&app), "edits are allowed in this mode");
+    assert!(
+        paints_text(&ctx, &mut app, "Ran 2 steps in under 1 s")?,
+        "a finished run is one line"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Placing")?,
+        "the steps stay folded until opened"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Ran 2 steps in under 1 s")?;
+    settle(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Placing")?,
+        "the step has a plain name"
+    );
+    assert!(paints_text(&ctx, &mut app, "Checking")?);
+    assert!(
+        paints_text(&ctx, &mut app, "Added 1 part")?,
+        "the step says what came of it"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "component.add")?,
+        "command names stay behind Show commands"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Show commands")?;
+    settle(&ctx, &mut app);
+    assert!(paints_text(&ctx, &mut app, "component.add")?);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reviews_the_change_summary_and_applies_it() -> Result<(), String> {
+    let mut app = with_calls(vec![batch_of(vec![
+        add_command("R1", 20.0),
+        json!({"command":"net.create","params":{"name":"VCC"}}),
+    ])]);
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add a resistor and a net".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    for row in [
+        "Review the changes",
+        "Parts added",
+        "Nets added",
+        "Tracks added",
+        "Vias added",
+        "Objects untouched",
+        "Size changed",
+        "Apply",
+        "Apply step by step",
+        "Discard",
+    ] {
+        assert!(paints_text(&ctx, &mut app, row)?, "the card shows {row}");
+    }
+    assert!(!has_r1(&app), "nothing is on the board before Apply");
+    authoring::tests::tap(&ctx, &mut app, "Apply")?;
+    settle(&ctx, &mut app);
+    assert!(has_r1(&app));
+    assert!(
+        paints_text(&ctx, &mut app, "Applied")?,
+        "the review card folds to Applied"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "1 change made")?,
+        "the undo card says what was made"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Undo")?;
+    settle(&ctx, &mut app);
+    assert!(!has_r1(&app), "one Undo takes it back");
+    assert!(paints_text(
+        &ctx,
+        &mut app,
+        "Undone. The board is back as it was."
+    )?);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_applies_a_batch_step_by_step_and_can_stop() -> Result<(), String> {
+    let mut app = with_calls(vec![batch_of(vec![
+        add_command("R1", 20.0),
+        add_command("R2", 30.0),
+    ])]);
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add two resistors".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Apply step by step")?;
+    settle(&ctx, &mut app);
+    assert!(
+        !has_r1(&app),
+        "nothing runs until the first command is applied"
+    );
+    assert!(app.assistant.waiting() == 1, "one question waits");
+    authoring::tests::tap(&ctx, &mut app, "Apply")?;
+    settle(&ctx, &mut app);
+    assert!(has_r1(&app));
+    assert_eq!(
+        app.project.components.len(),
+        1,
+        "only the first command ran"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Discard")?;
+    settle(&ctx, &mut app);
+    assert_eq!(
+        app.project.components.len(),
+        1,
+        "stopping keeps what was applied"
+    );
+    assert_eq!(app.assistant.waiting(), 0);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_a_next_step_card() -> Result<(), String> {
+    let mut app = with_closing(
+        vec![],
+        "All set.\nNext (recommended): Check the board | Run every rule check.\nNext: Add a capacitor | A 10 uF part steadies the input.",
+    );
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "what now".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    assert!(paints_text(&ctx, &mut app, "WHAT NEXT")?);
+    assert!(paints_text(&ctx, &mut app, "Check the board")?);
+    assert!(
+        paints_text(&ctx, &mut app, "Recommended")?,
+        "one card is the assistant's pick"
+    );
+    assert!(paints_text(&ctx, &mut app, "Add a capacitor")?);
+    assert!(
+        !paints_text(
+            &ctx,
+            &mut app,
+            "Next: Add a capacitor | A 10 uF part steadies the input."
+        )?,
+        "the raw lines do not show"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Or tell the assistant what you want next")?,
+        "the composer sits below the cards"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Add a capacitor")?;
+    settle(&ctx, &mut app);
+    let last_user = app
+        .assistant
+        .transcript
+        .items
+        .iter()
+        .rev()
+        .find_map(|i| match i {
+            pcbcraft_assistant::Item::User { text } => Some(text.clone()),
+            _ => None,
+        });
+    assert_eq!(last_user.as_deref(), Some("Add a capacitor"));
     Ok(())
 }
