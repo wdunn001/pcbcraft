@@ -31,7 +31,10 @@ mod interface_profile;
 mod machine_profile;
 mod diff;
 mod drawn;
-mod fab_drawing;
+pub mod export_package;
+pub use export_package::{
+    PackageOutput, availability, build_package, bundled_packages, find_package,
+};
 mod fab_export;
 mod generate;
 mod gerber;
