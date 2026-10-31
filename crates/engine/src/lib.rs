@@ -40,6 +40,7 @@ mod sim;
 mod snapmaker;
 mod summary;
 mod tuning;
+mod net_properties;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
@@ -517,6 +518,25 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "net.set_properties",
+            "Set electrical properties on one net, with each field optional and null clearing the net override so the class default applies again",
+            schema(
+                json!({
+                    "id":id_schema(),
+                    "impedance_target":{"type":["number","null"],"minimum":10,"maximum":200},
+                    "impedance_tolerance_pct":{"type":["number","null"],"minimum":0,"maximum":50},
+                    "line_structure":{"type":["string","null"],"enum":["stripline","microstrip","microstrip_mask","coplanar","broadside",null]},
+                    "reference_layers":{"type":["array","null"],"maxItems":2,"items":{"type":"string"}},
+                    "current":{"type":["number","null"],"exclusiveMinimum":0,"maximum":500},
+                    "temperature_rise":{"type":["number","null"],"minimum":1,"maximum":100},
+                    "working_voltage":{"type":["number","null"],"minimum":10,"maximum":1000},
+                    "insulation":{"type":["string","null"],"enum":["functional","basic","reinforced",null]},
+                    "return_path_rule":{"type":["string","null"],"enum":["continuous","no_split","same_net_plane",null]}
+                }),
+                &["id"],
+            ),
+        ),
+        (
             "net.connect",
             "Assign unassigned or same-net component pins to a net",
             schema(
@@ -605,7 +625,15 @@ pub fn commands() -> Vec<CommandSpec> {
                     "via_drill":{"type":"number","exclusiveMinimum":0,"maximum":100},
                     "pair_width":{"type":"number","exclusiveMinimum":0,"maximum":100},
                     "pair_gap":{"type":"number","exclusiveMinimum":0,"maximum":10},
-                    "target_impedance":{"type":"number","minimum":1,"maximum":2000,"description":"single-ended impedance target, ohms; optional"}
+                    "impedance_target":{"type":["number","null"],"minimum":10,"maximum":200},
+                    "impedance_tolerance_pct":{"type":["number","null"],"minimum":0,"maximum":50},
+                    "line_structure":{"type":["string","null"],"enum":["stripline","microstrip","microstrip_mask","coplanar","broadside",null]},
+                    "reference_layers":{"type":["array","null"],"maxItems":2,"items":{"type":"string"}},
+                    "current":{"type":["number","null"],"exclusiveMinimum":0,"maximum":500},
+                    "temperature_rise":{"type":["number","null"],"minimum":1,"maximum":100},
+                    "working_voltage":{"type":["number","null"],"minimum":10,"maximum":1000},
+                    "insulation":{"type":["string","null"],"enum":["functional","basic","reinforced",null]},
+                    "return_path_rule":{"type":["string","null"],"enum":["continuous","no_split","same_net_plane",null]}
                 }),
                 &["class"],
             ),
@@ -4949,7 +4977,23 @@ struct ClassSetParams {
     #[serde(default)]
     pair_gap: Option<f64>,
     #[serde(default)]
-    target_impedance: Option<f64>,
+    impedance_target: Option<Value>,
+    #[serde(default)]
+    impedance_tolerance_pct: Option<Value>,
+    #[serde(default)]
+    line_structure: Option<Value>,
+    #[serde(default)]
+    reference_layers: Option<Value>,
+    #[serde(default)]
+    current: Option<Value>,
+    #[serde(default)]
+    temperature_rise: Option<Value>,
+    #[serde(default)]
+    working_voltage: Option<Value>,
+    #[serde(default)]
+    insulation: Option<Value>,
+    #[serde(default)]
+    return_path_rule: Option<Value>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10033,6 +10077,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 "tolerance":net.length_tolerance.unwrap_or(0.0),
             }))
         }
+        "net.set_properties" => net_properties::set_net_properties(p, params),
         "net.connect" => {
             let a: Connect = parse(params)?;
             assign(p, a.net, &a.pins)?;
@@ -10164,7 +10209,15 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 target_impedance: None,
                 nets: a.nets,
                 profile: None,
-                fast: false,
+                impedance_target: None,
+                impedance_tolerance_pct: None,
+                line_structure: None,
+                reference_layers: vec![],
+                current: None,
+                temperature_rise: None,
+                working_voltage: None,
+                insulation: None,
+                return_path_rule: None,
             });
             Ok(json!({"id": id}))
         }
@@ -10334,7 +10387,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 && a.via_drill.is_none()
                 && a.pair_width.is_none()
                 && a.pair_gap.is_none()
-                && a.target_impedance.is_none()
+                && !net_properties::class_property_params_touch(params)
             {
                 return Err(Error::Invalid("give at least one field to change".into()));
             }
@@ -10401,7 +10454,8 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                     "via drill must stay smaller than the outer pad".into(),
                 ));
             }
-            if a.name.as_deref().is_none_or(|name| name == class.name)
+            if !net_properties::class_property_params_touch(params)
+                && a.name.as_deref().is_none_or(|name| name == class.name)
                 && a.width.is_none_or(|width| width == class.width)
                 && a.via_diameter.is_none_or(|v| class.via_diameter == Some(v))
                 && a.via_drill.is_none_or(|v| class.via_drill == Some(v))
@@ -10432,10 +10486,8 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             if let Some(v) = a.pair_gap {
                 class.pair_gap = Some(v);
             }
-            if let Some(v) = a.target_impedance {
-                class.target_impedance = Some(v);
-            }
-            Ok(json!({
+            net_properties::apply_class_property_updates(p, class, params)?;
+            let mut out = json!({
                 "class": class.id,
                 "name": class.name,
                 "width": class.width,
@@ -10446,7 +10498,13 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 "pair_gap": class.pair_gap,
                 "target_impedance": class.target_impedance,
                 "nets": class.nets.len()
-            }))
+            });
+            if let Some(props) = out.as_object_mut() {
+                if let Some(extra) = net_properties::class_properties_json(class).as_object() {
+                    props.extend(extra.clone());
+                }
+            }
+            Ok(out)
         }
         "netclass.remove" => {
             let a: ClassRemoveParams = parse(params)?;
