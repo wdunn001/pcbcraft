@@ -564,7 +564,8 @@ fn source_rank(source: ListingSource) -> u8 {
         ListingSource::Fixture | ListingSource::Generated => 0,
         ListingSource::Project => 1,
         ListingSource::Installed => 2,
-        ListingSource::Distributor => 3,
+        ListingSource::OpenLibrary => 3,
+        ListingSource::Distributor => 4,
     }
 }
 
@@ -912,10 +913,7 @@ mod tests {
     impl TestDirectory {
         fn new() -> Result<Self, String> {
             static NEXT: AtomicU64 = AtomicU64::new(0);
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_nanos();
+            let timestamp = pcbcraft_clock::unix_nanos();
             let path = std::env::temp_dir().join(format!(
                 "pcbcraft-library-test-{}-{timestamp}-{}",
                 std::process::id(),

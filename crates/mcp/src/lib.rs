@@ -10,6 +10,7 @@ mod prompts;
 mod resources;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
+use pcbcraft_engine::user_config::UserConfig;
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
 #[cfg(any(not(target_arch = "wasm32"), test))]
@@ -18,12 +19,41 @@ use std::io::{BufRead, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-pub type SharedSession = Arc<Mutex<Session>>;
+/// One design session shared between the window, the tools and the server.
+///
+/// # Rules
+/// - Locks like the `Mutex<Session>` it wraps (it derefs to it).
+/// - Carries a copy of the session's [`UserConfig`] taken when it was made, so
+///   library and recents reads find the settings folder without taking the
+///   design lock.
+///
+/// # Do not
+/// - Read the configuration through `lock()`; a long edit would stall the read.
+#[derive(Clone)]
+pub struct SharedSession {
+    session: Arc<Mutex<Session>>,
+    config: Arc<UserConfig>,
+}
+impl std::ops::Deref for SharedSession {
+    type Target = Mutex<Session>;
+    fn deref(&self) -> &Self::Target {
+        &self.session
+    }
+}
+impl SharedSession {
+    /// The settings folder this session was made with.
+    pub fn config(&self) -> &UserConfig {
+        &self.config
+    }
+}
 pub const MAX_MESSAGE: u64 = 1024 * 1024;
 /// Protocol versions `initialize` accepts, newest first; the HTTP transport checks its header against it.
 pub(crate) const SUPPORTED_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2024-11-05"];
 pub fn shared(session: Session) -> SharedSession {
-    Arc::new(Mutex::new(session))
+    SharedSession {
+        config: Arc::new(session.config.clone()),
+        session: Arc::new(Mutex::new(session)),
+    }
 }
 pub fn tool_list() -> Value {
     let object = |properties: Value, required: &[&str]| json!({"type":"object","properties":properties,"required":required,"additionalProperties":false});
@@ -36,7 +66,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbol","description":"Write one project-library symbol to a .kicad_sym symbol library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_footprint_svg","description":"Write one project-library footprint to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_symbol_svg","description":"Write one project-library symbol to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
-        json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist and a test-point CSV for fixture builders into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ps.write","description":"Write a one-page PostScript drawing of either view with copper, pads, zones and text as real stroke and fill operators, without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"]}}),&["path"])}),
         json!({"name":"stats.write","description":"Write a CSV board statistics sheet counting parts, nets, pins, routing, vias and zones, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"drill_chart.write","description":"Write a CSV drill tool chart listing every distinct drill size with its plating and hole count, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -287,8 +317,12 @@ pub(crate) fn invoke_session(
         let s = session
             .lock()
             .map_err(|_| "session unavailable after internal failure".to_string())?;
-        return pcbcraft_engine::library::list_with_project(args, Some(&s.project))
-            .map(text_result);
+        return pcbcraft_engine::library::list_with_project(
+            session.config(),
+            args,
+            Some(&s.project),
+        )
+        .map(text_result);
     }
     if [
         "design.recents",
@@ -304,7 +338,7 @@ pub(crate) fn invoke_session(
     ]
     .contains(&name)
     {
-        return pcbcraft_engine::library::read_tool(name, args).map(text_result);
+        return pcbcraft_engine::library::read_tool(session.config(), name, args).map(text_result);
     }
     let mut s = session
         .lock()
@@ -543,7 +577,12 @@ pub(crate) fn invoke_session(
             let directory = string(args, "path")?;
             let text = pcbcraft_io::ipc356_netlist(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("test.brd"), text.as_bytes())?;
-            json!({"directory":directory,"file":"test.brd"})
+            let csv = pcbcraft_io::testpoints_csv(&s.project)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("testpoints.csv"),
+                csv.as_bytes(),
+            )?;
+            json!({"directory":directory,"files":["test.brd","testpoints.csv"]})
         }
         "netlist.write" => {
             let directory = string(args, "path")?;
@@ -621,6 +660,7 @@ pub(crate) fn invoke_session(
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
+                    "diffpair_impedance",
                 ];
                 let keep = |key: &str| {
                     report[key]
@@ -635,7 +675,7 @@ pub(crate) fn invoke_session(
                     "erc": keep("erc"),
                     "drc": keep("drc"),
                     "airwires": report["airwires"],
-                    "scope": "Quick copper-only pass: clearance, track width, stub length, unrouted copper and differential-pair checks; ERC findings are omitted. See checks.scope for the full rule set.",
+                    "scope": "Quick copper-only pass: clearance, track width, stub length, unrouted copper and differential-pair gap, skew and impedance checks; ERC findings are omitted. See checks.scope for the full rule set.",
                 })));
             }
             report
@@ -1118,6 +1158,23 @@ mod tests {
             .ok_or_else(|| "tools is an array".to_string())
     }
     #[test]
+fn every_listed_tool_name_is_unique() -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            if !seen.insert(name.to_string()) {
+                return Err(format!("tool {name} is listed twice"));
+            }
+        }
+        Ok(())
+    }
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            if !seen.insert(name.to_string()) {
+                return Err(format!("tool {name} is listed twice"));
+            }
+#[test]
     fn every_listed_tool_name_is_unique() -> Result<(), String> {
         let mut seen = std::collections::BTreeSet::new();
         for tool in listed_tools()? {
@@ -1125,6 +1182,9 @@ mod tests {
             if !seen.insert(name.to_string()) {
                 return Err(format!("tool {name} is listed twice"));
             }
+        }
+        Ok(())
+    }
         }
         Ok(())
     }
@@ -2276,6 +2336,10 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         let export = call_tool(&session, "ipc356.write", &json!({"path":directory.path()}));
         assert_eq!(export.get("isError"), Some(&json!(false)));
+        assert!(
+            directory.path().join("testpoints.csv").exists(),
+            "test netlist export should include testpoints.csv"
+        );
         let text = std::fs::read_to_string(directory.path().join("test.brd"))
             .map_err(|e| e.to_string())?;
         let rows: Vec<&str> = text.lines().filter(|l| !l.starts_with('*')).collect();
