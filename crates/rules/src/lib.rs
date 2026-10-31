@@ -1633,6 +1633,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(courtyard::courtyard_findings(project));
     result.extend(silk::silk_findings(project));
     result.extend(drill::drill_findings(project));
+    result.extend(drill::drill_spacing_findings(project));
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
     // pad, and no figure may leave the board. Drawn silk and reference art are
@@ -4403,6 +4404,176 @@ mod pour_tests {
         let f = fill(&p)?;
         assert!(!f.contains(Point::new(20.0, 20.0)));
         assert!(f.contains(Point::new(20.0, 28.0)));
+        Ok(())
+    }
+
+    /// A small deterministic generator, so the equivalence test below covers
+    /// thousands of boards without a random-number dependency.
+    fn scatter(seed: u64) -> Project {
+        let mut state = seed | 1;
+        let mut next = |limit: f64| -> f64 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((state >> 33) as f64 / (u32::MAX as f64)) * limit
+        };
+        let mut p = Project::default();
+        for id in 1..=3 {
+            p.nets.push(Net {
+                id,
+                name: format!("net {id}"),
+                ..Default::default()
+            });
+        }
+        for id in 10..40 {
+            let net = 1 + (next(3.0) as Id);
+            let start = Point::new(next(40.0), next(40.0));
+            let along = next(6.0);
+            let end = Point::new(start.x + along, start.y + next(2.0) - 1.0);
+            let layer = if next(2.0) < 1.0 {
+                Layer::Front
+            } else {
+                Layer::Back
+            };
+            p.board.tracks.push(Track {
+                id,
+                net,
+                start,
+                end,
+                width: 0.2 + next(0.6),
+                layer,
+                arc: None,
+            });
+        }
+        for id in 100..108 {
+            let radius = 0.3 + next(0.8);
+            p.board.footprints.push(Footprint {
+                id,
+                component: 0,
+                position: Point::new(next(40.0), next(40.0)),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: radius * 2.0,
+                    net: Some(1 + (next(3.0) as Id)),
+                    castellated: None,
+                    geometry: None,
+                }],
+            });
+        }
+        p
+    }
+
+    /// The grid never skips a pair the exact clearance test would report, and
+    /// the checks that report such pairs produce the same findings a full scan
+    /// of every pair would.
+    #[test]
+    fn broad_phase_finds_the_same_findings_as_the_pair_scan() -> Result<(), String> {
+        for seed in 1..=64 {
+            let p = scatter(seed);
+            let items = copper(&p);
+            let margin = widest_clearance(&p, &items);
+            let grid = Grid::new(&items, margin);
+            let mut reported = BTreeSet::new();
+            for (i, list) in grid.near.iter().enumerate() {
+                for &j in list {
+                    reported.insert((i.min(j), i.max(j)));
+                }
+            }
+            // Every pair the exact test would report is in the candidate set.
+            for (i, a) in items.iter().enumerate() {
+                for (j, b) in items.iter().enumerate().skip(i + 1) {
+                    if a.bridge.is_some() && a.bridge == b.bridge {
+                        continue;
+                    }
+                    if (a.net == b.net && a.net != 0) || a.layer != b.layer {
+                        continue;
+                    }
+                    let mid = |c: &Copper| {
+                        Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)
+                    };
+                    let required = p
+                        .required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer)
+                        .max(a.clearance.unwrap_or(0.0))
+                        .max(b.clearance.unwrap_or(0.0));
+                    let violation = gap(a, b) + 1e-6 < required;
+                    if violation {
+                        assert!(
+                            reported.contains(&(i, j)),
+                            "seed {seed}: the grid skipped copper {i} and {j}"
+                        );
+                    }
+                }
+            }
+            // And the findings themselves match the pair scan: every violating
+            // pair appears in the report, with the same order of objects.
+            let findings = drc(&p);
+            for (i, list) in grid.near.iter().enumerate() {
+                for &j in list {
+                    if j <= i {
+                        continue;
+                    }
+                    let (a, b) = (&items[i], &items[j]);
+                    let mid = |c: &Copper| {
+                        Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)
+                    };
+                    let required = p
+                        .required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer)
+                        .max(a.clearance.unwrap_or(0.0))
+                        .max(b.clearance.unwrap_or(0.0));
+                    if a.bridge.is_some() && a.bridge == b.bridge {
+                        continue;
+                    }
+                    if (a.net == b.net && a.net != 0) || a.layer != b.layer {
+                        continue;
+                    }
+                    if gap(a, b) + 1e-6 < required {
+                        assert!(
+                            findings.iter().any(|f| f.objects == vec![a.id, b.id]),
+                            "seed {seed}: no finding names copper {} and {}",
+                            a.id,
+                            b.id
+                        );
+                    }
+                }
+            }
+            // Airwires: one per extra island per net, as a full pair scan finds.
+            let airwires = airwires(&p);
+            let mut parent: Vec<usize> = (0..items.len()).collect();
+            for (i, a) in items.iter().enumerate() {
+                for (j, b) in items.iter().enumerate().skip(i + 1) {
+                    if touching(a, b) {
+                        let (ra, rb) = (root(&parent, i), root(&parent, j));
+                        if let Some(slot) = parent.get_mut(rb) {
+                            *slot = ra;
+                        }
+                    }
+                }
+            }
+            let mut islands: BTreeMap<Id, BTreeSet<usize>> = BTreeMap::new();
+            for (i, item) in items
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.pad && c.net != 0)
+            {
+                islands
+                    .entry(item.net)
+                    .or_default()
+                    .insert(root(&parent, i));
+            }
+            let expected: usize = islands
+                .values()
+                .map(|set| set.len().saturating_sub(1))
+                .sum();
+            assert_eq!(
+                airwires.len(),
+                expected,
+                "seed {seed}: the grid should find the same islands a full scan does"
+            );
+        }
         Ok(())
     }
 }

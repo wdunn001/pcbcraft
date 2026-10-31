@@ -95,7 +95,10 @@ mod tests {
     use serde_json::json;
 
     fn minimal() -> Value {
-        serde_json::to_value(Project::default()).unwrap_or(Value::Null)
+match serde_json::to_value(Project::default()) {
+            Ok(value) => value,
+            Err(_) => Value::Null,
+        }
     }
 
     fn with_version(version: u32) -> Value {

@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+pcbcraft-clock.workspace = true
 pcbcraft-engine.workspace = true
 pcbcraft-mcp.workspace = true
 serde.workspace = true

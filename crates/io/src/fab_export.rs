@@ -18,11 +18,11 @@
 //! - crates/io/src/gerber.rs coordinate, GerberWriter, Aperture, Operation
 //! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
 //! - crates/io/src/lib.rs PickPlaceWriter
+use crate::gerber::coordinate;
 use pcbcraft_doc::{Board, Layer, Project, Via, ViaProtectionType};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
 use std::collections::BTreeMap;
-use crate::gerber::coordinate;
 
 const MAX_OPS: usize = 100_000;
 const MAX_APERTURES: usize = 64;
@@ -356,13 +356,6 @@ impl GerberLayer {
             ));
         }
         self.body.push_str("G37*\n");
-        Ok(())
-    }
-
-    fn clear_fill(&mut self, code: u32, points: &[(f64, f64)]) -> Result<(), String> {
-        self.body.push_str("%LPC*%\n");
-        self.fill(code, points)?;
-        self.body.push_str("%LPD*%\n");
         Ok(())
     }
 
@@ -833,18 +826,6 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     Ok(out)
 }
 
-fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
-    match &p.board.outline {
-        Some(o) => o.iter().map(|pt| (pt.x, pt.y)).collect(),
-        None => vec![
-            (0.0, 0.0),
-            (p.board.width, 0.0),
-            (p.board.width, p.board.height),
-            (0.0, p.board.height),
-        ],
-    }
-}
-
 /// RS-274X fabrication bundle with X2 attributes, split drills, mask and paste.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
@@ -859,29 +840,9 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     let mut paste_front = GerberLayer::new(scale);
     let mut paste_back = GerberLayer::new(scale);
 
-    for z in &p.board.zones {
-        if !z.filled {
-            continue;
-        }
-        let is_back = z.layer == Layer::Back;
-        let file = if is_back { &mut back } else { &mut front };
-        let code = file.code(Ap::Circle(1))?;
-        let outline: Vec<(f64, f64)> = z
-            .outline
-            .iter()
-            .map(|q| mirror(q.x, q.y, is_back))
-            .collect();
-        file.push_attrs(net_name(p, z.net), None);
-        file.fill(code, &outline)?;
-        for cutout in &z.cutouts {
-            if cutout.len() < 3 {
-                continue;
-            }
-            let ring: Vec<(f64, f64)> = cutout.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
-            file.clear_fill(code, &ring)?;
-        }
-    }
-
+    // Poured copper ships from `gerber_files_report` in lib.rs, which writes
+    // the computed fill. The copper files built here are not shipped, so zones
+    // are not written again as raw outlines.
     for t in &p.board.tracks {
         let is_back = t.layer == Layer::Back;
         let file = if is_back { &mut back } else { &mut front };
@@ -1028,7 +989,13 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 
     let mut outline = GerberLayer::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
-    outline.stroke(edge_code, &board_edge_points(p), true)?;
+    outline.select(edge_code);
+    let (edge_body, edge_ops) = crate::board_edge::gerber_body(scale, p)?;
+    outline.ops += edge_ops;
+    if outline.ops > MAX_OPS {
+        return Err("gerber export exceeds the object limit".into());
+    }
+    outline.body.push_str(&edge_body);
     for c in &p.board.cutouts {
         outline.ops += 1;
         if outline.ops > MAX_OPS {

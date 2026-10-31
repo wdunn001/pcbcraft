@@ -3,7 +3,7 @@ mod a11y;
 mod arrange;
 mod assistant;
 mod authoring;
-mod board3d;
+pub mod board3d;
 mod board_side;
 mod bom_export;
 mod bottom_sheet;
@@ -52,13 +52,14 @@ mod targets;
 pub mod theme;
 mod tool_modifiers;
 mod toolbar;
+mod tour;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
 mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
-use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
+use pcbcraft_doc::{Id, PanelSeparation, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
 use pcbcraft_text::t;
@@ -1028,6 +1029,8 @@ pub struct App {
     preferences: Preferences,
     /// Text for the language chosen in Settings.
     catalog: std::sync::Arc<pcbcraft_text::Catalog>,
+    /// Embedded in-app tour definitions (#769).
+    tours: tour::data::Doc,
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
@@ -1090,10 +1093,13 @@ pub struct App {
     custom_measure: usize,
     custom_limit: f64,
     custom_loud: bool,
+    panel_enabled: bool,
     panel_columns: usize,
     panel_rows: usize,
     panel_gap: f64,
     panel_rail: f64,
+    panel_separation: String,
+    panel_tab_channel: f64,
     panel_plan: Value,
     renumber_plan: Option<RenumberPlan>,
     stack_name: String,
@@ -1208,6 +1214,14 @@ command_scroll: bool,
     dock: library_dock::Dock,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
+    /// This design's autosave slot, while the desktop has a recovery folder.
+    autosave: Option<pcbcraft_engine::recovery::Autosaver>,
+    /// Snapshots a killed app left behind, newest first.
+    recovery_offer: Vec<pcbcraft_engine::recovery::Entry>,
+    /// True while the offer window is up for the designer to answer.
+    recovery_open: bool,
+    /// The folder this window autosaves into and offers snapshots from.
+    recovery_dir: Option<std::path::PathBuf>,
 }
 /// Plain-language facts about a selected board or schematic object that is not
 /// a component, so the properties panel can describe tracks, vias, zones,
@@ -1450,6 +1464,138 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
 }
 
 impl App {
+    /// How long ago a snapshot was written, in words.
+    fn ago(saved_at: u64) -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let seconds = now.saturating_sub(saved_at);
+        match seconds {
+            0..=59 => "just now".into(),
+            60..=3599 => format!("{} minutes ago", seconds / 60),
+            3600..=86399 => format!("{} hours ago", seconds / 3600),
+            _ => format!("{} days ago", seconds / 86400),
+        }
+    }
+
+    /// The window that offers work a killed app left behind, newest first.
+    fn recovery_window(&mut self, ui: &mut egui::Ui) {
+        if !self.recovery_open {
+            return;
+        }
+        let Some(dir) = self.recovery_dir.clone() else {
+            self.recovery_open = false;
+            return;
+        };
+        let entries = self.recovery_offer.clone();
+        let mut open = true;
+        let mut chose: Option<(String, bool)> = None;
+        let muted = self.muted();
+        egui::Window::new("Pick up where you left off")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ui, |ui| {
+                ui.label(
+                    "PCBCraft closed before this work was saved. Recover it, or throw the snapshot away.",
+                );
+                ui.add_space(6.0);
+                if entries.is_empty() {
+                    ui.label("Nothing is left to recover.");
+                }
+                for entry in &entries {
+                    let what = match &entry.path {
+                        Some(path) => format!("{} · {} · {} pads", entry.name, path, entry.pads),
+                        None => format!("{} · never saved · {} pads", entry.name, entry.pads),
+                    };
+                    egui::Frame::group(ui.style())
+                        .inner_margin(10.0)
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(what).strong());
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "saved {} · revision {}",
+                                    Self::ago(entry.saved_at),
+                                    entry.revision
+                                ))
+                                .small()
+                                .color(muted),
+                            );
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .button("Recover")
+                                    .on_hover_text(
+                                        "Open this snapshot as the design, as unsaved work you can keep editing or save.",
+                                    )
+                                    .clicked()
+                                {
+                                    chose = Some((entry.id.clone(), true));
+                                }
+                                if ui
+                                    .button("Discard")
+                                    .on_hover_text(
+                                        "Delete this snapshot and its record; the design file on disk is not touched.",
+                                    )
+                                    .clicked()
+                                {
+                                    chose = Some((entry.id.clone(), false));
+                                }
+                            });
+                        });
+                }
+            });
+        if !open {
+            self.recovery_open = false;
+            return;
+        }
+        match chose {
+            Some((id, true)) => self.recover_entry(&dir, &id),
+            Some((id, false)) => {
+                match pcbcraft_engine::recovery::remove(&dir, &id) {
+                    Ok(()) => self.message = "recovery snapshot discarded".into(),
+                    Err(e) => self.message = e,
+                }
+                self.recovery_offer = pcbcraft_engine::recovery::orphans(&dir);
+                self.recovery_open = !self.recovery_offer.is_empty();
+            }
+            None => {}
+        }
+    }
+
+    fn recover_entry(&mut self, dir: &std::path::Path, id: &str) {
+        let (project, entry) = match pcbcraft_engine::recovery::load(dir, id) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                self.message = e;
+                self.recovery_offer = pcbcraft_engine::recovery::orphans(dir);
+                self.recovery_open = !self.recovery_offer.is_empty();
+                return;
+            }
+        };
+        let replaced = self
+            .session
+            .lock()
+            .map_err(|_| "the design is busy".to_string())
+            .and_then(|mut s| s.replace(project).map_err(|e| e.to_string()));
+        match replaced {
+            Ok(_) => {
+                let _ = pcbcraft_engine::recovery::remove(dir, id);
+                self.saved_revision = None;
+                self.needs_fit = true;
+                self.refresh();
+                self.message = format!(
+                    "recovered {} from {}",
+                    entry.name,
+                    Self::ago(entry.saved_at)
+                );
+            }
+            Err(e) => self.message = e,
+        }
+        self.recovery_offer = pcbcraft_engine::recovery::orphans(dir);
+        self.recovery_open = !self.recovery_offer.is_empty();
+    }
+
     pub fn with_project_path(mut self, path: Option<String>) -> Self {
         if let Some(path) = path {
             self.path = path;
@@ -1554,8 +1700,9 @@ impl App {
         if light {
             preferences.dark = false;
         }
-        // The browser has no recovery folder, so it keeps one slot in the
+// The browser has no recovery folder, so it keeps one slot in the
         // page's own storage. Everywhere else the offer window asks first.
+        #[cfg(target_arch = "wasm32")]
         #[cfg(target_arch = "wasm32")]
         if let Some(text) = cc
             .storage
@@ -1588,9 +1735,21 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         Self::create_with_recovery(session, preferences, capture, tab, recovery_dir())
     }
 
-    /// `create` with the recovery folder named, so a test can point the offer
+/// `create` with the recovery folder named, so a test can point the offer
     /// at its own folder without touching the machine's.
-    fn create_with_recovery(
+    pub(crate) fn create_with_recovery(
+        session: SharedSession,
+        preferences: Preferences,
+        capture: Option<String>,
+        tab: Option<&str>,
+        recovery: Option<std::path::PathBuf>,
+    ) -> Self {
+        let (autosave, recovery_offer) = recovery_slots(recovery.as_deref());
+        let project = session
+            .lock()
+            .map(|s| s.project.clone())
+            .unwrap_or_default();
+        let width = project.board.width;
         session: SharedSession,
         preferences: Preferences,
         capture: Option<String>,
@@ -1638,6 +1797,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
                 &preferences.language,
             )),
+            tours: tour::data::embedded_for_shell(),
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
@@ -1699,10 +1859,13 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             custom_measure: 0,
             custom_limit: 0.2,
             custom_loud: false,
+            panel_enabled: false,
             panel_columns: 2,
             panel_rows: 2,
             panel_gap: 2.0,
             panel_rail: 3.0,
+            panel_separation: "tab".into(),
+            panel_tab_channel: 1.8,
             panel_plan: Value::Null,
             renumber_plan: None,
             stack_name: String::new(),
@@ -1802,11 +1965,27 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             recovery_dir: recovery,
             #[cfg(test)]
             icon_rects: BTreeMap::new(),
+            autosave,
+            recovery_open: !recovery_offer.is_empty(),
+            recovery_offer,
+            recovery_dir: recovery,
         }
     }
     fn refresh(&mut self) {
-        // The autosave goes out with the same lock that takes the snapshot, so
+// The autosave goes out with the same lock that takes the snapshot, so
         // what lands in the recovery folder is a revision the window has seen.
+        let mut autosave = self.autosave.take();
+        let saved = self.saved_revision;
+        let mut autosave_error: Option<String> = None;
+        let snapshot = self.session.lock().ok().and_then(|s| {
+            if s.revision != self.revision {
+                if let Some(slot) = autosave.as_mut()
+                    && let Err(e) = slot.tick(&s, saved)
+                {
+                    autosave_error = Some(e);
+                }
+                Some((s.project.clone(), s.revision, s.checks()))
+            } else {
         let mut autosave = self.autosave.take();
         let saved = self.saved_revision;
         let mut autosave_error: Option<String> = None;
@@ -1839,6 +2018,58 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             self.width = self.project.board.width;
             self.height = self.project.board.height;
             self.load_properties();
+            self.load_panel_fields_from_project();
+        }
+    }
+    fn load_panel_fields_from_project(&mut self) {
+        if !self.project.panel.enabled {
+            return;
+        }
+        self.panel_enabled = true;
+        self.panel_columns = self.project.panel.columns;
+        self.panel_rows = self.project.panel.rows;
+        if self.project.panel.pitch_x.is_finite() && self.project.panel.pitch_x > 0.0 {
+            self.panel_gap = self.project.panel.pitch_x;
+        }
+        self.panel_rail = self.project.panel.rail;
+        self.panel_tab_channel = self.project.panel.tab_channel;
+        self.panel_separation = match self.project.panel.separation {
+            PanelSeparation::Tab => "tab".into(),
+            PanelSeparation::VScore => "v_score".into(),
+        };
+    }
+    fn panel_set_params(&self) -> Value {
+        json!({
+            "enabled": self.panel_enabled,
+            "columns": self.panel_columns,
+            "rows": self.panel_rows,
+            "pitch_x": self.panel_gap,
+            "pitch_y": self.panel_gap,
+            "rail": self.panel_rail,
+            "tab_channel": self.panel_tab_channel,
+            "separation": self.panel_separation,
+        })
+    }
+    fn export_panel_files(&mut self) {
+        let directory = self.make_directory();
+        if std::fs::create_dir_all(std::path::Path::new(&directory)).is_err() {
+            self.message = t!("status.write_job_file.that_folder_could_not_be");
+            return;
+        }
+        self.run("panel.set", self.panel_set_params());
+        let out = self.run_and_keep("panel.export", json!({"directory": &directory}));
+        if let Some(files) = out.get("files").and_then(Value::as_array) {
+            let names = files
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.message = t!(
+                "status.panel_export_saved",
+                directory = directory,
+                files = names
+            );
+            self.refresh();
         }
     }
     fn execute_palette_params(&mut self) {
@@ -3481,6 +3712,17 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
+            ui.menu_button(t!("menu.help.tours"), |ui| {
+                for tour in &self.tours.tour {
+                    let list_key = tour.list_key();
+                    let label = pcbcraft_text::lookup(&list_key, &[]);
+                    let tip_key = format!("{list_key}.tip");
+                    ui.button(label)
+                        .on_hover_text(pcbcraft_text::lookup(&tip_key, &[]));
+                }
+            })
+            .response
+            .on_hover_text(t!("menu.help.tours.tip"));
             ui.separator();
             if ui
                 .button(t!("app.about"))
@@ -5073,6 +5315,49 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 .small()
                 .color(self.muted()),
         );
+        ui.checkbox(
+            &mut self.panel_enabled,
+            t!("settings.settings_tab.panel_enabled"),
+        )
+        .on_hover_text(t!("settings.settings_tab.panel_enabled.tip"))
+        .named("Panel enabled for manufacturing");
+        ui.horizontal(|ui| {
+            ui.label(t!("settings.settings_tab.panel_separation"));
+            let separation_label = if self.panel_separation == "v_score" {
+                t!("settings.settings_tab.panel_separation_vscore")
+            } else {
+                t!("settings.settings_tab.panel_separation_tab")
+            };
+            egui::ComboBox::from_id_salt("panel-separation")
+                .selected_text(separation_label)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(
+                            self.panel_separation == "tab",
+                            t!("settings.settings_tab.panel_separation_tab"),
+                        )
+                        .on_hover_text(t!("settings.settings_tab.panel_separation_tab.tip"))
+                        .clicked()
+                    {
+                        self.panel_separation = "tab".into();
+                        ui.close();
+                    }
+                    if ui
+                        .selectable_label(
+                            self.panel_separation == "v_score",
+                            t!("settings.settings_tab.panel_separation_vscore"),
+                        )
+                        .on_hover_text(t!("settings.settings_tab.panel_separation_vscore.tip"))
+                        .clicked()
+                    {
+                        self.panel_separation = "v_score".into();
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text(t!("settings.settings_tab.panel_separation.tip"))
+                .named("Panel separation method");
+        });
         ui.horizontal(|ui| {
             ui.add(
                 egui::DragValue::new(&mut self.panel_columns)
@@ -5111,22 +5396,54 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             .on_hover_text(t!("settings.settings_tab.mm_rail.tip"))
             .named("Rail width");
         });
+        if self.panel_separation == "tab" {
+            ui.horizontal(|ui| {
+                ui.add(crate::number_entry::localized_active(
+                    egui::DragValue::new(&mut self.panel_tab_channel)
+                        .range(1.6..=2.0)
+                        .speed(0.05)
+                        .suffix(format!(
+                            " {}",
+                            t!("settings.settings_tab.panel_tab_channel_suffix")
+                        )),
+                    3,
+                ))
+                .on_hover_text(t!("settings.settings_tab.panel_tab_channel.tip"))
+                .named("Tab channel width");
+            });
+        }
         if ui
-            .button(t!("settings.settings_tab.preview_panel"))
-            .on_hover_text(t!("settings.settings_tab.preview_panel.tip"))
+            .button(t!("settings.settings_tab.apply_panel_settings"))
+            .on_hover_text(t!("settings.settings_tab.apply_panel_settings.tip"))
             .clicked()
         {
-            self.panel_plan = self.run_and_keep(
-                "board.panel",
-                json!({
-                    "columns": self.panel_columns,
-                    "rows": self.panel_rows,
-                    "pitch_x": self.panel_gap,
-                    "pitch_y": self.panel_gap,
-                    "rail": self.panel_rail,
-                }),
-            );
+            self.run("panel.set", self.panel_set_params());
         }
+        ui.horizontal(|ui| {
+            if ui
+                .button(t!("settings.settings_tab.preview_panel"))
+                .on_hover_text(t!("settings.settings_tab.preview_panel.tip"))
+                .clicked()
+            {
+                self.panel_plan = self.run_and_keep(
+                    "board.panel",
+                    json!({
+                        "columns": self.panel_columns,
+                        "rows": self.panel_rows,
+                        "pitch_x": self.panel_gap,
+                        "pitch_y": self.panel_gap,
+                        "rail": self.panel_rail,
+                    }),
+                );
+            }
+            if ui
+                .button(t!("settings.settings_tab.export_panel_files"))
+                .on_hover_text(t!("settings.settings_tab.export_panel_files.tip"))
+                .clicked()
+            {
+                self.export_panel_files();
+            }
+        });
         if let Some(plan) = self.panel_plan.get("panel") {
             let copies = self
                 .panel_plan
@@ -7297,6 +7614,7 @@ impl App {
         self.footer(ui);
 self.recovery_window(ui);
         self.renumber_window(&ctx);
+        self.recovery_window(ui);
         if self.home_open {
             self.start_home(ui);
         } else {
@@ -7347,8 +7665,29 @@ impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
         self.assistant_save();
+}
+}
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+        self.show(ui);
+    }
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.capture_inputs(raw_input);
+    }
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, "preferences", &self.preferences);
+        self.assistant_save();
         // The desktop autosaves into the recovery folder (see `recovery`);
         // only the browser still needs the page's own storage for it.
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(session) = self.session.lock()
+            && let Ok(text) = serde_json::to_string(&session.project)
+            && text.len() <= pcbcraft_io_limit()
+        {
+            storage.set_string("recovery", text);
+        }
+    }
+}
         #[cfg(target_arch = "wasm32")]
         if let Ok(session) = self.session.lock()
             && let Ok(text) = serde_json::to_string(&session.project)
@@ -7361,6 +7700,15 @@ impl eframe::App for App {
 
 /// Closing the window with everything saved leaves no recovery entry behind;
 /// closing with unsaved work leaves it for the next launch to offer.
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(session) = self.session.lock()
+            && let Ok(text) = serde_json::to_string(&session.project)
+            && text.len() <= pcbcraft_io_limit()
+        {
+            storage.set_string("recovery", text);
+        }
+    }
+}
 impl Drop for App {
     fn drop(&mut self) {
         let Some(slot) = self.autosave.take() else {
@@ -7394,6 +7742,7 @@ fn recovery_dir() -> Option<std::path::PathBuf> {
 /// This design's autosave slot, and the snapshots a killed app left in the same
 /// folder, newest first. The offer is read before the slot takes its own lock,
 /// so this session's empty entry is never one of them.
+fn recovery_slots(
 fn recovery_slots(
     dir: Option<&std::path::Path>,
 ) -> (
@@ -7536,6 +7885,41 @@ mod tests {
         let _ = std::fs::remove_file(&file);
         outcome
     }
+    /// Draw frames until `done` holds, sleeping between them so the library
+    /// worker thread can answer even when many tests share the machine.
+    /// Gives up after `frames` frames, about 25 ms apart.
+    fn frames_until(
+        ctx: &egui::Context,
+        app: &mut App,
+        frames: usize,
+        mut done: impl FnMut(&App) -> bool,
+    ) -> bool {
+        for _ in 0..frames {
+            frame(ctx, app, vec![], egui::Modifiers::NONE);
+            if done(app) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        false
+    }
+    /// Press `label` until `done` holds. The library browser drops a press
+    /// that arrives while an earlier request is still in flight, so a press
+    /// that lands then is repeated rather than lost.
+    fn press_until(
+        ctx: &egui::Context,
+        app: &mut App,
+        label: &str,
+        mut done: impl FnMut(&App) -> bool,
+    ) -> Result<bool, String> {
+        for _ in 0..5 {
+            authoring::tests::tap(ctx, app, label)?;
+            if frames_until(ctx, app, 80, &mut done) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
     /// The visible loop a newcomer follows: type a folder, press Add folder,
     /// watch its collections appear, select one, press Remove source, and
     /// watch both the list and the remembered config forget it.
@@ -7545,12 +7929,9 @@ mod tests {
         app.change_tab(Tab::Libraries);
         app.refresh();
         let ctx = egui::Context::default();
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.catalog.is_some() && app.library.sources.is_some() {
-                break;
-            }
-        }
+        frames_until(&ctx, &mut app, 400, |app| {
+            app.library.catalog.is_some() && app.library.sources.is_some()
+        });
         assert!(
             app.library.catalog.is_some(),
             "the catalog arrives on its own"
@@ -7562,15 +7943,9 @@ mod tests {
         .to_string_lossy()
         .into_owned();
         app.library.new_source = shelf.clone();
-        authoring::tests::tap(&ctx, &mut app, "Add folder")?;
-        let mut added = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.notice.contains("Added") {
-                added = true;
-                break;
-            }
-        }
+        let added = press_until(&ctx, &mut app, "Add folder", |app| {
+            app.library.notice.contains("Added")
+        })?;
         assert!(
             added,
             "adding the folder reports back: {}",
@@ -7582,11 +7957,8 @@ mod tests {
             saved.contains(&shelf),
             "the folder is remembered in the config file"
         );
-        let mut listed = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            listed = app
-                .library
+        let listed = frames_until(&ctx, &mut app, 400, |app| {
+            app.library
                 .catalog
                 .as_ref()
                 .and_then(|catalog| catalog.get("symbol_libraries"))
@@ -7597,11 +7969,8 @@ mod tests {
                             .and_then(Value::as_str)
                             .is_some_and(|path| path.starts_with(&shelf))
                     })
-                });
-            if listed {
-                break;
-            }
-        }
+                })
+        });
         assert!(
             listed,
             "the added folder's collections join the unified list"
@@ -7622,15 +7991,9 @@ mod tests {
             })
             .ok_or("the added collection vanished from the list")?;
         app.library.path = added_path;
-        authoring::tests::tap(&ctx, &mut app, "Remove source")?;
-        let mut removed = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.notice.contains("Removed") {
-                removed = true;
-                break;
-            }
-        }
+        let removed = press_until(&ctx, &mut app, "Remove source", |app| {
+            app.library.notice.contains("Removed")
+        })?;
         assert!(removed, "removal reports back: {}", app.library.notice);
         let saved = std::fs::read_to_string(file).map_err(|_| "config vanished")?;
         assert!(
@@ -8971,6 +9334,166 @@ mod tests {
             app.project.component(2).map(|c| c.value.as_str()),
             Some("470 Ω")
         );
+        Ok(())
+    }
+
+    fn large_board() -> Result<Project, String> {
+        let mut project = Project::default();
+        project.board.width = 240.0;
+        project.board.height = 180.0;
+        for net in 1..=8 {
+            project.nets.push(pcbcraft_doc::Net {
+                id: net,
+                name: format!("net {net}"),
+                ..Default::default()
+            });
+        }
+        let (columns, rows, spacing, packages) = (8u64, 8u64, 1.2, 160u64);
+        for package in 0..packages {
+            let id = 10 + package;
+            let origin = Point::new(
+                8.0 + (package % 16) as f64 * 14.0,
+                8.0 + (package / 16) as f64 * 17.0,
+            );
+            let mut pins = Vec::new();
+            let mut pads = Vec::new();
+            for pad in 0..columns * rows {
+                let number = (pad + 1).to_string();
+                let net = 1 + (pad % 8);
+                let offset = Point::new(
+                    (pad % columns) as f64 * spacing,
+                    (pad / columns) as f64 * spacing,
+                );
+                pins.push(pcbcraft_doc::Pin {
+                    number: number.clone(),
+                    name: number.clone(),
+                    offset,
+                    net: Some(net),
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                });
+                pads.push(pcbcraft_doc::Pad {
+                    number,
+                    offset,
+                    diameter: 0.8,
+                    net: Some(net),
+                    castellated: None,
+                    geometry: None,
+                });
+            }
+            project.components.push(pcbcraft_doc::Component {
+                id,
+                reference: format!("J{id}"),
+                value: "header".into(),
+                kind: "connector".into(),
+                position: origin,
+                rotation: 0.0,
+                pins,
+                units: Vec::new(),
+                library_symbol: None,
+                library_footprint: None,
+                fields: Vec::new(),
+                sourcing: Default::default(),
+                sheet: 0,
+            });
+            project.board.footprints.push(pcbcraft_doc::Footprint {
+                id: 2000 + package,
+                component: id,
+                position: origin,
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads,
+            });
+        }
+        for track in 0..400u64 {
+            let start = Point::new(
+                8.0 + (track % 16) as f64 * 14.0,
+                16.0 + (track / 16) as f64 * 17.0,
+            );
+            project.board.tracks.push(pcbcraft_doc::Track {
+                id: 5000 + track,
+                net: 1 + (track % 8),
+                start,
+                end: Point::new(start.x + 6.0, start.y),
+                width: 0.25,
+                layer: pcbcraft_doc::Layer::Front,
+                arc: None,
+            });
+        }
+        project.validate()?;
+        Ok(project)
+    }
+
+    #[test]
+    #[ignore = "timed bench: run with cargo xtask bench"]
+    fn large_board_ten_thousand_pads_stays_within_its_budget() -> Result<(), String> {
+        use std::time::{Duration, Instant};
+        let project = large_board()?;
+        let pads: usize = project.board.footprints.iter().map(|f| f.pads.len()).sum();
+        assert_eq!(pads, 10_240, "the bench board holds ten thousand pads");
+        let (pairs, items) = pcbcraft_rules::copper_pair_candidates(&project);
+        assert!(
+            pairs <= items * 40,
+            "the broad phase should hand the exact test at most 40 pairs per item, not {pairs} for {items} items"
+        );
+        let started = Instant::now();
+        let findings = pcbcraft_rules::drc(&project);
+        let checks = started.elapsed();
+        assert!(
+            !findings.is_empty(),
+            "the bench board is dense enough to report findings"
+        );
+        let started = Instant::now();
+        let airwires = pcbcraft_rules::airwires(&project);
+        let wires = started.elapsed();
+        assert!(
+            airwires.len() <= items,
+            "one airwire per extra island at most"
+        );
+        eprintln!(
+            "bench: {items} copper items, {pairs} candidate pairs, checks {checks:?}, airwires {wires:?} ({} wires)",
+            airwires.len()
+        );
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        shared
+            .lock()
+            .map_err(|_| "the design is busy".to_string())?
+            .replace(project)
+            .map_err(|e| e.to_string())?;
+        let mut app =
+            App::create_with_recovery(shared, Preferences::default(), None, Some("pcb"), None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let started = Instant::now();
+        for step in 0..5 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(600.0 + step as f32, 500.0)),
+                    egui::Event::PointerButton {
+                        pos: egui::pos2(600.0, 500.0),
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        let painted = started.elapsed();
+        assert!(
+            checks < Duration::from_secs(20),
+            "the copper checks on ten thousand pads took {checks:?}"
+        );
+        assert!(
+            painted < Duration::from_secs(20),
+            "five selection frames on ten thousand pads took {painted:?}"
+        );
+        eprintln!("bench: five frames {painted:?}");
         Ok(())
     }
 }

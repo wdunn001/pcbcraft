@@ -5,12 +5,19 @@
 //! `web.needs_webgpu` (test `the_page_message_matches_the_catalog`). The wasm
 //! build needs a browser with WebGPU; a failed start shows the same message.
 //!
+//! The online part source runs through the browser's own fetch
+//! (`browser_fetch.rs`), started by `crates/library/src/web_transport.rs`.
+//!
 //! # Dependencies
+//! - `apps/pcbcraft-web/src/browser_fetch.rs` (the browser transport, wasm only)
 //! - `crates/text/strings/en.txt` (message text)
 //! - `apps/pcbcraft-web/index.html` and `apps/pcbcraft-web/webgpu-check.js`
 //!
 //! # Do not
 //! - Add text literals here; read them from the catalog.
+
+#[cfg(target_arch = "wasm32")]
+mod browser_fetch;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
@@ -37,14 +44,21 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("missing pcbcraft canvas"))?
         .dyn_into::<web_sys::HtmlCanvasElement>()?;
     let session = pcbcraft_mcp::shared(demo_session());
+    let offline = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let transport = browser_fetch::transport(offline.clone());
     eframe::WebRunner::new()
         .start(
             canvas,
             eframe::WebOptions::default(),
             Box::new(move |cc| {
-                Ok(Box::new(WithFonts::new(pcbcraft_ui_egui::App::new(
-                    cc, session, None, None, false,
-                ))))
+Ok(Box::new(
+                    pcbcraft_ui_egui::App::new(cc, session, None, None, false)
+                        .with_web_transport(transport, offline)
+                ))
+            }),
+        )
+        .await
+}
             }),
         )
         .await
