@@ -3382,6 +3382,7 @@ fn command_triggers_board_sync(command: &str) -> bool {
             | "pin.no_connect"
             | "object.delete"
             | "object.duplicate"
+            | "selection.paste"
     )
 }
 
@@ -18589,6 +18590,25 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.components.len(), 3);
         assert_eq!(s.project.board.footprints.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn selection_copy_text_does_not_push_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let revision = s.revision;
+        let undo_before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        let copied = s.execute("selection.copy_text", json!({"ids":[r1]}), None)?;
+        let text = copied["result"]["text"].as_str().ok_or_else(missing)?;
+        assert!(!text.is_empty());
+        assert_eq!(s.revision, revision);
+        assert_eq!(s.inspect()["history"]["undo"].as_u64(), Some(undo_before));
         Ok(())
     }
     #[test]
