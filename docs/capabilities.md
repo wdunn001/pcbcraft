@@ -20,7 +20,8 @@ Free graphics: line, rectangle, circle, arc, polygon, text. Multi-unit symbols
 share one reference and footprint; units move independently.
 
 Parts table graphics, dimensions, barcodes (Code 39), find-and-replace across
-the project, named component properties, bill of materials grouping.
+the project, named component properties, per-part parts-list and placement
+inclusion flags, bill of materials grouping.
 
 ## Board
 
