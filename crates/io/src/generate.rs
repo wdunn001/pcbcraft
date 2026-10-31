@@ -26,7 +26,7 @@ PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, compliance_repo
     netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
     postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, testpoints_csv,
     vrml_board, impedance_table_csv, fab_drawing_pdf, si_net_results_csv, spice_netlist, touchstone_text,
-    bundled_placement_flavours, placement_flavoured, ComplianceReportOptions,
+    bundled_placement_flavours, placement_flavoured, ComplianceReportOptions
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -183,10 +183,14 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         return Ok(GeneratedOutput::Text(text));
     }
     if path.ends_with(".odb.zip") {
-        return Ok(GeneratedOutput::Bytes(odb_package(p)?));
+        let bytes = odb_package(p)?;
+        crate::validate_odb_package(&bytes)?;
+        return Ok(GeneratedOutput::Bytes(bytes));
     }
     if path.ends_with(".xml") {
-        return Ok(GeneratedOutput::Text(ipc2581_text(p)?));
+        let text = ipc2581_text(p)?;
+        crate::validate_ipc2581_document(&text)?;
+        return Ok(GeneratedOutput::Text(text));
     }
     let text_output = |text: String| Ok(GeneratedOutput::Text(text));
     match path {

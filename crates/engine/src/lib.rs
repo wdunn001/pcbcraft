@@ -2894,10 +2894,16 @@ fn render_kind(
             pcbcraft_io::ipc2581_text(p)?.into_bytes(),
         )),
         "dsn" => out.push(("pcb.dsn".into(), pcbcraft_io::specctra_dsn(p)?.into_bytes())),
-        "ipc356" => out.push((
-            "test.brd".into(),
-            pcbcraft_io::ipc356_netlist(p)?.into_bytes(),
-        )),
+        "ipc356" => {
+            out.push((
+                "test.brd".into(),
+                pcbcraft_io::ipc356_netlist(p)?.into_bytes(),
+            ));
+            out.push((
+                "testpoints.csv".into(),
+                pcbcraft_io::testpoints_csv(p)?.into_bytes(),
+            ));
+        }
         "gencad" => out.push((
             "board.gencad".into(),
             pcbcraft_io::gencad_text(p)?.into_bytes(),
@@ -16158,6 +16164,8 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                     &mut skipped,
                     None,
                 )? {
+                    pcbcraft_io::validate_fabrication_package_file(kind, &name, &bytes)
+                        .map_err(Error::Invalid)?;
                     entries.push(pcbcraft_io::PackageEntry {
                         name,
                         kind: kind.clone(),
@@ -32000,6 +32008,7 @@ mod tests {
         for name in [
             "pcb.dsn",
             "test.brd",
+            "testpoints.csv",
             "board.gencad",
             "netlist.csv",
             "plot-report.csv",
@@ -32566,6 +32575,28 @@ mod tests {
             "a folder is refused as a package path"
         );
         let _ = std::fs::remove_file(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn package_refuses_ipc2581_until_the_export_is_schema_valid() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"ipc","kinds":["ipc2581"]}),
+            None,
+        )?;
+        let path =
+            std::env::temp_dir().join(format!("pcbcraft-ipc-pkg-{}.zip", std::process::id()));
+        assert!(
+            s.execute(
+                "output_job.package",
+                json!({"path": path.to_string_lossy(), "job":"ipc"}),
+                None,
+            )
+            .is_err(),
+            "legacy IPC-2581 output cannot ship in a package yet"
+        );
         Ok(())
     }
 

@@ -33,6 +33,7 @@ truck-meshalgo.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tempfile.workspace = true
+ipc2581.workspace = true
 ureq = { version = "2", default-features = false, features = ["tls"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
