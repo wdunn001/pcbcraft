@@ -44,12 +44,7 @@ fn bounds_of(points: &[Point]) -> Option<(Point, Point)> {
     Some((lo, hi))
 }
 
-fn rect_snap_points(
-    lo: Point,
-    hi: Point,
-    kind_corner: SnapTargetKind,
-    kind_mid: SnapTargetKind,
-) -> Vec<SnapTarget> {
+fn rect_snap_points(lo: Point, hi: Point, kind_corner: SnapTargetKind, kind_mid: SnapTargetKind) -> Vec<SnapTarget> {
     let mx = (lo.x + hi.x) / 2.0;
     let my = (lo.y + hi.y) / 2.0;
     vec![
@@ -138,11 +133,7 @@ pub fn footprint_snap_targets(def: &FootprintDefinition) -> Vec<SnapTarget> {
 }
 
 /// Nearest snap target within `radius`, if any.
-pub fn snap_point(
-    point: Point,
-    targets: &[SnapTarget],
-    radius: f64,
-) -> Option<(Point, SnapTargetKind)> {
+pub fn snap_point(point: Point, targets: &[SnapTarget], radius: f64) -> Option<(Point, SnapTargetKind)> {
     let mut best: Option<(f64, Point, SnapTargetKind)> = None;
     for t in targets {
         let d = point.distance(t.position);
@@ -229,9 +220,9 @@ mod tests {
         let mut def = empty_footprint();
         def.pads = vec![pad("1", 0.0, 0.0)];
         let targets = footprint_snap_targets(&def);
-        assert_eq!(
-            snap_point(Point::new(0.1, 0.05), &targets, 0.35).map(|(p, k)| (k, p.x, p.y)),
-            Some((SnapTargetKind::PadCentre, 0.0, 0.0))
-        );
+        assert!(matches!(
+            snap_point(Point::new(0.1, 0.05), &targets, 0.35),
+            Some((p, SnapTargetKind::PadCentre)) if p.x.abs() < 1e-9 && p.y.abs() < 1e-9
+        ));
     }
 }

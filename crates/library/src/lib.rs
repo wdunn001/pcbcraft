@@ -1,6 +1,9 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+mod connector_parametric;
+mod connector_series_data;
+mod connector_series_generate;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
@@ -16,6 +19,14 @@ pub mod sources;
 mod symbol_check;
 mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use connector_parametric::{
+    ConnectorParametricSpec, PARAMETRIC_MODEL_PATH, body_fits_courtyard, housing_length_mm,
+};
+pub use connector_series_data::{ConnectorSeriesSpec, series_spec};
+pub use connector_series_generate::{
+    ConnectorFieldError, ConnectorSeriesOptions, GeneratedConnectorPart, generate_connector_part,
+    pin1_position,
+};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 pub use model_align::{
     SNAP_RADIUS_MM, SnapTarget, SnapTargetKind, footprint_snap_targets, pad_centres, pad_centroid,

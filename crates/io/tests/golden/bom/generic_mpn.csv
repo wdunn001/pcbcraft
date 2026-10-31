@@ -1,0 +1,42 @@
+Quantity,Designators,Manufacturer,MPN,Description,Value,Package,Supplier,Supplier Part Number
+1,C10,Maker,MP-100nF,Analog supply filter,100nF,project:Chip_0402,Shop,S-100nF
+1,C13,Maker,MP-100nF,Flash decoupling,100nF,project:Chip_0402,Shop,S-100nF
+3,"C14, C15, C16",Maker,MP-100nF,Sensor decoupling,100nF,project:Chip_0402,Shop,S-100nF
+3,"C7, C8, C9",Maker,MP-100nF,Supply decoupling,100nF,project:Chip_0402,Shop,S-100nF
+1,R5,Maker,MP-10k,Reset pull-up,10k,project:Chip_0402,Shop,S-10k
+1,C1,Maker,MP-10uF,Supply input capacitor,10uF,project:Chip_0603,Shop,S-10uF
+1,Y1,Maker,MP-16MHz,Main crystal,16 MHz,project:Crystal_3225,Shop,S-16MHz
+2,"C5, C6",Maker,MP-18pF,Crystal load capacitor,18pF,project:Chip_0402,Shop,S-18pF
+1,R4,Maker,MP-1k,Charge indicator resistor,1k,project:Chip_0402,Shop,S-1k
+6,"R10, R11, R12, R13, R14, R15",Maker,MP-1k,LED series resistor,1k,project:Chip_0603,Shop,S-1k
+1,C12,Maker,MP-1uF,Analog supply bulk,1uF,project:Chip_0402,Shop,S-1uF
+1,C17,Maker,MP-1uF,Sensor rail capacitor,1uF,project:Chip_0603,Shop,S-1uF
+1,C3,Maker,MP-22uF,Regulator input capacitor,2.2uF,project:Chip_0603,Shop,S-22uF
+1,C4,Maker,MP-22uF,Regulator output capacitor,2.2uF,project:Chip_0603,Shop,S-22uF
+1,R3,Maker,MP-2k,Charge current set,2k,project:Chip_0402,Shop,S-2k
+1,TP2,Maker,MP-3V3,Supply test point,3V3,project:Test_Pad,Shop,S-3V3
+2,"R8, R9",Maker,MP-47k,I2C pull-up,4.7k,project:Chip_0402,Shop,S-47k
+1,C2,Maker,MP-47uF,Battery decoupling,4.7uF,project:Chip_0603,Shop,S-47uF
+1,C11,Maker,MP-47uF,Bulk capacitor,4.7uF,project:Chip_0603,Shop,S-47uF
+1,R1,Maker,MP-51k,USB CC1 pull-down,5.1k,project:Chip_0402,Shop,S-51k
+1,R2,Maker,MP-51k,USB CC2 pull-down,5.1k,project:Chip_0402,Shop,S-51k
+1,F1,Maker,MP-500mA,Resettable fuse,500 mA,project:Chip_1206,Shop,S-500mA
+1,D1,Maker,MP-Amber,Charge indicator,Amber,project:LED_0603,Shop,S-Amber
+2,"D6, D7",Maker,MP-Amber,Status LED,Amber,project:LED_0603,Shop,S-Amber
+1,J2,Maker,MP-Battery,Two-pin battery connector,Battery,project:Battery_2P,Shop,S-Battery
+1,U1,Maker,MP-Charger,Single-cell linear charger,Charger,project:SOT-23-5,Shop,S-Charger
+1,U5,Maker,MP-Climate,"Temperature, humidity and pressure sensor",Climate,project:DFN-8,Shop,S-Climate
+1,J3,Maker,MP-Debug,Programming and serial header,Debug,project:Header_1x7_1.27,Shop,S-Debug
+1,U4,Maker,MP-Flash,Serial flash memory,Flash,project:SOIC-8,Shop,S-Flash
+3,"D3, D4, D5",Maker,MP-Green,Status LED,Green,project:LED_0603,Shop,S-Green
+1,U2,Maker,MP-LDO3V3,Low-dropout regulator,LDO 3V3,project:SOT-23-5,Shop,S-LDO3V3
+1,U6,Maker,MP-Light,Ambient light sensor,Light,project:SOT-23-6,Shop,S-Light
+1,U3,Maker,MP-MCU,"32-bit microcontroller, USB device",MCU,project:QFN-32,Shop,S-MCU
+1,D8,Maker,MP-Red,Status LED,Red,project:LED_0603,Shop,S-Red
+1,SW1,Maker,MP-Reset,Reset button,Reset,project:Tact_4p5,Shop,S-Reset
+1,U7,Maker,MP-Switch,High-side switch for the sensor rail,Switch,project:SOT-23-5,Shop,S-Switch
+1,D2,Maker,MP-TVS,Transient suppressor on the USB supply,TVS,project:SOD-323,Shop,S-TVS
+1,J1,Maker,MP-USBC,Power and USB 2.0 receptacle,USB-C,project:USB_C_Receptacle,Shop,S-USBC
+1,SW2,Maker,MP-User1,User button,User 1,project:Tact_4p5,Shop,S-User1
+1,SW3,Maker,MP-User2,User button,User 2,project:Tact_4p5,Shop,S-User2
+1,TP1,Maker,MP-VBAT,Battery test point,VBAT,project:Test_Pad,Shop,S-VBAT
