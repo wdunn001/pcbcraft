@@ -13,7 +13,7 @@
 //! argument types so one value can be compared with another.
 //!
 //! # Dependencies
-//! - `clippy.toml` (the ban)
+//! - clippy.toml (the ban)
 //! - `xtask/src/main.rs` (layer 0, no workspace dependencies)
 //!
 //! # Do not

@@ -423,6 +423,10 @@ fn layers() -> Result<(), String> {
             .ok_or("missing dependencies")?
         {
             let dep = str_field(dependency, "name")?;
+            // Test-only dependencies may reach upward; they never ship.
+            if dependency.get("kind").and_then(serde_json::Value::as_str) == Some("dev") {
+                continue;
+            }
             if layer(dep).is_some_and(|target| target > level)
                 || (level < 4
                     && ["egui", "eframe", "wgpu", "winit", "rfd", "craft-ui"].contains(&dep))

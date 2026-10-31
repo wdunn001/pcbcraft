@@ -15,7 +15,7 @@
 //! entry names, and verify each blob hash.
 //!
 //! # Dependencies
-//! - `crate::zip_entries`, `crate::crc32`
+//! - crates/io/src/lib.rs (`zip_entries` and `crc32`)
 //!
 //! # Do not
 //! - Do not use `unwrap`, `expect`, or `panic!` in production paths.
