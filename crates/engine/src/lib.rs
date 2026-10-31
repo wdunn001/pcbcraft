@@ -810,7 +810,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "schematic.rename_sheet",
-            "Rename a schematic page; the new name must differ from every other page name",
+            "Rename a schematic page, including the root page 0; the new name must differ from every other page name",
             schema(
                 json!({"id":id_schema(),"name":{"type":"string"}}),
                 &["id", "name"],
@@ -12139,7 +12139,9 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             if a.name.is_empty() || a.name.len() > 128 {
                 return Err(Error::Invalid("sheet name must be 1 to 128 bytes".into()));
             }
-            if p.sheets.iter().any(|s| s.name == a.name) {
+            if p.root_sheet_name.as_deref() == Some(a.name.as_str())
+                || p.sheets.iter().any(|s| s.name == a.name)
+            {
                 return Err(Error::Invalid("sheet name already in use".into()));
             }
             let id = allocate(next)?;
@@ -12157,9 +12159,15 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 return Err(Error::Invalid("sheet name must be 1 to 128 bytes".into()));
             }
             if a.id == 0 {
-                return Err(Error::Invalid("the root sheet cannot be renamed".into()));
+                if p.sheets.iter().any(|s| s.name == a.name) {
+                    return Err(Error::Invalid("sheet name already in use".into()));
+                }
+                p.root_sheet_name = Some(a.name.clone());
+                return Ok(json!({"id":0,"name":a.name}));
             }
-            if p.sheets.iter().any(|s| s.id != a.id && s.name == a.name) {
+            if p.root_sheet_name.as_deref() == Some(a.name.as_str())
+                || p.sheets.iter().any(|s| s.id != a.id && s.name == a.name)
+            {
                 return Err(Error::Invalid("sheet name already in use".into()));
             }
             let sheet = p
@@ -12544,7 +12552,9 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             if name.is_empty() || name.len() > 128 {
                 return Err(Error::Invalid("sheet name must be 1 to 128 bytes".into()));
             }
-            if p.sheets.iter().any(|sh| sh.name == name) {
+            if p.root_sheet_name.as_deref() == Some(name.as_str())
+                || p.sheets.iter().any(|sh| sh.name == name)
+            {
                 return Err(Error::Invalid("sheet name already in use".into()));
             }
             let sheet = allocate(next)?;
@@ -29907,13 +29917,20 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             s.execute("schematic.new_sheet", json!({"name":""}), None)
                 .is_err()
         );
+        s.execute(
+            "schematic.rename_sheet",
+            json!({"id":0,"name":"Root"}),
+            None,
+        )?;
+        assert_eq!(s.project.root_sheet_name.as_deref(), Some("Root"));
         assert!(
             s.execute(
                 "schematic.rename_sheet",
-                json!({"id":0,"name":"Root?"}),
+                json!({"id":0,"name":"Power"}),
                 None
             )
-            .is_err()
+            .is_err(),
+            "the root page cannot take a name another page already uses"
         );
         let moved = s.execute(
             "schematic.move_component",
@@ -29978,6 +29995,11 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     #[test]
     fn sheet_pages_survive_save_round_trips() -> Result<(), Error> {
         let mut s = Session::sample()?;
+        s.execute(
+            "schematic.rename_sheet",
+            json!({"id":0,"name":"Main"}),
+            None,
+        )?;
         let sheet =
             s.execute("schematic.new_sheet", json!({"name":"Audio"}), None)?["result"]["id"]
                 .as_u64()
@@ -29991,6 +30013,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         let back: Project =
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         assert_eq!(back, s.project);
+        assert_eq!(back.root_sheet_name.as_deref(), Some("Main"));
         assert_eq!(back.sheets.len(), 1);
         assert_eq!(back.component(2).ok_or_else(missing)?.sheet, sheet);
         s.undo()?;
