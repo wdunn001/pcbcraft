@@ -83,7 +83,7 @@ The Checks tab runs after every edit and lists what it finds, grouped by check.
 
 - Pins with no connection (pins flagged no-connect are skipped), parts with no footprint, and power pins left floating.
 - Copper clearance, using the strictest of the board default and the net classes on either side. A rule between two named nets can ask for a bigger gap.
-- Track width and stub length against the net class limits when set.
+- Track width, stub length and minimum arc radius against the net class limits when set, plus acute corners at track joints and shallow rect-pad joins.
 - Pads, drills, part courtyards, board text and silkscreen that touch or overlap, and cut, perforation and mask figures against copper, pads and the board edge.
 - Board outline edge and circular cutout clearance.
 

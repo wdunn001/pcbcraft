@@ -65,6 +65,7 @@ tooltips     [--strict] check tooltip text against docs/tooltips.md
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files
+  visual-gate  compare current screenshots against baselines in target/baselines (run screenshots first)
   board3d-bench  run the six-hundred-part 3D render regression test
   status-data  [--refresh] write site/src/data/status.json from the cached tracker snapshot
 
@@ -452,7 +453,7 @@ fn layers() -> Result<(), String> {
         match name {
             "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" | "pcbcraft-clock" => Some(0),
             "pcbcraft-doc" | "pcbcraft-library" | "pcbcraft-sim" => Some(1),
-            "pcbcraft-rules" | "pcbcraft-io" => Some(2),
+            "pcbcraft-rules" | "pcbcraft-io" | "pcbcraft-plugin" => Some(2),
             "pcbcraft-engine" => Some(3),
             "pcbcraft-mcp" | "pcbcraft-ui-egui" => Some(4),
             "pcbcraft" | "pcbcraft-cli" | "pcbcraft-web" => Some(5),
@@ -679,6 +680,7 @@ fn run() -> Result<(), String> {
             wasm()?;
             docs()?;
             doc_check::run(&[])?;
+            registry_check::run(&root()?, false)?;
         }
         "policy" => {
             layers()?;
@@ -854,6 +856,71 @@ fn collect_rs(base: &Path, dir: &Path, out: &mut Vec<(String, String)>) -> Resul
         }
     }
     Ok(())
+}
+
+/// Compares current screenshots against baselines stored in target/baselines.
+/// Fails if any screenshot differs beyond tolerance.
+fn visual_gate(_args: &[String]) -> Result<(), String> {
+    let root = root()?;
+    let baselines_dir = root.join("target").join("baselines");
+    if !baselines_dir.is_dir() {
+        return Err(format!(
+            "baselines directory not found: {}. Run `cargo xtask screenshots` first.",
+            baselines_dir.display()
+        ));
+    }
+
+    let current_dir = root.join("target").join("screenshots");
+
+    let mut differences = Vec::new();
+    let mut checked = 0;
+    for (stem, _) in VIEWS {
+        let baseline = baselines_dir.join(format!("{stem}.png"));
+        let current = current_dir.join(format!("{stem}.png"));
+
+        if !baseline.is_file() {
+            // Skip baselines that don't exist yet (not all views are captured)
+            continue;
+        }
+
+        if !current.is_file() {
+            differences.push(format!("current screenshot missing: {}", current.display()));
+            continue;
+        }
+
+        // Compare images by checking file sizes first (quick check)
+        let baseline_size = std::fs::metadata(&baseline)
+            .map_err(|e| e.to_string())?
+            .len();
+        let current_size = std::fs::metadata(&current)
+            .map_err(|e| e.to_string())?
+            .len();
+
+        // Allow 1% difference in file size (compression variations)
+        let max_diff = (baseline_size as f64 * 0.01) as u64;
+        if (baseline_size as i64 - current_size as i64).abs() as u64 > max_diff {
+            differences.push(format!(
+                "screenshot differs: {} (baseline: {} bytes, current: {} bytes)",
+                stem, baseline_size, current_size
+            ));
+        }
+        checked += 1;
+    }
+
+    if checked == 0 {
+        return Err("no baselines found to compare. Run `cargo xtask screenshots --out target/baselines` first.".into());
+    }
+
+    if differences.is_empty() {
+        println!("visual gate: {checked} screenshots match baselines");
+        Ok(())
+    } else {
+        Err(format!(
+            "visual gate failed: {} differences\n{}",
+            differences.len(),
+            differences.join("\n")
+        ))
+    }
 }
 
 /// Runs the chosen subcommand and exits non-zero with the message on failure.

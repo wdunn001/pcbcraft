@@ -33,14 +33,8 @@ pub use compliance::{
     MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_SUBSTANCES,
 };
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
-mod vendor_handoff;
-pub use vendor_handoff::{
-    VENDOR_HANDOFF_SCHEMA_VERSION, VendorAdapterDescriptor, VendorAdapterMode,
-    VendorHandoffInstanceCapabilities, VendorHandoffModuleSettings, VendorQuoteConfirmDialog,
-    VendorQuoteFileEntry, VendorQuoteHandoffManifest, VendorQuotePreparedArchive,
-    VendorQuoteSettings, MarketplaceSettings, fixture_upload_adapter, fixture_upload_archive,
-    fixture_upload_manifest,
-};
+mod export_trade;
+pub use export_trade::{ExportTradeSettings, MAX_HTS_PREFIX, MAX_TARIFF_ROWS, TariffExposureRow};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::de::{self, Visitor};
@@ -574,6 +568,9 @@ pub struct NetClass {
     /// Default drilled hole for member vias, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_drill: Option<f64>,
+    /// Back-drill applied to member vias that carry none of their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrill: Option<BackDrill>,
     /// Default track width for differential pairs on member nets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pair_width: Option<f64>,
@@ -1719,6 +1716,7 @@ pub enum ViaCoveringScope {
     /// The covering applies on the bottom face only; the top stays open.
     Bottom,
 }
+}
 /// How a via hole is protected, named after the seven types of the via
 /// protection standard (IPC-4761). The types that close the hole under the
 /// solder mask lose their mask opening on fabrication plots.
@@ -2715,6 +2713,65 @@ impl Datum {
             && name
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    }
+}
+/// How the enclosure reference body was imported.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EnclosureSourceFormat {
+    Step,
+    Gltf,
+    Obj,
+}
+/// Cached axis-aligned bounds of an enclosure body in millimetres.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct EnclosureBounds {
+    pub min: [f64; 3],
+    pub max: [f64; 3],
+}
+impl EnclosureBounds {
+    pub fn valid(&self) -> bool {
+        self.min.iter().chain(self.max.iter()).all(|v| v.is_finite())
+            && self.min[0] <= self.max[0]
+            && self.min[1] <= self.max[1]
+            && self.min[2] <= self.max[2]
+    }
+}
+fn enclosure_identity_transform() -> [f64; 16] {
+    [
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]
+}
+/// Reference to an imported enclosure body shown in the 3D tab.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct EnclosureRef {
+    pub path: String,
+    #[serde(default = "enclosure_identity_transform")]
+    pub transform: [f64; 16],
+    pub source_format: EnclosureSourceFormat,
+    pub bounds: EnclosureBounds,
+    /// Optional mesh file drawn for the picture when the STEP holds curved faces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh_path: Option<String>,
+    /// Board datums created when this enclosure was imported.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub linked_datums: Vec<Id>,
+    /// Plain sentence when curved faces were skipped during import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
+}
+impl EnclosureRef {
+    pub fn transform_valid(m: &[f64; 16]) -> bool {
+        m.iter().all(|v| v.is_finite())
+    }
+    pub fn valid(&self) -> bool {
+        !self.path.trim().is_empty()
+            && self.path.len() <= 1024
+            && Self::transform_valid(&self.transform)
+            && self.bounds.valid()
+            && self.mesh_path.as_ref().is_none_or(|p| {
+                !p.trim().is_empty() && p.len() <= 1024
+            })
     }
 }
 /// An optical assembly mark: a bare copper circle, usually 1 mm, that the
@@ -4119,6 +4176,7 @@ impl Default for Project {
             graphics: vec![],
             labels: vec![],
             no_connects: vec![],
+            export_trade: ExportTradeSettings::default(),
             board: Board {
                 width: 60.0,
                 height: 40.0,
@@ -4551,24 +4609,7 @@ impl Project {
     /// from the stackup records; none when the stackup carries no such rows.
     pub fn via_depth(&self, via: &Via) -> Option<f64> {
         let (a, b) = self.via_span(via);
-        let mut copper = 0usize;
-        let mut inside = false;
-        let mut depth = 0.0;
-        for rec in &self.board.layer_records {
-            if rec.kind == "copper" {
-                if inside && copper == b.index() as usize {
-                    return Some(depth);
-                }
-                if copper == a.index() as usize {
-                    inside = true;
-                }
-                copper += 1;
-            }
-            if inside {
-                depth += rec.thickness;
-            }
-        }
-        None
+        self.layer_distance(a, b)
     }
     /// Kind of a via, derived from its span (never stored).
     pub fn via_kind(&self, via: &Via) -> ViaKind {
@@ -5374,6 +5415,7 @@ impl Project {
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
+        self.export_trade.validate()?;
         self.validate_parameters()?;
         validate_compliance_settings(&self.compliance)?;
         for compliance in self.compliance.parts.values() {
@@ -5468,6 +5510,7 @@ impl Project {
         if self.panel.enabled {
             self.panel.validate_fields()?;
         }
+        self.drawing_frame.validate()?;
         if self.name.is_empty() || self.name.len() > 256 {
             return Err("project name must be 1–256 bytes".into());
         }
@@ -5571,6 +5614,10 @@ impl Project {
                 || n.length_tolerance
                     .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
+                || n.current
+                    .is_some_and(|i| !i.is_finite() || !(0.001..=100.0).contains(&i))
+                || n.temperature_rise
+                    .is_some_and(|t| !t.is_finite() || !(1.0..=100.0).contains(&t))
             {
                 return Err("invalid net length target or tolerance".into());
             }

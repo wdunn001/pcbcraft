@@ -1,0 +1,21 @@
+{
+  "format": "pcbcraft-publication",
+  "schema_version": 1,
+  "id": "fixture-r",
+  "title": "Fixture resistor symbol",
+  "version": "1.0.0",
+  "kind": "part",
+  "tags": [
+    "passive",
+    "fixture"
+  ],
+  "files": [
+    {
+      "path": "FixtureR.kicad_sym",
+      "sha256": "258ef428bd8a34c1e7436cf55bc0f5362d3523d344248a13992ff174723fee98",
+      "size": 48,
+      "role": "symbol"
+    }
+  ],
+  "bundle_root_hash": "2e48c815c981a4edd35336b99e70e9a5b8a79fca4bba4b38792ca0dd66796731"
+}

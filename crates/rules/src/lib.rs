@@ -14,6 +14,7 @@ mod courtyard;
 mod diffpair_impedance;
 mod decoupling;
 mod drill;
+mod finding_set;
 mod silk;
 mod stub;
 pub mod compliance;
@@ -22,6 +23,8 @@ pub use compliance::{
     check as compliance_check, load_list_snapshot, ComplianceFinding, EU_MARKET_RULE_SET,
     RESPONSIBLE_SOURCING_RULE_SET,
 };
+
+pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
@@ -1974,6 +1977,26 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 });
             }
         }
+        if project.rule_disabled("track_width_advice") {
+            continue;
+        }
+        if let Some(advice) = width_advice::width_advice_on_layer(project, track.net, track.layer)
+            && track.width + 1e-6 < advice.width_mm
+            && let Some(current) = project.effective_current(track.net)
+        {
+            result.push(Finding {
+                code: "track_width_advice",
+                severity: project.rule_severity("track_width_advice", "warning"),
+                message: format!(
+                    "{} track is {:.3} mm wide, {} advice asks at least {:.3} mm for {current:.2} A",
+                    project.net_name(track.net),
+                    track.width,
+                    advice.method,
+                    advice.width_mm,
+                ),
+                objects: vec![track.id],
+            });
+        }
     }
     for wire in airwires_from(&items) {
         result.push(Finding {
@@ -3641,6 +3664,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         p.validate()?;
         let items = copper(&p);
@@ -3848,6 +3872,7 @@ covering_scope: None,
                 covering: None,
 covering_scope: None,
                 covering_bottom: None,
+                backdrill: None,
             });
         }
         p.validate()?;
@@ -5038,6 +5063,7 @@ covering_scope: None,
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         let fp_id = p.board.footprints[0].id;
         if let Some(pad) = p.board.footprints[0].pads.first_mut() {
@@ -5114,6 +5140,7 @@ covering_scope: None,
 covering: None,
             covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
     }
     /// A project holding one surface pad at (20, 20) that names `layers` and
@@ -5551,6 +5578,7 @@ covering: None,
 covering: None,
             covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
     }
     fn span_track(p: &mut Project, id: Id, layer: u8) {
@@ -5964,6 +5992,7 @@ mod pour_tests {
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         p.validate()?;
         let findings = drc(&p);

@@ -1042,6 +1042,7 @@ mod tests {
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         p.board.holes.push(Hole {
             id: 2,

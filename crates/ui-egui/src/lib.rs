@@ -144,6 +144,7 @@ mod tool_modifiers;
 mod toolbar;
 mod tour;
 pub mod ui_kit;
+mod via_backdrill;
 mod via_covering;
 mod via_span;
 mod wall_clock;
@@ -7204,7 +7205,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                     .inner_margin(theme::aside_margin())
                     .begin(ui);
                 {
-                    let ui = &mut padded.content_ui;
+let ui = &mut padded.content_ui;
                     ui.spacing_mut().item_spacing.y = theme::ASIDE_ROW_GAP;
                     if matches!(self.tool, Tool::DrawLayer | Tool::Hole | Tool::Fiducial) {
                         egui::Frame::NONE
@@ -7252,6 +7253,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                             self.object_general(ui, id);
                             self.via_span_controls(ui, id);
                             self.via_covering_controls(ui, id);
+                            self.via_backdrill_controls(ui, id);
                             if let Some(track) =
                                 self.project.board.tracks.iter().find(|t| t.id == id)
                             {
@@ -7296,6 +7298,196 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                                                 .speed(0.05)
                                                 .suffix(format!(" {}", t!("unit.mm"))),
                                             3,
+                                        ))
+                                        .named("Wire width")
+                                        .on_hover_text(t!("unit.mm7.tip"));
+                                        if ui
+                                            .button(t!("board.inspector.set_width"))
+                                            .on_hover_text(command_tip("track.set_width"))
+                                            .clicked()
+                                        {
+                                            self.run(
+                                                "track.set_width",
+                                                json!({"id": id, "width": self.track_width}),
+                                            );
+                                        }
+                                        if ui
+                                            .button(t!("board.inspector.thicken_whole_connection"))
+                                            .on_hover_text(t!(
+                                                "board.inspector.thicken_whole_connection.tip"
+                                            ))
+                                            .clicked()
+                                        {
+                                            self.run(
+                                                "track.thicken_whole_connection",
+                                                json!({"id": id}),
+                                            );
+                                        }
+                                    },
+                                );
+                            }
+                        }
+                    } else if let Some(id) = self.selected {
+                        let c = self.project.component(id).cloned().or_else(|| {
+                            self.project
+                                .footprint(id)
+                                .and_then(|f| self.project.component(f.component))
+                                .cloned()
+                        });
+                        if let Some(c) = c {
+                            self.part_properties(ui, id, &c);
+                        } else {
+                            self.object_general(ui, id);
+                            self.via_span_controls(ui, id);
+                            self.via_covering_controls(ui, id);
+                            self.via_backdrill_controls(ui, id);
+                            if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
+                                let curved = track.arc.is_some();
+                                let net = track.net;
+                                let mid = (
+                                    (track.start.x + track.end.x) / 2.0,
+                                    (track.start.y + track.end.y) / 2.0,
+                                );
+                                let near = |a: Point, b: Point| {
+                                    (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
+                                };
+                                let span = |a: Point, b: Point| {
+                                    ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
+                                };
+                                let own_len = span(track.start, track.end);
+                                let mate = self
+                                    .project
+                                    .board
+                                    .tracks
+                                    .iter()
+                                    .filter(|o| o.id != id && o.net == track.net)
+                                    .filter_map(|o| {
+                                        let joined = near(o.start, track.start)
+                                            || near(o.start, track.end)
+                                            || near(o.end, track.start)
+                                            || near(o.end, track.end);
+                                        joined.then(|| (o.id, span(o.start, o.end)))
+                                    })
+                                    .min_by(|a, b| a.1.total_cmp(&b.1));
+                                let max_cut = mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
+                                ui_kit::section::section(
+                                    ui,
+                                    "track",
+                                    &t!("props.track"),
+                                    &t!("props.track.tip"),
+                                    |ui| {
+                                        ui.label(t!("board.inspector.wire_width"));
+                                        ui.add(crate::number_entry::localized_active(
+                                            egui::DragValue::new(&mut self.track_width)
+                                                .range(0.05..=10.0)
+                                                .speed(0.05)
+                                                .suffix(format!(" {}", t!("unit.mm"))),
+                                            3,
+                                        ))
+                                        .named("Wire width")
+                                        .on_hover_text(t!("unit.mm7.tip"));
+                                        if ui
+                                            .button(t!("board.inspector.set_width"))
+                                            .on_hover_text(command_tip("track.set_width"))
+                                            .clicked()
+                                        {
+                                            self.run(
+                                                "track.set_width",
+                                                json!({"id": id, "width": self.track_width}),
+                                            );
+                                        }
+                                        if ui
+                                            .button(t!("board.inspector.thicken_whole_connection"))
+                                            .on_hover_text(t!(
+                                                "board.inspector.thicken_whole_connection.tip"
+                                            ))
+                                            .clicked()
+                                        {
+                                            self.run(
+                                                "track.thicken_whole_connection",
+                                                json!({"id": id}),
+                                            );
+                                        }
+                                    },
+                                );
+                            }
+                        }
+                    } else {
+                        self.object_general(ui, id);
+                        self.via_span_controls(ui, id);
+                        self.via_covering_controls(ui, id);
+                        self.via_backdrill_controls(ui, id);
+                        if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
+                            let curved = track.arc.is_some();
+                            let net = track.net;
+                            let mid = (
+                                (track.start.x + track.end.x) / 2.0,
+                                (track.start.y + track.end.y) / 2.0,
+                            );
+                            let near = |a: Point, b: Point| {
+                                (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
+                            };
+                            let span = |a: Point, b: Point| {
+                                ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
+                            };
+                            let own_len = span(track.start, track.end);
+                            let mate = self
+                                .project
+                                .board
+                                .tracks
+                                .iter()
+                                .filter(|o| o.id != id && o.net == track.net)
+                                .filter_map(|o| {
+                                    let joined = near(o.start, track.start)
+                                        || near(o.start, track.end)
+                                        || near(o.end, track.start)
+                                        || near(o.end, track.end);
+                                    joined.then(|| (o.id, span(o.start, o.end)))
+                                })
+                                .min_by(|a, b| a.1.total_cmp(&b.1));
+                            let max_cut = mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
+                            ui_kit::section::section(
+                                ui,
+                                "track",
+                                &t!("props.track"),
+                                &t!("props.track.tip"),
+                                |ui| {
+                                    ui.label(t!("board.inspector.wire_width"));
+                                    ui.add(crate::number_entry::localized_active(
+                                        egui::DragValue::new(&mut self.track_width)
+                                            .range(0.05..=10.0)
+                                            .speed(0.05)
+                                            .suffix(format!(" {}", t!("unit.mm"))),
+                                        3,
+                                    ))
+                                    .named("Wire width")
+                                    .on_hover_text(t!("unit.mm7.tip"));
+                                    if ui
+                                        .button(t!("board.inspector.set_width"))
+                                        .on_hover_text(command_tip("track.set_width"))
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "track.set_width",
+                                            json!({"id": id, "width": self.track_width}),
+                                        );
+                                    }
+                                    if ui
+                                        .button(t!("board.inspector.thicken_whole_connection"))
+                                        .on_hover_text(t!(
+                                            "board.inspector.thicken_whole_connection.tip"
+                                        ))
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "track.thicken_whole_connection",
+                                            json!({"id": id}),
+                                        );
+                                    }
+                                },
+                            );
+                        }
+                    }
                                         ))
                                         .named("Wire width")
                                         .on_hover_text(t!("unit.mm7.tip"));

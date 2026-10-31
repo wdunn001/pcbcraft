@@ -1,0 +1,110 @@
+# Glossary part 05-routing
+schema = 1
+
+[[term]]
+id = "via"
+term = "Via"
+category = "routing"
+short = "Plated hole that moves a net between copper layers."
+long = "Vias add inductance and occupy space. Stitching vias tie planes together while blind or buried vias save room on dense builds."
+synonyms = ["through via"]
+related = ["microvia", "annular_ring"]
+units = ""
+in_pcbcraft = ["via.place"]
+search = "via layer change plated hole"
+calculator = "via_current_resistance"
+source = "PCB layout practice"
+
+[[term]]
+id = "microvia"
+term = "Microvia"
+category = "routing"
+short = "Small laser drilled via between adjacent layers."
+long = "Microvias enable fine pitch escape from chips. They cost more than through vias and need careful stack planning."
+synonyms = ["uVia"]
+related = ["via", "stackup"]
+units = ""
+in_pcbcraft = []
+search = "microvia laser hdI"
+source = "HDI fabrication practice"
+
+[[term]]
+id = "differential_pair"
+term = "Differential pair routing"
+category = "routing"
+short = "Two coupled traces with matched length and spacing."
+long = "Pairs need constant gap and minimal skew. Bends should be paired and vias staggered to keep mode balance."
+synonyms = ["diff pair route"]
+related = ["differential_signal", "skew"]
+units = ""
+in_pcbcraft = ["board.set_diffpair"]
+search = "differential pair length match gap"
+calculator = "differential_pair"
+source = "High speed layout practice"
+
+[[term]]
+id = "skew"
+term = "Length skew"
+category = "routing"
+short = "Difference in propagation delay between related nets."
+long = "Skew limits how fast a parallel bus can run. Match length within the budget using meanders on shorter paths."
+synonyms = ["timing skew"]
+related = ["differential_pair", "propagation_delay"]
+units = "ps"
+in_pcbcraft = []
+search = "skew length match meander delay"
+calculator = "propagation_delay"
+source = "High speed layout practice"
+
+[[term]]
+id = "meander"
+term = "Length tuning meander"
+category = "routing"
+short = "Serpentine extra length added to match delays."
+long = "Meanders increase length without changing connectivity. Keep amplitude small enough to preserve impedance on controlled nets."
+synonyms = ["serpentine"]
+related = ["skew", "differential_pair"]
+units = "mm"
+in_pcbcraft = []
+search = "meander serpentine tune length"
+source = "High speed layout practice"
+
+[[term]]
+id = "teardrop"
+term = "Teardrop"
+category = "routing"
+short = "Gradual widening where a track meets a pad or via."
+long = "Teardrops reduce mechanical stress and etch necking. Many fabs recommend them on thin tracks entering small drills."
+synonyms = ["fillet"]
+related = ["track_width", "via"]
+units = ""
+in_pcbcraft = []
+search = "teardrop pad neck transition"
+source = "Fabrication practice"
+
+[[term]]
+id = "unrouted"
+term = "Unrouted net"
+category = "routing"
+short = "Net that still lacks complete copper connectivity."
+long = "Airwires show remaining connections. DRC reports unrouted nets until every pin ties through tracks, zones or vias."
+synonyms = ["airwire"]
+related = ["net", "drc"]
+units = ""
+in_pcbcraft = []
+search = "unrouted airwire ratline"
+source = "Verification practice"
+
+[[term]]
+id = "router"
+term = "Autorouter"
+category = "routing"
+short = "Tool that proposes track paths to finish connections."
+long = "Autorouters follow rules and priorities set by the designer. Critical nets still benefit from manual cleanup."
+synonyms = ["auto route"]
+related = ["unrouted", "track_width"]
+units = ""
+in_pcbcraft = ["track.route"]
+search = "autorouter auto route batch"
+source = "Layout automation practice"
+

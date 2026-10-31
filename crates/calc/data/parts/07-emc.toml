@@ -1,0 +1,82 @@
+# Glossary part 07-emc
+schema = 1
+
+[[term]]
+id = "emc"
+term = "Electromagnetic compatibility"
+category = "emc"
+short = "Ability to operate without excessive emitted or received interference."
+long = "EMC spans layout, filtering and shielding. Early planning beats late ferrite fixes on failing radiated tests."
+synonyms = ["EMI compliance"]
+related = ["emission", "immunity"]
+units = ""
+in_pcbcraft = []
+search = "emc emi compliance interference"
+source = "Regulatory practice"
+
+[[term]]
+id = "emission"
+term = "Radiated emission"
+category = "emc"
+short = "Unwanted electromagnetic energy leaving the product."
+long = "Fast edges on long traces act like antennas. Filters, spread spectrum and shielding reduce peaks at test frequencies."
+synonyms = ["RF emission"]
+related = ["emc", "crosstalk"]
+units = ""
+in_pcbcraft = []
+search = "radiated emission antenna harmonic"
+source = "Regulatory practice"
+
+[[term]]
+id = "immunity"
+term = "Immunity"
+category = "emc"
+short = "Resistance to external fields and injected disturbances."
+long = "Immunity tests expose the product to fields and bursts. Solid ground, filtering and layout symmetry improve margin."
+synonyms = ["ESD immunity"]
+related = ["emc", "esd"]
+units = ""
+in_pcbcraft = []
+search = "immunity esd burst susceptibility"
+source = "Regulatory practice"
+
+[[term]]
+id = "crosstalk"
+term = "Crosstalk"
+category = "emc"
+short = "Unwanted coupling of energy from one net into another."
+long = "Crosstalk rises when traces run parallel without a return path between them. Increase spacing or add ground guard traces."
+synonyms = ["XTalk"]
+related = ["clearance", "emission"]
+units = ""
+in_pcbcraft = []
+search = "crosstalk coupling noise neighbor"
+calculator = "crosstalk"
+source = "Signal integrity practice"
+
+[[term]]
+id = "shield"
+term = "Shielding"
+category = "emc"
+short = "Conductive enclosure or can that blocks fields."
+long = "Shields need gaps controlled and grounding at many points. Cutouts for cables can dominate leakage."
+synonyms = ["RF shield"]
+related = ["emc", "emission"]
+units = ""
+in_pcbcraft = []
+search = "shield can enclosure rf"
+source = "EMC design practice"
+
+[[term]]
+id = "common_mode_choke"
+term = "Common mode choke"
+category = "emc"
+short = "Inductor that blocks noise common to both lines of a pair."
+long = "CM chokes sit on cables leaving the board. They work with capacitors to form pi filters on I/O."
+synonyms = ["CM choke"]
+related = ["emc", "filter"]
+units = ""
+in_pcbcraft = []
+search = "common mode choke cable filter"
+source = "EMC design practice"
+
