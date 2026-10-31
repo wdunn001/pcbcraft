@@ -2,6 +2,8 @@
 
 | Component | Source | Revision / license | Use |
 |---|---|---|---|
+| ipc2581 | https://github.com/diodeinc/pcb | 0.3.3; MIT OR Apache-2.0 | Native dependency: IPC-2581C XSD validation before fabrication packages; schema file IPC-2581C.xsd ships in the crate |
+| craft-ui | https://github.com/storytold/craft-libs | 1aa81a773aa9198a0e4c0daeda954d622475af38; MIT OR Apache-2.0 | Shared egui tab and widget components, Cargo dependency |
 | craft-ui | https://github.com/wdunn001/craft-libs | 0e9d4a61affd665b2e00d5e107cfe4a88ad15df5; MIT OR Apache-2.0 | Shared egui tab and widget components, Cargo dependency |
 | SolidCraft architecture | https://github.com/bherbruck/solidcraft | README / AGENTS consulted; MIT OR Apache-2.0 | Architectural reference; no implementation copied |
 | SolidCraft recovery design | https://github.com/bherbruck/solidcraft | crates/engine/src/recovery.rs and the recovery screen in crates/ui-egui/src/lib.rs read; MIT OR Apache-2.0 | Design of the per-design autosave entry, lock and offer prompt, adapted to PCBCraft's session, project and atomic write; no source copied |
