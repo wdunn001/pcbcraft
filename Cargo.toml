@@ -39,7 +39,7 @@ eframe = { version = "0.36", default-features = false, features = ["default_font
 craft-cloud = { git = "https://github.com/wdunn001/craft-libs", rev = "0e9d4a61affd665b2e00d5e107cfe4a88ad15df5" }
 craft-ui = { git = "https://github.com/wdunn001/craft-libs", rev = "0e9d4a61affd665b2e00d5e107cfe4a88ad15df5" }
 # Instant/SystemTime that also work in the browser (std panics on wasm32-unknown-unknown).
-web-time = "1"
+web-time = "1.1"
 image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
 png = "0.18.1"
 base64 = "0.22"
