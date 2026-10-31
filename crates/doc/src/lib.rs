@@ -6277,6 +6277,7 @@ mod drill_tests {
                 electrical_type: passive(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             })
             .collect();
         let mut project = Project::default();

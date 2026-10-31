@@ -700,6 +700,7 @@ impl ImportCtx {
                         pin: pcbcraft_doc::PinRef {
                             component: component_id,
                             pin: pin_number,
+                            unit: None,
                         },
                     });
                 }
