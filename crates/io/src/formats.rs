@@ -471,7 +471,7 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Exchange,
         Run::Kind("dsn"),
     ),
-    output(
+output(
         "spice",
         "Circuit netlist (SPICE)",
         "A passive circuit netlist from sim.model fields for an outside solver.",
@@ -502,6 +502,16 @@ pub static FORMATS: &[FormatSpec] = &[
         &["csv"],
         Group::Documentation,
         Run::Kind("impedance_table"),
+    ),
+    #[cfg(feature = "plugin-firmware-target")]
+    output(
+        "firmware_target",
+        "Flight controller target",
+        "Board config header and manifest from the firmware pin map (plugin).",
+        &["h", "json"],
+        Group::Exchange,
+        Run::Engine("firmware.target.export"),
+    ),
     ),
     FormatSpec {
         id: "board_interchange",
@@ -583,7 +593,7 @@ pub struct BomFlavour {
     /// `csv`, `tsv` or `json`.
     pub file_type: &'static str,
     /// (column token, header text), in file order. Tokens: reference, value, footprint,
-    /// mpn, manufacturer, quantity, description, suppliers (every supplier as `Name: number`).
+/// mpn, manufacturer, quantity, description, suppliers (every supplier as `Name: number`).
     pub columns: &'static [(&'static str, &'static str)],
     /// True gives one row per kind of part.
     pub group: bool,
@@ -599,6 +609,12 @@ pub static BOM_FLAVOURS: &[BomFlavour] = &[BomFlavour {
     file_type: "csv",
     columns: &[
         ("reference", "Reference"),
+        ("value", "Value"),
+        ("footprint", "Footprint"),
+        ("mpn", "MPN"),
+        ("manufacturer", "Manufacturer"),
+        ("quantity", "Quantity"),
+("reference", "Reference"),
         ("value", "Value"),
         ("footprint", "Footprint"),
         ("mpn", "MPN"),

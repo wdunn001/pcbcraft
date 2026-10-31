@@ -17,8 +17,10 @@
 | [tooltips.md](tooltips.md) | What every control tooltip must say |
 | [tool-modifiers.md](tool-modifiers.md) | Shift, Ctrl and Alt per tool, tool hotkeys, what a press on a pin or pad does |
 | [part-sourcing.md](part-sourcing.md) | Typed manufacturer, part number and supplier fields on a part |
+| [library-tab.md](library-tab.md) | The Library tab: part pages, vendor prices, 3D model alignment, compare |
 | [validation.md](validation.md) | How the first subset was verified |
 | [kicad-libraries.md](kicad-libraries.md) | Library formats, limits, fixture licenses |
+| [samtec-library.md](samtec-library.md) | Samtec connector catalog and first-slice series |
 | [agents/](agents/) | Researcher, enricher, worker, reviewer briefs |
 
 Repo root: [README.md](../README.md), [ROADMAP.md](../ROADMAP.md),
