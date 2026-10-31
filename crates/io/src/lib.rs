@@ -11,6 +11,10 @@ mod board_edge;
 mod board_mesh;
 mod diff;
 mod drawn;
+pub mod export_package;
+pub use export_package::{
+    PackageOutput, availability, build_package, bundled_packages, find_package,
+};
 mod drill_table;
 mod fab_export;
 pub mod formats;

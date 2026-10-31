@@ -18,6 +18,7 @@ mod layout;
 pub mod library;
 mod online;
 mod outline;
+mod packages;
 pub mod profiles;
 pub mod recents;
 pub mod recovery;
@@ -2343,6 +2344,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(authoring::commands())
         .chain(online::commands())
         .chain(images::commands())
+        .chain(packages::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
         .chain(via_protection::commands())
@@ -7869,6 +7871,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = images::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = packages::run(p, command, params, record_revision, mutating) {
         return result;
     }
     if let Some(result) = outline::run(p, next, command, params) {
