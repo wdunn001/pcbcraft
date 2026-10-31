@@ -5,21 +5,32 @@
 //! - Pure text generation from a `Project` and a `pick_place` machine profile;
 //!   no file is written here, the engine writes through `atomic_write`.
 //! - Every file is CRLF, has no byte order mark and has no comma inside a field.
-//! - Coordinates are positive millimetres to two decimals from the lower-left
-//!   corner of the board (lower-right for the bottom side, so X is mirrored).
+//! - Coordinates and rotation come from `placed_rows` with the flavour record in
+//!   crates/io/data/neoden-yy1-flavour.toml: positive millimetres to two decimals from
+//!   the lower-left corner of the board (lower-right for the bottom side, so X is mirrored).
+//! - The file has no nozzle column. The nozzle shows as the `Head` column (the
+//!   head that carries it) and as `NozzleChange` rows for a third and fourth nozzle type;
+//!   parts are grouped by nozzle so each change happens once.
 //! - Through-hole parts are never written; `placement_text` stays untouched.
 //!
 //! # Dependencies
 //! - crates/doc/src/machine_profile.rs
+//! - crates/doc/src/placement_machine.rs (nozzle, feeder, speed and heights per part)
+//! - crates/io/src/placement_flavour.rs (`placed_rows`, `flavour_rotation`)
+//! - crates/io/data/neoden-yy1-flavour.toml
 //! - machine-profiles/neoden-yy1.toml
 //! - crates/io/tests/fixtures/neoden_yy1_top.native.csv
 
-use pcbcraft_doc::{Component, Footprint, Layer, MachineProfile, Project};
-use std::collections::{BTreeMap, BTreeSet};
+use crate::placement_flavour::{
+    PlacementOptions, flavour_rotation, placed_rows_unchecked, placement_flavour_from_toml,
+};
+use pcbcraft_doc::{Layer, MachineProfile, Project, plan_placement};
+use std::collections::BTreeMap;
 
 const MAX_PARTS: usize = 5_000;
 const NATIVE_PREAMBLE_HEAD: &str = "NEODEN,YY1,P&P FILE,,,,,,,,,,,";
 const BLANK_ROW: &str = ",,,,,,,,,,,,,";
+const FLAVOUR: &str = include_str!("../data/neoden-yy1-flavour.toml");
 const NOZZLE_ROWS: [&str; 4] = [
     "NozzleChange,OFF,BeforeComponent,1,Head1,Drop,Station2,PickUp,Station1,",
     "NozzleChange,OFF,BeforeComponent,2,Head2,Drop,Station3,PickUp,Station2,",
@@ -31,7 +42,6 @@ const NATIVE_COLUMNS: &str = "Designator,Comment,Footprint,Mid X(mm),Mid Y(mm) ,
 const IMPORT_COLUMNS: &str =
     "Designator,Footprint,Mid X,Mid Y,Ref X,Ref Y,Pad X,Pad Y,Layer,Rotation,Comment";
 const FEEDER_COLUMNS: &str = "FeederNo,Comment,Footprint,TapeWidth_mm,Nozzle,Quantity,Load";
-const MOUNT_SPEED_PCT: u32 = 75;
 const RECOGNITION_CAMERA: u32 = 1;
 
 /// Which board side or sides to write.
@@ -65,6 +75,49 @@ pub struct NeodenYy1Options {
     pub include_dnp_as_skip: bool,
 }
 
+/// Read side and export options from a `placement_yy1` artifact settings object.
+///
+/// # Rules
+/// - Matches `Artifact::placement_yy1_settings_valid`; defaults match the export command.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` `Artifact::placement_yy1_settings_valid`.
+pub fn neoden_yy1_from_artifact_settings(
+    settings: &serde_json::Value,
+) -> Result<(YySide, NeodenYy1Options), String> {
+    if !pcbcraft_doc::Artifact::placement_yy1_settings_valid(settings) {
+        return Err("placement_yy1 artifact settings are invalid".into());
+    }
+    let obj = settings.as_object().ok_or("placement_yy1 settings must be an object")?;
+    let side = match obj.get("side").and_then(|v| v.as_str()).unwrap_or("top") {
+        "top" => YySide::Top,
+        "bottom" => YySide::Bottom,
+        "both" => YySide::Both,
+        _ => return Err("side must be top, bottom or both".into()),
+    };
+    let layout = match obj.get("layout").and_then(|v| v.as_str()).unwrap_or("native") {
+        "native" => YyLayout::Native,
+        "import" => YyLayout::Import,
+        _ => return Err("layout must be native or import".into()),
+    };
+    let variant = obj
+        .get("variant")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let include_dnp_as_skip = obj
+        .get("include_dnp_as_skip")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    Ok((
+        side,
+        NeodenYy1Options {
+            layout,
+            variant,
+            include_dnp_as_skip,
+        },
+    ))
+}
+
 /// The files of one export and anything the operator should know about.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NeodenYy1Output {
@@ -83,6 +136,19 @@ struct Part {
     rotation: f64,
     bottom: bool,
     skip: bool,
+    nozzle: Option<String>,
+    speed: u32,
+    pick: f64,
+    place: f64,
+    feeder: u32,
+    head: u32,
+}
+
+/// One nozzle change the machine makes inside a side's file.
+struct Change {
+    before: usize,
+    head: u32,
+    station: u32,
 }
 
 /// Write the YY1 placement file or files and the feeder sheet for a design.
@@ -91,11 +157,15 @@ struct Part {
 /// - The profile must be kind `pick_place` with a board limit; a larger board is refused.
 /// - Package names pass through the profile's footprint aliases, then rotation
 ///   offsets are added before the bottom side negates the angle.
-/// - Feeder numbers come from the profile's feeder map first, then the next free
-///   tape feeder for chip packages or the next flexible feeder for the rest.
+/// - Nozzle, speed, heights and feeder come from `plan_placement`: a part's own
+///   override first, then the profile's rules. Parts are written grouped by nozzle.
+/// - Two nozzle types or more write the `Head` column (types 1 and 2 on heads 1 and 2);
+///   each further type adds a `NozzleChange` row that drops and picks at one station.
 ///
 /// # Dependencies
 /// - crates/doc/src/machine_profile.rs
+/// - crates/doc/src/placement_machine.rs
+/// - crates/io/src/placement_flavour.rs
 ///
 /// # Do not
 /// - Change `placement_text`, or write a comma or a negative coordinate into a file.
@@ -124,6 +194,12 @@ fn generate(
         ));
     }
     profile.validate()?;
+    if profile.output.dialect != "neoden_yy1" {
+        return Err(format!(
+            "the job file of {} is not written yet; only the NeoDen YY1 layout is checked against a real machine file",
+            profile.name
+        ));
+    }
     let pp = &profile.pick_place;
     let board = pp
         .board
@@ -147,66 +223,74 @@ fn generate(
                 .ok_or_else(|| format!("no variant named {name}"))?,
         ),
     };
-    let components: BTreeMap<u64, &Component> = p.components.iter().map(|c| (c.id, c)).collect();
-    let mut warnings = Vec::new();
+    let flavour = placement_flavour_from_toml(FLAVOUR)?;
+    let rows = placed_rows_unchecked(
+        p,
+        &flavour,
+        &PlacementOptions {
+            variant: options.variant.clone(),
+            offsets: vec![],
+        },
+    )?;
+    let by_component: BTreeMap<u64, _> = rows.iter().map(|r| (r.component, r)).collect();
+    let plan = plan_placement(p, pp, variant);
+    if let Some(bad) = plan.problems.iter().find(|q| q.code == "placement_feeders") {
+        return Err(bad.message.clone());
+    }
+    let nozzle_rank = |id: &Option<String>| {
+        id.as_ref()
+            .and_then(|n| pp.nozzle.iter().position(|row| row.id == *n))
+            .unwrap_or(usize::MAX)
+    };
     let mut parts = Vec::new();
-    for f in &p.board.footprints {
-        let c = components
-            .get(&f.component)
-            .ok_or("footprint references an unknown component")?;
-        if is_through_hole(f) {
+    for planned in &plan.parts {
+        let Some(row) = by_component.get(&planned.component) else {
+            continue;
+        };
+        if planned.skip && !planned.skip_override && !options.include_dnp_as_skip {
             continue;
         }
-        let unpopulated = variant.is_some_and(|v| v.dnp.contains(&c.id));
-        if unpopulated && !options.include_dnp_as_skip {
-            continue;
-        }
-        let bottom = is_bottom(f);
-        let package = variant
-            .and_then(|v| v.footprints.iter().find(|o| o.component == c.id))
-            .map(|o| o.footprint.clone())
-            .unwrap_or_else(|| match &c.library_footprint {
-                Some(fp) => fp.definition.name.clone(),
-                None => c.kind.clone(),
-            });
-        let footprint = clean(&alias(pp, &package));
-        let comment = clean(&c.value);
         let offset = pp
             .rotation_offset
             .iter()
             .find(|r| {
-                (r.comment.is_empty() || r.comment == comment)
-                    && footprint.starts_with(&r.footprint)
+                (r.comment.is_empty() || r.comment == planned.comment)
+                    && planned.package.starts_with(&r.footprint)
             })
             .map_or(0.0, |r| r.offset_deg);
-        let mut rotation = f.rotation + offset;
-        if bottom {
-            rotation = -rotation;
-        }
-        let x = if bottom {
-            p.board.width - f.position.x
-        } else {
-            f.position.x
-        };
-        let reference = clean(&c.reference);
-        if round2(x) < 0.0 || round2(f.position.y) < 0.0 {
+        let rotation = flavour_rotation(
+            row.stored_rotation,
+            offset,
+            planned.bottom,
+            flavour.bottom_rotation,
+            flavour.angle_range,
+        );
+        if round2(row.x) < 0.0 || round2(row.y) < 0.0 {
             return Err(format!(
-                "part {reference} sits outside the board, so its machine coordinate would be negative"
+                "part {} sits outside the board, so its machine coordinate would be negative",
+                planned.reference
             ));
         }
         parts.push(Part {
-            reference,
-            comment,
-            footprint,
-            x,
-            y: f.position.y,
+            reference: planned.reference.clone(),
+            comment: planned.comment.clone(),
+            footprint: planned.package.clone(),
+            x: row.x,
+            y: row.y,
             rotation,
-            bottom,
-            skip: unpopulated,
+            bottom: planned.bottom,
+            skip: planned.skip,
+            nozzle: planned.resolved.nozzle.clone(),
+            speed: planned.resolved.speed_pct,
+            pick: planned.resolved.pick_height_mm,
+            place: planned.resolved.place_height_mm,
+            feeder: planned.feeder.unwrap_or(0),
+            head: 0,
         });
     }
-    parts.sort_by_key(|a| natural(&a.reference));
-    let feeders = assign_feeders(pp, &parts)?;
+    // Group by nozzle (smallest tip first), keeping reference order inside a group.
+    parts.sort_by_key(|q| (q.skip, nozzle_rank(&q.nozzle)));
+    let mut warnings: Vec<String> = plan.problems.iter().map(|q| q.message.clone()).collect();
     let mut files = Vec::new();
     let sides: &[(bool, &str)] = match side {
         YySide::Top => &[(false, "Top.csv")],
@@ -214,53 +298,63 @@ fn generate(
         YySide::Both => &[(false, "Top.csv"), (true, "Bottom.csv")],
     };
     for (bottom, name) in sides {
+        let changes = assign_heads(&mut parts, *bottom);
         let text = match options.layout {
-            YyLayout::Native => native_file(p, &parts, *bottom, &feeders, &mut warnings),
+            YyLayout::Native => native_file(p, &parts, *bottom, &changes, &mut warnings),
             YyLayout::Import => import_file(&parts, *bottom),
         };
         files.push(((*name).to_string(), text.into_bytes()));
     }
-    let sheet = feeder_sheet(
-        pp,
-        &parts,
-        sides.iter().map(|s| s.0).collect(),
-        &feeders,
-        &mut warnings,
-    );
+    let sheet = feeder_sheet(&parts, sides.iter().map(|s| s.0).collect());
     files.push(("FeederSheet.csv".into(), sheet.into_bytes()));
     Ok(NeodenYy1Output { files, warnings })
 }
 
-fn is_bottom(f: &Footprint) -> bool {
-    f.pads.iter().any(|pad| {
-        pad.geometry.as_ref().is_some_and(|g| {
-            let layers = f.pad_geometry_layers(pad);
-            g.pad_type == "smd" && !layers.is_empty() && !layers.iter().any(|l| l.starts_with("F."))
-        })
-    })
-}
-
-fn is_through_hole(f: &Footprint) -> bool {
-    f.pads.iter().any(|pad| {
-        pad.geometry
-            .as_ref()
-            .is_some_and(|g| g.pad_type == "thru_hole")
-    })
-}
-
-/// Strip what would break a comma separated field.
-fn clean(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if matches!(c, ',' | '\r' | '\n' | '"') {
-                ' '
-            } else {
-                c
+/// Give each part of one side its head and list the nozzle changes.
+///
+/// Nozzle types in file order: the first two ride on heads 1 and 2, the next two wait in
+/// the station and are swapped in before their first part, dropping the old nozzle at
+/// the station the new one came from (manual 4.5.2). One type needs no head choice.
+fn assign_heads(parts: &mut [Part], bottom: bool) -> Vec<Change> {
+    let mut kinds: Vec<String> = Vec::new();
+    for q in parts.iter().filter(|q| q.bottom == bottom && !q.skip) {
+        if let Some(n) = &q.nozzle
+            && !kinds.contains(n)
+        {
+            kinds.push(n.clone());
+        }
+    }
+    let mut changes = Vec::new();
+    let mut started: Vec<String> = Vec::new();
+    for (position, q) in parts.iter_mut().filter(|q| q.bottom == bottom).enumerate() {
+        let index = position + 1;
+        q.head = 0;
+        if kinds.len() < 2 || q.skip {
+            continue;
+        }
+        let Some(n) = &q.nozzle else { continue };
+        let Some(kind) = kinds.iter().position(|k| k == n) else {
+            continue;
+        };
+        if kind < 2 {
+            q.head = kind as u32 + 1;
+        } else if kind < 4 {
+            let slot = kind as u32 - 2;
+            let head = slot % 2 + 1;
+            q.head = head;
+            if !started.contains(n) {
+                started.push(n.clone());
+                changes.push(Change {
+                    before: index,
+                    head,
+                    station: slot + 1,
+                });
             }
-        })
-        .collect::<String>()
-        .trim()
-        .to_string()
+        }
+        // A fifth nozzle type or more cannot be loaded in one run: the head stays 0
+        // and the plan has already reported the nozzle count.
+    }
+    changes
 }
 
 /// Round to two decimals and fold negative zero into zero.
@@ -268,79 +362,11 @@ fn round2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0 + 0.0
 }
 
-/// Apply the first matching alias row. A pattern `^abc.*` matches any name
-/// that starts with `abc`; `^abc$` or plain `abc` match that name exactly.
-fn alias(pp: &pcbcraft_doc::PickPlaceSection, name: &str) -> String {
-    for row in &pp.footprint_alias {
-        let pat = row.pattern.strip_prefix('^').unwrap_or(&row.pattern);
-        let hit = if let Some(prefix) = pat.strip_suffix(".*") {
-            name.starts_with(prefix)
-        } else {
-            name == pat.strip_suffix('$').unwrap_or(pat)
-        };
-        if hit {
-            return row.replacement.clone();
-        }
-    }
-    name.to_string()
-}
-
-/// Sort key that puts C2 before C10.
-fn natural(reference: &str) -> (String, u64, String) {
-    let split = reference
-        .find(|c: char| c.is_ascii_digit())
-        .unwrap_or(reference.len());
-    let (prefix, rest) = reference.split_at(split);
-    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    let number = digits.parse().unwrap_or(0);
-    (prefix.to_string(), number, rest[digits.len()..].to_string())
-}
-
-fn is_chip(footprint: &str) -> bool {
-    footprint.len() == 4 && footprint.bytes().all(|b| b.is_ascii_digit())
-}
-
-/// Feeder number for each (comment, footprint) pair that is actually placed.
-fn assign_feeders(
-    pp: &pcbcraft_doc::PickPlaceSection,
-    parts: &[Part],
-) -> Result<BTreeMap<(String, String), u32>, String> {
-    let bank = |name: &str| pp.feeders.iter().find(|b| b.name == name);
-    let mut used: BTreeSet<u32> = pp.feeder_map.iter().map(|r| r.feeder_no).collect();
-    let mut out = BTreeMap::new();
-    let mut keys: Vec<(String, String)> = Vec::new();
-    for part in parts.iter().filter(|p| !p.skip) {
-        let key = (part.comment.clone(), part.footprint.clone());
-        if !keys.contains(&key) {
-            keys.push(key);
-        }
-    }
-    for key in keys {
-        if let Some(row) = pp
-            .feeder_map
-            .iter()
-            .find(|r| r.footprint == key.1 && (r.comment.is_empty() || r.comment == key.0))
-        {
-            out.insert(key, row.feeder_no);
-            continue;
-        }
-        let name = if is_chip(&key.1) { "tape" } else { "flexible" };
-        let bank =
-            bank(name).ok_or_else(|| format!("the machine profile has no {name} feeder range"))?;
-        let number = (bank.first..=bank.last)
-            .find(|n| !used.contains(n))
-            .ok_or_else(|| format!("the {name} feeders are all taken; this board needs more part types than the machine has"))?;
-        used.insert(number);
-        out.insert(key, number);
-    }
-    Ok(out)
-}
-
 fn native_file(
     p: &Project,
     parts: &[Part],
     bottom: bool,
-    feeders: &BTreeMap<(String, String), u32>,
+    changes: &[Change],
     warnings: &mut Vec<String>,
 ) -> String {
     let wanted = if bottom { Layer::Back } else { Layer::Front };
@@ -373,25 +399,31 @@ fn native_file(
         ),
         BLANK_ROW.to_string(),
     ];
-    rows.extend(NOZZLE_ROWS.iter().map(|r| (*r).to_string()));
-    rows.push(BLANK_ROW.to_string());
+    for (i, template) in NOZZLE_ROWS.iter().enumerate() {
+        rows.push(match changes.get(i) {
+            Some(c) => format!(
+                "NozzleChange,ON,BeforeComponent,{},Head{},Drop,Station{},PickUp,Station{},",
+                c.before, c.head, c.station, c.station
+            ),
+            None => (*template).to_string(),
+        });
+    }
     rows.push(BLANK_ROW.to_string());
     rows.push(NATIVE_COLUMNS.to_string());
     for part in parts.iter().filter(|q| q.bottom == bottom) {
-        let feeder = feeders
-            .get(&(part.comment.clone(), part.footprint.clone()))
-            .copied()
-            .unwrap_or(0);
         rows.push(format!(
-            "{},{},{},{:.2},{:.2},{:.2},0,{},{},0.0,0.0,{},{}",
+            "{},{},{},{:.2},{:.2},{:.2},{},{},{},{:.1},{:.1},{},{}",
             part.reference,
             part.comment,
             part.footprint,
             round2(part.x),
             round2(part.y),
             round2(part.rotation.rem_euclid(360.0)).rem_euclid(360.0),
-            feeder,
-            MOUNT_SPEED_PCT,
+            part.head,
+            part.feeder,
+            part.speed,
+            part.pick + 0.0,
+            part.place + 0.0,
             RECOGNITION_CAMERA,
             u8::from(part.skip)
         ));
@@ -401,7 +433,12 @@ fn native_file(
 
 fn import_file(parts: &[Part], bottom: bool) -> String {
     let mut rows = vec![IMPORT_COLUMNS.to_string()];
-    for part in parts.iter().filter(|q| q.bottom == bottom && !q.skip) {
+    let mut sorted: Vec<&Part> = parts
+        .iter()
+        .filter(|q| q.bottom == bottom && !q.skip)
+        .collect();
+    sorted.sort_by_key(|q| natural(&q.reference));
+    for part in sorted {
         let r = part.rotation.rem_euclid(360.0);
         let r = if r > 180.0 { r - 360.0 } else { r };
         let (x, y) = (round2(part.x), round2(part.y));
@@ -417,53 +454,40 @@ fn import_file(parts: &[Part], bottom: bool) -> String {
     join_crlf(&rows)
 }
 
-fn feeder_sheet(
-    pp: &pcbcraft_doc::PickPlaceSection,
-    parts: &[Part],
-    sides: Vec<bool>,
-    feeders: &BTreeMap<(String, String), u32>,
-    warnings: &mut Vec<String>,
-) -> String {
-    let mut counts: BTreeMap<(String, String), u32> = BTreeMap::new();
+/// Sort key that puts C2 before C10.
+fn natural(reference: &str) -> (String, u64, String) {
+    let split = reference
+        .find(|c: char| c.is_ascii_digit())
+        .unwrap_or(reference.len());
+    let (prefix, rest) = reference.split_at(split);
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let number = digits.parse().unwrap_or(0);
+    (prefix.to_string(), number, rest[digits.len()..].to_string())
+}
+
+fn feeder_sheet(parts: &[Part], sides: Vec<bool>) -> String {
+    let mut counts: BTreeMap<(u32, String, String, String), u32> = BTreeMap::new();
     for part in parts
         .iter()
         .filter(|q| sides.contains(&q.bottom) && !q.skip)
     {
         *counts
-            .entry((part.comment.clone(), part.footprint.clone()))
+            .entry((
+                part.feeder,
+                part.comment.clone(),
+                part.footprint.clone(),
+                part.nozzle.clone().unwrap_or_default(),
+            ))
             .or_default() += 1;
     }
-    let mut lines: Vec<(u32, String)> = Vec::new();
-    for (key, quantity) in &counts {
-        let number = feeders.get(key).copied().unwrap_or(0);
-        let nozzle = pp
-            .nozzle
-            .iter()
-            .find(|n| n.packages.iter().any(|pkg| key.1.starts_with(pkg.as_str())));
-        if nozzle.is_none() {
-            warnings.push(format!(
-                "no nozzle in the machine profile fits package {}",
-                key.1
-            ));
-        }
-        let tape = pp
-            .feeders
-            .iter()
-            .any(|b| b.name == "tape" && number >= b.first && number <= b.last);
-        lines.push((
-            number,
-            format!(
-                "{number},{},{},{},{},{quantity},",
-                key.0,
-                key.1,
-                if tape { "8" } else { "" },
-                nozzle.map_or("", |n| n.id.as_str())
-            ),
+    let mut rows = vec![FEEDER_COLUMNS.to_string()];
+    for ((number, comment, footprint, nozzle), quantity) in counts {
+        let tape = (1..=52).contains(&number) && footprint.len() == 4;
+        rows.push(format!(
+            "{number},{comment},{footprint},{},{nozzle},{quantity},",
+            if tape { "8" } else { "" }
         ));
     }
-    lines.sort();
-    let mut rows = vec![FEEDER_COLUMNS.to_string()];
-    rows.extend(lines.into_iter().map(|l| l.1));
     join_crlf(&rows)
 }
 
@@ -476,7 +500,7 @@ fn join_crlf(rows: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Fiducial, Pad, Pin, Variant};
+    use pcbcraft_doc::{Component, Fiducial, Footprint, Pad, Pin, Variant};
     use pcbcraft_geom::Point;
     use pcbcraft_library::FootprintPad;
 
@@ -520,6 +544,7 @@ mod tests {
         pad_kind: (&str, &str),
     ) {
         p.components.push(Component {
+            sourcing: Default::default(),
             id,
             reference: reference.into(),
             value: value.into(),
@@ -534,6 +559,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -549,12 +575,18 @@ mod tests {
                     rules: None,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             }),
             fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             sheet: 0,
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: id + 100,
             component: id,
             position: Point::new(at.0, at.1),
@@ -562,7 +594,9 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad(pad_kind.0, pad_kind.1)],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
     }
 
     /// Flip a placed part to the bottom the way the `footprint.flip` command
@@ -640,6 +674,19 @@ mod tests {
     #[test]
     fn neoden_yy1_native_top_matches_golden_fixture() -> Result<(), String> {
         let out = placement_neoden_yy1(&sample(), YySide::Top, &yy1()?, &native())?;
+        if std::env::var("PCBCRAFT_BLESS").is_ok() {
+            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+            std::fs::write(
+                dir.join("neoden_yy1_top.native.csv"),
+                text(&out, "Top.csv")?,
+            )
+            .map_err(|e| e.to_string())?;
+            std::fs::write(
+                dir.join("neoden_yy1_feeder_sheet.csv"),
+                text(&out, "FeederSheet.csv")?,
+            )
+            .map_err(|e| e.to_string())?;
+        }
         let golden = include_str!("../tests/fixtures/neoden_yy1_top.native.csv");
         assert_eq!(text(&out, "Top.csv")?, golden);
         let sheet = include_str!("../tests/fixtures/neoden_yy1_feeder_sheet.csv");

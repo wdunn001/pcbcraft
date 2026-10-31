@@ -177,3 +177,94 @@ fn polygons_overlap(a: &[Point], b: &[Point]) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ChamferCorners, FootprintPad, PadChamfer};
+    use pcbcraft_geom::Point;
+
+    fn smd_rect(at: Point, size: Point) -> FootprintPad {
+        FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: at,
+            rotation: 0.0,
+            size,
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    #[test]
+    fn pad_outline_closed_repeats_first_vertex_on_rect_pad() -> Result<(), String> {
+        let pad = smd_rect(Point::new(10.0, 20.0), Point::new(2.0, 4.0));
+        let outline = pad_outline_closed(&pad);
+        if outline.len() != 5 {
+            return Err("rect outline must have five closed points".into());
+        }
+        if outline.first() != outline.last() {
+            return Err("closed outline must repeat the first vertex".into());
+        }
+        let expected = [
+            Point::new(9.0, 18.0),
+            Point::new(11.0, 18.0),
+            Point::new(11.0, 22.0),
+            Point::new(9.0, 22.0),
+        ];
+        for (got, want) in outline.iter().take(4).zip(expected) {
+            if *got != want {
+                return Err("rect pad corner mismatch".into());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn pad_outlines_overlap_detects_shared_interior_not_mere_touch() -> Result<(), String> {
+        let left = smd_rect(Point::new(-1.0, 0.0), Point::new(2.0, 2.0));
+        let right = smd_rect(Point::new(1.0, 0.0), Point::new(2.0, 2.0));
+        if !pad_outlines_overlap(&left, &right) {
+            return Err("1 mm overlap on 2 mm pads must count".into());
+        }
+        let gap = smd_rect(Point::new(2.01, 0.0), Point::new(2.0, 2.0));
+        if pad_outlines_overlap(&left, &gap) {
+            return Err("separated pads must not overlap".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn chamfered_pad_outline_applies_corner_cuts() -> Result<(), String> {
+        let pad = FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "chamfered".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            size: Point::new(2.0, 2.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: Some(PadChamfer {
+                ratio: 0.25,
+                corners: ChamferCorners {
+                    top_right: true,
+                    ..Default::default()
+                },
+            }),
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let open_len = pad_outline_closed(&pad).len().saturating_sub(1);
+        if open_len != 5 {
+            return Err("one chamfered corner adds a vertex".into());
+        }
+        Ok(())
+    }
+}
