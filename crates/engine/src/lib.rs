@@ -25899,6 +25899,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             }],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
             retained: vec![],

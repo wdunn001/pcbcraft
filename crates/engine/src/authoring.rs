@@ -25,6 +25,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
+        ("library.footprint.set_box_body","Set an explicit box body width, depth and height in millimetres on a project-library footprint for the 3D view and mechanical exports; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"width":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent in x, millimetres"},"depth":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent in y, millimetres"},"height":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent above the board, millimetres"}}),&["name","width","depth","height"])),
+        ("library.footprint.clear_box_body","Remove the explicit box body from a project-library footprint so 3D and exports fall back to pad-derived defaults",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.renumber_pads","Renumber pads on a project-library footprint with an ordered old-to-new map; embedded copies, their placed pads and matching component pins follow, and a target number already held by an untouched pad is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
         ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
         ("library.footprint.generate","Build an IPC-style land pattern from a bounded family name and package parameters, then create or replace that footprint in the project library",schema(json!({"family":{"type":"string","enum":["chip_2terminal","sot","soic","qfp","qfn","bga","dip","header_single","header_double","radial","axial"]},"density":{"type":"string","enum":["A","B","C"],"default":"B"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string"},"keywords":{"type":"string"},"pitch":{"type":"number"},"pin_count":{"type":"integer","minimum":1,"maximum":256},"body_x":{"type":"number"},"body_y":{"type":"number"},"body_z":{"type":"number"},"rows":{"type":"integer","minimum":2,"maximum":50},"cols":{"type":"integer","minimum":2,"maximum":50},"row_spacing":{"type":"number"},"terminal_width":{"type":"number"},"thermal":{"type":"boolean"}}),&["family","name"])),
@@ -436,6 +438,14 @@ struct RulesParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct BoxBodyParams {
+    name: String,
+    width: f64,
+    depth: f64,
+    height: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Place {
     name: String,
     position: Point,
@@ -713,6 +723,38 @@ pub(super) fn run(
                 return Err(missing());
             }
             def.rules = None;
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({"name": a.name}))
+        }
+        "library.footprint.set_box_body" => {
+            let a: BoxBodyParams = parse(params)?;
+            let body = pcbcraft_library::FootprintBoxBody {
+                width: a.width,
+                depth: a.depth,
+                height: a.height,
+            };
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            def.box_body = Some(body);
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({"name": a.name, "box_body": body}))
+        }
+        "library.footprint.clear_box_body" => {
+            let a: Name = parse(params)?;
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            if def.box_body.is_none() {
+                return Err(missing());
+            }
+            def.box_body = None;
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name}))
         }
@@ -2624,6 +2666,11 @@ pub(super) fn run(
                 for axis in model.scale.iter_mut() {
                     *axis = scale_dim(*axis)?;
                 }
+            }
+            if let Some(body) = &mut footprint.box_body {
+                body.width = scale_dim(body.width)?;
+                body.depth = scale_dim(body.depth)?;
+                body.height = scale_dim(body.height)?;
             }
             let counts = (footprint.pads.len(), count);
             footprint
