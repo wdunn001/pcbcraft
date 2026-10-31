@@ -106,6 +106,31 @@ fn provenance_notice_is_stable_and_under_one_kib() {
 }
 
 #[test]
+fn provenance_notice_round_trips() -> Result<(), SourceError> {
+    let p = provenance();
+    let parsed = Provenance::parse_notice(&p.notice())?;
+    assert_eq!(parsed.kind, p.kind);
+    assert_eq!(parsed.source_name, p.source_name);
+    assert_eq!(parsed.source_id, p.source_id);
+    assert_eq!(parsed.upstream_path, p.upstream_path);
+    assert_eq!(parsed.blob_id, p.blob_id);
+    assert_eq!(parsed.commit_id, p.commit_id);
+    Ok(())
+}
+
+#[test]
+fn provenance_notice_without_source_id_still_parses() -> Result<(), SourceError> {
+    let legacy = "Imported symbol from Open library: Device.kicad_symdir/R.kicad_sym, file revision abc. Licence CC-BY-SA 4.0 (https://example.com/).";
+    let parsed = Provenance::parse_notice(legacy)?;
+    assert_eq!(parsed.kind, CadKind::Symbol);
+    assert_eq!(parsed.source_name, "Open library");
+    assert!(parsed.source_id.is_empty());
+    assert_eq!(parsed.upstream_path, "Device.kicad_symdir/R.kicad_sym");
+    assert_eq!(parsed.blob_id, "abc");
+    Ok(())
+}
+
+#[test]
 fn a_notice_with_unknown_revisions_says_nothing_about_them() {
     let mut p = provenance();
     p.blob_id.clear();

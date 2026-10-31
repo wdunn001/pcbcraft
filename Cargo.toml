@@ -9,17 +9,23 @@ rust-version = "1.95"
 license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
+pcbcraft-clock = { path = "crates/clock" }
 pcbcraft-geom = { path = "crates/geom" }
 pcbcraft-doc = { path = "crates/doc" }
 pcbcraft-rules = { path = "crates/rules" }
 pcbcraft-io = { path = "crates/io" }
 pcbcraft-engine = { path = "crates/engine" }
+pcbcraft-calc = { path = "crates/calc" }
 pcbcraft-mcp = { path = "crates/mcp" }
 pcbcraft-assistant = { path = "crates/assistant" }
 pcbcraft-ui-egui = { path = "crates/ui-egui" }
 pcbcraft-library = { path = "crates/library" }
+pcbcraft-plugin-sdk = { path = "crates/plugin-sdk" }
+pcbcraft-plugin-firmware-target = { path = "crates/plugin-firmware-target" }
 pcbcraft-text = { path = "crates/text" }
+pcbcraft-datasheet = { path = "crates/datasheet" }
 pcbcraft-sim = { path = "crates/sim" }
+pcbcraft-testkit = { path = "crates/testkit" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -42,6 +48,9 @@ truck-stepio = "0.3"
 truck-meshalgo = { version = "0.4", default-features = false, features = ["tessellation"] }
 gltf = { version = "1", default-features = false, features = ["utils"] }
 tempfile = "3"
+web-time = "1.1"
+ipc2581 = "0.3.3"
+rayon = "1.10"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -1,9 +1,9 @@
 use super::{
-    declaration_as_of, declaration_for, exemption_number, finish_is_leaded, is_exempt, is_unknown,
-    list_version_stale, load_list_snapshot, load_rule_set, push_board_hit, push_hit, push_stale,
-    push_unverified, ComplianceFinding, ComplianceRuleSpec,
+    exemption_number, finish_is_leaded, is_exempt, is_unknown, list_version_stale,
+    load_list_snapshot, load_rule_set, push_board_hit, push_hit, push_stale, push_unverified,
+    ComplianceFinding, ComplianceRuleSpec,
 };
-use pcbcraft_doc::{DeclarationStatus, PartRole, Project, part_role_text};
+use pcbcraft_doc::{DeclarationStatus, PartRole, Project};
 
 pub const EU_MARKET_RULE_SET: &str = include_str!("../../data/compliance/rulesets/eu_market.toml");
 const REACH_LIST: &str = include_str!("../../data/compliance/lists/reach_svhc_candidate.toml");
@@ -39,9 +39,6 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
             "declaration_fresh" => {
                 declaration_fresh(project, rule, reach.as_ref(), rohs_ex.as_ref(), &mut out);
             }
-            "attribute_limit" => {
-                attribute_limit(project, rule, &mut out);
-            }
             "board_finish" => {
                 board_finish(project, rule, &mut out);
             }
@@ -66,23 +63,34 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
     out
 }
 
+fn effective_declaration(
+    component: &pcbcraft_doc::Component,
+    regime: &str,
+) -> Option<pcbcraft_doc::Declaration> {
+    component.effective_declarations().into_iter().find(|d| {
+        d.regime
+            .trim()
+            .eq_ignore_ascii_case(regime.trim())
+    })
+}
+
 fn declaration_required(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
+    let mut msg = if rule.message_unverified.is_empty() {
+        "No declaration is recorded for this rule.".to_string()
+    } else {
+        rule.message_unverified.clone()
+    };
+    if !rule.message_reference.is_empty() {
+        msg.push(' ');
+        msg.push_str(&rule.message_reference);
+    }
     for component in &project.components {
-        let mut msg = if rule.message_unverified.is_empty() {
-            "No declaration is recorded for this rule.".to_string()
-        } else {
-            rule.message_unverified.clone()
-        };
-        if !rule.message_reference.is_empty() {
-            msg.push(' ');
-            msg.push_str(&rule.message_reference);
+        if !component.in_bom() {
+            continue;
         }
-        let decl = declaration_for(component, &rule.regime);
-        match decl {
-            None => {
-                push_unverified(out, rule, component.id, &component.reference, &msg);
-            }
-            Some(d) if is_unknown(&d) => {
+        let decl = effective_declaration(component, &rule.regime);
+        match decl.as_ref() {
+            None | Some(d) if is_unknown(d) => {
                 push_unverified(out, rule, component.id, &component.reference, &msg);
             }
             Some(d) if d.status == DeclarationStatus::DeclaredNoncompliant => {
@@ -108,14 +116,19 @@ fn declaration_fresh(
     out: &mut Vec<ComplianceFinding>,
 ) {
     for component in &project.components {
-        let Some(decl) = declaration_for(component, &rule.regime) else {
+        if !component.in_bom() {
+            continue;
+        }
+        let Some(decl) = effective_declaration(component, &rule.regime) else {
             continue;
         };
         if rule.status == "declared_exempt" && !is_exempt(&decl) {
             continue;
         }
         if rule.list == "rohs_exemptions" {
-            let Some(list) = rohs_ex else { continue };
+            let Some(list) = rohs_ex else {
+                continue;
+            };
             let Some(number) = exemption_number(&decl) else {
                 push_stale(
                     out,
@@ -139,13 +152,10 @@ fn declaration_fresh(
             }
         }
         if rule.list == "reach_svhc_candidate" {
-            let Some(list) = reach else { continue };
-            if list_version_stale(
-                &decl.detail,
-                &list.version,
-                &list.retrieved,
-                declaration_as_of(&decl),
-            ) {
+            let Some(list) = reach else {
+                continue;
+            };
+            if list_version_stale(&decl.detail, &list.version, &list.retrieved, &decl.as_of) {
                 push_stale(
                     out,
                     rule,
@@ -156,29 +166,6 @@ fn declaration_fresh(
                         decl.detail, list.version
                     ),
                     &rule.message_stale,
-                );
-            }
-        }
-    }
-}
-
-fn attribute_limit(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
-    if rule.attribute != "substance_weight_percent" {
-        return;
-    }
-    for component in &project.components {
-        for substance in &component.compliance.substances {
-            if substance.weight_percent > rule.limit {
-                push_hit(
-                    out,
-                    rule,
-                    component.id,
-                    &component.reference,
-                    &format!(
-                        "{} at {:.3}% by weight",
-                        substance.name, substance.weight_percent
-                    ),
-                    &rule.message_hit,
                 );
             }
         }
@@ -213,24 +200,21 @@ fn board_finish(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<Comp
 }
 
 fn classification_report(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
+    let want_battery = rule.role == "battery";
     for component in &project.components {
-        let Some(role) = component.compliance.role else {
-            continue;
-        };
-        if !role_matches(&rule.role, role) {
+        if !component.in_bom() {
             continue;
         }
-        push_hit(
-            out,
-            rule,
-            component.id,
-            &component.reference,
-            &format!("role is {}", part_role_text(role)),
-            &rule.message_hit,
-        );
+        let is_battery = component.compliance.role == Some(PartRole::Battery);
+        if want_battery && is_battery {
+            push_hit(
+                out,
+                rule,
+                component.id,
+                &component.reference,
+                "part role is battery",
+                &rule.message_hit,
+            );
+        }
     }
-}
-
-fn role_matches(rule_role: &str, role: PartRole) -> bool {
-    rule_role.eq_ignore_ascii_case(part_role_text(role))
 }

@@ -390,6 +390,7 @@ pub fn read_vrml(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
             positions: vec![],
             indices: vec![],
             color: None,
+            body_colors: None,
         },
     };
     let mut id: M = [[0.0; 4]; 4];

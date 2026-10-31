@@ -1,6 +1,7 @@
 {
   "format": "pcbcraft",
   "version": 1,
+  "layer_naming": "stackup",
   "name": "LED indicator",
   "unit": "mm",
   "components": [
