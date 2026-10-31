@@ -33,6 +33,8 @@ pub use compliance::{
     MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_SUBSTANCES,
 };
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
+mod export_trade;
+pub use export_trade::{ExportTradeSettings, MAX_HTS_PREFIX, MAX_TARIFF_ROWS, TariffExposureRow};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::de::{self, Visitor};
@@ -4111,6 +4113,7 @@ impl Default for Project {
             graphics: vec![],
             labels: vec![],
             no_connects: vec![],
+            export_trade: ExportTradeSettings::default(),
             board: Board {
                 width: 60.0,
                 height: 40.0,
@@ -5366,6 +5369,7 @@ impl Project {
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
+        self.export_trade.validate()?;
         self.validate_parameters()?;
         validate_compliance_settings(&self.compliance)?;
         for compliance in self.compliance.parts.values() {
