@@ -17,10 +17,10 @@ const MAX_SHEETS: usize = 64;
 const MAX_PRESERVED_BYTES: usize = 512 * 1024;
 
 pub fn read_schematic_interchange(text: &str) -> Result<Project, String> {
-    read_schematic_interchange_path(Path::new("."), text)
+    read_schematic_interchange_path(Path::new("."), text).map(|(project, _)| project)
 }
 
-pub fn read_schematic_interchange_path(path: &Path, text: &str) -> Result<Project, String> {
+pub fn read_schematic_interchange_path(path: &Path, text: &str) -> Result<(Project, usize), String> {
     let root = parse_sexpr(text).map_err(format_sexpr_error(text))?;
     if root.name() != "kicad_sch" {
         return Err("expected a schematic interchange root".into());
@@ -479,7 +479,6 @@ impl ImportCtx {
                 project.sheets.push(Sheet {
                     id: page.sheet_id,
                     name: page.sheet_name.clone(),
-                    interchange_uuid: page.sheet_uuid.clone(),
                     parent: Some(0),
                     entry: None,
                 });
@@ -652,16 +651,16 @@ impl ImportCtx {
                     text: String::new(),
                 });
             }
-            for (pin_name, pos, uuid) in &page.sheet_pins {
+            for (pin_name, pos, _) in &page.sheet_pins {
                 let id = self.alloc();
-                let net = lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos).unwrap_or(0);
+                let net = lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos)
+                    .ok_or_else(|| format!("sheet pin {pin_name} is not on a derived net"))?;
                 project.ports.push(Port {
                     id,
                     name: pin_name.clone(),
                     net,
                     sheet: page.sheet_id,
                     position: *pos,
-                    interchange_uuid: uuid.clone(),
                 });
             }
         }
@@ -707,7 +706,7 @@ impl ImportCtx {
 
         project.nets = nets;
         project.validate()?;
-        Ok(project)
+        Ok((project, self.preserved_bytes))
     }
 }
 
