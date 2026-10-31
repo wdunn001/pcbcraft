@@ -3080,8 +3080,10 @@ dependencies = [
  "pcbcraft-mcp",
  "pcbcraft-rules",
  "pcbcraft-text",
+ "rayon",
  "serde",
  "serde_json",
+ "skrifa",
  "tempfile",
 ]
 
@@ -3090,6 +3092,7 @@ name = "pcbcraft-web"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "js-sys",
  "pcbcraft-engine",
  "pcbcraft-mcp",
  "pcbcraft-text",

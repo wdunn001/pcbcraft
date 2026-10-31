@@ -42,6 +42,7 @@ truck-stepio = "0.3"
 truck-meshalgo = { version = "0.4", default-features = false, features = ["tessellation"] }
 gltf = { version = "1", default-features = false, features = ["utils"] }
 tempfile = "3"
+rayon = "1.10"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

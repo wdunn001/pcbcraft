@@ -128,7 +128,7 @@ jobs:
           for f in "pcbcraft-$TAG-"*; do
             case "$f" in
               *-source.tar.gz | *-source-vendored.tar.gz) ;;
-              *.tar.gz | *.zip | *.dmg)
+              *.tar.gz | *.zip | *.dmg | *.AppImage | *.AppImage.zsync | *.deb | *.rpm | *.flatpak | *.snap)
                 cp -- "$f" "pcbcraft-${f#"pcbcraft-$TAG-"}" ;;
             esac
           done

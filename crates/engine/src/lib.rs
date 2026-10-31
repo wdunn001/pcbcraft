@@ -7,6 +7,8 @@
 //! # Dependencies
 //! - crates/doc/src/lib.rs
 //! - crates/io/src/lib.rs
+//! - crates/engine/src/artifacts.rs
+//! - crates/engine/src/profiles.rs
 //! - crates/geom/src/lib.rs
 mod artifacts;
 mod authoring;
@@ -18,6 +20,7 @@ mod online;
 mod outline;
 pub mod profiles;
 pub mod recents;
+pub mod recovery;
 pub mod scope;
 pub mod wirelength;
 pub use dry_run::{ChangeSummary, DryRun};
@@ -26,6 +29,7 @@ mod selection_clip;
 mod snapmaker;
 mod summary;
 mod tuning;
+mod via_protection;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
@@ -1442,14 +1446,6 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "via.set_covering",
-            "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
-            schema(
-                json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
-                &["id"],
-            ),
-        ),
-        (
             "via.allow_span",
             "Allow or forbid one extra via span on this board, such as a buried span the fabricator offers; forbidding is refused while a via uses the span",
             schema(
@@ -2095,7 +2091,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.package",
             "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
             schema(
-                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64}}),
+                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64},"previous":{"type":"string","minLength":1,"maxLength":4096}}),
                 &["path"],
             ),
         ),
@@ -2346,6 +2342,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
+        .chain(via_protection::commands())
         .collect()
 }
 
@@ -2704,6 +2701,7 @@ fn render_kind(
     creation: Option<&str>,
     variant: Option<&str>,
     skipped: &mut Vec<String>,
+    model_base: Option<&std::path::Path>,
 ) -> Result<Vec<(String, Vec<u8>)>, Error> {
     let mut out: Vec<(String, Vec<u8>)> = Vec::new();
     match kind {
@@ -2732,10 +2730,14 @@ fn render_kind(
         "cmp" => out.push(("pcb.cmp".into(), pcbcraft_io::cmp_text(p)?.into_bytes())),
         "idf" => out.push(("board.idf".into(), pcbcraft_io::idf_board(p)?.into_bytes())),
         "vrml" => out.push(("board.wrl".into(), pcbcraft_io::vrml_board(p)?.into_bytes())),
-        "step" => out.push((
-            "board.step".into(),
-            pcbcraft_io::step_board(p)?.into_bytes(),
-        )),
+        "step" => {
+            let loader = pcbcraft_io::project_step_loader(p, model_base);
+            let export = pcbcraft_io::step_board_with_models(p, &loader).map_err(Error::Invalid)?;
+            for note in export.notes {
+                skipped.push(note);
+            }
+            out.push(("board.step".into(), export.text.into_bytes()));
+        }
         "pdf" => out.push(("board.pdf".into(), pcbcraft_io::pdf_document(p, "pcb")?)),
         "svg" => out.push(("board.svg".into(), pcbcraft_io::svg(p, "pcb")?.into_bytes())),
         "ipc2581" => out.push((
@@ -3929,12 +3931,30 @@ struct NetSwapParams {
 struct ComponentRef {
     component: Id,
 }
+/// Parameters of `output_job.add`: name a reusable fabrication export recipe.
+///
+/// # Rules
+/// - `name` is trimmed to 1 to 64 bytes and must be unique among output jobs.
+/// - Every entry in `kinds` must be a known export kind; duplicates are sorted and deduped.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OutputJobAddParams {
     name: String,
     kinds: Vec<String>,
 }
+/// Parameters of `output_job.run`: write files for a saved output job into a directory.
+///
+/// # Rules
+/// - Refused when the session is read-only; the named job must exist.
+/// - `directory` is 1 to 4096 bytes; linked artifact records export instead of raw kinds when present.
+/// - `uv_print` settings apply only when the job lists the uv_print kind and no artifacts are linked.
+///
+/// # Dependencies
+/// - crates/engine/src/artifacts.rs
+/// - crates/io/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OutputJobRunParams {
@@ -4031,6 +4051,13 @@ fn default_yy1_side() -> String {
 fn default_yy1_layout() -> String {
     "native".into()
 }
+/// Parameters of `output_job.remove`: identify a saved output job by name.
+///
+/// # Rules
+/// - `name` must match an existing output job or the command is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OutputJobRef {
@@ -4087,6 +4114,15 @@ struct ArtifactStaleParams {
     #[serde(default)]
     ids: Vec<Id>,
 }
+/// Parameters of `output_job.package`: build a ZIP fabrication bundle on disk.
+///
+/// # Rules
+/// - `path` names a file (1 to 4096 bytes), not a directory.
+/// - Pass either `job` or `kinds`, not both; empty `kinds` selects the default fabrication bundle.
+/// - Optional `variant` must name an existing project variant.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OutputJobPackageParams {
@@ -4097,6 +4133,8 @@ struct OutputJobPackageParams {
     kinds: Vec<String>,
     #[serde(default)]
     variant: Option<String>,
+    #[serde(default)]
+    previous: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4660,6 +4698,14 @@ struct NetClassAssignParams {
     #[serde(default)]
     class: Option<Id>,
 }
+/// Parameters of `bom.export`: choose columns, variant, parts, and grouping for BOM rows.
+///
+/// # Rules
+/// - At most 16 property keys, each 1 to 64 bytes; empty `fields` uses `Project::bom_fields`.
+/// - Optional `variant` must exist; `ids` caps at 4096 components when filtering.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BomParams {
@@ -4713,6 +4759,14 @@ struct RuleRegionParams {
     width: f64,
     height: f64,
 }
+/// Parameters of `rules.include_region`: remove spatial exclusions for a check code.
+///
+/// # Rules
+/// - `code` is 1 to 32 bytes and must already have excluded regions.
+/// - Omit `index` to drop every rectangle; pass `index` to remove one slot (0-based).
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RuleRegionLiftParams {
@@ -4758,12 +4812,27 @@ struct PanelExportParams {
 fn default_rail() -> f64 {
     3.0
 }
+/// Parameters of `rules.area_set_height`: set or clear a rule area height limit.
+///
+/// # Rules
+/// - `id` must match a board rule area; `height` when set must be 0.1 to 100 millimetres.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AreaHeightParams {
     id: Id,
     height: Option<f64>,
 }
+/// Parameters of `board.layer_add`: create a user-drawn board art layer.
+///
+/// # Rules
+/// - `name` is 1 to 64 bytes and unique; at most 32 user layers on the board.
+/// - Optional `kind` maps through `art_kind`; dot pitch and size bounds apply when set.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerAddParams {
@@ -4777,29 +4846,64 @@ struct LayerAddParams {
     #[serde(default)]
     dot_size: Option<f64>,
 }
+/// Parameters of `board.layer_delete`: remove a user-drawn layer by id.
+///
+/// # Rules
+/// - `layer` must match a `Board::user_layers` entry.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerRefParams {
     layer: Id,
 }
+/// Parameters of `board.layer_rename`: change a user layer display name.
+///
+/// # Rules
+/// - New `name` is 1 to 64 bytes and must not collide with another user layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerNameParams {
     layer: Id,
     name: String,
 }
+/// Parameters of `board.layer_kind_set`: set the art kind of a user layer.
+///
+/// # Rules
+/// - `kind` must be cut, perforation, silk, mask, or other.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerKindParams {
     layer: Id,
     kind: String,
 }
+/// Parameters of `board.layer_dotted_set` and `board.layer_visible_set`: toggle layer flags.
+///
+/// # Rules
+/// - `layer` must exist on `Board::user_layers`; `on` sets dotted or visible.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerFlagParams {
     layer: Id,
     on: bool,
 }
+/// Parameters of `board.layer_line_add`: append a line figure to a user layer.
+///
+/// # Rules
+/// - Endpoints pass `art_range`; at most 512 figures per layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerLineParams {
@@ -4809,6 +4913,13 @@ struct LayerLineParams {
     x2: f64,
     y2: f64,
 }
+/// Parameters of `board.layer_rect_add`: append an axis-aligned rectangle to a user layer.
+///
+/// # Rules
+/// - Width and height are 0.001 to 1000 mm; corners pass `art_range`; at most 512 figures per layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerRectParams {
@@ -4818,6 +4929,13 @@ struct LayerRectParams {
     width: f64,
     height: f64,
 }
+/// Parameters of `board.layer_circle_add`: append a circle figure to a user layer.
+///
+/// # Rules
+/// - Radius is 0.001 to 500 mm; centre passes `art_range`; at most 512 figures per layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerCircleParams {
@@ -4826,12 +4944,26 @@ struct LayerCircleParams {
     y: f64,
     radius: f64,
 }
+/// Parameters of `board.layer_poly_add`: append a polyline outline to a user layer.
+///
+/// # Rules
+/// - `points` holds 2 to 64 vertices, each passing `art_range`; at most 512 figures per layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerPolyParams {
     layer: Id,
     points: Vec<[f64; 2]>,
 }
+/// Parameters of `board.layer_text_add`: append text to a user layer.
+///
+/// # Rules
+/// - `text` is 1 to 128 bytes; optional `size` defaults to 1.0 and must be 0.2 to 50 mm.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerTextParams {
@@ -4842,6 +4974,13 @@ struct LayerTextParams {
     #[serde(default)]
     size: Option<f64>,
 }
+/// Parameters of `board.layer_shape_delete`: remove one figure from a user layer.
+///
+/// # Rules
+/// - `index` must be in range for the layer shape list.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerShapeParams {
@@ -4871,6 +5010,14 @@ fn art_range(x: f64, y: f64) -> Result<(), Error> {
         Err(Error::Invalid("layer figure is out of range".into()))
     }
 }
+/// Parameters of `rules.area_add`: add a rectangular clearance or keepout region.
+///
+/// # Rules
+/// - Rectangle and clearance bounds match the handler; optional net and layer must resolve.
+/// - At most 64 rule areas; optional `max_height` is 0.1 to 100 mm when set.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 #[allow(dead_code)]
@@ -5057,6 +5204,13 @@ struct StackupRenameParams {
     name: String,
     new_name: String,
 }
+/// Parameters of `board.set_machining`: merge fabrication machining notes onto the board.
+///
+/// # Rules
+/// - At least one of edge plating or tolerances must be sent; tolerances are finite within 1 mm.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MachiningParams {
@@ -5067,6 +5221,14 @@ struct MachiningParams {
     #[serde(default)]
     edge_tolerance: Option<f64>,
 }
+/// Parameters of `board.set_diffpair`: create or update a differential pair record.
+///
+/// # Rules
+/// - Distinct non-zero nets; gap 0.02 to 10 mm; length tolerance 0 to 100 mm when set.
+/// - Name collision rules differ for create versus update by optional `id`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DiffPairParams {
@@ -5079,12 +5241,27 @@ struct DiffPairParams {
     #[serde(default)]
     id: Option<Id>,
 }
+/// Parameters of `board.rename_diffpair`: change a differential pair display name.
+///
+/// # Rules
+/// - `id` must exist; trimmed `name` must be non-empty and unique among pairs.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DiffPairRenameParams {
     id: Id,
     name: String,
 }
+/// Parameters of `board.set_pair_rule` and `board.remove_pair_rule`: net-pair clearance.
+///
+/// # Rules
+/// - For set, `clearance` is required, 0 to 100 mm, between two different non-zero nets.
+/// - For remove, `clearance` must be omitted; at most 64 pair rules on the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PairRuleParams {
@@ -5093,11 +5270,26 @@ struct PairRuleParams {
     #[serde(default)]
     clearance: Option<f64>,
 }
+/// Parameters of `bom.set_fields`: define BOM column keys and labels stored on the project.
+///
+/// # Rules
+/// - 1 to 16 fields; each key and label 1 to 64 bytes with unique keys.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BomFieldsParams {
     fields: Vec<pcbcraft_doc::BomField>,
 }
+/// Parameters of `file.attach` and `file.remove`: name embedded project files.
+///
+/// # Rules
+/// - `name` trimmed to 1 to 128 bytes; attach data at most 256 KiB, at most 32 files.
+/// - Remove refuses while a reference image still points at the file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FileParams {
@@ -5105,6 +5297,13 @@ struct FileParams {
     #[serde(default)]
     data: String,
 }
+/// Parameters of `variant.create`: add a build variant with optional DNP list.
+///
+/// # Rules
+/// - Name 1 to 64 bytes, unique; at most 16 variants; each DNP id must be a component.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VariantCreateParams {
@@ -5114,6 +5313,13 @@ struct VariantCreateParams {
     #[serde(default)]
     dnp: Vec<Id>,
 }
+/// Parameters of `variant.set_note`: set or clear a variant note string.
+///
+/// # Rules
+/// - Variant must exist; note at most 256 bytes when present.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VariantNoteParams {
@@ -5121,6 +5327,13 @@ struct VariantNoteParams {
     #[serde(default)]
     note: Option<String>,
 }
+/// Parameters of `variant.set_dnp`: add or remove do-not-populate component ids.
+///
+/// # Rules
+/// - At most 512 ids; each must be a component; `dnp` false removes listed ids.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VariantDnpParams {
@@ -5129,6 +5342,14 @@ struct VariantDnpParams {
     #[serde(default)]
     dnp: Option<bool>,
 }
+/// Parameters of `variant.set_footprint` and `variant.clear_footprint`: per-variant swaps.
+///
+/// # Rules
+/// - Set requires a 1 to 128 byte footprint name; clear must omit `footprint`.
+/// - At most 512 footprint overrides per variant.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VariantFootprintParams {
@@ -5137,6 +5358,13 @@ struct VariantFootprintParams {
     #[serde(default)]
     footprint: Option<String>,
 }
+/// Parameters of `variant.remove`: delete a build variant by name.
+///
+/// # Rules
+/// - Trimmed `name` must match an existing variant.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VariantNameParams {
@@ -5708,13 +5936,6 @@ enum TrackEnd {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ViaCoveringParams {
-    id: Id,
-    #[serde(default)]
-    covering: Option<pcbcraft_doc::ViaCovering>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ViaCoveringDefaultParams {
     covering: pcbcraft_doc::ViaCovering,
 }
@@ -6236,6 +6457,13 @@ fn align_center(item: (Id, bool, f64, f64, f64, f64), axis_x: bool) -> f64 {
 fn default_stitch_spacing() -> f64 {
     1.0
 }
+/// Parameters of `board.resize`: set the board rectangle width and height in millimetres.
+///
+/// # Rules
+/// - Values are stored as given; the handler does not re-validate geometry here.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Resize {
@@ -6258,6 +6486,14 @@ fn merge_fab_mm(dst: &mut Option<f64>, src: Option<f64>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Parameters of `board.rules.set`: update default clearance and fabrication minimums.
+///
+/// # Rules
+/// - Requires a clearance and/or at least one fabrication field; mm fields use `fab_mm_ok`.
+/// - Aspect ratio 1 to 50; plating allowance 0 to 0.5 mm; merged rules must pass `FabRules::valid`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BoardRulesSetParams {
@@ -6356,6 +6592,13 @@ struct ClassPairRemoveParams {
 struct PresetApplyParams {
     name: String,
 }
+/// Parameters of `board.cutout.add`: place a circular board cutout.
+///
+/// # Rules
+/// - Centre and radius are stored on a new cutout id; bounds checks happen on later move or resize commands.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Cut {
@@ -7578,6 +7821,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = tuning::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = via_protection::run(p, command, params) {
         return result;
     }
     if let Some(result) = images::run(p, next, command, params) {
@@ -12763,6 +13009,16 @@ fn run_command(
                     n.saturating_sub(1)
                 )));
             }
+            if p.board
+                .outline_arcs
+                .get(a.segment)
+                .and_then(|m| *m)
+                .is_some()
+            {
+                return Err(Error::Invalid(
+                    "notches only work on straight outline edges".into(),
+                ));
+            }
             if n + 4 > 64 {
                 return Err(Error::Invalid(
                     "a board outline holds at most 64 vertices".into(),
@@ -12978,6 +13234,7 @@ fn run_command(
                 from_layer,
                 to_layer,
                 covering: None,
+                covering_bottom: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -13121,6 +13378,7 @@ fn run_command(
                         from_layer: None,
                         to_layer: None,
                         covering: None,
+                        covering_bottom: None,
                     });
                     ids.push(id);
                 }
@@ -15047,6 +15305,15 @@ fn run_command(
             }
         }
         "checks.custom_add" => {
+            /// Parameters of `checks.custom_add`: add a designer-defined numeric check.
+            ///
+            /// # Rules
+            /// - `name` is trimmed to 1 to 80 bytes; at most 32 custom checks on the project.
+            /// - `measure` must be one of the five listed plain-text measures.
+            /// - `limit` is finite, above zero, and at most 100000; default severity is warning.
+            ///
+            /// # Dependencies
+            /// - crates/doc/src/lib.rs
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
             struct CustomAdd {
@@ -15102,6 +15369,13 @@ fn run_command(
             Ok(json!({"id": id}))
         }
         "checks.custom_remove" => {
+            /// Parameters of `checks.custom_remove`: delete one custom check by id.
+            ///
+            /// # Rules
+            /// - `id` must match a row in `Project::custom_checks`.
+            ///
+            /// # Dependencies
+            /// - crates/doc/src/lib.rs
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
             struct CustomRemove {
@@ -15203,7 +15477,9 @@ fn run_command(
             }
             Ok(json!({"id": a.id}))
         }
+        // `rules.profile_list`: returns the built-in rule profile catalogue without editing the project.
         "rules.profile_list" => Ok(profiles::profile_list()),
+        // `rules.profile_apply`: copies a named profile onto board rules and related fields.
         "rules.profile_apply" => profiles::profile_apply(p, next, params).map_err(Error::Invalid),
         "board.layer_add" => {
             let a: LayerAddParams = parse(params)?;
@@ -15461,6 +15737,7 @@ fn run_command(
             p.board.machining = Some(notes.clone());
             Ok(json!({"machining": notes}))
         }
+        // `board.clear_machining`: drops stored machining notes when params is an empty object.
         "board.clear_machining" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid(
@@ -15664,6 +15941,7 @@ fn run_command(
             p.bom_fields = a.fields;
             Ok(json!({"count": p.bom_fields.len()}))
         }
+        // `bom.clear_fields`: clears every BOM column definition when params is an empty object.
         "bom.clear_fields" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid(
@@ -16040,7 +16318,9 @@ fn run_command(
 
                         continue;
                     }
-                    for (name, bytes) in render_kind(p, kind, None, None, &mut skipped)? {
+                    for (name, bytes) in
+                        render_kind(p, kind, None, None, &mut skipped, Some(directory))?
+                    {
                         pcbcraft_io::atomic_write(&directory.join(&name), &bytes)
                             .map_err(Error::Invalid)?;
                         written.push(name);
@@ -16124,6 +16404,7 @@ fn run_command(
                     Some(pcbcraft_io::PACKAGE_CREATION_DATE),
                     variant.as_deref(),
                     &mut skipped,
+                    None,
                 )? {
                     entries.push(pcbcraft_io::PackageEntry {
                         name,
@@ -16132,6 +16413,35 @@ fn run_command(
                     });
                 }
             }
+            let previous_bom = match a.previous.as_deref().map(str::trim) {
+                None | Some("") => None,
+                Some(previous_path) => {
+                    if previous_path.len() > 4096 {
+                        return Err(Error::Invalid(
+                            "the previous package path is out of range".into(),
+                        ));
+                    }
+                    let previous = std::path::Path::new(previous_path);
+                    if previous.is_dir() {
+                        return Err(Error::Invalid(
+                            "the previous package path names a file, not a folder".into(),
+                        ));
+                    }
+                    let zip = std::fs::read(previous).map_err(|e| {
+                        Error::Invalid(format!("could not read the previous package: {e}"))
+                    })?;
+                    Some(pcbcraft_io::previous_bom_from_package(&zip).map_err(Error::Invalid)?)
+                }
+            };
+            let previous_bom_csv = previous_bom.as_ref().map(|csv| csv.as_deref());
+            pcbcraft_io::attach_revision_notes_entry(
+                p,
+                &job,
+                variant.as_deref(),
+                &mut entries,
+                previous_bom_csv,
+            )
+            .map_err(Error::Invalid)?;
             let bytes = pcbcraft_io::package_zip(p, &job, variant.as_deref(), &entries)?;
             pcbcraft_io::atomic_write(std::path::Path::new(path), &bytes)
                 .map_err(Error::Invalid)?;
@@ -16525,6 +16835,7 @@ fn run_command(
             Ok(json!({"name": name, "count": p.variants.len()}))
         }
         "bom.export" => bom_export(p, params),
+        // `board.sync`: rebuilds board footprints from schematic parts when params is an empty object.
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
@@ -17893,25 +18204,6 @@ fn run_command(
                 a.mode,
             )
         }
-        "via.set_covering" => {
-            let a: ViaCoveringParams = parse(params)?;
-            let via = p
-                .board
-                .vias
-                .iter_mut()
-                .find(|v| v.id == a.id)
-                .ok_or_else(missing)?;
-            if via.drill <= 0.0
-                && a.covering
-                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
-            {
-                return Err(Error::Invalid(
-                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
-                ));
-            }
-            via.covering = a.covering;
-            Ok(json!({"id":a.id,"covering":via.covering}))
-        }
         "board.set_via_covering_default" => {
             let a: ViaCoveringDefaultParams = parse(params)?;
             p.board.via_covering_default = a.covering;
@@ -17937,9 +18229,10 @@ fn run_command(
                 ));
             }
             if drill <= 0.0
-                && via
-                    .covering
-                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+                && [via.covering, via.covering_bottom]
+                    .into_iter()
+                    .flatten()
+                    .any(|c| c != pcbcraft_doc::ViaCovering::Open)
             {
                 return Err(Error::Invalid(
                     "a tented, plugged or filled via needs a drilled hole".into(),
@@ -19626,7 +19919,8 @@ mod tests {
             .ok_or_else(missing)?;
         let mirrored_x = -centre.x;
         assert!(
-            gerber["pcb-B.Cu.gbr"].contains(&format!("{mirrored_x:.6}")),
+            gerber["pcb-B.Cu.gbr"]
+                .contains(&format!("X{}Y", (mirrored_x * 1_000_000.0).round() as i64)),
             "bottom copper carries the mirrored pad flash"
         );
         assert!(
@@ -30462,6 +30756,33 @@ mod tests {
     }
 
     #[test]
+    fn a_notch_on_an_arced_outline_edge_is_refused() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "board.set_outline",
+            json!({"points":[[0.0,0.0],[40.0,0.0],[40.0,30.0],[0.0,30.0]]}),
+            None,
+        )?;
+        s.execute(
+            "board.outline_set_arc",
+            json!({"segment":0,"radius":25.0,"side":"convex"}),
+            None,
+        )?;
+        let before = s.project.clone();
+        assert!(
+            s.execute(
+                "board.notch",
+                json!({"segment":0,"at":20.0,"width":4.0,"depth":3.0}),
+                None,
+            )
+            .is_err(),
+            "arc segments cannot be notched yet"
+        );
+        assert_eq!(s.project, before);
+        Ok(())
+    }
+
+    #[test]
     fn assign_to_ignores_unplated_pads_when_matching_pins() -> Result<(), Error> {
         let footprint = pcbcraft_library::read_footprint(
             "(footprint PegConn (pad 1 thru_hole circle (at -2.54 0) (size 1.6 1.6) (drill 0.8) (layers *.Cu *.Mask)) \
@@ -31464,6 +31785,58 @@ mod tests {
     }
 
     #[test]
+    fn export_step_reports_a_model_that_could_not_be_read() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = pcbcraft_library::read_footprint(
+            "(footprint M (layer F.Cu)\
+             (model \"parts/body.step\" (at (xyz 0 0 0)))\
+             (pad 1 smd rect (at -1 0) (size 1 1) (layers F.Cu))\
+             (pad 2 smd rect (at 1 0) (size 1 1) (layers F.Cu)))",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("missing id".into()))?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute("footprint.assign_custom", json!({"id":id,"name":"M"}), None)?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-step-note-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"step-only","kinds":["step"]}),
+            None,
+        )?;
+        let out = s.execute(
+            "output_job.run",
+            json!({"name":"step-only","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let skipped = out["result"]["skipped"]
+            .as_array()
+            .ok_or_else(|| Error::Invalid("expected skipped notes".into()))?;
+        assert!(
+            skipped.iter().any(|v| {
+                v.as_str()
+                    .is_some_and(|line| line.starts_with("R1:") && line.contains("body.step"))
+            }),
+            "the export names the part and the missing model: {skipped:?}"
+        );
+        assert!(directory.join("board.step").exists());
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
     fn output_jobs_write_mechanical_and_drawing_kinds() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let directory =
@@ -31819,7 +32192,7 @@ mod tests {
         let front = std::fs::read_to_string(directory.join("pcb-F.Cu.gbr"))
             .map_err(|e| Error::Invalid(e.to_string()))?;
         assert!(
-            front.contains("X20.000000Y30.000000"),
+            front.contains("X20000000Y30000000"),
             "the new track is exported"
         );
         s.execute(
@@ -31890,6 +32263,7 @@ mod tests {
             .collect();
         let expected = [
             "README-fabrication.txt",
+            "REVISION-NOTES.txt",
             "bom.csv",
             "pcb-B.Cu.gbr",
             "pcb-B.Mask.gbr",
@@ -31955,6 +32329,42 @@ mod tests {
     }
 
     #[test]
+    fn package_revision_notes_list_part_changes_from_a_previous_export() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let first = std::env::temp_dir().join(format!("pcbcraft-prev-{}.zip", std::process::id()));
+        let second = std::env::temp_dir().join(format!("pcbcraft-next-{}.zip", std::process::id()));
+        s.execute(
+            "output_job.package",
+            json!({"path": first.to_string_lossy()}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R99","position":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        s.execute(
+            "output_job.package",
+            json!({"path": second.to_string_lossy(), "previous": first.to_string_lossy()}),
+            None,
+        )?;
+        let entries =
+            package_entries(&std::fs::read(&second).map_err(|e| Error::Invalid(e.to_string()))?)?;
+        let notes = entries
+            .iter()
+            .find(|(name, _)| name == "REVISION-NOTES.txt")
+            .ok_or_else(|| Error::Invalid("revision notes are packaged".into()))?;
+        let text = String::from_utf8_lossy(&notes.1);
+        assert!(
+            text.contains("Added parts: R99"),
+            "the notes list new bill references"
+        );
+        let _ = std::fs::remove_file(&first);
+        let _ = std::fs::remove_file(&second);
+        Ok(())
+    }
+
+    #[test]
     fn package_twice_is_byte_identical_and_leaves_the_design_alone() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let first = std::env::temp_dir().join(format!("pcbcraft-again-{}.zip", std::process::id()));
@@ -32007,7 +32417,15 @@ mod tests {
         let entries =
             package_entries(&std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?)?;
         let names: Vec<&str> = entries.iter().map(|(name, _)| name.as_str()).collect();
-        assert_eq!(names, ["manifest.json", "bom.csv", "placement.txt"]);
+        assert_eq!(
+            names,
+            [
+                "manifest.json",
+                "REVISION-NOTES.txt",
+                "bom.csv",
+                "placement.txt"
+            ]
+        );
         assert!(
             s.execute(
                 "output_job.package",
@@ -32972,6 +33390,56 @@ mod tests {
             before,
             "both imports undo back to the empty project library"
         );
+        std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+    #[test]
+    fn import_footprint_file_records_the_given_notice() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-notice-fp-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let footprint_path = directory.join(format!("notice-{}.kicad_mod", std::process::id()));
+        std::fs::write(
+            &footprint_path,
+            std::fs::read_to_string(library_fixture("R_0805_2012Metric.kicad_mod"))
+                .map_err(|e| Error::Invalid(e.to_string()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        const NOTICE: &str = "Added by hand from a download; check the provider terms";
+        s.execute(
+            "library.import_footprint_file",
+            json!({"path": footprint_path.to_string_lossy(), "notice": NOTICE}),
+            None,
+        )?;
+        assert_eq!(s.project.library.notices, vec![NOTICE.to_owned()]);
+        s.undo()?;
+        assert!(s.project.library.notices.is_empty());
+        std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+    #[test]
+    fn import_symbol_file_records_the_given_notice() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-notice-sym-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let symbol_path = directory.join(format!("notice-{}.kicad_sym", std::process::id()));
+        std::fs::write(
+            &symbol_path,
+            std::fs::read_to_string(library_fixture("device.kicad_sym"))
+                .map_err(|e| Error::Invalid(e.to_string()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        const NOTICE: &str = "Added by hand from a download; check the provider terms";
+        s.execute(
+            "library.import_symbol_file",
+            json!({"path": symbol_path.to_string_lossy(), "notice": NOTICE}),
+            None,
+        )?;
+        assert_eq!(s.project.library.notices, vec![NOTICE.to_owned()]);
+        s.undo()?;
+        assert!(s.project.library.notices.is_empty());
         std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
         Ok(())
     }

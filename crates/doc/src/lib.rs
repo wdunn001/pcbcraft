@@ -27,11 +27,13 @@ mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
 mod sourcing;
+mod via_protection;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub use sourcing::{
     MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
     SupplierPart, lifecycle_text,
 };
+pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
@@ -1383,6 +1385,11 @@ pub struct Via {
     /// board default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covering: Option<ViaCovering>,
+    /// How the bottom face is protected when it differs from the top; none
+    /// means the bottom follows the top (or the board default), which is how
+    /// every file saved before this field existed reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covering_bottom: Option<ViaCovering>,
 }
 /// How a via hole is protected, named after the seven types of the via
 /// protection standard (IPC-4761). The types that close the hole under the
@@ -1453,8 +1460,15 @@ impl ViaCovering {
 }
 impl Via {
     /// The covering that applies to this via: its own, else the board default.
+    /// For a via with a separate bottom setting this is the top face.
     pub fn effective_covering(&self, board: &Board) -> ViaCovering {
         self.covering.unwrap_or(board.via_covering_default)
+    }
+    /// The covering of the bottom face: its own bottom setting, else the top
+    /// face's covering.
+    pub fn effective_covering_bottom(&self, board: &Board) -> ViaCovering {
+        self.covering_bottom
+            .unwrap_or_else(|| self.effective_covering(board))
     }
 }
 /// What a via is, derived from its span and the stackup.
@@ -4736,9 +4750,9 @@ impl Project {
                 .iter()
                 .map(|f| f.pads.len())
                 .sum::<usize>()
-            > 4096
+            > MAX_COPPER_ITEMS
         {
-            return Err("copper item limit reached (4096)".into());
+            return Err(format!("copper item limit reached ({MAX_COPPER_ITEMS})"));
         }
         let nets: BTreeSet<_> = self.nets.iter().map(|n| n.id).collect();
         let mut names = BTreeSet::new();
@@ -5609,7 +5623,12 @@ impl Project {
             {
                 return Err("via span must run from an upper to a lower copper layer".into());
             }
-            if v.drill <= 0.0 && v.covering.is_some_and(|c| c != ViaCovering::Open) {
+            if v.drill <= 0.0
+                && [v.covering, v.covering_bottom]
+                    .into_iter()
+                    .flatten()
+                    .any(|c| c != ViaCovering::Open)
+            {
                 return Err(
                     "a via without a drilled hole cannot be tented, plugged or filled".into(),
                 );
@@ -5776,6 +5795,10 @@ pub fn library_component(
 /// Maximum pads considered by placement support checks; matches
 /// `FootprintDefinition::validate` in `pcbcraft-library`.
 pub const MAX_SUPPORTED_FOOTPRINT_PADS: usize = 20_000;
+/// The most copper items (tracks plus placed pads) one design may hold. A
+/// large board is 10 000 pads; the checks were quadratic per edit before the
+/// copper broad phase, which is what made that size unreachable.
+pub const MAX_COPPER_ITEMS: usize = 20_000;
 
 pub fn validate_footprint_support(
     definition: &pcbcraft_library::FootprintDefinition,
@@ -6830,6 +6853,7 @@ mod via_covering_tests {
             from_layer: None,
             to_layer: None,
             covering,
+            covering_bottom: None,
         });
         p
     }
