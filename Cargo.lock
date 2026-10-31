@@ -3293,6 +3293,7 @@ dependencies = [
  "pcbcraft-geom",
  "pcbcraft-io",
  "pcbcraft-library",
+ "pcbcraft-publication",
  "pcbcraft-rules",
  "pcbcraft-testkit",
  "serde",
@@ -3373,6 +3374,16 @@ dependencies = [
  "pcbcraft-library",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "pcbcraft-publication"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

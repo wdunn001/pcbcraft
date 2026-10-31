@@ -1,0 +1,6 @@
+# Part sources that may not be offered on the public portal (name match, case insensitive).
+
+sources = [
+  "view-only-catalog.example",
+  "members-only-parts.example",
+]

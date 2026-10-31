@@ -19,6 +19,7 @@ mod images;
 pub mod design_document;
 pub mod library;
 mod online;
+mod publication;
 mod outline;
 mod packages;
 pub mod profiles;
@@ -2939,17 +2940,25 @@ impl Session {
         if commands.is_empty() || commands.len() > 128 {
             return Err(Error::Invalid("batch must contain 1–128 commands".into()));
         }
-        if commands
-            .iter()
-            .all(|c| c.command == "cam.isolation" || snapmaker::handles(&c.command))
-        {
+        if commands.iter().all(|c| {
+            c.command == "cam.isolation"
+                || snapmaker::handles(&c.command)
+                || publication::handles(&c.command)
+        }) {
             let mut results = vec![];
             for command in commands {
-                results.push(run_read_only(
-                    &self.project,
-                    &command.command,
-                    &command.params,
-                )?);
+                if publication::handles(&command.command) {
+                    results.push(
+                        publication::run(&self.project, &command.params)
+                            .map_err(Error::Invalid)?,
+                    );
+                } else {
+                    results.push(run_read_only(
+                        &self.project,
+                        &command.command,
+                        &command.params,
+                    )?);
+                }
             }
             return Ok(json!({"revision":self.revision,"results":results}));
         }
@@ -25786,6 +25795,29 @@ mod tests {
         assert_eq!(full, s.board_mesh(None, true)?, "output is deterministic");
         Ok(())
     }
+
+    #[test]
+    fn publication_scan_is_read_only_and_blocks_secrets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let before = s.project.clone();
+        let rev = s.revision;
+        let out = s.execute(
+            "publication.scan",
+            json!({
+                "design_licence":"MIT",
+                "files":[{"path":"notes.txt","text":"token sk-test-abc\n"}]
+            }),
+            None,
+        )?;
+        assert_eq!(s.project, before);
+        assert_eq!(s.revision, rev);
+        assert_eq!(out["result"]["ok_to_upload"], false);
+        assert!(out["result"]["hard_fails"]
+            .as_array()
+            .is_some_and(|a| !a.is_empty()));
+        Ok(())
+    }
+
     #[test]
     fn legacy_inch_model_offset_exports_as_millimetres() -> Result<(), Error> {
         let mut s = Session::default();
