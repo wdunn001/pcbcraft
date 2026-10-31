@@ -8739,10 +8739,7 @@ mod tests {
                 && front.contains("%FSLAX46Y46*%")
         );
         assert!(front.contains("%ADD10C,0.001*%\n"), "zone fill aperture");
-        assert!(
-            front.contains("%ADD12C,0.6*%\n"),
-            "via copper aperture"
-        );
+        assert!(front.contains("%ADD12C,0.6*%\n"), "via copper aperture");
         assert!(
             front.contains("%ADD11C,1.6*%\n"),
             "through-hole pad aperture"

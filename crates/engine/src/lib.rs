@@ -19601,7 +19601,8 @@ mod tests {
             .ok_or_else(missing)?;
         let mirrored_x = -centre.x;
         assert!(
-            gerber["pcb-B.Cu.gbr"].contains(&format!("X{}Y", (mirrored_x * 1_000_000.0).round() as i64)),
+            gerber["pcb-B.Cu.gbr"]
+                .contains(&format!("X{}Y", (mirrored_x * 1_000_000.0).round() as i64)),
             "bottom copper carries the mirrored pad flash"
         );
         assert!(

@@ -568,32 +568,8 @@ fn run() -> Result<(), String> {
         "fmt" => fmt()?,
         "clippy" => clippy()?,
         "test" => test()?,
-wasm()?;
-            docs()?;
-            doc_check::run(&[])?;
-        }
-        "policy" => {
-            layers()?;
-            lint_policy()?;
-        }
-        "layers" => layers()?,
-        "fmt" => fmt()?,
-        "clippy" => clippy()?,
-        "test" => test()?,
         "bench" => bench()?,
         "coverage" => coverage::run(&root()?, args.get(1..).unwrap_or(&[]))?,
-        "e2e" => e2e()?,
-        "a11y" => a11y_gate()?,
-        "i18n" => i18n_gate(args.get(1..).unwrap_or(&[]))?,
-        "wasm" => wasm()?,
-        "docs" if args.get(1).map(String::as_str) == Some("check") => {
-            doc_check::run(args.get(2..).unwrap_or(&[]))?;
-        }
-        "docs" => docs()?,
-        "tooltips" => tooltips::run(args.get(1..).unwrap_or(&[]))?,
-        "deny" => deny()?,
-        "msrv" => msrv()?,
-        "strings" => strings(args.get(1).map(String::as_str))?,
         "e2e" => e2e()?,
         "a11y" => a11y_gate()?,
         "i18n" => i18n_gate(args.get(1..).unwrap_or(&[]))?,

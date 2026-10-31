@@ -1689,7 +1689,7 @@ impl App {
         let show_home = capture.is_none();
         let mut app = Self::create(session, preferences, capture, tab);
         app.home_open = show_home && app.project.components.is_empty();
-app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
+        app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         // Install the fonts now, so the fallback font added next lands behind them.
         fonts::install(&cc.egui_ctx);
         cc.egui_ctx
@@ -7515,6 +7515,7 @@ fn recovery_slots(
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 fn pcbcraft_io_limit() -> usize {
     8 * 1024 * 1024
 }
@@ -7859,7 +7860,11 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Back to a plain rectangle")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            app.project.board.outline.is_none_or(|o| o.len() < 3),
+            app.project
+                .board
+                .outline
+                .as_ref()
+                .is_none_or(|o| o.len() < 3),
             "the board is a plain rectangle again"
         );
         let _ = std::fs::remove_file(&file);
@@ -9131,6 +9136,7 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: Vec::new(),
+                sourcing: Default::default(),
                 sheet: 0,
             });
             project.board.footprints.push(pcbcraft_doc::Footprint {
