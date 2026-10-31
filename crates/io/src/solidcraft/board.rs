@@ -631,14 +631,11 @@ mod tests {
         mesh_of(&doc, "R1")?;
         mesh_of(&doc, "R2")?;
         assert!(mesh_of(&doc, "Copper top").is_err(), "copper is opt in");
+        let id_of = |v: &Value| v.get("id").and_then(Value::as_u64).unwrap_or(0);
         let ids: BTreeSet<u64> = list(&doc, "features")?
             .iter()
-            .map(|f| f.get("id").and_then(Value::as_u64).unwrap_or(0))
-            .chain(
-                components
-                    .iter()
-                    .map(|c| c.get("id").and_then(Value::as_u64).unwrap_or(0)),
-            )
+            .map(id_of)
+            .chain(components.iter().map(id_of))
             .collect();
         assert_eq!(ids.len(), list(&doc, "features")?.len() + components.len());
         Ok(())
@@ -683,7 +680,7 @@ mod tests {
         let p = points(mesh)?;
         let tri: Vec<usize> = list(mesh, "triangles")?
             .iter()
-            .map(|v| v.as_u64().unwrap_or(0) as usize)
+            .filter_map(|v| v.as_u64().map(|n| n as usize))
             .collect();
         let mut volume = 0.0;
         for t in tri.chunks(3) {
