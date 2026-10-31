@@ -40,6 +40,9 @@ pub(super) enum CanvasAct {
     Rotate,
     ToggleLock,
     Delete,
+    ExportBom,
+    ExportBomSelection,
+    ToggleBomExclude,
 }
 
 impl App {
@@ -237,7 +240,21 @@ impl App {
                 } else {
                     command_tip("object.delete")
                 };
-                menu = menu.group(object).group(edit).destructive(
+                let mut bom: Vec<Entry<CanvasAct>> = Vec::new();
+                if part {
+                    bom = self
+                        .bom_menu_rows(id)
+                        .into_iter()
+                        .map(|row| {
+                            let (act, label, tip, checked) = row;
+                            Item::new(act, label, tip)
+                                .icon(glyph::PROPERTIES)
+                                .checked(checked)
+                                .into()
+                        })
+                        .collect();
+                }
+                menu = menu.group(object).group(edit).group(bom).destructive(
                     Item::new(CanvasAct::Delete, "Delete", delete_tip.clone())
                         .icon(glyph::TRASH)
                         .shortcut("Del")
@@ -265,6 +282,7 @@ impl App {
         else {
             return Vec::new();
         };
+        let bottom = self.project.bottom_layer();
         let faces: Vec<Entry<CanvasAct>> = [
             (
                 Layer::Front,
@@ -272,7 +290,7 @@ impl App {
                 "Move this wire to the front copper layer.",
             ),
             (
-                Layer::Back,
+                bottom,
                 "Back",
                 "Move this wire to the back copper layer.",
             ),
@@ -399,11 +417,7 @@ impl App {
             }
             (CanvasAct::AssignLayer(layer), _) => {
                 if let Some(id) = id {
-                    let name = if layer == Layer::Front {
-                        "F.Cu"
-                    } else {
-                        "B.Cu"
-                    };
+                    let name = self.project.layer_name(layer);
                     self.run("track.set_layer", json!({"id": id, "layer": name}));
                 }
             }
@@ -434,6 +448,25 @@ impl App {
                     self.run("footprint.set_locked", json!({"id": id, "locked": !locked}));
                 }
             }
+            (CanvasAct::ExportBom, _) => {
+                self.open_dialog(crate::file_dialogs::Mode::Export, Some("bom"), None, vec![]);
+            }
+            (CanvasAct::ExportBomSelection, _) => {
+                let parts = self.selected_part_components();
+                self.open_dialog(crate::file_dialogs::Mode::Export, Some("bom"), None, parts);
+            }
+            (CanvasAct::ToggleBomExclude, _) => {
+                if let Some(id) = id {
+                    let component = self.project.footprint(id).map_or(id, |f| f.component);
+                    let exclude = !self.part_excluded(id);
+                    let mut targets = vec![component];
+                    let selection = self.selected_part_components();
+                    if selection.contains(&component) {
+                        targets = selection;
+                    }
+                    self.set_bom_exclusion(&targets, exclude);
+                }
+            }
             (CanvasAct::Delete, _) => {
                 if let Some(id) = id {
                     self.run("object.delete", json!({"id": id}));
@@ -442,5 +475,37 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// The bill-of-materials rows of a part's menu: (action, label, tip, checked).
+    ///
+    /// Why: the canvas menu and the Layers tree menu show the same three entries.
+    ///
+    /// # Rules
+    /// - "Export BOM for selection..." appears only when more than one part is selected.
+    /// - The exclusion row is a checkable item: checked while the part is left out.
+    fn bom_menu_rows(&self, id: Id) -> Vec<(CanvasAct, String, String, bool)> {
+        let excluded = self.part_excluded(id);
+        let mut rows = vec![(
+            CanvasAct::ExportBom,
+            "Export BOM…".to_owned(),
+            "A bill of materials is the shopping list for your board: every part, how many, and which part number to buy. Opens Export with all parts.".to_owned(),
+            false,
+        )];
+        if self.selected_part_components().len() > 1 {
+            rows.push((
+                CanvasAct::ExportBomSelection,
+                "Export BOM for selection…".to_owned(),
+                "Write a bill of materials for only the parts you have selected.".to_owned(),
+                false,
+            ));
+        }
+        rows.push((
+            CanvasAct::ToggleBomExclude,
+            if excluded { "Include in BOM" } else { "Exclude from BOM" }.to_owned(),
+            "Leave this part off the bill of materials, for example a test point or a logo. The bill is the shopping list for your board. Undo brings it back.".to_owned(),
+            excluded,
+        ));
+        rows
     }
 }

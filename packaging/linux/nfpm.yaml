@@ -13,7 +13,7 @@ vendor: PCBCraft contributors
 homepage: https://github.com/tangency-labs/pcbcraft
 license: MIT OR Apache-2.0
 description: |-
-  Open-source Rust PCB design: schematic, layout, checks, and KiCad export.
+  Open-source Rust PCB design: schematic, layout, checks, and manufacturing outputs.
   Includes pcbcraft-cli for headless commands and an MCP server for agents.
 
 overrides:

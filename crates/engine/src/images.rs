@@ -304,6 +304,7 @@ fn trace(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error>
                     width,
                     text: String::new(),
                     sublayer: sublayer.into(),
+                    color: String::new(),
                 });
                 ids.push(id);
             }
@@ -342,6 +343,7 @@ fn trace(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error>
                 pcbcraft_doc::validate_closed_outline(&outline).map_err(Error::Invalid)?;
                 let id = allocate(next)?;
                 p.board.zones.push(pcbcraft_doc::CopperZone {
+                    preserved: pcbcraft_doc::PreservedSource::default(),
                     id,
                     net,
                     layer: a.copper_layer,

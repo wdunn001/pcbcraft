@@ -186,6 +186,62 @@ pub struct Sheet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<Point>,
 }
+/// The settings of one schematic page that are not drawn objects: its title
+/// block fields, whether the title block shows, and the defaults new graphics
+/// on the page start with. A page with no record uses the defaults of
+/// [`PageSettings::new`] and the project metadata for its title block.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct PageSettings {
+    /// The page these settings belong to; 0 is the Main page.
+    pub sheet: Id,
+    /// Empty falls back to the project metadata `title`, then the project name.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    /// The version of this sheet, such as `B` or `2.1`; printed in the title block.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub revision: String,
+    /// Empty falls back to the project metadata `date`, then today.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub date: String,
+    /// A standard paper size such as `A4`; empty picks the smallest that fits.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub size: String,
+    /// The company or person the design belongs to.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub company: String,
+    /// Who drew this sheet.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub drawn_by: String,
+    /// True when the page draws no title block.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub title_hidden: bool,
+    /// Stroke width in millimetres new graphics on this page start with.
+    #[serde(default = "default_page_line_width")]
+    pub line_width: f64,
+    /// Stroke colour `#rrggbb` new graphics start with; empty is the theme ink.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub line_color: String,
+}
+fn default_page_line_width() -> f64 {
+    0.25
+}
+impl PageSettings {
+    /// Settings with every field at its default for page `sheet`.
+    pub fn new(sheet: Id) -> Self {
+        Self {
+            sheet,
+            title: String::new(),
+            revision: String::new(),
+            date: String::new(),
+            size: String::new(),
+            company: String::new(),
+            drawn_by: String::new(),
+            title_hidden: false,
+            line_width: default_page_line_width(),
+            line_color: String::new(),
+        }
+    }
+}
 /// One named property on a component. A blank value is still a real property:
 /// it says the key applies to this component and has not been filled in.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -193,7 +249,16 @@ pub struct ComponentField {
     pub key: String,
     pub value: String,
 }
+/// The component property that keeps a part out of the bill of materials.
+/// Set it to `yes` with `component.field`; clear it to put the part back.
+pub const BOM_EXCLUDE_FIELD: &str = "Exclude from BOM";
 impl Component {
+    /// True unless the part carries `BOM_EXCLUDE_FIELD` set to `yes`.
+    pub fn in_bom(&self) -> bool {
+        !self
+            .field(BOM_EXCLUDE_FIELD)
+            .is_some_and(|v| v.eq_ignore_ascii_case("yes"))
+    }
     /// Value of a named component property, if the component carries it.
     pub fn field(&self, key: &str) -> Option<&str> {
         self.fields
@@ -648,6 +713,9 @@ pub struct Graphic {
     /// artwork only, no mask meaning).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sublayer: String,
+    /// Stroke colour as `#rrggbb`; empty draws in the theme's default ink.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub color: String,
 }
 /// Fabrication sublayer names a board graphic may carry.
 pub const GRAPHIC_SUBLAYERS: [&str; 4] = ["F.SilkS", "B.SilkS", "F.Mask", "B.Mask"];
@@ -2271,6 +2339,12 @@ pub const LAYER_FUNCTIONS: [&str; 10] = [
     "other",
     "none",
 ];
+/// Design roles an inner copper layer may carry: routing, ground plane or power plane.
+pub const COPPER_LAYER_PLANE_ROLES: [&str; 3] = ["signal", "ground", "power"];
+
+fn skip_copper_layer_roles(v: &[Option<String>]) -> bool {
+    v.is_empty() || v.iter().all(|r| r.is_none())
+}
 impl LayerRecord {
     fn valid(&self) -> bool {
         let in_set =
@@ -2709,6 +2783,9 @@ pub struct Board {
     /// Recorded per-layer fabrication notes in physical stack order (top to bottom).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
+    /// Design role per copper layer index (0 = top): signal, ground or power.
+    #[serde(default, skip_serializing_if = "skip_copper_layer_roles")]
+    pub copper_layer_roles: Vec<Option<String>>,
     /// Extra via spans (upper, lower copper layer index) the build allows
     /// beyond the generic ones, for example a buried span.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -3142,6 +3219,10 @@ pub struct Project {
     /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sheets: Vec<Sheet>,
+    /// Per-page title block fields and drawing defaults; a page without a
+    /// record uses [`PageSettings::new`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub page_settings: Vec<PageSettings>,
     /// Named hierarchy ports, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<Port>,
@@ -3335,6 +3416,7 @@ impl Default for Project {
             net_classes: vec![],
             class_pairs: vec![],
             sheets: vec![],
+            page_settings: vec![],
             ports: vec![],
             bom_fields: vec![],
             output_jobs: vec![],
@@ -3899,6 +3981,78 @@ impl Project {
             v.to_layer = v.to_layer.map(to);
         }
     }
+    /// True when `layer` is neither the top nor the bottom copper row.
+    pub fn is_inner_copper_layer(&self, layer: Layer) -> bool {
+        let count = self.copper_layer_count();
+        let i = layer.index();
+        i > 0 && i + 1 < count
+    }
+    /// Recorded plane role for a copper layer, if it is not plain signal routing.
+    pub fn copper_layer_plane_role(&self, layer: Layer) -> Option<&str> {
+        self.board
+            .copper_layer_roles
+            .get(layer.index() as usize)
+            .and_then(|r| r.as_deref())
+            .filter(|r| *r != "signal")
+    }
+    /// True when the layer is marked as a ground or power plane.
+    pub fn copper_layer_is_plane(&self, layer: Layer) -> bool {
+        matches!(
+            self.copper_layer_plane_role(layer),
+            Some("ground") | Some("power")
+        )
+    }
+    /// True when a filled pour sits on a layer marked ground or power.
+    pub fn zone_is_plane_pour(&self, zone: &CopperZone) -> bool {
+        zone.filled && self.copper_layer_is_plane(zone.layer)
+    }
+    fn trim_copper_layer_roles(&mut self) {
+        let count = self.copper_layer_count() as usize;
+        self.board.copper_layer_roles.truncate(count);
+        while self.board.copper_layer_roles.last().is_some_and(|r| r.is_none()) {
+            self.board.copper_layer_roles.pop();
+        }
+    }
+    /// Keep plane roles aligned when copper layer indices move.
+    pub fn remap_copper_layer_roles(&mut self, map: impl Fn(u8) -> u8) {
+        let count = self.copper_layer_count() as usize;
+        let mut next = vec![None; count];
+        for (i, role) in self.board.copper_layer_roles.iter().enumerate() {
+            if let Some(role) = role.clone() {
+                let ni = map(i as u8) as usize;
+                if ni < count {
+                    next[ni] = Some(role);
+                }
+            }
+        }
+        self.board.copper_layer_roles = next;
+        self.trim_copper_layer_roles();
+    }
+    /// Set or clear the design role of one inner copper layer.
+    pub fn set_copper_layer_plane_role(&mut self, layer: Layer, role: &str) -> Result<(), String> {
+        if !COPPER_LAYER_PLANE_ROLES.contains(&role) {
+            return Err("role must be signal, ground or power".into());
+        }
+        if !self.is_inner_copper_layer(layer) {
+            return Err("only inner copper layers carry a plane role".into());
+        }
+        let i = layer.index() as usize;
+        if i >= self.copper_layer_count() as usize {
+            return Err("layer is not on this board".into());
+        }
+        if self.board.copper_layer_roles.len() <= i {
+            self.board
+                .copper_layer_roles
+                .resize(i + 1, None);
+        }
+        self.board.copper_layer_roles[i] = if role == "signal" {
+            None
+        } else {
+            Some(role.into())
+        };
+        self.trim_copper_layer_roles();
+        Ok(())
+    }
     /// True when any board object sits on copper layer `index`.
     pub fn copper_layer_in_use(&self, index: u8) -> bool {
         let b = &self.board;
@@ -4006,7 +4160,9 @@ impl Project {
         let to = self.component(wire.to.component)?.sheet;
         if from == to { Some(from) } else { None }
     }
-    fn schematic_label_page(&self, label: &Label) -> Id {
+    /// The page a label shows on: the page of the nearest part pin or port on its net,
+    /// the Main page when none is found.
+    pub fn schematic_label_page(&self, label: &Label) -> Id {
         if label.kind == "junction" {
             for wire in &self.wires {
                 if wire.net != label.net {
@@ -4076,6 +4232,14 @@ impl Project {
             }
         }
         best.1
+    }
+    /// The settings of page `sheet`, or the defaults when it has no record.
+    pub fn page_settings_of(&self, sheet: Id) -> PageSettings {
+        self.page_settings
+            .iter()
+            .find(|s| s.sheet == sheet)
+            .cloned()
+            .unwrap_or_else(|| PageSettings::new(sheet))
     }
     /// True when a schematic object should appear on the given page.
     pub fn on_schematic_page(&self, page: Id, object: Id) -> bool {
@@ -5166,6 +5330,21 @@ impl Project {
             return Err(format!(
                 "copper layer count must be 1 to {MAX_COPPER_LAYERS}"
             ));
+        }
+        if b.copper_layer_roles.len() > copper_count as usize {
+            return Err("copper layer roles exceed the copper layer count".into());
+        }
+        for (i, role) in b.copper_layer_roles.iter().enumerate() {
+            let Some(role) = role else {
+                continue;
+            };
+            if !COPPER_LAYER_PLANE_ROLES.contains(&role.as_str()) {
+                return Err("copper layer role must be signal, ground or power".into());
+            }
+            let layer = Layer::from_index(i as u8)?;
+            if !self.is_inner_copper_layer(layer) {
+                return Err("copper layer role applies only to inner layers".into());
+            }
         }
         for t in &b.tracks {
             if !self.copper_layer_valid(t.layer) {

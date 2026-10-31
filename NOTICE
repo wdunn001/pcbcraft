@@ -5,8 +5,8 @@ Licensed under the MIT License or the Apache License, Version 2.0, at your optio
 (LICENSE-MIT, LICENSE-APACHE). The licence of the whole project was changed from
 GPL-3.0-or-later to MIT OR Apache-2.0 in 2026.
 
-The craft-ui dependency is from storytold/craft-libs, revision
-1aa81a773aa9198a0e4c0daeda954d622475af38, and retains its MIT OR Apache-2.0 license.
+The craft-ui dependency is from wdunn001/craft-libs, revision
+0e9d4a61affd665b2e00d5e107cfe4a88ad15df5, and retains its MIT OR Apache-2.0 license.
 Copyright (c) 2026 ArtCraft Team and the craft-libs contributors.
 The ArtCraft name, logo and trademarks are not included in PCBCraft.
 

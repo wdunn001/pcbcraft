@@ -51,4 +51,8 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # craft-ui is pinned to a revision in Cargo.toml.
-allow-git = ["https://github.com/storytold/craft-libs"]
+allow-git = [
+    "https://github.com/storytold/craft-libs",
+    "https://github.com/wdunn001/craft-libs",
+    "https://github.com/wdunn001/collab-craft",
+]
