@@ -34,6 +34,11 @@ Headless MCP owns a session. Live MCP forwards calls over a loopback-only JSON-l
 bridge into the exact session displayed by the desktop. The bridge is local trusted
 automation, not a remotely exposed service; do not bind to all interfaces.
 
+The desktop may keep up to eight designs open at once. Shared tab title and dirty
+rules live in `pcbcraft_engine::design_document`; the live bridge routes tools through
+`DocumentHub` in `pcbcraft_mcp`. Per-design workbench tab and selection snapshots live in
+`pcbcraft_engine::design_document`; the desktop shell mirrors them through each slot (see issue #268).
+
 ### Single-window flow
 
 Schematic, PCB, Libraries and Checks are workspace tabs in one window. Browser,
@@ -100,6 +105,38 @@ Native collection save is an atomic MCP file operation, not a batch side effect.
 Collections carry format/version plus the project-library data; unknown fields
 are rejected. Original KiCad nodes remain provenance/unknown metadata, not a
 regenerated KiCad library. Lossless library writing is future work.
+
+## Design format versions, autosave and recovery
+
+A design records `format` and `version`. Reading runs the migration chain in
+`crates/io/src/migrate.rs` on the parsed JSON, before typed deserialisation, so
+opening a file, reading an archive, recovering an autosave and the command line
+all accept and refuse the same documents in the same words. A file from a
+newer build is refused plainly ("made by a newer PCBCraft") instead of failing
+on a missing field.
+
+When a change needs a version bump: adding an optional field with a serde
+default does not; renaming a field, changing its unit or removing a field does.
+Every bump adds one pure `fn(Value) -> Result<Value, String>` step to the chain
+and ships a fixture of the old version under test.
+
+While a design is open the desktop writes a snapshot per revision into a
+per-user recovery folder (`crates/engine/src/recovery.rs`): `<id>.pcbcraft`
+(the design), `<id>.json` (path, name, time, revision) and `<id>.lock`, held
+locked while the app runs. A snapshot is written only when the revision differs
+from both the last snapshot and the file on disk, through the same atomic write
+as a save, so a killed process loses at most the edits after the last one. An
+entry whose lock nobody holds belongs to an app that died; the next launch
+offers the newest first and asks before opening it. A clean close with nothing
+unsaved leaves no entry. The browser has no folder, so it keeps one slot in the
+page's own storage.
+
+Large boards are bounded by `MAX_COPPER_ITEMS` (tracks plus placed pads). The
+copper checks find their pairs through a uniform grid keyed on each item's box
+grown by its radius, outline error and the widest clearance any rule demands, so
+the exact clearance test only sees neighbours it could report; the airwire pass
+walks the island graph once per net instead of rescanning it per connection.
+`cargo xtask bench` runs the ten-thousand-pad bench in release.
 
 ## Limits
 
