@@ -50,8 +50,7 @@ fn all_example_files_load_and_validate() {
     let entries = match std::fs::read_dir(&examples_dir) {
         Ok(e) => e,
         Err(e) => {
-            assert!(false, "examples dir: {}", e);
-            return;
+            panic!("examples dir: {}", e);
         }
     };
 
@@ -60,35 +59,31 @@ fn all_example_files_load_and_validate() {
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                assert!(false, "entry: {}", e);
-                return;
+                panic!("entry: {}", e);
             }
         };
         let path = entry.path();
-        if !path.extension().map_or(false, |e| e == "pcbcraft") {
+        if !path.extension().is_some_and(|e| e == "pcbcraft") {
             continue;
         }
 
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
-                assert!(false, "read {}: {}", path.display(), e);
-                return;
+                panic!("read {}: {}", path.display(), e);
             }
         };
         let project: Project = match serde_json::from_str(&content) {
             Ok(p) => p,
             Err(e) => {
-                assert!(false, "deserialize {}: {}", path.display(), e);
-                return;
+                panic!("deserialize {}: {}", path.display(), e);
             }
         };
 
         // Validate the loaded project
         let result = project.validate();
         if let Err(msg) = result {
-            assert!(false, "{}: validation failed: {}", path.display(), msg);
-            return;
+            panic!("{}: validation failed: {}", path.display(), msg);
         }
 
         loaded += 1;
