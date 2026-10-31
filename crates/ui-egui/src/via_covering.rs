@@ -132,7 +132,7 @@ impl App {
             } else {
                 t!("via_protection.bottom.tip")
             };
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(label.clone());
                 ui.add_enabled_ui(has_hole, |ui| {
                     egui::ComboBox::from_id_salt(salt)
@@ -191,8 +191,8 @@ impl App {
     /// Board-wide default covering, shown with the other fabrication notes.
     pub(crate) fn via_covering_default_controls(&mut self, ui: &mut egui::Ui) {
         let current = self.project.board.via_covering_default;
-        ui.horizontal(|ui| {
-            ui.label("Via protection");
+        ui.horizontal_wrapped(|ui| {
+            ui.label(t!("via_protection.title"));
             egui::ComboBox::from_id_salt("board-via-covering")
                 .selected_text(covering_name(current))
                 .show_ui(ui, |ui| {
@@ -210,10 +210,9 @@ impl App {
                         }
                     }
                 })
-                .response.named("Via protection for board")
-                .on_hover_text(
-                    "How vias are protected under the solder mask unless a via says otherwise. It goes on the factory notes.",
-                );
+                .response
+                .named(&t!("via_protection.title"))
+                .on_hover_text(t!("via_protection.follow_board.tip"));
         });
     }
 }
