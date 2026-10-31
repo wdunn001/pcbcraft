@@ -177,3 +177,80 @@ fn polygons_overlap(a: &[Point], b: &[Point]) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ChamferCorners, FootprintPad, PadChamfer};
+    use pcbcraft_geom::Point;
+
+    fn smd_rect(at: Point, size: Point) -> FootprintPad {
+        FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: at,
+            rotation: 0.0,
+            size,
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    #[test]
+    fn pad_outline_closed_repeats_first_vertex_on_rect_pad() {
+        let pad = smd_rect(Point::new(10.0, 20.0), Point::new(2.0, 4.0));
+        let outline = pad_outline_closed(&pad);
+        assert_eq!(outline.len(), 5);
+        assert_eq!(outline.first(), outline.last());
+        assert_eq!(outline[0], Point::new(9.0, 18.0));
+        assert_eq!(outline[1], Point::new(11.0, 18.0));
+        assert_eq!(outline[2], Point::new(11.0, 22.0));
+        assert_eq!(outline[3], Point::new(9.0, 22.0));
+    }
+
+    #[test]
+    fn pad_outlines_overlap_detects_shared_interior_not_mere_touch() {
+        let left = smd_rect(Point::new(-1.0, 0.0), Point::new(2.0, 2.0));
+        let right = smd_rect(Point::new(1.0, 0.0), Point::new(2.0, 2.0));
+        assert!(
+            pad_outlines_overlap(&left, &right),
+            "1 mm overlap on 2 mm pads"
+        );
+        let gap = smd_rect(Point::new(2.01, 0.0), Point::new(2.0, 2.0));
+        assert!(
+            !pad_outlines_overlap(&left, &gap),
+            "separated pads must not overlap"
+        );
+    }
+
+    #[test]
+    fn chamfered_pad_outline_applies_corner_cuts() {
+        let pad = FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "chamfered".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            size: Point::new(2.0, 2.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: Some(PadChamfer {
+                ratio: 0.25,
+                corners: ChamferCorners {
+                    top_right: true,
+                    ..Default::default()
+                },
+            }),
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let open_len = pad_outline_closed(&pad).len().saturating_sub(1);
+        assert_eq!(open_len, 5, "one chamfered corner adds a vertex");
+    }
+}

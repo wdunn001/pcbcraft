@@ -46,6 +46,16 @@ fn near(a: f64, b: f64) -> bool {
 }
 
 #[test]
+fn land_pattern_density_suffix_matches_ipc_level_letter() {
+    assert_eq!(LandPatternDensity::Most.suffix(), 'M');
+    assert_eq!(LandPatternDensity::Nominal.suffix(), 'N');
+    assert_eq!(LandPatternDensity::Least.suffix(), 'L');
+    assert_eq!(LandPatternDensity::parse("nominal"), Some(LandPatternDensity::Nominal));
+    assert_eq!(LandPatternDensity::parse("N"), Some(LandPatternDensity::Nominal));
+    assert!(LandPatternDensity::parse("unknown").is_none());
+}
+
+#[test]
 fn chip_two_terminal_matches_0805_fixture_span() -> Result<(), String> {
     let mut p = nominal_params();
     p.body_length = 2.0;
