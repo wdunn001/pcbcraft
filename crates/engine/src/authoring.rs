@@ -11,8 +11,9 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.remove","Remove a project-library symbol; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.remove","Remove a project-library footprint; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.load","Load and validate a .pcbcraft-lib collection into the project as one undoable transaction",schema(json!({"path":{"type":"string"}}),&["path"])),
-        ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction; an optional notice is kept with the project library",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024},"notice":{"type":"string"}}),&["path"])),
-        ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction; an optional notice is kept with the project library",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024},"notice":{"type":"string"}}),&["path"])),
+        ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
+        ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
+        ("library.import_manufacturer_file","Import one symbol, footprint or STEP file the user downloaded from a manufacturer page into the project library with a not-redistributed notice; only Samtec is supported today and STEP files need the footprint name to attach the model path",schema(json!({"manufacturer":{"type":"string","enum":["samtec"]},"mpn":{"type":"string","minLength":1,"maxLength":64},"path":{"type":"string","minLength":1,"maxLength":1024},"footprint":{"type":"string","description":"project-library footprint name when path is a STEP file"}}),&["manufacturer","mpn","path"])),
         ("library.import_footprint_dir","Read every footprint library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_symbol_dir","Read every symbol library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor symbol folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_part","Copy a part's symbol and, when it has one, its footprint into the project library as one undoable step, keeping the licence notice; the symbol is linked to the footprint by name",schema(json!({"symbol":{"type":"object","description":"a symbol definition as library readers emit it"},"footprint":{"type":"object","description":"a footprint definition as library readers emit it"},"notice":{"type":"string","description":"licence or attribution line kept with the project library"}}),&["symbol"])),
@@ -197,12 +198,6 @@ struct FootprintParams {
 #[serde(deny_unknown_fields)]
 struct PathParams {
     path: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ImportFileParams {
-    path: String,
-    notice: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -913,7 +908,7 @@ pub(super) fn run(
             Ok(json!({"symbols":p.library.symbols.len(),"footprints":p.library.footprints.len()}))
         }
         "library.import_footprint_file" | "library.import_symbol_file" => {
-            let a: ImportFileParams = parse(params)?;
+            let a: PathParams = parse(params)?;
             let text =
                 pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
             let mut imported: Vec<String> = Vec::new();
@@ -935,13 +930,92 @@ pub(super) fn run(
                     import_symbol(p, def);
                 }
             }
-            if let Some(notice) = a.notice
-                && !p.library.notices.contains(&notice)
-            {
-                p.library.notices.push(notice);
-            }
             p.library.validate()?;
             Ok(json!({"names": imported}))
+        }
+        "library.import_manufacturer_file" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct ManufacturerImport {
+                manufacturer: String,
+                mpn: String,
+                path: String,
+                #[serde(default)]
+                footprint: Option<String>,
+            }
+            let a: ManufacturerImport = parse(params)?;
+            if a.manufacturer != "samtec" {
+                return Err(Error::Invalid(
+                    "only samtec manufacturer imports are supported".into(),
+                ));
+            }
+            if a.path.is_empty() || a.path.len() > 1024 {
+                return Err(Error::Invalid("path must be 1 to 1024 bytes".into()));
+            }
+            let path = std::path::Path::new(&a.path);
+            let kind = pcbcraft_library::samtec::file_kind(path)
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let provenance = pcbcraft_library::samtec::user_download_provenance(&a.mpn, kind, path)
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let notice = provenance.notice();
+            match kind {
+                pcbcraft_library::cad::CadKind::Footprint => {
+                    let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
+                    let def = pcbcraft_library::read_footprint(&text)
+                        .map_err(|e| Error::Invalid(e.to_string()))?;
+                    def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                    let name = def.name.clone();
+                    import_footprint(p, def);
+                    push_notice(p, &notice);
+                    p.library.validate()?;
+                    Ok(json!({"kind":"footprint","name":name,"notice":notice}))
+                }
+                pcbcraft_library::cad::CadKind::Symbol => {
+                    let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
+                    let defs = pcbcraft_library::read_symbols(&text)
+                        .map_err(|e| Error::Invalid(e.to_string()))?;
+                    if defs.is_empty() {
+                        return Err(Error::Invalid("the library file defines no symbols".into()));
+                    }
+                    let mut names = Vec::new();
+                    for def in defs {
+                        def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                        names.push(def.name.clone());
+                        import_symbol(p, def);
+                    }
+                    push_notice(p, &notice);
+                    p.library.validate()?;
+                    Ok(json!({"kind":"symbol","names":names,"notice":notice}))
+                }
+                pcbcraft_library::cad::CadKind::Model => {
+                    let footprint = a.footprint.ok_or_else(|| {
+                        Error::Invalid(
+                            "a STEP import needs the footprint name to attach the model".into(),
+                        )
+                    })?;
+                    if footprint.is_empty() || footprint.len() > 128 {
+                        return Err(Error::Invalid("footprint must be 1 to 128 bytes".into()));
+                    }
+                    let def = p
+                        .library
+                        .footprints
+                        .iter_mut()
+                        .find(|f| f.name == footprint)
+                        .ok_or_else(missing)?;
+                    let model = build_model(&ModelParams {
+                        name: footprint.clone(),
+                        path: a.path.clone(),
+                        offset: None,
+                        scale: None,
+                        rotate: None,
+                    })?;
+                    def.model = Some(model);
+                    def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                    push_notice(p, &notice);
+                    p.library.validate()?;
+                    Ok(json!({"kind":"model","footprint":footprint,"notice":notice}))
+                }
+            }
         }
         "library.import_footprint_dir" => {
             let a: DirParams = parse(params)?;
@@ -2641,6 +2715,12 @@ fn parked_position(p: &Project) -> Point {
         .map(|c| c.position.y)
         .fold(0.0_f64, f64::max);
     Point::new(0.0, bottom + 20.0)
+}
+
+fn push_notice(p: &mut Project, notice: &str) {
+    if !notice.is_empty() && !p.library.notices.contains(&notice.to_owned()) {
+        p.library.notices.push(notice.to_owned());
+    }
 }
 
 fn import_footprint(p: &mut Project, def: pcbcraft_library::FootprintDefinition) {

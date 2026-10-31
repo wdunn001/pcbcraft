@@ -28,6 +28,11 @@
 
 use egui::{Color32, CursorIcon, Painter, Pos2, Shape, Stroke, Vec2};
 
+/// Serialises wall-clock affordance budget tests so parallel runs on a busy
+/// host do not stretch each other's frames.
+#[cfg(test)]
+pub(crate) static AFFORDANCE_BUDGET_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 use crate::tool_modifiers::{ClickAction, Target, ToolKind};
 
 /// Fade-in time of the glow, in seconds.
@@ -400,6 +405,7 @@ mod tests {
 
     #[test]
     fn overlay_stays_inside_the_frame_budget() {
+        let _turn = AFFORDANCE_BUDGET_TEST_LOCK.lock().expect("budget lock");
         let ctx = egui::Context::default();
         let shape = part();
         // A busy net: 200 other segments glow faintly.
@@ -409,6 +415,19 @@ mod tests {
                 Outline::Segment(Pos2::new(10.0, y), Pos2::new(400.0, y + 5.0), 3.0)
             })
             .collect();
+        let affordance = Affordance {
+            shape: &shape,
+            style: Style::Outline,
+            net: &net,
+            accent: Color32::GREEN,
+            warning: Color32::RED,
+            reduced_motion: false,
+        };
+        for _ in 0..15 {
+            let _ = run(&ctx, |ui| {
+                paint(&ui.painter().clone(), &affordance, 1);
+            });
+        }
         let mut worst = std::time::Duration::ZERO;
         let mut total = std::time::Duration::ZERO;
         let frames = 60u32;
@@ -416,18 +435,7 @@ mod tests {
             let _ = run(&ctx, |ui| {
                 let painter = ui.painter().clone();
                 let start = std::time::Instant::now();
-                paint(
-                    &painter,
-                    &Affordance {
-                        shape: &shape,
-                        style: Style::Outline,
-                        net: &net,
-                        accent: Color32::GREEN,
-                        warning: Color32::RED,
-                        reduced_motion: false,
-                    },
-                    7,
-                );
+                paint(&painter, &affordance, 7);
                 let took = start.elapsed();
                 worst = worst.max(took);
                 total += took;

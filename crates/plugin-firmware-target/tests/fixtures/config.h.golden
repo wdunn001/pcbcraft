@@ -1,0 +1,21 @@
+#define TARGET TESTFC
+#define BOARD_NAME "TESTFC"
+#define MANUFACTURER_ID TST
+#define MCU STM32F405
+
+#define USE_GYRO
+#define USE_GYRO_SPI_BMI270
+#define GYRO_1_CS_PIN PA4
+#define GYRO_1_SPI_INSTANCE SPI1
+
+#define USE_FLASH
+#define FLASH_CS_PIN PB12
+#define FLASH_SPI_INSTANCE SPI2
+
+// SERIAL0 USART1 TX PA9 RX PA10
+
+// Timer and DMA map: fill using the firmware timer tool; indices are not guessed here.
+// TIMER_PIN_MAP
+// Unmapped parts (no driver assumed):
+//   UNKNOWN_PART
+

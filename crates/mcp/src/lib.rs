@@ -45,7 +45,7 @@ pub fn tool_list() -> Value {
         json!({"name":"cmp.write","description":"Write a legacy board trace file listing every placed pad position in mils with a front or back layer code and every net's pad membership, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"report.write","description":"Write a plain-text design report summarizing the board, every component with its package and placement, and every net with its pins, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ipc2581.write","description":"Write a single-file IPC-2581 style assembly exchange XML with the board outline, nets and their pins, placed components, drill holes and copper by layer, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"idf.write","description":"Write a board-level mechanical drawing (board size plus every placed part's position, side and rotation, with default component heights) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"idf.write","description":"Write IDF version 3 board and library files (board outline and placements plus one outline and height per distinct footprint) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"wrl.write","description":"Write a VRML 2.0 scene extruding the board outline and every placed pad into solid prisms into a directory for mechanical viewers, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"hyperlynx.write","description":"Write a simulation netlist CSV, one line per net naming the net and every reference.pin on it, into a directory for circuit simulators, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gencad.write","description":"Write a legacy board interchange text listing components, pins in whole mils with shape and layer, and nets by component and pad index, into a directory for EDA bridges, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -67,6 +67,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.add_folder","description":"Register any folder on this computer as a library source so its symbol and footprint collections join the unified browser; returns discovered counts","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string","description":"optional friendly name, defaults to the folder name"}}),&["path"])}),
         json!({"name":"library.remove_folder","description":"Forget an added library folder; installed locations are never removed","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
+        json!({"name":"library.samtec.manufacturer_page","description":"Build the public Samtec product page URL for a part number so the user can download official CAD files in the browser","inputSchema":object(json!({"mpn":{"type":"string","minLength":1,"maxLength":64}}),&["mpn"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
         json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
@@ -96,51 +97,8 @@ pub fn tool_list() -> Value {
             .to_string();
         tool["title"] = json!(title_for(&name));
         tool["annotations"] = annotations_for(&name);
-        if let Some(schema) = output_schema_for(&name) {
-            tool["outputSchema"] = schema;
-        }
     }
     json!({"tools":tools})
-}
-
-/// The `outputSchema` of the tools whose result shape is stable.
-///
-/// # Rules
-/// Only `inspect_design` and `checks`. Both stay loose (`additionalProperties` true) because
-/// their reports grow. `checks` with `copper_only` has no `revision`, so it is not required.
-///
-/// # Dependencies
-/// `crates/engine/src/lib.rs` (`Session::inspect`, `Session::checks`) define the shapes.
-///
-/// # Do not
-/// Do not add a tool here whose result is not always `structuredContent`.
-fn output_schema_for(name: &str) -> Option<Value> {
-    match name {
-        "inspect_design" => Some(json!({
-            "type":"object",
-            "properties":{
-                "revision":{"type":"integer","minimum":0},
-                "project":{"type":"object"},
-                "history":{"type":"object","properties":{"undo":{"type":"integer"},"redo":{"type":"integer"}},"required":["undo","redo"]},
-                "capabilities":{"type":"object"}
-            },
-            "required":["revision","project","history","capabilities"],
-            "additionalProperties":true
-        })),
-        "checks" => Some(json!({
-            "type":"object",
-            "properties":{
-                "revision":{"type":"integer","minimum":0},
-                "erc":{"type":"array"},
-                "drc":{"type":"array"},
-                "airwires":{"type":"array"},
-                "scope":{"type":"string"}
-            },
-            "required":["erc","drc","airwires","scope"],
-            "additionalProperties":true
-        })),
-        _ => None,
-    }
 }
 
 /// Which family a tool belongs to, for its client-facing hints.
@@ -155,7 +113,6 @@ enum ToolKind {
 fn tool_kind(name: &str) -> ToolKind {
     const READ_ONLY: [&str; 16] = [
         "inspect_design",
-        "design.summary",
         "list_commands",
         "checks",
         "board_mesh",
@@ -166,6 +123,7 @@ fn tool_kind(name: &str) -> ToolKind {
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",
+        "library.samtec.manufacturer_page",
         "library.sources",
         "design.recents",
         "design.list_open",
@@ -338,6 +296,7 @@ pub(crate) fn invoke_session(
         "library.sources",
         "library.add_folder",
         "library.remove_folder",
+        "library.samtec.manufacturer_page",
     ]
     .contains(&name)
     {
@@ -474,9 +433,14 @@ pub(crate) fn invoke_session(
         }
         "idf.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::idf_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.idf"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.idf","bytes":text.len()})
+            let board = pcbcraft_io::idf_board(&s.project)?;
+            let library = pcbcraft_io::idf_library(&s.project)?;
+            pcbcraft_io::atomic_write(&Path::new(directory).join("board.idf"), board.as_bytes())?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("library.idf"),
+                library.as_bytes(),
+            )?;
+            json!({"directory":directory,"files":["board.idf","library.idf"],"bytes":board.len() + library.len()})
         }
         "step.write" => {
             let directory = string(args, "path")?;
@@ -638,11 +602,12 @@ pub(crate) fn invoke_session(
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                const COPPER: [&str; 7] = [
+                const COPPER: [&str; 8] = [
                     "clearance",
                     "copper_short",
                     "track_width",
                     "stub_length",
+                    "acute_angle",
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
@@ -717,7 +682,7 @@ pub(crate) fn invoke_session(
             let text = match format {
                 "kicad_pcb" => pcbcraft_io::kicad_board(&s.project)?,
                 "gerber_f_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Front)?,
-                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, s.project.bottom_layer())?,
+                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Back)?,
                 "svg" => pcbcraft_io::svg(
                     &s.project,
                     args.get("view").and_then(Value::as_str).unwrap_or("pcb"),
@@ -1126,11 +1091,13 @@ mod tests {
             .ok_or_else(|| "tools is an array".to_string())
     }
     #[test]
-    fn every_tool_name_is_listed_once() -> Result<(), String> {
+    fn every_listed_tool_name_is_unique() -> Result<(), String> {
         let mut seen = std::collections::BTreeSet::new();
         for tool in listed_tools()? {
-            let name = tool["name"].as_str().unwrap_or("?").to_string();
-            assert!(seen.insert(name.clone()), "tool {name} is listed twice");
+            let name = tool["name"].as_str().unwrap_or("?");
+            if !seen.insert(name.to_string()) {
+                return Err(format!("tool {name} is listed twice"));
+            }
         }
         Ok(())
     }
@@ -1721,7 +1688,7 @@ mod tests {
             "front copper carries its file function attribute"
         );
         assert!(
-            front.contains("X10000000Y10000000D02*\n"),
+            front.contains("X10.000000Y10.000000D02*\n"),
             "the exported copper should contain the drawn track"
         );
         assert_eq!(
@@ -2229,21 +2196,27 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         let export = call_tool(&session, "idf.write", &json!({"path":directory.path()}));
         assert_eq!(export.get("isError"), Some(&json!(false)));
-        let text = std::fs::read_to_string(directory.path().join("board.idf"))
+        let board = std::fs::read_to_string(directory.path().join("board.idf"))
+            .map_err(|e| e.to_string())?;
+        let library = std::fs::read_to_string(directory.path().join("library.idf"))
             .map_err(|e| e.to_string())?;
         assert!(
-            text.starts_with(".FILE_IDF\n.3DIDF VERSION: 2.0\n"),
-            "the mechanical drawing declares itself"
+            board.starts_with(".HEADER\nBOARD_FILE 3.0"),
+            "the board file declares IDF version 3"
         );
         assert!(
-            text.contains(".END_BODY R1\t") && text.contains(".END_BODY R2\t"),
-            "every placed part is listed with its position"
+            board.contains(".PLACEMENT\n") && board.contains(" R1\n") && board.contains(" R2\n"),
+            "every placed part is listed with its reference"
+        );
+        assert!(board.ends_with(".END_PLACEMENT\n"), "the board file closes");
+        assert!(
+            library.starts_with(".HEADER\nLIBRARY_FILE 3.0"),
+            "the library file declares IDF version 3"
         );
         assert!(
-            text.contains(".PIN 2\n"),
-            "the embedded pin file counts every part"
+            library.contains(".ELECTRICAL\n") && library.contains(".END_ELECTRICAL\n"),
+            "the library carries at least one footprint outline"
         );
-        assert!(text.ends_with(".END_FILE_IDF\n"), "the file closes");
         assert_eq!(
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
