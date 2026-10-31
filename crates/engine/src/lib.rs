@@ -1741,6 +1741,19 @@ schema(
             schema(json!({}), &[]),
         ),
         (
+            "drawing_frame.set",
+            "Record the project drawing frame: enable flag, page size, zone labels, logo text and title-block field rows",
+            schema(
+                json!({"enabled":{"type":"boolean"},"page_size":{"type":"string","maxLength":8},"show_zones":{"type":"boolean"},"logo_text":{"type":"string","maxLength":256},"fields":{"type":"array","maxItems":16,"items":{"type":"object","properties":{"label":{"type":"string","maxLength":64},"template":{"type":"string","minLength":1,"maxLength":256},"column":{"type":"integer","minimum":0,"maximum":3}},"required":["template"]}}}),
+                &[],
+            ),
+        ),
+        (
+            "drawing_frame.clear",
+            "Turn off the drawing frame and return its template to defaults",
+            schema(json!({}), &[]),
+        ),
+        (
             "panel.export",
             "Write panel fabrication files (duplicated gerbers, drill with breakaway and tooling holes, pick-and-place per copy) into a directory",
             schema(
@@ -4904,6 +4917,20 @@ struct PanelParams {
     pitch_y: f64,
     #[serde(default = "default_rail")]
     rail: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DrawingFrameSetParams {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    page_size: Option<String>,
+    #[serde(default)]
+    show_zones: Option<bool>,
+    #[serde(default)]
+    logo_text: Option<String>,
+    #[serde(default)]
+    fields: Option<Vec<pcbcraft_doc::TitleBlockField>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -14954,6 +14981,83 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             p.panel = pcbcraft_doc::PanelSettings::default();
             Ok(json!({"panel": p.panel}))
         }
+        "drawing_frame.set" => {
+            let a: DrawingFrameSetParams = parse(params)?;
+            let frame = &mut p.drawing_frame;
+            let mut changed = false;
+            if let Some(enabled) = a.enabled {
+                if frame.enabled == enabled {
+                    return Err(Error::Invalid(
+                        "the drawing frame already holds that enabled flag".into(),
+                    ));
+                }
+                frame.enabled = enabled;
+                changed = true;
+            }
+            if let Some(page_size) = a.page_size {
+                let upper = page_size.trim().to_ascii_uppercase();
+                if !upper.is_empty() && !pcbcraft_doc::known_page_size(&upper) {
+                    return Err(Error::Invalid(
+                        "drawing frame page size is A7 to A0 or empty".into(),
+                    ));
+                }
+                if frame.page_size == upper {
+                    return Err(Error::Invalid(
+                        "the drawing frame already holds that page size".into(),
+                    ));
+                }
+                frame.page_size = upper;
+                changed = true;
+            }
+            if let Some(show_zones) = a.show_zones {
+                if frame.show_zones == show_zones {
+                    return Err(Error::Invalid(
+                        "the drawing frame already holds that zone setting".into(),
+                    ));
+                }
+                frame.show_zones = show_zones;
+                changed = true;
+            }
+            if let Some(logo_text) = a.logo_text {
+                if logo_text.len() > pcbcraft_doc::MAX_LOGO_TEXT {
+                    return Err(Error::Invalid(
+                        "drawing frame logo text fits 256 bytes".into(),
+                    ));
+                }
+                if frame.logo_text == logo_text {
+                    return Err(Error::Invalid(
+                        "the drawing frame already holds that logo text".into(),
+                    ));
+                }
+                frame.logo_text = logo_text;
+                changed = true;
+            }
+            if let Some(fields) = a.fields {
+                if fields == frame.fields {
+                    return Err(Error::Invalid(
+                        "the drawing frame already holds those title block rows".into(),
+                    ));
+                }
+                frame.fields = fields;
+                changed = true;
+            }
+            if !changed {
+                return Err(Error::Invalid(
+                    "drawing_frame.set needs at least one field to change".into(),
+                ));
+            }
+            frame.validate().map_err(Error::Invalid)?;
+            Ok(json!({"drawing_frame": frame}))
+        }
+        "drawing_frame.clear" => {
+            if p.drawing_frame == pcbcraft_doc::DrawingFrame::default() {
+                return Err(Error::Invalid(
+                    "the drawing frame is already at its defaults".into(),
+                ));
+            }
+            p.drawing_frame = pcbcraft_doc::DrawingFrame::default();
+            Ok(json!({"drawing_frame": p.drawing_frame}))
+        }
         "panel.export" => {
             let a: PanelExportParams = parse(params)?;
             if a.directory.is_empty() || a.directory.len() > 4096 {
@@ -22636,6 +22740,23 @@ mod tests {
         s.execute("board.sync", json!({}), None)?;
         assert_eq!(s.project.board.footprints.len(), 1);
         assert_eq!(s.project.board.footprints[0].component, id);
+        Ok(())
+    }
+
+    #[test]
+    fn drawing_frame_save_load_round_trip() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "drawing_frame.set",
+            json!({"enabled": true, "page_size": "A3", "show_zones": false}),
+            None,
+        )?;
+        assert!(s.project.drawing_frame.enabled);
+        assert_eq!(s.project.drawing_frame.page_size, "A3");
+        assert!(!s.project.drawing_frame.show_zones);
+        s.execute("drawing_frame.clear", json!({}), None)?;
+        assert!(!s.project.drawing_frame.enabled);
+        assert!(s.project.drawing_frame.page_size.is_empty());
         Ok(())
     }
 
