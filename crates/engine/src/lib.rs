@@ -2728,7 +2728,13 @@ fn render_kind(
         )),
         "dxf" => out.push(("pcb.dxf".into(), pcbcraft_io::dxf_board(p)?.into_bytes())),
         "cmp" => out.push(("pcb.cmp".into(), pcbcraft_io::cmp_text(p)?.into_bytes())),
-        "idf" => out.push(("board.idf".into(), pcbcraft_io::idf_board(p)?.into_bytes())),
+        "idf" => {
+            out.push(("board.idf".into(), pcbcraft_io::idf_board(p)?.into_bytes()));
+            out.push((
+                "library.idf".into(),
+                pcbcraft_io::idf_library(p)?.into_bytes(),
+            ));
+        }
         "vrml" => out.push(("board.wrl".into(), pcbcraft_io::vrml_board(p)?.into_bytes())),
         "step" => {
             let loader = pcbcraft_io::project_step_loader(p, model_base);
@@ -31891,6 +31897,7 @@ mod tests {
         for name in [
             "pcb.cmp",
             "board.idf",
+            "library.idf",
             "board.wrl",
             "board.step",
             "board.pdf",

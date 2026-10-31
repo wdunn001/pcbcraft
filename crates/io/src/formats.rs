@@ -458,7 +458,7 @@ pub static FORMATS: &[FormatSpec] = &[
     output(
         "idf",
         "Mechanical drawing (IDF)",
-        "Board size and each part's position, for enclosure design.",
+        "Board outline and placements plus a library of footprint outlines and heights.",
         &["idf"],
         Group::Exchange,
         Run::Kind("idf"),
