@@ -680,6 +680,7 @@ fn run() -> Result<(), String> {
             wasm()?;
             docs()?;
             doc_check::run(&[])?;
+            registry_check::run(&root()?, false)?;
         }
         "policy" => {
             layers()?;

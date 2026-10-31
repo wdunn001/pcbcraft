@@ -18,6 +18,7 @@ mod gerber_export;
 mod images;
 pub mod design_document;
 pub mod library;
+mod registry;
 mod online;
 mod publication;
 mod outline;

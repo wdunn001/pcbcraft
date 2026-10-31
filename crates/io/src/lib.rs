@@ -49,6 +49,7 @@ mod model_load;
 mod model_resolve;
 mod neoden_yy1;
 mod package;
+mod registry;
 mod panel_export;
 mod schematic_sim;
 mod si_export;
@@ -209,6 +210,7 @@ pub use package::{
     MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
     package_zip,
 };
+pub use registry::{build_catalogue, generate_index_html, rebuild_site, verify_registry_manifest};
 /// Panel fabrication file and placement text generation.
 /// # Dependencies
 /// - crates/io/src/panel_export.rs

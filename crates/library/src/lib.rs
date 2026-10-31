@@ -20,6 +20,7 @@ mod paths;
 mod reader;
 mod sexpr;
 pub mod sources;
+pub mod static_registry;
 mod symbol_check;
 mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
