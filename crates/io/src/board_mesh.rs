@@ -1941,6 +1941,7 @@ mod tests {
             unsupported: vec![],
         };
         p.components.push(Component {
+            sourcing: Default::default(),
             id: 11,
             reference: "R1".into(),
             value: "10k".into(),
