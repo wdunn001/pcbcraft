@@ -475,14 +475,14 @@ fn warm_cache_sends_if_none_match() {
     assert_eq!(cache.issues_etag, Some("W/\"test-etag-123\"".to_string()));
 
     // Cleanup
-    std::fs::remove_file(&tmp).ok();
+    let _ = std::fs::remove_file(&tmp);
 }
 
 #[test]
 fn failure_reuses_last_snapshot_and_marks_stale() {
     // Create a temp directory with a snapshot file
     let tmp_dir = std::env::temp_dir().join("pcbcraft_test_stale_fallback");
-    std::fs::create_dir_all(&tmp_dir).ok();
+    let _ = std::fs::create_dir_all(&tmp_dir);
 
     let snapshot_path = tmp_dir.join("snapshot.json");
     let snapshot_content = serde_json::json!({
@@ -498,7 +498,7 @@ fn failure_reuses_last_snapshot_and_marks_stale() {
     assert_eq!(snap["fetched_at"], "2026-10-29T23:00:00Z");
 
     // Cleanup
-    std::fs::remove_dir_all(&tmp_dir).ok();
+    let _ = std::fs::remove_dir_all(&tmp_dir);
 }
 
 #[test]
