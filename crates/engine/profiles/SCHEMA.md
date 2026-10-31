@@ -13,11 +13,13 @@ Known `value_source.field` keys:
 - `pair.length_tolerance`
 - `pair_rule.clearance`
 - `rule_area.clearance`
+- `rule_area.forbid`
+- `rule_area.footprint_ref`
+- `keepout.*` / `placement.*` rows (mapped to rule areas with forbid kinds)
 
 Phase 2 fields (reported as unsupported until mapped):
 
 - `length_group`
-- `companion`
 - `net_class.max_length`
 - `net_class.limits.max_routed_length`
 - `net_class.limits.max_stub`
