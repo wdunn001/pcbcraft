@@ -484,10 +484,7 @@ pub(crate) fn invoke_session(
             let loader = pcbcraft_io::project_step_loader(&s.project, Some(base));
             let export = pcbcraft_io::step_board_with_models(&s.project, &loader)
                 .map_err(|e| e.to_string())?;
-            pcbcraft_io::atomic_write(
-                &base.join("board.step"),
-                export.text.as_bytes(),
-            )?;
+            pcbcraft_io::atomic_write(&base.join("board.step"), export.text.as_bytes())?;
             json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
         }
         "wrl.write" => {

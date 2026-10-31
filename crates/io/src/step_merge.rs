@@ -220,10 +220,7 @@ fn scale_point_tuple(inside: &str, scale: f64) -> String {
                 .unwrap_or_else(|_| (*p).to_string())
         })
         .collect();
-    format!(
-        "{name},({},{},{})",
-        scaled[0], scaled[1], scaled[2]
-    )
+    format!("{name},({},{},{})", scaled[0], scaled[1], scaled[2])
 }
 
 fn entity_named<'a>(exchange: &'a Exchange, prefix: &str) -> Option<(u32, &'a str)> {
@@ -292,9 +289,7 @@ pub fn append_body(
         id
     } else {
         let solid = solid.ok_or("the model file holds no solid the export can place")?;
-        let rep = doc.add(&format!(
-            "SHAPE_REPRESENTATION('{safe}',(#{solid}),#7)"
-        ))?;
+        let rep = doc.add(&format!("SHAPE_REPRESENTATION('{safe}',(#{solid}),#7)"))?;
         doc.add(&format!(
             "SHAPE_DEFINITION_REPRESENTATION(#{product_definition_shape},#{rep})"
         ))?;
@@ -352,9 +347,7 @@ fn placement_from_matrix(doc: &mut impl StepWriter, matrix: &[f64; 16]) -> Resul
     let point = doc.point((origin[0], origin[1], origin[2]))?;
     let z_id = doc.direction(z_dir)?;
     let x_id = doc.direction(x_dir)?;
-    doc.add(&format!(
-        "AXIS2_PLACEMENT_3D('',#{point},#{z_id},#{x_id})"
-    ))
+    doc.add(&format!("AXIS2_PLACEMENT_3D('',#{point},#{z_id},#{x_id})"))
 }
 
 fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
@@ -371,6 +364,9 @@ fn normalize(v: [f64; 3]) -> (f64, f64, f64) {
 }
 
 /// Minimal STEP writer surface used by [`append_body`] and [`write_occurrence`].
+///
+/// # Implementations
+/// - crates/io/src/lib.rs `impl StepWriter for StepDoc`.
 pub trait StepWriter {
     fn next_id(&self) -> u32;
     fn add(&mut self, body: &str) -> Result<u32, String>;
@@ -394,7 +390,12 @@ mod tests {
     #[test]
     fn step_merge_renumbers_without_clashing_ids() -> Result<(), String> {
         let exchange = parse_exchange(&read_fixture("box.step")?)?;
-        let high = exchange.entities.iter().map(|(id, _)| *id).max().unwrap_or(0);
+        let high = exchange
+            .entities
+            .iter()
+            .map(|(id, _)| *id)
+            .max()
+            .unwrap_or(0);
         let shifted = renumber(exchange, 1000);
         assert!(shifted.entities.iter().all(|(id, _)| *id > 1000));
         assert!(shifted.entities.iter().any(|(id, _)| *id == high + 1000));
@@ -419,7 +420,8 @@ mod tests {
 
     #[test]
     fn step_merge_refuses_oversized_files() {
-        let huge = "ISO-10303-21;\nDATA;\n".to_string() + &"#1=CARTESIAN_POINT('',(0,0,0));\n".repeat(500_000);
+        let huge = "ISO-10303-21;\nDATA;\n".to_string()
+            + &"#1=CARTESIAN_POINT('',(0,0,0));\n".repeat(500_000);
         assert!(parse_exchange(&huge).is_err());
     }
 }

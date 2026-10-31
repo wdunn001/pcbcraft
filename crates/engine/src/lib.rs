@@ -31807,11 +31807,7 @@ mod tests {
             .as_u64()
             .ok_or_else(|| Error::Invalid("missing id".into()))?;
         s.execute("board.sync", json!({}), None)?;
-        s.execute(
-            "footprint.assign_custom",
-            json!({"id":id,"name":"M"}),
-            None,
-        )?;
+        s.execute("footprint.assign_custom", json!({"id":id,"name":"M"}), None)?;
         let directory =
             std::env::temp_dir().join(format!("pcbcraft-step-note-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&directory);
