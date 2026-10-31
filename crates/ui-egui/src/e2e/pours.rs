@@ -85,10 +85,12 @@ fn pour_app(wall: bool, blocked: bool) -> Result<(App, egui::Context, Id), Strin
                 rules: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                retained: vec![],
             },
         });
         p.components.push(part);
         p.board.footprints.push(pcbcraft_doc::Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: part_id + 1,
             component: part_id,
             position: at,
@@ -103,6 +105,7 @@ fn pour_app(wall: bool, blocked: bool) -> Result<(App, egui::Context, Id), Strin
                 castellated: None,
                 geometry: Some(pad),
             }],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         s.replace(p).map_err(|e| e.to_string())?;
     }
