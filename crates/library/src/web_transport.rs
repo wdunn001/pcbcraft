@@ -7,7 +7,8 @@
 //!
 //! # Rules
 //! - Plain GET over HTTPS to an allowlisted host; no credentials, no user info in the address.
-//! - At most [`MAX_IN_FLIGHT`] requests are out at once; the rest wait their turn.
+//! - At most [`MAX_IN_FLIGHT`] requests are out at once and two starts are at least [`MIN_GAP`] apart; the rest wait their turn.
+//! - An address is fetched once: later asks wait on the first or read its kept answer.
 //! - Answers are kept for a short while so the caller can ask again; the source's own cache is the long-term copy.
 //! - Offline answers before anything is dispatched.
 //! - When the browser refuses cross-origin reads the transport turns itself off and keeps the plain explanation in [`WebTransport::blocked`].
@@ -21,9 +22,13 @@ use crate::open_library::{FetchError, Fetcher};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use web_time::Instant;
 
 /// Requests the browser may have out at once.
 pub const MAX_IN_FLIGHT: usize = 2;
+/// Least time between two requests to the host, the same as the desktop transport.
+pub const MIN_GAP: Duration = Duration::from_millis(250);
 /// Answers kept for the caller to ask again.
 const MAX_KEPT_ANSWERS: usize = 256;
 /// Bytes of answers kept in all.
@@ -54,6 +59,7 @@ struct State {
     waiting: VecDeque<String>,
     in_flight: usize,
     blocked: Option<String>,
+    last_start: Option<Instant>,
 }
 
 /// A non-blocking [`Fetcher`] driven by the browser.
@@ -72,6 +78,7 @@ pub struct WebTransport {
     allowed_hosts: Vec<String>,
     offline: Arc<AtomicBool>,
     pending_served: AtomicU64,
+    min_gap: Duration,
     state: Mutex<State>,
 }
 
@@ -90,7 +97,43 @@ impl WebTransport {
                 .collect(),
             offline,
             pending_served: AtomicU64::new(0),
+            min_gap: MIN_GAP,
             state: Mutex::new(State::default()),
+        }
+    }
+
+    /// The same transport with another least gap between requests (tests use none).
+    pub fn with_min_gap(mut self, gap: Duration) -> Self {
+        self.min_gap = gap;
+        self
+    }
+
+    /// Start queued requests that a free slot and the gap now allow. Called on
+    /// every ask and every reply; the Library tab asks every frame while waiting.
+    fn pump(&self) {
+        let mut go = Vec::new();
+        {
+            let Ok(mut s) = self.state.lock() else {
+                return;
+            };
+            while s.in_flight < MAX_IN_FLIGHT && s.blocked.is_none() {
+                let due = s.last_start.is_none_or(|t| t.elapsed() >= self.min_gap);
+                if !due {
+                    break;
+                }
+                let Some(url) = s.waiting.pop_front() else {
+                    break;
+                };
+                s.in_flight += 1;
+                s.last_start = Some(Instant::now());
+                go.push(url);
+                if !self.min_gap.is_zero() {
+                    break;
+                }
+            }
+        }
+        for url in go {
+            self.dispatch.start(&url);
         }
     }
 
@@ -125,7 +168,7 @@ impl WebTransport {
             }
             other => other,
         };
-        let next = {
+        {
             let Ok(mut s) = self.state.lock() else {
                 return;
             };
@@ -144,19 +187,8 @@ impl WebTransport {
                 }
                 s.asked.remove(&old);
             }
-            let next = if s.in_flight < MAX_IN_FLIGHT {
-                s.waiting.pop_front()
-            } else {
-                None
-            };
-            if next.is_some() {
-                s.in_flight += 1;
-            }
-            next
-        };
-        if let Some(url) = next {
-            self.dispatch.start(&url);
         }
+        self.pump();
     }
 
     /// The browser could not read the host at all, which is what a refused
@@ -205,7 +237,7 @@ impl Fetcher for WebTransport {
             ));
         }
         self.check(url)?;
-        let start = {
+        {
             let mut s = self
                 .state
                 .lock()
@@ -216,22 +248,12 @@ impl Fetcher for WebTransport {
             if let Some(reply) = s.answers.get(url) {
                 return reply.clone();
             }
-            if !s.asked.insert(url.to_owned()) {
-                self.pending_served.fetch_add(1, Ordering::SeqCst);
-                return Err(FetchError::Pending);
-            }
-            if s.in_flight < MAX_IN_FLIGHT {
-                s.in_flight += 1;
-                true
-            } else {
+            if s.asked.insert(url.to_owned()) {
                 s.waiting.push_back(url.to_owned());
-                false
             }
-        };
-        self.pending_served.fetch_add(1, Ordering::SeqCst);
-        if start {
-            self.dispatch.start(url);
         }
+        self.pending_served.fetch_add(1, Ordering::SeqCst);
+        self.pump();
         Err(FetchError::Pending)
     }
 }

@@ -236,6 +236,7 @@ fn place_command(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value
             .ok_or_else(missing)?;
         let pads = component_pads(component);
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: fid,
             component: id,
             position: a.position,

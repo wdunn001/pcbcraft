@@ -62,6 +62,11 @@ install -Dm755 "$BIN/pcbcraft-cli" "$STAGE/usr/bin/pcbcraft-cli"
 strip "$STAGE/usr/bin/pcbcraft" "$STAGE/usr/bin/pcbcraft-cli" 2>/dev/null || true
 install -Dm644 "$ROOT/assets/platforms/linux/$APP_ID.desktop" "$STAGE/usr/share/applications/$APP_ID.desktop"
 install -Dm644 "$ROOT/assets/platforms/linux/$APP_ID.mime.xml" "$STAGE/usr/share/mime/packages/$APP_ID.xml"
+# Languages the built-in fonts cannot draw load their font file at
+# runtime; the app finds it at ../share/pcbcraft/fonts from /usr/bin.
+for font in NotoSansJP-Regular.otf NotoSansSC-Regular.otf OFL-NotoSansCJK.txt; do
+  install -Dm644 "$ROOT/crates/ui-egui/assets/fonts/$font" "$STAGE/usr/share/pcbcraft/fonts/$font"
+done
 mkdir -p "$STAGE/usr/share/metainfo"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$PCBCRAFT_BUILD_DATE/g" \
   "$ROOT/assets/platforms/linux/$APP_ID.metainfo.xml.in" >"$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"

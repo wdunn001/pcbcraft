@@ -348,6 +348,26 @@ fn built_in_roots() -> Vec<PathBuf> {
     }
     roots
 }
+fn starter_models_list() -> Result<Value, String> {
+    let models: Vec<Value> = pcbcraft_library::starter_models::all()
+        .iter()
+        .map(|m| {
+            json!({
+                "id": m.id,
+                "file_name": m.file_name,
+                "bytes": m.bytes.len(),
+                "footprint_names": m.footprint_names,
+                "license_title": m.license_title,
+                "source": m.source,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "models": models,
+        "license_file": "crates/library/assets/starter_models/LICENSE.md",
+    }))
+}
+
 pub fn catalog() -> Result<Value, String> {
     catalog_paths(paths(), 4096)
 }
@@ -807,6 +827,7 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     };
     match name {
         "library.catalog" => catalog(),
+        "library.starter_models.list" => starter_models_list(),
         "library.sources" => sources(),
         "library.list" => list_with_project(args, None),
         "design.recents" => Ok(json!({"designs": crate::recents::load_recent_paths()})),
@@ -891,6 +912,18 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
                 &optional("name_b")?,
             )
         }
+        "library.drop_in_check" => {
+            let part = |key: &str| -> Result<pcbcraft_library::DropInPart, String> {
+                args.get(key)
+                    .ok_or_else(|| format!("missing {key}"))
+                    .and_then(|v| {
+                        serde_json::from_value(v.clone())
+                            .map_err(|e| format!("{key} could not be read: {e}"))
+                    })
+            };
+            let report = pcbcraft_library::drop_in_check(&part("incumbent")?, &part("candidate")?)?;
+            Ok(serde_json::to_value(report).map_err(|e| e.to_string())?)
+        }
         _ => Err("unknown library query".into()),
     }
 }
@@ -904,10 +937,7 @@ mod tests {
     impl TestDirectory {
         fn new() -> Result<Self, String> {
             static NEXT: AtomicU64 = AtomicU64::new(0);
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_nanos();
+            let timestamp = pcbcraft_clock::unix_nanos();
             let path = std::env::temp_dir().join(format!(
                 "pcbcraft-library-test-{}-{timestamp}-{}",
                 std::process::id(),
@@ -1075,6 +1105,17 @@ mod tests {
         Ok(())
     }
     #[test]
+    #[test]
+    fn starter_models_list_returns_the_bundled_catalog() -> Result<(), String> {
+        let list = read_tool("library.starter_models.list", &json!({}))?;
+        let models = list["models"]
+            .as_array()
+            .ok_or("models must be an array")?;
+        assert!(!models.is_empty());
+        assert!(models.iter().any(|m| m["id"] == "chip_resistor_0603"));
+        Ok(())
+    }
+
     fn library_source_tools_answer_through_the_read_tool_router() -> Result<(), String> {
         let _guard = SOURCES_TEST_LOCK
             .lock()
@@ -1209,6 +1250,35 @@ mod tests {
             "{kinds:?}"
         );
         assert_eq!(kinds[0], "fixture", "groups follow the fixed source order");
+        Ok(())
+    }
+
+    #[test]
+    fn library_drop_in_check_routes_through_the_read_tool() -> Result<(), String> {
+        let part = json!({
+            "footprint": "lib/resistor-0603",
+            "package_key": "chip-0603",
+            "pads": ["1", "2"],
+            "pins": [
+                {"number": "1", "name": "~", "electrical_type": "passive"},
+                {"number": "2", "name": "~", "electrical_type": "passive"}
+            ],
+            "category": "resistor",
+            "lifecycle": "active",
+            "value": 10000.0,
+            "value_unit": "ohm",
+            "tolerance_pct": [1.0, 1.0],
+            "rated_voltage_v": 50.0,
+            "temp_min_c": -55.0,
+            "temp_max_c": 155.0,
+            "power_w": 0.1,
+            "height_mm": 0.55
+        });
+        let out = read_tool(
+            "library.drop_in_check",
+            &json!({"incumbent": part.clone(), "candidate": part}),
+        )?;
+        assert_eq!(out["drop_in"], json!(true));
         Ok(())
     }
 }

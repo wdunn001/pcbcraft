@@ -115,7 +115,7 @@ impl App {
     /// - Ages are whole hours below two days and whole days above, never a date.
     /// - The text comes from the catalog; this only picks the key and the numbers.
     pub(super) fn cache_line(&self, stats: &CacheStats, now: u64) -> String {
-        let size = short_size(stats.bytes);
+        let size = short_size(stats.bytes + stats.listing_bytes);
         let cap = short_size(stats.cap);
         let age = match stats.oldest_age_secs(now) {
             None => t!("library.dock.cache_age.none"),
@@ -367,7 +367,9 @@ impl App {
         self.run(
             "part.attach_source",
             json!({"id":component,"manufacturer":part.manufacturer,"mpn":part.mpn,
-                   "datasheet":part.datasheet_url,"distributor":part.distributor,"sku":part.sku}),
+                   "datasheet":part.datasheet_url,"distributor":part.distributor,"sku":part.sku,
+                   "description":part.description,"lifecycle":part.lifecycle,
+                   "product_url":part.product_url}),
         );
     }
 }

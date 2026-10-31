@@ -45,6 +45,10 @@ pub fn section(
     let t = theme::tokens(ui.ctx());
     let id = ui.id().with(("kit-section", id_salt));
     let mut open = ui.data_mut(|d| *d.get_persisted_mut_or(id, true));
+    // 16 before a header in all (the row gap already gave 8), but none at the very top.
+    if ui.cursor().min.y > ui.min_rect().min.y + 1.0 {
+        ui.add_space(theme::ASIDE_SECTION_GAP - theme::ASIDE_ROW_GAP);
+    }
     let (rect, response) = ui.allocate_exact_size(
         Vec2::new(ui.available_width(), SECTION_HEADER_HEIGHT),
         Sense::click(),

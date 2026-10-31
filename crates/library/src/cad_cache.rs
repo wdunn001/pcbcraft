@@ -41,6 +41,8 @@ pub struct CacheStats {
     pub files: usize,
     /// Bytes of stored files.
     pub bytes: u64,
+    /// Bytes of stored listings.
+    pub listing_bytes: u64,
     /// The cap on stored file bytes.
     pub cap: u64,
     /// Stored listings.
@@ -122,12 +124,8 @@ fn check_hash(hash: &str) -> Result<(), SourceError> {
     Ok(())
 }
 
-/// Seconds since the Unix epoch. Safe in the browser, where the standard clock is not.
-pub fn now_secs() -> u64 {
-    web_time::SystemTime::now()
-        .duration_since(web_time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+fn now_secs() -> u64 {
+    pcbcraft_clock::unix_secs()
 }
 
 /// Platform cache folder for online library files, or `None` when the
@@ -456,6 +454,7 @@ impl CadCache {
             ..CacheStats::default()
         };
         let mut stamps: Vec<u64> = Vec::new();
+        let mut listing_bytes = 0u64;
         if let Some(root) = &self.root {
             let files = stored_files(&root.join("files"));
             out.files = files.len();
@@ -470,6 +469,7 @@ impl CadCache {
                     if path.is_dir() {
                         stack.push(path);
                     } else if let Some(t) = listing_stamp(&path) {
+                        listing_bytes += entry.metadata().map_or(0, |m| m.len());
                         stamps.push(t);
                     }
                 }
@@ -478,9 +478,11 @@ impl CadCache {
             out.files = m.files.len();
             out.bytes = m.bytes as u64;
             for l in m.listings.values() {
+                listing_bytes += l.body.len() as u64;
                 stamps.push(l.stored_at);
             }
         }
+        out.listing_bytes = listing_bytes;
         out.listings = stamps.len();
         out.oldest_listing = stamps.into_iter().min();
         out
@@ -562,7 +564,8 @@ fn stored_files(dir: &Path) -> Vec<StoredFile> {
 
 fn touch(path: &Path) {
     if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
-        let _ = f.set_modified(SystemTime::now());
+        let now = UNIX_EPOCH + std::time::Duration::from_secs(pcbcraft_clock::unix_secs());
+        let _ = f.set_modified(now);
     }
 }
 

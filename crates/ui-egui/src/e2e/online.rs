@@ -43,6 +43,7 @@ fn a_newcomer_sees_how_big_the_saved_parts_are_and_how_old() {
         files: 4,
         bytes: 3 * 1024 * 1024 + 200 * 1024,
         cap: 512 * 1024 * 1024,
+        listing_bytes: 0,
         listings: 2,
         oldest_listing: Some(1_000),
     };
@@ -98,11 +99,14 @@ fn a_newcomer_goes_offline_and_is_told_only_saved_parts_are_shown() -> Result<()
 fn a_newcomer_uses_the_online_source_in_the_browser_build() -> Result<(), String> {
     let starts = Arc::new(Mutex::new(Vec::new()));
     let offline = Arc::new(AtomicBool::new(false));
-    let transport = Arc::new(WebTransport::new(
-        Box::new(Started(starts.clone())),
-        &["gitlab.com"],
-        offline.clone(),
-    ));
+    let transport = Arc::new(
+        WebTransport::new(
+            Box::new(Started(starts.clone())),
+            &["gitlab.com"],
+            offline.clone(),
+        )
+        .with_min_gap(std::time::Duration::ZERO),
+    );
     let mut app = library_app().with_web_transport(transport.clone(), offline);
     let recorded = RecordedLibrary::load()?;
     let ctx = egui::Context::default();
@@ -110,12 +114,14 @@ fn a_newcomer_uses_the_online_source_in_the_browser_build() -> Result<(), String
     app.change_tab(Tab::Schematic);
     app.part_search = "resistor".into();
     let mut seen = false;
+    let mut every: Vec<String> = Vec::new();
     for _ in 0..600 {
         // The page plays the browser: reply to what the transport asked for.
         let asked: Vec<String> = starts
             .lock()
             .map(|mut v| std::mem::take(&mut *v))
             .unwrap_or_default();
+        every.extend(asked.iter().cloned());
         for url in asked {
             let reply: Result<Vec<u8>, FetchError> = recorded.get(&url);
             transport.answer(&url, reply);
