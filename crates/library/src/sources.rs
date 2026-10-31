@@ -124,8 +124,8 @@ pub enum SourceError {
 ///
 /// # Implementations
 /// - crates/library/src/sources.rs `FixtureSource` (this module): recorded answers from JSON files.
-/// - crates/library/src/sources.rs Live distributor sources: separate crates that implement this trait and
-///   are discovered through the source registry.
+/// - crates/library/src/digikey.rs `DigiKeySource`: live distributor keyword search and product details.
+/// - crates/library/src/mouser.rs `MouserSource`: live distributor part number search.
 ///
 /// # Do not
 /// - Return unbounded result lists; truncate to `MAX_RESULTS`.

@@ -915,6 +915,8 @@ mod tests {
             }),
             fields: vec![],
         }
+    sourcing: Default::default(),
+    compliance: Default::default(),
     }
 
     /// Project with a front SMD part, a through-hole part, a via, front and back

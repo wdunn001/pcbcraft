@@ -8,11 +8,14 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod compliance;
 mod courtyard;
 mod decoupling;
 mod drill;
 mod silk;
 mod stub;
+
+pub use compliance::{compliance_check, ComplianceFinding};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {

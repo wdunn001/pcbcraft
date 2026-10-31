@@ -1727,8 +1727,10 @@ mod tests {
             }),
             fields: vec![],
             sheet: 0,
-            instance: None,
+instance: None,
             prototype: None,
+            sourcing: Default::default(),
+            compliance: Default::default(),
         });
         p.board.footprints.push(footprint(pads));
         p
