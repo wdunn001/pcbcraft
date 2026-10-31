@@ -2298,6 +2298,47 @@ const MECHANICAL_ASPECT_LIMIT: f64 = 8.0;
 
 /// Plain-language warning when a via is too deep for its drill to plate well;
 /// none when the ratio is fine or a laser-drilled micro via is exempt.
+fn via_in_pad_requires_capped(project: &Project, via: &pcbcraft_doc::Via) -> bool {
+    use pcbcraft_doc::ViaCovering;
+    if via.gerber_via_drill(&project.board) == pcbcraft_doc::ViaGerberDrill::VII {
+        return false;
+    }
+    for f in &project.board.footprints {
+        for pad in &f.pads {
+            if pad.net.unwrap_or(0) != via.net {
+                continue;
+            }
+            let Some(center) = f.pad_world_position(pad) else {
+                continue;
+            };
+            let inside = pad
+                .geometry
+                .as_ref()
+                .filter(|g| g.shape == "circle")
+                .is_some_and(|g| {
+                    via.position.distance(center) + via.diameter / 2.0
+                        <= g.size.x / 2.0 + 1e-6
+                })
+                || pad
+                    .geometry
+                    .as_ref()
+                    .filter(|g| g.shape != "circle")
+                    .is_some_and(|_| {
+                        let outline: Vec<Point> = pad
+                            .outline_points()
+                            .into_iter()
+                            .map(|p| f.position.offset(p.rotate(-f.rotation)))
+                            .collect();
+                        point_in_polygon(via.position, &outline)
+                    });
+            if inside {
+                return via.effective_covering(&project.board) != ViaCovering::FilledCapped;
+            }
+        }
+    }
+    false
+}
+
 pub fn via_aspect_warning(project: &Project, via: &pcbcraft_doc::Via) -> Option<String> {
     let board = &project.board;
     let depth = if project.via_kind(via) == ViaKind::Through && board.layer_records.is_empty() {
@@ -2393,6 +2434,17 @@ fn via_findings(project: &Project) -> Vec<Finding> {
                 code: "via_aspect_ratio",
                 severity: project.rule_severity("via_aspect_ratio", "warning"),
                 message,
+                objects: vec![via.id],
+            });
+        }
+        if via_in_pad_requires_capped(project, via) {
+            result.push(Finding {
+                code: "via_in_pad_not_capped",
+                severity: project.rule_severity("via_in_pad_not_capped", "error"),
+                message: format!(
+                    "Via at {:.2}, {:.2} sits inside a pad and must be filled and capped",
+                    via.position.x, via.position.y
+                ),
                 objects: vec![via.id],
             });
         }
@@ -3363,6 +3415,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         p.validate()?;
@@ -3569,6 +3622,7 @@ mod tests {
                 from_layer: None,
                 to_layer: None,
                 covering: None,
+covering_scope: None,
                 covering_bottom: None,
             });
         }
@@ -4580,6 +4634,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         let fp_id = p.board.footprints[0].id;
@@ -4654,6 +4709,8 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering: None,
+            covering_scope: None,
             covering_bottom: None,
         });
     }
@@ -5089,6 +5146,8 @@ mod tests {
             from_layer: from.and_then(|i| Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| Layer::from_index(i).ok()),
             covering: None,
+covering: None,
+            covering_scope: None,
             covering_bottom: None,
         });
     }
@@ -5296,6 +5355,7 @@ mod pour_tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         p.validate()?;
