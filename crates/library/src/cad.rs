@@ -183,6 +183,23 @@ fn clip(text: &str) -> String {
     format!("{}...", &flat[..end])
 }
 
+/// Fields recovered from [`Provenance::notice`] text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParsedProvenanceNotice {
+    /// Which kind of file the notice describes.
+    pub kind: CadKind,
+    /// Source name as shown in the notice.
+    pub source_name: String,
+    /// Stable source identifier when the notice was written with one; empty for older notices.
+    pub source_id: String,
+    /// Path of the file inside the upstream repository.
+    pub upstream_path: String,
+    /// Stored upstream file revision; empty when the notice named none.
+    pub blob_id: String,
+    /// Stored upstream repository revision; empty when the notice named none.
+    pub commit_id: String,
+}
+
 impl Provenance {
     /// Provenance for one symbol, footprint or model file the user downloaded
     /// from a manufacturer page and imported locally.
@@ -243,9 +260,10 @@ impl Provenance {
             );
         }
         let mut text = format!(
-            "Imported {} from {}: {}",
+            "Imported {} from {} ({}): {}",
             self.kind.label(),
             clip(&self.source_name),
+            clip(&self.source_id),
             clip(&self.upstream_path)
         );
         if !self.blob_id.is_empty() {
@@ -265,6 +283,120 @@ impl Provenance {
         text.push('.');
         text
     }
+
+    /// Reads back the import fields that [`Self::notice`] writes.
+    ///
+    /// # Rules
+    /// - Accepts notices with or without a parenthesised source id.
+    /// - Clipped fields in the notice round-trip to the clipped text, not the full value.
+    ///
+    /// # Dependencies
+    /// - crates/library/src/cad.rs `Provenance::notice`
+    ///
+    /// # Do not
+    /// - Treat licence or credit lines as part of the upstream path.
+    pub fn parse_notice(text: &str) -> Result<ParsedProvenanceNotice, SourceError> {
+        let rest = text
+            .strip_prefix("Imported ")
+            .ok_or_else(|| invalid_notice("the notice must start with Imported"))?;
+        let (kind, rest) = parse_notice_kind(rest)?;
+        let rest = rest
+            .strip_prefix(" from ")
+            .ok_or_else(|| invalid_notice("the notice must say from after the file kind"))?;
+        let (source_name, source_id, rest) = parse_notice_source(rest)?;
+        let rest = rest.strip_prefix(": ").ok_or_else(|| {
+            invalid_notice("the notice must name the upstream path after the source")
+        })?;
+        let (upstream_path, rest) = split_notice_field(
+            rest,
+            &[", file revision ", ", repository revision ", ". Licence "],
+        )?;
+        if upstream_path.is_empty() {
+            return Err(invalid_notice("the upstream path must not be empty"));
+        }
+        let (blob_id, rest) = parse_notice_optional_prefix(rest, ", file revision ")?;
+        let (commit_id, rest) = parse_notice_optional_prefix(rest, ", repository revision ")?;
+        let rest = rest
+            .strip_prefix(". Licence ")
+            .ok_or_else(|| invalid_notice("the notice must end with a licence line"))?;
+        if rest.is_empty() {
+            return Err(invalid_notice("the licence line must not be empty"));
+        }
+        Ok(ParsedProvenanceNotice {
+            kind,
+            source_name,
+            source_id,
+            upstream_path,
+            blob_id,
+            commit_id,
+        })
+    }
+}
+
+fn invalid_notice(text: &str) -> SourceError {
+    SourceError::Invalid(text.into())
+}
+
+fn parse_notice_kind(text: &str) -> Result<(CadKind, &str), SourceError> {
+    for (label, kind) in [
+        ("3D model", CadKind::Model),
+        ("footprint", CadKind::Footprint),
+        ("symbol", CadKind::Symbol),
+    ] {
+        if let Some(rest) = text.strip_prefix(label) {
+            return Ok((kind, rest));
+        }
+    }
+    Err(invalid_notice(
+        "the notice must name symbol, footprint or 3D model",
+    ))
+}
+
+fn parse_notice_source(text: &str) -> Result<(String, String, &str), SourceError> {
+    if let Some(open) = text.find(" (") {
+        let close = text[open..]
+            .find("): ")
+            .ok_or_else(|| invalid_notice("a source id must be closed before the path"))?;
+        let source_name = text[..open].to_owned();
+        let source_id = text[open + 2..open + close].to_owned();
+        if source_name.is_empty() || source_id.is_empty() {
+            return Err(invalid_notice("the source name and id must not be empty"));
+        }
+        return Ok((source_name, source_id, &text[open + close + 3..]));
+    }
+    let colon = text
+        .find(": ")
+        .ok_or_else(|| invalid_notice("the notice must name the upstream path after the source"))?;
+    let source_name = text[..colon].to_owned();
+    if source_name.is_empty() {
+        return Err(invalid_notice("the source name must not be empty"));
+    }
+    Ok((source_name, String::new(), &text[colon + 2..]))
+}
+
+fn split_notice_field<'a>(text: &'a str, stops: &[&str]) -> Result<(String, &'a str), SourceError> {
+    let mut end = text.len();
+    for stop in stops {
+        if let Some(at) = text.find(stop) {
+            end = end.min(at);
+        }
+    }
+    let field = text[..end].to_owned();
+    Ok((field, &text[end..]))
+}
+
+fn parse_notice_optional_prefix<'a>(
+    text: &'a str,
+    prefix: &str,
+) -> Result<(String, &'a str), SourceError> {
+    if let Some(rest) = text.strip_prefix(prefix) {
+        let (value, rest) = split_notice_field(
+            rest,
+            &[", file revision ", ", repository revision ", ". Licence "],
+        )?;
+        return Ok((value, rest));
+    }
+    Ok((String::new(), text))
 }
 
 /// One fetched file: its bytes and where they came from.
