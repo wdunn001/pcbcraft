@@ -1,0 +1,19 @@
+[part]
+manufacturer = "Texas Instruments"
+mpn = "TUSB322I"
+datasheet_path = "research/sources/library/datasheets/ti/tusb322i.pdf"
+datasheet_url = "https://www.ti.com/lit/ds/symlink/tusb322i.pdf"
+
+package = "WQFN-12"
+pin_count = 12
+land_pattern_ref = "See mechanical data"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[requirement]]
+type = "decoupling"
+text = "Follow manufacturer decoupling and layout guidance in the datasheet."
+page = 1
+confirmed = false
