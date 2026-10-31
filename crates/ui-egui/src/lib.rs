@@ -7789,6 +7789,41 @@ mod tests {
         let _ = std::fs::remove_file(&file);
         outcome
     }
+    /// Draw frames until `done` holds, sleeping between them so the library
+    /// worker thread can answer even when many tests share the machine.
+    /// Gives up after `frames` frames, about 25 ms apart.
+    fn frames_until(
+        ctx: &egui::Context,
+        app: &mut App,
+        frames: usize,
+        mut done: impl FnMut(&App) -> bool,
+    ) -> bool {
+        for _ in 0..frames {
+            frame(ctx, app, vec![], egui::Modifiers::NONE);
+            if done(app) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        false
+    }
+    /// Press `label` until `done` holds. The library browser drops a press
+    /// that arrives while an earlier request is still in flight, so a press
+    /// that lands then is repeated rather than lost.
+    fn press_until(
+        ctx: &egui::Context,
+        app: &mut App,
+        label: &str,
+        mut done: impl FnMut(&App) -> bool,
+    ) -> Result<bool, String> {
+        for _ in 0..5 {
+            authoring::tests::tap(ctx, app, label)?;
+            if frames_until(ctx, app, 80, &mut done) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
     /// The visible loop a newcomer follows: type a folder, press Add folder,
     /// watch its collections appear, select one, press Remove source, and
     /// watch both the list and the remembered config forget it.
@@ -7798,12 +7833,9 @@ mod tests {
         app.change_tab(Tab::Libraries);
         app.refresh();
         let ctx = egui::Context::default();
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.catalog.is_some() && app.library.sources.is_some() {
-                break;
-            }
-        }
+        frames_until(&ctx, &mut app, 400, |app| {
+            app.library.catalog.is_some() && app.library.sources.is_some()
+        });
         assert!(
             app.library.catalog.is_some(),
             "the catalog arrives on its own"
@@ -7815,15 +7847,9 @@ mod tests {
         .to_string_lossy()
         .into_owned();
         app.library.new_source = shelf.clone();
-        authoring::tests::tap(&ctx, &mut app, "Add folder")?;
-        let mut added = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.notice.contains("Added") {
-                added = true;
-                break;
-            }
-        }
+        let added = press_until(&ctx, &mut app, "Add folder", |app| {
+            app.library.notice.contains("Added")
+        })?;
         assert!(
             added,
             "adding the folder reports back: {}",
@@ -7835,11 +7861,8 @@ mod tests {
             saved.contains(&shelf),
             "the folder is remembered in the config file"
         );
-        let mut listed = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            listed = app
-                .library
+        let listed = frames_until(&ctx, &mut app, 400, |app| {
+            app.library
                 .catalog
                 .as_ref()
                 .and_then(|catalog| catalog.get("symbol_libraries"))
@@ -7850,11 +7873,8 @@ mod tests {
                             .and_then(Value::as_str)
                             .is_some_and(|path| path.starts_with(&shelf))
                     })
-                });
-            if listed {
-                break;
-            }
-        }
+                })
+        });
         assert!(
             listed,
             "the added folder's collections join the unified list"
@@ -7875,15 +7895,9 @@ mod tests {
             })
             .ok_or("the added collection vanished from the list")?;
         app.library.path = added_path;
-        authoring::tests::tap(&ctx, &mut app, "Remove source")?;
-        let mut removed = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.notice.contains("Removed") {
-                removed = true;
-                break;
-            }
-        }
+        let removed = press_until(&ctx, &mut app, "Remove source", |app| {
+            app.library.notice.contains("Removed")
+        })?;
         assert!(removed, "removal reports back: {}", app.library.notice);
         let saved = std::fs::read_to_string(file).map_err(|_| "config vanished")?;
         assert!(
