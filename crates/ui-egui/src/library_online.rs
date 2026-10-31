@@ -30,13 +30,18 @@ use serde_json::json;
 /// for the engine.
 ///
 /// # Rules
-/// - Tries symbol + footprint + model, then without the model, then the symbol alone.
+/// - When `fetch_3d` is true, tries symbol + footprint + model, then without the
+///   model, then the symbol alone; when false, the model is never fetched.
 ///
 /// # Do not
 /// - Write to the project; the caller runs `library.place_online` with the result.
-pub(crate) fn import_open(source: &OpenLibrarySource, sku: &str) -> Result<Value, String> {
+pub(crate) fn import_open(
+    source: &OpenLibrarySource,
+    sku: &str,
+    fetch_3d: bool,
+) -> Result<Value, String> {
     if let Some(rest) = sku.strip_prefix(FOOTPRINT_SKU_PREFIX) {
-        return import_footprint(source, rest);
+        return import_footprint(source, rest, fetch_3d);
     }
     let (library, name) = sku
         .split_once('/')
@@ -52,11 +57,14 @@ pub(crate) fn import_open(source: &OpenLibrarySource, sku: &str) -> Result<Value
     let model = footprint
         .as_ref()
         .and_then(|f| CadRef::new(CadKind::Model, &f.library, &f.name).ok());
-    let attempts = [
-        (footprint.as_ref(), model.as_ref()),
-        (footprint.as_ref(), None),
-        (None, None),
-    ];
+    let with_model = (footprint.as_ref(), model.as_ref());
+    let symbol_footprint = (footprint.as_ref(), None);
+    let symbol_only = (None, None);
+    let attempts: &[(_, _)] = if fetch_3d {
+        &[with_model, symbol_footprint, symbol_only]
+    } else {
+        &[symbol_footprint, symbol_only]
+    };
     let mut last = String::new();
     for (fp, m) in attempts {
         match import_part(source, &symbol, fp, m) {
@@ -118,12 +126,21 @@ fn footprint_cad_ref(rest: &str) -> Result<CadRef, String> {
 ///
 /// # Do not
 /// - Write to the project; the caller runs `library.place_online` with the result.
-fn import_footprint(source: &OpenLibrarySource, rest: &str) -> Result<Value, String> {
+fn import_footprint(
+    source: &OpenLibrarySource,
+    rest: &str,
+    fetch_3d: bool,
+) -> Result<Value, String> {
     let footprint = footprint_cad_ref(rest)?;
     let model = CadRef::new(CadKind::Model, &footprint.library, &footprint.name).ok();
     let mut last = String::new();
-    for m in [model.as_ref(), None] {
-        match import_footprint_only(source, &footprint, m) {
+    let tries: &[Option<&CadRef>] = if fetch_3d {
+        &[model.as_ref(), None]
+    } else {
+        &[None]
+    };
+    for m in tries {
+        match import_footprint_only(source, &footprint, *m) {
             Ok(part) => return Ok(part.to_params()),
             Err(e) => last = e.to_string(),
         }
