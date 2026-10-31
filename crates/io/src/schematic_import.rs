@@ -50,6 +50,12 @@ pub fn read_schematic_interchange_path(
         if child_root.name() != "kicad_sch" {
             return Err("expected a schematic interchange root".into());
         }
+        // A sub-sheet carries the symbols it places.
+        if let Some(lib) = child_root.child("lib_symbols") {
+            for (name, def) in read_embedded_symbols(&child_text, lib)? {
+                ctx.symbols.entry(name).or_insert(def);
+            }
+        }
         ctx.parse_page(
             job.sheet_id,
             job.instance_uuid,
@@ -72,10 +78,11 @@ fn format_sexpr_error(text: &str) -> impl Fn(pcbcraft_library::Error) -> String 
 }
 
 fn line_number(text: &str, offset: usize) -> usize {
-    text.get(..offset.min(text.len()))
-        .map(|prefix| prefix.lines().count())
-        .unwrap_or(1)
-        .max(1)
+    text.as_bytes()[..offset.min(text.len())]
+        .iter()
+        .filter(|b| **b == b'\n')
+        .count()
+        + 1
 }
 
 fn parse_version(raw: &str) -> Result<i64, String> {
@@ -94,9 +101,6 @@ fn read_embedded_symbols(
     }
     body.push(')');
     let defs = read_symbols(&body).map_err(|e| e.to_string())?;
-    if defs.is_empty() {
-        return Err("schematic carries no embedded symbol definitions".into());
-    }
     if defs.len() > MAX_SYMBOLS {
         return Err("schematic embeds too many symbol definitions".into());
     }
@@ -208,7 +212,12 @@ impl ImportCtx {
         if self.pages.len() >= MAX_SHEETS {
             return Err("schematic hierarchy exceeds sheet limit".into());
         }
-        let sheet_name = prop(root, "title")
+        let titled = root
+            .child("title_block")
+            .map(|t| t.field("title").to_owned())
+            .filter(|t| !t.is_empty());
+        let sheet_name = titled
+            .or_else(|| prop(root, "title"))
             .or_else(|| prop(root, "Sheetname"))
             .unwrap_or_else(|| {
                 if sheet_id == 0 {
@@ -538,8 +547,16 @@ impl ImportCtx {
             }
         }
 
+        let label_names: BTreeSet<&str> = pages
+            .iter()
+            .flat_map(|p| p.labels.iter().map(|l| l.1.as_str()))
+            .collect();
         for page in &pages {
             for (pin_name, pos, _) in &page.sheet_pins {
+                // A sheet pin nothing else names or wires is not a net.
+                if !label_names.contains(pin_name.as_str()) {
+                    continue;
+                }
                 attach_net_name(
                     &mut named,
                     &mut keys,
@@ -589,8 +606,21 @@ impl ImportCtx {
 
         let mut orphan = 1usize;
         let roots: BTreeSet<usize> = keys.values().map(|&idx| uf.find(idx)).collect();
+        // A lone pin on a bare wire stub is not a net; two or more joined pins are.
+        let mut pins_on_root: BTreeMap<usize, usize> = BTreeMap::new();
+        for page in &pages {
+            for component in &page.components {
+                for pin in &component.pins {
+                    if let Some(pos) = component.pin_position(&pin.number)
+                        && let Some(idx) = keys.get(&snap_key(component.sheet, pos)).copied()
+                    {
+                        *pins_on_root.entry(uf.find(idx)).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
         for root in roots {
-            if net_ids.contains_key(&root) {
+            if net_ids.contains_key(&root) || pins_on_root.get(&root).copied().unwrap_or(0) < 2 {
                 continue;
             }
             let id = self.alloc();
@@ -648,8 +678,7 @@ impl ImportCtx {
             }
             for (pin_name, pos, _) in &page.sheet_pins {
                 let id = self.alloc();
-                let net = lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos)
-                    .ok_or_else(|| format!("sheet pin {pin_name} is not on a derived net"))?;
+                let net = lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos).unwrap_or(0);
                 project.ports.push(Port {
                     id,
                     name: pin_name.clone(),
