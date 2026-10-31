@@ -116,6 +116,11 @@ pads connect their own front/back copper; two different pads are never bridged.
 declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
 routes both nets with coupled orthogonal L geometry and refuses when the pair gap
 cannot be kept.
+
+`track.tune_skew` takes a differential pair `id` or `name`, optional `layer`
+(default `F.Cu`), and a declared `length_tolerance` on the pair. It serpentines
+the shorter net until skew is within tolerance, in one undo step.
+
 `track.drag` takes a track `id`, which `end` ("start" or "end"), a `position` and an
 optional `mode` (`octilinear` by default, or `octilinear_shove`). The other end stays
 put and the track is re-laid as 45-degree copper around pads, cutouts and other
