@@ -31,8 +31,10 @@ fn bare_footprint(pads: Vec<FootprintPad>, graphics: Vec<Graphic>) -> FootprintD
         graphics,
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     }
 }
 
@@ -116,6 +118,7 @@ fn symbol_duplicate_position_is_reported() {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     assert!(has_code(&check_symbol(&def), "lib_pin_duplicate_position"));
 }
@@ -148,6 +151,7 @@ fn symbol_side_warning_for_top_pins() {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     assert!(has_code(&check_symbol(&def), "lib_symbol_pins_top_bottom"));
 }

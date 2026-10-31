@@ -3,12 +3,15 @@
 //! Placement on the board is not done here; `board_mesh::with_models` applies
 //! the footprint matrix. Every limit returns a plain-sentence [`ModelError`]
 //! that the 3D View shows beside the part, so a bad file never panics.
+//! Open-library STEP bodies reach this reader only after optional fetch into
+//! the CAD cache (crates/library/src/open_import.rs).
 //!
 //! Formats: glTF and GLB, a bounded VRML subset
 //! (`vrml_read.rs`), STEP solids (`step_read.rs`, millimetres) and SolidCraft
 //! projects (`solidcraft_model.rs`, millimetres, Z up).
 //! Units: glTF is metres and Y up, so it is scaled by 1000 and turned to Z up.
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -25,7 +28,7 @@ const MAX_NODE_DEPTH: usize = 64;
 const MAX_NODES_VISITED: usize = 20_000;
 
 /// One model as triangles in millimetres, Z up, in the model's own frame.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoadedModel {
     /// Vertex positions in millimetres.
     pub positions: Vec<[f64; 3]>,
@@ -67,7 +70,7 @@ fn err<T>(s: impl Into<String>) -> Result<T, ModelError> {
 
 /// Identity of a model file for caching: changes when the file, its size,
 /// its modification time or the reader changes.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModelCacheKey {
     /// The model path as the footprint names it.
     pub path: String,
@@ -77,6 +80,8 @@ pub struct ModelCacheKey {
     pub mtime_nanos: Option<u128>,
     /// [`LOADER_VERSION`] when the key was made.
     pub loader_version: u32,
+    /// Content digest for companion project files; ignores mtime when set.
+    pub content_digest: Option<String>,
 }
 /// The cache key for a file with this size and modification time.
 pub fn model_cache_key(
@@ -91,6 +96,24 @@ pub fn model_cache_key(
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_nanos()),
         loader_version: LOADER_VERSION,
+        content_digest: None,
+    }
+}
+
+/// Cache key for a companion CAD project from its bytes and optional part name.
+pub fn companion_model_cache_key(
+    path: &str,
+    project_bytes: &[u8],
+    cad_part: Option<&str>,
+) -> ModelCacheKey {
+    let hash = crate::companion_cad::content_sha256_hex(project_bytes);
+    let digest = crate::companion_cad::companion_cache_token(&hash, cad_part);
+    ModelCacheKey {
+        path: path.to_string(),
+        len: project_bytes.len() as u64,
+        mtime_nanos: None,
+        loader_version: LOADER_VERSION,
+        content_digest: Some(digest),
     }
 }
 
@@ -475,5 +498,18 @@ mod tests {
         assert_eq!(a, model_cache_key("a.glb", 10, Some(t0)));
         assert_ne!(a, model_cache_key("a.glb", 10, Some(t1)));
         assert_ne!(a, model_cache_key("a.glb", 11, Some(t0)));
+    }
+
+    #[test]
+    fn companion_cache_key_uses_content_not_mtime() {
+        let bytes_a = br#"{"format":22}"#;
+        let bytes_b = br#"{"format":23}"#;
+        let a = companion_model_cache_key("p.solidcraft", bytes_a, None);
+        let same = companion_model_cache_key("p.solidcraft", bytes_a, None);
+        let other = companion_model_cache_key("p.solidcraft", bytes_b, None);
+        assert_eq!(a, same);
+        assert_ne!(a, other);
+        assert!(a.content_digest.is_some());
+        assert!(a.mtime_nanos.is_none());
     }
 }

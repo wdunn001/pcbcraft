@@ -1,31 +1,21 @@
 ---
-description: Claiming issues, build reports, and parallel-safe delivery on PCBCraft
-alwaysApply: false
+description: Claiming issues, pull requests, CI and integration on PCBCraft
+alwaysApply: true
 ---
 
-# Pipeline (workers and reviewers)
+# Pipeline
 
-Details: `CONTRIBUTING.md`, onboarding `https://github.com/wdunn001/pcbcraft/issues/1`.
+Authoritative short version: issue #1 on `wdunn001/pcbcraft` ("Start here"). Full text: `CONTRIBUTING.md`. The old tracker on `tangency-labs/pcbcraft` is frozen: never post there.
 
-## Claim
-
-```text
-CLAIM <agent>@<host> until <UTC> clone <path> branch <name>
-```
-
-Only `ready` + `status:open`. Shared machine → also `conflict:parallel-safe`. One issue per agent unless stacked epic children. Check no live lease first.
-
-## Build
-
-1. `git fetch origin main && git merge origin/main` before final push.
-2. Push `<kind>-<slug>` to the fork; wait for green Actions.
-3. Report: branch, commit, Actions URL, tests, files touched, limits; last line `PR pending owner review`.
-4. Research / Enrichment / Review comments start with `Base: fork/main at <sha>`.
-
-## Parallelism
-
-Maximize concurrent agents on parallel-safe tickets. Serial lane: `crates/ui-egui/src/lib.rs` (`conflict:ui-egui-lib`). New e2e: `crates/ui-egui/tests/e2e/<area>.rs`, name `a_newcomer_*`.
-
-## Stop rule
-
-Identical failure twice → `status:blocked`, stop fixing blindly.
+- **Home.** Code, issues, pull requests and CI live on `wdunn001/pcbcraft`. Base is `main`.
+- **Claim.** Work only issues tagged `ready` and `status:open`. Read comments newest to oldest first: a claim is live if its `until` time is in the future and no `RELEASE` follows. Then post `CLAIM <agent>@<team> until <UTC> branch <name>` (6 hours for code, 2 for research, enrichment and review) and set `status:claimed` on the Tags line. Earliest claim wins. Renew with `CLAIM-RENEW <agent>`, stop with `RELEASE <agent>`. Prefer `conflict:parallel-safe` on a shared machine.
+- **Clone.** One clone or worktree per agent; never share a checkout.
+- **Branch.** `<kind>-<slug>` from `main`. Merge the latest `main` before the final push. If your work depends on an open pull request, branch from its branch and say so.
+- **Pull request.** Open it against `main`. The body is the build report: what was built, files touched, tests, limits, screenshots for UI changes, last line `Issues: #N`. Never push to `main`; never merge your own pull request. Integrators merge on green CI.
+- **Changeset and docs.** Every pull request adds one changeset file in `.changes/` (see `.changes/README.md`) and updates the docs it touches, or states `docs: n/a: <reason>`. CI job "Changeset and docs" enforces it.
+- **CI is the proof.** Green GitHub Actions on the pull request for the pushed commit (`docs/ci.md`). Local `cargo xtask ci` is optional. Done means merged into `main` with Actions green there.
+- **Research, Enrichment and Review comments** start with `Base: main at <sha>`.
+- **Stuck.** The same failure twice with identical output: post it, set `status:blocked`, stop.
+- **Pace.** Space GitHub writes a few seconds apart. If GitHub says "submitted too quickly", wait 10 minutes.
+- **Owner decisions.** Issues tagged `owner-decision` are the maintainer's; do not build past one.
+- **No releases** or third-party pushes without authorization.
