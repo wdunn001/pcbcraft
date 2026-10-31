@@ -169,6 +169,7 @@ mod tests {
             extends: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         assert!(
             check_symbol(&def)
@@ -192,6 +193,7 @@ mod tests {
             extends: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         assert!(
             check_symbol(&def)

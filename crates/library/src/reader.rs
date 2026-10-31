@@ -34,6 +34,42 @@ const MM_PER_INCH: f64 = 25.4;
 fn invalid(message: impl Into<String>) -> Error {
     Error::Invalid(message.into())
 }
+const MAX_RETAINED_NODES: usize = 256;
+const MAX_RETAINED_NODE_BYTES: usize = 256 * 1024;
+
+fn push_retained(retained: &mut Vec<String>, source: &str, node: &Node) {
+    if retained.len() >= MAX_RETAINED_NODES {
+        return;
+    }
+    let snippet = source[node.span.clone()].to_owned();
+    if snippet.len() <= MAX_RETAINED_NODE_BYTES && !snippet.is_empty() {
+        retained.push(snippet);
+    }
+}
+
+fn note_symbol_unknown(
+    symbol: &mut SymbolDefinition,
+    source: &str,
+    node: Option<&Node>,
+    message: String,
+) {
+    symbol.unsupported.push(message);
+    if let Some(node) = node {
+        push_retained(&mut symbol.retained, source, node);
+    }
+}
+
+fn note_footprint_unknown(
+    footprint: &mut FootprintDefinition,
+    source: &str,
+    node: Option<&Node>,
+    message: String,
+) {
+    footprint.unsupported.push(message);
+    if let Some(node) = node {
+        push_retained(&mut footprint.retained, source, node);
+    }
+}
 fn num(s: &str) -> Result<f64, Error> {
     let n = s
         .parse::<f64>()
@@ -247,6 +283,7 @@ fn resolve(
             extends: None,
             raw_source: String::new(),
             unsupported: Vec::new(),
+            retained: Vec::new(),
         }
     };
     s.name = name.to_owned();
@@ -311,8 +348,12 @@ fn resolve(
                         primitive,
                     });
                 } else if part.atom.is_none() {
-                    s.unsupported
-                        .push(format!("symbol unit expression {}", part.name()));
+                    note_symbol_unknown(
+                        &mut s,
+                        source,
+                        Some(part),
+                        format!("symbol unit expression {}", part.name()),
+                    );
                 }
             }
         } else if child.atom.is_none()
@@ -330,8 +371,12 @@ fn resolve(
                     | "embedded_fonts"
             )
         {
-            s.unsupported
-                .push(format!("symbol expression {}", child.name()));
+            note_symbol_unknown(
+                &mut s,
+                source,
+                Some(child),
+                format!("symbol expression {}", child.name()),
+            );
         }
     }
     if node.field("embedded_fonts") == "yes" {
@@ -416,6 +461,7 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
         rules: None,
         raw_source: source[node.span.clone()].to_owned(),
         unsupported: Vec::new(),
+        retained: Vec::new(),
     };
     for child in &node.children {
         if child.name() == "point" {
@@ -426,8 +472,10 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                 return Err(invalid("invalid reference point size"));
             }
         } else if child.name() == "pad" {
+            // A drill record with an offset but no diameter drills nothing.
             let drill = child
                 .child("drill")
+                .filter(|d| !d.value(1).is_empty())
                 .map(|d| {
                     let oval = d.value(1) == "oval";
                     let x = num(d.value(if oval { 2 } else { 1 }))?;
@@ -442,7 +490,7 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     })
                 })
                 .transpose()?;
-            let layers = child
+            let layers: Vec<String> = child
                 .child("layers")
                 .ok_or_else(|| invalid("missing pad layers"))?
                 .children
@@ -492,6 +540,12 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
             let pad_type = match child.value(2) {
                 "np_thru_hole" => "unplated".into(),
                 token => token.to_owned(),
+            };
+            // A mounting hole lists copper layers in some files; it has none.
+            let layers: Vec<String> = if pad_type == "unplated" {
+                layers.into_iter().filter(|l| !l.ends_with(".Cu")).collect()
+            } else {
+                layers
             };
             s.pads.push(FootprintPad {
                 number,
@@ -579,8 +633,12 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     | "embedded_fonts"
             )
         {
-            s.unsupported
-                .push(format!("footprint expression {}", child.name()));
+            note_footprint_unknown(
+                &mut s,
+                source,
+                Some(child),
+                format!("footprint expression {}", child.name()),
+            );
         }
     }
     s.validate()?;
