@@ -911,6 +911,18 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
                 &optional("name_b")?,
             )
         }
+        "library.drop_in_check" => {
+            let part = |key: &str| -> Result<pcbcraft_library::DropInPart, String> {
+                args.get(key)
+                    .ok_or_else(|| format!("missing {key}"))
+                    .and_then(|v| {
+                        serde_json::from_value(v.clone())
+                            .map_err(|e| format!("{key} could not be read: {e}"))
+                    })
+            };
+            let report = pcbcraft_library::drop_in_check(&part("incumbent")?, &part("candidate")?)?;
+            Ok(serde_json::to_value(report).map_err(|e| e.to_string())?)
+        }
         _ => Err("unknown library query".into()),
     }
 }
@@ -1237,6 +1249,35 @@ mod tests {
             "{kinds:?}"
         );
         assert_eq!(kinds[0], "fixture", "groups follow the fixed source order");
+        Ok(())
+    }
+
+    #[test]
+    fn library_drop_in_check_routes_through_the_read_tool() -> Result<(), String> {
+        let part = json!({
+            "footprint": "lib/resistor-0603",
+            "package_key": "chip-0603",
+            "pads": ["1", "2"],
+            "pins": [
+                {"number": "1", "name": "~", "electrical_type": "passive"},
+                {"number": "2", "name": "~", "electrical_type": "passive"}
+            ],
+            "category": "resistor",
+            "lifecycle": "active",
+            "value": 10000.0,
+            "value_unit": "ohm",
+            "tolerance_pct": [1.0, 1.0],
+            "rated_voltage_v": 50.0,
+            "temp_min_c": -55.0,
+            "temp_max_c": 155.0,
+            "power_w": 0.1,
+            "height_mm": 0.55
+        });
+        let out = read_tool(
+            "library.drop_in_check",
+            &json!({"incumbent": part.clone(), "candidate": part}),
+        )?;
+        assert_eq!(out["drop_in"], json!(true));
         Ok(())
     }
 }
