@@ -1,0 +1,11 @@
+schema = 1
+id = "example-pin-map"
+name = "Example pin map export"
+version = "0.1.0"
+license = "GPL-3.0-or-later"
+
+[[export_templates]]
+id = "pin-map-tsv"
+path = "templates/pin-map.tsv.toml"
+description = "Tab-separated pin map for tooling"
+output_name = "pin-map.tsv"

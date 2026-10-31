@@ -2284,6 +2284,27 @@ json!({"code":{"type":"string","description":"check code: unassigned_pin, single
             ),
         ),
         (
+            "plugins.list",
+            "List data-only plugins under a local root folder (manifest scan, no network)",
+            schema(
+                json!({"root":{"type":"string","minLength":1,"maxLength":4096,"description":"directory containing one folder per plugin"}}),
+                &["root"],
+            ),
+        ),
+        (
+            "plugins.export",
+            "Render a plugin pin-map export template from the current design; optional directory writes the file without editing the project",
+            schema(
+                json!({
+                    "root":{"type":"string","minLength":1,"maxLength":4096},
+                    "plugin_id":{"type":"string","minLength":1,"maxLength":64},
+                    "template_id":{"type":"string","minLength":1,"maxLength":64},
+                    "directory":{"type":"string","minLength":1,"maxLength":4096,"description":"when set, write the export file here"}
+                }),
+                &["root", "plugin_id", "template_id"],
+            ),
+        ),
+        (
             "bom.set_fields",
             "Define the extra bill-of-materials columns this project prints: each column names a component property and the header to show, falling back to the property key; at most 16 columns",
             schema(
@@ -16790,6 +16811,8 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
         "rules.profile_list" => Ok(profiles::profile_list()),
         "rules.profile_read" => profiles::profile_read(p, params).map_err(Error::Invalid),
         "rules.profile_apply" => profiles::profile_apply(p, next, params).map_err(Error::Invalid),
+        "plugins.list" => plugins::plugins_list(params).map_err(Error::Invalid),
+        "plugins.export" => plugins::plugins_export(p, params).map_err(Error::Invalid),
         "board.layer_add" => {
             let a: LayerAddParams = parse(params)?;
             if a.name.trim().is_empty() || a.name.len() > 64 {
