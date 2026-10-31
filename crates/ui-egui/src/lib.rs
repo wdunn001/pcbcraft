@@ -3822,6 +3822,18 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             }
             if ui
                 .button(t!("menu.file.save_as"))
+                .button(t!("menu.file.compare"))
+                .on_hover_text(t!("menu.file.compare.tip"))
+                .clicked()
+            {
+                self.compare_open = true;
+            }
+            }
+            ui.separator();
+            self.import_submenu(ui);
+            self.export_submenu(ui);
+            if ui
+                .button(t!("menu.file.save_as"))
                 .on_hover_text(t!("menu.file.save_as.tip"))
                 .clicked()
             {

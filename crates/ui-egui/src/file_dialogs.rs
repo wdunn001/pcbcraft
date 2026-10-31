@@ -23,9 +23,7 @@
 use crate::App;
 use crate::bom_export;
 use pcbcraft_doc::{BOM_EXCLUDE_FIELD, Id, Project};
-use pcbcraft_io::formats::{
-    self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope, bom_flavour,
-};
+use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope, bom_flavour};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -125,7 +123,7 @@ pub(crate) struct DialogState {
 /// through File and Export to show the submenu.
 #[derive(Default)]
 pub(crate) struct CaptureScript {
-    /// The scene asked for: `file-export` or `export-dialog`.
+/// The scene asked for: `file-export`, `export-dialog` or `export-flavour`.
     pub show: Option<String>,
     /// Where the menu buttons were drawn last frame.
     pub rects: BTreeMap<&'static str, egui::Pos2>,
@@ -148,7 +146,19 @@ fn spec(id: &str) -> Option<&'static FormatSpec> {
 /// The option values a format starts with.
 fn defaults(project: &Project, f: &FormatSpec) -> BTreeMap<String, String> {
     if f.id == "bom" {
-        return bom_export::default_values(project, &formats::BOM_FLAVOURS[0]);
+return bom_export::default_values(project, &formats::BOM_FLAVOURS[0]);
+    }
+    let mut out = BTreeMap::new();
+    for o in f.options {
+        let value = match o.kind {
+            OptionKind::Bool { default } => default.to_string(),
+            OptionKind::Choice { choices, default } => choices
+                .get(default)
+                .map(|(v, _)| (*v).to_owned())
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
+        out.insert(o.label.to_owned(), value);
     }
     let mut out = BTreeMap::new();
     for o in f.options {
@@ -619,7 +629,9 @@ impl App {
         }
         let o = bom_export::Options::from_values(
             &self.project,
-            &bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]),
+&bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]),
+            &bom_export::default_values(&self.project, formats::default_bom_flavour()),
+            &[],
             &[],
         );
         let n = bom_export::table(&self.project, &o).map_or(0, |t| t.rows.len());
@@ -686,11 +698,28 @@ impl App {
         if !self.edit.dialog.preview_open {
             return;
         }
-        let values = bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
+let values = bom_export::default_values(&self.project, formats::default_bom_flavour());
         let o = bom_export::Options::from_values(&self.project, &values, &[]);
         let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
             headers: vec![],
             rows: vec![],
+            header: true,
+            missing: vec![],
+        });
+        let mut open = true;
+        let mut export = false;
+        let o = bom_export::Options::from_values(&self.project, &values, &[]);
+        let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
+            headers: vec![],
+            rows: vec![],
+let values = bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
+        let o = bom_export::Options::from_values(&self.project, &values, &[]);
+        let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
+            headers: vec![],
+            rows: vec![],
+            header: true,
+            missing: vec![],
+        });
         });
         let mut open = true;
         let mut export = false;
@@ -860,7 +889,10 @@ fn detail(
         ui.add_space(8.0);
         let o = bom_export::Options::from_values(project, &d.values, &d.only);
         match bom_export::table(project, &o) {
-            Ok(table) => preview_grid_limited(ui, &table),
+Ok(table) => {
+                bom_needs_ui(ui, &table, &o);
+                preview_grid_limited(ui, &table);
+            }
             Err(e) => {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -884,10 +916,47 @@ fn detail(
     }
 }
 
+fn bom_needs_ui(ui: &mut egui::Ui, table: &bom_export::Table, o: &bom_export::Options) {
+    for m in &table.missing {
+        let shown: Vec<&str> = m.references.iter().take(12).map(String::as_str).collect();
+        let more = m.references.len().saturating_sub(shown.len());
+        let mut text = format!(
+            "{} part{} lack{} a {}: {}",
+            m.references.len(),
+            if m.references.len() == 1 { "" } else { "s" },
+            if m.references.len() == 1 { "s" } else { "" },
+            m.what,
+            shown.join(", ")
+        );
+        if more > 0 {
+            text.push_str(&format!(" and {more} more"));
+        }
+        ui.colored_label(ui.visuals().warn_fg_color, text).on_hover_text(
+            "The file is still written, with these cells blank. Add the field in the part's Properties first if the site needs it.",
+        );
+    }
+    for note in bom_export::limit_notes(table, o) {
+        ui.colored_label(ui.visuals().warn_fg_color, note)
+            .on_hover_text("The receiving site says it will refuse or cut a larger upload.");
+    }
+}
+
 fn preview_grid_limited(ui: &mut egui::Ui, table: &bom_export::Table) {
     ui.label(egui::RichText::new("Preview").strong());
     let shown = bom_export::Table {
         headers: table.headers.clone(),
+        rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
+        header: table.header,
+        missing: vec![],
+    };
+    ui.label(format!(
+fn preview_grid_limited(ui: &mut egui::Ui, table: &bom_export::Table) {
+    ui.label(egui::RichText::new("Preview").strong());
+    let shown = bom_export::Table {
+        headers: table.headers.clone(),
+        rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
+header: table.header,
+        missing: vec![],
         rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
     };
     ui.label(format!(
@@ -953,24 +1022,40 @@ fn option_row(
         }
         OptionKind::Flavour => {
             let current = bom_export::flavour_of(&d.values);
-            ui.horizontal_wrapped(|ui| {
+ui.horizontal_wrapped(|ui| {
                 ui.label(o.label);
-                for flavour in formats::BOM_FLAVOURS {
-                    if ui
-                        .selectable_label(current.id == flavour.id, flavour.label)
-                        .on_hover_text(flavour.tip)
-                        .clicked()
-                        && current.id != flavour.id
-                    {
-                        let build = d.values.get(bom_export::BUILD).cloned().unwrap_or_default();
-                        d.values = bom_export::default_values(
-                            project,
-                            bom_flavour(flavour.id).unwrap_or(&formats::BOM_FLAVOURS[0]),
-                        );
-                        d.values.insert(bom_export::BUILD.to_owned(), build);
-                    }
-                }
+                egui::ComboBox::from_id_salt("bom_flavour")
+                    .selected_text(&current.label)
+                    .width(320.0)
+                    .show_ui(ui, |ui| {
+                        for flavour in formats::bom_flavours() {
+                            if ui
+                                .selectable_label(current.id == flavour.id, &flavour.label)
+                                .on_hover_text(&flavour.tip)
+                                .clicked()
+                                && current.id != flavour.id
+                            {
+                                let build =
+                                    d.values.get(bom_export::BUILD).cloned().unwrap_or_default();
+                                d.values = bom_export::default_values(project, flavour);
+                                d.values.insert(bom_export::BUILD.to_owned(), build);
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text(o.tip);
             });
+            let current = bom_export::flavour_of(&d.values);
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(&current.tip).weak());
+            if !current.header {
+                ui.label(
+                    egui::RichText::new(
+                        "This file has no header row. The preview names the columns for reading only.",
+                    )
+                    .weak(),
+                );
+            }
         }
         OptionKind::Variant => {
             if project.variants.is_empty() {
@@ -1023,8 +1108,9 @@ fn option_row(
                         changed = true;
                     }
                 };
-                for (token, header) in flavour.columns {
-                    toggle(ui, (*token).to_owned(), (*header).to_owned());
+for (token, header) in flavour.columns {
+                    toggle(ui, token.to_owned(), header.to_owned());
+                }
                 }
                 for field in &project.bom_fields {
                     let label = if field.label.is_empty() {
@@ -1044,7 +1130,7 @@ fn option_row(
 }
 
 impl App {
-    /// Capture option: stage a scene for the screenshot (`file-export`, `export-dialog`).
+    /// Capture option: stage a scene for the screenshot (`file-export`, `export-dialog`, `export-flavour`).
     pub fn with_capture_show(mut self, scene: Option<String>) -> Self {
         self.edit.dialog.script.show = scene;
         self
@@ -1055,7 +1141,18 @@ impl App {
         match self.edit.dialog.script.show.clone().as_deref() {
             Some("file-export") => {
                 let mut values =
-                    bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
+                    bom_export::default_values(&self.project, formats::default_bom_flavour());
+    pub fn with_capture_show(mut self, scene: Option<String>) -> Self {
+        self.edit.dialog.script.show = scene;
+        self
+    }
+
+    /// Frame 3 of a `--show` capture: seed a Recent export or open the dialog.
+    pub(crate) fn capture_scene(&mut self) {
+        match self.edit.dialog.script.show.clone().as_deref() {
+            Some("file-export") => {
+                let mut values =
+bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
                 values.insert(bom_export::FILE_TYPE.into(), "tsv".into());
                 values.insert(bom_export::GROUP.into(), "false".into());
                 let summary = bom_export::summary(&self.project, &values);
@@ -1069,7 +1166,16 @@ impl App {
                 );
             }
             Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
-values.insert(bom_export::GROUP.into(), "false".into());
+Some("export-flavour") => {
+                self.open_dialog(Mode::Export, Some("bom"), None, vec![]);
+                if let Some(flavour) = formats::bom_flavour("asm_proto_a") {
+                    self.edit.dialog.values = bom_export::default_values(&self.project, flavour);
+                }
+            }
+            Some("export-dialog") => {
+                self.open_dialog(Mode::Export, Some("bom"), None, vec![]);
+                let mut values = self.edit.dialog.values.clone();
+                values.insert(bom_export::GROUP.into(), "false".into());
                 let summary = bom_export::summary(&self.project, &values);
                 remember(
                     &mut self.preferences.recent_files.exports,
@@ -1080,7 +1186,6 @@ values.insert(bom_export::GROUP.into(), "false".into());
                     },
                 );
             }
-            Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
             Some(scene) if scene.starts_with("library-") => self.capture_library_scene(scene),
             Some(scene) if scene.starts_with("files-") => self.files_capture_scene(scene),
             Some(scene) => {
