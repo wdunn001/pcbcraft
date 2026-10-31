@@ -1,7 +1,7 @@
 //! MCU pin-mux and peripheral conflict checks from the firmware design record.
 use pcbcraft_doc::{Id, Project};
-use pcbcraft_library::firmware_design::{load_firmware_context, FirmwareContext};
-use pcbcraft_library::mcu::{function_instance, McuPin};
+use pcbcraft_doc::firmware_design::{load_firmware_context, FirmwareContext};
+use pcbcraft_library::mcu_record::{function_instance, McuPin};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::Finding;

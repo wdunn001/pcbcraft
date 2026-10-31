@@ -1,6 +1,6 @@
 //! Betaflight-style board target export and reverse pin-map check.
 use pcbcraft_doc::Project;
-use pcbcraft_library::firmware_design::{load_firmware_context, FirmwareContext};
+use pcbcraft_doc::firmware_design::{load_firmware_context, FirmwareContext};
 use std::collections::BTreeMap;
 
 /// Files written for export kind `firmware_target`.

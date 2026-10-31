@@ -1,40 +1,78 @@
 //! Canonical project data. No UI or protocol dependencies.
+mod backdrill;
+pub use backdrill::{BACKDRILL_MAX_MM, BackDrill, BackDrillFrom};
+mod component_kind;
+mod compliance;
 mod compliance_list;
+mod drawing_frame;
+mod export_trade;
+mod fab;
+mod layer_names;
 mod machine_profile;
-mod package_def;
-pub use package_def::{
-    MAX_PACKAGE_CONTENTS, MAX_PROJECT_PACKAGES, PACKAGE_CONTAINERS, PACKAGE_TOKENS, PackageContent,
-    PackageDef, PackageRun, check_template, validate_packages,
-};
+mod material;
+mod net_members;
+mod net_properties;
 mod outline;
-pub use compliance_list::*;
-pub use machine_profile::*;
-pub use outline::{
-    MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_chord_worst_error, arc_polyline, arc_sagitta,
-    flatten_outline, outline_extent, segment_arc, validate_outline_arcs,
-};
+mod package_def;
 mod panel;
+mod placement_machine;
+mod sourcing;
+mod via_protection;
 pub use component_kind::{
     COMPONENT_KIND_SLUGS, DECOUPLING_EXCLUDED_KINDS, allowed_kinds_message,
     assign_kind_from_library, is_ic_like_kind, is_valid_component_kind, kind_matches,
     parse_component_kind, validate_component_kinds,
 };
+pub use compliance::{
+    Compliance, ComplianceDeclaration, ComplianceProjectSettings, ComplianceSource,
+    ComplianceSourceKind, ComplianceStatus, CountryOfOrigin, DeclaredSubstance,
+    MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURERS,
+    MAX_SUBSTANCES, ManufacturerRecord, MineralsReportOnFile, PartRole, date_le,
+    normalize_manufacturer_name, part_role_text, valid_compliance_link, valid_compliance_text,
+    valid_date,
+};
+pub use compliance_list::*;
+pub use drawing_frame::{
+    DrawingFrame, MAX_LOGO_TEXT, MAX_TITLE_BLOCK_FIELDS, MAX_TITLE_BLOCK_LABEL,
+    MAX_TITLE_BLOCK_TEMPLATE, PAGE_SIZES, TitleBlockField, known_page_size, page_size_mm,
+    sheet_page_numbers,
+};
+pub use export_trade::{ExportTradeSettings, MAX_HTS_PREFIX, MAX_TARIFF_ROWS, TariffExposureRow};
+pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
+pub use layer_names::LayerNaming;
+pub use machine_profile::*;
+pub use material::{MATERIALS, Material, material};
+pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+pub use net_properties::{
+    IMPEDANCE_TARGET_MAX_OHM, IMPEDANCE_TARGET_MIN_OHM, IMPEDANCE_TOLERANCE_MAX_PCT,
+    INSULATION_CLASSES, LINE_STRUCTURES, MAX_REFERENCE_LAYERS, RETURN_PATH_RULES,
+    validate_current, validate_impedance_target, validate_impedance_tolerance_pct,
+    validate_insulation, validate_line_structure, validate_reference_layers,
+    validate_return_path_rule, validate_temperature_rise, validate_working_voltage,
+};
+pub use outline::{
+    MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_chord_worst_error, arc_polyline, arc_sagitta,
+    flatten_outline, outline_extent, segment_arc, validate_outline_arcs,
+};
+pub use package_def::{
+    MAX_PACKAGE_CONTENTS, MAX_PROJECT_PACKAGES, PACKAGE_CONTAINERS, PACKAGE_TOKENS, PackageContent,
+    PackageDef, PackageRun, check_template, validate_packages,
+};
 pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
     panel_layout, panel_layout_from_grid, panel_layout_with_settings,
 };
-mod compliance;
-mod fab;
-pub use compliance::{
-    Compliance, ComplianceDeclaration, ComplianceProjectSettings, ComplianceSource,
-    ComplianceSourceKind, ComplianceStatus, CountryOfOrigin, DeclaredSubstance, ManufacturerRecord,
-    MineralsReportOnFile, normalize_manufacturer_name,
-    date_le, valid_compliance_link, valid_compliance_text, valid_date, MAX_COMPLIANCE_LINK,
-    MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_SUBSTANCES,
+pub use placement_machine::*;
+pub use sourcing::{
+    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
+    SupplierPart, lifecycle_text,
 };
-pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
-mod export_trade;
-pub use export_trade::{ExportTradeSettings, MAX_HTS_PREFIX, MAX_TARIFF_ROWS, TariffExposureRow};
+pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
+pub mod fill;
+pub mod firmware_design;
+pub use fill::{
+    KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
+};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::de::{self, Visitor};
@@ -47,47 +85,6 @@ pub const MAX_ITEMS: usize = 2048;
 /// Most objects of every kind one project may hold; real multilayer boards
 /// carry several thousand tracks and vias.
 pub const MAX_OBJECTS: usize = 16384;
-
-mod material;
-pub use material::{MATERIALS, Material, material};
-mod compliance;
-mod compliance_list;
-pub use compliance::{
-    Compliance, ComplianceProjectSettings, ManufacturerRecord, PartRole, normalize_manufacturer_name,
-    part_role_text, MAX_MANUFACTURERS,
-};
-pub use compliance_list::{
-    ComplianceListEntityEntry, ComplianceListSnapshot, ComplianceListSubstanceEntry,
-    COMPLIANCE_LIST_SCHEMA, MAX_COMPLIANCE_LIST_BYTES, MAX_COMPLIANCE_LIST_ENTRIES,
-};
-mod net_members;
-mod sourcing;
-mod via_protection;
-pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
-mod net_properties;
-pub use net_properties::{
-    INSULATION_CLASSES, IMPEDANCE_TARGET_MAX_OHM, IMPEDANCE_TARGET_MIN_OHM,
-    IMPEDANCE_TOLERANCE_MAX_PCT, LINE_STRUCTURES, MAX_REFERENCE_LAYERS, RETURN_PATH_RULES,
-    validate_current, validate_impedance_target, validate_impedance_tolerance_pct,
-    validate_insulation, validate_line_structure, validate_reference_layers,
-    validate_return_path_rule, validate_temperature_rise, validate_working_voltage,
-};
-pub mod fill;
-pub use fill::{
-    KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
-};
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct Pin {
-    pub number: String,
-    pub name: String,
-    pub offset: Point,
-    pub net: Option<Id>,
-    #[serde(default = "passive")]
-pub mod fill;
-pub use fill::{
-    KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
-};
 
 /// Schematic copy of one physical pin on a multi-unit symbol.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -1699,23 +1696,14 @@ pub struct Via {
     /// board default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covering: Option<ViaCovering>,
-    /// Which outer faces use the covering. Absent means both faces, which
-    /// matches boards saved before per-side protection existed.
+    /// How the bottom face is protected when it differs from the top; none
+    /// means the bottom follows the top (or the board default), which is how
+    /// every file saved before this field existed reads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub covering_scope: Option<ViaCoveringScope>,
-}
-/// Which outer faces of a via use its covering type.
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "snake_case")]
-pub enum ViaCoveringScope {
-    /// The covering applies on both outer faces.
-    #[default]
-    Both,
-    /// The covering applies on the top face only; the bottom stays open.
-    Top,
-    /// The covering applies on the bottom face only; the top stays open.
-    Bottom,
-}
+    pub covering_bottom: Option<ViaCovering>,
+    /// Back-drill setting for this via; none follows the net class default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrill: Option<BackDrill>,
 }
 /// How a via hole is protected, named after the seven types of the via
 /// protection standard (IPC-4761). The types that close the hole under the
@@ -1779,79 +1767,9 @@ impl ViaCovering {
             ViaCovering::FilledCapped => "filled_capped",
         }
     }
-    /// Whether the solder mask keeps an opening around the hole on every face.
+    /// Whether the solder mask keeps an opening around the hole.
     pub fn keeps_mask_opening(self) -> bool {
         self == ViaCovering::Open
-    }
-    /// Whether the solder mask keeps an opening on one outer face.
-    pub fn mask_open_on_face(self, scope: ViaCoveringScope, top: bool) -> bool {
-        if self == ViaCovering::Open {
-            return true;
-        }
-        match scope {
-            ViaCoveringScope::Both => false,
-            ViaCoveringScope::Top => !top,
-            ViaCoveringScope::Bottom => top,
-        }
-    }
-    /// Gerber `ViaDrill` protection field for this covering and face scope.
-    pub fn gerber_via_drill(self, scope: ViaCoveringScope) -> ViaGerberDrill {
-        match self {
-            ViaCovering::Open => ViaGerberDrill::None,
-            ViaCovering::Tented => match scope {
-                ViaCoveringScope::Both => ViaGerberDrill::Ib,
-                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::Ia,
-            },
-            ViaCovering::TentedCovered => match scope {
-                ViaCoveringScope::Both => ViaGerberDrill::IIb,
-                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IIa,
-            },
-            ViaCovering::Plugged => match scope {
-                ViaCoveringScope::Both => ViaGerberDrill::IIIb,
-                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IIIa,
-            },
-            ViaCovering::PluggedCovered => match scope {
-                ViaCoveringScope::Both => ViaGerberDrill::IVb,
-                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IVa,
-            },
-            ViaCovering::Filled => ViaGerberDrill::V,
-            ViaCovering::FilledCovered => ViaGerberDrill::VI,
-            ViaCovering::FilledCapped => ViaGerberDrill::VII,
-        }
-    }
-}
-/// Twelve Gerber `ViaDrill` protection values plus `None` for an open via.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ViaGerberDrill {
-    None,
-    Ia,
-    Ib,
-    IIa,
-    IIb,
-    IIIa,
-    IIIb,
-    IVa,
-    IVb,
-    V,
-    VI,
-    VII,
-}
-impl ViaGerberDrill {
-    pub fn token(self) -> &'static str {
-        match self {
-            ViaGerberDrill::None => "None",
-            ViaGerberDrill::Ia => "Ia",
-            ViaGerberDrill::Ib => "Ib",
-            ViaGerberDrill::IIa => "IIa",
-            ViaGerberDrill::IIb => "IIb",
-            ViaGerberDrill::IIIa => "IIIa",
-            ViaGerberDrill::IIIb => "IIIb",
-            ViaGerberDrill::IVa => "IVa",
-            ViaGerberDrill::IVb => "IVb",
-            ViaGerberDrill::V => "V",
-            ViaGerberDrill::VI => "VI",
-            ViaGerberDrill::VII => "VII",
-        }
     }
 }
 impl Via {
@@ -1859,14 +1777,11 @@ impl Via {
     pub fn effective_covering(&self, board: &Board) -> ViaCovering {
         self.covering.unwrap_or(board.via_covering_default)
     }
-    /// Which outer faces use the covering on this via.
-    pub fn effective_covering_scope(&self) -> ViaCoveringScope {
-        self.covering_scope.unwrap_or(ViaCoveringScope::Both)
-    }
-    /// Gerber `ViaDrill` value for fabrication output.
-    pub fn gerber_via_drill(&self, board: &Board) -> ViaGerberDrill {
-        self.effective_covering(board)
-            .gerber_via_drill(self.effective_covering_scope())
+    /// The covering of the bottom face: its own bottom setting, else the top
+    /// face's covering.
+    pub fn effective_covering_bottom(&self, board: &Board) -> ViaCovering {
+        self.covering_bottom
+            .unwrap_or_else(|| self.effective_covering(board))
     }
 }
 /// What a via is, derived from its span and the stackup.
@@ -2290,36 +2205,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-"gerbers",
-    "netlist",
-    "bom",
-    "placement",
-    "dxf",
-    "cmp",
-    "idf",
-    "vrml",
-    "step",
-    "pdf",
-    "svg",
-    "ipc2581",
-    "odb++",
-    "specctra_dsn",
-    "specctrum_dsn",
-    "gdsii",
-    "oas",
-    "png",
-    "jpg",
-    "jpeg",
-    "tiff",
-    "bmp",
-    "gif",
-    "webp",
-    "avif",
-    "heic",
-    "heif",
-    "jxl",
-    "av1",
-    "avif"
+pub const OUTPUT_KINDS: [&str; 34] = [
     "gerbers",
     "netlist",
     "bom",
@@ -8150,7 +8036,6 @@ mod via_covering_tests {
             from_layer: None,
             to_layer: None,
             covering,
-            covering_scope: None,
         });
         p
     }
