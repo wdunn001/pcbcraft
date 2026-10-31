@@ -871,6 +871,17 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn coordinate_scales_rounds_and_keeps_sign() {
+        assert_eq!(coordinate(10.0), 10_000_000);
+        assert_eq!(coordinate(-5.25), -5_250_000);
+        assert_eq!(coordinate(0.000_000_4), 0);
+        assert_eq!(coordinate(0.000_000_6), 1);
+        assert_eq!(coordinate(-0.000_000_6), -1);
+        assert_eq!(coordinate(-0.0), 0);
+        assert_eq!(coordinate(1_234.567_891_4), 1_234_567_891);
+    }
+
     use super::*;
     use pcbcraft_doc::{Component, LibraryFootprint, Net, Pin, Via};
     use pcbcraft_library::{

@@ -21495,9 +21495,8 @@ mod tests {
             "bottom copper carries the same x as the front in fabrication space"
         );
         assert!(
-            !gerber["pcb-F.Cu.gbr"]
-                .lines()
-                .any(|l| l.ends_with("D03*") && l.contains(&format!("X{:.6}Y", centre.x))),
+            !gerber["pcb-F.Cu.gbr"].lines().any(|l| l.ends_with("D03*")
+                && l.contains(&format!("X{}Y", (centre.x * 1e6).round() as i64))),
             "the front copper file no longer flashes that pad"
         );
         // The last step was the bottom route; the second undo is the flip.
@@ -34857,7 +34856,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         let front = std::fs::read_to_string(directory.join("pcb-F.Cu.gbr"))
             .map_err(|e| Error::Invalid(e.to_string()))?;
         assert!(
-            front.contains("X20.000000Y30.000000"),
+            front.contains("X20000000Y30000000"),
             "the new track is exported"
         );
         s.execute(
