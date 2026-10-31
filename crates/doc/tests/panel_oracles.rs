@@ -88,7 +88,11 @@ fn panel_score_lines_on_a_two_by_three_grid() -> T {
     p.board.width = 20.0;
     p.board.height = 10.0;
     let scores = panel_score_lines(&p)?;
-    assert_eq!(scores.len(), 3, "one vertical and two horizontal score lines");
+    assert_eq!(
+        scores.len(),
+        3,
+        "one vertical and two horizontal score lines"
+    );
     Ok(())
 }
 

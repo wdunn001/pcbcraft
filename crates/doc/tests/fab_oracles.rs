@@ -1,7 +1,5 @@
 //! Oracle tests for fabrication presets and class-pair rules.
-use pcbcraft_doc::{
-    ClassPairRule, FabRules, FAB_PRESET_NAMES, fab_preset, fab_preset_list,
-};
+use pcbcraft_doc::{ClassPairRule, FAB_PRESET_NAMES, FabRules, fab_preset, fab_preset_list};
 
 type T = Result<(), String>;
 

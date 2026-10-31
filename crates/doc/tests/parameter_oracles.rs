@@ -1,7 +1,7 @@
 //! Named-parameter validation and binding oracle tests.
 use pcbcraft_doc::{
-    Binding, Field, Hole, Parameter, Project, Via, valid_parameter_name, valid_parameter_note,
-    valid_parameter_value, MAX_PARAMETER_NOTE, MAX_PARAMETER_VALUE,
+    Binding, Field, Hole, MAX_PARAMETER_NOTE, MAX_PARAMETER_VALUE, Parameter, Project, Via,
+    valid_parameter_name, valid_parameter_note, valid_parameter_value,
 };
 use pcbcraft_geom::Point;
 
@@ -59,10 +59,7 @@ fn project_parameter_helpers_round_trip_bindings() -> T {
         field: Field::ViaDrill,
         parameter: "via_drill".into(),
     });
-    assert_eq!(
-        p.parameter("via_drill").map(|par| par.value),
-        Some(0.35)
-    );
+    assert_eq!(p.parameter("via_drill").map(|par| par.value), Some(0.35));
     assert_eq!(p.parameter_bindings("via_drill").count(), 1);
     assert!((p.field_value(10, Field::ViaDrill).unwrap_or(0.0) - 0.3).abs() < 1e-12);
     assert!(p.carries_field(10, Field::ViaDrill));
