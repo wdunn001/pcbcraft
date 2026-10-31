@@ -42,6 +42,8 @@ const MAX_RING: usize = 256;
 const MAX_MERGED_VERTICES: usize = 12_000;
 const MAX_HOLES_PER_POLYGON: usize = 2_000;
 const EPS: f64 = 1e-9;
+const DECAL_MIN_AREA: f64 = 14.0;
+const DECAL_RAISE: f64 = 0.06;
 
 /// What a part of the mesh is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1042,6 +1044,81 @@ fn parse_height(text: &str) -> Option<f64> {
     (v.is_finite() && (0.05..=100.0).contains(&v)).then_some(v)
 }
 
+fn glyph_rows(ch: char) -> [u8; 3] {
+    match ch {
+        '0' => [0b111, 0b101, 0b111],
+        '1' => [0b010, 0b010, 0b010],
+        '2' => [0b111, 0b110, 0b011],
+        '3' => [0b111, 0b110, 0b111],
+        '4' => [0b101, 0b111, 0b001],
+        '5' => [0b111, 0b011, 0b111],
+        '6' => [0b111, 0b011, 0b111],
+        '7' => [0b111, 0b001, 0b001],
+        '8' => [0b111, 0b111, 0b111],
+        '9' => [0b111, 0b111, 0b001],
+        'A' | 'a' => [0b010, 0b111, 0b101],
+        'B' | 'b' => [0b111, 0b101, 0b111],
+        'C' | 'c' => [0b111, 0b100, 0b111],
+        'D' | 'd' => [0b110, 0b101, 0b110],
+        'E' | 'e' => [0b111, 0b100, 0b111],
+        'F' | 'f' => [0b111, 0b100, 0b100],
+        'G' | 'g' => [0b111, 0b101, 0b111],
+        'H' | 'h' => [0b101, 0b111, 0b101],
+        'I' | 'i' => [0b111, 0b010, 0b111],
+        'K' | 'k' => [0b101, 0b110, 0b101],
+        'L' | 'l' => [0b100, 0b100, 0b111],
+        'M' | 'm' => [0b101, 0b111, 0b101],
+        'N' | 'n' => [0b101, 0b111, 0b101],
+        'O' | 'o' => [0b111, 0b101, 0b111],
+        'P' | 'p' => [0b111, 0b110, 0b100],
+        'R' | 'r' => [0b111, 0b110, 0b101],
+        'S' | 's' => [0b111, 0b011, 0b111],
+        'T' | 't' => [0b111, 0b010, 0b010],
+        'U' | 'u' => [0b101, 0b101, 0b111],
+        'V' | 'v' => [0b101, 0b101, 0b010],
+        'X' | 'x' => [0b101, 0b010, 0b101],
+        'Y' | 'y' => [0b101, 0b111, 0b010],
+        'Z' | 'z' => [0b111, 0b010, 0b111],
+        '.' => [0b000, 0b000, 0b010],
+        '-' => [0b000, 0b111, 0b000],
+        ' ' => [0b000, 0b000, 0b000],
+        _ => [0b010, 0b010, 0b010],
+    }
+}
+
+fn decal_rings(text: &str, cx: f64, cy: f64, span_w: f64, span_h: f64) -> Vec<Vec<Point>> {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.is_empty() {
+        return vec![];
+    }
+    let char_w = span_w / (chars.len() as f64 * 1.35).max(1.0);
+    let char_h = span_h * 0.35;
+    let dot = char_w * 0.22;
+    let gap = char_w * 0.35;
+    let mut rings = Vec::new();
+    let total_w = chars.len() as f64 * (char_w + gap) - gap;
+    let mut x0 = cx - total_w / 2.0 + char_w / 2.0;
+    for ch in chars {
+        let upper = if ch.is_ascii_lowercase() {
+            ch.to_ascii_uppercase()
+        } else {
+            ch
+        };
+        let rows = glyph_rows(upper);
+        for (row, bits) in rows.iter().enumerate() {
+            for col in 0..3 {
+                if bits & (1 << (2 - col)) != 0 {
+                    let px = x0 + (col as f64 - 1.0) * char_w * 0.32;
+                    let py = cy + (1.0 - row as f64) * char_h * 0.32;
+                    rings.push(rect_ring(px, py, dot, dot));
+                }
+            }
+        }
+        x0 += char_w + gap;
+    }
+    rings
+}
+
 // -------------------------------------------------------------------- build
 
 /// Build the whole mesh for a validated project.
@@ -1420,6 +1497,19 @@ part.model = Some(ModelPlacement {
             }
             for pin in &body.pins {
                 extrude(&pin.ring, pin.z0, pin.z1)?;
+            }
+            for extra in &body.extras {
+                extrude(&extra.ring, extra.z0, extra.z1)?;
+            }
+            if let Some(text) = &body.decal {
+                let (lo, hi) = ring_bounds(&body.ring);
+                let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+                let (w, h) = (hi.x - lo.x, hi.y - lo.y);
+                if w * h >= DECAL_MIN_AREA {
+                    for ring in decal_rings(text, cx, cy, w * 0.85, h * 0.85) {
+                        extrude(&ring, body.height, body.height + DECAL_RAISE)?;
+                    }
+                }
             }
             if !b.part.indices.is_empty() {
                 parts.push(b.part);
