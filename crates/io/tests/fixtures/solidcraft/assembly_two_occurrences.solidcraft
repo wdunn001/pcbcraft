@@ -1,0 +1,96 @@
+{
+  "format": "solidcraft/22",
+  "name": "TwoOccAssembly",
+  "units": "mm",
+  "metadata": {
+    "fixture": "SolidCraft assembly with two component occurrences"
+  },
+  "params": [],
+  "features": [
+    {
+      "id": 1,
+      "name": "BrickA",
+      "type": "mesh_import",
+      "file": "native",
+      "component": 1,
+      "meshes": [
+        {
+          "name": "BrickA",
+          "positions": [0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 4.0, 0.0],
+          "triangles": [0, 1, 2]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "BrickB",
+      "type": "mesh_import",
+      "file": "native",
+      "component": 2,
+      "meshes": [
+        {
+          "name": "BrickB",
+          "positions": [0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 3.0, 0.0],
+          "triangles": [0, 1, 2]
+        }
+      ]
+    }
+  ],
+  "next_id": 4,
+  "components": [
+    {
+      "id": 1,
+      "name": "BrickA",
+      "parent": 0
+    },
+    {
+      "id": 2,
+      "name": "BrickB",
+      "parent": 0
+    }
+  ],
+  "occurrences": [
+    {
+      "id": 3,
+      "component": 1,
+      "parent": 0,
+      "name": "BrickA",
+      "transform": [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0]
+      ],
+      "grounded": true
+    },
+    {
+      "id": 4,
+      "component": 2,
+      "parent": 0,
+      "name": "BrickB",
+      "transform": [
+        [1.0, 0.0, 0.0, 10.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0]
+      ],
+      "grounded": false
+    }
+  ],
+  "user_materials": [],
+  "materials": {},
+  "appearances": {
+    "bodies": {
+      "BrickA": {
+        "name": "A",
+        "color": [180, 120, 60],
+        "opacity": 1.0
+      },
+      "BrickB": {
+        "name": "B",
+        "color": [60, 120, 180],
+        "opacity": 1.0
+      }
+    }
+  }
+}

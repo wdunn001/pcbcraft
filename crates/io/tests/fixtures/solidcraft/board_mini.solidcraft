@@ -1,0 +1,76 @@
+{
+  "format": "solidcraft/22",
+  "name": "mini",
+  "units": "mm",
+  "metadata": {
+    "org.pcbcraft": {
+      "schema": "pcbcraft-interop/1",
+      "project": "mini",
+      "bodies": {
+        "Board": {"kind": "board", "source": "generated"},
+        "R1": {"kind": "part", "component": "R1", "source": "generated"}
+      }
+    }
+  },
+  "params": [],
+  "features": [
+    {
+      "id": 1,
+      "name": "Board",
+      "type": "mesh_import",
+      "file": "pcbcraft",
+      "meshes": [
+        {
+          "name": "Board",
+          "positions": [0.0, 0.0, 0.0, 20.0, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0, 0.0, 1.6],
+          "triangles": [0, 1, 2]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "R1",
+      "type": "mesh_import",
+      "file": "pcbcraft",
+      "component": 1,
+      "meshes": [
+        {
+          "name": "R1",
+          "positions": [0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+          "triangles": [0, 1, 2]
+        }
+      ]
+    }
+  ],
+  "next_id": 3,
+  "components": [
+    {
+      "id": 1,
+      "name": "R1",
+      "parent": 0
+    }
+  ],
+  "occurrences": [
+    {
+      "id": 3,
+      "component": 1,
+      "parent": 0,
+      "name": "R1",
+      "transform": [
+        [1.0, 0.0, 0.0, 5.0],
+        [0.0, 1.0, 0.0, 5.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0]
+      ],
+      "grounded": false
+    }
+  ],
+  "user_materials": [],
+  "materials": {},
+  "appearances": {
+    "bodies": {
+      "Board": {"name": "Board", "color": [22, 90, 52], "opacity": 1.0},
+      "R1": {"name": "Part", "color": [150, 140, 120], "opacity": 1.0}
+    }
+  }
+}

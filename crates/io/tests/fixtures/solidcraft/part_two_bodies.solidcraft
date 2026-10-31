@@ -1,0 +1,78 @@
+{
+  "format": "solidcraft/22",
+  "name": "TwoBodyPart",
+  "units": "mm",
+  "metadata": {
+    "fixture": "SolidCraft part saved with two coloured mesh bodies (Red and Blue)"
+  },
+  "params": [],
+  "features": [
+    {
+      "id": 1,
+      "name": "Red",
+      "type": "mesh_import",
+      "file": "native",
+      "component": 0,
+      "meshes": [
+        {
+          "name": "Red",
+          "positions": [0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 5.0, 0.0],
+          "triangles": [0, 1, 2]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Blue",
+      "type": "mesh_import",
+      "file": "native",
+      "component": 0,
+      "meshes": [
+        {
+          "name": "Blue",
+          "positions": [0.0, 0.0, 5.0, 5.0, 0.0, 5.0, 0.0, 5.0, 5.0],
+          "triangles": [0, 1, 2]
+        }
+      ]
+    }
+  ],
+  "next_id": 2,
+  "components": [
+    {
+      "id": 0,
+      "name": "Part",
+      "parent": null
+    }
+  ],
+  "occurrences": [
+    {
+      "id": 3,
+      "component": 0,
+      "parent": 0,
+      "name": "Part",
+      "transform": [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0]
+      ],
+      "grounded": false
+    }
+  ],
+  "user_materials": [],
+  "materials": {},
+  "appearances": {
+    "bodies": {
+      "Red": {
+        "name": "Red",
+        "color": [220, 40, 40],
+        "opacity": 1.0
+      },
+      "Blue": {
+        "name": "Blue",
+        "color": [40, 80, 220],
+        "opacity": 1.0
+      }
+    }
+  }
+}
