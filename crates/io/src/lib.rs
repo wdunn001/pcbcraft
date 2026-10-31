@@ -2324,6 +2324,21 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     // stored in millimetres, so every written value is rescaled here.
     let inch = p.unit == "inch";
     let scale = if inch { 1.0 / 25.4 } else { 1.0 };
+
+    /// Millimetres to 4.6 fixed-point coordinate integers.
+    fn coordinate(value: f64) -> i64 {
+        (value * 1_000_000.0).round() as i64
+    }
+    /// Millimetres to 3 decimal places (thousandths) for aperture definitions.
+    fn aperture_mm(value: f64) -> String {
+        let text = format!("{:.3}", value);
+        let text = text.trim_end_matches('0').trim_end_matches('.');
+        if text == "-0" || text.is_empty() {
+            "0".into()
+        } else {
+            text.into()
+        }
+    }
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     enum Ap {
         Circle(u64),
@@ -2373,9 +2388,9 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                 return Err("gerber export exceeds the object limit".into());
             }
             self.body.push_str(&format!(
-                "D{code}X{:.6}Y{:.6}D03*\n",
-                x * self.scale,
-                y * self.scale
+                "D{code}X{}Y{}D03*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale)
             ));
             Ok(())
         }
@@ -2387,17 +2402,17 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             self.body.push_str(&format!("D{code}D02*\n"));
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D0{}*\n",
-                    x * self.scale,
-                    y * self.scale,
+                    "X{}Y{}D0{}*\n",
+                    coordinate(x * self.scale),
+                    coordinate(y * self.scale),
                     if i == 0 { 2 } else { 1 }
                 ));
             }
             if closed && let Some((x, y)) = points.first() {
                 self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D01*\n",
-                    x * self.scale,
-                    y * self.scale
+                    "X{}Y{}D01*\n",
+                    coordinate(x * self.scale),
+                    coordinate(y * self.scale)
                 ));
             }
             Ok(())
@@ -2410,9 +2425,9 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             self.body.push_str(&format!("G36*\nD{code}D02*\n"));
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D0{}*\n",
-                    x * self.scale,
-                    y * self.scale,
+                    "X{}Y{}D0{}*\n",
+                    coordinate(x * self.scale),
+                    coordinate(y * self.scale),
                     if i == 0 { 2 } else { 1 }
                 ));
             }
@@ -2438,28 +2453,28 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                 }
                 match *ap {
                     Ap::Circle(d) | Ap::Track(d) | Ap::ViaPad(d) => out.push_str(&format!(
-                        "%ADD{code}C,{:.6}*%\n",
-                        d as f64 / 1000.0 * self.scale
+                        "%ADD{code}C,{}*%\n",
+                        aperture_mm(d as f64 / 1000.0 * self.scale)
                     )),
                     Ap::Rect(w, h) => out.push_str(&format!(
-                        "%ADD{code}R,{:.6}X{:.6}*%\n",
-                        w as f64 / 1000.0 * self.scale,
-                        h as f64 / 1000.0 * self.scale
+                        "%ADD{code}R,{}X{}*%\n",
+                        aperture_mm(w as f64 / 1000.0 * self.scale),
+                        aperture_mm(h as f64 / 1000.0 * self.scale)
                     )),
                     Ap::Obround(w, h) => out.push_str(&format!(
-                        "%ADD{code}O,{:.6}X{:.6}*%\n",
-                        w as f64 / 1000.0 * self.scale,
-                        h as f64 / 1000.0 * self.scale
+                        "%ADD{code}O,{}X{}*%\n",
+                        aperture_mm(w as f64 / 1000.0 * self.scale),
+                        aperture_mm(h as f64 / 1000.0 * self.scale)
                     )),
                     Ap::Round(w, h, r) => out.push_str(&format!(
-                        "%ADD{code}R2,{} R1,{:.6}X{:.6} {r} 0 0*%\n",
+                        "%ADD{code}R2,{} R1,{}X{} {r} 0 0*%\n",
                         if r * 2 == h {
                             "0".to_string()
                         } else {
-                            format!("{:.6}", r as f64 / 1000.0 * self.scale)
+                            aperture_mm(r as f64 / 1000.0 * self.scale)
                         },
-                        w as f64 / 1000.0 * self.scale,
-                        h as f64 / 1000.0 * self.scale
+                        aperture_mm(w as f64 / 1000.0 * self.scale),
+                        aperture_mm(h as f64 / 1000.0 * self.scale)
                     )),
                 }
             }
@@ -2618,12 +2633,15 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         if outline.ops > MAX_OPS {
             return Err("gerber export exceeds the object limit".into());
         }
+        let x = (c.center.x - c.radius) * scale;
+        let y = c.center.y * scale;
+        let r = c.radius * scale;
         outline.arcs.push_str(&format!(
-            "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
-            (c.center.x - c.radius) * scale,
-            c.center.y * scale,
-            c.radius * scale,
-            0.0
+            "X{}Y{}D02*\nI{}J{}G02*\n",
+            coordinate(x),
+            coordinate(y),
+            coordinate(r),
+            coordinate(0.0)
         ));
     }
     let hits = project_drill_hits(p)?;
@@ -7332,7 +7350,7 @@ mod tests {
         assert!(drill.ends_with("M30\n"));
         let map = &files["pcb-DrillMap.gbr"];
         assert!(
-            map.contains("X10.000000Y10.000000D02*\nX14.000000Y10.000000D01*\n"),
+            map.contains("X10000000Y10000000D02*\nX14000000Y10000000D01*\n"),
             "the drill map draws the slot as a stroke from end to end: {map}"
         );
         Ok(())
@@ -8463,11 +8481,11 @@ mod tests {
             "the format statement declares inches"
         );
         assert!(
-            back.contains("X-1.000000Y1.000000D02*"),
+            back.contains("X-1000000Y1000000D02*"),
             "25.4 mm becomes exactly one inch, mirrored on the back: {back}"
         );
         assert!(
-            back.contains("C,0.020000*%"),
+            back.contains("C,0.02*%"),
             "a 0.508 mm track is a 0.02 inch flash: {back}"
         );
         let drill = &files["pcb-Plated.drl"];
@@ -8706,11 +8724,11 @@ mod tests {
             "the drill map legend lists the first tool"
         );
         assert!(
-            map.contains("X30.000000Y10.000000D03*\n"),
+            map.contains("X30000000Y10000000D03*\n"),
             "the via hole is flashed on the map"
         );
         assert!(
-            map.contains("X2.000000Y0.000000D03*\n"),
+            map.contains("X2000000Y0D03*\n"),
             "the plated pad hole is flashed on the map"
         );
         assert!(map.ends_with("M02*\n"), "the map ends cleanly");
@@ -8720,13 +8738,13 @@ mod tests {
                 && front.contains("%TF.FileFunction,Copper,L1,Top*%")
                 && front.contains("%FSLAX46Y46*%")
         );
-        assert!(front.contains("%ADD10C,0.001000*%\n"), "zone fill aperture");
+        assert!(front.contains("%ADD10C,0.001*%\n"), "zone fill aperture");
         assert!(
-            front.contains("%ADD12C,0.600000*%\n"),
+            front.contains("%ADD12C,0.6*%\n"),
             "via copper aperture"
         );
         assert!(
-            front.contains("%ADD11C,1.600000*%\n"),
+            front.contains("%ADD11C,1.6*%\n"),
             "through-hole pad aperture"
         );
         assert!(
@@ -8734,11 +8752,11 @@ mod tests {
             "the poured zone must appear as a filled region"
         );
         assert!(
-            front.contains("X30.000000Y10.000000D03*\n"),
+            front.contains("X30000000Y10000000D03*\n"),
             "the via must flash on the front layer"
         );
         assert!(
-            front.contains("X2.000000Y0.000000D03*\n"),
+            front.contains("X2000000Y0D03*\n"),
             "the plated pad must flash on the front layer"
         );
         assert!(front.ends_with("M02*\n"));
@@ -8748,20 +8766,20 @@ mod tests {
             "back copper carries its file function"
         );
         assert!(
-            back.contains("X-30.000000Y10.000000D01*\n"),
+            back.contains("X-30000000Y10000000D01*\n"),
             "the back track end carries the mirrored coordinate"
         );
         assert!(
-            back.contains("X-30.000000Y10.000000D03*\n"),
+            back.contains("X-30000000Y10000000D03*\n"),
             "the via must flash on the back layer too"
         );
         let outline = &files["pcb-Edge.gbr"];
         assert!(
-            outline.contains("X0.000000Y0.000000D02*\nX60.000000Y0.000000D01*\n"),
+            outline.contains("X0Y0D02*\nX60000000Y0D01*\n"),
             "the board edge must be traced"
         );
         assert!(
-            outline.contains("X44.000000Y20.000000D02*\nI2.000000J0.000000G02*\n"),
+            outline.contains("X44000000Y20000000D02*\nI2000000J0G02*\n"),
             "the circular cutout must trace a circle"
         );
         let drill = &files["pcb-Plated.drl"];
@@ -9956,7 +9974,7 @@ mod tests {
         );
         let copper = &files["pcb-F.Cu.gbr"];
         assert!(
-            copper.contains("X30.000000Y20.000000") || copper.contains("X30.000Y20.000"),
+            copper.contains("X30000000Y20000000"),
             "copper layers keep absolute coordinates"
         );
         project.board.drill_origin = Point::new(-5.0, 0.0);
@@ -9987,8 +10005,8 @@ mod tests {
         let files = gerber_files(&project)?;
         let outline = &files["pcb-Edge.gbr"];
         assert!(
-            outline.contains("X30.000000Y40.000000D01*")
-                && outline.contains("X30.000000Y20.000000D01*"),
+            outline.contains("X30000000Y40000000D01*")
+                && outline.contains("X30000000Y20000000D01*"),
             "the gerber edge layer traces every vertex"
         );
         let drawing = svg(&project, "pcb")?;

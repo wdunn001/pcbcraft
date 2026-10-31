@@ -7,20 +7,22 @@
 //!
 //! # Rules
 //! - File names follow the IPC-356 naming convention.
-//! - All coordinates are in millimetres with 4 decimal places.
+//! - All coordinates use 4.6 fixed-point integers (millionths of a millimetre).
+//! - Aperture definitions use 3 decimal places (thousandths of a millimetre).
 //! - X2 extended attributes are written for designators and layer names.
 //!
 //! # Dependencies
 //! - crates/doc/src/lib.rs Board, Layer, Project, Via, ViaCovering, ViaProtectionType
 //! - crates/geom/src/lib.rs Point
 //! - crates/library/src/lib.rs FootprintRules
-//! - crates/io/src/gerber.rs GerberWriter, Aperture, Operation
+//! - crates/io/src/gerber.rs coordinate, GerberWriter, Aperture, Operation
 //! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
 //! - crates/io/src/lib.rs PickPlaceWriter
 use pcbcraft_doc::{Board, Layer, Project, Via, ViaProtectionType};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
 use std::collections::BTreeMap;
+use crate::gerber::coordinate;
 
 const MAX_OPS: usize = 100_000;
 const MAX_APERTURES: usize = 64;
@@ -307,9 +309,9 @@ impl GerberLayer {
         }
         self.select(code);
         self.body.push_str(&format!(
-            "X{:.6}Y{:.6}D03*\n",
-            x * self.scale,
-            y * self.scale
+            "X{}Y{}D03*\n",
+            coordinate(x * self.scale),
+            coordinate(y * self.scale)
         ));
         Ok(())
     }
@@ -322,17 +324,17 @@ impl GerberLayer {
         self.select(code);
         for (i, (x, y)) in points.iter().enumerate() {
             self.body.push_str(&format!(
-                "X{:.6}Y{:.6}D0{}*\n",
-                x * self.scale,
-                y * self.scale,
+                "X{}Y{}D0{}*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale),
                 if i == 0 { 2 } else { 1 }
             ));
         }
         if closed && let Some((x, y)) = points.first() {
             self.body.push_str(&format!(
-                "X{:.6}Y{:.6}D01*\n",
-                x * self.scale,
-                y * self.scale
+                "X{}Y{}D01*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale)
             ));
         }
         Ok(())
@@ -347,9 +349,9 @@ impl GerberLayer {
         self.body.push_str("G36*\nD02*\n");
         for (i, (x, y)) in points.iter().enumerate() {
             self.body.push_str(&format!(
-                "X{:.6}Y{:.6}D0{}*\n",
-                x * self.scale,
-                y * self.scale,
+                "X{}Y{}D0{}*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale),
                 if i == 0 { 2 } else { 1 }
             ));
         }
@@ -383,13 +385,13 @@ impl GerberLayer {
         self.select(code);
         self.body.push_str("G75*\n");
         self.body.push_str(&format!(
-            "X{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\n",
-            sx * self.scale,
-            sy * self.scale,
-            ex * self.scale,
-            ey * self.scale,
-            (cx - sx) * self.scale,
-            (cy - sy) * self.scale,
+            "X{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\n",
+            coordinate(sx * self.scale),
+            coordinate(sy * self.scale),
+            coordinate(ex * self.scale),
+            coordinate(ey * self.scale),
+            coordinate((cx - sx) * self.scale),
+            coordinate((cy - sy) * self.scale),
             if clockwise { 2 } else { 3 }
         ));
         Ok(())
@@ -417,23 +419,23 @@ impl GerberLayer {
         for (ap, code) in &self.apertures {
             match *ap {
                 Ap::Circle(d) => out.push_str(&format!(
-                    "%ADD{code}C,{:.6}*%\n",
+                    "%ADD{code}C,{:.3}*%\n",
                     d as f64 / 1000.0 * self.scale
                 )),
                 Ap::Rect(w, h) => out.push_str(&format!(
-                    "%ADD{code}R,{:.6}X{:.6}*%\n",
+                    "%ADD{code}R,{:.3}X{:.3}*%\n",
                     w as f64 / 1000.0 * self.scale,
                     h as f64 / 1000.0 * self.scale
                 )),
                 Ap::Obround(w, h) => out.push_str(&format!(
-                    "%ADD{code}O,{:.6}X{:.6}*%\n",
+                    "%ADD{code}O,{:.3}X{:.3}*%\n",
                     w as f64 / 1000.0 * self.scale,
                     h as f64 / 1000.0 * self.scale
                 )),
                 Ap::Round(w, h, r) => {
                     let r_mm = r as f64 / 1000.0 * self.scale;
                     out.push_str(&format!(
-                        "%ADD{code}R,{:.6}X{:.6}*%\n",
+                        "%ADD{code}R,{:.3}X{:.3}*%\n",
                         w as f64 / 1000.0 * self.scale,
                         h as f64 / 1000.0 * self.scale
                     ));
