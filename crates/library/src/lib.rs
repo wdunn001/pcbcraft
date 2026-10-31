@@ -555,6 +555,9 @@ pub struct Model3D {
     pub scale: [f64; 3],
     #[serde(default)]
     pub rotate: [f64; 3],
+    /// Component name inside a SolidCraft project, when the file holds more than one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cad_part: Option<String>,
     pub raw_source: String,
 }
 fn unit_scale() -> [f64; 3] {
