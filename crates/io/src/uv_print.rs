@@ -633,6 +633,8 @@ mod tests {
         p.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 9402,
             reference: "R1".into(),
             value: "1k".into(),
@@ -742,6 +744,8 @@ mod tests {
         p.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 9202,
             reference: "U1".into(),
             value: "test".into(),
@@ -860,6 +864,8 @@ mod tests {
         p.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 9302,
             reference: "R1".into(),
             value: "1k".into(),
