@@ -3040,6 +3040,45 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
             .get("isError"),
             Some(&json!(true))
         );
+        let listing = |name: &str, package: &str| {
+            json!({
+                "label": name,
+                "pins": 2,
+                "listing": {
+                    "source": "fixture",
+                    "source_id": "sample",
+                    "source_ref": name,
+                    "manufacturer": "",
+                    "mpn": name,
+                    "description": "",
+                    "category": "resistor",
+                    "source_category": "",
+                    "package_key": "",
+                    "package_text": package,
+                    "price_breaks": [{"quantity": 1, "unit_price": 0.1, "currency": "USD"}],
+                    "lifecycle": "unknown",
+                    "lifecycle_raw": "",
+                    "stock": 5,
+                }
+            })
+        };
+        let parts = call_tool(
+            &session,
+            "library.compare",
+            &json!({
+                "kind": "parts",
+                "parts": [listing("A", "1206"), listing("B", "0603")],
+                "quantity": 1
+            }),
+        );
+        assert_eq!(parts.get("isError"), Some(&json!(false)));
+        assert_eq!(parts.pointer("/structuredContent/kind"), Some(&json!("parts")));
+        assert_eq!(
+            parts
+                .pointer("/structuredContent/table/differing_rows")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
         let locked = session.lock().map_err(|_| "session unavailable")?;
         assert_eq!(locked.revision, 0);
         assert!(locked.project.components.is_empty());

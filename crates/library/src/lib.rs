@@ -9,6 +9,7 @@ mod footprint_generate;
 pub mod model_transform;
 mod footprint_pad_outline;
 pub mod listing;
+pub mod listing_compare;
 pub mod listing_adapters;
 pub mod part_search;
 pub mod online_import;
