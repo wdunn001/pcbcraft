@@ -33,6 +33,7 @@ mod plot_read;
 #[cfg(feature = "plugin-firmware-target")]
 pub mod plugins;
 mod raster;
+mod solidcraft_write;
 mod starter_models;
 mod step_merge;
 mod step_read;
@@ -155,6 +156,13 @@ pub use raster::{
 pub use snapmaker::{
     SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
     snapmaker_settings, spindle_percent, spindle_percent_for_tool,
+};
+/// SolidCraft design export of the board.
+/// # Dependencies
+/// - crates/io/src/solidcraft_write.rs
+pub use solidcraft_write::{
+    SOLIDCRAFT_FORMAT, SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA, SolidcraftLayers,
+    solidcraft_board,
 };
 /// UV printing types, profiles, and job file generation functions.
 /// # Dependencies
