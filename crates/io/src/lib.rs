@@ -132,6 +132,7 @@ pub use datasheet::HttpDatasheetTransport;
 /// Functions for generating layer plots from drawn graphics.
 /// # Dependencies
 /// - crates/io/src/drawn.rs
+pub use enclosure::{EnclosureScan, PlanarFace, ScannedDatum, ScanBounds, read_enclosure_step};
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
 pub use diff::{DesignChange, DesignDiff, project_diff};
