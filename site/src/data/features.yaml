@@ -137,6 +137,15 @@
   key: true
   evidence: [command:part.attach_source]
 - area: libraries
+  name: Part sourcing fields
+  summary: Typed manufacturer, part number, description and supplier numbers on a part, edited in Properties and read by the bill of materials.
+  status: browser
+  evidence: [command:component.set_sourcing, command:component.set_supplier]
+- area: libraries
+name: Library tab
+  summary: Read a part's details, cached prices, 3D model and sources in one tab, compare parts side by side and edit their symbols, footprints and model alignment; also import symbols and footprints from files on disk into the project library.
+  status: available
+  evidence: [test:a_newcomer_opens_the_library_tab_and_reads_a_parts_details, test:a_newcomer_compares_two_parts_and_sees_their_differences, command:library.import_symbol_file, command:library.import_footprint_file]
   name: Import library files
   summary: Read symbols and footprints from files on disk into the project library.
   status: desktop

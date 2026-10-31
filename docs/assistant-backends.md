@@ -28,7 +28,8 @@ that closes it or the decision to leave it.
 | Anthropic Messages | Headers | `x-api-key`, `anthropic-version`, JSON content type | Yes, version `2023-06-01` | headers present |
 | Anthropic Messages | Tool name pattern | letters, digits, underscore, dash, at most 128 | Yes | #472, same name test |
 | Anthropic Messages | Tool use and result | `tool_use` blocks; the next user message holds `tool_result` blocks with `tool_use_id` and optional `is_error` | Yes | all results in one user message |
-| Anthropic Messages | `stop_reason` | `end_turn`, `tool_use`, `max_tokens`, `refusal` and others | Yes | #473, test `an_anthropic_reply_with_max_tokens_shows_a_note` |
+| Anthropic Messages | Streaming | `stream: true` with message events | Yes | #475 |
+| Anthropic Messages | `stop_reason` | `end_turn`, `tool_use`, `max_tokens`, `refusal` and others | Partial: not read | #633, test `an_anthropic_reply_with_max_tokens_shows_a_note` |
 | Ollama native `/api/chat` | Tools and results | same function shape; arguments come as a JSON object; results use `tool_name`, no id | No native protocol | decision: not built, see below |
 | Ollama native | Options | `options.num_ctx`, `keep_alive`, `stream: false` | No | decision: not built |
 | Ollama OpenAI route `/v1` | Tools | supported; `tool_choice` is not | Yes, no `tool_choice` is sent | none |
