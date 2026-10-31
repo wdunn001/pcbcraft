@@ -23,7 +23,10 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
         ("library.footprint.set_model_transform","Change the offset, scale or rotation on an existing project-library 3D model without replacing its file path; use preset rotate_90, mirror or pin1_cycle for quick alignment, or give offset, scale and rotate arrays in millimetres and degrees; placed instances keep their embedded copy until footprint.refresh",schema(json!({"name":{"type":"string"},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"preset":{"type":"string","enum":["rotate_90","mirror","pin1_cycle"]}}),&["name"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
-        ("library.footprint.model_auto_align","Fit a footprint's 3D model to its pads from a triangle list in model space: tries quarter turns and an optional mirror, reports the residual in millimetres, and when apply is true writes the new offset, rotation and scale as one undoable step",schema(json!({"name":{"type":"string"},"positions":{"type":"array","items":{"type":"number"},"description":"model vertex positions as x,y,z triples in millimetres"},"indices":{"type":"array","items":{"type":"integer"},"description":"triangle corner indices, three per face"},"allow_flip":{"type":"boolean","description":"when true, also try mirroring the model about Y"},"apply":{"type":"boolean","description":"when false, preview only; default true"}}),&["name","positions"])),
+        ("library.footprint.export_companion_cad","Write a footprint package body as a companion CAD project with a STEP sidecar in a folder on disk, then attach the project as the footprint 3D model",schema(json!({"name":{"type":"string"},"directory":{"type":"string","maxLength":1024},"base_name":{"type":"string","maxLength":128},"height_mm":{"type":"number","minimum":0.05,"maximum":100}}),&["name","directory","base_name"])),
+        ("library.footprint.link_companion_cad","Attach a companion CAD project as the footprint 3D model, keeping an optional part name and stable body id for reimport alignment",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"cad_part":{"type":"string","maxLength":128},"body_id":{"type":"string","maxLength":128}}),&["name","path"])),
+        ("library.footprint.reimport_companion_cad","Mark a footprint companion CAD model for reload on the next 3D view refresh; alignment offset, scale and rotation stay as they are",schema(json!({"name":{"type":"string"}}),&["name"])),
+        ("library.companion.open_project","Open a companion CAD project file with the desktop CAD app configured on this machine",schema(json!({"path":{"type":"string","maxLength":1024}}),&["path"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.set_box_body","Set an explicit box body width, depth and height in millimetres on a project-library footprint for the 3D view and mechanical exports; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"width":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent in x, millimetres"},"depth":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent in y, millimetres"},"height":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent above the board, millimetres"}}),&["name","width","depth","height"])),
@@ -412,6 +415,24 @@ pub(super) struct ModelParams {
     pub(super) scale: Option<[f64; 3]>,
     #[serde(default)]
     pub(super) rotate: Option<[f64; 3]>,
+    #[serde(default)]
+    pub(super) cad_part: Option<String>,
+    #[serde(default)]
+    pub(super) body_id: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompanionExportParams {
+    name: String,
+    directory: String,
+    base_name: String,
+    #[serde(default)]
+    height_mm: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompanionOpenParams {
+    path: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -507,11 +528,32 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
         rotate[1],
         rotate[2]
     );
+    let cad_part = a
+        .cad_part
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let body_id = a
+        .body_id
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if cad_part.as_ref().is_some_and(|s| s.len() > 128)
+        || body_id.as_ref().is_some_and(|s| s.len() > 128)
+    {
+        return Err(Error::Invalid(
+            "companion part name and body id must be at most 128 bytes".into(),
+        ));
+    }
     Ok(pcbcraft_library::Model3D {
         path: a.path.clone(),
         offset,
         scale,
         rotate,
+        cad_part,
+        body_id,
         raw_source,
     })
 }
@@ -687,64 +729,114 @@ pub(super) fn run(
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name}))
         }
-        "library.footprint.model_auto_align" => {
-            let a: ModelAutoAlignParams = parse(params)?;
-            if !a.positions.len().is_multiple_of(3) || a.positions.is_empty() {
-                return Err(Error::Invalid(
-                    "positions must be a non-empty list of x,y,z triples".into(),
-                ));
+        "library.footprint.export_companion_cad" => {
+            let a: CompanionExportParams = parse(params)?;
+            if a.directory.is_empty() || a.directory.len() > 1024 {
+                return Err(Error::Invalid("export directory must be 1 to 1024 bytes".into()));
             }
-            if a.positions.len() / 3 > pcbcraft_io::MAX_MODEL_VERTICES {
-                return Err(Error::Invalid("the model has too many vertices".into()));
-            }
-            if !a.indices.is_empty() && !a.indices.len().is_multiple_of(3) {
-                return Err(Error::Invalid(
-                    "indices must come in groups of three".into(),
-                ));
-            }
-            let positions: Vec<[f64; 3]> =
-                a.positions.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
-            if positions.iter().any(|p| p.iter().any(|v| !v.is_finite())) {
-                return Err(Error::Invalid("positions must be finite numbers".into()));
-            }
-            let mesh = pcbcraft_io::LoadedModel {
-                positions,
-                indices: a.indices,
-                color: None,
-            };
             let def = p
                 .library
                 .footprints
                 .iter()
                 .find(|s| s.name == a.name)
-                .ok_or_else(missing)?;
-            let current = def
+                .ok_or_else(missing)?
+                .clone();
+            let height = a.height_mm.unwrap_or(pcbcraft_io::part_bodies::DEFAULT_BODY_HEIGHT_MM);
+            let body_id = def
                 .model
-                .clone()
-                .ok_or_else(|| Error::Invalid("the footprint has no model reference yet".into()))?;
-            let allow_flip = a.allow_flip.unwrap_or(true);
-            let out = pcbcraft_io::auto_align_model(&mesh, def, &current, allow_flip);
-            let apply = a.apply.unwrap_or(true);
-            if apply {
-                let def = p
-                    .library
-                    .footprints
-                    .iter_mut()
-                    .find(|s| s.name == a.name)
-                    .ok_or_else(missing)?;
-                def.model = Some(out.model.clone());
-                def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                .as_ref()
+                .and_then(|m| m.body_id.clone())
+                .unwrap_or_else(|| format!("{}-body", def.name));
+            let (project, _step) = pcbcraft_io::write_footprint_body(
+                &def,
+                std::path::Path::new(&a.directory),
+                &a.base_name,
+                &body_id,
+                height,
+            )
+            .map_err(|e| Error::Invalid(e))?;
+            let path = project
+                .to_str()
+                .ok_or_else(|| Error::Invalid("the export path is not valid text".into()))?
+                .to_owned();
+            let model = pcbcraft_io::model_reference(&path, &body_id, Some(&a.base_name));
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            def.model = Some(model);
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({"name": a.name, "path": path}))
+        }
+        "library.footprint.link_companion_cad" => {
+            let a: ModelParams = parse(params)?;
+            if !pcbcraft_io::is_companion_project_path(&a.path) {
+                return Err(Error::Invalid(
+                    "the model path must name a companion CAD project file".into(),
+                ));
             }
-            Ok(json!({
-                "name": a.name,
-                "applied": apply,
-                "residual_mm": out.residual_mm,
-                "coarse": out.coarse,
-                "bbox_fallback": out.bbox_fallback,
-                "offset": out.model.offset,
-                "scale": out.model.scale,
-                "rotate": out.model.rotate,
-            }))
+            let body_id = a
+                .body_id
+                .clone()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    Error::Invalid("a stable body id is required for companion CAD models".into())
+                })?;
+            let cad_part = a.cad_part.clone().filter(|s| !s.is_empty());
+            let path = a.path.clone();
+            let model = pcbcraft_io::model_reference(&path, &body_id, cad_part.as_deref());
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            def.model = Some(model);
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({"name": a.name, "path": path}))
+        }
+        "library.footprint.reimport_companion_cad" => {
+            let a: Name = parse(params)?;
+            let path = p
+                .library
+                .footprints
+                .iter()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?
+                .model
+                .as_ref()
+                .filter(|m| pcbcraft_io::is_companion_project_path(&m.path))
+                .ok_or_else(|| {
+                    Error::Invalid("this footprint has no companion CAD model".into())
+                })?
+                .path
+                .clone();
+            Ok(json!({"name": a.name, "path": path, "reload": true}))
+        }
+        "library.companion.open_project" => {
+            let a: CompanionOpenParams = parse(params)?;
+            if a.path.is_empty() || a.path.len() > 1024 {
+                return Err(Error::Invalid("path must be 1 to 1024 bytes".into()));
+            }
+            if !pcbcraft_io::is_companion_project_path(&a.path) {
+                return Err(Error::Invalid(
+                    "the path must name a companion CAD project file".into(),
+                ));
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                open_companion_project(&a.path).map_err(Error::Invalid)?;
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let _ = a;
+                return Err(Error::Invalid(
+                    "Opening a companion CAD project needs the desktop app.".into(),
+                ));
+            }
+            Ok(json!({"path": a.path}))
         }
         "library.footprint.set_rules" => {
             let a: RulesParams = parse(params)?;
@@ -3218,4 +3310,16 @@ fn mirror_footprint(footprint: &mut FootprintDefinition) -> Result<(usize, usize
         count += 1;
     }
     Ok((footprint.pads.len(), count))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn open_companion_project(path: &str) -> Result<(), String> {
+    use std::process::Command;
+    let program = std::env::var("PCBCRAFT_COMPANION_CAD")
+        .unwrap_or_else(|_| "solidcraft".into());
+    Command::new(&program)
+        .arg(path)
+        .spawn()
+        .map_err(|e| format!("Could not start the companion CAD app ({program}): {e}"))?;
+    Ok(())
 }

@@ -3791,9 +3791,25 @@ impl crate::App {
                 target: self.current_target(),
                 revision: self.revision,
                 parts_selected: self.selected_part_components().len(),
-show_empty: self.tree.show_empty,
+};
+        let actions = {
+            let env = Env {
+                project: &self.project,
+                tab,
+                colours,
+                hidden: &self.preferences.hidden_layers,
+                focus: self.focus_layer.as_deref(),
+                selected: self.selected,
+                target: self.current_target(),
+                revision: self.revision,
+                parts_selected: self.selected_part_components().len(),
+                show_empty: self.tree.show_empty,
             };
             show(ui, &env, &mut self.tree)
+        };
+            };
+            show(ui, &env, &mut self.tree)
+        };
             };
             show(ui, &env, &mut self.tree)
         };

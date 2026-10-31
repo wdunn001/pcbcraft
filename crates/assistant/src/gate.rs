@@ -86,6 +86,7 @@ const READS: &[&str] = &[
     "library.catalog",
     "library.search",
     "library.list",
+    "parts.search",
     "library.inspect_symbol",
     "library.inspect_footprint",
     "library.sources",
