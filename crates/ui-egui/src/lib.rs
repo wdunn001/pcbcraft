@@ -67,18 +67,7 @@ mod library_builtin;
 mod library_dock;
 mod library_online;
 mod library_quality;
-pub mod fonts;
-mod footprint_wizard;
-mod hover_affordance;
-mod icons;
-mod impedance_panel;
-mod keymap;
-mod layers_tree;
-mod library;
-mod library_builtin;
-mod library_dock;
-mod library_online;
-mod library_quality;
+mod library_rank;
 mod library_workspace;
 mod minimap;
 mod modifier_ui;
@@ -123,6 +112,18 @@ mod modifier_ui;
 mod motion;
 mod number_entry;
 mod outline_arcs;
+mod sheet_rows;
+mod modifier_ui;
+mod motion;
+mod number_entry;
+mod pages;
+mod palette;
+mod plot_viewer;
+mod pour_panel;
+mod properties;
+mod reference_panel;
+mod route_drag;
+mod rules_fab;
 mod sheet_rows;
 mod schematic_port;
 mod showcase;
@@ -4032,7 +4033,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 .clicked()
             {
                 let url = format!(
-                    "https://github.com/tangency-labs/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
+                    "https://github.com/wdunn001/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
                     env!("CARGO_PKG_VERSION")
                 );
                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));

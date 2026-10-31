@@ -12,6 +12,7 @@ mod bitmap_trace;
 mod board_mesh;
 mod diff;
 mod drawn;
+mod export_validate;
 mod fab_drawing;
 mod fab_export;
 mod generate;
@@ -74,6 +75,7 @@ pub use bitmap_trace::{
 mod cam;
 mod cam_drill;
 mod cam_shapes;
+mod compliance_report;
 mod snapmaker;
 mod solidcraft;
 mod solidcraft_format;
@@ -98,6 +100,10 @@ pub use cam_drill::{
     drill_gcode, drill_tools, outline_gcode,
 };
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
+pub use compliance_report::{
+    ComplianceReportFormat, ComplianceReportOptions, RuleSetLine, SnapshotLine, WaiverLine,
+    compliance_report_bytes, compliance_report_markdown,
+};
 pub use diff::{DesignChange, DesignDiff, project_diff};
 #[cfg(not(target_arch = "wasm32"))]
 pub use datasheet::HttpDatasheetTransport;
@@ -105,6 +111,18 @@ pub use datasheet::HttpDatasheetTransport;
 /// # Dependencies
 /// - crates/io/src/drawn.rs
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
+pub use diff::{DesignChange, DesignDiff, project_diff};
+#[cfg(not(target_arch = "wasm32"))]
+pub use datasheet::HttpDatasheetTransport;
+/// Functions for generating layer plots from drawn graphics.
+/// # Dependencies
+/// - crates/io/src/drawn.rs
+pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use export_validate::{
+    stored_zip_entry, stored_zip_entry_names, validate_fabrication_package_file,
+    validate_ipc2581_document, validate_odb_package,
+};
 pub use fab_drawing::fab_drawing_pdf;
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
@@ -1037,6 +1055,21 @@ pub(crate) fn pdf_bytes_from_ops(ops: String) -> Result<Vec<u8>, String> {
     Ok(pdf)
 }
 
+fn pdf_literal_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' | '(' | ')' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ if ch.is_ascii() => out.push(ch),
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Export the design as a one-page vector PDF document, in bytes.
 pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     p.validate()?;
@@ -1050,6 +1083,55 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     page.op("0 0 842 595 re f")?;
     pdf_draw(&mut page, p, view)?;
     pdf_bytes_from_ops(page.ops)
+}
+
+/// One-page PDF whose body is plain text lines (compliance report export).
+pub fn pdf_plain_text_document(body: &str) -> Result<Vec<u8>, String> {
+    const MAX_LINES: usize = 500;
+    let mut stream = String::from("BT /F1 9 Tf 72 750 Td ");
+    for (index, line) in body.lines().take(MAX_LINES).enumerate() {
+        if index > 0 {
+            stream.push_str("0 -12 Td ");
+        }
+        stream.push('(');
+        stream.push_str(&pdf_literal_escape(line));
+        stream.push_str(") Tj ");
+    }
+    stream.push_str("ET");
+    let content = stream.as_bytes();
+    let mut pdf: Vec<u8> = Vec::new();
+    let mut offsets = [0u32; 5];
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    for (index, body_obj) in [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>".to_string(),
+        format!(
+            "<< /Length {} >>\nstream\n{}endstream",
+            content.len(),
+            String::from_utf8_lossy(content)
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ]
+    .iter()
+    .enumerate()
+    {
+        offsets[index] = pdf.len() as u32;
+        pdf.extend_from_slice(
+            format!("{} 0 obj\n{}\nendobj\n", index + 1, body_obj)
+                .as_bytes(),
+        );
+    }
+    let xref_at = pdf.len() as u32;
+    pdf.extend_from_slice(b"xref\n0 5\n0000000000 65535 f \n");
+    for offset in offsets.iter() {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
+    );
+    Ok(pdf)
+}
 }
 
 /// Draw one view as a standalone PostScript document: the same path, circle
@@ -2573,6 +2655,8 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         /// A track stroke, kept apart from a pad or via circle of the same
         /// diameter so the X2 aperture function names it a conductor.
         Track(u64),
+        /// A via pad, kept apart from component pads of the same diameter.
+        Via(u64),
     }
     #[derive(Clone)]
     struct LayerFile {
@@ -2668,9 +2752,11 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             for (ap, code) in &self.apertures {
                 if matches!(ap, Ap::Track(_)) {
                     out.push_str("%TA.AperFunction,Conductor,Cu*%\n");
+                } else if matches!(ap, Ap::Via(_)) {
+                    out.push_str("%TA.AperFunction,ViaPad*%\n");
                 }
                 match *ap {
-                    Ap::Circle(d) | Ap::Track(d) => out.push_str(&format!(
+                    Ap::Circle(d) | Ap::Track(d) | Ap::Via(d) => out.push_str(&format!(
                         "%ADD{code}C,{:.6}*%\n",
                         d as f64 / 1000.0 * self.scale
                     )),
@@ -2831,7 +2917,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     }
     for v in &p.board.vias {
         let d = (v.diameter * 1_000.0).round() as u64;
-        let ap = Ap::Circle(d.max(1));
+        let ap = Ap::Via(d.max(1));
         let (reaches_top, reaches_bottom) = fab_export::via_reaches_outer(p, v);
         if reaches_top {
             let front_code = front.code(ap.clone())?;
@@ -2951,7 +3037,7 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     fab_export::fab_readme_text(p, file_names)
 }
 
-pub use fab_export::via_mask_opening;
+pub use fab_export::{via_mask_opening, via_mask_opening_on_face};
 /// Bill of materials as CSV: identical parts collapsed into one row with a
 /// sorted, quoted reference list. Requested property keys become extra
 /// columns; with no request, the columns the project itself defines are
@@ -3788,6 +3874,99 @@ pub fn ipc356_netlist(p: &Project) -> Result<String, String> {
     for (net, reference, pin, x, y) in &rows {
         out.push_str(&format!(
             "{net:05}{reference:<12}{pin:<10}000000{x:08}{y:08}\n"
+        ));
+    }
+    Ok(out)
+}
+
+fn component_is_test_point(c: &pcbcraft_doc::Component) -> bool {
+    if let Some(sym) = &c.library_symbol {
+        if sym
+            .definition
+            .description
+            .eq_ignore_ascii_case("test point")
+        {
+            return true;
+        }
+        if sym.definition.reference == "TP" {
+            return true;
+        }
+    }
+    if let Some(fp) = &c.library_footprint {
+        let name = fp.definition.name.as_str();
+        if name.starts_with("Test_") || name.contains("TestPoint") {
+            return true;
+        }
+    }
+    false
+}
+
+fn pad_size_mm(pad: &pcbcraft_doc::Pad) -> f64 {
+    if let Some(g) = &pad.geometry {
+        g.size.x.max(g.size.y).max(pad.diameter)
+    } else {
+        pad.diameter
+    }
+}
+
+/// Test-point CSV for fixture builders: one row per pad on a test-point
+/// footprint with net name, reference designator, centre coordinates, copper
+/// side and pad size. Comment lines state millimetre units and the side
+/// vocabulary; write it beside the IPC-D-356 netlist from the same export job.
+pub fn testpoints_csv(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_POINTS: usize = 5_000;
+    let names: BTreeMap<u64, String> = p.nets.iter().map(|n| (n.id, n.name.clone())).collect();
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+    let title = if p.name.trim().is_empty() {
+        "untitled board"
+    } else {
+        p.name.trim()
+    };
+    let mut rows: Vec<(String, String, f64, f64, &'static str, f64)> = Vec::new();
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+        if !component_is_test_point(c) {
+            continue;
+        }
+        let back = f.board_side() == pcbcraft_doc::Layer::Back;
+        let side = if back { "bottom" } else { "top" };
+        for pad in &f.pads {
+            let world = f.position.offset(pad.offset.rotate(-f.rotation));
+            if !world.x.is_finite() || !world.y.is_finite() {
+                return Err("pad position is not a number".into());
+            }
+            let net = pad
+                .net
+                .and_then(|id| names.get(&id).cloned())
+                .unwrap_or_default();
+            let size = pad_size_mm(pad);
+            if size <= 0.0 || !size.is_finite() {
+                return Err("test pad size is not a positive number".into());
+            }
+            rows.push((net, c.reference.clone(), world.x, world.y, side, size));
+        }
+    }
+    if rows.len() > MAX_POINTS {
+        return Err("test-point list exceeds the pad limit".into());
+    }
+    rows.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+    let mut out = format!("# Test points for {title}\n");
+    out.push_str("# Coordinates and pad size in millimetres\n");
+    out.push_str("# Side column: top or bottom (front or back copper)\n");
+    out.push_str("NET,DESIGNATOR,X_MM,Y_MM,SIDE,PAD_SIZE_MM\n");
+    for (net, designator, x, y, side, size) in rows {
+        out.push_str(&format!(
+            "{},{},{:.3},{:.3},{},{:.3}\n",
+            csv_cell(&net),
+            csv_cell(&designator),
+            x,
+            y,
+            side,
+            size
         ));
     }
     Ok(out)
@@ -7166,6 +7345,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -7246,6 +7426,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 502,
@@ -7373,6 +7554,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.validate()?;
         let text = stats_text(&project)?;
@@ -7416,6 +7598,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -7426,6 +7609,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 503,
@@ -7609,6 +7793,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.validate()?;
         let pcb = hpgl_plot(&project, "pcb")?;
@@ -7656,6 +7841,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.validate()?;
         let package = odb_package(&project)?;
@@ -7720,6 +7906,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -8710,6 +8897,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.unit = "inch".into();
         project.validate()?;
@@ -8805,6 +8993,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
@@ -9061,6 +9250,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -9688,6 +9878,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
@@ -10052,6 +10243,7 @@ mod tests {
             via_drill: None,
             pair_width: None,
             pair_gap: None,
+            target_impedance: None,
             nets: vec![5],
             profile: None,
         });
@@ -10131,6 +10323,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
@@ -10291,6 +10484,106 @@ mod tests {
     }
 
     #[test]
+    fn testpoints_csv_lists_test_point_pads_with_side_and_units_in_the_header() -> Result<(), String>
+    {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 7,
+            name: "VBAT".into(),
+            ..Default::default()
+        });
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 1,
+            reference: "TP1".into(),
+            value: "VBAT".into(),
+            kind: "library".into(),
+            position: Point::new(4.0, 44.0),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                name: "TP".into(),
+                offset: Point::default(),
+                net: Some(7),
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            }],
+            units: vec![],
+            library_symbol: Some(pcbcraft_doc::LibrarySymbol {
+                library: "project".into(),
+                unit: 1,
+                definition: pcbcraft_library::SymbolDefinition {
+                    name: "TP_PAD".into(),
+                    reference: "TP".into(),
+                    value: "TP".into(),
+                    description: "Test point".into(),
+                    keywords: String::new(),
+                    footprint: "Test_Pad".into(),
+                    set: String::new(),
+                    pins: vec![],
+                    graphics: vec![],
+                    extends: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            }),
+            library_footprint: None,
+            fields: vec![],
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(4.0, 44.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.0,
+                net: Some(7),
+                castellated: None,
+                geometry: None,
+            }],
+        });
+        let text = testpoints_csv(&project)?;
+        assert!(
+            text.contains("# Coordinates and pad size in millimetres"),
+            "header states units"
+        );
+        assert!(
+            text.contains("# Side column: top or bottom"),
+            "header states side vocabulary"
+        );
+        let data: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.starts_with("NET,"))
+            .collect();
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0], "VBAT,TP1,4.000,44.000,top,1.000");
+        Ok(())
+    }
+
+    #[test]
+    fn testpoints_csv_matches_the_showcase_test_pads() -> Result<(), String> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/showcase.pcbcraft");
+        let project = load(&path)?;
+        let text = testpoints_csv(&project)?;
+        let data: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.starts_with("NET,"))
+            .collect();
+        assert_eq!(data.len(), 2, "showcase carries two test points");
+        assert!(
+            data.iter().any(|r| r.starts_with("VBAT,TP1,")),
+            "TP1 on VBAT"
+        );
+        assert!(data.iter().any(|r| r.starts_with("3V3,TP2,")), "TP2 on 3V3");
+        Ok(())
+    }
+
+    #[test]
     fn drill_origin_shifts_drill_coordinates_but_not_copper() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
@@ -10307,6 +10600,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
@@ -10436,6 +10730,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 12,
@@ -11360,6 +11655,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
@@ -11518,6 +11814,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -12741,6 +13038,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -12774,6 +13072,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -13319,6 +13618,7 @@ mod tests {
             from_layer: from.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             covering: None,
+            covering_scope: None,
         };
         project.board.vias.push(via(10, 5.0, None, None));
         project.board.vias.push(via(11, 7.0, None, Some(1)));
@@ -13457,6 +13757,7 @@ mod tests {
                 from_layer: None,
                 to_layer: None,
                 covering,
+                covering_scope: None,
             });
         }
         project.validate()?;
@@ -13523,11 +13824,17 @@ mod tests {
         )?)?;
         let drill = &files["pcb-Plated.drl"];
         assert!(
-            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill\n"),
+            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ib\n"),
             "{drill}"
         );
-        assert!(drill.contains("; via protection: tented\n"), "{drill}");
-        assert!(drill.contains("; via protection: plugged\n"), "{drill}");
+        assert!(
+            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill,IIIb\n"),
+            "{drill}"
+        );
+        assert!(
+            !drill.contains("; via protection:"),
+            "covering travels in the tool attribute: {drill}"
+        );
         assert_eq!(
             drill.matches("; #@! TD\n").count(),
             2,

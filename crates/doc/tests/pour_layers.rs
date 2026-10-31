@@ -43,6 +43,8 @@ fn via(id: Id, net: Id, x: f64, from: Option<u8>, to: Option<u8>) -> Result<Via,
         from_layer: from.map(layer).transpose()?,
         to_layer: to.map(layer).transpose()?,
         covering: None,
+covering: None,
+        covering_scope: None,
         covering_bottom: None,
     })
 }
