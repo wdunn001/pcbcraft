@@ -1,0 +1,8 @@
+id = "firmware-target-betaflight"
+name = "Flight controller firmware target (Betaflight)"
+version = "0.1.0"
+license = "GPL-3.0-or-later"
+description = "Export board config.h and a peripheral manifest from the schematic firmware design."
+crate = "pcbcraft-plugin-firmware-target"
+export_kinds = ["firmware_target"]
+commands = ["firmware.target.export", "firmware.config.compare"]
