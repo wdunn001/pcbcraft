@@ -160,7 +160,14 @@ pub(super) struct Sheet {
     pub rows: usize,
     pub size: String,
     pub title: String,
+    /// The revision typed in Project settings, empty when none.
+    pub revision: String,
     pub date: String,
+    pub revision: String,
+    pub company: String,
+    pub drawn_by: String,
+    /// False when the page switched its title block off.
+    pub title_shown: bool,
     pub page: usize,
     pub pages: usize,
 }
@@ -215,10 +222,18 @@ fn title_block_width(sheet_width: f64) -> f64 {
 
 /// Today's date as `YYYY-MM-DD` in UTC, for a project that records none.
 fn today() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+let secs = crate::wall_clock::unix_secs_now();
+    let z = (secs / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
     let z = (secs / 86_400) as i64 + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -244,7 +259,8 @@ fn today() -> String {
 ///
 /// # Do not
 /// - Move or resize anything in the project; the sheet follows the drawing.
-pub(super) fn sheet_for(p: &Project) -> Sheet {
+pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
+    let settings = p.page_settings_of(page);
     let (clo, chi) = content_bounds(p).unwrap_or((Point::new(0.0, 0.0), Point::new(80.0, 48.0)));
     let (cw, ch) = (chi.x - clo.x, chi.y - clo.y);
     let fits = |w: f64, h: f64| {
@@ -252,7 +268,9 @@ pub(super) fn sheet_for(p: &Project) -> Sheet {
         let tb_h = title_block_width(w) * 0.25;
         cw <= w - 2.0 * band && ch <= h - 2.0 * band - tb_h
     };
-    let paper = p.meta.get("paper").map(|s| s.trim().to_ascii_uppercase());
+    let paper = Some(settings.size.clone())
+        .filter(|s| !s.is_empty())
+        .or_else(|| p.meta.get("paper").map(|s| s.trim().to_ascii_uppercase()));
     let picked = paper
         .as_deref()
         .and_then(|name| SHEET_SIZES.iter().find(|s| s.0 == name))
@@ -268,12 +286,23 @@ pub(super) fn sheet_for(p: &Project) -> Sheet {
         (cx - w / 2.0).round(),
         (cy - band - (h - 2.0 * band - tb_h) / 2.0).round(),
     );
-    let title = p
-        .meta
-        .get("title")
-        .filter(|t| !t.trim().is_empty())
-        .cloned()
+    let title = Some(settings.title.clone())
+        .filter(|t| !t.is_empty())
+        .or_else(|| {
+            p.meta
+                .get("title")
+                .filter(|t| !t.trim().is_empty())
+                .cloned()
+        })
         .unwrap_or_else(|| p.name.clone());
+    let number = if page == 0 {
+        1
+    } else {
+        p.sheets
+            .iter()
+            .position(|s| s.id == page)
+            .map_or(1, |i| i + 2)
+    };
     Sheet {
         lo,
         hi: Point::new(lo.x + w, lo.y + h),
@@ -282,15 +311,26 @@ pub(super) fn sheet_for(p: &Project) -> Sheet {
         rows: ((h / 50.0).round() as usize).clamp(3, 16),
         size: size.to_string(),
         title,
-        date: p.meta.get("date").cloned().unwrap_or_else(today),
-        page: 1,
+revision: p
+            .meta
+            .get("revision")
+            .map(|r| r.trim().to_owned())
+            .unwrap_or_else(|| settings.revision.clone()),
+        date: Some(settings.date.clone())
+            .filter(|d| !d.is_empty())
+            .or_else(|| p.meta.get("date").cloned())
+            .unwrap_or_else(today),
+        company: settings.company.clone(),
+        drawn_by: settings.drawn_by.clone(),
+        title_shown: !settings.title_hidden,
+        page: number,
         pages: p.sheets.len() + 1,
     }
 }
 
 /// The world rectangle the fit button should show: the whole sheet.
 pub(super) fn sheet_bounds(p: &Project) -> (Point, Point) {
-    let s = sheet_for(p);
+    let s = sheet_for(p, 0);
     (s.lo, s.hi)
 }
 
@@ -385,7 +425,9 @@ pub(super) fn paint_sheet(
             sc.zone_text,
         );
     }
-    paint_title_block(painter, camera, sheet, inner, sc);
+    if sheet.title_shown {
+        paint_title_block(painter, camera, sheet, inner, sc);
+    }
 }
 
 /// Grid dots inside the inner frame, clipped to the visible canvas.
@@ -452,11 +494,12 @@ fn paint_title_block(
     );
     let cells = [
         block.left(),
+        block.left() + width * 0.3,
         block.left() + width * 0.5,
         block.left() + width * 0.75,
         block.right(),
     ];
-    for x in &cells[1..3] {
+    for x in &cells[1..4] {
         painter.line_segment([Pos2::new(*x, split), Pos2::new(*x, block.bottom())], line);
     }
     let caption = FontId::monospace((height * 0.11).clamp(6.5, 10.0));
@@ -484,6 +527,15 @@ fn paint_title_block(
         &sheet.title,
         &FontId::monospace((height * 0.22).clamp(9.0, 19.0)),
     );
+    if !sheet.revision.is_empty() {
+        painter.text(
+            block.right_top() + Vec2::new(-pad, pad * 0.6),
+            Align2::RIGHT_TOP,
+            format!("{} {}", t!("schematic.sheet.revision"), sheet.revision),
+            caption.clone(),
+            sc.muted,
+        );
+    }
     place(
         Pos2::new(cells[0], split),
         t!("schematic.sheet.sheet").to_uppercase(),
@@ -496,12 +548,33 @@ fn paint_title_block(
     );
     place(
         Pos2::new(cells[1], split),
-        t!("schematic.sheet.date").to_uppercase(),
-        &sheet.date,
+        t!("schematic.sheet.revision").to_uppercase(),
+        &sheet.revision,
         &value,
     );
     place(
         Pos2::new(cells[2], split),
+        t!("schematic.sheet.date").to_uppercase(),
+        &sheet.date,
+        &value,
+    );
+    let credit = [sheet.company.as_str(), sheet.drawn_by.as_str()]
+        .iter()
+        .filter(|s| !s.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" / ");
+    if !credit.is_empty() {
+        painter.text(
+            Pos2::new(block.right() - pad, block.top() + pad * 0.6),
+            Align2::RIGHT_TOP,
+            credit,
+            caption.clone(),
+            sc.muted,
+        );
+    }
+    place(
+        Pos2::new(cells[3], split),
         t!("schematic.sheet.size").to_uppercase(),
         &sheet.size,
         &value,
@@ -633,6 +706,7 @@ pub(super) fn run_point(run: (Point, Point), fraction: f64) -> Point {
 ///
 /// # Do not
 /// - Draw a wire the caller still paints.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_power(
     painter: &egui::Painter,
     rect: Rect,
@@ -641,12 +715,17 @@ pub(super) fn paint_power(
     kinds: &HashMap<Id, PowerKind>,
     sc: &SheetColours,
     show_wires: bool,
+    page: Id,
 ) {
     let stub = Stroke::new(2.5, sc.wire);
     let mut ends: HashMap<(i64, i64), usize> = HashMap::new();
     let key = |q: Point| ((q.x * 100.0).round() as i64, (q.y * 100.0).round() as i64);
     let mut ruled: Vec<Id> = Vec::new();
-    for w in p.wires.iter().filter(|_| show_wires) {
+    for w in p
+        .wires
+        .iter()
+        .filter(|w| show_wires && p.on_schematic_page(page, w.id))
+    {
         match kinds.get(&w.net) {
             Some(PowerKind::Ground) => {
                 let name = p.net_name(w.net);
@@ -708,7 +787,11 @@ pub(super) fn paint_power(
             );
         }
     }
-    for l in p.labels.iter().filter(|l| l.kind == "power") {
+    for l in p
+        .labels
+        .iter()
+        .filter(|l| l.kind == "power" && p.on_schematic_page(page, l.id))
+    {
         let name = p.net_name(l.net);
         match kinds.get(&l.net) {
             Some(PowerKind::Ground) => ground_symbol(painter, rect, camera, l.position, name, sc),
