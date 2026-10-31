@@ -1,0 +1,19 @@
+[part]
+manufacturer = "Abracon"
+mpn = "ABM8-272-K2B-T3"
+datasheet_path = "research/sources/library/datasheets/abracon/abm8-272-k2b-t3.pdf"
+datasheet_url = "https://abracon.com/resonators/ABM8.pdf"
+
+package = "HC-49/US"
+pin_count = 2
+land_pattern_ref = "See land pattern in datasheet"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[requirement]]
+type = "decoupling"
+text = "Follow manufacturer decoupling and layout guidance in the datasheet."
+page = 1
+confirmed = false

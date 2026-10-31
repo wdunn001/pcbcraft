@@ -31,6 +31,7 @@ fn annotations(priority: f64) -> Value {
 pub(crate) fn list() -> Value {
     json!({"resources":[
         {"uri":"pcbcraft://design","name":"design","title":"Design","description":"The canonical project with stable ids, revision and history; same content as inspect_design","mimeType":"application/json","annotations":annotations(1.0)},
+        {"uri":"pcbcraft://summary","name":"summary","title":"Summary","description":"A short summary of the open project: counts, board, nets, parts and findings; far smaller than the design resource","mimeType":"application/json","annotations":annotations(0.9)},
         {"uri":"pcbcraft://commands","name":"commands","title":"Commands","description":"Every engine command with its input schema; same content as list_commands","mimeType":"application/json","annotations":annotations(0.6)},
         {"uri":"pcbcraft://checks","name":"checks","title":"Checks","description":"The result of running the checks now; reading it edits nothing","mimeType":"application/json","annotations":annotations(0.8)}
     ]})
@@ -96,6 +97,10 @@ pub(crate) fn read(hub: &DocumentHub, uri: &str) -> Result<Value, ReadError> {
             uri,
             &run_tool(hub, "inspect_design", &json!({}))?,
         )),
+        "pcbcraft://summary" => Ok(json_contents(
+            uri,
+            &run_tool(hub, "design.summary", &json!({}))?,
+        )),
         "pcbcraft://commands" => Ok(json_contents(
             uri,
             &run_tool(hub, "list_commands", &json!({}))?,
@@ -147,6 +152,7 @@ mod tests {
             hub,
             json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}),
             None,
+            None,
         )
         .ok_or_else(|| "expected a reply".to_string())
     }
@@ -169,6 +175,7 @@ mod tests {
             uris,
             [
                 "pcbcraft://design",
+                "pcbcraft://summary",
                 "pcbcraft://commands",
                 "pcbcraft://checks"
             ]
@@ -188,6 +195,22 @@ mod tests {
             templates["result"]["resourceTemplates"][0]["uriTemplate"],
             "pcbcraft://design/preview/{view}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn reading_the_summary_resource_equals_design_summary() -> Result<(), String> {
+        let hub = sample_hub()?;
+        let reply = rpc(&hub, "resources/read", json!({"uri":"pcbcraft://summary"}))?;
+        let text = reply["result"]["contents"][0]["text"]
+            .as_str()
+            .ok_or("summary text")?;
+        let read: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        assert_eq!(
+            read,
+            hub.call_tool("design.summary", &json!({}))["structuredContent"]
+        );
+        assert!(read.is_object() && !read.as_object().is_none_or(|o| o.is_empty()));
         Ok(())
     }
 
@@ -285,6 +308,7 @@ mod tests {
         let before = revision(&hub);
         for uri in [
             "pcbcraft://design",
+            "pcbcraft://summary",
             "pcbcraft://commands",
             "pcbcraft://checks",
             "pcbcraft://design/preview/pcb",

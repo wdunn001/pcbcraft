@@ -8,23 +8,33 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+plugin-firmware-target = [
+    "dep:pcbcraft-plugin-firmware-target",
+    "pcbcraft-io/plugin-firmware-target",
+]
+
 [dependencies]
+pcbcraft-plugin-firmware-target = { workspace = true, optional = true }
+pcbcraft-clock.workspace = true
 pcbcraft-geom.workspace = true
 pcbcraft-library.workspace = true
 pcbcraft-doc.workspace = true
 pcbcraft-rules.workspace = true
 pcbcraft-io.workspace = true
+pcbcraft-sim.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 
-[features]
-default = []
-vendor-handoff = []
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { version = "2", default-features = false, features = ["tls"] }
 
 [dev-dependencies]
+pcbcraft-testkit.workspace = true
 base64.workspace = true
 tempfile.workspace = true
 pcbcraft-io.workspace = true

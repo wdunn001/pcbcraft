@@ -1,0 +1,19 @@
+schema = 2
+
+[profile]
+id = "bad-field"
+name = "Bad field"
+category = "test"
+summary = "Carries an unknown table key for refusal tests."
+
+[bus]
+name = "T"
+schematic_type = "T"
+
+[[signal]]
+name = "A"
+net = "A"
+electrical_class = "single-ended"
+
+[not_a_real_table]
+x = 1
