@@ -18,11 +18,11 @@
 //! - crates/io/src/gerber.rs coordinate, GerberWriter, Aperture, Operation
 //! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
 //! - crates/io/src/lib.rs PickPlaceWriter
+use crate::gerber::coordinate;
 use pcbcraft_doc::{Board, Layer, Project, Via, ViaProtectionType};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
 use std::collections::BTreeMap;
-use crate::gerber::coordinate;
 
 const MAX_OPS: usize = 100_000;
 const MAX_APERTURES: usize = 64;
