@@ -362,6 +362,75 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+"component.set_compliance",
+            "Set typed compliance on a placed part: country of origin, product role, declarations and substances",
+            schema(
+                json!({"id":id_schema(),"compliance":{"type":"object"}}),
+                &["id", "compliance"],
+            ),
+        ),
+        (
+            "component.set_sourcing",
+            "Set the typed sourcing facts of one part: manufacturer, manufacturer part number, description, lifecycle (active, nrnd, last_time_buy, obsolete, unknown), moisture sensitivity level 1 to 6, and RoHS, REACH and halogen-free flags. A key left out stays as it is; null (or an empty string) clears it. One undo step; the old free-form properties are not touched",
+            schema(
+                json!({"id":id_schema(),"manufacturer":{"type":["string","null"],"maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"description":{"type":["string","null"],"maxLength":256},"lifecycle":{"type":["string","null"],"enum":["active","nrnd","last_time_buy","obsolete","unknown",null]},"moisture_level":{"type":["integer","null"],"minimum":1,"maximum":6},"rohs":{"type":["boolean","null"]},"reach":{"type":["boolean","null"]},"halogen_free":{"type":["boolean","null"]}}),
+                &["id"],
+            ),
+        ),
+        (
+            "component.set_supplier",
+            "Set one supplier's part number on a part (and an optional link to its page), replacing the entry of the same supplier name (ignoring case) or adding one; a null part_number removes that supplier. A part lists at most 16 suppliers, one number each",
+            schema(
+                json!({"id":id_schema(),"supplier":{"type":"string","minLength":1,"maxLength":256},"part_number":{"type":["string","null"],"maxLength":256},"url":{"type":["string","null"],"maxLength":512}}),
+                &["id", "supplier"],
+            ),
+        ),
+        (
+            "component.find",
+            "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
+            schema(
+                json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"kind":{"type":"string","maxLength":64}}),
+                &[],
+            ),
+        ),
+        (
+            "footprint.find",
+            "Find placed footprints by component reference wildcard, exact component value, or lock state; * matches any run of characters and ? matches one",
+            schema(
+                json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"locked":{"type":"boolean"}}),
+                &[],
+            ),
+        ),
+        (
+            "manufacturer.set",
+            "Add or replace one row in the project manufacturer table, including aliases and country",
+            schema(
+                json!({"name":{"type":"string","maxLength":128},"aliases":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":128}},"country":{"type":"string","maxLength":2},"parent":{"type":["string","null"],"maxLength":128},"supplier_responsibility_on_file":{"type":"boolean"}}),
+                &["name"],
+            ),
+        ),
+        (
+            "project.compliance.set",
+            "Choose compliance rule sets, organisation role and target markets for this design",
+            schema(
+                json!({"rule_sets":{"type":"array","maxItems":16,"items":{"type":"string","maxLength":64}},"org_role":{"type":["string","null"],"enum":["maker_seller","integrator","buyer",null]},"target_markets":{"type":"array","maxItems":16,"items":{"type":"string","maxLength":256}}}),
+                &[],
+            ),
+        ),
+        (
+            "compliance.finding.mute",
+            "Mute one compliance finding for a rule and component or manufacturer, storing a reason on the project",
+            schema(
+                json!({"rule":{"type":"string","maxLength":64},"component":{"type":["integer","null"]},"manufacturer":{"type":["string","null"],"maxLength":128},"reason":{"type":"string","maxLength":512}}),
+                &["rule", "reason"],
+            ),
+        ),
+        (
+            "compliance.check",
+            "Run bundled compliance rule sets against the bill of materials and return findings with rule, evidence and citation",
+            schema(json!({}), &[]),
+        ),
+        (
             "component.find",
             "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
             schema(
@@ -2561,7 +2630,9 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        let compliance = serde_json::to_value(pcbcraft_rules::compliance_check(&self.project))
+            .unwrap_or_else(|_| json!([]));
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -5108,9 +5179,9 @@ pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
                     None => "starter pads".into(),
                 },
             };
-        let values: Vec<String> = keys
+let values: Vec<String> = keys
             .iter()
-            .map(|key| c.field(key).unwrap_or("").to_string())
+            .map(|key| c.bom_value(key).or_else(|| c.field(key)).unwrap_or("").to_string())
             .collect();
         let apart = if a.group {
             String::new()
@@ -5206,6 +5277,41 @@ struct FieldParams {
     key: String,
     #[serde(default)]
     value: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetComplianceParams {
+    id: Id,
+    compliance: pcbcraft_doc::Compliance,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManufacturerSetParams {
+    name: String,
+    #[serde(default)]
+    aliases: Vec<String>,
+    #[serde(default)]
+    country: String,
+    parent: Option<String>,
+    #[serde(default)]
+    supplier_responsibility_on_file: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectComplianceSetParams {
+    #[serde(default)]
+    rule_sets: Option<Vec<String>>,
+    org_role: Option<String>,
+    #[serde(default)]
+    target_markets: Option<Vec<String>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComplianceFindingMuteParams {
+    rule: String,
+    component: Option<Id>,
+    manufacturer: Option<String>,
+    reason: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8213,6 +8319,65 @@ fn run_command(
                 .ok_or_else(missing)?;
             let set = set_component_field(component, &a.key, a.value.as_deref())?;
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
+        }
+"component.set_compliance" => {
+            let a: SetComplianceParams = parse(params)?;
+            a.compliance.validate().map_err(Error::Invalid)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.compliance = a.compliance;
+            Ok(json!({"id": a.id}))
+        }
+        "component.set_sourcing" => {
+            let a: SourcingParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mut next = component.sourcing.clone();
+            let text = |slot: &mut String, v: Option<Option<String>>| {
+                if let Some(v) = v {
+                    *slot = v.map(|t| t.trim().to_owned()).unwrap_or_default();
+                }
+            };
+            text(&mut next.manufacturer, a.manufacturer);
+            text(&mut next.mpn, a.mpn);
+            text(&mut next.description, a.description);
+            if let Some(v) = a.lifecycle {
+                next.lifecycle = v;
+            }
+            if let Some(v) = a.moisture_level {
+                next.moisture_level = v;
+            }
+            if let Some(v) = a.rohs {
+                next.rohs = v;
+            }
+            if let Some(v) = a.reach {
+                next.reach = v;
+            }
+            if let Some(v) = a.halogen_free {
+                next.halogen_free = v;
+            }
+            next.validate().map_err(Error::Invalid)?;
+            component.sourcing = next;
+            Ok(json!({"id": a.id, "sourcing": component.sourcing}))
+        }
+        "component.set_supplier" => {
+            let a: SupplierParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mut next = component.sourcing.clone();
+            next.set_supplier(&a.supplier, a.part_number.as_deref(), a.url.as_deref())
+                .map_err(Error::Invalid)?;
+            component.sourcing = next;
+            Ok(json!({"id": a.id, "suppliers": component.sourcing.suppliers}))
         }
         "part.attach_source" => {
             let a: AttachSourceParams = parse(params)?;
@@ -23487,6 +23652,10 @@ mod tests {
             commands().iter().any(|c| c.id == "library.footprint.check"),
             "MCP clients must see library.footprint.check"
         );
+        assert!(
+            commands().iter().any(|c| c.id == "compliance.check"),
+            "MCP clients must see compliance.check"
+        );
         Ok(())
     }
 
@@ -25609,6 +25778,108 @@ mod tests {
         assert!(s.project.validate().is_ok());
         Ok(())
     }
+    #[test]
+    fn compliance_is_set_in_one_undo_step_and_bounds_refuse_change() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let compliance = json!({
+            "country_of_origin":{"code":"US","basis":"manufactured","as_of":"2026-03-01"},
+            "role":"flight_controller",
+            "declarations":[{
+                "regime":"rohs",
+                "status":"declared_compliant",
+                "detail":"",
+                "source":{"kind":"user","label":"bench"},
+                "as_of":"2026-03-01"
+            }]
+        });
+        s.execute(
+            "component.set_compliance",
+            json!({"id":r1,"compliance":compliance}),
+            None,
+        )?;
+        let c = s.project.component(r1).ok_or_else(missing)?;
+        assert_eq!(
+            c.compliance.country_of_origin.as_ref().map(|o| o.code.as_str()),
+            Some("US")
+        );
+        assert_eq!(c.compliance.role, Some(pcbcraft_doc::PartRole::FlightController));
+        s.execute(
+            "manufacturer.set",
+            json!({"name":"Example Components","aliases":["ExComp"],"country":"US","supplier_responsibility_on_file":true}),
+            None,
+        )?;
+        assert!(s
+            .project
+            .resolve_manufacturer("excomp")
+            .is_some());
+        let before = s.inspect();
+        let big = "x".repeat(pcbcraft_doc::MAX_COMPLIANCE_TEXT + 1);
+        assert!(
+            s.execute(
+                "component.set_compliance",
+                json!({"id":r1,"compliance":{"declarations":[{"regime":big,"status":"unknown","source":{"kind":"user","label":"x"}}]}}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.inspect(), before);
+        s.undo()?;
+        assert!(s.project.manufacturers.is_empty());
+        s.undo()?;
+        assert!(s.project.component(r1).ok_or_else(missing)?.compliance.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn compliance_settings_mute_and_check_round_trip() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "project.compliance.set",
+            json!({"rule_sets":["synthetic_demo"],"org_role":"integrator","target_markets":["demo"]}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.compliance_settings.org_role,
+            Some(pcbcraft_doc::ComplianceOrgRole::Integrator)
+        );
+        let before = s.checks()["compliance"]
+            .as_array()
+            .map_or(0, Vec::len);
+        assert!(before > 0);
+        s.execute(
+            "compliance.finding.mute",
+            json!({"rule":"demo.declaration_required","component":r1,"reason":"accepted for prototype"}),
+            None,
+        )?;
+        let after = s.checks()["compliance"].as_array().ok_or_else(missing)?;
+        assert!(
+            after.len() < before,
+            "muted finding drops out of the compliance report"
+        );
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let back: pcbcraft_doc::Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(back.compliance_mutes.len(), 1);
+        assert_eq!(back.compliance_mutes[0].reason, "accepted for prototype");
+        let run = s.execute("compliance.check", json!({}), None)?;
+        assert!(run["findings"].as_array().is_some());
+        Ok(())
+    }
+
     #[test]
     fn component_fields_are_set_replaced_cleared_and_copied() -> Result<(), Error> {
         let mut s = Session::default();

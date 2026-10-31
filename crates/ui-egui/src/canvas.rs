@@ -2671,6 +2671,8 @@ mod library_render_tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             preserved: pcbcraft_doc::PreservedSource::default(),
