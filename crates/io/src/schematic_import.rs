@@ -463,7 +463,7 @@ impl ImportCtx {
         Ok(component)
     }
 
-    fn finish(mut self) -> Result<Project, String> {
+    fn finish(mut self) -> Result<(Project, usize), String> {
         let pages = std::mem::take(&mut self.pages);
         let mut project = Project::default();
         project.name = pages
@@ -625,14 +625,16 @@ impl ImportCtx {
             for (kind, text, pos, rot, bus) in &page.labels {
                 let id = self.alloc();
                 let net = if kind == "bus" {
-                    None
+                    0
                 } else {
-                    lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos)
+                    lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos).ok_or_else(
+                        || format!("label {text} is not on a derived net"),
+                    )?
                 };
                 project.labels.push(Label {
                     id,
                     kind: kind.clone(),
-                    net: net.ok_or_else(|| format!("label {text} is not on a derived net"))?,
+                    net,
                     position: *pos,
                     rotation: *rot,
                     text: bus.clone(),
