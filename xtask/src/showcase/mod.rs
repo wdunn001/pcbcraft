@@ -644,7 +644,7 @@ mod tests {
     /// Every finding the app counts for this project: the engine's checks
     /// (wiring, board, peripheral and compliance) plus the library footprint
     /// checks over the project library, the same set the status strip reads.
-    fn severity_counts(project: &Project) -> (usize, usize, usize) {
+    fn severity_counts(project: &Project) -> Result<(usize, usize, usize), String> {
         let mut errors = 0;
         let mut warnings = 0;
         let mut other = 0;
@@ -656,7 +656,7 @@ mod tests {
         let mut session = Session::default();
         session
             .replace(project.clone())
-            .expect("the project loads into a session");
+            .map_err(|e| e.to_string())?;
         let checks = session.checks();
         for key in ["erc", "drc", "peripheral", "compliance"] {
             for f in checks[key].as_array().into_iter().flatten() {
@@ -671,7 +671,7 @@ mod tests {
                 });
             }
         }
-        (errors, warnings, other)
+        Ok((errors, warnings, other))
     }
 
     /// The library findings alone, as `code: footprint` lines, for messages.
@@ -836,7 +836,7 @@ mod tests {
             "every library footprint passes its quality checks"
         );
         assert_eq!(
-            severity_counts(p),
+            severity_counts(p)?,
             (0, 0, 0),
             "no finding of any severity, as the app counts them"
         );
@@ -851,7 +851,7 @@ mod tests {
     fn showcase_findings_variant_has_two_warnings_and_one_error() -> Result<(), String> {
         let v = findings_variant(shared()?)?;
         assert_eq!(
-            severity_counts(&v),
+            severity_counts(&v)?,
             (1, 2, 0),
             "one error, two warnings, nothing else"
         );
