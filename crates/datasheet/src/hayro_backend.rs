@@ -51,7 +51,7 @@ impl HayroDocument {
         if !(w > 0.0 && h > 0.0) {
             return Err(RenderError::Failed("The page has no drawable area.".into()));
         }
-        let mut out = scale.max(0.05).min(8.0);
+        let mut out = scale.clamp(0.05, 8.0);
         let longest = w.max(h) * out;
         if longest > MAX_SIDE_PX {
             out *= MAX_SIDE_PX / longest;

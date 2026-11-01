@@ -2,7 +2,7 @@ use pcbcraft_datasheet::layout::visible_pages;
 use pcbcraft_datasheet::traits::{PageDocument, RenderRequest};
 use pcbcraft_datasheet::{PageSizePt, RenderError};
 use std::cell::Cell;
-use std::sync::Arc;
+use std::rc::Rc;
 
 struct MockDoc {
     pages: u32,
@@ -39,7 +39,7 @@ fn a_two_hundred_page_scroll_never_touches_every_page() {
         visits += visible_pages(y, 700.0, &heights, 1).len() as u32;
     }
     assert!(visits < 200, "lazy window visited {visits} slots");
-    let doc = Arc::new(MockDoc {
+    let doc = Rc::new(MockDoc {
         pages: 200,
         renders: Cell::new(0),
     });
