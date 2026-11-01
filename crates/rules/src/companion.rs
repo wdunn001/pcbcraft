@@ -182,6 +182,7 @@ fn finding(project: &Project, code: &'static str, message: String, objects: Vec<
         severity: project.rule_severity(code, "warning"),
         message,
         objects,
+        hint: None,
     }
 }
 
@@ -775,6 +776,7 @@ mod tests {
             electrical_type: electrical_type.into(),
             direction: None,
             unit: 1,
+            appearances: Default::default(),
         }
     }
 
@@ -792,6 +794,9 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
         }
     }
 

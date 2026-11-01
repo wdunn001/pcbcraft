@@ -8370,7 +8370,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -8451,7 +8450,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 502,
@@ -8584,7 +8582,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.validate()?;
         let text = stats_text(&project)?;
@@ -8628,7 +8625,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -8639,7 +8635,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 503,
@@ -8824,7 +8819,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.validate()?;
         let pcb = hpgl_plot(&project, "pcb")?;
@@ -8872,7 +8866,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.validate()?;
         let package = odb_package(&project)?;
@@ -8937,7 +8930,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -9935,7 +9927,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.unit = "inch".into();
         project.validate()?;
@@ -10036,7 +10027,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
@@ -10313,7 +10303,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -10976,7 +10965,6 @@ assert!(
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
@@ -11589,7 +11577,6 @@ assert!(
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
@@ -12001,7 +11988,6 @@ assert!(
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
@@ -12228,7 +12214,6 @@ assert!(
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 12,
@@ -13379,7 +13364,6 @@ assert!(
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
@@ -13543,7 +13527,6 @@ assert!(
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -14813,7 +14796,6 @@ assert!(
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -14894,7 +14876,6 @@ assert!(
             from_layer: None,
             to_layer: None,
             covering: None,
-            covering_scope: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -15444,7 +15425,6 @@ assert!(
             from_layer: from.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             covering: None,
-            covering_scope: None,
         };
         project.board.vias.push(via(10, 5.0, None, None));
         project.board.vias.push(via(11, 7.0, None, Some(1)));
@@ -15583,7 +15563,6 @@ assert!(
                 from_layer: None,
                 to_layer: None,
                 covering,
-                covering_scope: None,
             });
         }
         project.validate()?;

@@ -368,6 +368,7 @@ mod tests {
                     raw_source: String::new(),
                     unsupported: vec![],
                     retained: vec![],
+                    box_body: Default::default(),
                 },
             });
         }

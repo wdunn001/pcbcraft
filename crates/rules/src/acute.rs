@@ -134,6 +134,7 @@ pub(crate) fn acute_angle_findings(project: &Project) -> Vec<Finding> {
                                 MIN_INTERNAL_ANGLE_DEG,
                             ),
                             objects: vec![id_a, id_b],
+                            hint: None,
                         });
                     }
                 }
@@ -159,6 +160,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
     }
 

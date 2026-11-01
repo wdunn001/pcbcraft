@@ -101,6 +101,7 @@ pub(crate) fn pair_property_findings(project: &Project, pair: &DiffPair) -> Vec<
                     pair.name, skew, limit
                 ),
                 objects: vec![pair.net_p, pair.net_n],
+                hint: None,
             });
         }
     }
@@ -115,6 +116,7 @@ pub(crate) fn pair_property_findings(project: &Project, pair: &DiffPair) -> Vec<
                     pair.name, skew, limit
                 ),
                 objects: vec![pair.net_p, pair.net_n],
+                hint: None,
             });
         }
     }
@@ -129,6 +131,7 @@ pub(crate) fn pair_property_findings(project: &Project, pair: &DiffPair) -> Vec<
                     pair.name, run, limit
                 ),
                 objects: vec![pair.net_p, pair.net_n],
+                hint: None,
             });
         }
     }

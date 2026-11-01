@@ -162,6 +162,8 @@ mod tests {
             sourcing: Default::default(),
             compliance: Default::default(),
             sheet: 0,
+            instance: Default::default(),
+            prototype: Default::default(),
         });
         let ctx = load_firmware_context(&project)?;
         assert_eq!(ctx.design.board.name, "TESTFC");

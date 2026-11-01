@@ -284,6 +284,7 @@ pub(crate) fn impedance_target_findings(project: &Project) -> Vec<Finding> {
             severity: project.rule_severity("impedance_target", "error"),
             message: finding_message(project, track.net, track, computed, target, &sample),
             objects: vec![track.id],
+            hint: None,
         });
     }
     out
@@ -375,6 +376,7 @@ mod tests {
             width,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
     }
 
@@ -413,6 +415,9 @@ mod tests {
             gap: 0.15,
             length_tolerance: None,
             profile: None,
+            equal_vias: Default::default(),
+            impedance_tolerance: Default::default(),
+            max_uncoupled_length: Default::default(),
         });
         let width = 0.3;
         for (id, y) in [(10, 10.0), (11, 10.0 + width + 0.15)] {
@@ -424,6 +429,7 @@ mod tests {
                 width,
                 layer: Layer::Front,
                 arc: None,
+                preserved: Default::default(),
             });
         }
         p.validate()?;

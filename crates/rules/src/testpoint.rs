@@ -243,6 +243,7 @@ pub fn coverage_findings(project: &Project) -> Vec<Finding> {
                 min_space
             ),
             objects: vec![net],
+            hint: None,
         })
         .collect()
 }
@@ -311,6 +312,9 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: 20,
@@ -320,6 +324,7 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![tht_pad(1, 0.0, 0.0, 1.2)],
+            preserved: Default::default(),
         });
         p.validate()?;
         let report = coverage_report(&p)?;
@@ -345,6 +350,9 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: 21,
@@ -403,6 +411,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         p.validate()?;
         let report = coverage_report(&p)?;

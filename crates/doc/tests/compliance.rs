@@ -51,6 +51,8 @@ fn compliance_fields_round_trip_in_project_json() -> Result<(), String> {
         },
         part: None,
         sourcing: Default::default(),
+        instance: Default::default(),
+        prototype: Default::default(),
     });
     project.validate()?;
     let json = serde_json::to_string(&project).map_err(|e| e.to_string())?;

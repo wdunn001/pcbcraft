@@ -63,6 +63,9 @@ fn a_net_value_overrides_the_class_value_and_clearing_it_falls_back() -> T {
         fast: Default::default(),
         max_vias: Default::default(),
         target_impedance: Default::default(),
+        corner_radius: Default::default(),
+        min_radius: Default::default(),
+        rise_time: Default::default(),
     });
     let net = p.nets.first().ok_or("net")?;
     assert_eq!(p.net_effective_impedance_target(net), Some(50.0));

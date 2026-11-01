@@ -30,6 +30,7 @@ fn track_radius_finding(
             limit,
         ),
         objects: vec![track.id],
+        hint: None,
     }
 }
 
@@ -77,6 +78,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: Some(mid),
+            preserved: Default::default(),
         });
     }
 
@@ -162,6 +164,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         assert!(radius(&p).is_empty());

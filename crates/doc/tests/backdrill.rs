@@ -167,6 +167,9 @@ fn a_drilled_out_layer_is_not_connected_through_the_via() -> T {
         target_impedance: Default::default(),
         temperature_rise: Default::default(),
         working_voltage: Default::default(),
+        corner_radius: Default::default(),
+        min_radius: Default::default(),
+        rise_time: Default::default(),
     });
     let v = p.board.vias[0].clone();
     assert_eq!(

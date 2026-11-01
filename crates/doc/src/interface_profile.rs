@@ -8,6 +8,49 @@
 //! # Dependencies
 //! - crates/doc/src/lib.rs
 //! - crates/engine/profiles/SCHEMA.md
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// Library record kind for a shipped or imported profile file.
+pub const INTERFACE_PROFILE_RECORD_KIND: &str = "interface_profile";
+
+pub const MAX_PROFILE_ID: usize = 64;
+pub const MAX_PROFILE_NAME: usize = 128;
+pub const MAX_CATEGORY: usize = 64;
+pub const MAX_SUMMARY: usize = 512;
+pub const MAX_BUS_NAME: usize = 128;
+pub const MAX_SCHEMATIC_TYPE: usize = 128;
+pub const MAX_SIGNALS: usize = 64;
+pub const MAX_COMPANIONS: usize = 64;
+pub const MAX_CHECKS: usize = 64;
+pub const MAX_NET_CLASSES: usize = 64;
+pub const MAX_PAIRS: usize = 64;
+pub const MAX_RULE_AREAS: usize = 64;
+pub const MAX_VALUE_SOURCES: usize = 128;
+pub const MAX_SOURCE_NOTE: usize = 512;
+pub const MAX_ROLE: usize = 64;
+pub const MAX_CHECK_NAME: usize = 64;
+pub const MAX_CHECK_PARAMS: usize = 32;
+pub const MAX_CHECK_PARAM_KEY: usize = 64;
+pub const MAX_EMBEDDED_TOML: usize = 256 * 1024;
+pub const MAX_LICENSE: usize = 128;
+
+const MIN_CLEARANCE: f64 = 0.02;
+const MAX_CLEARANCE: f64 = 100.0;
+const MIN_WIDTH: f64 = 0.02;
+const MAX_WIDTH: f64 = 100.0;
+const MIN_GAP: f64 = 0.02;
+const MAX_GAP: f64 = 10.0;
+const MIN_IMPEDANCE: f64 = 20.0;
+const MAX_IMPEDANCE: f64 = 200.0;
+const MIN_PERCENT: f64 = 0.0;
+const MAX_PERCENT: f64 = 100.0;
+const MIN_LENGTH_MM: f64 = 0.0;
+const MAX_LENGTH_MM: f64 = 10_000.0;
+const MIN_SKEW_PS: f64 = 0.0;
+const MAX_SKEW_PS: f64 = 1_000_000.0;
+
+
 fn valid_slug(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= MAX_PROFILE_ID

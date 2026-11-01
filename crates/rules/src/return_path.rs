@@ -84,6 +84,7 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
                         project.layer_name(*layer),
                     ),
                     objects: vec![*zone_id],
+                    hint: None,
                 });
                 return findings;
             }
@@ -113,6 +114,7 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
                         project.layer_name(ref_layer),
                     ),
                     objects: vec![track.id],
+                    hint: None,
                 });
                 return findings;
             }
@@ -138,6 +140,7 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
                     at.y,
                 ),
                 objects: vec![track.id],
+                hint: None,
             });
         }
     }
@@ -164,6 +167,7 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
                     via.id,
                 ),
                 objects: vec![via.id],
+                hint: None,
             });
         }
     }
@@ -345,6 +349,9 @@ mod tests {
             nets: vec![net],
             profile: None,
             fast: true,
+            backdrill: Default::default(),
+            current: Default::default(),
+            impedance_target: Default::default(),
         });
     }
 
@@ -371,6 +378,7 @@ mod tests {
             filled: true,
             kind: None,
             pour: None,
+            preserved: Default::default(),
         });
         fast_class(&mut p, 2);
         p
@@ -390,6 +398,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         assert!(
@@ -417,6 +426,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 22,
@@ -426,6 +436,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Back,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.vias.push(Via {
             id: 30,
@@ -436,6 +447,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         p.validate()?;
         assert!(
@@ -453,6 +467,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         p.validate()?;
         assert!(
@@ -475,6 +492,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         let mut heavy = square(0.0, 0.0, 40.0, 40.0);
         while heavy.len() < 257 {
@@ -507,6 +525,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         assert!(return_path_findings(&p).is_empty());

@@ -235,6 +235,9 @@ fn net_class_and_rule_overrides() -> T {
         target_impedance: Default::default(),
         temperature_rise: Default::default(),
         working_voltage: Default::default(),
+        corner_radius: Default::default(),
+        min_radius: Default::default(),
+        rise_time: Default::default(),
     });
     assert_eq!(p.net_class_id(1), Some(10));
     let class = p.net_class(1).ok_or("net 1 is in class 10")?;
@@ -316,6 +319,9 @@ fn required_clearance_takes_the_strictest_rule() -> T {
         target_impedance: Default::default(),
         temperature_rise: Default::default(),
         working_voltage: Default::default(),
+        corner_radius: Default::default(),
+        min_radius: Default::default(),
+        rise_time: Default::default(),
     });
     assert!((p.required_clearance(1, 2) - 0.4).abs() < 1e-12);
     p.board.pair_rules.push(NetPairRule {
@@ -369,6 +375,8 @@ fn object_position_user_layer_and_ids() -> T {
         compliance: Default::default(),
         part: None,
         sourcing: Default::default(),
+        instance: Default::default(),
+        prototype: Default::default(),
     });
     assert_eq!(p.object_position(4), Some(Point::new(3.0, 4.0)));
     p.board.user_layers.push(ArtLayer {

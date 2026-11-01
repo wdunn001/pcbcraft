@@ -9,15 +9,27 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-mod compliance;
+mod acute;
+mod companion;
 mod courtyard;
-mod diffpair_impedance;
 mod decoupling;
+mod diffpair_impedance;
 mod drill;
 mod finding_set;
+mod impedance_target;
+mod pair_properties;
+mod parallel_crosstalk;
+mod peripheral;
+mod return_path;
 mod silk;
 mod stub;
+mod track_radius;
+mod width_advice;
 pub mod compliance;
+pub mod testpoint;
+
+pub use companion::{companion_findings, companion_findings_for_rules};
+pub use width_advice::{WidthAdvice, width_advice, width_advice_on_layer};
 
 pub use compliance::{
     check as compliance_check, load_list_snapshot, ComplianceFinding, EU_MARKET_RULE_SET,
@@ -202,11 +214,6 @@ fn copper(project: &Project) -> Vec<Copper> {
                     hole: None,
                     cutouts: vec![],
                 };
-for layer in project.copper_layers() {
-                    let mut copy = item.clone();
-                    copy.layer = layer;
-                    result.push(copy);
-                }
                 push_on_copper_layers(project, item, &mut result);
                 continue;
             }
@@ -267,21 +274,10 @@ for layer in project.copper_layers() {
                     cutouts: vec![],
                 };
                 if plated {
-push_on_copper_layers(project, item, &mut result);
-                } else {
                     // Plating joins every copper layer, inner ones included.
-                    for layer in project.copper_layers() {
-                        if layer != item.layer {
-                            let mut copy = item.clone();
-                            copy.layer = layer;
-                            result.push(copy);
-                        }
-                        let mut layer_item = item.clone();
-                        layer_item.layer = layer;
-                        result.push(layer_item);
-                    }
+                    push_on_copper_layers(project, item, &mut result);
+                } else {
                     result.push(item);
-                }
                 }
             }
         }
@@ -408,35 +404,11 @@ push_on_copper_layers(project, item, &mut result);
             hole: None,
             cutouts: vec![],
         };
-radius: h.diameter / 2.0,
-            contact_radius: h.diameter / 2.0,
-            conservative: false,
-            outline: None,
-            outline_error: 0.0,
-            layer: Layer::Front,
-            pad: false,
-            clearance: None,
-            bridge: None,
-            hole: None,
-            cutouts: vec![],
-        };
         for layer in project.copper_layers() {
             let mut copy = item.clone();
             copy.layer = layer;
             result.push(copy);
         }
-    }
-    for z in &project.board.zones {
-        if !z.filled {
-            continue;
-        }
-        // Real poured copper: the fill already knocked clearance holes around
-        // foreign copper, so what the checks see is what a fab plots.
-        let pieces = match zone_pieces(project, z) {
-            Ok(pieces) => pieces,
-            Err(_) => {
-                let Some(&first) = z.outline.first() else {
-                    continue;
     }
     for z in &project.board.zones {
         if !z.filled {
@@ -1056,12 +1028,6 @@ fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
         .any(|f| f.pin.component == component && f.pin.pin == pin)
 }
           
-fn net_has_capacitor(project: &Project, net: Id) -> bool {
-    project
-        .components
-        .iter()
-        .any(|c| c.kind == "capacitor" && c.pins.iter().any(|p| p.net == Some(net)))
-}
 
 fn net_has_power_driver(project: &Project, net: Id) -> bool {
     if project
@@ -1081,14 +1047,6 @@ fn net_has_power_driver(project: &Project, net: Id) -> bool {
     })
 }
 
-fn is_ic_like(component: &pcbcraft_doc::Component) -> bool {
-    !["resistor", "capacitor", "connector", "led"]
-        .contains(&component.kind.as_str())
-        && component
-            .pins
-            .iter()
-            .any(|p| p.electrical_type == "power_in")
-}
 
 fn net_has_pullup_to_power(project: &Project, net: Id) -> bool {
     project.components.iter().any(|c| {
@@ -1127,41 +1085,7 @@ fn net_has_schematic_wiring(project: &Project, net: Id) -> bool {
     project.ports.iter().any(|p| p.net == net)
 }
 
-fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
-    project
-        .no_connects
-        .iter()
-        .any(|f| f.pin.component == component && f.pin.pin == pin)
-}
 
-fn decoupling_distance_ok(project: &Project, ic: Id, power_pin: &str, net: Id) -> bool {
-    let Some(ic_fp) = project.board.footprints.iter().find(|f| f.component == ic) else {
-        return true;
-    };
-    let Some(ic_pad) = ic_fp.pad_position(power_pin) else {
-        return false;
-    };
-    let limit = project.decoupling_max_mm;
-    project.components.iter().any(|c| {
-        if c.kind != "capacitor" || !c.pins.iter().any(|p| p.net == Some(net)) {
-            return false;
-        }
-        let Some(cap_fp) = project
-            .board
-            .footprints
-            .iter()
-            .find(|f| f.component == c.id)
-        else {
-            return false;
-        };
-        c.pins.iter().any(|p| {
-            p.net == Some(net)
-                && cap_fp
-                    .pad_position(&p.number)
-                    .is_some_and(|pos| ic_pad.distance(pos) <= limit + 1e-9)
-        })
-    })
-}
 
 fn net_needs_power_not_driven(
     project: &Project,
@@ -1177,49 +1101,9 @@ fn net_needs_power_not_driven(
     })
 }
 
-fn missing_decoupling_findings(project: &Project) -> Vec<Finding> {
-    let mut result = vec![];
-    for c in &project.components {
-        if !is_ic_like(c) {
-            continue;
-        }
-        for p in &c.pins {
-            if p.electrical_type != "power_in" {
-                continue;
-            }
-            let Some(net) = p.net else {
-                continue;
-            };
-            if pin_flagged_no_connect(project, c.id, &p.number) {
-                continue;
-            }
-            if net_has_pullup_to_power(project, net) {
-                continue;
-            }
-            if net_has_schematic_wiring(project, net) {
-                continue;
-            }
-            if decoupling_distance_ok(project, c.id, &p.number, net) {
-                continue;
-            }
-            if net_has_capacitor(project, net) {
-                continue;
-            }
-            result.push(Finding {
-                code: "missing_decoupling",
-                severity: project.rule_severity("missing_decoupling", "warning"),
-                message: format!(
-                    "{} pin {} on {} needs a decoupling capacitor on the same net",
-                    c.reference,
-                    p.number,
-                    project.net_name(net)
-                ),
-                objects: vec![c.id],
-            });
-        }
-    }
-    result
-}
+/// MCU peripheral and pin-mux conflict checks when a firmware design is attached.
+pub fn peripheral(project: &Project) -> Vec<Finding> {
+    peripheral::peripheral(project)
 }
 
 pub fn erc(project: &Project) -> Vec<Finding> {
@@ -1228,7 +1112,6 @@ pub fn erc(project: &Project) -> Vec<Finding> {
         return vec![];
     }
     let mut result = vec![];
-    result.extend(missing_decoupling_findings(project));
     for c in &project.components {
         for p in &c.pins {
             if p.net.is_none() && !pin_flagged_no_connect(project, c.id, &p.number) {
@@ -1277,6 +1160,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                     net.name
                 ),
                 objects: vec![net.id],
+                hint: None,
             });
         }
     }
@@ -1298,6 +1182,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                     net.name
                 ),
                 objects: vec![net.id],
+                hint: None,
             });
         }
     }
@@ -1379,8 +1264,8 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                         pin_a.number, pin_b.number
                     ),
                     objects: vec![*id_a, *id_b],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
         let drives = ["output", "bidirectional", "power_out", "passive"];
@@ -1408,18 +1293,6 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             }
         }
     }
-severity: project.rule_severity("undriven_input", "warning"),
-                        message: format!(
-                            "{reference} pin {} (input) sits on {} with no driver; tie it to an \
-                             output or a passive partner",
-                            pin.number, net.name
-                        ),
-                        objects: vec![*id],
-                    });
-                }
-            }
-        }
-    }
     result.extend(decoupling::missing_decoupling(project));
     for net in &project.nets {
         let undriven = project.components.iter().any(|c| {
@@ -1439,52 +1312,8 @@ severity: project.rule_severity("undriven_input", "warning"),
                     net.name
                 ),
                 objects: vec![net.id],
+                hint: None,
             });
-        }
-    }
-    for c in &project.components {
-        if !is_ic_like(c) {
-            continue;
-        }
-        let placed = project.board.footprints.iter().any(|f| f.component == c.id);
-        for p in &c.pins {
-            if p.electrical_type != "power_in" {
-                continue;
-            }
-            let Some(net) = p.net else {
-                continue;
-            };
-            if pin_flagged_no_connect(project, c.id, &p.number) {
-                continue;
-            }
-            if !capacitor_on_net(project, net) {
-                result.push(Finding {
-                    code: "missing_decoupling",
-                    severity: project.rule_severity("missing_decoupling", "warning"),
-                    message: format!(
-                        "{} pin {} on {} needs a decoupling capacitor on the same net",
-                        c.reference,
-                        p.number,
-                        project.net_name(net)
-                    ),
-                    objects: vec![c.id],
-                });
-                continue;
-            }
-            if placed && !decoupling_distance_ok(project, c.id, &p.number, net) {
-                result.push(Finding {
-                    code: "missing_decoupling",
-                    severity: project.rule_severity("missing_decoupling", "warning"),
-                    message: format!(
-                        "{} pin {} on {} needs a capacitor pad within {:.1} mm on the board",
-                        c.reference,
-                        p.number,
-                        project.net_name(net),
-                        project.decoupling_max_mm
-                    ),
-                    objects: vec![c.id],
-                });
-            }
         }
     }
     for net in &project.nets {
@@ -1516,6 +1345,7 @@ severity: project.rule_severity("undriven_input", "warning"),
                     net.name
                 ),
                 objects: vec![net.id],
+                hint: None,
             });
         }
     }
@@ -1532,6 +1362,7 @@ severity: project.rule_severity("undriven_input", "warning"),
                     project.net_name(label.net)
                 ),
                 objects: vec![label.id],
+                hint: None,
             });
         }
     }
@@ -1697,6 +1528,7 @@ fn placement_machine_findings(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity(problem.code, "warning"),
                 message: format!("{}: {}", machine.name, problem.message),
                 objects: problem.components,
+                hint: None,
             });
         }
     }
@@ -1995,6 +1827,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                     advice.width_mm,
                 ),
                 objects: vec![track.id],
+                hint: None,
             });
         }
     }
@@ -2204,6 +2037,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 net.name, target
             ),
             objects: vec![net.id],
+            hint: None,
         });
     }
     result.extend(panel_findings(project));
@@ -2404,6 +2238,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         remaining,
                     ),
                     objects: vec![zone.id],
+                    hint: None,
                 });
             } else if fill.removed > 0 {
                 result.push(Finding {
@@ -2416,6 +2251,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         fill.removed
                     ),
                     objects: vec![zone.id],
+                    hint: None,
                 });
             }
         }
@@ -2467,6 +2303,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         zone.id
                     ),
                     objects: vec![zone.id],
+                    hint: None,
                 });
             }
         }
@@ -2486,10 +2323,16 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 project.layer_name(zone.layer)
             ),
             objects: vec![zone.id],
+            hint: None,
         });
     }
     result.extend(stub::stub_length_findings(project, &items));
     result.extend(acute::acute_angle_findings(project));
+    result.extend(track_radius::track_radius_findings(project));
+    result.extend(parallel_crosstalk::parallel_crosstalk_findings(project));
+    result.extend(testpoint::coverage_findings(project));
+    result.extend(impedance_target::impedance_target_findings(project));
+    result.extend(return_path::return_path_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
@@ -2517,49 +2360,6 @@ fn pad_annular_ring(rules: &FabRules, pad: &Pad) -> Option<f64> {
 
 /// Deepest hole, as a ratio of span depth to drill, a mechanical drill makes.
 const MECHANICAL_ASPECT_LIMIT: f64 = 8.0;
-
-/// Plain-language warning when a via is too deep for its drill to plate well;
-/// none when the ratio is fine or a laser-drilled micro via is exempt.
-fn via_in_pad_requires_capped(project: &Project, via: &pcbcraft_doc::Via) -> bool {
-    use pcbcraft_doc::ViaCovering;
-    if via.gerber_via_drill(&project.board) == pcbcraft_doc::ViaGerberDrill::VII {
-        return false;
-    }
-    for f in &project.board.footprints {
-        for pad in &f.pads {
-            if pad.net.unwrap_or(0) != via.net {
-                continue;
-            }
-            let Some(center) = f.pad_world_position(pad) else {
-                continue;
-            };
-            let inside = pad
-                .geometry
-                .as_ref()
-                .filter(|g| g.shape == "circle")
-                .is_some_and(|g| {
-                    via.position.distance(center) + via.diameter / 2.0
-                        <= g.size.x / 2.0 + 1e-6
-                })
-                || pad
-                    .geometry
-                    .as_ref()
-                    .filter(|g| g.shape != "circle")
-                    .is_some_and(|_| {
-                        let outline: Vec<Point> = pad
-                            .outline_points()
-                            .into_iter()
-                            .map(|p| f.position.offset(p.rotate(-f.rotation)))
-                            .collect();
-                        point_in_polygon(via.position, &outline)
-                    });
-            if inside {
-                return via.effective_covering(&project.board) != ViaCovering::FilledCapped;
-            }
-        }
-    }
-    false
-}
 
 pub fn via_aspect_warning(project: &Project, via: &pcbcraft_doc::Via) -> Option<String> {
     let board = &project.board;
@@ -2650,6 +2450,7 @@ fn via_findings(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("via_in_pad_not_capped", "warning"),
                 message,
                 objects: vec![via.id],
+                hint: None,
             });
         }
         if let Some(message) = via_aspect_warning(project, via) {
@@ -2659,17 +2460,6 @@ fn via_findings(project: &Project) -> Vec<Finding> {
                 message,
                 objects: vec![via.id],
                 hint: None,
-            });
-        }
-        if via_in_pad_requires_capped(project, via) {
-            result.push(Finding {
-                code: "via_in_pad_not_capped",
-                severity: project.rule_severity("via_in_pad_not_capped", "error"),
-                message: format!(
-                    "Via at {:.2}, {:.2} sits inside a pad and must be filled and capped",
-                    via.position.x, via.position.y
-                ),
-                objects: vec![via.id],
             });
         }
     }
@@ -2903,6 +2693,7 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                         min
                     ),
                     objects: vec![zone.id],
+                    hint: None,
                 });
             }
         }
@@ -2969,6 +2760,8 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: p.electrical_type.clone(),
                 unit: p.unit,
                 body_style: 0,
+                graphical_style: Default::default(),
+                visible: Default::default(),
             })
             .collect();
         let component = Component {
@@ -2996,11 +2789,15 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                     extends: None,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: Default::default(),
                 },
             }),
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
         };
         Ok(component)
     }
@@ -3024,6 +2821,8 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 model: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                box_body: Default::default(),
+                retained: Default::default(),
             },
         });
         Ok(component)
@@ -3051,6 +2850,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 castellated: None,
                 geometry: Some(def_pad.clone()),
             }],
+            preserved: Default::default(),
         }
     }
 
@@ -3070,6 +2870,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 castellated: None,
                 geometry: None,
             }],
+            preserved: Default::default(),
         }
     }
 
@@ -3387,6 +3188,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: "power_in".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: Default::default(),
             }],
         )?);
         p.validate()?;
@@ -3412,6 +3214,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: "power_in".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: Default::default(),
             }],
         )?);
         let mut cap = component_template("capacitor", 3, "C1".into(), Point::new(30.0, 20.0))
@@ -3426,10 +3229,8 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
     }
     #[test]
     fn erc_applies_decoupling_distance_when_ic_is_placed() -> Result<(), String> {
-        let mut p = Project {
-            decoupling_max_mm: 3.0,
-            ..Default::default()
-        };
+        let mut p = Project::default();
+        p.decoupling.max_distance_mm = 3.0;
         let vdd = 101;
         let ic = 201;
         let cap_id = 202;
@@ -3450,6 +3251,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: "power_in".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: Default::default(),
             }],
         )?);
         let mut cap = component_template("capacitor", cap_id, "C1".into(), Point::new(30.0, 20.0))
@@ -3495,6 +3297,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                     electrical_type: "open_collector".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: Default::default(),
                 },
                 Pin {
                     number: "2".into(),
@@ -3504,6 +3307,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                     electrical_type: "open_collector".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: Default::default(),
                 },
             ],
         )?);
@@ -3538,6 +3342,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                     electrical_type: "open_collector".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: Default::default(),
                 },
                 Pin {
                     number: "2".into(),
@@ -3547,6 +3352,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                     electrical_type: "open_collector".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: Default::default(),
                 },
             ],
         )?);
@@ -3586,6 +3392,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: "power_in".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: Default::default(),
             }],
         )?);
         p.validate()?;
@@ -3662,7 +3469,6 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             from_layer: None,
             to_layer: None,
             covering: None,
-covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -3870,7 +3676,6 @@ covering_scope: None,
                 from_layer: None,
                 to_layer: None,
                 covering: None,
-covering_scope: None,
                 covering_bottom: None,
                 backdrill: None,
             });
@@ -4234,6 +4039,7 @@ covering_scope: None,
                     castellated: None,
                     geometry: Some(pad_geom.clone()),
                 }],
+                preserved: Default::default(),
             });
         }
         let inner = Layer::from_index(1).map_err(|e| e.to_string())?;
@@ -4245,6 +4051,7 @@ covering_scope: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.vias.push(Via {
             id: 4,
@@ -4255,6 +4062,9 @@ covering_scope: None,
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 21,
@@ -4264,6 +4074,7 @@ covering_scope: None,
             width: 0.25,
             layer: inner,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         assert!(
@@ -4311,6 +4122,7 @@ covering_scope: None,
             filled: true,
             kind: None,
             pour: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 11,
@@ -4320,6 +4132,7 @@ covering_scope: None,
             width: 0.25,
             layer: inner_a,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         let clearance_on_inner = |p: &Project| {
@@ -4551,6 +4364,7 @@ covering_scope: None,
                 width: 0.2 + next(0.6),
                 layer,
                 arc: None,
+                preserved: Default::default(),
             });
         }
         for id in 100..108 {
@@ -4569,6 +4383,8 @@ covering_scope: None,
                     castellated: None,
                     geometry: None,
                 }],
+                preserved: Default::default(),
+                side: Default::default(),
             });
         }
         p
@@ -5061,7 +4877,6 @@ covering_scope: None,
             from_layer: None,
             to_layer: None,
             covering: None,
-covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -5138,7 +4953,6 @@ covering_scope: None,
             to_layer: None,
             covering: None,
 covering: None,
-            covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -5407,6 +5221,7 @@ covering: None,
             width: 0.2,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         assert!(
             drc(&p).iter().any(|f| f.code == "board_edge"),
@@ -5576,7 +5391,6 @@ covering: None,
             to_layer: to.and_then(|i| Layer::from_index(i).ok()),
             covering: None,
 covering: None,
-            covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -5667,6 +5481,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 21,
@@ -5676,6 +5491,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Back,
             arc: None,
+            preserved: Default::default(),
         });
         p
     }
@@ -5723,6 +5539,8 @@ covering: None,
                     }),
                     raw_source: String::new(),
                     unsupported: vec![],
+                    box_body: Default::default(),
+                    retained: Default::default(),
                 },
             });
         }
@@ -5753,6 +5571,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 21,
@@ -5762,6 +5581,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         let for_twenty = copper_conflicts(&p, &[20]);
@@ -5799,6 +5619,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         assert!(
@@ -5826,6 +5647,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 21,
@@ -5835,6 +5657,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         let short = copper_conflicts(&p, &[20])
@@ -5990,7 +5813,6 @@ mod pour_tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -6117,6 +5939,8 @@ covering_scope: None,
                 height: 4.0,
             },
             profile: None,
+            footprint_ref: Default::default(),
+            forbid: Default::default(),
         }
     }
 
@@ -6251,6 +6075,7 @@ covering_scope: None,
                 width: 0.2 + next(0.6),
                 layer,
                 arc: None,
+                preserved: Default::default(),
             });
         }
         for id in 100..108 {
@@ -6270,6 +6095,7 @@ covering_scope: None,
                     castellated: None,
                     geometry: None,
                 }],
+                preserved: Default::default(),
             });
         }
         p

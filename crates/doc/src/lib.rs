@@ -14,6 +14,10 @@ mod net_members;
 mod net_properties;
 mod outline;
 mod package_def;
+mod interface_profile;
+mod sheet_instances;
+mod track_shape;
+mod vendor_handoff;
 mod panel;
 mod placement_machine;
 mod sourcing;
@@ -41,7 +45,22 @@ pub use drawing_frame::{
 };
 pub use export_trade::{ExportTradeSettings, MAX_HTS_PREFIX, MAX_TARIFF_ROWS, TariffExposureRow};
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
+pub use interface_profile::*;
 pub use layer_names::LayerNaming;
+pub use sheet_instances::{
+    MAX_INSTANCE_NAME, MAX_REFERENCE_OFFSET, MAX_SHEET_INSTANCES, SheetInstance, allocate_id,
+    collapse_instance, expand_instance, reference_with_offset, validate_sheet_instances,
+};
+pub use track_shape::{
+    DEFAULT_CORNER_RADIUS_WIDTH_FACTOR, TEARDROPS_DEFAULT_CLASS3, TrackArcExport,
+    TrackCornerFillet, arc_chord_count, flatten_arc, net_class_corner_radius, track_corner_fillet,
+};
+pub use vendor_handoff::{
+    MarketplaceSettings, VENDOR_HANDOFF_SCHEMA_VERSION, VendorAdapterDescriptor,
+    VendorAdapterMode, VendorHandoffInstanceCapabilities, VendorHandoffModuleSettings,
+    VendorQuoteFileEntry, VendorQuoteHandoffManifest, VendorQuoteSettings,
+    fixture_upload_adapter,
+};
 pub use machine_profile::*;
 pub use material::{MATERIALS, Material, material};
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
@@ -192,12 +211,6 @@ pub struct SymbolUnitPlacement {
 fn passive() -> String {
     "passive".into()
 }
-fn default_decoupling_max_mm() -> f64 {
-    3.0
-}
-fn is_default_decoupling_mm(v: &f64) -> bool {
-    v.is_finite() && (*v - 3.0).abs() < 1e-9
-}
 /// Pin electrical types recognised by ERC and schematic validation.
 pub const PIN_ELECTRICAL_TYPES: [&str; 12] = [
     "bidirectional",
@@ -316,6 +329,12 @@ pub struct Component {
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
     pub sheet: Id,
+    /// The sheet instance that materialized this part, when it is a copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<Id>,
+    /// The template part this copy was made from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prototype: Option<Id>,
 }
 fn is_root_sheet(id: &Id) -> bool {
     *id == 0
@@ -518,6 +537,9 @@ impl Component {
 pub struct Net {
     pub id: Id,
     pub name: String,
+    /// The sheet instance whose copy of the schematic created this net.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<Id>,
     /// Target total routed length for this net, in millimetres. Only checked
     /// when the net belongs to no net class; classified nets follow their
     /// class target.
@@ -665,6 +687,18 @@ pub struct NetClass {
     /// When true, return-path checks apply to member nets (fast signals).
     #[serde(default)]
     pub fast: bool,
+    /// Rise time of signals on member nets, in seconds. Drives parallel-run
+    /// crosstalk estimates and the electrically-long track check when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rise_time: Option<f64>,
+    /// Smallest arc radius allowed on member tracks, in millimetres. Set to
+    /// turn tighter curved segments into a design rule finding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_radius: Option<f64>,
+    /// Default corner rounding radius for member tracks, in millimetres. When
+    /// set, rounding commands use this before the three-times-width default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corner_radius: Option<f64>,
 }
 /// A clearance requirement between two named nets, stricter than either
 /// class or the board default when it is larger.
@@ -3857,6 +3891,55 @@ pub fn valid_parameter_note(note: &str) -> bool {
 pub fn valid_parameter_value(value: f64) -> bool {
     value.is_finite() && value.abs() <= MAX_PARAMETER_VALUE
 }
+/// Settings for the `missing_decoupling` check: how close a capacitor must sit
+/// to an integrated circuit power pin, and the value the finding suggests.
+///
+/// # Rules
+/// - `max_distance_mm` is measured pad centre to pad centre, in millimetres,
+///   between the power pad and the nearest pad of a capacitor on the same net.
+/// - The defaults are 3.0 mm and "100 nF"; they stay out of the saved file
+///   until changed.
+///
+/// # Dependencies
+/// - crates/rules/src/decoupling.rs reads it; `rules.decoupling_set` in
+///   crates/engine/src/lib.rs writes it.
+///
+/// # Do not
+/// - Store a per-part override here; part rules belong to the component rule
+///   record that issue 832 will add.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DecouplingRule {
+    /// Largest allowed pad to pad distance in millimetres.
+    pub max_distance_mm: f64,
+    /// Capacitor value the finding suggests, as plain text.
+    pub suggested_value: String,
+}
+impl Default for DecouplingRule {
+    fn default() -> Self {
+        Self {
+            max_distance_mm: 3.0,
+            suggested_value: "100 nF".into(),
+        }
+    }
+}
+impl DecouplingRule {
+    /// True when nothing was changed from the defaults.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+    /// Refuse a distance outside 0.1 to 50 mm or a value that is empty or long.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.max_distance_mm.is_finite() || !(0.1..=50.0).contains(&self.max_distance_mm) {
+            return Err("decoupling distance must be between 0.1 and 50 mm".into());
+        }
+        let value = self.suggested_value.trim();
+        if value.is_empty() || value.len() > 32 {
+            return Err("decoupling value must be 1 to 32 characters".into());
+        }
+        Ok(())
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -3888,6 +3971,9 @@ pub struct Project {
     /// Named hierarchy ports, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<Port>,
+    /// Placed copies of template schematic pages, ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sheet_instances: Vec<SheetInstance>,
     /// Extra bill-of-materials columns, in print order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bom_fields: Vec<BomField>,
@@ -3952,15 +4038,10 @@ pub struct Project {
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub meta: BTreeMap<String, String>,
-    /// Maximum pad-centre distance in millimetres from an IC power pin to a
-    /// decoupling capacitor on the same net when that IC has a board footprint.
-    /// Schematic-only designs ignore distance and only require a capacitor on
-    /// the net.
-    #[serde(
-        default = "default_decoupling_max_mm",
-        skip_serializing_if = "is_default_decoupling_mm"
-    )]
-    pub decoupling_max_mm: f64,
+    /// Settings read by the `missing_decoupling` check; the defaults apply
+    /// until the designer changes them.
+    #[serde(default, skip_serializing_if = "DecouplingRule::is_default")]
+    pub decoupling: DecouplingRule,
     /// Named numeric values commands may reference by name instead of
     /// retyping a number, keyed by name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -3981,6 +4062,9 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
+    /// Companion-part intent rules, from profiles or edited on the project.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub companion_rules: Vec<CompanionRule>,
     /// Named library folders that library commands resolve through: a path
     /// whose first segment matches a nickname is rewritten to the mapped
     /// folder, so the design opens on another machine without retyping it.
@@ -4164,6 +4248,7 @@ impl Default for Project {
             root_sheet_name: None,
             page_settings: vec![],
             ports: vec![],
+            sheet_instances: vec![],
             bom_fields: vec![],
             manufacturers: vec![],
             compliance_settings: Default::default(),
@@ -4183,12 +4268,13 @@ impl Default for Project {
             locked_objects: vec![],
             reference_images: vec![],
             meta: Default::default(),
-            decoupling_max_mm: default_decoupling_max_mm(),
+            decoupling: DecouplingRule::default(),
             parameters: Default::default(),
             bindings: vec![],
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
+            companion_rules: vec![],
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -4207,6 +4293,103 @@ pub struct Template {
     pub label: &'static str,
     pub prefix: &'static str,
     pub value: &'static str,
+}
+/// Bounded parse of a component value string for companion rule validation.
+pub fn parse_companion_value(value: &str) -> Option<f64> {
+    let mut s = value.trim().to_ascii_lowercase();
+    if s.is_empty() {
+        return None;
+    }
+    s = s
+        .replace('ω', "")
+        .replace("ohms", "")
+        .replace("ohm", "")
+        .replace(' ', "");
+    let (num, scale) = if let Some(stripped) = s.strip_suffix("pf") {
+        (stripped, 1e-12)
+    } else if let Some(stripped) = s.strip_suffix("nf") {
+        (stripped, 1e-9)
+    } else if let Some(stripped) = s.strip_suffix("uf") {
+        (stripped, 1e-6)
+    } else if let Some(stripped) = s.strip_suffix("mf") {
+        (stripped, 1e-3)
+    } else if let Some(stripped) = s.strip_suffix('m') {
+        (stripped, 1e6)
+    } else if let Some(stripped) = s.strip_suffix('k') {
+        (stripped, 1e3)
+    } else {
+        (s.as_str(), 1.0)
+    };
+    let v: f64 = num.parse().ok()?;
+    if !v.is_finite() || v <= 0.0 {
+        return None;
+    }
+    Some(v * scale)
+}
+/// One companion-part rule persisted on the project or copied from a profile row.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct CompanionRule {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub net_patterns: Vec<String>,
+    pub required_kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_min: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_max: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sink_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exactly: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Finding code to emit; defaults to `missing_companion` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_code: Option<String>,
+}
+impl CompanionRule {
+    fn valid(&self) -> bool {
+        !self.id.trim().is_empty()
+            && self.id.len() <= 64
+            && !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && !self.required_kind.trim().is_empty()
+            && self.required_kind.len() <= 32
+            && self.net_patterns.len() <= 16
+            && self.net_patterns.iter().all(|p| !p.is_empty() && p.len() <= 64)
+            && self
+                .value_min
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self
+                .value_max
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self
+                .before_kind
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self
+                .anchor_kind
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self
+                .sink_kind
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self.role.as_ref().is_none_or(|s| s.len() <= 32)
+            && self
+                .finding_code
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+    }
 }
 pub const TEMPLATES: &[Template] = &[
     Template {
@@ -4277,6 +4460,8 @@ pub fn component_template(
                 appearances: vec![],
             })
             .collect(),
+        instance: Default::default(),
+        prototype: Default::default(),
     })
 }
 impl Project {
@@ -5307,6 +5492,7 @@ impl Project {
         self.library.validate()?;
         self.export_trade.validate()?;
         self.validate_parameters()?;
+        validate_sheet_instances(self)?;
         self.validate_manufacturers()?;
         self.compliance_settings.validate()?;
         self.validate_compliance_mutes()?;
@@ -5390,12 +5576,7 @@ impl Project {
         if !Self::UNITS.contains(&self.unit.as_str()) {
             return Err("project unit must be mm, mil or inch".into());
         }
-        if !self.decoupling_max_mm.is_finite()
-            || self.decoupling_max_mm < 0.5
-            || self.decoupling_max_mm > 50.0
-        {
-            return Err("decoupling distance must be 0.5 to 50 mm".into());
-        }
+        self.decoupling.validate()?;
         if self.panel.enabled {
             self.panel.validate_fields()?;
         }
@@ -5556,6 +5737,12 @@ impl Project {
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 10.0)
                 || c.target_impedance
                     .is_some_and(|z| !z.is_finite() || !(1.0..=2000.0).contains(&z))
+                || c.rise_time
+                    .is_some_and(|t| !t.is_finite() || !(1.0e-12..=1.0e-3).contains(&t))
+                || c.min_radius
+                    .is_some_and(|r| !r.is_finite() || !(0.0..=100.0).contains(&r))
+                || c.corner_radius
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
             {
                 return Err("invalid net class".into());
             }
@@ -5916,6 +6103,20 @@ impl Project {
             }
             if ids.len() > 256 {
                 return Err("a check code excludes at most 256 objects".into());
+            }
+        }
+        if self.companion_rules.len() > 64 {
+            return Err("a project carries at most 64 companion rules".into());
+        }
+        let mut companion_ids = BTreeSet::new();
+        for rule in &self.companion_rules {
+            if !rule.valid() || !companion_ids.insert(&rule.id) {
+                return Err("companion rules need unique ids and bounded fields".into());
+            }
+            if let (Some(min), Some(max)) = (&rule.value_min, &rule.value_max) {
+                if parse_companion_value(min).is_none() || parse_companion_value(max).is_none() {
+                    return Err("companion rule value range must parse".into());
+                }
             }
         }
         if self.rule_regions.len() > 64 {
@@ -6678,6 +6879,8 @@ pub fn library_component(
         }),
         library_footprint: None,
         part: None,
+        instance: Default::default(),
+        prototype: Default::default(),
     })
 }
 /// Maximum pads considered by placement support checks; matches
@@ -7451,6 +7654,8 @@ mod drill_tests {
             sourcing: Default::default(),
             compliance: Default::default(),
             sheet: 0,
+            instance: Default::default(),
+            prototype: Default::default(),
         });
         p.board.rule_areas.push(RuleArea {
             id: 2,

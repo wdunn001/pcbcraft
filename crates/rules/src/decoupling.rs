@@ -8,7 +8,8 @@
 //!
 //! Local rules:
 //! - A power pin is a pin of electrical type `power_in` on a part that is not a
-//!   capacitor itself. Pins on a ground-named net (GND, VSS, ground, earth) are
+//!   capacitor itself, not a resistor, connector or LED, and not flagged
+//!   no-connect. Pins on a ground-named net (GND, VSS, ground, earth) are
 //!   skipped: the return path is not what this check is about.
 //! - A capacitor is a part of kind `capacitor`, or a reference starting with C
 //!   and a digit. It counts only if its other pin sits on a different net.
@@ -96,13 +97,16 @@ pub(crate) fn missing_decoupling(project: &Project) -> Vec<Finding> {
     let rule = &project.decoupling;
     let mut result = vec![];
     for c in &project.components {
-        if is_capacitor(c) {
+        if is_capacitor(c) || !pcbcraft_doc::is_ic_like_kind(&c.kind) {
             continue;
         }
         for pin in &c.pins {
             let Some(net) = pin.net.filter(|_| pin.electrical_type == "power_in") else {
                 continue;
             };
+            if super::pin_flagged_no_connect(project, c.id, &pin.number) {
+                continue;
+            }
             let net_name = project
                 .nets
                 .iter()
@@ -168,5 +172,6 @@ fn finding(project: &Project, message: String, objects: Vec<Id>) -> Finding {
         severity: project.rule_severity("missing_decoupling", "warning"),
         message,
         objects,
+        hint: None,
     }
 }

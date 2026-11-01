@@ -5,14 +5,12 @@
 //! - Fabrication export writes true arcs by default; callers may flatten to chords.
 //! - Teardrops default on for Class 3 rule profiles only (see profile application).
 
-use pcbcraft_geom::track_corner::{
-    DEFAULT_CORNER_RADIUS_WIDTH_FACTOR, TrackCornerFillet, effective_corner_radius,
-    track_corner_fillet,
-};
+use pcbcraft_geom::track_corner::effective_corner_radius;
 use serde::{Deserialize, Serialize};
 
-pub use pcbcraft_geom::track_corner::{arc_chord_count, flatten_arc};
-pub use DEFAULT_CORNER_RADIUS_WIDTH_FACTOR;
+pub use pcbcraft_geom::track_corner::{
+    DEFAULT_CORNER_RADIUS_WIDTH_FACTOR, arc_chord_count, flatten_arc,
+};
 
 /// Whether teardrop copper is applied by default when a Class 3 profile is active.
 pub const TEARDROPS_DEFAULT_CLASS3: bool = true;
@@ -55,8 +53,7 @@ pub fn net_class_corner_radius(
     effective_corner_radius(requested_mm, track_width_mm, class)
 }
 
-pub use pcbcraft_geom::track_corner::TrackCornerFillet;
-pub use track_corner_fillet;
+pub use pcbcraft_geom::track_corner::{TrackCornerFillet, track_corner_fillet};
 
 #[cfg(test)]
 mod tests {

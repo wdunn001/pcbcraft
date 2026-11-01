@@ -332,7 +332,7 @@ pub fn fixture_upload_adapter() -> VendorAdapterDescriptor {
 }
 
 const FIXTURE_UPLOAD_ARCHIVE: &[u8] =
-    include_bytes!("../../tests/fixtures/vendor-quote-handoff/fixture-upload.zip");
+    include_bytes!("../tests/fixtures/vendor-quote-handoff/fixture-upload.zip");
 
 /// Fixture upload-flow archive for tests (manufacturing outputs only).
 pub fn fixture_upload_archive() -> VendorQuotePreparedArchive {

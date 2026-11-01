@@ -176,6 +176,7 @@ pub(crate) fn parallel_crosstalk_findings(project: &Project) -> Vec<Finding> {
                     severity: project.rule_severity("parallel_crosstalk", "warning"),
                     message,
                     objects: vec![a.id, b.id],
+                    hint: None,
                 });
             }
         }
@@ -218,6 +219,7 @@ pub(crate) fn parallel_crosstalk_findings(project: &Project) -> Vec<Finding> {
                 limit
             ),
             objects: vec![net],
+            hint: None,
         });
     }
     result
@@ -250,6 +252,7 @@ mod tests {
             width,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 11,
@@ -259,6 +262,7 @@ mod tests {
             width,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.net_classes.push(NetClass {
             id: 50,

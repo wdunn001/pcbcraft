@@ -1,5 +1,5 @@
 //! Fillet geometry for two straight track legs meeting at one corner.
-use crate::{Arc, Point, arc_through};
+use crate::{Arc, Point, arc_through, positive};
 
 /// Tangent points and an arc midpoint for one rounded corner.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -121,6 +121,81 @@ pub fn arc_chord_points(arc: &Arc, max_error: f64, max_chords: usize) -> Vec<Poi
         .map(|k| arc.point_at(k as f64 / n as f64))
         .collect()
 }
+
+
+/// Default corner radius as a multiple of track width when no radius is given.
+pub const DEFAULT_CORNER_RADIUS_WIDTH_FACTOR: f64 = 3.0;
+
+/// Resolve a corner radius in millimetres from an explicit request, a net-class
+/// default, or three times the track width.
+///
+/// A non-positive `requested_mm` means "use class default, then width factor".
+pub fn effective_corner_radius(
+    requested_mm: f64,
+    track_width_mm: f64,
+    class_default_mm: Option<f64>,
+) -> Option<f64> {
+    if requested_mm.is_finite() && requested_mm > 0.0 {
+        return Some(requested_mm);
+    }
+    if let Some(r) = class_default_mm.filter(|r| r.is_finite() && *r > 0.0) {
+        return Some(r);
+    }
+    if positive(track_width_mm) {
+        Some(track_width_mm * DEFAULT_CORNER_RADIUS_WIDTH_FACTOR)
+    } else {
+        None
+    }
+}
+
+/// The fillet of two legs described by their end points rather than lengths;
+/// same result as [`track_fillet`] with the leg lengths taken from the points.
+pub fn track_corner_fillet(
+    leg_a: Point,
+    joint: Point,
+    leg_b: Point,
+    radius: f64,
+) -> Option<TrackFillet> {
+    track_fillet(
+        joint,
+        leg_a,
+        leg_b,
+        joint.distance(leg_a),
+        joint.distance(leg_b),
+        radius,
+    )
+}
+
+/// Alias kept for the net-class schema, which names the fillet by its corner.
+pub type TrackCornerFillet = TrackFillet;
+
+const MAX_ARC_CHORDS: usize = 64;
+
+/// Sample points along `arc` so no chord deviates more than `max_error` millimetres.
+pub fn flatten_arc(arc: &Arc, max_error: f64) -> Vec<Point> {
+    let e = max_error.max(1e-6);
+    let n = arc_chord_count(arc, e);
+    let mut points = Vec::with_capacity(n + 1);
+    for k in 0..=n {
+        points.push(arc.point_at(k as f64 / n as f64));
+    }
+    points
+}
+
+/// Chords needed so no chord on `arc` strays more than `max_error` from the true arc.
+pub fn arc_chord_count(arc: &Arc, max_error: f64) -> usize {
+    let e = max_error.max(1e-6);
+    if e >= arc.radius {
+        return 1;
+    }
+    let step = 2.0 * (1.0 - e / arc.radius).acos();
+    if !step.is_finite() || step <= 0.0 {
+        return MAX_ARC_CHORDS;
+    }
+    ((arc.sweep.abs() / step).ceil() as usize)
+        .clamp(1, MAX_ARC_CHORDS)
+}
+
 
 #[cfg(test)]
 mod tests {

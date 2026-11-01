@@ -295,6 +295,7 @@ pub(crate) fn backdrill_findings(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("backdrill_must_not_cut", "error"),
                 message: format!("{at} has a back-drill that does not fit it: {why}"),
                 objects: vec![via.id],
+                hint: None,
             });
             continue;
         }
@@ -321,6 +322,7 @@ pub(crate) fn backdrill_findings(project: &Project) -> Vec<Finding> {
                     "{at} is back-drilled through a layer that a track of its own net connects on"
                 ),
                 objects,
+                hint: None,
             });
         }
         if let Some(stub) = project.backdrill_stub(via, &spec)
@@ -334,6 +336,7 @@ pub(crate) fn backdrill_findings(project: &Project) -> Vec<Finding> {
                     spec.max_stub
                 ),
                 objects: vec![via.id],
+                hint: None,
             });
         }
     }
@@ -427,6 +430,8 @@ mod tests {
             working_voltage: None,
             insulation: None,
             return_path_rule: None,
+            backdrill: Default::default(),
+            fast: Default::default(),
         });
         p.validate()
     }

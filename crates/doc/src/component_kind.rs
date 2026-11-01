@@ -233,6 +233,8 @@ mod tests {
             sourcing: Default::default(),
             compliance: Default::default(),
             sheet: 0,
+            instance: Default::default(),
+            prototype: Default::default(),
         });
         p.migrate_component_kinds();
         assert_eq!(p.components[0].kind, "ic");

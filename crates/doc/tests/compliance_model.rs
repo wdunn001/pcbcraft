@@ -48,6 +48,8 @@ fn compliance_round_trips_and_old_files_load_without_compliance_fields() -> Resu
         },
         sheet: 0,
         part: None,
+        instance: Default::default(),
+        prototype: Default::default(),
     });
     p.validate()?;
     let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
@@ -158,6 +160,8 @@ fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -
         },
         part: None,
         sheet: 0,
+        instance: Default::default(),
+        prototype: Default::default(),
     };
     let effective = c.effective_declarations();
     assert_eq!(effective.len(), 2);
@@ -212,6 +216,8 @@ fn compliance_settings_and_mutes_round_trip() -> Result<(), String> {
         compliance: Default::default(),
         sheet: 0,
         part: None,
+        instance: Default::default(),
+        prototype: Default::default(),
     });
     p.validate()?;
     let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;

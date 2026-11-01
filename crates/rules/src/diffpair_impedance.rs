@@ -82,6 +82,7 @@ pub fn findings(project: &Project) -> Vec<Finding> {
                 gap = pair.gap,
             ),
             objects: vec![pair.net_p, pair.net_n],
+            hint: None,
         });
     }
     result
@@ -116,6 +117,9 @@ mod tests {
             profile: None,
             target_impedance: Some(90.0),
             impedance_tolerance: Some(0.1),
+            equal_vias: Default::default(),
+            max_uncoupled_length: Default::default(),
+            skew_limit_mm: Default::default(),
         });
         for (id, net) in [(100, 1), (101, 2)] {
             p.board.tracks.push(Track {

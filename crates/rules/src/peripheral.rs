@@ -47,6 +47,7 @@ fn push(
         severity: project.rule_severity(code, default),
         message,
         objects,
+        hint: None,
     });
 }
 
@@ -301,6 +302,7 @@ mod tests {
                     electrical_type: "bidirectional".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 },
                 Pin {
                     number: "PB2".into(),
@@ -310,6 +312,7 @@ mod tests {
                     electrical_type: "input".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 },
             ],
             units: vec![],
@@ -317,6 +320,9 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
         });
         project.nets.push(Net {
             id: 10,
