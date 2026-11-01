@@ -3264,8 +3264,13 @@ fn gerber_files_core(
             }
             Ok(code)
         }
-        fn code_shaped(&mut self, aperture: &gerber::Aperture) -> Result<u32, String> {
-            let key = aperture.key();
+        fn code_shaped(
+            &mut self,
+            aperture: &gerber::Aperture,
+            function: Option<&'static str>,
+        ) -> Result<u32, String> {
+            // The same shape under another aperture function is another aperture.
+            let key = format!("{}|{}", aperture.key(), function.unwrap_or(""));
             if let Some((code, _)) = self.shaped.get(&key) {
                 return Ok(*code);
             }
@@ -3273,7 +3278,12 @@ fn gerber_files_core(
                 return Err("gerber export needs more than 64 distinct apertures".into());
             }
             let code = 10 + self.aperture_slots() as u32;
-            self.shaped.insert(key, (code, aperture.definition(code)));
+            let mut block = String::new();
+            if let Some(f) = function {
+                block.push_str(&format!("%TA.AperFunction,{f}*%\n"));
+            }
+            block.push_str(&aperture.definition(code));
+            self.shaped.insert(key, (code, block));
             Ok(code)
         }
         fn flash(&mut self, code: u32, x: f64, y: f64) -> Result<(), String> {
@@ -3631,7 +3641,13 @@ fn gerber_files_core(
                     let (px, py) = mirror_for(point.x, point.y, index);
                     pcbcraft_geom::Point::new(px, py)
                 })?;
-                let code = copper[index].code_shaped(&aperture)?;
+                let function = gerber_fidelity::pad_copper_aperture_function(
+                    p,
+                    pcbcraft_doc::Layer::from_index(index as u8)?,
+                    f,
+                    pad,
+                );
+                let code = copper[index].code_shaped(&aperture, function)?;
                 let (x, y) = mirror_for(world.x, world.y, index);
                 copper[index].flash(code, x, y)?;
             }
@@ -11300,8 +11316,9 @@ mod tests {
         );
         assert!(
             text.contains("<LayerFeature layerRef=\"F.Cu\">")
-                && text.contains("<LayerFeature layerRef=\"B.Cu\">"),
-            "both copper layers get their own section"
+                && text.contains("<Layer name=\"F.Cu\" layerFunction=\"SIGNAL\"")
+                && text.contains("<Layer name=\"B.Cu\" layerFunction=\"SIGNAL\""),
+            "both copper layers are declared and the routed one carries its features"
         );
         assert!(
             text.ends_with("</IPC-2581>\n"),

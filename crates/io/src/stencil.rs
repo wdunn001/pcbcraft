@@ -436,7 +436,7 @@ mod stencil_tests {
             id: 2,
             position: Point::new(5.0, 5.0),
             diameter: 1.0,
-            layer: Layer::Front,
+            layer: Layer::Back,
         });
         crate::test_support::embed_pad_geometry(&mut p);
         p.validate()?;
@@ -465,10 +465,12 @@ mod stencil_tests {
 
     #[test]
     fn stencil_cut_mirrors_bottom_openings_only() -> Result<(), String> {
-        let p = back_smd_fixture()?;
+        let mut p = back_smd_fixture()?;
+        // Off the centre line of the 60 mm board, so the mirror moves the pad.
+        p.board.footprints[0].position = Point::new(10.0, 20.0);
         let svg = stencil_cut_svg(&p, &StencilOptions::default())?;
         assert!(
-            svg.contains("300") && svg.contains("20"),
+            svg.contains("viewBox=\"49.4 19.6 1.2 0.8\""),
             "bottom pad appears mirrored in cut view: {svg}"
         );
         Ok(())

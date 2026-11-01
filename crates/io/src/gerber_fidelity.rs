@@ -117,7 +117,6 @@ pub(crate) fn copper_gerber_basename(p: &Project, layer: Layer) -> String {
     format!("pcb-{name}.gbr")
 }
 
-#[allow(dead_code)]
 pub(crate) fn pad_copper_aperture_function(
     p: &Project,
     layer: Layer,

@@ -7374,8 +7374,13 @@ pub fn validate_footprint_support(
             p.layers.iter().any(|l| l == "*.Cu")
                 || (p.layers.iter().any(|l| l == "F.Cu") && p.layers.iter().any(|l| l == "B.Cu"))
         } else {
-            p.layers.iter().any(|l| l == "F.Cu")
-                && !p.layers.iter().any(|l| l == "B.Cu" || l == "*.Cu")
+            // A mask-defined surface pad has no copper layer of its own: the
+            // mask opening defines the pad.
+            let mask_defined = !p.layers.iter().any(|l| l.ends_with(".Cu") || l == "F&B.Cu")
+                && p.layers.iter().any(|l| l == "F.Mask");
+            (p.layers.iter().any(|l| l == "F.Cu")
+                && !p.layers.iter().any(|l| l == "B.Cu" || l == "*.Cu"))
+                || mask_defined
         };
         let drill_ok = if p.pad_type == "thru_hole" {
             drill_inside_pad(p)

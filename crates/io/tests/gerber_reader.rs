@@ -7,20 +7,24 @@ fn flashes_per_aperture(text: &str) -> BTreeMap<u32, usize> {
     let mut counts = BTreeMap::new();
     let mut current = 0u32;
     for line in text.lines() {
-        if let Some(rest) = line.strip_prefix('D') {
-            if rest.ends_with('*')
-                && !rest.contains('X')
-                && let Ok(code) = rest.trim_end_matches('*').parse::<u32>()
-            {
-                current = code;
-            }
-            if rest.contains("D03*") {
-                let code_text = rest.split('X').next().unwrap_or("");
-                if let Ok(n) = code_text.parse::<u32>() {
-                    *counts.entry(n).or_default() += 1;
-                } else if current != 0 {
-                    *counts.entry(current).or_default() += 1;
-                }
+        // A bare aperture select such as `D12*` chooses the aperture for the
+        // flashes that follow it.
+        if let Some(rest) = line.strip_prefix('D')
+            && let Some(code) = rest.strip_suffix('*')
+            && let Ok(code) = code.parse::<u32>()
+        {
+            current = code;
+            continue;
+        }
+        if line.ends_with("D03*") {
+            // An older writer put the select in front of the coordinates.
+            let inline = line
+                .strip_prefix('D')
+                .and_then(|rest| rest.split('X').next())
+                .and_then(|code| code.parse::<u32>().ok());
+            let code = inline.unwrap_or(current);
+            if code != 0 {
+                *counts.entry(code).or_default() += 1;
             }
         }
     }

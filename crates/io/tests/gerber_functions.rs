@@ -67,7 +67,7 @@ fn a_mask_defined_pad_uses_smdef_for_copper_and_mask() -> Result<(), String> {
         pads: vec![Pad {
             number: "1".into(),
             offset: Point::default(),
-            diameter: 1.0,
+            diameter: 0.6,
             net: Some(1),
             castellated: None,
             geometry: Some(smdef_pad()),

@@ -983,8 +983,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             back.flash(back_code, x, y)?;
         }
 
-        let open_top = reaches_top && via_mask_opening_on_face(v, &p.board, false);
-        let open_bottom = reaches_bottom && via_mask_opening_on_face(v, &p.board, true);
+        let open_top = reaches_top && via_mask_opening_on_face(v, &p.board, true);
+        let open_bottom = reaches_bottom && via_mask_opening_on_face(v, &p.board, false);
         if open_top || open_bottom {
             let margin = DEFAULT_MASK_MARGIN_MM;
             let r = v.drill / 2.0 + margin;

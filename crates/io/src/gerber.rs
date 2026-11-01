@@ -1052,11 +1052,11 @@ pub fn gerber_mask_for_stack_row(
         if !p.via_span_layers(v).contains(&layer) {
             continue;
         }
-        if !crate::via_mask_opening(v, &p.board) {
+        if !crate::fab_export::via_mask_opening_on_face(v, &p.board, layer == Layer::Front) {
             continue;
         }
         let diameter = (v.diameter + 2.0 * default_margin).max(0.001);
-        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad")?;
         sheet.flash(code, mirror(v.position, layer))?;
     }
     Ok(sheet.finish(file_function, "Negative", "mask layer from stack", &[]))
@@ -1076,7 +1076,7 @@ pub fn gerber_viafill_layer(p: &Project) -> Result<String, String> {
             _ => continue,
         }
         let diameter = v.drill.max(0.001);
-        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad")?;
         sheet.flash(code, v.position)?;
     }
     Ok(sheet.finish("Viafill", "Positive", "via fill", &[]))
