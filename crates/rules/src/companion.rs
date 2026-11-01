@@ -230,9 +230,20 @@ fn builtin_usb_series(project: &Project, graph: &SchematicGraph) -> Vec<Finding>
             .flat_map(|c| c.pins.iter().filter_map(|p| p.net))
             .collect();
         let reached = bfs_from_anchor(graph, net.id);
+        // A transceiver pin counts when the connector net reaches it, or when
+        // it sits on a separate net that is itself a USB data net (the far
+        // side of a series resistor that is not drawn yet).
+        let by_id: BTreeMap<Id, &str> = project
+            .nets
+            .iter()
+            .map(|n| (n.id, n.name.as_str()))
+            .collect();
         let targets: Vec<Id> = mcu_nets
             .into_iter()
-            .filter(|n| reached.contains_key(n))
+            .filter(|n| {
+                reached.contains_key(n)
+                    || by_id.get(n).is_some_and(|name| net_matches_usb_data(name))
+            })
             .collect();
         if targets.is_empty() {
             continue;

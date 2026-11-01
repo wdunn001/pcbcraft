@@ -74,12 +74,12 @@ fn impedance_target_finding_clears_when_width_matches_stackup() -> Result<(), Er
     )?;
     s.execute(
         "track.add",
-        json!({"net":p,"layer":"F.Cu","width":2.0,"start":{"x":0,"y":0},"end":{"x":20,"y":0}}),
+        json!({"net":p,"layer":"F.Cu","width":3.0,"start":{"x":0,"y":0},"end":{"x":20,"y":0}}),
         None,
     )?;
     s.execute(
         "track.add",
-        json!({"net":n,"layer":"F.Cu","width":2.0,"start":{"x":0,"y":3},"end":{"x":20,"y":3}}),
+        json!({"net":n,"layer":"F.Cu","width":3.0,"start":{"x":0,"y":6},"end":{"x":20,"y":6}}),
         None,
     )?;
     assert!(

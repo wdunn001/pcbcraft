@@ -396,6 +396,9 @@ mod tests {
     }
 
     #[test]
+    // On 0.2 mm of prepreg a 0.3 mm pair is about 94 ohm at 0.15 mm gap, about 98 at
+    // 0.3 mm and about 112 at 0.85 mm, so a 100 ohm target (10 percent) is
+    // missed by a wide gap and met by a moderate one.
     fn differential_pair_wrong_gap_flags() -> Result<(), String> {
         let mut p = four_layer_stack();
         p.nets[0].impedance_target = Some(100.0);
@@ -409,7 +412,7 @@ mod tests {
             name: "USB".into(),
             net_p: 1,
             net_n: 2,
-            gap: 0.15,
+            gap: 1.2,
             length_tolerance: None,
             profile: None,
             equal_vias: Default::default(),
@@ -420,7 +423,7 @@ mod tests {
             target_impedance: Default::default(),
         });
         let width = 0.3;
-        for (id, y) in [(10, 10.0), (11, 10.0 + width + 0.15)] {
+        for (id, y) in [(10, 10.0), (11, 10.0 + width + 1.2)] {
             p.board.tracks.push(Track {
                 id,
                 net: if id == 10 { 1 } else { 2 },
@@ -433,8 +436,15 @@ mod tests {
             });
         }
         p.validate()?;
-        assert!(codes(&p).contains(&"impedance_target"));
-        p.board.diff_pairs[0].gap = 0.85;
+        assert!(
+            codes(&p).contains(&"impedance_target"),
+            "{:?}",
+            impedance_target_findings(&p)
+                .iter()
+                .map(|f| f.message.clone())
+                .collect::<Vec<_>>()
+        );
+        p.board.diff_pairs[0].gap = 0.3;
         assert!(!codes(&p).contains(&"impedance_target"));
         Ok(())
     }

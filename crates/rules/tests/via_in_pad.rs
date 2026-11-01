@@ -1,6 +1,8 @@
-use pcbcraft_doc::{Footprint, Net, Pad, Project, Via, ViaCovering, component_template};
+use pcbcraft_doc::{
+    Footprint, LibraryFootprint, Net, Pad, Project, Via, ViaCovering, component_template,
+};
 use pcbcraft_geom::Point;
-use pcbcraft_library::FootprintPad;
+use pcbcraft_library::{FootprintDefinition, FootprintPad};
 use pcbcraft_rules::drc;
 
 fn via_in_pad_board(covering: ViaCovering) -> Result<Project, String> {
@@ -10,12 +12,39 @@ fn via_in_pad_board(covering: ViaCovering) -> Result<Project, String> {
         name: "SIG".into(),
         ..Default::default()
     });
-    let component = component_template("resistor", 1, "U1".into(), Point::new(20.0, 20.0))
+    // Object ids are unique across kinds, so the part takes id 2 (net 1 is
+    // taken). Its pad carries stored geometry, which needs an embedded
+    // footprint definition holding the same pad, and a matching pin.
+    let mut component = component_template("resistor", 2, "U1".into(), Point::new(20.0, 20.0))
         .ok_or("component template")?;
+    component.pins.truncate(1);
+    component.pins[0].net = Some(1);
+    let geometry = FootprintPad {
+        number: "1".into(),
+        shape: "circle".into(),
+        pad_type: "smd".into(),
+        position: Point::default(),
+        rotation: 0.0,
+        size: Point::new(1.2, 1.2),
+        layers: vec!["F.Cu".into(), "F.Mask".into()],
+        drill: None,
+        roundrect_ratio: None,
+        chamfer: None,
+        polygon: vec![],
+        raw_source: String::new(),
+    };
+    component.library_footprint = Some(LibraryFootprint {
+        library: "test".into(),
+        definition: FootprintDefinition {
+            name: "pad".into(),
+            pads: vec![geometry.clone()],
+            ..Default::default()
+        },
+    });
     p.components.push(component);
     p.board.footprints.push(Footprint {
         id: 10,
-        component: 1,
+        component: 2,
         position: Point::new(20.0, 20.0),
         rotation: 0.0,
         locked: None,
@@ -24,22 +53,9 @@ fn via_in_pad_board(covering: ViaCovering) -> Result<Project, String> {
             number: "1".into(),
             offset: Point::default(),
             net: Some(1),
-            diameter: 1.0,
+            diameter: 1.2,
             castellated: None,
-            geometry: Some(FootprintPad {
-                number: "1".into(),
-                shape: "circle".into(),
-                pad_type: "smd".into(),
-                position: Point::default(),
-                rotation: 0.0,
-                size: Point::new(1.2, 1.2),
-                layers: vec!["F.Cu".into(), "F.Mask".into()],
-                drill: None,
-                roundrect_ratio: None,
-                chamfer: None,
-                polygon: vec![],
-                raw_source: String::new(),
-            }),
+            geometry: Some(geometry),
         }],
         preserved: Default::default(),
     });

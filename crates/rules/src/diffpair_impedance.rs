@@ -139,7 +139,7 @@ mod tests {
 
     #[test]
     fn pair_with_target_flags_when_estimate_misses() {
-        let p = usb_pair_project(2.0);
+        let p = usb_pair_project(3.0);
         let codes: Vec<_> = findings(&p).into_iter().map(|f| f.code).collect();
         assert!(codes.contains(&"diffpair_impedance"));
     }
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn pair_without_target_is_silent() {
-        let mut p = usb_pair_project(2.0);
+        let mut p = usb_pair_project(3.0);
         p.board.diff_pairs[0].target_impedance = None;
         p.board.diff_pairs[0].impedance_tolerance = None;
         assert!(findings(&p).is_empty());

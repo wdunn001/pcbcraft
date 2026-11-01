@@ -116,6 +116,9 @@ fn time_skew_uses_the_dk_of_the_layer_each_segment_runs_on() -> T {
     dp.skew_limit_mm = Some(100.0);
     dp.skew_limit_ps = Some(50.0);
     p.board.diff_pairs.push(dp);
+    // With three copper rows `Layer::Back` is the first inner layer; the
+    // bottom row is the last copper layer.
+    let bottom = p.bottom_layer();
     let len = 20.0;
     p.board.tracks.push(track(
         10,
@@ -129,7 +132,7 @@ fn time_skew_uses_the_dk_of_the_layer_each_segment_runs_on() -> T {
         2,
         Point::new(0.0, 0.0),
         Point::new(len, 0.0),
-        Layer::Back,
+        bottom,
     ));
     p.validate()?;
     let with_time = codes(&p);

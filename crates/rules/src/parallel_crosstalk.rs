@@ -231,6 +231,8 @@ mod tests {
     use crate::drc;
     use pcbcraft_doc::{Net, NetClass, Project, Track};
 
+    /// Two 40 mm runs: a 1 ns edge is about 170 mm long on this stackup, so a
+    /// parallel run must exceed about 29 mm (a sixth of that) to be reported.
     fn clock_pair(gap_y: f64) -> Result<Project, String> {
         let mut p = Project::default();
         p.nets.push(Net {
@@ -248,7 +250,7 @@ mod tests {
             id: 10,
             net: 1,
             start: Point::new(0.0, 0.0),
-            end: Point::new(10.0, 0.0),
+            end: Point::new(40.0, 0.0),
             width,
             layer: Layer::Front,
             arc: None,
@@ -258,7 +260,7 @@ mod tests {
             id: 11,
             net: 2,
             start: Point::new(0.0, width + gap_y),
-            end: Point::new(10.0, width + gap_y),
+            end: Point::new(40.0, width + gap_y),
             width,
             layer: Layer::Front,
             arc: None,

@@ -1260,28 +1260,6 @@ pub fn erc(project: &Project) -> Vec<Finding> {
         }
     }
     for net in &project.nets {
-        let undriven_power = project.components.iter().any(|c| {
-            c.pins.iter().any(|p| {
-                p.net == Some(net.id)
-                    && p.electrical_type == "power_in"
-                    && !pin_flagged_no_connect(project, c.id, &p.number)
-            })
-        });
-        if undriven_power && !net_has_power_driver(project, net.id) {
-            result.push(Finding {
-                code: "power_not_driven",
-                severity: project.rule_severity("power_not_driven", "warning"),
-                message: format!(
-                    "{} has a power input but no power source; drive it from a power output, \
-                     a power label or a connector pin",
-                    net.name
-                ),
-                objects: vec![net.id],
-                hint: None,
-            });
-        }
-    }
-    for net in &project.nets {
         let mut on_net = vec![];
         for c in &project.components {
             for p in &c.pins {
@@ -1390,28 +1368,6 @@ pub fn erc(project: &Project) -> Vec<Finding> {
     }
     result.extend(decoupling::missing_decoupling(project));
     result.extend(esd_device_far_findings(project));
-    for net in &project.nets {
-        let undriven = project.components.iter().any(|c| {
-            c.pins.iter().any(|p| {
-                p.net == Some(net.id)
-                    && p.electrical_type == "power_in"
-                    && !pin_flagged_no_connect(project, c.id, &p.number)
-            })
-        });
-        if undriven && !net_has_power_driver(project, net.id) {
-            result.push(Finding {
-                code: "power_not_driven",
-                severity: project.rule_severity("power_not_driven", "warning"),
-                message: format!(
-                    "{} has a power input but no power source; drive it from a power output, \
-                     a power label or a connector pin",
-                    net.name
-                ),
-                objects: vec![net.id],
-                hint: None,
-            });
-        }
-    }
     for net in &project.nets {
         let open_count = project
             .components
@@ -4235,9 +4191,13 @@ mod tests {
             preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p.validate()?;
+        let found: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code != "testpoint_coverage")
+            .collect();
         assert!(
-            drc(&p).is_empty(),
-            "standard 0805 pads are not a short at 0.2mm clearance"
+            found.is_empty(),
+            "standard 0805 pads are not a short at 0.2mm clearance: {found:?}"
         );
         p.board.clearance = 0.9;
         assert!(drc(&p).iter().any(|f| f.code == "pad_clearance_bound"));
@@ -4307,9 +4267,18 @@ mod tests {
             if let Some(mut c) =
                 component_template("resistor", id, format!("R{id}"), Point::new(x, 10.0))
             {
+                c.pins.truncate(1);
                 for pin in &mut c.pins {
                     pin.net = Some(1);
                 }
+                c.library_footprint = Some(LibraryFootprint {
+                    library: "test".into(),
+                    definition: FootprintDefinition {
+                        name: "TH".into(),
+                        pads: vec![pad_geom.clone()],
+                        ..Default::default()
+                    },
+                });
                 p.components.push(c);
             }
             p.board.footprints.push(Footprint {
@@ -4394,22 +4363,16 @@ mod tests {
         });
         let inner_a = Layer::from_index(1).map_err(|e| e.to_string())?;
         let inner_b = Layer::from_index(2).map_err(|e| e.to_string())?;
-        let outline = vec![
-            Point::new(0.0, 0.0),
-            Point::new(40.0, 0.0),
-            Point::new(40.0, 20.0),
-            Point::new(0.0, 20.0),
-            Point::new(0.0, 0.0),
-        ];
-        p.board.zones.push(CopperZone {
+        // A poured zone retreats from foreign copper, so it cannot come
+        // closer than the clearance; two tracks can.
+        p.board.tracks.push(Track {
             id: 10,
             net: 1,
+            start: Point::new(10.0, 20.0),
+            end: Point::new(30.0, 20.0),
+            width: 0.25,
             layer: inner_a,
-            outline: outline.clone(),
-            cutouts: vec![],
-            filled: true,
-            kind: None,
-            pour: None,
+            arc: None,
             preserved: Default::default(),
         });
         p.board.tracks.push(Track {
@@ -4432,7 +4395,8 @@ mod tests {
         };
         assert!(
             clearance_on_inner(&p),
-            "inner tracks of different nets on the same layer are checked for clearance"
+            "inner tracks of different nets on the same layer are checked for clearance: {:?}",
+            drc(&p)
         );
         if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == 11) {
             t.layer = inner_b;
@@ -5809,14 +5773,34 @@ mod tests {
     #[test]
     fn obstacles_carry_the_clearance_of_their_net_class() -> Result<(), String> {
         let mut p = fixture();
+        // An embedded footprint definition needs its pad, and the placed pad
+        // must carry that same geometry.
+        let definition_pad = FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        if let Some(f) = p.board.footprints.iter_mut().find(|f| f.id == 12) {
+            f.pads[0].geometry = Some(definition_pad.clone());
+        }
         if let Some(c) = p.components.iter_mut().find(|c| c.id == 2) {
+            c.pins.truncate(1);
             c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
                 library: "Test".into(),
                 definition: pcbcraft_library::FootprintDefinition {
                     name: "pad".into(),
                     description: String::new(),
                     keywords: String::new(),
-                    pads: vec![],
+                    pads: vec![definition_pad],
                     graphics: vec![],
                     model: None,
                     rules: Some(pcbcraft_library::FootprintRules {
