@@ -2425,7 +2425,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 35] = [
+pub const OUTPUT_KINDS: [&str; 37] = [
     "gerbers",
     "netlist",
     "bom",
@@ -2461,10 +2461,12 @@ pub const OUTPUT_KINDS: [&str; 35] = [
     "si_net_results",
     "impedance_table",
     "touchstone",
+    "bring_up",
+    "firmware_target",
 ];
 /// How many export kinds one output job may hold. It is larger than the kind
 /// list so a single job can still ask for every file a board needs.
-pub const MAX_OUTPUT_KINDS: usize = 36;
+pub const MAX_OUTPUT_KINDS: usize = 38;
 /// A named fabrication output recipe: the export kinds a job writes when it
 /// runs.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

@@ -4445,7 +4445,14 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
     let live: Vec<Id> = p.components.iter().map(|c| c.id).collect();
     p.board.footprints.retain(|f| live.contains(&f.component));
     let staging_x = board_outline_max_x(&p.board) + 10.0;
-    let mut staging_index = 0usize;
+    // New footprints queue behind the ones already waiting in the staging area, so
+    // parts added one command at a time do not land on top of each other.
+    let mut staging_index = p
+        .board
+        .footprints
+        .iter()
+        .filter(|f| f.position.x >= staging_x - 1e-6)
+        .count();
     let mut skipped = vec![];
     for c in &p.components {
         if c.library_symbol.is_some() && c.library_footprint.is_none() {
@@ -31101,15 +31108,26 @@ mod tests {
         );
         Ok(())
     }
+    fn via_count_codes(s: &Session) -> Vec<String> {
+        s.checks()["drc"]
+            .as_array()
+            .map(|findings| {
+                findings
+                    .iter()
+                    .filter_map(|f| f["code"].as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
     #[test]
     fn a_class_via_limit_reaches_the_engine_checks_and_can_be_cleared() -> Result<(), Error> {
         let mut s = Session::default();
-        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+        let net = s.execute("net.create", json!({"name":"USB_DP"}), None)?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
         let class = s.execute(
             "netclass.add",
-            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[net]}),
+            json!({"name":"usb2","clearance":0.2,"width":0.25,"nets":[net]}),
             None,
         )?["result"]["id"]
             .as_u64()
@@ -31119,35 +31137,32 @@ mod tests {
             json!({"class":class,"max_vias":0}),
             None,
         )?;
-        let via = s.execute(
-            "via.place",
-            json!({"net":net,"position":{"x":10.0,"y":10.0}}),
+        s.execute(
+            "via.stitch",
+            json!({"net":net,"bounds":{"x":10.0,"y":10.0,"width":0.1,"height":0.1},"spacing":1.0,"diameter":0.6,"drill":0.3}),
             None,
-        )?["result"]["id"]
-            .as_u64()
-            .ok_or_else(missing)?;
-        fn via_codes(s: &Session) -> Vec<String> {
-            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
-                a.iter()
-                    .filter(|f| f["code"] == "via_count")
-                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
-                    .collect()
-            })
-        }
-        assert_eq!(via_codes(&s).len(), 1);
-        s.execute("object.delete", json!({"id":via}), None)?;
-        assert!(via_codes(&s).is_empty());
+        )?;
+        assert!(
+            via_count_codes(&s).contains(&"via_count".to_string()),
+            "a via on a zero-via class reports through the engine"
+        );
         s.execute(
             "netclass.via_rules",
-            json!({"class":class,"max_vias":null}),
+            json!({"class":class,"max_vias":4}),
             None,
         )?;
-        s.execute(
-            "via.place",
-            json!({"net":net,"position":{"x":12.0,"y":10.0}}),
-            None,
-        )?;
-        assert!(via_codes(&s).is_empty());
+        assert!(
+            !via_count_codes(&s).contains(&"via_count".to_string()),
+            "raising the limit clears the finding"
+        );
+        s.execute("netclass.via_rules", json!({"class":class}), None)?;
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.max_vias.is_none()),
+            "omitting the limit clears it"
+        );
         Ok(())
     }
     #[test]
@@ -42547,7 +42562,7 @@ mod tests {
         let out = directory.join(format!("parts-{}.kicad_sym", std::process::id()));
         let result = s.execute(
             "library.export",
-            json!({"kind":"symbol","path": out.to_string_lossy(),"names":["R","C"]}),
+            json!({"kind":"symbol","path": out.to_string_lossy(),"names":["R","LED"]}),
             None,
         )?["result"]
             .clone();

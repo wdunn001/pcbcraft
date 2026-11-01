@@ -34,7 +34,11 @@ use std::path::Path;
 pub fn command_is_read_only(id: &str) -> bool {
     matches!(
         id,
-        "artifact.generate" | "artifact.stale" | "package.list" | "library.online_status"
+        "artifact.generate"
+            | "artifact.stale"
+            | "package.list"
+            | "library.online_status"
+            | "sim.dc"
     )
 }
 

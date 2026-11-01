@@ -49,8 +49,8 @@ fn both_commands_are_listed_with_their_schemas() {
 #[test]
 fn online_status_lists_imported_parts_without_network() -> Result<(), Error> {
     let mut s = Session::default();
-    let rev = s.revision;
     s.execute("library.import_online", import_params()?, None)?;
+    let rev = s.revision;
     let out = s.execute("library.online_status", json!({}), None)?;
     assert_eq!(s.revision, rev, "online_status must not change the design");
     let entries = out
