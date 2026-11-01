@@ -28,7 +28,7 @@ use std::collections::HashMap;
 /// # Do not
 /// - Add a literal colour for a schematic part in `canvas.rs`; add a field.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct SheetColours {
+pub(crate) struct SheetColours {
     pub backdrop: Color32,
     pub sheet: Color32,
     pub dots: Color32,

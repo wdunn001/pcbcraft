@@ -2094,7 +2094,18 @@ impl App {
         if self.tour.first_launch_handled() {
             self.preferences.tour_first_launch_done = true;
         }
-        let view = self.tour_shell_view();
+        let modal_open = self.tour_modal_open();
+        let tab_changed_at = self.tour.tab_changed_at();
+        let view = tour::state::ShellView {
+            offer_tours: self.preferences.offer_tours,
+            modal_open,
+            file_busy: self.pending_source.is_some(),
+            tab: self.tab,
+            workspace: tour::WorkspaceId::from_tab(self.tab),
+            progress: &self.preferences.tour_progress,
+            first_launch_done: self.preferences.tour_first_launch_done,
+            tab_changed_at,
+        };
         self.tour
             .sync_triggers(view, pcbcraft_clock::instant_now());
     }
@@ -2459,7 +2470,7 @@ impl App {
         sub: layer_visibility::SubLayer,
     ) -> bool {
         let side = layer_visibility::side_path_for_layer(
-            self.project.copper_layer_count(),
+            usize::from(self.project.copper_layer_count()),
             layer,
         );
         self.board_sub_effective(&side, sub)
@@ -3981,7 +3992,7 @@ impl App {
         help.response.on_hover_text(t!("menu.help.tip"));
     }
     /// Open the in-app datasheet reader on the Library tab.
-    pub(super) fn open_datasheet(&mut self, ctx: &egui::Context, url: String) {
+    pub(crate) fn open_datasheet(&mut self, ctx: &egui::Context, url: String) {
         self.change_tab(Tab::Libraries);
         self.library.editor.mode = 1;
         self.datasheet.open_source(ctx, url);

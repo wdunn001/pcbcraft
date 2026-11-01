@@ -149,27 +149,31 @@ impl State {
 
     fn poll_renders(&mut self, ctx: &Context) {
         let mut done = Vec::new();
+        let mut arrived = Vec::new();
         for (i, (key, rx)) in self.render_rx.iter().enumerate() {
             if let Ok(result) = rx.try_recv() {
                 done.push(i);
-                self.inflight.remove(key);
-                match result {
-                    Ok(image) => self.store_texture(ctx, *key, image),
-                    Err(e) => {
-                        if self.error.is_empty() {
-                            self.error = e;
-                        }
-                    }
-                }
+                arrived.push((*key, result));
             }
         }
         for i in done.into_iter().rev() {
             self.render_rx.remove(i);
         }
+        for (key, result) in arrived {
+            self.inflight.remove(&key);
+            match result {
+                Ok(image) => self.store_texture(ctx, key, image),
+                Err(e) => {
+                    if self.error.is_empty() {
+                        self.error = e;
+                    }
+                }
+            }
+        }
     }
 
     fn store_texture(&mut self, ctx: &Context, key: TileKey, image: RgbaImage) {
-        if let Some(old) = self.textures.insert(
+        self.textures.insert(
             key,
             ctx.load_texture(
                 format!("datasheet-{key:?}"),
@@ -179,16 +183,12 @@ impl State {
                 ),
                 TextureOptions::LINEAR,
             ),
-        ) {
-            old.destroy(ctx);
-        }
+        );
         self.lru.retain(|k| k != &key);
         self.lru.push_back(key);
         while self.lru.len() > TEXTURE_BUDGET {
             if let Some(evict) = self.lru.pop_front() {
-                if let Some(tex) = self.textures.remove(&evict) {
-                    tex.destroy(ctx);
-                }
+                self.textures.remove(&evict);
             }
         }
     }
@@ -333,12 +333,9 @@ impl State {
             }
             ui.separator();
             ui.label(t!("library.datasheet_reader.page"));
-            ui.add(
-                egui::TextEdit::singleline(&mut self.jump_draft)
-                    .desired_width(48.0)
-                    .named(&t!("library.datasheet_reader.page")),
-            )
-            .on_hover_text(t!("library.datasheet_reader.page.tip"));
+            ui.add(egui::TextEdit::singleline(&mut self.jump_draft).desired_width(48.0))
+                .named(&t!("library.datasheet_reader.page"))
+                .on_hover_text(t!("library.datasheet_reader.page.tip"));
             if ui
                 .button(t!("library.datasheet_reader.go"))
                 .on_hover_text(t!("library.datasheet_reader.go.tip"))

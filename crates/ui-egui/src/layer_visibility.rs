@@ -62,7 +62,7 @@ pub(crate) fn sub_effective(hidden: &[String], side_path: &str, sub: SubLayer) -
 pub(crate) fn side_path_for_layer(board_coppers: usize, layer: Layer) -> String {
     if layer == Layer::Front {
         "side:top".into()
-    } else if layer.index() + 1 >= board_coppers.max(2) {
+    } else if usize::from(layer.index()) + 1 >= board_coppers.max(2) {
         "side:bottom".into()
     } else {
         format!("inner:{}", layer.index())

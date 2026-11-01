@@ -235,7 +235,7 @@ pub fn tab_bar(
                 ui.memory_mut(|m| m.request_focus(tab_id(ui, &salt, target)));
             }
         }
-        response.on_hover_text(item.tip);
+        let response = response.on_hover_text(item.tip);
         if let Some(ids) = tour_anchors
             && let Some(id) = ids.get(i)
         {

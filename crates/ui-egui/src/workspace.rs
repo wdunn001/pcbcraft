@@ -107,6 +107,7 @@ const LIBRARY_TAB: RegionTab = RegionTab {
     tip: || t!("library.browser.tab_library.tip"),
 };
 const DRAWING_TABS: [RegionTab; 2] = [LAYERS_TAB, LIBRARY_TAB];
+const LIBRARY_ONLY: [RegionTab; 1] = [LIBRARY_TAB];
 const FILES_TAB: RegionTab = RegionTab {
     id: "files",
     label: || t!("files.nav.tab"),

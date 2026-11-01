@@ -1989,10 +1989,11 @@ impl App {
                     def.graphics.remove(i);
                 }
                 ui.separator();
+                let footprint_name = def.name.clone();
                 crate::model_transform::footprint_model_transform_panel(
                     ui,
                     self,
-                    &def.name,
+                    &footprint_name,
                     def,
                 );
             }

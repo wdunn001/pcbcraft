@@ -547,6 +547,7 @@ impl App {
                     &mut current,
                     &items,
                     TabSize::Aside,
+                    None,
                 );
                 let _ = r;
             });
@@ -695,6 +696,7 @@ impl App {
             &mut current,
             &items,
             TabSize::Aside,
+            None,
         );
         if current != was {
             self.libws.page = pages[current].0;

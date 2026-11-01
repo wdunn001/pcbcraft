@@ -1132,8 +1132,9 @@ impl App {
 
     /// Take a project off the list; the file stays where it is.
     fn files_remove(&mut self, path: &str) {
-        pcbcraft_engine::recents::forget_recent_path(path);
-        self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
+        let config = self.user_config();
+        pcbcraft_engine::recents::forget_recent_path(&config, path);
+        self.recent_designs = pcbcraft_engine::recents::load_recent_paths(&config);
         self.preferences.pinned_projects.retain(|p| p != path);
         self.preferences.project_opened.remove(path);
         if self.files_home.selected.as_deref() == Some(path) {
@@ -1166,6 +1167,7 @@ impl App {
             &mut index,
             &items,
             ui_kit::tab_bar::TabSize::Aside,
+            None,
         );
         let shown = if self.files_home.page == Page::Recent {
             self.files_home

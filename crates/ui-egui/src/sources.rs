@@ -21,7 +21,7 @@
 //! - crates/library/src/web_transport.rs
 use super::*;
 use pcbcraft_library::cad::CadSource;
-use pcbcraft_library::cad_cache::{CacheStats, CadCache, default_cache_dir, now_secs};
+use pcbcraft_library::cad_cache::{CacheStats, CadCache, default_cache_dir};
 use pcbcraft_library::open_library::{CardScope, FetchError, Fetcher, OpenLibrarySource};
 use pcbcraft_library::sources::{PartResult, PartSource};
 use pcbcraft_library::web_transport::WebTransport;
@@ -237,7 +237,7 @@ impl App {
                 .offline
                 .as_ref()
                 .is_some_and(|f| f.load(Ordering::SeqCst));
-            let line = self.cache_line(&source.cache().stats(), now_secs());
+            let line = self.cache_line(&source.cache().stats(), pcbcraft_clock::unix_secs());
             let line = if offline {
                 t!("library.dock.offline_note", line = line)
             } else {

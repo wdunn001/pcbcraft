@@ -1,5 +1,6 @@
 //! 3D model placement editor for project-library footprints.
 use crate::App;
+use crate::a11y::Named;
 use egui::{Color32, Pos2, Sense, Stroke, Vec2};
 use pcbcraft_library::FootprintDefinition;
 use pcbcraft_text::t;
@@ -40,7 +41,7 @@ fn triple_row(ui: &mut egui::Ui, label: &str, values: &mut [f64; 3], suffix: &st
             if r.changed() {
                 changed = true;
             }
-            r.named(format!("{label} {axis}"));
+            r.named(&format!("{label} {axis}"));
         }
     });
     changed
@@ -61,7 +62,7 @@ fn drag_plane(
     ui.label(title);
     let size = Vec2::new(ui.available_width().max(120.0), 96.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
-    response.on_hover_text(tip);
+    let response = response.on_hover_text(tip);
     let painter = ui.painter_at(rect);
     painter.rect_stroke(
         rect,
@@ -203,9 +204,7 @@ pub(super) fn footprint_model_transform_panel(
         sync_model_from_project(app, footprint_name, def);
     }
 
-    ui.label(
-        egui::RichText::new(model.path.clone())
-            .small()
-            .color(Color32::GRAY),
-    );
+    if let Some(path) = def.model.as_ref().map(|m| m.path.clone()) {
+        ui.label(egui::RichText::new(path).small().color(Color32::GRAY));
+    }
 }

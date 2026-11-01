@@ -211,7 +211,7 @@ impl App {
             push(
                 "tool-label",
                 "label",
-                "Label",
+                "Label".to_string(),
                 "Place a local net label on a wire or pin.".to_string(),
                 matches!(
                     self.tool,
@@ -223,7 +223,7 @@ impl App {
             push(
                 "tool-power",
                 "power",
-                "Power",
+                "Power".to_string(),
                 "Place a power port label on a wire or pin.".to_string(),
                 matches!(
                     self.tool,
@@ -235,7 +235,7 @@ impl App {
             push(
                 "tool-bus",
                 "bus",
-                "Bus",
+                "Bus".to_string(),
                 "Draw a named bus across two or more points.".to_string(),
                 matches!(self.tool, Tool::Bus),
                 Act::Bus,

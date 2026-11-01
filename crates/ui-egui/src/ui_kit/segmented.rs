@@ -114,7 +114,7 @@ fn display_label(item: &Segment<'_>, selected: bool, icons_only: bool, panel_wid
     text
 }
 
-fn segment_tip(item: &Segment<'_>) -> &str {
+fn segment_tip<'a>(item: &Segment<'a>) -> &'a str {
     item.disabled.unwrap_or(item.tip)
 }
 
@@ -246,7 +246,7 @@ pub fn segmented_styled(
         ));
         x += width;
     }
-    let mut outer = ui.interact(track, id, Sense::click().union(Sense::focus()));
+    let mut outer = ui.interact(track, id, Sense::click().union(Sense::focusable_noninteractive()));
     let group_label = style
         .group_name
         .map(str::to_owned)
@@ -354,7 +354,7 @@ fn paint(
     panel_width: f32,
     t: &Tokens,
 ) {
-    let painter = ui.painter();
+    let painter = ui.painter().clone();
     painter.rect_filled(track, CornerRadius::same(theme::RADIUS_CONTROL), t.raised);
     painter.rect_stroke(
         track,
@@ -474,7 +474,9 @@ mod tests {
         frame(
             &ctx,
             crate::ui_kit::testing::click(target),
-            |ui| draw(ui, &mut selected, &mut changed),
+            |ui| {
+                draw(ui, &mut selected, &mut changed);
+            },
         );
         assert_eq!(selected, 2);
         assert!(changed);

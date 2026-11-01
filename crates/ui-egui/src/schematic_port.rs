@@ -1,6 +1,8 @@
 //! Hierarchy ports on schematic pages and child sheet boxes on the parent canvas.
 
 use super::*;
+use crate::canvas::snap;
+use crate::tool_modifiers::Held;
 use crate::fonts;
 use crate::ui_kit::{
     form_row::{FormWidth, form_row},
@@ -128,22 +130,22 @@ impl App {
     }
 
     pub(crate) fn place_hierarchy_port(&mut self, pos: Point) {
-        let name = self.port_pick_name.trim();
+        let name = self.port_pick_name.trim().to_string();
+        let name = name.as_str();
         if name.is_empty() {
             self.message = t!("schematic.port.pick_a_name");
             return;
         }
-        let Some(net) = self.port_net_for_name(name).or_else(|| {
-            if self.tool_call("net.create", json!({"name": name})) {
-                self.project
-                    .nets
-                    .iter()
-                    .find(|n| n.name == name)
-                    .map(|n| n.id)
-            } else {
-                None
-            }
-        }) else {
+        let mut found = self.port_net_for_name(name);
+        if found.is_none() && self.tool_call("net.create", json!({"name": name})) {
+            found = self
+                .project
+                .nets
+                .iter()
+                .find(|n| n.name == name)
+                .map(|n| n.id);
+        }
+        let Some(net) = found else {
             self.message = t!("schematic.port.no_net");
             return;
         };

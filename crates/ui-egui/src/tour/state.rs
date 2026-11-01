@@ -146,6 +146,7 @@ pub struct Session {
 }
 
 /// Shell facts the trigger logic needs without importing all of `App`.
+#[derive(Clone, Copy)]
 pub struct ShellView<'a> {
     pub offer_tours: bool,
     pub modal_open: bool,

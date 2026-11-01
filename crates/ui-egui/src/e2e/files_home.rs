@@ -6,23 +6,18 @@
 use super::super::*;
 use super::support::*;
 
-/// Recents pointed at a temp folder for the length of a story; restored on drop.
+/// Recents kept in a settings folder of their own for the length of a story.
 struct IsolatedRecents {
-    _turn: std::sync::MutexGuard<'static, ()>,
+    config: pcbcraft_engine::user_config::UserConfig,
     dir: tempfile::TempDir,
 }
 
 impl IsolatedRecents {
     fn new() -> Result<Self, String> {
-        let turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "recents path lock")? = Some(dir.path().join("recent-designs.json"));
-        pcbcraft_engine::recents::clear_recent_paths();
-        Ok(Self { _turn: turn, dir })
+        let config = pcbcraft_engine::user_config::UserConfig::in_folder(dir.path().join("config"));
+        pcbcraft_engine::recents::clear_recent_paths(&config);
+        Ok(Self { config, dir })
     }
 
     fn file(&self, name: &str) -> String {
@@ -30,18 +25,9 @@ impl IsolatedRecents {
     }
 }
 
-impl Drop for IsolatedRecents {
-    fn drop(&mut self) {
-        pcbcraft_engine::recents::clear_recent_paths();
-        if let Ok(mut path) = pcbcraft_engine::recents::RECENTS_PATH_TEST.lock() {
-            *path = None;
-        }
-    }
-}
-
 /// The sample board saved as two projects, then a new app showing the Files tab.
 fn files_tab(recents: &IsolatedRecents) -> Result<(egui::Context, App, [String; 2]), String> {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let shared = session_with(&recents.config);
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     app.tool_call("sample_design", json!({}));

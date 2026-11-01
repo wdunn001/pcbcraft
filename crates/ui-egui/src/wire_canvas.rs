@@ -3,7 +3,8 @@
 use crate::canvas::snap;
 use crate::{App, Tab, Tool};
 use egui;
-use pcbcraft_doc::{Id, PinRef, Point};
+use pcbcraft_doc::{Id, PinRef};
+use pcbcraft_geom::Point;
 use pcbcraft_geom::point_segment;
 use serde_json::{json, Value};
 
@@ -282,7 +283,7 @@ impl App {
 
     fn net_at_schematic_point(&self, pos: Point, zoom: f32) -> Option<Id> {
         if let Some(pin) = self.pick_pin(pos, zoom) {
-            return self.project.pin(&pin).ok()?.net;
+            return self.project.pin(&pin)?.net;
         }
         let reach = 5.0 / zoom as f64;
         for w in &self.project.drawn_wires {

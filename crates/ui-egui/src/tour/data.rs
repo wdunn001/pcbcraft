@@ -114,7 +114,8 @@ fn validate_with_catalog(doc: &Doc, keys: &BTreeSet<String>) -> Result<(), Strin
         let step_count = tour.steps.len();
         if !(MIN_STEPS..=MAX_STEPS).contains(&step_count) {
             return Err(format!(
-                "tour `{}`: expected {MIN_STEPS} to {MAX_STEPS} steps, found {step_count}"
+                "tour `{}`: expected {MIN_STEPS} to {MAX_STEPS} steps, found {step_count}",
+                tour.id
             ));
         }
         require_catalog_key(keys, &tour.list_key(), &format!("tour `{}` list", tour.id))?;

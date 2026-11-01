@@ -10,7 +10,7 @@ mod layout_art;
 /// Side of the ruler strips at the canvas top and left, shared with the floating
 /// view controls so they sit inside the margin the rulers leave.
 pub(crate) const RULER_SIZE: f32 = 22.0;
-mod sheet;
+pub(crate) mod sheet;
 mod underlay;
 
 /// A `#rrggbb` stroke colour, or None for empty or malformed text.
@@ -1294,7 +1294,7 @@ impl App {
             }
         }
     }
-    fn pick_pin(&self, pos: Point, zoom: f32) -> Option<PinRef> {
+    pub(crate) fn pick_pin(&self, pos: Point, zoom: f32) -> Option<PinRef> {
         let page = self.schematic_page();
         for c in self.project.components.iter().filter(|c| c.sheet == page) {
             for pin in &c.pins {

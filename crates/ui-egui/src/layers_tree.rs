@@ -3794,8 +3794,8 @@ impl crate::App {
                         for side in layer_visibility::layout_layer_groups() {
                             let hide = names.iter().any(|n| {
                                 layer_visibility::legacy_group_for_name(n)
-                                    .is_some_and(|s| s == side)
-                                    || *n == side
+                                    .is_some_and(|s| s == *side)
+                                    || &**n == *side
                             });
                             layer_visibility::set_group_stored(hidden, side, !hide);
                         }

@@ -42,8 +42,10 @@ impl App {
             Card::Project(d) => self.library.editor.draft = Some(Draft::Symbol((**d).clone())),
             Card::Installed(i) => {
                 let (path, name) = (i.path.clone(), i.name.clone());
+                let config = self.user_config();
                 let rx = spawn_read(ctx, move || {
                     pcbcraft_engine::library::read_tool(
+                        &config,
                         "library.inspect_symbol",
                         &json!({"path": path, "name": name}),
                     )
