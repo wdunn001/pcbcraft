@@ -881,13 +881,21 @@ mod tests {
     #[test]
     fn a_box_body_satisfies_the_model_check() {
         let mut def = bare(vec![minimal_smd_pad()], vec![]);
-        assert!(check_footprint(&def).iter().any(|f| f.code == "lib_model_missing"));
+        assert!(
+            check_footprint(&def)
+                .iter()
+                .any(|f| f.code == "lib_model_missing")
+        );
         def.box_body = Some(crate::FootprintBoxBody {
             width: 1.0,
             depth: 0.5,
             height: 0.5,
         });
-        assert!(!check_footprint(&def).iter().any(|f| f.code == "lib_model_missing"));
+        assert!(
+            !check_footprint(&def)
+                .iter()
+                .any(|f| f.code == "lib_model_missing")
+        );
     }
 
     #[test]
@@ -910,7 +918,10 @@ mod tests {
         two.layers = vec!["F.Cu".into(), "F.Mask".into()];
         let mut one = two.clone();
         one.number = "1".into();
-        assert!(missing(&bare(vec![one, two], vec![])), "two pads are not test points");
+        assert!(
+            missing(&bare(vec![one, two], vec![])),
+            "two pads are not test points"
+        );
     }
 
     #[test]

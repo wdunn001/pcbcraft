@@ -17,7 +17,8 @@
 //! - Read a library file from disk; the generator must stay self-contained.
 use pcbcraft_geom::Point;
 use pcbcraft_library::{
-    Drill, FootprintBoxBody, FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
+    ChamferCorners, Drill, FootprintBoxBody, FootprintDefinition, FootprintPad, Graphic,
+    PadChamfer, SymbolDefinition, SymbolPin, UnitGraphic,
 };
 
 /// Millimetres between symbol pin grid points.
@@ -441,7 +442,23 @@ fn outline(body: (f64, f64)) -> Vec<Graphic> {
     )]
 }
 
-/// A small silk dot beside pad 1.
+/// Marks pad 1 by cutting its outer top-left corner, which adds no artwork
+/// and so does not grow the courtyard.
+fn mark_pin1(mut pad: FootprintPad) -> FootprintPad {
+    pad.shape = "chamfered".into();
+    pad.roundrect_ratio = None;
+    pad.chamfer = Some(PadChamfer {
+        ratio: 0.3,
+        corners: ChamferCorners {
+            top_left: true,
+            ..ChamferCorners::default()
+        },
+    });
+    pad
+}
+
+/// A small silk dot for pad 1, for footprints where the dot falls inside
+/// the artwork already drawn.
 fn pin1_dot(x: f64, y: f64) -> Graphic {
     Graphic::Circle {
         center: pt(x, y),
@@ -505,7 +522,9 @@ pub fn chip(
     let mut g = outline(body);
     // Silk sits 0.2 mm off the pads and clear of the body outline.
     let silk_y = (pad.1 / 2.0 + 0.2).max(body.1 / 2.0 + 0.1);
-    if body.1 > 0.0 {
+    // Bodies under 1 mm tall carry no top and bottom silk: it would sit as far
+    // from the pads as the body is wide and only grow the courtyard.
+    if body.1 > 1.0 {
         g.push(gline(
             "F.SilkS",
             (-centre * 0.6, -silk_y),
@@ -527,13 +546,12 @@ pub fn chip(
             0.2,
         ));
     }
-    g.push(pin1_dot(-centre - pad.0 / 2.0 - 0.35, 0.0));
     with_body(
         footprint(
             name,
             "Two-terminal chip package",
             vec![
-                smd("1", -centre, 0.0, pad.0, pad.1),
+                mark_pin1(smd("1", -centre, 0.0, pad.0, pad.1)),
                 smd("2", centre, 0.0, pad.0, pad.1),
             ],
             g,
@@ -545,7 +563,7 @@ pub fn chip(
 /// Small-outline transistor package with three, five or six leads.
 pub fn sot23(name: &str, leads: u8) -> FootprintDefinition {
     let mut pads = vec![
-        smd("1", -1.25, -0.95, 1.0, 0.6),
+        mark_pin1(smd("1", -1.25, -0.95, 1.0, 0.6)),
         smd("2", -1.25, 0.0, 1.0, 0.6),
         smd("3", -1.25, 0.95, 1.0, 0.6),
     ];
@@ -561,16 +579,12 @@ pub fn sot23(name: &str, leads: u8) -> FootprintDefinition {
         }
     }
     let mut g = outline((1.6, 2.9));
-    g.push(gline("F.SilkS", (-0.8, -1.55), (0.8, -1.55), 0.12));
-    g.push(gline("F.SilkS", (-0.8, 1.55), (0.8, 1.55), 0.12));
-    g.push(Graphic::Circle {
-        center: pt(-2.2, -1.5),
-        radius: 0.12,
-        width: 0.12,
-        fill: String::new(),
-        layer: "F.SilkS".into(),
-    });
-    with_body(footprint(name, "Small-outline transistor package", pads, g), 1.1)
+    g.push(gline("F.SilkS", (-0.8, -1.46), (0.8, -1.46), 0.12));
+    g.push(gline("F.SilkS", (-0.8, 1.46), (0.8, 1.46), 0.12));
+    with_body(
+        footprint(name, "Small-outline transistor package", pads, g),
+        1.1,
+    )
 }
 
 /// Eight-lead small-outline package at 1.27 mm pitch.
@@ -578,20 +592,17 @@ pub fn soic8(name: &str) -> FootprintDefinition {
     let mut pads = Vec::new();
     for i in 0..4 {
         let y = -1.905 + 1.27 * f64::from(i);
-        pads.push(smd(&(i + 1).to_string(), -2.7, y, 1.5, 0.6));
+        let pad = smd(&(i + 1).to_string(), -2.7, y, 1.5, 0.6);
+        pads.push(if i == 0 { mark_pin1(pad) } else { pad });
         pads.push(smd(&(8 - i).to_string(), 2.7, y, 1.5, 0.6));
     }
     let mut g = outline((3.9, 4.9));
     g.push(gline("F.SilkS", (-1.95, -2.55), (1.95, -2.55), 0.12));
     g.push(gline("F.SilkS", (-1.95, 2.55), (1.95, 2.55), 0.12));
-    g.push(Graphic::Circle {
-        center: pt(-3.9, -2.4),
-        radius: 0.15,
-        width: 0.12,
-        fill: String::new(),
-        layer: "F.SilkS".into(),
-    });
-    with_body(footprint(name, "Eight-lead small-outline package", pads, g), 1.75)
+    with_body(
+        footprint(name, "Eight-lead small-outline package", pads, g),
+        1.75,
+    )
 }
 
 /// Quad flat no-lead package with 8 pads per side and a centre pad numbered 33.
@@ -622,7 +633,7 @@ pub fn qfn32(name: &str) -> FootprintDefinition {
         g.push(gline("F.SilkS", a, b, 0.12));
     }
     g.push(Graphic::Circle {
-        center: pt(-3.3, -2.0),
+        center: pt(-2.3, -2.3),
         radius: 0.15,
         width: 0.12,
         fill: String::new(),
@@ -646,7 +657,7 @@ pub fn dfn8(name: &str) -> FootprintDefinition {
     g.push(gline("F.SilkS", (-0.6, -1.4), (0.6, -1.4), 0.12));
     g.push(gline("F.SilkS", (-0.6, 1.4), (0.6, 1.4), 0.12));
     g.push(Graphic::Circle {
-        center: pt(-1.8, -1.2),
+        center: pt(-1.15, -1.28),
         radius: 0.12,
         width: 0.12,
         fill: String::new(),
@@ -663,7 +674,7 @@ pub fn crystal_3225(name: &str) -> FootprintDefinition {
     // Pad 1 is top left and the numbers run counter-clockwise; the two
     // crystal terminals are pads 2 and 4, the case pads 1 and 3.
     let pads = vec![
-        smd("1", -1.1, -0.85, 1.4, 1.15),
+        mark_pin1(smd("1", -1.1, -0.85, 1.4, 1.15)),
         smd("2", -1.1, 0.85, 1.4, 1.15),
         smd("3", 1.1, 0.85, 1.4, 1.15),
         smd("4", 1.1, -0.85, 1.4, 1.15),
@@ -672,13 +683,18 @@ pub fn crystal_3225(name: &str) -> FootprintDefinition {
     g.push(gline("F.SilkS", (-1.0, -1.65), (1.0, -1.65), 0.12));
     g.push(gline("F.SilkS", (-1.0, 1.65), (1.0, 1.65), 0.12));
     g.push(gline("F.SilkS", (-2.3, -1.2), (-2.3, 1.2), 0.12));
-    g.push(pin1_dot(-2.65, -0.85));
-    with_body(footprint(name, "Four-pad crystal, 3.2 by 2.5 mm", pads, g), 0.8)
+    with_body(
+        footprint(name, "Four-pad crystal, 3.2 by 2.5 mm", pads, g),
+        0.8,
+    )
 }
 
 /// Surface-mount tactile switch with one wide pad on each side.
 pub fn tact(name: &str) -> FootprintDefinition {
-    let pads = vec![smd("1", -2.3, 0.0, 1.4, 2.4), smd("2", 2.3, 0.0, 1.4, 2.4)];
+    let pads = vec![
+        mark_pin1(smd("1", -2.3, 0.0, 1.4, 2.4)),
+        smd("2", 2.3, 0.0, 1.4, 2.4),
+    ];
     let mut g = outline((4.5, 3.6));
     g.push(gline("F.SilkS", (-1.6, -1.9), (1.6, -1.9), 0.12));
     g.push(gline("F.SilkS", (-1.6, 1.9), (1.6, 1.9), 0.12));
@@ -689,8 +705,10 @@ pub fn tact(name: &str) -> FootprintDefinition {
         fill: String::new(),
         layer: "F.SilkS".into(),
     });
-    g.push(pin1_dot(-3.4, -1.0));
-    with_body(footprint(name, "Tactile switch, 4.5 by 3.6 mm", pads, g), 2.5)
+    with_body(
+        footprint(name, "Tactile switch, 4.5 by 3.6 mm", pads, g),
+        2.5,
+    )
 }
 
 /// Single row through-hole header at the given pitch.
@@ -698,7 +716,7 @@ pub fn header(name: &str, count: u32, pitch: f64, pad: f64, drill: f64) -> Footp
     let mut pads = Vec::new();
     for i in 0..count {
         let shape = if i == 0 { "roundrect" } else { "circle" };
-        pads.push(tht(
+        let mut p = tht(
             &(i + 1).to_string(),
             shape,
             0.0,
@@ -706,11 +724,14 @@ pub fn header(name: &str, count: u32, pitch: f64, pad: f64, drill: f64) -> Footp
             pad,
             pad,
             drill,
-        ));
+        );
+        if i == 0 {
+            p = mark_pin1(p);
+        }
+        pads.push(p);
     }
     let len = f64::from(count - 1) * pitch;
     let g = vec![
-        pin1_dot(-pad / 2.0 - 0.6, 0.0),
         grect(
             "F.Fab",
             (-pitch / 2.0, -pitch / 2.0),

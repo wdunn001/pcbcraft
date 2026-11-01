@@ -59,7 +59,7 @@ pub fn all(g: &mut Gen) -> Res<usize> {
         g,
         "PROG",
         SIG,
-        &[W::P("U1", "4"), W::X(27.72), W::P("R3", "1")],
+        &[W::P("U1", "4"), W::X(28.02), W::P("R3", "1")],
     )?;
     // Battery rail: trunk on the bottom layer. Branches end on a straight run.
     run(
@@ -260,7 +260,7 @@ pub fn all(g: &mut Gen) -> Res<usize> {
         g,
         "I2C_SCL",
         SIG,
-        &[W::B, W::A(61.02, 26.65), W::V, W::P("U6", "1")],
+        &[W::B, W::A(61.02, 27.05), W::V, W::P("U6", "1")],
     )?;
     run(
         g,
@@ -286,7 +286,7 @@ pub fn all(g: &mut Gen) -> Res<usize> {
         g,
         "I2C_SDA",
         SIG,
-        &[W::B, W::A(63.82, 28.55), W::V, W::P("U6", "3")],
+        &[W::B, W::A(63.82, 28.95), W::V, W::P("U6", "3")],
     )?;
     run(
         g,
@@ -297,7 +297,7 @@ pub fn all(g: &mut Gen) -> Res<usize> {
             W::X(44.2),
             W::V,
             W::X(60.4),
-            W::Y(42.95),
+            W::Y(43.95),
             W::X(63.6),
             W::V,
             W::P("U7", "3"),

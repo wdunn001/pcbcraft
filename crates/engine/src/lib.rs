@@ -30046,7 +30046,10 @@ mod tests {
                 matches!(g, pcbcraft_library::Graphic::Rectangle { layer, .. } if pcbcraft_library::is_courtyard_layer(layer))
             })
             .count();
-        assert_eq!(imported, 1, "the fixture arrives with one imported courtyard");
+        assert_eq!(
+            imported, 1,
+            "the fixture arrives with one imported courtyard"
+        );
         s.execute(
             "library.footprint.upsert",
             json!({"definition": definition}),

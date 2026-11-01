@@ -762,7 +762,7 @@ mod tests {
         let text = board_text(shared()?)?;
         assert_eq!(
             (fnv(&text), text.len()),
-            (0x970f_16d2_0502_7ef2, 103_439),
+            (0xbaf0_291b_e5ad_cece, 108_863),
             "the schematic drawing changed the board"
         );
         Ok(())

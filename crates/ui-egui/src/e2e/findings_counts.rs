@@ -237,14 +237,27 @@ fn the_showcase_status_strip_reads_zero_and_the_variant_reads_its_three() -> Res
         app.refresh();
         open_example(&mut app, &dir.join(file))?;
         let set = app.findings();
-        let listed: Vec<String> = set.visible(SeverityFilter::All).map(|r| r.code.clone()).collect();
-        assert_eq!(set.counts().strip(), want, "{file}: strip numbers {listed:?}");
+        let listed: Vec<String> = set
+            .visible(SeverityFilter::All)
+            .map(|r| r.code.clone())
+            .collect();
+        assert_eq!(
+            set.counts().strip(),
+            want,
+            "{file}: strip numbers {listed:?}"
+        );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let errors = app.catalog.plural("board.footer.errors", want.0);
         let warnings = app.catalog.plural("board.footer.warnings", want.1);
-        assert!(paints_text(&ctx, &mut app, &errors)?, "{file}: strip says {errors}");
-        assert!(paints_text(&ctx, &mut app, &warnings)?, "{file}: strip says {warnings}");
+        assert!(
+            paints_text(&ctx, &mut app, &errors)?,
+            "{file}: strip says {errors}"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, &warnings)?,
+            "{file}: strip says {warnings}"
+        );
     }
     Ok(())
 }

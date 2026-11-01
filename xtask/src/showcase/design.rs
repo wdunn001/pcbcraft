@@ -102,7 +102,14 @@ pub const PARTS: &[Part] = &[
         1.1,
         "Single-cell linear charger",
     ),
-    part("R3", "R_0402", "2k", "Chip_0402_N", 0.4, "Charge current set"),
+    part(
+        "R3",
+        "R_0402",
+        "2k",
+        "Chip_0402_N",
+        0.4,
+        "Charge current set",
+    ),
     part(
         "R4",
         "R_0402",
@@ -167,7 +174,14 @@ pub const PARTS: &[Part] = &[
         0.1,
         "Battery test point",
     ),
-    part("TP2", "TP_PAD", "3V3", "Test_Pad_N", 0.1, "Supply test point"),
+    part(
+        "TP2",
+        "TP_PAD",
+        "3V3",
+        "Test_Pad_N",
+        0.1,
+        "Supply test point",
+    ),
     // Compute page.
     part(
         "U3",
@@ -233,7 +247,14 @@ pub const PARTS: &[Part] = &[
         0.5,
         "Analog supply filter",
     ),
-    part("C11", "C_0603", "4.7uF", "Chip_0603_N", 1.0, "Bulk capacitor"),
+    part(
+        "C11",
+        "C_0603",
+        "4.7uF",
+        "Chip_0603_N",
+        1.0,
+        "Bulk capacitor",
+    ),
     part(
         "C12",
         "C_0402",
