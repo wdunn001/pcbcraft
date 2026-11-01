@@ -11,7 +11,7 @@
 //! - Upload bundles from here; callers act on the scan result.
 
 use crate::CommandSpec;
-use pcbcraft_publication::{ScanRequest, scan};
+pub use pcbcraft_publication::*;
 use pcbcraft_doc::Project;
 use serde_json::{Value, json};
 

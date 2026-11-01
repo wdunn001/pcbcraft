@@ -3313,6 +3313,7 @@ dependencies = [
  "pcbcraft-io",
  "pcbcraft-library",
  "pcbcraft-plugin-firmware-target",
+ "pcbcraft-publication",
  "pcbcraft-rules",
  "pcbcraft-sim",
  "pcbcraft-testkit",

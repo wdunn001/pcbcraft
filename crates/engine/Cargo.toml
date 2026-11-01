@@ -10,6 +10,7 @@ workspace = true
 
 [features]
 default = []
+vendor-handoff = []
 plugin-firmware-target = [
     "dep:pcbcraft-plugin-firmware-target",
     "pcbcraft-io/plugin-firmware-target",
@@ -24,6 +25,7 @@ pcbcraft-doc.workspace = true
 pcbcraft-rules.workspace = true
 pcbcraft-io.workspace = true
 pcbcraft-sim.workspace = true
+pcbcraft-publication.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
