@@ -1,7 +1,7 @@
 //! Gerber X2 aperture and file function fidelity (issue #655).
 use pcbcraft_doc::{
-    CopperZone, Footprint, Layer, LayerRecord, Net, Pad, Project, Via, ViaCovering, ZoneConnect,
-    ZonePour,
+    Component, CopperZone, Footprint, Layer, LayerRecord, Net, Pad, Project, Via, ViaCovering,
+    ZoneConnect, ZonePour,
 };
 use pcbcraft_geom::Point;
 use pcbcraft_library::{Drill, FootprintPad};
@@ -23,6 +23,30 @@ fn smdef_pad() -> FootprintPad {
     }
 }
 
+/// The part a placed footprint belongs to: one pin on `net`, with the pad's
+/// geometry embedded so the project validates.
+fn part_for(id: u64, net: u64, pad: &FootprintPad) -> Component {
+    Component {
+        id,
+        reference: format!("U{id}"),
+        value: "part".into(),
+        kind: "connector".into(),
+        pins: vec![pcbcraft_doc::Pin {
+            net: Some(net),
+            ..pcbcraft_doc::Pin::default()
+        }],
+        library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+            library: "Test".into(),
+            definition: pcbcraft_library::FootprintDefinition {
+                name: "T".into(),
+                pads: vec![pad.clone()],
+                ..Default::default()
+            },
+        }),
+        ..Default::default()
+    }
+}
+
 #[test]
 fn a_mask_defined_pad_uses_smdef_for_copper_and_mask() -> Result<(), String> {
     let mut p = Project::default();
@@ -31,9 +55,10 @@ fn a_mask_defined_pad_uses_smdef_for_copper_and_mask() -> Result<(), String> {
         name: "N1".into(),
         ..Default::default()
     });
+    p.components.push(part_for(3, 1, &smdef_pad()));
     p.board.footprints.push(Footprint {
-        id: 1,
-        component: 0,
+        id: 2,
+        component: 3,
         position: Point::new(10.0, 10.0),
         rotation: 0.0,
         locked: None,
@@ -41,7 +66,7 @@ fn a_mask_defined_pad_uses_smdef_for_copper_and_mask() -> Result<(), String> {
         pads: vec![Pad {
             number: "1".into(),
             offset: Point::default(),
-            diameter: 1.0,
+            diameter: 0.6,
             net: Some(1),
             castellated: None,
             geometry: Some(smdef_pad()),
@@ -106,7 +131,7 @@ fn six_layer_plane_board() -> Result<Project, String> {
         },
     ];
     p.board.zones.push(CopperZone {
-        id: 1,
+        id: 11,
         net: 1,
         layer: Layer::from_index(1)?,
         outline: vec![
@@ -126,7 +151,7 @@ fn six_layer_plane_board() -> Result<Project, String> {
         preserved: Default::default(),
     });
     p.board.vias.push(Via {
-        id: 2,
+        id: 12,
         net: 2,
         position: Point::new(20.0, 15.0),
         diameter: 0.6,
@@ -139,7 +164,7 @@ fn six_layer_plane_board() -> Result<Project, String> {
         preserved: Default::default(),
     });
     p.board.vias.push(Via {
-        id: 3,
+        id: 13,
         net: 1,
         position: Point::new(12.0, 12.0),
         diameter: 0.5,
@@ -174,9 +199,27 @@ fn plane_layers_write_antipad_and_thermal_relief_pad() -> Result<(), String> {
 #[test]
 fn inner_through_hole_pads_are_component_pads() -> Result<(), String> {
     let mut p = six_layer_plane_board()?;
+    let through = FootprintPad {
+        number: "1".into(),
+        pad_type: "thru_hole".into(),
+        shape: "circle".into(),
+        position: Point::default(),
+        rotation: 0.0,
+        size: Point::new(1.6, 1.6),
+        layers: vec!["*.Cu".into()],
+        drill: Some(Drill {
+            size: Point::new(0.8, 0.8),
+            offset: Point::default(),
+        }),
+        roundrect_ratio: None,
+        chamfer: None,
+        polygon: vec![],
+        raw_source: String::new(),
+    };
+    p.components.push(part_for(5, 1, &through));
     p.board.footprints.push(Footprint {
         id: 4,
-        component: 0,
+        component: 5,
         position: Point::new(5.0, 5.0),
         rotation: 0.0,
         locked: None,

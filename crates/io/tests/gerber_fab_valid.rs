@@ -139,7 +139,7 @@ fn fab_bundle_project() -> Result<Project, String> {
     embedded2.number = "2".into();
     embedded2.position = Point::new(2.0, 0.0);
     project.board.footprints.push(pcbcraft_doc::Footprint {
-        id: 1,
+        id: 9,
         component: 1,
         position: Point::new(0.0, 0.0),
         rotation: 0.0,
@@ -155,16 +155,18 @@ fn fab_bundle_project() -> Result<Project, String> {
         kind: "connector".into(),
         position: Point::new(0.0, 0.0),
         rotation: 0.0,
-        pins: vec![pcbcraft_doc::Pin {
-            number: "1".into(),
-            name: String::new(),
-            offset: Point::default(),
-            net: None,
-            electrical_type: "passive".into(),
-            direction: None,
-            unit: 1,
-            appearances: Default::default(),
-        }],
+        pins: ["1", "2"]
+            .map(|number| pcbcraft_doc::Pin {
+                number: number.into(),
+                name: String::new(),
+                offset: Point::default(),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+                appearances: Default::default(),
+            })
+            .to_vec(),
         units: vec![],
         library_symbol: None,
         library_footprint: Some(pcbcraft_doc::LibraryFootprint {

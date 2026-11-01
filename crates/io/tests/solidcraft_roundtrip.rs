@@ -127,7 +127,25 @@ fn export_then_read_back_preserves_parts() -> Check {
         let text = solidcraft_board(&project, &mesh, SolidcraftLayers::default())?;
         let exported = read_solidcraft(text.as_bytes())?;
         let round = read_solidcraft(write_solidcraft_json(&exported)?.as_bytes())?;
-        assert!(designs_equal(&exported, &round));
+        if !designs_equal(&exported, &round) {
+            let a = design_as_value(&exported)?;
+            let b = design_as_value(&round)?;
+            let keys: Vec<&String> = a
+                .as_object()
+                .map(|m| {
+                    m.keys()
+                        .filter(|k| a.get(k.as_str()) != b.get(k.as_str()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let first =
+                |v: &Value, key: &str| v.get(key).map(|x| x.to_string()).unwrap_or_default();
+            return Err(format!(
+                "seed {seed}: designs differ in {keys:?}: {} against {}",
+                first(&a, "occurrences"),
+                first(&b, "occurrences")
+            ));
+        }
         let before = part_snapshots(&exported)?;
         let after = part_snapshots(&round)?;
         assert_eq!(before.len(), after.len());

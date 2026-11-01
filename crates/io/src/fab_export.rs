@@ -248,6 +248,19 @@ enum Ap {
     Rect(u64, u64),
     Obround(u64, u64),
     Round(u64, u64, u64),
+    /// A one micrometre disc that names the region it draws: 0 for a plain
+    /// opening, 1 for a pad whose copper the mask defines, 2 for a copper
+    /// defined surface pad.
+    Region(u8),
+}
+
+/// The aperture function an `Ap::Region` stands for.
+fn region_function(kind: u8) -> Option<&'static str> {
+    match kind {
+        1 => Some("SMDPad,SMDef"),
+        2 => Some("SMDPad,CuDef"),
+        _ => None,
+    }
 }
 
 struct LayerAttrs<'a> {
@@ -380,14 +393,14 @@ impl GerberLayer {
         self.select(code);
         self.body.push_str("G75*\n");
         self.body.push_str(&format!(
-            "X{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\n",
+            "X{}Y{}D02*\nG0{}*\nX{}Y{}I{}J{}D01*\nG01*\n",
             coordinate(sx * self.scale),
             coordinate(sy * self.scale),
+            if clockwise { 2 } else { 3 },
             coordinate(ex * self.scale),
             coordinate(ey * self.scale),
             coordinate((cx - sx) * self.scale),
             coordinate((cy - sy) * self.scale),
-            if clockwise { 2 } else { 3 }
         ));
         Ok(())
     }
@@ -411,8 +424,16 @@ impl GerberLayer {
             file_function = attrs.file_function,
             polarity = attrs.polarity
         );
-        for (ap, code) in &self.apertures {
+        let mut by_code: Vec<(&Ap, &u32)> = self.apertures.iter().collect();
+        by_code.sort_by_key(|(_, code)| **code);
+        for (ap, code) in by_code {
             match *ap {
+                Ap::Region(kind) => {
+                    if let Some(function) = region_function(kind) {
+                        out.push_str(&format!("%TA.AperFunction,{function}*%\n"));
+                    }
+                    out.push_str(&format!("%ADD{code}C,0.001*%\n"));
+                }
                 Ap::Circle(d) => out.push_str(&format!(
                     "%ADD{code}C,{:.3}*%\n",
                     d as f64 / 1000.0 * self.scale
@@ -940,12 +961,21 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 
             let mask_on_front = through || !is_back;
             let mask_on_back = through || is_back;
+            let region_kind = if pad_is_smd(pad) {
+                if crate::gerber_fidelity::pad_mask_defined(f, pad) {
+                    1
+                } else {
+                    2
+                }
+            } else {
+                0
+            };
             if mask_on_front && !mask_ring.is_empty() {
-                let code = mask_front.code(Ap::Circle(1))?;
+                let code = mask_front.code(Ap::Region(region_kind))?;
                 mask_front.fill(code, &outline_ring(&mask_ring))?;
             }
             if mask_on_back && !mask_ring.is_empty() {
-                let code = mask_back.code(Ap::Circle(1))?;
+                let code = mask_back.code(Ap::Region(region_kind))?;
                 let mirrored: Vec<(f64, f64)> = mask_ring
                     .iter()
                     .map(|(x, y)| mirror(*x, *y, true))
@@ -983,8 +1013,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             back.flash(back_code, x, y)?;
         }
 
-        let open_top = reaches_top && via_mask_opening_on_face(v, &p.board, false);
-        let open_bottom = reaches_bottom && via_mask_opening_on_face(v, &p.board, true);
+        let open_top = reaches_top && via_mask_opening_on_face(v, &p.board, true);
+        let open_bottom = reaches_bottom && via_mask_opening_on_face(v, &p.board, false);
         if open_top || open_bottom {
             let margin = DEFAULT_MASK_MARGIN_MM;
             let r = v.drill / 2.0 + margin;
@@ -1119,25 +1149,23 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     files.extend(crate::backdrill::backdrill_files(
         p, scale, origin, inch, tolerance,
     )?);
-    if !plated.is_empty() {
-        files.insert(
-            "pcb-Plated.drl".into(),
-            write_excellon(&plated, "Plated,1,2,PTH", scale, origin, inch, tolerance)?,
-        );
-    }
-    if !unplated.is_empty() {
-        files.insert(
-            "pcb-NPTH.drl".into(),
-            write_excellon(
-                &unplated,
-                "NonPlated,1,2,NPTH",
-                scale,
-                origin,
-                inch,
-                tolerance,
-            )?,
-        );
-    }
+    // Both split drill files are always written, empty ones included, so a
+    // fabricator finds the same set of files for every board.
+    files.insert(
+        "pcb-Plated.drl".into(),
+        write_excellon(&plated, "Plated,1,2,PTH", scale, origin, inch, tolerance)?,
+    );
+    files.insert(
+        "pcb-NPTH.drl".into(),
+        write_excellon(
+            &unplated,
+            "NonPlated,1,2,NPTH",
+            scale,
+            origin,
+            inch,
+            tolerance,
+        )?,
+    );
     // Blind and buried vias drill in their own passes: one file per span.
     let last = p.copper_layer_count().saturating_sub(1);
     let mut spans: BTreeMap<(u8, u8), Vec<DrillHit>> = BTreeMap::new();
@@ -1211,6 +1239,11 @@ mod fab_export_tests {
     #[test]
     fn drill_tool_counts_groups_by_diameter_and_plating() -> Result<(), String> {
         let mut p = Project::default();
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "N".into(),
+            ..Default::default()
+        });
         p.board.vias.push(Via {
             id: 10,
             net: 1,

@@ -264,7 +264,7 @@ pub fn bom_references_from_csv(csv: &str) -> Result<BTreeSet<String>, String> {
     let columns = csv_row_fields(header);
     let references_at = columns
         .iter()
-        .position(|c| c == "references")
+        .position(|c| c == "Reference" || c == "references")
         .ok_or("a bill of materials needs a references column")?;
     let mut refs = BTreeSet::new();
     for line in lines {
@@ -526,7 +526,7 @@ mod tests {
             kind: kind.into(),
             position: pcbcraft_geom::Point::new(1.0, 1.0),
             rotation: 0.0,
-            pins: Vec::new(),
+            pins: vec![pcbcraft_doc::Pin::default()],
             units: Vec::new(),
             library_symbol: None,
             library_footprint: None,

@@ -164,7 +164,11 @@ mod tests {
     #[test]
     fn save_rewrites_bottom_copper_to_stackup_name() -> Result<(), String> {
         let project = four_layer()?;
-        let mut value = serde_json::to_value(&project).map_err(|e| e.to_string())?;
+        // A board serialized on its own has no stackup context, so it keeps
+        // the index-derived names; a whole project writes stackup names itself.
+        let mut value = serde_json::json!({
+            "board": serde_json::to_value(&project.board).map_err(|e| e.to_string())?
+        });
         assert!(
             value["board"]["tracks"][0]["layer"] == "In3.Cu",
             "serde still writes index-derived inner names"
@@ -177,9 +181,11 @@ mod tests {
     #[test]
     fn load_keeps_legacy_index_derived_bottom_name() -> Result<(), String> {
         let project = four_layer()?;
-        let root: Value = serde_json::to_value(&project).map_err(|e| e.to_string())?;
-        let mut loaded: Project =
-            serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
+        let root: Value = serde_json::json!({
+            "board": serde_json::to_value(&project.board).map_err(|e| e.to_string())?
+        });
+        let mut loaded = project.clone();
+        loaded.board = serde_json::from_value(root["board"].clone()).map_err(|e| e.to_string())?;
         assert_eq!(loaded.board.tracks[0].layer.index(), 3);
         read_stackup_copper_names(&mut loaded, &root)?;
         assert_eq!(loaded.board.tracks[0].layer.index(), 3);
@@ -189,11 +195,12 @@ mod tests {
     #[test]
     fn load_maps_bottom_name_on_multilayer_board() -> Result<(), String> {
         let project = four_layer()?;
-        let text = serde_json::to_string(&project).map_err(|e| e.to_string())?;
-        let text = text.replace("\"In3.Cu\"", "\"B.Cu\"");
-        let root: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        let mut loaded: Project =
-            serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
+        let board_json = serde_json::to_string(&project.board).map_err(|e| e.to_string())?;
+        let board_json = board_json.replace("\"In3.Cu\"", "\"B.Cu\"");
+        let board: Value = serde_json::from_str(&board_json).map_err(|e| e.to_string())?;
+        let root = serde_json::json!({ "board": board });
+        let mut loaded = project.clone();
+        loaded.board = serde_json::from_value(root["board"].clone()).map_err(|e| e.to_string())?;
         assert_eq!(
             loaded.board.tracks[0].layer.index(),
             1,

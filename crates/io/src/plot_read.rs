@@ -363,6 +363,8 @@ fn classify_from_x2(file_function: &str) -> PlotLayerKind {
         PlotLayerKind::Mask
     } else if ff.contains("paste") {
         PlotLayerKind::Paste
+    } else if ff.contains("drillmap") {
+        PlotLayerKind::DrillMap
     } else if ff.contains("legend") || ff.contains("silk") {
         PlotLayerKind::Silk
     } else {

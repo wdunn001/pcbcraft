@@ -190,6 +190,14 @@ fn normalize_value(value: &Value) -> Value {
             Value::Object(out)
         }
         Value::Array(items) => Value::Array(items.iter().map(normalize_value).collect()),
+        // Numbers survive a text round trip only to the last digit or two, so
+        // equal designs agree to a nanometre (and negative zero is zero).
+        Value::Number(n) if n.is_f64() => {
+            let v = n.as_f64().unwrap_or(0.0);
+            let rounded = (v * 1e9).round() / 1e9;
+            serde_json::Number::from_f64(if rounded == 0.0 { 0.0 } else { rounded })
+                .map_or(Value::Null, Value::Number)
+        }
         other => other.clone(),
     }
 }

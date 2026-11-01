@@ -395,7 +395,7 @@ fn gerber_mount(mount: &str) -> &'static str {
         "THT" => "TH",
         "SMT" => "SMD",
         "PressFit" => "Other",
-        _ if mount.starts_with("FID") => "Fiducial",
+        // The reference reader knows TH, SMD, PressFit and Other; a fiducial is Other.
         _ => "Other",
     }
 }
@@ -462,9 +462,9 @@ pub fn gerber_component_layers(
             }
             body.push_str(&format!("%TO.CRot,{rotation:.3}*%\n"));
             body.push_str(&format!(
-                "X{:.6}Y{:.6}D03*\n%TD*%\n",
-                f.position.x * scale,
-                f.position.y * scale
+                "X{}Y{}D03*\n%TD*%\n",
+                crate::gerber::coordinate(f.position.x * scale),
+                crate::gerber::coordinate(f.position.y * scale)
             ));
         }
         for (i, fid) in p.board.fiducials.iter().enumerate() {
@@ -478,12 +478,12 @@ pub fn gerber_component_layers(
             let reference = format!("FID{:02}", i + 1);
             body.push_str("D10*\n");
             body.push_str(&format!("%TO.C,{}*%\n", reference));
-            body.push_str("%TO.CMnt,Fiducial*%\n");
+            body.push_str("%TO.CMnt,Other*%\n");
             body.push_str("%TO.CRot,0*%\n");
             body.push_str(&format!(
-                "X{:.6}Y{:.6}D03*\n%TD*%\n",
-                fid.position.x * scale,
-                fid.position.y * scale
+                "X{}Y{}D03*\n%TD*%\n",
+                crate::gerber::coordinate(fid.position.x * scale),
+                crate::gerber::coordinate(fid.position.y * scale)
             ));
         }
         let file_function = format!("Component,L{layer_index},{side_tag}");
@@ -504,7 +504,10 @@ pub fn gerber_component_layers(
             unit = if inch { "MOIN" } else { "MOMM" },
             aperture = aperture_mm,
         );
-        files.insert(format!("pcb-{suffix}.Cmp.gbr"), text);
+        files.insert(
+            format!("pcb-{suffix}.Cmp.gbr"),
+            crate::gerber_fidelity::attach_gerber_md5(text),
+        );
     }
     Ok(files)
 }

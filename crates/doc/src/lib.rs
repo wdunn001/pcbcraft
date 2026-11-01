@@ -3013,7 +3013,24 @@ impl LayerRecord {
             && self.name.len() <= 64
             && matches!(
                 self.kind.as_str(),
-                "copper" | "core" | "prepreg" | "soldermask" | "silkscreen" | "paste" | "custom"
+                "copper"
+                    | "core"
+                    | "prepreg"
+                    | "soldermask"
+                    | "silkscreen"
+                    | "paste"
+                    | "custom"
+                    | "adhesive"
+                    | "coverlay"
+                    | "stiffener"
+                    | "peelable_mask"
+                    | "carbon_ink"
+                    | "gold_mask"
+                    | "heatsink_mask"
+                    | "silver_mask"
+                    | "tin_mask"
+                    | "plating"
+                    | "finish"
             )
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
@@ -3051,6 +3068,9 @@ impl LayerRecord {
             "soldermask" => "soldermask",
             "silkscreen" => "silkscreen",
             "paste" => "paste",
+            kind @ ("adhesive" | "coverlay" | "stiffener" | "peelable_mask" | "carbon_ink"
+            | "gold_mask" | "heatsink_mask" | "silver_mask" | "tin_mask" | "plating"
+            | "finish") => kind,
             _ => "other",
         }
     }
@@ -7374,8 +7394,13 @@ pub fn validate_footprint_support(
             p.layers.iter().any(|l| l == "*.Cu")
                 || (p.layers.iter().any(|l| l == "F.Cu") && p.layers.iter().any(|l| l == "B.Cu"))
         } else {
-            p.layers.iter().any(|l| l == "F.Cu")
-                && !p.layers.iter().any(|l| l == "B.Cu" || l == "*.Cu")
+            // A mask-defined surface pad has no copper layer of its own: the
+            // mask opening defines the pad.
+            let mask_defined = !p.layers.iter().any(|l| l.ends_with(".Cu") || l == "F&B.Cu")
+                && p.layers.iter().any(|l| l == "F.Mask");
+            (p.layers.iter().any(|l| l == "F.Cu")
+                && !p.layers.iter().any(|l| l == "B.Cu" || l == "*.Cu"))
+                || mask_defined
         };
         let drill_ok = if p.pad_type == "thru_hole" {
             drill_inside_pad(p)

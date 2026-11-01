@@ -1,9 +1,13 @@
 //! Compact on-disk encoding of a loaded model (millimetres, Z up).
+use crate::mesh_material::MaterialClass;
 use crate::model_load::{LoadedModel, ModelError};
 use sha2::{Digest, Sha256};
 
 const MAGIC: &[u8; 4] = b"PCBM";
-pub const COMPACT_VERSION: u32 = 1;
+/// Version 2 stores the per-body colours and the per-triangle materials after
+/// the geometry; version 1 entries (geometry only) still decode.
+pub const COMPACT_VERSION: u32 = 2;
+const COMPACT_VERSION_GEOMETRY_ONLY: u32 = 1;
 
 fn bad(why: &str) -> ModelError {
     ModelError(why.to_string())
@@ -116,6 +120,32 @@ pub fn encode_compact(
     for i in &model.indices {
         out.extend_from_slice(&i.to_le_bytes());
     }
+    match &model.body_colors {
+        Some(colors) => {
+            out.push(1);
+            let n = u32::try_from(colors.len())
+                .map_err(|_| bad("the model has too many body colours to store"))?;
+            out.extend_from_slice(&n.to_le_bytes());
+            for c in colors {
+                for v in c {
+                    out.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+        }
+        None => out.push(0),
+    }
+    let n_mat = u32::try_from(model.triangle_materials.len())
+        .map_err(|_| bad("the model has too many triangles to store"))?;
+    out.extend_from_slice(&n_mat.to_le_bytes());
+    out.extend(model.triangle_materials.iter().map(|m| *m as u8));
+    let n_auth = u32::try_from(model.authored_colors.len())
+        .map_err(|_| bad("the model has too many authored colours to store"))?;
+    out.extend_from_slice(&n_auth.to_le_bytes());
+    for c in &model.authored_colors {
+        for v in c {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+    }
     Ok(out)
 }
 
@@ -135,7 +165,7 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
         return Err(bad("the stored model file is not a PCBM cache entry"));
     }
     let version = le_u32(take(&mut off, 4, bytes)?)?;
-    if version != COMPACT_VERSION {
+    if version != COMPACT_VERSION && version != COMPACT_VERSION_GEOMETRY_ONLY {
         return Err(bad("the stored model file uses an unsupported version"));
     }
     let _loader = le_u32(take(&mut off, 4, bytes)?)?;
@@ -167,6 +197,41 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     for _ in 0..n_idx {
         indices.push(le_u32(take(&mut off, 4, bytes)?)?);
     }
+    let mut body_colors = None;
+    let mut triangle_materials = Vec::new();
+    let mut authored_colors = Vec::new();
+    if version >= COMPACT_VERSION {
+        let has_bodies = *take(&mut off, 1, bytes)?
+            .first()
+            .ok_or_else(|| bad("the stored model file is truncated"))?;
+        if has_bodies != 0 {
+            let n = le_u32(take(&mut off, 4, bytes)?)? as usize;
+            let mut colors = Vec::with_capacity(n.min(1 << 16));
+            for _ in 0..n {
+                let mut c = [0f32; 3];
+                for slot in &mut c {
+                    *slot = le_f32(take(&mut off, 4, bytes)?)?;
+                }
+                colors.push(c);
+            }
+            body_colors = Some(colors);
+        }
+        let n_mat = le_u32(take(&mut off, 4, bytes)?)? as usize;
+        for code in take(&mut off, n_mat, bytes)? {
+            triangle_materials.push(
+                MaterialClass::from_code(*code)
+                    .ok_or_else(|| bad("the stored model file has an unknown material"))?,
+            );
+        }
+        let n_auth = le_u32(take(&mut off, 4, bytes)?)? as usize;
+        for _ in 0..n_auth {
+            let mut c = [0f32; 3];
+            for slot in &mut c {
+                *slot = le_f32(take(&mut off, 4, bytes)?)?;
+            }
+            authored_colors.push(c);
+        }
+    }
     if off != bytes.len() {
         return Err(bad("the stored model file has trailing bytes"));
     }
@@ -174,9 +239,9 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
         positions,
         indices,
         color,
-        body_colors: Default::default(),
-        triangle_materials: vec![],
-        authored_colors: vec![],
+        body_colors,
+        triangle_materials,
+        authored_colors,
     })
 }
 
@@ -217,9 +282,9 @@ mod tests {
             positions: vec![[0.0, 0.0, 0.0], [1.0, 2.0, 3.0]],
             indices: vec![0, 1, 2],
             color: Some([0.5, 0.25, 1.0]),
-            body_colors: Default::default(),
-            triangle_materials: vec![],
-            authored_colors: vec![],
+            body_colors: Some(vec![[0.1, 0.2, 0.3]]),
+            triangle_materials: vec![MaterialClass::Authored],
+            authored_colors: vec![[0.5, 0.5, 0.25]],
         };
         let digest = source_digest(b"source");
         let bytes = encode_compact(&model, 1, 0.05, &digest).map_err(|e| e.0)?;

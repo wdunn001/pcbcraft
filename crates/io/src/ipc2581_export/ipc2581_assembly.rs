@@ -41,7 +41,8 @@ impl Writer {
         Ok(())
     }
 
-    pub(super) fn write_assembly_root(
+    /// The bill of materials sits between the history record and the Ecad section.
+    pub(super) fn write_assembly_bom_root(
         &mut self,
         p: &Project,
         meta: &AssemblyMeta,
@@ -49,6 +50,15 @@ impl Writer {
         if meta.write_bom {
             self.write_bom(p)?;
         }
+        Ok(())
+    }
+
+    /// The approved vendor list follows the Ecad section.
+    pub(super) fn write_assembly_avl_root(
+        &mut self,
+        p: &Project,
+        meta: &AssemblyMeta,
+    ) -> Result<(), String> {
         if meta.write_avl {
             self.write_avl(p)?;
         }
@@ -74,8 +84,31 @@ impl Writer {
             }
             let package = package_name(c);
             if packages.insert(package.clone()) {
+                // The package outline is the box around the footprint's pads.
+                let (mut lo_x, mut lo_y, mut hi_x, mut hi_y) =
+                    (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                for pad in &f.pads {
+                    let (w, h) = pad
+                        .geometry
+                        .as_ref()
+                        .map_or((pad.diameter, pad.diameter), |g| (g.size.x, g.size.y));
+                    lo_x = lo_x.min(pad.offset.x - w / 2.0);
+                    hi_x = hi_x.max(pad.offset.x + w / 2.0);
+                    lo_y = lo_y.min(pad.offset.y - h / 2.0);
+                    hi_y = hi_y.max(pad.offset.y + h / 2.0);
+                }
+                if lo_x > hi_x || lo_y > hi_y {
+                    (lo_x, lo_y, hi_x, hi_y) = (-0.5, -0.5, 0.5, 0.5);
+                }
                 self.push(&format!(
-                    "<Package name=\"{}\" type=\"OTHER\">\n</Package>\n",
+                    "<Package name=\"{}\" type=\"OTHER\" pinOneOrientation=\"OTHER\">\n\
+                     <Outline>\n<Polygon>\n\
+                     <PolyBegin x=\"{lo_x:.6}\" y=\"{lo_y:.6}\"/>\n\
+                     <PolyStepSegment x=\"{hi_x:.6}\" y=\"{lo_y:.6}\"/>\n\
+                     <PolyStepSegment x=\"{hi_x:.6}\" y=\"{hi_y:.6}\"/>\n\
+                     <PolyStepSegment x=\"{lo_x:.6}\" y=\"{hi_y:.6}\"/>\n\
+                     <PolyStepSegment x=\"{lo_x:.6}\" y=\"{lo_y:.6}\"/>\n\
+                     </Polygon>\n<LineDescRef id=\"trace\"/>\n</Outline>\n</Package>\n",
                     xml_escape(&package)
                 ))?;
             }
@@ -106,13 +139,13 @@ impl Writer {
                 xml_escape(&layer_ref),
                 xml_escape(&part),
             ))?;
+            if rotation.abs() > 1e-9 {
+                self.push(&format!("<Xform rotation=\"{rotation:.6}\"/>\n"))?;
+            }
             self.push(&format!(
                 "<Location x=\"{:.6}\" y=\"{:.6}\"/>\n",
                 f.position.x, f.position.y
             ))?;
-            if rotation.abs() > 1e-9 {
-                self.push(&format!("<Xform rotation=\"{rotation:.6}\"/>\n"))?;
-            }
             self.push("</Component>\n")?;
         }
         Ok(())
@@ -437,7 +470,9 @@ fn oem_part_id(c: &Component, package: &str) -> String {
     let base = if !component_mpn(c).is_empty() {
         component_mpn(c).to_string()
     } else if !c.value.is_empty() {
-        format!("{}_{}", c.kind, c.value)
+        // The same value in two packages is two bill items, so the package is
+        // part of the number.
+        format!("{}_{}_{}", c.kind, c.value, package)
     } else {
         format!("{}_{}", c.kind, package)
     };

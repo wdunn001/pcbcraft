@@ -435,19 +435,8 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
         if !project.via_conducting_layers(via).contains(&layer) {
             continue;
         }
-        if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer) {
-            let at = via.position;
-            if !plated_item_connected_on_layer(
-                project,
-                via.net,
-                at,
-                via.diameter / 2.0,
-                layer,
-                PlatedConnectKind::Via,
-            ) {
-                continue;
-            }
-        }
+        // An inner pad left off the plot still has its barrel through the
+        // layer, so the pour keeps its clearance around the via.
         items.push(Item {
             id: via.id,
             net: via.net,
@@ -599,6 +588,10 @@ pub fn plated_item_connected_on_layer(
     }
     for via in project.board.vias.iter().filter(|v| v.net == net) {
         if !project.via_span_layers(via).contains(&layer) {
+            continue;
+        }
+        // A via is not tied to the layer by its own barrel.
+        if kind == PlatedConnectKind::Via && at.distance(via.position) < 1e-9 {
             continue;
         }
         if at.distance(via.position) <= reach + via.diameter / 2.0 {

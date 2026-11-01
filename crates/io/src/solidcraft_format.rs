@@ -38,6 +38,11 @@ pub const MAX_CONTAINER_ENTRIES: usize = 10_000;
 /// Most bytes all stored payloads may expand to together.
 pub const MAX_CONTAINER_EXPANDED: usize = 512 * 1024 * 1024;
 
+/// The root component is saved with a null parent; read that as zero.
+fn null_as_zero<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+    Ok(Option::<u64>::deserialize(d)?.unwrap_or(0))
+}
+
 /// One component in the design tree.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SolidcraftComponent {
@@ -46,7 +51,7 @@ pub struct SolidcraftComponent {
     /// Display name.
     pub name: String,
     /// Parent component id, or zero for the root.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_zero")]
     pub parent: u64,
     /// Keys not modeled in this subset.
     #[serde(flatten)]
@@ -61,7 +66,7 @@ pub struct SolidcraftOccurrence {
     /// Component this occurrence instantiates.
     pub component: u64,
     /// Parent occurrence id, or zero for the root.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_zero")]
     pub parent: u64,
     /// Optional label.
     #[serde(default, skip_serializing_if = "String::is_empty")]

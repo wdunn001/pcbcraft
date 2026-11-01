@@ -25,7 +25,7 @@ struct FootprintOutline {
 fn idf_float(v: f64) -> String {
     let r = (v * 1000.0).round() / 1000.0;
     if r == 0.0 {
-        "0.0".into()
+        "0.000".into()
     } else {
         format!("{r:.3}")
     }
@@ -165,7 +165,7 @@ pub fn idf_board(p: &Project) -> Result<String, String> {
         ));
         let side = if is_bottom_side(fp) { "BOTTOM" } else { "TOP" };
         out.push_str(&format!(
-            "{} {} 0.0 {} {} PLACED\n",
+            "{} {} 0.000 {} {} PLACED\n",
             idf_float(fp.position.x),
             idf_float(fp.position.y),
             idf_float(fp.rotation),

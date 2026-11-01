@@ -356,8 +356,12 @@ fn walk_edge_loop(
     let inner = &body[open + 1..close];
     let mut ring = Vec::new();
     for token in inner.split(',') {
-        let token = token.trim().trim_start_matches('#');
-        let edge_id: u32 = token.parse().ok()?;
+        // The loop name comes first and the edge list is parenthesised.
+        let token = token.trim().trim_start_matches('(').trim_end_matches(')');
+        let Some(token) = token.strip_prefix('#') else {
+            continue;
+        };
+        let edge_id: u32 = token.trim().parse().ok()?;
         if let Some(point) = edge_start_point(edge_id, entities, points) {
             push_vertex(&mut ring, point);
         }
@@ -431,7 +435,7 @@ mod tests {
     }
 
     fn inject_before_endsec(mut text: String, line: &str) -> Vec<u8> {
-        if let Some(index) = text.find("ENDSEC;") {
+        if let Some(index) = text.rfind("ENDSEC;") {
             text.insert_str(index, line);
         } else {
             text.push_str(line);

@@ -574,6 +574,10 @@ mod tests {
             reference: "R1".into(),
             value: "1k".into(),
             kind: "resistor".into(),
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "project".into(),
+                definition: footprint.clone(),
+            }),
             ..Default::default()
         });
         project.components.push(Component {
@@ -581,6 +585,10 @@ mod tests {
             reference: "R2".into(),
             value: "2k2".into(),
             kind: "resistor".into(),
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "project".into(),
+                definition: footprint.clone(),
+            }),
             ..Default::default()
         });
         project.board.footprints.push(Footprint {
@@ -605,10 +613,16 @@ mod tests {
                 let mut p2 = pad_geom("2")?;
                 p1.offset = Point::new(-p1.offset.x, p1.offset.y);
                 p2.offset = Point::new(-p2.offset.x, p2.offset.y);
+                for pad in [&mut p1, &mut p2] {
+                    if let Some(g) = pad.geometry.as_mut() {
+                        g.position = pad.offset;
+                    }
+                }
                 vec![p1, p2]
             },
             preserved: Default::default(),
         });
+        crate::test_support::embed_pad_geometry(&mut project);
         project.validate()?;
         Ok(project)
     }

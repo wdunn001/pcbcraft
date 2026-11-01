@@ -100,18 +100,10 @@ fn paste_margin(p: &Project, footprint: &Footprint) -> f64 {
         .unwrap_or(crate::gerber::DEFAULT_PASTE_MARGIN)
 }
 
-fn pad_on_layer(_fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
-    let paste = if layer == Layer::Front {
-        "F.Paste"
-    } else {
-        "B.Paste"
-    };
-    pad.geometry.as_ref().is_some_and(|g| {
-        g.drill.is_none()
-            && !g.pad_type.starts_with("thru_hole")
-            && !g.pad_type.starts_with("np_thru_hole")
-            && g.layers.iter().any(|l| l == paste)
-    })
+/// Whether the pad takes stencil paste on `layer`: a surface-mounted pad on
+/// the face its part sits on, as the paste Gerber decides it.
+fn pad_on_layer(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
+    crate::gerber::pad_is_smd(pad) && crate::gerber::pad_on_side(fp, pad, layer)
 }
 
 fn opening_ring(
@@ -391,7 +383,7 @@ mod stencil_tests {
         let mut p = Project::default();
         let pad = pcbcraft_doc::Pad {
             number: "1".into(),
-            diameter: 1.0,
+            diameter: 0.8,
             offset: Point::default(),
             geometry: Some(pcbcraft_library::FootprintPad {
                 number: "1".into(),
@@ -400,7 +392,7 @@ mod stencil_tests {
                 position: Point::default(),
                 rotation: 0.0,
                 size: Point::new(1.2, 0.8),
-                layers: vec!["B.Cu".into(), "B.Paste".into(), "B.Mask".into()],
+                layers: vec!["F.Cu".into(), "F.Paste".into(), "F.Mask".into()],
                 drill: None,
                 roundrect_ratio: None,
                 chamfer: None,
@@ -411,11 +403,12 @@ mod stencil_tests {
             net: Default::default(),
         };
         p.board.footprints.push(Footprint {
-            id: 1,
+            id: 3,
             component: 1,
             position: Point::new(30.0, 20.0),
             rotation: 0.0,
             pads: vec![pad.clone()],
+            side: Some(Layer::Back),
             ..Default::default()
         });
         p.components.push(pcbcraft_doc::Component {
@@ -443,8 +436,9 @@ mod stencil_tests {
             id: 2,
             position: Point::new(5.0, 5.0),
             diameter: 1.0,
-            layer: Layer::Front,
+            layer: Layer::Back,
         });
+        crate::test_support::embed_pad_geometry(&mut p);
         p.validate()?;
         Ok(p)
     }
@@ -471,10 +465,12 @@ mod stencil_tests {
 
     #[test]
     fn stencil_cut_mirrors_bottom_openings_only() -> Result<(), String> {
-        let p = back_smd_fixture()?;
+        let mut p = back_smd_fixture()?;
+        // Off the centre line of the 60 mm board, so the mirror moves the pad.
+        p.board.footprints[0].position = Point::new(10.0, 20.0);
         let svg = stencil_cut_svg(&p, &StencilOptions::default())?;
         assert!(
-            svg.contains("300") && svg.contains("20"),
+            svg.contains("viewBox=\"49.4 19.6 1.2 0.8\""),
             "bottom pad appears mirrored in cut view: {svg}"
         );
         Ok(())

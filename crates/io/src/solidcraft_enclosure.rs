@@ -70,6 +70,14 @@ fn scene_from_design(
 ) -> Result<Vec<EnclosureBody>, String> {
     let worlds = occurrence_worlds(design)?;
     let mut out = vec![];
+    // Bodies that belong to no component (a board export's board) sit in the
+    // file frame, moved only by the user placement.
+    let root_placed = design.occurrences.iter().any(|occ| occ.component == 0);
+    for feature in &design.features {
+        if !root_placed && feature_matches_component(feature, 0) {
+            push_feature(feature, placement, &design.appearances, &mut out)?;
+        }
+    }
     for occ in &design.occurrences {
         let Some(world) = worlds.get(&occ.id) else {
             continue;
