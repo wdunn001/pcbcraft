@@ -18,6 +18,8 @@
 //! # Do not
 //! - Use `async`/`.await` inside `Fetcher::get` (no async-to-sync bridge).
 
+// The recorded backend only serves native tests; the browser build reaches the live one.
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 #[cfg(target_arch = "wasm32")]
 use pcbcraft_library::cad::MAX_FILE_BYTES;
 use pcbcraft_library::open_library::{FetchError, Fetcher};
@@ -239,7 +241,7 @@ impl BrowserTransport {
         let in_flight = FLIGHT.with(|slot| slot.borrow_mut().take());
         if let Some(mut flight) = in_flight {
             let waker = Waker::noop();
-            let mut cx = Context::from_waker(&waker);
+            let mut cx = Context::from_waker(waker);
             match std::pin::Pin::new(&mut flight.future).poll(&mut cx) {
                 Poll::Pending => {
                     FLIGHT.with(|slot| *slot.borrow_mut() = Some(flight));
@@ -337,7 +339,7 @@ fn map_response(resp: web_sys::Response) -> Result<Vec<u8>, FetchError> {
             };
             let mut future = JsFuture::from(promise);
             let waker = Waker::noop();
-            let mut cx = Context::from_waker(&waker);
+            let mut cx = Context::from_waker(waker);
             match std::pin::Pin::new(&mut future).poll(&mut cx) {
                 Poll::Ready(Ok(buf)) => {
                     let array = Uint8Array::new(&buf);

@@ -1,4 +1,10 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
+// Desktop-only paths (disk thumbnails, background threads, saved library config) are compiled
+// out of the browser build, which leaves some shared helpers unused there.
+#![cfg_attr(
+    target_arch = "wasm32",
+    allow(dead_code, unused_imports, unused_variables)
+)]
 mod a11y;
 mod arrange;
 mod assistant;

@@ -1,4 +1,10 @@
 //! Native project persistence and original, limited KiCad PCB / preview writers.
+// Native-only paths (keychain, disk caches, background model loads) are compiled out of the
+// browser build, which leaves their shared helpers unused there.
+#![cfg_attr(
+    target_arch = "wasm32",
+    allow(dead_code, unused_imports, unused_variables)
+)]
 use pcbcraft_doc::{Project, ProjectLibrary};
 use pcbcraft_geom::Point;
 use serde::{Deserialize, Serialize};

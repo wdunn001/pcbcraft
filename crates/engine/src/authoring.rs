@@ -470,6 +470,7 @@ struct ModelTransformParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 struct EmbedModelParams {
     name: String,
     #[serde(default)]
@@ -771,9 +772,9 @@ pub(super) fn run(
         "library.footprint.embed_model" => {
             #[cfg(target_arch = "wasm32")]
             {
-                return Err(Error::Invalid(
+                Err(Error::Invalid(
                     "embedding a model needs the desktop app".into(),
-                ));
+                ))
             }
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -971,10 +972,11 @@ pub(super) fn run(
             #[cfg(target_arch = "wasm32")]
             {
                 let _ = a;
-                return Err(Error::Invalid(
+                Err(Error::Invalid(
                     "Opening a companion CAD project needs the desktop app.".into(),
-                ));
+                ))
             }
+            #[cfg(not(target_arch = "wasm32"))]
             Ok(json!({"path": a.path}))
         }
         "library.footprint.set_rules" => {

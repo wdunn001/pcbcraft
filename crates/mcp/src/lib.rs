@@ -959,6 +959,7 @@ pub fn handle_rpc(
     hub: &DocumentHub,
     request: Value,
     connect: Option<&str>,
+    #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
     bridge_token: Option<&str>,
 ) -> Option<Value> {
     let id = request.get("id").cloned();

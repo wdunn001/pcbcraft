@@ -59,6 +59,7 @@ impl ProcessHandle {
 }
 
 /// Start the agent in a process group of its own (Unix) or without a console window (Windows).
+#[cfg_attr(not(any(unix, windows)), allow(unused_variables))]
 fn detach_group(cmd: &mut Command) {
     #[cfg(unix)]
     {

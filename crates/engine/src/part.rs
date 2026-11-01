@@ -169,6 +169,7 @@ struct UserImportParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 struct FetchDatasheetParams {
     id: Id,
     url: String,
@@ -443,9 +444,9 @@ fn part_fetch_datasheet(p: &mut Project, params: &Value) -> Result<Value, Error>
     #[cfg(target_arch = "wasm32")]
     {
         let _ = (p, a);
-        return Err(Error::Invalid(
+        Err(Error::Invalid(
             "datasheet download is not available on wasm builds".into(),
-        ));
+        ))
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -484,9 +485,9 @@ fn part_set_distributor_credential(params: &Value) -> Result<Value, Error> {
     #[cfg(target_arch = "wasm32")]
     {
         let _ = a;
-        return Err(Error::Invalid(
+        Err(Error::Invalid(
             "distributor credentials are not available on wasm builds".into(),
-        ));
+        ))
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -502,9 +503,9 @@ fn part_clear_distributor_credential(params: &Value) -> Result<Value, Error> {
     #[cfg(target_arch = "wasm32")]
     {
         let _ = a;
-        return Err(Error::Invalid(
+        Err(Error::Invalid(
             "distributor credentials are not available on wasm builds".into(),
-        ));
+        ))
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
