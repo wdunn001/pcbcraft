@@ -750,9 +750,7 @@ fn rectangle(region: crate::RuleRegion) -> Piece {
 }
 
 fn rule_area_keepout_piece(project: &Project, area: &RuleArea) -> Option<Piece> {
-    if area.active_keepout().is_none() {
-        return None;
-    }
+    area.active_keepout()?;
     let region = area.keepout_rect();
     let corners = region.axis_corners();
     let ring: Ring = if let Some(reference) = area.footprint_ref.as_deref() {
@@ -778,10 +776,10 @@ fn rule_area_keepout_piece(project: &Project, area: &RuleArea) -> Option<Piece> 
     }
     Some(vec![{
         let mut closed = ring;
-        if closed.first() != closed.last() {
-            if let Some(first) = closed.first().copied() {
-                closed.push(first);
-            }
+        if closed.first() != closed.last()
+            && let Some(first) = closed.first().copied()
+        {
+            closed.push(first);
         }
         closed
     }])

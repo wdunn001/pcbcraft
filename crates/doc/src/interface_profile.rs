@@ -433,10 +433,10 @@ impl InterfaceProfileDocument {
             if !bounded(&record.source, MAX_SOURCE_NOTE) {
                 return Err("record source must be 1 to 512 bytes".into());
             }
-            if let Some(hash) = &record.content_hash {
-                if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
-                    return Err("record content_hash must be 64 hex digits".into());
-                }
+            if let Some(hash) = &record.content_hash
+                && (hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()))
+            {
+                return Err("record content_hash must be 64 hex digits".into());
             }
         }
         if self.schema == 2 {
@@ -739,10 +739,10 @@ fn validate_companion(companion: &CompanionSpec, idx: usize) -> Result<(), Strin
     {
         return Err(format!("companion[{idx}] value_max out of range"));
     }
-    if let (Some(min), Some(max)) = (companion.value_min, companion.value_max) {
-        if min > max {
-            return Err(format!("companion[{idx}] value_min exceeds value_max"));
-        }
+    if let (Some(min), Some(max)) = (companion.value_min, companion.value_max)
+        && min > max
+    {
+        return Err(format!("companion[{idx}] value_min exceeds value_max"));
     }
     if companion
         .placement_distance_max_mm
@@ -834,29 +834,29 @@ pub fn collect_unsupported(doc: &InterfaceProfileDocument) -> Vec<String> {
             out.push(format!("pair.{}.equal_vias", pair.name));
         }
     }
-    if let Some(bus) = &doc.bus {
-        if let Some(limits) = &bus.limits {
-            if limits.edge_rate_band.is_some() {
-                out.push("bus.limits.edge_rate_band".into());
-            }
-            if limits.impedance_ohm.is_some() {
-                out.push("bus.limits.impedance_ohm".into());
-            }
-            if limits.impedance_tolerance_percent.is_some() {
-                out.push("bus.limits.impedance_tolerance_percent".into());
-            }
-            if limits.max_routed_length_mm.is_some() {
-                out.push("bus.limits.max_routed_length_mm".into());
-            }
-            if limits.max_stub_mm.is_some() {
-                out.push("bus.limits.max_stub_mm".into());
-            }
-            if limits.skew_budget_ps.is_some() {
-                out.push("bus.limits.skew_budget_ps".into());
-            }
-            if limits.reference_plane.is_some() {
-                out.push("bus.limits.reference_plane".into());
-            }
+    if let Some(bus) = &doc.bus
+        && let Some(limits) = &bus.limits
+    {
+        if limits.edge_rate_band.is_some() {
+            out.push("bus.limits.edge_rate_band".into());
+        }
+        if limits.impedance_ohm.is_some() {
+            out.push("bus.limits.impedance_ohm".into());
+        }
+        if limits.impedance_tolerance_percent.is_some() {
+            out.push("bus.limits.impedance_tolerance_percent".into());
+        }
+        if limits.max_routed_length_mm.is_some() {
+            out.push("bus.limits.max_routed_length_mm".into());
+        }
+        if limits.max_stub_mm.is_some() {
+            out.push("bus.limits.max_stub_mm".into());
+        }
+        if limits.skew_budget_ps.is_some() {
+            out.push("bus.limits.skew_budget_ps".into());
+        }
+        if limits.reference_plane.is_some() {
+            out.push("bus.limits.reference_plane".into());
         }
     }
     out.sort();

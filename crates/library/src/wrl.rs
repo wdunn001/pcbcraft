@@ -11,7 +11,9 @@ pub fn read_wrl_mesh(text: &str, scale: [f64; 3]) -> Result<TriangleMesh, String
     }
     let inch_scale = WRL_INCH_TO_MM * 0.1;
     let vertices: Vec<[f64; 3]> = coords
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|c| {
             [
                 c[0] * inch_scale * scale[0],
@@ -23,7 +25,9 @@ pub fn read_wrl_mesh(text: &str, scale: [f64; 3]) -> Result<TriangleMesh, String
     let indices = parse_index_block(text).unwrap_or_else(|| {
         (0..vertices.len() as u32)
             .collect::<Vec<_>>()
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|t| [t[0], t[1], t[2]])
             .collect()
     });
@@ -79,10 +83,10 @@ fn parse_index_block(text: &str) -> Option<Vec<[u32; 3]>> {
 fn parse_floats(body: &str) -> Result<Vec<f64>, String> {
     let mut out = Vec::new();
     for token in body.split_whitespace() {
-        if let Ok(v) = token.parse::<f64>() {
-            if v.is_finite() {
-                out.push(v);
-            }
+        if let Ok(v) = token.parse::<f64>()
+            && v.is_finite()
+        {
+            out.push(v);
         }
     }
     if out.is_empty() {

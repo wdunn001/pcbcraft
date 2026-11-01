@@ -537,13 +537,13 @@ impl PartSearchIndex {
                 score += 0.05;
             }
 
-            if let (Some(qv), Some(pv)) = (&query.query_vector, &entry.vector) {
-                if qv.len() == pv.len() {
-                    let sim = cosine(qv, pv);
-                    if sim > 0.0 {
-                        reasons.push(MatchReason::Vector { similarity: sim });
-                        score += 0.4 * sim;
-                    }
+            if let (Some(qv), Some(pv)) = (&query.query_vector, &entry.vector)
+                && qv.len() == pv.len()
+            {
+                let sim = cosine(qv, pv);
+                if sim > 0.0 {
+                    reasons.push(MatchReason::Vector { similarity: sim });
+                    score += 0.4 * sim;
                 }
             }
 

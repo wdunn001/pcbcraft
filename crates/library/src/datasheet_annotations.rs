@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 pub const FILE_VERSION: u32 = 1;
@@ -31,10 +31,10 @@ pub fn set_store_path_for_test(path: Option<PathBuf>) {
 }
 
 fn store_path() -> Result<PathBuf, String> {
-    if let Ok(locked) = PATH_TEST.lock() {
-        if let Some(path) = locked.as_ref() {
-            return Ok(path.clone());
-        }
+    if let Ok(locked) = PATH_TEST.lock()
+        && let Some(path) = locked.as_ref()
+    {
+        return Ok(path.clone());
     }
     let directory = |key: &str| {
         std::env::var(key)

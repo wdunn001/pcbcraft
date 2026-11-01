@@ -517,13 +517,12 @@ impl ManufacturerRecord {
         if let Some(parent) = &self.parent {
             bounded("manufacturer parent", parent, MAX_MANUFACTURER_NAME)?;
         }
-        if let Some(report) = &self.minerals_report {
-            if !report.valid() {
-                return Err(
-                    "minerals report needs template cmrt or emrt, a version and a valid date"
-                        .into(),
-                );
-            }
+        if let Some(report) = &self.minerals_report
+            && !report.valid()
+        {
+            return Err(
+                "minerals report needs template cmrt or emrt, a version and a valid date".into(),
+            );
         }
         Ok(())
     }
@@ -584,10 +583,10 @@ impl Project {
         }
         for mute in &self.compliance_mutes {
             mute.validate()?;
-            if let Some(id) = mute.component {
-                if !self.components.iter().any(|c| c.id == id) {
-                    return Err(format!("mute references missing component {id}"));
-                }
+            if let Some(id) = mute.component
+                && !self.components.iter().any(|c| c.id == id)
+            {
+                return Err(format!("mute references missing component {id}"));
             }
         }
         Ok(())

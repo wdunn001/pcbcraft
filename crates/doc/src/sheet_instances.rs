@@ -115,10 +115,11 @@ pub fn expand_instance(
     let mut local_nets: BTreeSet<Id> = BTreeSet::new();
     for c in &template_parts {
         for pin in &c.pins {
-            if let Some(net) = pin.net {
-                if !port_nets.contains(&net) && net_used_on_sheet(project, template, net) {
-                    local_nets.insert(net);
-                }
+            if let Some(net) = pin.net
+                && !port_nets.contains(&net)
+                && net_used_on_sheet(project, template, net)
+            {
+                local_nets.insert(net);
             }
         }
     }

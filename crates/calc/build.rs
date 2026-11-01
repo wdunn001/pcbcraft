@@ -68,10 +68,11 @@ fn load_glossary_parts(
                 return Err(format!("{id}: missing {key}"));
             }
         }
-        if let Some(calc) = entry.get("calculator").and_then(toml::Value::as_str) {
-            if !calc.is_empty() && !calc_ids.contains(calc) {
-                return Err(format!("{id}: unknown calculator {calc}"));
-            }
+        if let Some(calc) = entry.get("calculator").and_then(toml::Value::as_str)
+            && !calc.is_empty()
+            && !calc_ids.contains(calc)
+        {
+            return Err(format!("{id}: unknown calculator {calc}"));
         }
     }
     for entry in &merged {

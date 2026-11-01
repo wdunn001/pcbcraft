@@ -303,15 +303,15 @@ pub fn validate_pin_pad_map(
     let mut pad_to_pin: BTreeMap<String, String> = BTreeMap::new();
     for row in &map.rows {
         for pad in &row.pads {
-            if let Some(other) = pad_to_pin.insert(pad.clone(), row.pin.clone()) {
-                if other != row.pin {
-                    findings.push(PinPadFinding {
-                        code: "pad_duplicate".into(),
-                        message: format!("{pad} is mapped to both pin {other} and pin {}", row.pin),
-                        pin: Some(row.pin.clone()),
-                        pad: Some(pad.clone()),
-                    });
-                }
+            if let Some(other) = pad_to_pin.insert(pad.clone(), row.pin.clone())
+                && other != row.pin
+            {
+                findings.push(PinPadFinding {
+                    code: "pad_duplicate".into(),
+                    message: format!("{pad} is mapped to both pin {other} and pin {}", row.pin),
+                    pin: Some(row.pin.clone()),
+                    pad: Some(pad.clone()),
+                });
             }
         }
     }

@@ -130,7 +130,7 @@ pub fn series_spec(series_id: &str) -> Result<ConnectorSeriesSpec, String> {
         "BTH" => BTH_TOML,
         _ => return Err(format!("unknown connector series {series_id}")),
     };
-    let mut spec = ConnectorSeriesSpec::parse(text)?;
+    let spec = ConnectorSeriesSpec::parse(text)?;
     if spec.series_id.to_ascii_uppercase() != id {
         return Err(format!("series table id mismatch for {series_id}"));
     }

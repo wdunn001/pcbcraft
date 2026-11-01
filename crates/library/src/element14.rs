@@ -6,8 +6,8 @@ use crate::rate_limit::{Clock, SystemClock, TokenBucket, rate_limited};
 use crate::source_errors::{map_auth_or_permission, map_element14_errors};
 use crate::source_hosts;
 use crate::sources::{
-    Attribution, DEFAULT_CACHE_SECS, MAX_QUERY_BYTES, PartResult, PartSource, PriceBreak,
-    SetupCard, SourceError, check_query,
+    Attribution, DEFAULT_CACHE_SECS, PartResult, PartSource, PriceBreak, SetupCard, SourceError,
+    check_query,
 };
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};

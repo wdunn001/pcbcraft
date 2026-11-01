@@ -3928,10 +3928,11 @@ pub fn panel_score_lines(project: &Project) -> Result<Vec<(Point, Point)>, Strin
 /// on user layers.
 pub fn board_vscore_segments(project: &Project) -> Vec<(Point, Point)> {
     let mut lines = Vec::new();
-    if project.panel.enabled && project.panel.separation == PanelSeparation::VScore {
-        if let Ok(panel) = panel_score_lines(project) {
-            lines.extend(panel);
-        }
+    if project.panel.enabled
+        && project.panel.separation == PanelSeparation::VScore
+        && let Ok(panel) = panel_score_lines(project)
+    {
+        lines.extend(panel);
     }
     for layer in &project.board.user_layers {
         if layer.kind != ArtKind::Cut {
@@ -6231,13 +6232,13 @@ impl Project {
                 return Err("drawn layers need a unique name and sane figures".into());
             }
         }
-        if let Some(c) = &self.board.conformal_coat_keepout {
-            if !c.valid() || !self.board.user_layers.iter().any(|l| l.id == c.layer) {
-                return Err(
-                    "conformal coat keep-out needs a known drawn layer, plot name, side and polarity"
-                        .into(),
-                );
-            }
+        if let Some(c) = &self.board.conformal_coat_keepout
+            && (!c.valid() || !self.board.user_layers.iter().any(|l| l.id == c.layer))
+        {
+            return Err(
+                "conformal coat keep-out needs a known drawn layer, plot name, side and polarity"
+                    .into(),
+            );
         }
         let mut paired: BTreeSet<(Id, Id)> = BTreeSet::new();
         for r in &self.board.pair_rules {
@@ -6446,10 +6447,10 @@ impl Project {
             if !rule.valid() || !companion_ids.insert(&rule.id) {
                 return Err("companion rules need unique ids and bounded fields".into());
             }
-            if let (Some(min), Some(max)) = (&rule.value_min, &rule.value_max) {
-                if parse_companion_value(min).is_none() || parse_companion_value(max).is_none() {
-                    return Err("companion rule value range must parse".into());
-                }
+            if let (Some(min), Some(max)) = (&rule.value_min, &rule.value_max)
+                && (parse_companion_value(min).is_none() || parse_companion_value(max).is_none())
+            {
+                return Err("companion rule value range must parse".into());
             }
         }
         if self.rule_regions.len() > 64 {
@@ -6502,7 +6503,7 @@ impl Project {
             }
             c.sourcing.validate()?;
             c.compliance.validate()?;
-            let mut field_keys: BTreeSet<&str> = BTreeSet::new();
+            let _field_keys: BTreeSet<&str> = BTreeSet::new();
             let mut field_keys: BTreeSet<&str> = BTreeSet::new();
             for f in &c.fields {
                 if f.key.is_empty()
@@ -6513,10 +6514,10 @@ impl Project {
                     return Err("invalid component field".into());
                 }
             }
-            if let Some(part_id) = c.part {
-                if !self.library.parts.iter().any(|p| p.id == part_id) {
-                    return Err("component references an unknown part".into());
-                }
+            if let Some(part_id) = c.part
+                && !self.library.parts.iter().any(|p| p.id == part_id)
+            {
+                return Err("component references an unknown part".into());
             }
             if let Some(symbol) = &c.library_symbol {
                 symbol.definition.validate().map_err(|e| e.to_string())?;

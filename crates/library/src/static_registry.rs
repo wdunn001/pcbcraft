@@ -286,10 +286,10 @@ fn parse_manifest(text: &str) -> Result<PublicationManifest, String> {
         if seen.insert(rel, ()).is_some() {
             return Err(format!("duplicate file path {}", file.path));
         }
-        if let Some(url) = &file.url {
-            if !url.starts_with("https://") || url.len() > 2048 {
-                return Err(format!("{} has an invalid file url", file.path));
-            }
+        if let Some(url) = &file.url
+            && (!url.starts_with("https://") || url.len() > 2048)
+        {
+            return Err(format!("{} has an invalid file url", file.path));
         }
     }
     let expected = bundle_root_hash(&manifest.files);
@@ -493,10 +493,10 @@ pub fn verify_registry_manifest(registry_root: &Path) -> Result<(), String> {
     if manifest.catalogue_sha256 != hash {
         return Err("registry manifest catalogue hash does not match catalogue.json".into());
     }
-    if let Some(sig) = &manifest.signature {
-        if sig.algorithm.is_empty() || sig.key_id.is_empty() || sig.value.is_empty() {
-            return Err("registry signature is incomplete".into());
-        }
+    if let Some(sig) = &manifest.signature
+        && (sig.algorithm.is_empty() || sig.key_id.is_empty() || sig.value.is_empty())
+    {
+        return Err("registry signature is incomplete".into());
     }
     Ok(())
 }
