@@ -747,10 +747,10 @@ pub fn reach_from(text: &str) -> Option<bool> {
     let t = text.trim().to_lowercase();
     if t.contains("svhc") && (t.contains("no") || t.contains("none") || t.contains("free")) {
         Some(true)
+    } else if t.contains("unaffected") || (t.contains("compliant") && !t.contains("non")) {
+        Some(true)
     } else if t.contains("affected") || t.contains("contains") {
         Some(false)
-    } else if t.contains("unaffected") || t.contains("compliant") {
-        Some(true)
     } else {
         None
     }

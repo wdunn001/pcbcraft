@@ -793,9 +793,13 @@ pub(super) fn run(
             let starter = match a.id.as_deref() {
                 Some(id) => pcbcraft_library::starter_models::by_id(id)
                     .ok_or_else(|| Error::Invalid("unknown starter model id".into()))?,
-                None => pcbcraft_library::starter_models::for_footprint(&a.name).ok_or_else(|| {
-                    Error::Invalid("no bundled starter model matches this footprint name".into())
-                })?,
+                None => {
+                    pcbcraft_library::starter_models::for_footprint(&a.name).ok_or_else(|| {
+                        Error::Invalid(
+                            "no bundled starter model matches this footprint name".into(),
+                        )
+                    })?
+                }
             };
             let cache = pcbcraft_library::cad_cache::default_cache_dir().ok_or_else(|| {
                 Error::Invalid("a user cache directory is required to store starter models".into())
@@ -836,7 +840,9 @@ pub(super) fn run(
                 return Err(Error::Invalid("the model has too many vertices".into()));
             }
             if !a.indices.is_empty() && a.indices.len() % 3 != 0 {
-                return Err(Error::Invalid("indices must come in groups of three".into()));
+                return Err(Error::Invalid(
+                    "indices must come in groups of three".into(),
+                ));
             }
             let positions: Vec<[f64; 3]> =
                 a.positions.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();

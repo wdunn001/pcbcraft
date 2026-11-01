@@ -213,7 +213,8 @@ pub fn validate_mcu(doc: &McuDocument) -> Result<(), String> {
     let mut pin_names = BTreeSet::new();
     for pin in &doc.pin {
         bounded_name("pin.name", &pin.name)?;
-        if !pin_names.insert(pin.name.as_str()) {
+        // Supply pins (VSS, VDD) legitimately repeat; a pin with functions must be unique.
+        if !pin_names.insert(pin.name.as_str()) && !pin.alternate.is_empty() {
             return Err(err(format!("duplicate pin name {}", pin.name)));
         }
         if let Some(domain) = &pin.power_domain {

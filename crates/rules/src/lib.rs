@@ -2927,7 +2927,7 @@ mod tests {
                 electrical_type: p.electrical_type.clone(),
                 unit: p.unit,
                 body_style: 0,
-                graphical_style: Default::default(),
+                graphical_style: "line".into(),
                 visible: Default::default(),
             })
             .collect();

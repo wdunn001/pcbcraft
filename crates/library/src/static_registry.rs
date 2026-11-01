@@ -685,10 +685,8 @@ mod tests {
             // Tests run in parallel inside one process, so each folder needs its own name.
             static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
             let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "pcbcraft-registry-test-{}-{n}",
-                std::process::id()
-            ));
+            let path = std::env::temp_dir()
+                .join(format!("pcbcraft-registry-test-{}-{n}", std::process::id()));
             let _ = fs::remove_dir_all(&path);
             fs::create_dir_all(&path).map_err(|e| e.to_string())?;
             Ok(Self(path))

@@ -353,7 +353,11 @@ fn parse_notice_kind(text: &str) -> Result<(CadKind, &str), SourceError> {
 }
 
 fn parse_notice_source(text: &str) -> Result<(String, String, &str), SourceError> {
-    if let Some(open) = text.find(" (") {
+    let colon = text
+        .find(": ")
+        .ok_or_else(|| invalid_notice("the notice must name the upstream path after the source"))?;
+    // A parenthesised source id counts only when it comes before the path.
+    if let Some(open) = text[..colon].find(" (") {
         let close = text[open..]
             .find("): ")
             .ok_or_else(|| invalid_notice("a source id must be closed before the path"))?;
@@ -362,16 +366,13 @@ fn parse_notice_source(text: &str) -> Result<(String, String, &str), SourceError
         if source_name.is_empty() || source_id.is_empty() {
             return Err(invalid_notice("the source name and id must not be empty"));
         }
-        return Ok((source_name, source_id, &text[open + close + 3..]));
+        return Ok((source_name, source_id, &text[open + close + 1..]));
     }
-    let colon = text
-        .find(": ")
-        .ok_or_else(|| invalid_notice("the notice must name the upstream path after the source"))?;
     let source_name = text[..colon].to_owned();
     if source_name.is_empty() {
         return Err(invalid_notice("the source name must not be empty"));
     }
-    Ok((source_name, String::new(), &text[colon + 2..]))
+    Ok((source_name, String::new(), &text[colon..]))
 }
 
 fn split_notice_field<'a>(text: &'a str, stops: &[&str]) -> Result<(String, &'a str), SourceError> {

@@ -170,9 +170,11 @@ pub fn expand_instance(
         let new_id = allocate_id(project, next)?;
         component_map.insert(old.id, new_id);
         let reference = reference_with_offset(&old.reference, inst.reference_offset)?;
-        if project.components.iter().any(|c| {
-            c.reference == reference && !(c.sheet == template && c.instance.is_none())
-        }) {
+        if project
+            .components
+            .iter()
+            .any(|c| c.reference == reference && !(c.sheet == template && c.instance.is_none()))
+        {
             return Err(format!("reference {reference} is already in use"));
         }
         let mut pins: Vec<Pin> = Vec::with_capacity(old.pins.len());

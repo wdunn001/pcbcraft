@@ -8,6 +8,9 @@ pub(crate) fn unix_secs_now() -> u64 {
 }
 
 /// Current time as `SystemTime`, for file metadata updates on every target.
+///
+/// Sub-second precision matters: files touched in the same second must still order.
 pub(crate) fn system_time_now() -> SystemTime {
-    UNIX_EPOCH + std::time::Duration::from_secs(unix_secs_now())
+    let nanos = u64::try_from(pcbcraft_clock::unix_nanos()).unwrap_or(0);
+    UNIX_EPOCH + std::time::Duration::from_nanos(nanos)
 }

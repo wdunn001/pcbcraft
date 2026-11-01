@@ -17332,7 +17332,9 @@ fn run_command(
                         if a.net.is_some_and(|n| t.net != n) || !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "net": t.net, "layer": p.layer_name(t.layer)}));
+                        found.push(
+                            json!({"id": t.id, "net": t.net, "layer": p.layer_name(t.layer)}),
+                        );
                     }
                 }
                 "via" => {
@@ -17380,7 +17382,9 @@ fn run_command(
                         if !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "text": t.text, "layer": p.layer_name(t.layer)}));
+                        found.push(
+                            json!({"id": t.id, "text": t.text, "layer": p.layer_name(t.layer)}),
+                        );
                     }
                 }
                 "component" => {
