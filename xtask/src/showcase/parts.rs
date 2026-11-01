@@ -17,7 +17,7 @@
 //! - Read a library file from disk; the generator must stay self-contained.
 use pcbcraft_geom::Point;
 use pcbcraft_library::{
-    Drill, FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
+    Drill, FootprintBoxBody, FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
 };
 
 /// Millimetres between symbol pin grid points.
@@ -324,10 +324,10 @@ pub fn switch(name: &str, value: &str, footprint: &str) -> SymbolDefinition {
 /// Four-terminal crystal: pins 1 and 3 are the resonator, 2 and 4 the case.
 pub fn crystal(name: &str, value: &str, footprint: &str) -> SymbolDefinition {
     let pins = vec![
-        sym_pin(("1", "~", "passive"), -5.08, 0.0, 0.0, 1),
-        sym_pin(("3", "~", "passive"), 5.08, 0.0, 180.0, 1),
-        sym_pin(("2", "~", "passive"), -2.54, 5.08, 90.0, 1),
-        sym_pin(("4", "~", "passive"), 2.54, 5.08, 90.0, 1),
+        sym_pin(("2", "~", "passive"), -5.08, 0.0, 0.0, 1),
+        sym_pin(("4", "~", "passive"), 5.08, 0.0, 180.0, 1),
+        sym_pin(("1", "~", "passive"), -2.54, 5.08, 90.0, 1),
+        sym_pin(("3", "~", "passive"), 2.54, 5.08, 90.0, 1),
     ];
     symbol(
         name,
@@ -430,22 +430,46 @@ fn grect(layer: &str, a: (f64, f64), b: (f64, f64), width: f64) -> Graphic {
     }
 }
 
-/// Courtyard and fabrication outline shared by every package.
-fn outline(body: (f64, f64), court: (f64, f64)) -> Vec<Graphic> {
-    vec![
-        grect(
-            "F.CrtYd",
-            (-court.0 / 2.0, -court.1 / 2.0),
-            (court.0 / 2.0, court.1 / 2.0),
-            0.05,
-        ),
-        grect(
-            "F.Fab",
-            (-body.0 / 2.0, -body.1 / 2.0),
-            (body.0 / 2.0, body.1 / 2.0),
-            0.1,
-        ),
-    ]
+/// Fabrication outline shared by every package. The courtyard is not drawn
+/// here: `build` asks the library for one with the margin the checks want.
+fn outline(body: (f64, f64)) -> Vec<Graphic> {
+    vec![grect(
+        "F.Fab",
+        (-body.0 / 2.0, -body.1 / 2.0),
+        (body.0 / 2.0, body.1 / 2.0),
+        0.1,
+    )]
+}
+
+/// A small silk dot beside pad 1.
+fn pin1_dot(x: f64, y: f64) -> Graphic {
+    Graphic::Circle {
+        center: pt(x, y),
+        radius: 0.12,
+        width: 0.12,
+        fill: String::new(),
+        layer: "F.SilkS".into(),
+    }
+}
+
+/// Gives the footprint an explicit box body the size of its fabrication
+/// outline and `height` tall, so the 3D view and exports have a body.
+fn with_body(mut def: FootprintDefinition, height: f64) -> FootprintDefinition {
+    for g in &def.graphics {
+        if let Graphic::Rectangle {
+            start, end, layer, ..
+        } = g
+            && layer == "F.Fab"
+        {
+            def.box_body = Some(FootprintBoxBody {
+                width: (end.x - start.x).abs(),
+                depth: (end.y - start.y).abs(),
+                height,
+            });
+            break;
+        }
+    }
+    def
 }
 
 fn footprint(
@@ -475,10 +499,12 @@ pub fn chip(
     centre: f64,
     pad: (f64, f64),
     body: (f64, f64),
+    height: f64,
     led: bool,
 ) -> FootprintDefinition {
-    let mut g = outline(body, (2.0 * centre + pad.0 + 0.3, pad.1.max(body.1) + 0.3));
-    let silk_y = pad.1 / 2.0 + 0.2;
+    let mut g = outline(body);
+    // Silk sits 0.2 mm off the pads and clear of the body outline.
+    let silk_y = (pad.1 / 2.0 + 0.2).max(body.1 / 2.0 + 0.1);
     if body.1 > 0.0 {
         g.push(gline(
             "F.SilkS",
@@ -501,14 +527,18 @@ pub fn chip(
             0.2,
         ));
     }
-    footprint(
-        name,
-        "Two-terminal chip package",
-        vec![
-            smd("1", -centre, 0.0, pad.0, pad.1),
-            smd("2", centre, 0.0, pad.0, pad.1),
-        ],
-        g,
+    g.push(pin1_dot(-centre - pad.0 / 2.0 - 0.35, 0.0));
+    with_body(
+        footprint(
+            name,
+            "Two-terminal chip package",
+            vec![
+                smd("1", -centre, 0.0, pad.0, pad.1),
+                smd("2", centre, 0.0, pad.0, pad.1),
+            ],
+            g,
+        ),
+        height,
     )
 }
 
@@ -530,7 +560,7 @@ pub fn sot23(name: &str, leads: u8) -> FootprintDefinition {
             pads.push(smd("6", 1.25, -0.95, 1.0, 0.6));
         }
     }
-    let mut g = outline((1.6, 2.9), (3.9, 3.3));
+    let mut g = outline((1.6, 2.9));
     g.push(gline("F.SilkS", (-0.8, -1.55), (0.8, -1.55), 0.12));
     g.push(gline("F.SilkS", (-0.8, 1.55), (0.8, 1.55), 0.12));
     g.push(Graphic::Circle {
@@ -540,7 +570,7 @@ pub fn sot23(name: &str, leads: u8) -> FootprintDefinition {
         fill: String::new(),
         layer: "F.SilkS".into(),
     });
-    footprint(name, "Small-outline transistor package", pads, g)
+    with_body(footprint(name, "Small-outline transistor package", pads, g), 1.1)
 }
 
 /// Eight-lead small-outline package at 1.27 mm pitch.
@@ -551,7 +581,7 @@ pub fn soic8(name: &str) -> FootprintDefinition {
         pads.push(smd(&(i + 1).to_string(), -2.7, y, 1.5, 0.6));
         pads.push(smd(&(8 - i).to_string(), 2.7, y, 1.5, 0.6));
     }
-    let mut g = outline((3.9, 4.9), (6.8, 5.4));
+    let mut g = outline((3.9, 4.9));
     g.push(gline("F.SilkS", (-1.95, -2.55), (1.95, -2.55), 0.12));
     g.push(gline("F.SilkS", (-1.95, 2.55), (1.95, 2.55), 0.12));
     g.push(Graphic::Circle {
@@ -561,7 +591,7 @@ pub fn soic8(name: &str) -> FootprintDefinition {
         fill: String::new(),
         layer: "F.SilkS".into(),
     });
-    footprint(name, "Eight-lead small-outline package", pads, g)
+    with_body(footprint(name, "Eight-lead small-outline package", pads, g), 1.75)
 }
 
 /// Quad flat no-lead package with 8 pads per side and a centre pad numbered 33.
@@ -578,7 +608,7 @@ pub fn qfn32(name: &str) -> FootprintDefinition {
     let mut ep = smd("33", 0.0, 0.0, 3.4, 3.4);
     ep.roundrect_ratio = Some(0.05);
     pads.push(ep);
-    let mut g = outline((5.0, 5.0), (6.2, 6.2));
+    let mut g = outline((5.0, 5.0));
     for (a, b) in [
         ((-2.6, -2.1), (-2.6, -2.6)),
         ((-2.6, -2.6), (-2.1, -2.6)),
@@ -598,7 +628,10 @@ pub fn qfn32(name: &str) -> FootprintDefinition {
         fill: String::new(),
         layer: "F.SilkS".into(),
     });
-    footprint(name, "Thirty-two pad quad flat no-lead package", pads, g)
+    with_body(
+        footprint(name, "Thirty-two pad quad flat no-lead package", pads, g),
+        0.9,
+    )
 }
 
 /// Dual flat no-lead package with four pads a side at 0.5 mm pitch.
@@ -609,7 +642,7 @@ pub fn dfn8(name: &str) -> FootprintDefinition {
         pads.push(smd(&(i + 1).to_string(), -1.15, y, 0.6, 0.3));
         pads.push(smd(&(8 - i).to_string(), 1.15, y, 0.6, 0.3));
     }
-    let mut g = outline((2.5, 2.5), (3.4, 3.4));
+    let mut g = outline((2.5, 2.5));
     g.push(gline("F.SilkS", (-0.6, -1.4), (0.6, -1.4), 0.12));
     g.push(gline("F.SilkS", (-0.6, 1.4), (0.6, 1.4), 0.12));
     g.push(Graphic::Circle {
@@ -619,28 +652,34 @@ pub fn dfn8(name: &str) -> FootprintDefinition {
         fill: String::new(),
         layer: "F.SilkS".into(),
     });
-    footprint(name, "Eight-pad dual flat no-lead package", pads, g)
+    with_body(
+        footprint(name, "Eight-pad dual flat no-lead package", pads, g),
+        1.0,
+    )
 }
 
 /// Four-pad quartz crystal, 3.2 by 2.5 mm.
 pub fn crystal_3225(name: &str) -> FootprintDefinition {
+    // Pad 1 is top left and the numbers run counter-clockwise; the two
+    // crystal terminals are pads 2 and 4, the case pads 1 and 3.
     let pads = vec![
-        smd("1", -1.1, 0.85, 1.4, 1.15),
-        smd("2", 1.1, 0.85, 1.4, 1.15),
-        smd("3", 1.1, -0.85, 1.4, 1.15),
-        smd("4", -1.1, -0.85, 1.4, 1.15),
+        smd("1", -1.1, -0.85, 1.4, 1.15),
+        smd("2", -1.1, 0.85, 1.4, 1.15),
+        smd("3", 1.1, 0.85, 1.4, 1.15),
+        smd("4", 1.1, -0.85, 1.4, 1.15),
     ];
-    let mut g = outline((3.2, 2.5), (4.4, 3.4));
+    let mut g = outline((3.2, 2.5));
     g.push(gline("F.SilkS", (-1.0, -1.65), (1.0, -1.65), 0.12));
     g.push(gline("F.SilkS", (-1.0, 1.65), (1.0, 1.65), 0.12));
     g.push(gline("F.SilkS", (-2.3, -1.2), (-2.3, 1.2), 0.12));
-    footprint(name, "Four-pad crystal, 3.2 by 2.5 mm", pads, g)
+    g.push(pin1_dot(-2.65, -0.85));
+    with_body(footprint(name, "Four-pad crystal, 3.2 by 2.5 mm", pads, g), 0.8)
 }
 
 /// Surface-mount tactile switch with one wide pad on each side.
 pub fn tact(name: &str) -> FootprintDefinition {
     let pads = vec![smd("1", -2.3, 0.0, 1.4, 2.4), smd("2", 2.3, 0.0, 1.4, 2.4)];
-    let mut g = outline((4.5, 3.6), (6.6, 4.0));
+    let mut g = outline((4.5, 3.6));
     g.push(gline("F.SilkS", (-1.6, -1.9), (1.6, -1.9), 0.12));
     g.push(gline("F.SilkS", (-1.6, 1.9), (1.6, 1.9), 0.12));
     g.push(Graphic::Circle {
@@ -650,7 +689,8 @@ pub fn tact(name: &str) -> FootprintDefinition {
         fill: String::new(),
         layer: "F.SilkS".into(),
     });
-    footprint(name, "Tactile switch, 4.5 by 3.6 mm", pads, g)
+    g.push(pin1_dot(-3.4, -1.0));
+    with_body(footprint(name, "Tactile switch, 4.5 by 3.6 mm", pads, g), 2.5)
 }
 
 /// Single row through-hole header at the given pitch.
@@ -670,12 +710,7 @@ pub fn header(name: &str, count: u32, pitch: f64, pad: f64, drill: f64) -> Footp
     }
     let len = f64::from(count - 1) * pitch;
     let g = vec![
-        grect(
-            "F.CrtYd",
-            (-pad / 2.0 - 0.4, -pad / 2.0 - 0.4),
-            (pad / 2.0 + 0.4, len + pad / 2.0 + 0.4),
-            0.05,
-        ),
+        pin1_dot(-pad / 2.0 - 0.6, 0.0),
         grect(
             "F.Fab",
             (-pitch / 2.0, -pitch / 2.0),
@@ -714,11 +749,12 @@ pub fn header(name: &str, count: u32, pitch: f64, pad: f64, drill: f64) -> Footp
 pub fn battery_jst(name: &str) -> FootprintDefinition {
     let p1 = tht("1", "oval", -1.0, 0.0, 1.5, 2.2, 0.85);
     let p2 = tht("2", "oval", 1.0, 0.0, 1.5, 2.2, 0.85);
-    let mut g = outline((6.0, 4.4), (7.0, 5.4));
+    let mut g = outline((6.0, 4.4));
     g.push(gline("F.SilkS", (-3.1, -2.4), (3.1, -2.4), 0.12));
     g.push(gline("F.SilkS", (-3.1, 2.4), (3.1, 2.4), 0.12));
     g.push(gline("F.SilkS", (-3.1, -2.4), (-3.1, 2.4), 0.12));
     g.push(gline("F.SilkS", (3.1, -2.4), (3.1, 2.4), 0.12));
+    g.push(pin1_dot(-2.5, 0.0));
     footprint(name, "Two-pin battery connector", vec![p1, p2], g)
 }
 
@@ -743,7 +779,7 @@ pub fn test_pad(name: &str) -> FootprintDefinition {
     p.layers = vec!["F.Cu".into(), "F.Mask".into()];
     p.polygon = polygon;
     let g = vec![
-        grect("F.CrtYd", (-1.4, -1.4), (1.4, 1.4), 0.05),
+        grect("F.Fab", (-0.9, -0.9), (0.9, 0.9), 0.1),
         Graphic::Circle {
             center: pt(0.0, 0.0),
             radius: 1.25,
@@ -752,11 +788,16 @@ pub fn test_pad(name: &str) -> FootprintDefinition {
             layer: "F.SilkS".into(),
         },
     ];
-    footprint(
-        name,
-        "Test pad with a chamfered custom copper shape",
-        vec![p],
-        g,
+    // A test point takes a probe, not solder: its copper has a mask opening
+    // and no paste, and the pad is the only one in the footprint.
+    with_body(
+        footprint(
+            name,
+            "Test pad with a chamfered custom copper shape",
+            vec![p],
+            g,
+        ),
+        0.1,
     )
 }
 
@@ -782,11 +823,12 @@ pub fn usb_c(name: &str) -> FootprintDefinition {
         pads.push(tht(&(9 + i).to_string(), "oval", *sx, *sy, 1.0, *h, 0.6));
     }
     let g = vec![
-        grect("F.CrtYd", (-6.0, -8.2), (6.0, 1.4), 0.05),
         grect("F.Fab", (-4.47, -7.35), (4.47, -0.2), 0.1),
-        gline("F.SilkS", (-4.4, -7.4), (4.4, -7.4), 0.12),
-        gline("F.SilkS", (-4.4, -7.4), (-4.4, -0.4), 0.12),
-        gline("F.SilkS", (4.4, -7.4), (4.4, -0.4), 0.12),
+        // Side silk stays 0.25 mm off the shell tab pads (edges at x = 4.5).
+        gline("F.SilkS", (-4.25, -7.4), (4.25, -7.4), 0.12),
+        gline("F.SilkS", (-4.25, -7.4), (-4.25, -0.4), 0.12),
+        gline("F.SilkS", (4.25, -7.4), (4.25, -0.4), 0.12),
+        pin1_dot(-3.5, -1.4),
     ];
     footprint(
         name,

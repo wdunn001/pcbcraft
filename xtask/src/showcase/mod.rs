@@ -73,22 +73,22 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
     let io = "bidirectional";
     let pw = "power_in";
     vec![
-        parts::resistor("R_0402", "10 k", "Chip_0402"),
-        parts::resistor("R_0603", "1 k", "Chip_0603"),
-        parts::capacitor("C_0402", "100 nF", "Chip_0402"),
-        parts::capacitor("C_0603", "10 uF", "Chip_0603"),
-        parts::diode("LED_0603", "D", "LED", "LED_0603", true),
-        parts::diode("TVS_SOD323", "D", "TVS", "SOD-323", false),
-        parts::fuse("FUSE_1206", "500 mA", "Chip_1206"),
-        parts::switch("SW_TACT", "Button", "Tact_4p5"),
-        parts::crystal("XTAL_3225", "16 MHz", "Crystal_3225"),
-        parts::test_point("TP_PAD", "TP", "Test_Pad"),
+        parts::resistor("R_0402", "10 k", "Chip_0402_N"),
+        parts::resistor("R_0603", "1 k", "Chip_0603_N"),
+        parts::capacitor("C_0402", "100 nF", "Chip_0402_N"),
+        parts::capacitor("C_0603", "10 uF", "Chip_0603_N"),
+        parts::diode("LED_0603", "D", "LED", "LED_0603_N", true),
+        parts::diode("TVS_SOD323", "D", "TVS", "SOD-323_N", false),
+        parts::fuse("FUSE_1206", "500 mA", "Chip_1206_N"),
+        parts::switch("SW_TACT", "Button", "Tact_4p5_N"),
+        parts::crystal("XTAL_3225", "16 MHz", "Crystal_3225_N"),
+        parts::test_point("TP_PAD", "TP", "Test_Pad_N"),
         parts::boxed(
             "USB_C_PWR",
             "J",
             "USB-C",
             "Power and USB 2.0 receptacle",
-            "USB_C_Receptacle",
+            "USB_C_Receptacle_N",
             &[BoxUnit {
                 unit: 1,
                 width: 25.4,
@@ -119,7 +119,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "J",
             "Battery",
             "Two-pin battery connector",
-            "Battery_2P",
+            "Battery_2P_N",
             &[BoxUnit {
                 unit: 1,
                 width: 10.16,
@@ -136,7 +136,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "U",
             "Charger",
             "Single-cell linear charger",
-            "SOT-23-5",
+            "SOT-23-5_N",
             &[BoxUnit {
                 unit: 1,
                 width: 25.4,
@@ -156,7 +156,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "U",
             "Regulator",
             "Low-dropout regulator",
-            "SOT-23-5",
+            "SOT-23-5_N",
             &[BoxUnit {
                 unit: 1,
                 width: 25.4,
@@ -173,7 +173,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "U",
             "Load switch",
             "High-side load switch",
-            "SOT-23-5",
+            "SOT-23-5_N",
             &[BoxUnit {
                 unit: 1,
                 width: 25.4,
@@ -190,7 +190,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "U",
             "Microcontroller",
             "32-bit microcontroller with USB device",
-            "QFN-32",
+            "QFN-32_N",
             &[
                 BoxUnit {
                     unit: 1,
@@ -279,7 +279,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "U",
             "SPI flash",
             "Serial flash memory",
-            "SOIC-8",
+            "SOIC-8_N",
             &[BoxUnit {
                 unit: 1,
                 width: 25.4,
@@ -301,7 +301,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "U",
             "Climate sensor",
             "Temperature, humidity and pressure sensor",
-            "DFN-8",
+            "DFN-8_N",
             &[BoxUnit {
                 unit: 1,
                 width: 40.64,
@@ -326,7 +326,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "U",
             "Light sensor",
             "Ambient light sensor",
-            "SOT-23-6",
+            "SOT-23-6_N",
             &[BoxUnit {
                 unit: 1,
                 width: 25.4,
@@ -343,7 +343,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             "J",
             "Debug",
             "Seven-pin programming and serial header",
-            "Header_1x7_1.27",
+            "Header_1x7_1.27_N",
             &[BoxUnit {
                 unit: 1,
                 width: 15.24,
@@ -369,22 +369,22 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
 /// Every library footprint the design uses.
 fn footprints() -> Vec<pcbcraft_library::FootprintDefinition> {
     vec![
-        parts::chip("Chip_0402", 0.48, (0.56, 0.62), (1.0, 0.5), false),
-        parts::chip("Chip_0603", 0.8, (0.8, 0.9), (1.6, 0.8), false),
-        parts::chip("Chip_1206", 1.5, (1.1, 1.7), (3.2, 1.6), false),
-        parts::chip("LED_0603", 0.8, (0.8, 0.9), (1.6, 0.8), true),
-        parts::chip("SOD-323", 1.05, (0.8, 0.7), (1.7, 1.25), true),
-        parts::sot23("SOT-23-5", 5),
-        parts::sot23("SOT-23-6", 6),
-        parts::soic8("SOIC-8"),
-        parts::qfn32("QFN-32"),
-        parts::dfn8("DFN-8"),
-        parts::crystal_3225("Crystal_3225"),
-        parts::tact("Tact_4p5"),
-        parts::header("Header_1x7_1.27", 7, 1.27, 0.95, 0.55),
-        parts::battery_jst("Battery_2P"),
-        parts::test_pad("Test_Pad"),
-        parts::usb_c("USB_C_Receptacle"),
+        parts::chip("Chip_0402_N", 0.48, (0.56, 0.62), (1.0, 0.5), 0.5, false),
+        parts::chip("Chip_0603_N", 0.8, (0.8, 0.9), (1.6, 0.8), 1.0, false),
+        parts::chip("Chip_1206_N", 1.5, (1.1, 1.7), (3.2, 1.6), 0.6, false),
+        parts::chip("LED_0603_N", 0.8, (0.8, 0.9), (1.6, 0.8), 0.7, true),
+        parts::chip("SOD-323_N", 1.05, (0.8, 0.7), (1.7, 1.25), 1.0, true),
+        parts::sot23("SOT-23-5_N", 5),
+        parts::sot23("SOT-23-6_N", 6),
+        parts::soic8("SOIC-8_N"),
+        parts::qfn32("QFN-32_N"),
+        parts::dfn8("DFN-8_N"),
+        parts::crystal_3225("Crystal_3225_N"),
+        parts::tact("Tact_4p5_N"),
+        parts::header("Header_1x7_1.27_N", 7, 1.27, 0.95, 0.55),
+        parts::battery_jst("Battery_2P_N"),
+        parts::test_pad("Test_Pad_N"),
+        parts::usb_c("USB_C_Receptacle_N"),
     ]
 }
 
@@ -434,9 +434,16 @@ pub fn build(g: &mut Gen) -> Res<()> {
         )?;
     }
     for fp in footprints() {
+        let name = fp.name.clone();
         g.cmd(
             "library.footprint.upsert",
             json!({"definition": fp, "notice": "Original showcase footprint"}),
+        )?;
+        // Every courtyard is the pads and artwork grown by the margin the
+        // library checks ask for, snapped to the 0.01 mm grid.
+        g.cmd(
+            "library.footprint.generate_courtyard",
+            json!({"name": name, "margin": 0.25}),
         )?;
     }
     // Pages.
