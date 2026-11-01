@@ -215,9 +215,9 @@ fn parse_coord_tuple(text: &str) -> Option<[f64; 3]> {
     let close = find_matching_paren(text, open)?;
     let inner = &text[open + 1..close];
     let mut parts = inner.split(',');
-    let x = parts.next()?.trim().parse().ok()?;
-    let y = parts.next()?.trim().parse().ok()?;
-    let z = parts.next()?.trim().parse().ok()?;
+    let x: f64 = parts.next()?.trim().parse().ok()?;
+    let y: f64 = parts.next()?.trim().parse().ok()?;
+    let z: f64 = parts.next()?.trim().parse().ok()?;
     if x.is_finite() && y.is_finite() && z.is_finite() {
         Some([x, y, z])
     } else {

@@ -235,6 +235,8 @@ mod tests {
             sheet: 0,
             instance: Default::default(),
             prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         p.migrate_component_kinds();
         assert_eq!(p.components[0].kind, "ic");

@@ -20,7 +20,8 @@ pub fn read_stackup_copper_names(project: &mut Project, root: &Value) -> Result<
     let board = root
         .get("board")
         .ok_or_else(|| "project file missing board".to_string())?;
-    read_board_copper_names(&mut project.board, project, board)
+    let snapshot = project.clone();
+    read_board_copper_names(&mut project.board, &snapshot, board)
 }
 
 fn rewrite_copper_strings(value: &mut Value, project: &Project) {
@@ -150,6 +151,7 @@ mod tests {
             width: 0.2,
             layer: Layer::from_index(3)?,
             arc: None,
+            preserved: Default::default(),
         });
         Ok(p)
     }

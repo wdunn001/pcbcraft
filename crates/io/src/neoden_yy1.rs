@@ -580,11 +580,13 @@ mod tests {
                 },
             }),
             fields: vec![],
-            sourcing: Default::default(),
             compliance: Default::default(),
             sheet: 0,
-        sourcing: Default::default(),
-        compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
         });
         p.board.footprints.push(Footprint {
             preserved: pcbcraft_doc::PreservedSource::default(),
@@ -596,7 +598,6 @@ mod tests {
             side: None,
             pads: vec![pad(pad_kind.0, pad_kind.1)],
         
-            preserved: pcbcraft_doc::PreservedSource::default(),
 });
     }
 

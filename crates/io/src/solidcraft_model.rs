@@ -85,7 +85,7 @@ fn design_to_model(
         );
     }
     let color = out.body_colors.first().copied();
-    Ok(LoadedModel {
+    let mut model = LoadedModel {
         positions: out.positions,
         indices: out.indices,
         color,
@@ -94,7 +94,11 @@ fn design_to_model(
         } else {
             None
         },
-    })
+        triangle_materials: vec![],
+        authored_colors: vec![],
+    };
+    model.finish_materials()?;
+    Ok(model)
 }
 
 fn resolve_component(design: &SolidcraftDesign, cad_part: Option<&str>) -> Result<u64, ModelError> {
@@ -507,6 +511,8 @@ mod tests {
             rotate: [0.0, 0.0, 45.0],
             cad_part: None,
             raw_source: String::new(),
+            body_id: Default::default(),
+            embedded: Default::default(),
         };
         let mut design2 = design;
         design2.features[0]["meshes"][0]["positions"][0] = json!(0.5);

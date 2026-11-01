@@ -31,7 +31,7 @@ pub fn fab_drawing_pdf(p: &Project) -> Result<Vec<u8>, String> {
         "Revision block",
         revision_block_lines(p),
     )?;
-    pdf_bytes_from_ops(sheet.ops)
+    pdf_bytes_from_ops(sheet.ops, 842.0, 595.0)
 }
 
 fn project_title(p: &Project) -> &str {
@@ -230,10 +230,10 @@ fn page_settings(p: &Project) -> pcbcraft_doc::PageSettings {
         .iter()
         .find(|s| s.sheet == 0)
         .cloned()
-        .unwrap_or_default()
+        .unwrap_or_else(|| pcbcraft_doc::PageSettings::new(0))
 }
 
-fn meta_or_page<'a>(p: &'a Project, key: &str, page: &str) -> Option<&'a str> {
+fn meta_or_page<'a>(p: &'a Project, key: &str, page: &'a str) -> Option<&'a str> {
     if !page.is_empty() {
         return Some(page);
     }
@@ -482,6 +482,7 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         project.board.vias.push(Via {
             id: 3,
@@ -492,6 +493,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         project.validate()?;
         let pdf = fab_drawing_pdf(&project)?;

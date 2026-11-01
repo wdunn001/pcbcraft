@@ -321,7 +321,7 @@ fn draw_footprint_silk(
             continue;
         }
         let points: Vec<Point> = g.path_points().iter().map(|pt| spin(*pt)).collect();
-        let (width, fill, _) = match &g {
+        let (width, fill) = match &g {
             Graphic::Line { width, .. } | Graphic::Arc { width, .. } => (*width, false),
             Graphic::Rectangle { width, fill, .. }
             | Graphic::Circle { width, fill, .. }
@@ -593,6 +593,7 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad_geom("1")?, pad_geom("2")?],
+            preserved: Default::default(),
         });
         project.board.footprints.push(Footprint {
             id: 11,
@@ -608,6 +609,7 @@ mod tests {
                 p2.offset = Point::new(-p2.offset.x, p2.offset.y);
                 vec![p1, p2]
             },
+            preserved: Default::default(),
         });
         project.validate()?;
         Ok(project)

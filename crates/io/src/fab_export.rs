@@ -18,18 +18,7 @@
 //! - crates/io/src/gerber.rs coordinate, GerberWriter, Aperture, Operation
 //! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
 //! - crates/io/src/lib.rs PickPlaceWriter
-use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering, ViaGerberDrill, ViaProtectionType};
 use crate::gerber::coordinate;
-use pcbcraft_geom::Point;
-use pcbcraft_library::FootprintRules;
-use std::collections::BTreeMap;
-
-const MAX_OPS: usize = 100_000;
-const MAX_APERTURES: usize = 64;
-const MAX_HITS: usize = 50_000;
-const MAX_TOOLS: usize = 64;
-const DEFAULT_MASK_MARGIN_MM: f64 = 0.05;
-
 use pcbcraft_doc::{Board, Layer, Project, Via, ViaProtectionType};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
@@ -40,14 +29,6 @@ const MAX_APERTURES: usize = 64;
 const MAX_HITS: usize = 50_000;
 pub(crate) const MAX_TOOLS: usize = 64;
 const DEFAULT_MASK_MARGIN_MM: f64 = 0.05;
-
-/// Whether a via gets a solder-mask opening on one outer face.
-pub fn via_mask_opening_on_face(v: &Via, board: &Board, top: bool) -> bool {
-    if v.drill <= 0.0 {
-        return false;
-    }
-    v.effective_covering(board).mask_open_on_face(v.effective_covering_scope(), top)
-}
 
 /// Whether a via gets a solder-mask opening on at least one face.
 ///
@@ -89,35 +70,10 @@ pub enum DrillFunction {
     ComponentPad,
     /// A mounting or tooling hole.
     Mounting,
-
+    /// A back-drill pass that removes the stub of a plated through hole.
+    BackDrill,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum DrillTableFunction {
-    Via,
-    ComponentPad,
-    Mounting,
-}
-
-/// One aggregated row of the per-span fabrication drill table.
-#[derive(Clone, Debug, PartialEq)]
-pub struct DrillTableRow {
-    pub from_layer: u8,
-    pub to_layer: u8,
-    pub plated: bool,
-    pub function: DrillTableFunction,
-    pub diameter_mm: f64,
-    pub slot_mm: f64,
-    pub count: usize,
-    pub tolerance_mm: Option<f64>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum DrillHitKind {
-    Via,
-    ComponentPad,
-    Mounting,
-}
 
 #[derive(Clone, Copy)]
 pub(crate) struct DrillHit {
@@ -126,30 +82,12 @@ pub(crate) struct DrillHit {
     pub d_um: u64,
     pub span_um: u64,
     pub plated: bool,
-    /// Gerber via protection for this hit, `None` for pad and mounting holes.
-    pub via_drill: Option<ViaGerberDrill>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct DrillHit {
-    /// Copper span (upper, lower layer index) of a blind or buried via.
-    pub via_span: Option<(u8, u8)>,
-    pub d_um: u64,
-    pub span_um: u64,
-    pub plated: bool,
-/// Gerber via protection for this hit, `None` for pad and mounting holes.
-    pub via_drill: Option<ViaGerberDrill>,
     /// Protection type of the via this hit drills, `None` for pad and mounting holes.
     pub via: Option<ViaProtectionType>,
-    /// Copper span (upper, lower layer index) of a blind or buried via.
-    pub via_span: Option<(u8, u8)>,
     /// Copper span (upper, lower layer index) the hole runs through; top to bottom for pad and mounting holes.
     pub span: (u8, u8),
     /// What the hole is for.
     pub function: DrillFunction,
-    pub d_um: u64,
-    pub span_um: u64,
-    pub plated: bool,
     pub x: f64,
     pub y: f64,
     pub ux: f64,
@@ -186,15 +124,12 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                     d_um: (v.drill * 1_000.0).round() as u64,
                     span_um: 0,
                     plated: true,
-via_drill: Some(v.gerber_via_drill(&p.board)),
                     via: Some(p.via_protection_type(v)),
                     span: {
                         let (a, b) = p.via_span(v);
                         (a.index(), b.index())
                     },
                     function: DrillFunction::Via,
-                    span_um: 0,
-                    plated: true,
                     x: v.position.x,
                     y: v.position.y,
                     ux: 0.0,
@@ -227,7 +162,6 @@ via_drill: Some(v.gerber_via_drill(&p.board)),
                 d_um,
                 span_um,
                 plated: false,
-                kind: DrillHitKind::Mounting,
                 via: None,
                 span: through,
                 function: DrillFunction::Mounting,
@@ -276,7 +210,6 @@ via_drill: Some(v.gerber_via_drill(&p.board)),
                     span_um,
                     plated: g.pad_type == "thru_hole",
 via: None,
-                    via_drill: None,
                     span: through,
                     function: if g.pad_type == "thru_hole" {
                         DrillFunction::ComponentPad
@@ -295,93 +228,6 @@ via: None,
         return Err("gerber export exceeds the drill hit limit".into());
     }
     Ok(hits)
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct DrillTableKey {
-    from_layer: u8,
-    to_layer: u8,
-    plated: bool,
-    function: DrillTableFunction,
-    d_um: u64,
-    span_um: u64,
-}
-
-impl DrillTableKey {
-    fn from_hit(p: &Project, hit: &DrillHit) -> Self {
-        let (from_layer, to_layer) = drill_hit_layer_span(p, hit);
-        let function = match hit.kind {
-            DrillHitKind::Via => DrillTableFunction::Via,
-            DrillHitKind::ComponentPad => DrillTableFunction::ComponentPad,
-            DrillHitKind::Mounting => DrillTableFunction::Mounting,
-        };
-        Self {
-            from_layer,
-            to_layer,
-            plated: hit.plated,
-            function,
-            d_um: hit.d_um,
-            span_um: hit.span_um,
-        }
-    }
-
-    fn into_row(self, count: usize, tolerance_mm: Option<f64>) -> DrillTableRow {
-        DrillTableRow {
-            from_layer: self.from_layer,
-            to_layer: self.to_layer,
-            plated: self.plated,
-            function: self.function,
-            diameter_mm: self.d_um as f64 / 1_000.0,
-            slot_mm: self.span_um as f64 / 1_000.0,
-            count,
-            tolerance_mm,
-        }
-    }
-}
-
-fn drill_hit_layer_span(p: &Project, hit: &DrillHit) -> (u8, u8) {
-    if let Some((a, b)) = hit.via_span {
-        (a + 1, b + 1)
-    } else {
-        let bottom = p.copper_layer_count().max(1) as u8;
-        (1, bottom)
-    }
-}
-
-fn drill_table_function_label(function: DrillTableFunction) -> &'static str {
-    match function {
-        DrillTableFunction::Via => "via",
-        DrillTableFunction::ComponentPad => "component pad",
-        DrillTableFunction::Mounting => "mounting",
-    }
-}
-
-fn format_drill_table_fields(row: &DrillTableRow) -> String {
-    let span = format!("L{}-L{}", row.from_layer, row.to_layer);
-    let plated = if row.plated { "yes" } else { "no" };
-    let function = drill_table_function_label(row.function);
-    let tol = match row.tolerance_mm {
-        Some(t) => format!("{t:.3}"),
-        None => "-".into(),
-    };
-    format!(
-        "{span},{plated},{function},{:.3},{:.3},{},{tol}",
-        row.diameter_mm, row.slot_mm, row.count
-    )
-}
-
-/// One row per copper span, plating, hole role, and drill size with hit count.
-pub fn drill_table(p: &Project) -> Result<Vec<DrillTableRow>, String> {
-    p.validate()?;
-    let tolerance_mm = p.board.machining.as_ref().and_then(|m| m.drill_tolerance);
-    let mut rows: BTreeMap<DrillTableKey, usize> = BTreeMap::new();
-    for hit in collect_drill_hits(p)? {
-        *rows.entry(DrillTableKey::from_hit(p, &hit)).or_default() += 1;
-    }
-    Ok(rows
-        .into_iter()
-        .map(|(key, count)| key.into_row(count, tolerance_mm))
-        .collect())
 }
 
 pub fn drill_tool_counts(p: &Project) -> Result<BTreeMap<(u64, u64, bool), usize>, String> {
@@ -728,14 +574,13 @@ fn write_excellon(
     tolerance: Option<f64>,
 ) -> Result<String, String> {
     let round: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um == 0).collect();
-// Via hits get their own tools per covering so each tool can carry the
-    // via drill attribute and name its covering.
-    let mut by_tool: BTreeMap<(u64, u64, Option<ViaGerberDrill>), Vec<&DrillHit>> =
-        BTreeMap::new();
+    // Via hits get their own tools per protection type so each tool can carry
+    // the via drill attribute and name its protection.
+    let mut by_tool: BTreeMap<(u64, u64, Option<ViaProtectionType>), Vec<&DrillHit>> =
         BTreeMap::new();
     for hit in round {
         by_tool
-            .entry((hit.d_um, hit.span_um, hit.via_drill))
+            .entry((hit.d_um, hit.span_um, hit.via))
             .or_default()
             .push(hit);
     }
@@ -748,31 +593,14 @@ fn write_excellon(
         ("METRIC,TZ", 3)
     };
     let mut out = format!("M48\n{plating_line}\nFMAT,2\n{unit_line}\n");
-    if let Some(t) = drill_tolerance_mm {
-        let tol = if inch { t / 25.4 } else { t };
-        out.push_str(&format!(
-            "; #@! TA.DrillTolerance,{tol:.prec$},{tol:.prec$}\n",
-            prec = prec
-        ));
-    }
     for (n, key) in by_tool.keys().enumerate() {
         let d = key.0;
-let mut attributed = false;
+        let mut attributed = false;
         if let Some(t) = tolerance {
             out.push_str(&format!(
                 "; #@! TA.DrillTolerance,{t:.prec$},{t:.prec$}\n",
                 t = t * scale,
                 prec = prec
-            ));
-            attributed = true;
-        }
-        if let Some(kind) = key.2 {
-            out.push_str(&format!(
-                "; #@! TA.AperFunction,Plated,PTH,ViaDrill,{}\n",
-                kind.gerber_token()
-            ));
-            attributed = true;
-        }
             ));
             attributed = true;
         }
@@ -875,12 +703,6 @@ pub fn drill_map_plot(p: &Project) -> Result<String, String> {
         ));
     }
     let mut tool_index = 0usize;
-    for row in drill_table(p)? {
-        layer.body.push_str(&format!(
-            "G04 TABLE {} *%\n",
-            format_drill_table_fields(&row)
-        ));
-    }
     for ((d_um, span_um, plated), count) in &counts {
         tool_index += 1;
         let marker_d = (100 + tool_index as u64 * 25).min(500);
@@ -981,15 +803,6 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     }
     for (label, count) in overrides {
         out.push_str(&format!("Via protection override: {count} {label}\n"));
-    }
-    let table = drill_table(p)?;
-    if !table.is_empty() {
-        out.push_str(
-            "\nDrill table (span, plating, function, diameter mm, slot mm, count, tolerance mm):\n",
-        );
-        for row in &table {
-            out.push_str(&format!("  {}\n", format_drill_table_fields(row)));
-        }
     }
     out.push_str(
         "Drill tool numbers restart in each Excellon file; the CSV chart may use different indices.\n",
@@ -1171,8 +984,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             back.flash(back_code, x, y)?;
         }
 
-let open_top = reaches_top && via_mask_opening_on(v, &p.board, false);
-        let open_bottom = reaches_bottom && via_mask_opening_on(v, &p.board, true);
+        let open_top = reaches_top && via_mask_opening_on_face(v, &p.board, false);
+        let open_bottom = reaches_bottom && via_mask_opening_on_face(v, &p.board, true);
         if open_top || open_bottom {
             let margin = DEFAULT_MASK_MARGIN_MM;
             let r = v.drill / 2.0 + margin;
@@ -1192,7 +1005,6 @@ let open_top = reaches_top && via_mask_opening_on(v, &p.board, false);
                 let code_b = mask_back.code(Ap::Circle(1))?;
                 mask_back.fill(code_b, &outline_ring(&mirrored))?;
             }
-        }
         }
     }
 
@@ -1386,6 +1198,9 @@ mod fab_export_tests {
             from_layer: None,
             to_layer: None,
             covering: Some(ViaCovering::Open),
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         };
         let tented = Via {
             covering: Some(ViaCovering::Tented),
@@ -1410,6 +1225,9 @@ mod fab_export_tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         p.board.vias.push(Via {
             id: 11,
@@ -1420,6 +1238,9 @@ mod fab_export_tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         p.board.holes.push(Hole {
             id: 12,

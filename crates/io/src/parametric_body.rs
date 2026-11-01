@@ -36,7 +36,7 @@ pub(crate) struct ParametricBody {
 }
 
 impl ParametricBody {
-    fn plain(family: &'static str, ring: Vec<Point>, height: f64) -> Self {
+    pub(crate) fn plain(family: &'static str, ring: Vec<Point>, height: f64) -> Self {
         Self {
             family,
             ring,
@@ -318,7 +318,7 @@ fn chamfer_ring_corner(ring: &[Point], pin1: Point) -> Vec<Point> {
     let prev = ring[(best + n - 1) % n];
     let corner = ring[best];
     let next = ring[(best + 1) % n];
-    let cut = 0.35;
+    let cut = 0.35_f64;
     let p1 = Point::new(
         corner.x + (prev.x - corner.x).signum() * cut.min(prev.distance(corner)),
         corner.y + (prev.y - corner.y).signum() * cut.min(prev.distance(corner)),
@@ -607,10 +607,11 @@ fn connector_receptacle_body(lo: Point, hi: Point) -> ParametricBody {
         rect_ring(cx, cy, w * 0.88, h * 0.75),
         3.0,
     );
+    let rise = body.height * 0.55;
     push_extra(
         &mut body,
         rect_ring(cx + w * 0.32, cy - h * 0.28, w * 0.12, h * 0.22),
-        body.height * 0.55,
+        rise,
     );
     body
 }
@@ -882,7 +883,7 @@ fn infer_from_pads(fp: &Footprint, component: Option<&Component>) -> Option<Para
     if through {
         return through_body(component, &pads, &xc, &yc)
             .or_else(|| body_from_pattern(&pads, &xc, &yc, n, lo, hi, true))
-            .or_else(generic);
+            .or_else(|| Some(generic()));
     }
     if n == 2 {
         let (a, b) = (&pads[0], &pads[1]);
@@ -1263,6 +1264,7 @@ mod tests {
             locked: None,
             side: None,
             pads,
+            preserved: Default::default(),
         }
     }
 
@@ -1302,6 +1304,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 })
                 .collect(),
             units: vec![],
@@ -1312,6 +1315,13 @@ mod tests {
             }),
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         p.board.footprints.push(footprint(pads));
         p
@@ -1514,6 +1524,13 @@ mod tests {
             }),
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
         assert_eq!(body.family, "soic");
@@ -1561,6 +1578,13 @@ mod tests {
                 value: r#"{"family":"chip","height":0.5}"#.into(),
             }],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
         assert_eq!(body.family, "chip");
@@ -1593,6 +1617,13 @@ mod tests {
             }),
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
         assert_eq!(body.family, "chip");
@@ -1622,6 +1653,13 @@ mod tests {
                 value: r#"{"family":"chip","height":0.9}"#.into(),
             }],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
         assert_eq!(body.family, "chip");

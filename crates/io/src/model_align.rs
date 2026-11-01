@@ -169,8 +169,8 @@ pub fn auto_align_model(
 
     let mut best: Option<(Model3D, f64, bool)> = None;
 
-    let mirrors = if allow_flip { [false, true] } else { [false] };
-    for mirror in mirrors {
+    let mirrors: &[bool] = if allow_flip { &[false, true] } else { &[false] };
+    for &mirror in mirrors {
         for quarter in 0..4u32 {
             let mut trial = current.clone();
             if mirror {
@@ -219,6 +219,9 @@ pub fn shift_mesh(mesh: &LoadedModel, dx: f64, dy: f64, dz: f64) -> LoadedModel 
             .collect(),
         indices: mesh.indices.clone(),
         color: mesh.color,
+        body_colors: Default::default(),
+        triangle_materials: vec![],
+        authored_colors: vec![],
     }
 }
 
@@ -270,6 +273,9 @@ pub fn test_chip_mesh(pitch: f64) -> LoadedModel {
         positions,
         indices,
         color: None,
+        body_colors: Default::default(),
+        triangle_materials: vec![],
+        authored_colors: vec![],
     }
 }
 
@@ -319,6 +325,8 @@ mod tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            box_body: Default::default(),
+            retained: Default::default(),
         }
     }
 
@@ -329,6 +337,9 @@ mod tests {
             scale: [1.0; 3],
             rotate: [0.0; 3],
             raw_source: String::new(),
+            body_id: Default::default(),
+            cad_part: Default::default(),
+            embedded: Default::default(),
         }
     }
 
@@ -371,6 +382,9 @@ mod tests {
             positions: vec![[0.0, 0.0, 0.5], [1.0, 0.0, 0.5], [0.0, 1.0, 0.8]],
             indices: vec![0, 1, 2],
             color: None,
+            body_colors: Default::default(),
+            triangle_materials: vec![],
+            authored_colors: vec![],
         };
         let out = auto_align_model(&mesh, &fp, &unit_model(), false);
         assert!(out.bbox_fallback);

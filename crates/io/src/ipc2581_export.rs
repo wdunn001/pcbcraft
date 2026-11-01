@@ -590,7 +590,7 @@ fn synthesized_stackup(p: &Project) -> Vec<LayerRecord> {
 
 fn ipc_layer_attrs(p: &Project, row: &LayerRecord) -> (&'static str, &'static str) {
     let function = match row.kind.as_str() {
-        "copper" => match row.function().as_str() {
+        "copper" => match row.function() {
             "plane" => "PLANE",
             "mixed" => "MIXED",
             _ => "SIGNAL",

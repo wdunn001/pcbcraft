@@ -730,6 +730,9 @@ mod tests {
             sheet: 0,
 sourcing: Default::default(),
         compliance: Default::default(),
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
         });
         p.board.footprints.push(Footprint {
             preserved: pcbcraft_doc::PreservedSource::default(),
@@ -745,10 +748,9 @@ sourcing: Default::default(),
                 diameter: 1.0,
                 net: Some(1),
                 castellated: None,
-                geometry: None,
+                geometry: Default::default(),
             }],
         
-            preserved: pcbcraft_doc::PreservedSource::default(),
 });
         p
     }

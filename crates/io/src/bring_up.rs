@@ -139,7 +139,7 @@ fn header_pins(project: &Project) -> Vec<HeaderPin> {
         for pin in &c.pins {
             let net = pin
                 .net
-                .map(|id| project.net_name(id))
+                .map(|id| project.net_name(id).to_string())
                 .unwrap_or_else(|| "unassigned".into());
             rows.push(HeaderPin {
                 reference: c.reference.clone(),
@@ -164,7 +164,10 @@ fn header_pins(project: &Project) -> Vec<HeaderPin> {
 fn continuity_pairs(project: &Project) -> Vec<(String, String)> {
     let mut pairs = Vec::new();
     for NetTie { net_a, net_b, .. } in &project.board.netties {
-        pairs.push((project.net_name(*net_a), project.net_name(*net_b)));
+        pairs.push((
+            project.net_name(*net_a).to_string(),
+            project.net_name(*net_b).to_string(),
+        ));
     }
     pairs.sort();
     pairs
@@ -389,12 +392,20 @@ mod tests {
                 electrical_type: "bidirectional".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             }],
             units: vec![],
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: 20,
@@ -404,6 +415,7 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![],
+            preserved: Default::default(),
         });
         p.validate()?;
         let md = bring_up_plan_markdown(&p)?;

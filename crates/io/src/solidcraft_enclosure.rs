@@ -17,7 +17,7 @@
 
 use crate::board_mesh::{apply_matrix, mul, MeshPart, PartKind, rot_x, rot_y, rot_z, translate, diag};
 use crate::solidcraft_format::{read_solidcraft, SolidcraftDesign};
-use crate::solidcraft_write::{SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA};
+use crate::solidcraft::{SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA};
 use pcbcraft_doc::{BoardEnclosure, EmbeddedFile, Project, ENCLOSURE_ATTACHMENT_NAME};
 use serde_json::Value;
 use std::collections::BTreeMap;

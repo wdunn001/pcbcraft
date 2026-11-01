@@ -633,8 +633,10 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
-        sourcing: Default::default(),
         compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
         });
         p.validate()?;
         Ok(p)
@@ -836,6 +838,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         p.validate()?;
         let mut opts = base_opts(FabLayer::CopperTop);

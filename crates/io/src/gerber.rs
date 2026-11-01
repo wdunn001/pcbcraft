@@ -15,6 +15,7 @@
 //! from `gerber_files`: y stays down from the top-left corner, and a bottom
 //! side file mirrors x about the board origin.
 use crate::board_mesh::{graphic_layer, map_ring, pad_sides, thin_polyline};
+use crate::gerber_fidelity::{attach_gerber_md5, smd_aperture_function};
 use pcbcraft_doc::fill::{
     pad_exports_on_layer, plated_item_connected_on_layer, PlatedConnectKind,
 };
@@ -369,16 +370,12 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     }
     let idx = layer.index();
     let index = idx + 1;
-let last = p.copper_layer_count().saturating_sub(1);
     let side = if idx == 0 {
         "Top"
     } else if p.is_bottom(layer) {
         "Bot"
-    } else if idx >= last {
-        "Bot"
     } else {
         "Inr"
-    };
     };
     Ok(format!(
         "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,Copper,L{index},{side}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
@@ -700,7 +697,7 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
     for v in &p.board.vias {
 let top = layer == Layer::Front;
         // A via keeps its mask opening only on a face it leaves open.
-        if !crate::fab_export::via_mask_opening_on(v, &p.board, top) {
+        if !crate::fab_export::via_mask_opening_on_face(v, &p.board, top) {
             continue;
         }
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
@@ -1210,9 +1207,9 @@ mod tests {
             fields: vec![],
             include_in_bom: true,
             include_in_placement: true,
+            compliance: Default::default(),
+            part: None,
         }
-    sourcing: Default::default(),
-    compliance: Default::default(),
     }
 
     /// Project with a front SMD part, a through-hole part, a via, front and back

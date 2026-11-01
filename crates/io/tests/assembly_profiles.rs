@@ -2,10 +2,10 @@
 
 use pcbcraft_doc::{Component, Footprint, Layer, Pin, Project};
 use pcbcraft_geom::Point;
+use pcbcraft_io::assembly_profiles::{PlacementColumn, PlacementUnits};
 use pcbcraft_io::{
-    AssemblyPlacementProfile, BottomRotationPolicy, PlacementColumn, PlacementField,
-    PlacementUnits, export_rotation, gerber_component_layers, placement_text,
-    placement_text_with_profile,
+    AssemblyPlacementProfile, BottomRotationPolicy, PlacementField, export_rotation,
+    gerber_component_layers, placement_text, placement_text_with_profile,
 };
 use pcbcraft_library::FootprintPad;
 

@@ -862,9 +862,11 @@ pub mod tests {
             include_in_bom: true,
             include_in_placement: true,
             sheet: 0,
+            compliance: Default::default(),
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
         }
-    sourcing: Default::default(),
-    compliance: Default::default(),
     }
 
     pub fn laser_job_two_pad_one_track_project() -> Project {
@@ -898,7 +900,6 @@ pub mod tests {
                     geometry: None,
                 }],
             
-                preserved: pcbcraft_doc::PreservedSource::default(),
 },
             Footprint {
                 preserved: pcbcraft_doc::PreservedSource::default(),
@@ -917,7 +918,6 @@ pub mod tests {
                     geometry: None,
                 }],
             
-                preserved: pcbcraft_doc::PreservedSource::default(),
 },
         ];
         project.board.tracks = vec![Track {
@@ -930,7 +930,6 @@ pub mod tests {
             layer: Layer::Front,
             arc: None,
         
-            preserved: pcbcraft_doc::PreservedSource::default(),
 }];
         project.components = vec![
             sample_component(COMP_A, "P1"),

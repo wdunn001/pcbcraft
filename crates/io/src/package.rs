@@ -523,6 +523,12 @@ mod tests {
             library_footprint: None,
             fields: Vec::new(),
             sourcing: Default::default(),
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
         };
         project.components.push(part(1, "R1", "10k", "resistor"));
         project.components.push(part(2, "C1", "100n", "capacitor"));

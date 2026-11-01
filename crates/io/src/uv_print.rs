@@ -666,8 +666,10 @@ mod tests {
                 }]),
             }),
             fields: vec![],
-        sourcing: Default::default(),
         compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
         });
         p.board.footprints.push(Footprint {
             preserved: pcbcraft_doc::PreservedSource::default(),
@@ -686,7 +688,6 @@ mod tests {
                 geometry: Some(small_pad()),
             }],
         
-            preserved: pcbcraft_doc::PreservedSource::default(),
 });
         p.validate()?;
         let profile = eufymake_e1_profile();
@@ -746,7 +747,6 @@ mod tests {
                 geometry: Some(pad.clone()),
             }],
         
-            preserved: pcbcraft_doc::PreservedSource::default(),
 });
         p.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
@@ -785,8 +785,10 @@ mod tests {
                 },
             }),
             fields: vec![],
-        sourcing: Default::default(),
         compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
         });
         p.validate()?;
         let profile = eufymake_e1_profile();
@@ -902,8 +904,10 @@ mod tests {
                 }]),
             }),
             fields: vec![],
-        sourcing: Default::default(),
         compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
         });
         p.board.footprints.push(Footprint {
             preserved: pcbcraft_doc::PreservedSource::default(),
@@ -922,7 +926,6 @@ mod tests {
                 geometry: Some(small_pad()),
             }],
         
-            preserved: pcbcraft_doc::PreservedSource::default(),
 });
         p.validate()?;
         let profile = eufymake_e1_profile();

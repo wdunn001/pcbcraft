@@ -144,7 +144,7 @@ pub fn build_schematic_netlist(p: &Project) -> Result<SchematicNetlist, String> 
         }
         let value_text = comp
             .field("sim.value")
-            .or_else(|| comp.value.as_deref())
+            .or_else(|| Some(comp.value.as_str()).filter(|v| !v.is_empty()))
             .ok_or_else(|| format!("{} needs a value for sim.model {upper}", comp.reference))?;
         let value = parse_value(value_text).map_err(|e| format!("{}: {e}", comp.reference))?;
         let node_a = node_index(p, &node_by_net, ground.id, comp, "1")?;
@@ -250,7 +250,7 @@ fn node_index(
         .find(|q| q.number == pin)
         .ok_or_else(|| format!("{} has no pin {pin}", comp.reference))?;
     let Some(net) = pin.net else {
-        return Err(format!("{} pin {pin} is not on a net", comp.reference));
+        return Err(format!("{} pin {} is not on a net", comp.reference, pin.number));
     };
     if net == ground {
         return Ok(0);
@@ -267,7 +267,7 @@ fn node_index(
                         n.name
                     )
                 })
-                .unwrap_or_else(|| format!("{} pin {pin} is on an unknown net", comp.reference))
+                .unwrap_or_else(|| format!("{} pin {} is on an unknown net", comp.reference, pin.number))
         })
 }
 
@@ -336,14 +336,50 @@ mod tests {
             Net {
                 id: 1,
                 name: "GND".into(),
+                current: Default::default(),
+                impedance_target: Default::default(),
+                impedance_tolerance_pct: Default::default(),
+                instance: Default::default(),
+                insulation: Default::default(),
+                length_tolerance: Default::default(),
+                line_structure: Default::default(),
+                reference_layers: Default::default(),
+                return_path_rule: Default::default(),
+                target_length: Default::default(),
+                temperature_rise: Default::default(),
+                working_voltage: Default::default(),
             },
             Net {
                 id: 2,
                 name: "MID".into(),
+                current: Default::default(),
+                impedance_target: Default::default(),
+                impedance_tolerance_pct: Default::default(),
+                instance: Default::default(),
+                insulation: Default::default(),
+                length_tolerance: Default::default(),
+                line_structure: Default::default(),
+                reference_layers: Default::default(),
+                return_path_rule: Default::default(),
+                target_length: Default::default(),
+                temperature_rise: Default::default(),
+                working_voltage: Default::default(),
             },
             Net {
                 id: 3,
                 name: "VIN".into(),
+                current: Default::default(),
+                impedance_target: Default::default(),
+                impedance_tolerance_pct: Default::default(),
+                instance: Default::default(),
+                insulation: Default::default(),
+                length_tolerance: Default::default(),
+                line_structure: Default::default(),
+                reference_layers: Default::default(),
+                return_path_rule: Default::default(),
+                target_length: Default::default(),
+                temperature_rise: Default::default(),
+                working_voltage: Default::default(),
             },
         ];
         p.components.push(Component {
@@ -362,6 +398,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 },
                 Pin {
                     number: "2".into(),
@@ -371,6 +408,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 },
             ],
             units: vec![],
@@ -381,6 +419,13 @@ mod tests {
                 value: "R".into(),
             }],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         p.components.push(Component {
             id: 11,
@@ -398,6 +443,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 },
                 Pin {
                     number: "2".into(),
@@ -407,6 +453,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 },
             ],
             units: vec![],
@@ -417,6 +464,13 @@ mod tests {
                 value: "R".into(),
             }],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         let text = spice_netlist(&p)?;
         if !text.contains("R1") || !text.contains("R2") || !text.contains(".END") {

@@ -51,6 +51,8 @@ fn compliance_round_trips_and_old_files_load_without_compliance_fields() -> Resu
         part: None,
         instance: Default::default(),
         prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     });
     p.validate()?;
     let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
@@ -164,6 +166,8 @@ fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -
         sheet: 0,
         instance: Default::default(),
         prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     };
     let effective = c.effective_declarations();
     assert_eq!(effective.len(), 2);
@@ -221,6 +225,8 @@ fn compliance_settings_and_mutes_round_trip() -> Result<(), String> {
         part: None,
         instance: Default::default(),
         prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     });
     p.validate()?;
     let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;

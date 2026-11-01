@@ -120,7 +120,7 @@ fn rewrite_refs(body: &str, map: &BTreeMap<u32, u32>) -> String {
                 }
             }
         }
-        out.push(body[index] as char);
+        out.push(bytes[index] as char);
         index += 1;
     }
     out

@@ -122,34 +122,34 @@ pub fn encode_compact(
 /// Decode a compact model written by [`encode_compact`].
 pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     let mut off = 0usize;
-    let take = |n: usize, b: &[u8]| -> Result<&[u8], ModelError> {
-        if off + n > b.len() {
+    fn take<'a>(off: &mut usize, n: usize, b: &'a [u8]) -> Result<&'a [u8], ModelError> {
+        if *off + n > b.len() {
             return Err(bad("the stored model file is truncated"));
         }
-        let s = &b[off..off + n];
-        off += n;
+        let s = &b[*off..*off + n];
+        *off += n;
         Ok(s)
-    };
-    let magic = take(4, bytes)?;
+    }
+    let magic = take(&mut off, 4, bytes)?;
     if magic != MAGIC {
         return Err(bad("the stored model file is not a PCBM cache entry"));
     }
-    let version = le_u32(take(4, bytes)?)?;
+    let version = le_u32(take(&mut off, 4, bytes)?)?;
     if version != COMPACT_VERSION {
         return Err(bad("the stored model file uses an unsupported version"));
     }
-    let _loader = le_u32(take(4, bytes)?)?;
-    let _tol = le_f64(take(8, bytes)?)?;
-    let _digest = take(32, bytes)?;
-    let n_pos = le_u32(take(4, bytes)?)? as usize;
-    let n_idx = le_u32(take(4, bytes)?)? as usize;
-    let has_color = *take(1, bytes)?
+    let _loader = le_u32(take(&mut off, 4, bytes)?)?;
+    let _tol = le_f64(take(&mut off, 8, bytes)?)?;
+    let _digest = take(&mut off, 32, bytes)?;
+    let n_pos = le_u32(take(&mut off, 4, bytes)?)? as usize;
+    let n_idx = le_u32(take(&mut off, 4, bytes)?)? as usize;
+    let has_color = *take(&mut off, 1, bytes)?
         .first()
         .ok_or_else(|| bad("the stored model file is truncated"))?;
     let color = if has_color != 0 {
         let mut c = [0f32; 3];
         for slot in &mut c {
-            *slot = le_f32(take(4, bytes)?)?;
+            *slot = le_f32(take(&mut off, 4, bytes)?)?;
         }
         Some(c)
     } else {
@@ -159,13 +159,13 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     for _ in 0..n_pos {
         let mut p = [0f64; 3];
         for v in &mut p {
-            *v = le_f64(take(8, bytes)?)?;
+            *v = le_f64(take(&mut off, 8, bytes)?)?;
         }
         positions.push(p);
     }
     let mut indices = Vec::with_capacity(n_idx);
     for _ in 0..n_idx {
-        indices.push(le_u32(take(4, bytes)?)?);
+        indices.push(le_u32(take(&mut off, 4, bytes)?)?);
     }
     if off != bytes.len() {
         return Err(bad("the stored model file has trailing bytes"));
@@ -174,7 +174,35 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
         positions,
         indices,
         color,
+    body_colors: Default::default(),
+    triangle_materials: vec![],
+    authored_colors: vec![],
     })
+}
+
+/// Read a footprint-embedded model.
+pub fn decode_compact_base64(text: &str) -> Result<LoadedModel, ModelError> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(text.trim())
+        .map_err(|_| bad("the embedded model is not valid base64"))?;
+    decode_compact(&bytes)
+}
+
+/// Base64 form stored on a footprint for travel with the project file.
+pub fn encode_compact_base64(
+    model: &LoadedModel,
+    loader_version: u32,
+    step_tolerance_mm: f64,
+    source_digest: &str,
+) -> Result<String, ModelError> {
+    use base64::Engine;
+    Ok(base64::engine::general_purpose::STANDARD.encode(encode_compact(
+        model,
+        loader_version,
+        step_tolerance_mm,
+        source_digest,
+    )?))
 }
 
 #[cfg(test)]
@@ -187,6 +215,9 @@ mod tests {
             positions: vec![[0.0, 0.0, 0.0], [1.0, 2.0, 3.0]],
             indices: vec![0, 1, 2],
             color: Some([0.5, 0.25, 1.0]),
+            body_colors: Default::default(),
+            triangle_materials: vec![],
+            authored_colors: vec![],
         };
         let digest = source_digest(b"source");
         let bytes = encode_compact(&model, 1, 0.05, &digest).map_err(|e| e.0)?;

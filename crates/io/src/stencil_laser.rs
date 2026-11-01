@@ -400,6 +400,7 @@ mod tests {
                 smd_rect_pad("2", 1.0, Point::new(2.0, 0.0)),
                 thru_pad("3", Point::new(0.0, 3.0)),
             ],
+            preserved: Default::default(),
         }];
         project.components = vec![pcbcraft_doc::Component {
             id: 2,
@@ -418,6 +419,16 @@ mod tests {
             name: "N".into(),
             target_length: None,
             length_tolerance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            instance: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         }];
         project
     }

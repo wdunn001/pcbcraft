@@ -22,6 +22,8 @@ fn convert(text: &str) -> Result<LoadedModel, ModelError> {
         indices: vec![],
         color: None,
         body_colors: None,
+        triangle_materials: vec![],
+        authored_colors: vec![],
     };
     for holder in table.shell.values() {
         let Ok(shell) = table.to_compressed_shell(holder) else {

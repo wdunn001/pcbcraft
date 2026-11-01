@@ -29,7 +29,7 @@ PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, compliance_repo
     netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
     postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, testpoints_csv,
     vrml_board, impedance_table_csv, fab_drawing_pdf, si_net_results_csv, spice_netlist, touchstone_text,
-    bundled_placement_flavours, placement_flavoured, ComplianceReportOptions, gerber_files_with_options,
+    ComplianceReportOptions, idf_library, gerber_files_with_options,
     GerberArcOptions, PACKAGE_CREATION_DATE
 };
 
@@ -450,6 +450,7 @@ mod generate_tests {
             width: 0.4,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         let artifact = Artifact {
             id: 2,

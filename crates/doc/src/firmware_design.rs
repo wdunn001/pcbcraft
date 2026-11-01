@@ -164,6 +164,8 @@ mod tests {
             sheet: 0,
             instance: Default::default(),
             prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         let ctx = load_firmware_context(&project)?;
         assert_eq!(ctx.design.board.name, "TESTFC");

@@ -490,7 +490,7 @@ fn read_stored_zip(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
         return Err("unsupported ZIP directory".to_string());
     }
     let mut at = read_u32(eocd + 16)? as usize;
-    let mut names = BTreeMap::<String, (u32, u32, u32)>::new();
+    let mut names = BTreeMap::<String, (u32, u32, usize)>::new();
     let mut expanded = 0usize;
     for _ in 0..entries {
         if !bytes[at..].starts_with(b"PK\x01\x02") || at + 46 > bytes.len() {
@@ -619,7 +619,7 @@ mod tests {
                 bodies: BTreeMap::from([(
                     "Body1".into(),
                     json!({"name": "Part", "color": [200, 200, 200], "opacity": 1.0}),
-                ))],
+                )]),
                 extra: BTreeMap::new(),
             },
             extra: BTreeMap::new(),
@@ -706,4 +706,9 @@ mod tests {
         assert_eq!(again, once);
         Ok(())
     }
+}
+
+/// Raw ZIP entries for optional display-cache reads (issue #733).
+pub fn read_container_entries(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    read_stored_zip(bytes)
 }

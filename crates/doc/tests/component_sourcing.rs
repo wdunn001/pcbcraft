@@ -56,6 +56,8 @@ fn typed_sourcing_round_trips_without_empty_record() {
         sheet: 0,
         instance: Default::default(),
         prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     };
     c.sourcing.validate().expect("valid");
     let text = serde_json::to_string(&c).expect("serialize");
@@ -84,6 +86,8 @@ fn typed_sourcing_round_trips_without_empty_record() {
         compliance: Default::default(),
         instance: Default::default(),
         prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     };
     let empty_json = serde_json::to_string(&empty).expect("serialize empty");
     assert!(
@@ -116,6 +120,8 @@ fn adopt_free_form_copies_mpn_without_removing_the_field() {
         part: None,
         instance: Default::default(),
         prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     };
     c.adopt_free_form_sourcing();
     assert_eq!(c.sourcing.mpn, "FREE-1");

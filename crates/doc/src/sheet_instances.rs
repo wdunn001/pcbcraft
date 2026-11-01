@@ -211,6 +211,8 @@ pub fn expand_instance(
             compliance: Default::default(),
             part: None,
             sourcing: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         new_components += 1;
     }
@@ -481,6 +483,8 @@ mod sheet_instance_tests {
             compliance: Default::default(),
             part: None,
             sourcing: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         p.components.push(Component {
             id: r2,
@@ -509,6 +513,8 @@ mod sheet_instance_tests {
             compliance: Default::default(),
             part: None,
             sourcing: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         Ok((p, sheet, r1, r2))
     }

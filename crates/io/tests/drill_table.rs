@@ -1,174 +1,233 @@
-//! Per-span drill table rows, readme and drill map alignment, and tolerance attributes.
-use pcbcraft_doc::Project;
-use pcbcraft_geom::Point;
-use pcbcraft_io::{DrillTableFunction, drill_map_plot, drill_table, fab_readme_text, gerber_files};
-fn table_rows_from_readme(text: &str) -> Vec<String> {
-    let mut rows = Vec::new();
-    let mut in_table = false;
-    for line in text.lines() {
-        if line.starts_with("Drill table (span, plating, function") {
-            in_table = true;
-            continue;
-        }
-        if in_table {
-            if let Some(rest) = line.strip_prefix("  ") {
-                rows.push(rest.trim().to_string());
-            } else if !line.is_empty() {
-                break;
-            }
-        }
-    }
-    rows
+//! The per-span drill table (issue #802): rows as data, the same rows in the
+//! drill map sheet and the readme, and the tolerance attribute.
+
+mod common;
+use common::*;
+use pcbcraft_io::{DrillFunction, SpanKind, drill_table, drill_table_lines};
+
+/// The drill table lines the readme prints, header first.
+fn readme_lines(readme: &str) -> Vec<String> {
+    readme
+        .split("DRILL TABLE\n")
+        .nth(1)
+        .map(|rest| {
+            rest.lines()
+                .take_while(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-fn table_rows_from_map(text: &str) -> Vec<String> {
-    text.lines()
-        .filter_map(|line| {
-            line.strip_prefix("G04 TABLE ")
-                .and_then(|rest| rest.strip_suffix(" *%"))
-                .map(str::trim)
-                .map(str::to_string)
+/// The drill table lines the drill map sheet carries as comments.
+fn map_lines(map: &str) -> Vec<String> {
+    map.lines()
+        .filter_map(|l| l.strip_prefix("G04 DRILL TABLE "))
+        .map(|l| {
+            l.trim_end_matches(" *")
+                .trim_start_matches("ROW ")
+                .to_string()
         })
         .collect()
 }
 
-fn sample_board_with_three_drill_roles() -> Result<Project, String> {
-    let mut project = Project::default();
-    project.nets.push(pcbcraft_doc::Net {
-        id: 8,
-        name: "N1".into(),
-        ..Default::default()
-    });
-    project.board.vias.push(pcbcraft_doc::Via {
-        id: 4,
-        net: 8,
-        position: Point::new(5.0, 5.0),
-        diameter: 0.6,
-        drill: 0.3,
-        from_layer: None,
-        to_layer: None,
-        covering: None,
-    });
-    project.board.vias.push(pcbcraft_doc::Via {
-        id: 5,
-        net: 8,
-        position: Point::new(6.0, 5.0),
-        diameter: 0.6,
-        drill: 0.3,
-        from_layer: None,
-        to_layer: None,
-        covering: None,
-    });
-    project.board.holes.push(pcbcraft_doc::Hole {
-        id: 2,
-        position: Point::new(15.0, 5.0),
-        diameter: 3.0,
-        end: None,
-    });
-    let pad = pcbcraft_doc::Pad {
-        number: "1".into(),
-        offset: Point::new(0.0, 0.0),
-        diameter: 1.6,
-        net: Some(8),
-        castellated: None,
-        geometry: Some(pcbcraft_library::FootprintPad {
-            number: "1".into(),
-            pad_type: "thru_hole".into(),
-            shape: "circle".into(),
-            position: Point::new(0.0, 0.0),
-            rotation: 0.0,
-            size: Point::new(1.6, 1.6),
-            layers: vec!["*.Cu".into(), "*.Mask".into()],
-            drill: Some(pcbcraft_library::Drill {
-                size: Point::new(0.8, 0.8),
-                offset: Point::default(),
-            }),
-            roundrect_ratio: None,
-            raw_source: String::new(),
-            chamfer: None,
-            polygon: Vec::new(),
-        }),
-    };
-    project.board.footprints.push(pcbcraft_doc::Footprint {
-        id: 9,
-        component: 0,
-        position: Point::new(2.0, 0.0),
-        rotation: 0.0,
-        locked: None,
-        side: None,
-        pads: vec![pad],
-    });
-    project.validate()?;
-    Ok(project)
-}
-
 #[test]
-fn the_table_has_one_row_per_span_function_and_diameter() -> Result<(), String> {
-    let project = sample_board_with_three_drill_roles()?;
-    let rows = drill_table(&project)?;
-    assert_eq!(rows.len(), 3, "via, pad and mounting each get one row");
-    let via_row = rows
+fn the_table_has_one_row_per_span_function_and_diameter() -> T {
+    let rows = drill_table(&golden_board()?)?;
+    let summary: Vec<(u8, u8, SpanKind, bool, DrillFunction, u64, usize)> = rows
         .iter()
-        .find(|r| r.function == DrillTableFunction::Via)
-        .ok_or("via row missing")?;
-    assert_eq!(via_row.from_layer, 1);
-    assert_eq!(via_row.to_layer, 2);
-    assert!(via_row.plated);
-    assert_eq!(via_row.count, 2);
-    assert!((via_row.diameter_mm - 0.3).abs() < 1e-6);
-    let pad_row = rows
-        .iter()
-        .find(|r| r.function == DrillTableFunction::ComponentPad)
-        .ok_or("pad row missing")?;
-    assert_eq!(pad_row.count, 1);
-    assert!((pad_row.diameter_mm - 0.8).abs() < 1e-6);
-    let mount_row = rows
-        .iter()
-        .find(|r| r.function == DrillTableFunction::Mounting)
-        .ok_or("mounting row missing")?;
-    assert!(!mount_row.plated);
-    assert_eq!(mount_row.count, 1);
-    Ok(())
-}
-
-#[test]
-fn the_readme_and_the_drill_map_list_the_same_rows() -> Result<(), String> {
-    let project = sample_board_with_three_drill_roles()?;
-    let names = vec!["pcb-DrillMap.gbr".into(), "pcb-Plated.drl".into()];
-    let readme = fab_readme_text(&project, &names)?;
-    let map = drill_map_plot(&project)?;
-    let readme_rows = table_rows_from_readme(&readme);
-    let map_rows = table_rows_from_map(&map);
-    assert_eq!(readme_rows, map_rows, "readme and map share row order");
-    assert_eq!(readme_rows.len(), 3);
-    Ok(())
-}
-
-#[test]
-fn a_drill_tolerance_is_written_only_when_the_board_records_one() -> Result<(), String> {
-    let mut with_tol = sample_board_with_three_drill_roles()?;
-    with_tol.board.machining = Some(pcbcraft_doc::MachiningNotes {
-        edge_plating: None,
-        drill_tolerance: Some(0.05),
-        edge_tolerance: None,
-    });
-    with_tol.validate()?;
-    let files = gerber_files(&with_tol)?;
-    let plated = files
-        .get("pcb-Plated.drl")
-        .ok_or("plated drill file missing")?;
-    assert!(
-        plated.contains("; #@! TA.DrillTolerance,0.050,0.050\n"),
-        "{plated}"
+        .map(|r| {
+            (
+                r.from_layer,
+                r.to_layer,
+                r.kind,
+                r.plated,
+                r.function,
+                (r.diameter_mm * 1000.0).round() as u64,
+                r.count,
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            (1, 2, SpanKind::Blind, true, DrillFunction::Via, 150, 1),
+            (1, 4, SpanKind::Through, true, DrillFunction::Via, 200, 1),
+            (1, 4, SpanKind::Through, true, DrillFunction::Via, 300, 3),
+            (
+                1,
+                4,
+                SpanKind::Through,
+                true,
+                DrillFunction::ComponentPad,
+                800,
+                1
+            ),
+            (
+                1,
+                4,
+                SpanKind::Through,
+                false,
+                DrillFunction::Mounting,
+                3200,
+                1
+            ),
+            (2, 3, SpanKind::Buried, true, DrillFunction::Via, 150, 1),
+        ],
+        "three vias of one size share a row; a pad hole and a via of another size do not"
     );
-    let without_tol = sample_board_with_three_drill_roles()?;
-    let files = gerber_files(&without_tol)?;
-    let plated = files
-        .get("pcb-Plated.drl")
-        .ok_or("plated drill file missing")?;
+    Ok(())
+}
+
+#[test]
+fn a_two_layer_board_with_only_through_holes_gets_the_table_and_the_same_files() -> T {
+    let mut p = board(2);
+    p.board.vias = vec![via(10, 10.0, 0.3, None, None, None)?];
+    p.board.vias.push(via(11, 12.0, 0.3, None, None, None)?);
+    p.validate()?;
+    let rows = drill_table(&p)?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].count, 2);
+    assert_eq!(rows[0].kind, SpanKind::Through);
+    let files = pcbcraft_io::gerber_files(&p)?;
+    assert!(
+        files.keys().all(|k| !k.starts_with("pcb-Drill-L")),
+        "no per-span files appear for a through-only board: {:?}",
+        files.keys().collect::<Vec<_>>()
+    );
+    let plated = files.get("pcb-Plated.drl").ok_or("no plated file")?;
     assert!(
         !plated.contains("TA.DrillTolerance"),
-        "tolerance attribute omitted without machining notes: {plated}"
+        "no tolerance recorded, no attribute: {plated}"
     );
+    Ok(())
+}
+
+#[test]
+fn the_readme_and_the_drill_map_list_the_same_rows() -> T {
+    let p = golden_board()?;
+    let files = pcbcraft_io::gerber_files(&p)?;
+    let expected = drill_table_lines(&drill_table(&p)?);
+    assert_eq!(expected.len(), 7, "a header and six rows");
+    let readme = files.get("README-fabrication.txt").ok_or("no readme")?;
+    assert_eq!(readme_lines(readme), expected, "{readme}");
+    let map = files.get("pcb-DrillMap.gbr").ok_or("no drill map")?;
+    assert_eq!(map_lines(map), expected, "{map}");
+    Ok(())
+}
+
+#[test]
+fn a_drill_tolerance_is_written_only_when_the_board_records_one() -> T {
+    let mut p = golden_board()?;
+    let with = pcbcraft_io::gerber_files(&p)?;
+    for name in ["pcb-Plated.drl", "pcb-NPTH.drl", "pcb-Drill-L1-L2.drl"] {
+        let text = with.get(name).ok_or_else(|| format!("no {name}"))?;
+        assert!(
+            text.contains("; #@! TA.DrillTolerance,0.050,0.050\n"),
+            "{name}: {text}"
+        );
+    }
+    assert!(
+        drill_table(&p)?
+            .iter()
+            .all(|r| r.tolerance_mm == Some(0.05))
+    );
+    p.board.machining = None;
+    let without = pcbcraft_io::gerber_files(&p)?;
+    for (name, text) in &without {
+        if name.ends_with(".drl") {
+            assert!(!text.contains("DrillTolerance"), "{name}: {text}");
+        }
+    }
+    assert!(drill_table(&p)?.iter().all(|r| r.tolerance_mm.is_none()));
+    Ok(())
+}
+
+#[test]
+fn golden_drill_table_lines_for_the_four_layer_board() -> T {
+    let lines = drill_table_lines(&drill_table(&golden_board()?)?);
+    golden("drill_table_lines.csv", &(lines.join("\n") + "\n"))?;
+    let files = pcbcraft_io::gerber_files(&golden_board()?)?;
+    let map = files.get("pcb-DrillMap.gbr").ok_or("no drill map")?;
+    golden("drill_table_map.gbr", map)
+}
+
+#[test]
+fn the_table_counts_every_hole_on_two_four_and_six_layers() -> T {
+    for layers in [2u8, 4, 6] {
+        let last = layers - 1;
+        let mut p = board(layers);
+        let mut id = 10;
+        let mut expect_vias = 0usize;
+        let mut spans: Vec<Option<(u8, u8)>> = vec![None];
+        if layers > 2 {
+            spans.extend([
+                Some((0, 1)),
+                Some((1, layers - 2)),
+                Some((layers - 2, last)),
+            ]);
+        }
+        for (i, span) in spans.iter().enumerate() {
+            for _ in 0..=(i + 1) {
+                p.board
+                    .vias
+                    .push(via(id, 5.0 + id as f64, 0.3, *span, None, None)?);
+                id += 1;
+                expect_vias += 1;
+            }
+        }
+        p.board.holes = vec![hole(90, 3.0, 3.0, 2.2), hole(91, 6.0, 3.0, 2.2)];
+        p.validate()?;
+        let rows = drill_table(&p)?;
+        let vias: usize = rows
+            .iter()
+            .filter(|r| r.function == DrillFunction::Via)
+            .map(|r| r.count)
+            .sum();
+        let mounting: usize = rows
+            .iter()
+            .filter(|r| r.function == DrillFunction::Mounting)
+            .map(|r| r.count)
+            .sum();
+        assert_eq!(
+            vias, expect_vias,
+            "{layers} layers: every via is counted once"
+        );
+        assert_eq!(mounting, 2, "{layers} layers");
+        let mut keys: Vec<_> = rows
+            .iter()
+            .map(|r| {
+                (
+                    r.from_layer,
+                    r.to_layer,
+                    r.plated,
+                    r.function as u8,
+                    (r.diameter_mm * 1000.0) as u64,
+                )
+            })
+            .collect();
+        let before = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), before, "{layers} layers: no row repeats");
+        let ordered = rows
+            .windows(2)
+            .all(|w| (w[0].from_layer, w[0].to_layer) <= (w[1].from_layer, w[1].to_layer));
+        assert!(ordered, "{layers} layers: rows run in span order");
+        let excellon_hits: usize = pcbcraft_io::gerber_files(&p)?
+            .iter()
+            .filter(|(n, _)| n.ends_with(".drl") && n.as_str() != "pcb-Drill.drl")
+            .map(|(_, t)| {
+                t.lines()
+                    .filter(|l| l.starts_with('X') && !l.contains("G85"))
+                    .count()
+            })
+            .sum();
+        let total: usize = rows.iter().map(|r| r.count).sum();
+        assert_eq!(
+            excellon_hits, total,
+            "{layers} layers: the files hold the holes the table counts"
+        );
+    }
     Ok(())
 }

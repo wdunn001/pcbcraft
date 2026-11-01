@@ -1,7 +1,7 @@
 //! Material classes for the 3D board mesh and colour classification for loaded models.
 
 /// A small set of part materials shared by the mesh builder and the software renderer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[repr(u8)]
 pub enum MaterialClass {
     MouldCompound = 0,

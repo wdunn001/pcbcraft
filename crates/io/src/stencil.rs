@@ -50,7 +50,8 @@ pub fn stencil_options_from_settings(settings: &serde_json::Value) -> Result<Ste
     }
     let opts: StencilOptions = serde_json::from_value(settings.clone())
         .map_err(|e| format!("stencil settings are invalid: {e}"))?;
-    validate_stencil_options(&opts)
+    validate_stencil_options(&opts)?;
+    Ok(opts)
 }
 
 pub fn validate_stencil_options(o: &StencilOptions) -> Result<(), String> {
@@ -401,6 +402,8 @@ mod stencil_tests {
                 polygon: vec![],
                 raw_source: String::new(),
             }),
+            castellated: Default::default(),
+            net: Default::default(),
         };
         p.board.footprints.push(Footprint {
             id: 1,
@@ -423,6 +426,13 @@ mod stencil_tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         p.board.fiducials.push(pcbcraft_doc::Fiducial {
             id: 2,

@@ -318,6 +318,20 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+    /// When false the part is left out of the bill and grouped BOM exports.
+    #[serde(
+        default = "default_inclusion_yes",
+        skip_serializing_if = "inclusion_flag_is_default",
+        rename = "in_bom"
+    )]
+    pub include_in_bom: bool,
+    /// When false the part is left out of pick-and-place and machine placement exports.
+    #[serde(
+        default = "default_inclusion_yes",
+        skip_serializing_if = "inclusion_flag_is_default",
+        rename = "in_placement"
+    )]
+    pub include_in_placement: bool,
     /// Typed sourcing facts: manufacturer, part number, description, supplier numbers
     /// and quick compliance flags. Empty records are not saved. See `sourcing.rs`.
     #[serde(default, skip_serializing_if = "Sourcing::is_empty")]
@@ -335,6 +349,12 @@ pub struct Component {
     /// The template part this copy was made from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prototype: Option<Id>,
+}
+fn default_inclusion_yes() -> bool {
+    true
+}
+fn inclusion_flag_is_default(v: &bool) -> bool {
+    *v
 }
 fn is_root_sheet(id: &Id) -> bool {
     *id == 0
@@ -419,15 +439,22 @@ pub struct ComponentField {
     pub key: String,
     pub value: String,
 }
-/// The component property that keeps a part out of the bill of materials.
-/// Set it to `yes` with `component.field`; clear it to put the part back.
+/// Legacy component property that keeps a part out of the bill of materials.
+/// Prefer `component.set_in_bom`; this field is still honoured on load.
 pub const BOM_EXCLUDE_FIELD: &str = "Exclude from BOM";
 impl Component {
-    /// True unless the part carries `BOM_EXCLUDE_FIELD` set to `yes`.
+    /// True when the part is included in BOM exports (variants may still omit it).
     pub fn in_bom(&self) -> bool {
+        if !self.include_in_bom {
+            return false;
+        }
         !self
             .field(BOM_EXCLUDE_FIELD)
             .is_some_and(|v| v.eq_ignore_ascii_case("yes"))
+    }
+    /// True when the part is included in placement exports (variants may still omit it).
+    pub fn in_placement(&self) -> bool {
+        self.include_in_placement
     }
     /// Value of a named component property, if the component carries it.
     pub fn field(&self, key: &str) -> Option<&str> {
@@ -2312,7 +2339,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 34] = [
+pub const OUTPUT_KINDS: [&str; 35] = [
     "gerbers",
     "netlist",
     "bom",
@@ -2339,6 +2366,7 @@ pub const OUTPUT_KINDS: [&str; 34] = [
     "stats",
     "compliance_report",
     "layer_plots",
+    "conformal_coat",
     "panel",
     "raster",
     "laser_job",
@@ -2448,6 +2476,7 @@ pub const ARTIFACT_KINDS: &[&str] = &[
     "outline_gcode",
     "stencil",
     "laser_path",
+    "conformal_coat_plot",
     "package",
 ];
 const ARTIFACT_SETTINGS_MAX: usize = 4096;
@@ -3290,6 +3319,59 @@ fn board_er() -> f64 {
 fn board_origin() -> Point {
     Point::default()
 }
+/// Which drawn layer plots as the conformal coating keep-out Gerber, and how
+/// that file declares its name, side and polarity for the assembler.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ConformalCoatKeepout {
+    /// Drawn layer whose figures become the keep-out plot.
+    pub layer: Id,
+    /// Gerber layer name carried in FileFunction, 1 to 48 bytes.
+    pub plot_name: String,
+    /// Assembly side: `top` or `bottom`.
+    pub side: String,
+    /// Image polarity: `positive` or `negative`.
+    pub polarity: String,
+}
+impl ConformalCoatKeepout {
+    fn plot_name_valid(name: &str) -> bool {
+        let name = name.trim();
+        !name.is_empty()
+            && name.len() <= 48
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_graphic() && b != b'*' && b != b',')
+    }
+    /// True when every field is within its bound.
+    pub fn valid(&self) -> bool {
+        Self::plot_name_valid(&self.plot_name)
+            && matches!(self.side.as_str(), "top" | "bottom")
+            && matches!(self.polarity.as_str(), "positive" | "negative")
+    }
+    /// Side word for a Gerber FileFunction attribute.
+    pub fn gerber_side(&self) -> &'static str {
+        if self.side == "bottom" {
+            "Bot"
+        } else {
+            "Top"
+        }
+    }
+    /// Side words for human-readable export notes.
+    pub fn side_label(&self) -> &'static str {
+        if self.side == "bottom" {
+            "bottom"
+        } else {
+            "top"
+        }
+    }
+    /// Polarity word with an initial capital for Gerber attributes.
+    pub fn gerber_polarity(&self) -> &'static str {
+        if self.polarity == "negative" {
+            "Negative"
+        } else {
+            "Positive"
+        }
+    }
+}
 /// Machining notes recorded for fabrication: whether the board edges are
 /// plated and the tolerances the mill and drill are held to.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -3348,6 +3430,7 @@ impl Default for Board {
             cutouts: vec![],
             texts: vec![],
             preserved: PreservedSource::default(),
+            conformal_coat_keepout: Default::default(),
         }
     }
 }
@@ -3455,6 +3538,9 @@ pub struct Board {
     /// Machining notes for fabrication, absent when none were recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machining: Option<MachiningNotes>,
+    /// Drawn layer exported as the conformal coating keep-out Gerber, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conformal_coat_keepout: Option<ConformalCoatKeepout>,
     /// Clearance rules between specific pairs of nets, ordered by net ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pair_rules: Vec<NetPairRule>,
@@ -3553,7 +3639,8 @@ impl EmbeddedFile {
     pub fn is_binary(&self) -> bool {
         self.encoding == "base64"
     }
-    fn valid(&self) -> bool {
+    /// True when the name is set and the data fits the cap for its encoding.
+    pub fn valid(&self) -> bool {
         let cap = match self.encoding.as_str() {
             "" | "text" => 262_144,
             "base64" => MAX_BINARY_ATTACHMENT_BASE64,
@@ -4462,6 +4549,8 @@ pub fn component_template(
             .collect(),
         instance: Default::default(),
         prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     })
 }
 impl Project {
@@ -5189,7 +5278,7 @@ impl Project {
         }
         best.1
     }
-    fn schematic_drawn_wire_page(&self, wire: &DrawnWire) -> Id {
+    pub fn schematic_drawn_wire_page(&self, wire: &DrawnWire) -> Id {
         let Some(net) = wire.net else {
             return 0;
         };
@@ -5902,6 +5991,20 @@ impl Project {
         for l in &self.board.user_layers {
             if !l.valid() || !art_names.insert(l.name.as_str()) {
                 return Err("drawn layers need a unique name and sane figures".into());
+            }
+        }
+        if let Some(c) = &self.board.conformal_coat_keepout {
+            if !c.valid()
+                || !self
+                    .board
+                    .user_layers
+                    .iter()
+                    .any(|l| l.id == c.layer)
+            {
+                return Err(
+                    "conformal coat keep-out needs a known drawn layer, plot name, side and polarity"
+                        .into(),
+                );
             }
         }
         let mut paired: BTreeSet<(Id, Id)> = BTreeSet::new();
@@ -6881,6 +6984,8 @@ pub fn library_component(
         part: None,
         instance: Default::default(),
         prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     })
 }
 /// Maximum pads considered by placement support checks; matches
@@ -7656,6 +7761,8 @@ mod drill_tests {
             sheet: 0,
             instance: Default::default(),
             prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         p.board.rule_areas.push(RuleArea {
             id: 2,
@@ -8232,6 +8339,25 @@ mod art_tests {
 #[cfg(test)]
 mod via_covering_tests {
     use super::*;
+
+    #[test]
+    fn component_inclusion_flags_default_and_omit_true_on_save() -> Result<(), String> {
+        let json = r#"{"id":1,"reference":"R1","value":"10k","kind":"resistor","position":{"x":0.0,"y":0.0},"rotation":0.0,"pins":[]}"#;
+        let c: Component = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        assert!(c.in_bom());
+        assert!(c.in_placement());
+        let saved = serde_json::to_string(&c).map_err(|e| e.to_string())?;
+        assert!(
+            !saved.contains("in_bom") && !saved.contains("in_placement"),
+            "included parts omit the flags"
+        );
+        let mut excluded = c.clone();
+        excluded.include_in_bom = false;
+        excluded.include_in_placement = false;
+        let saved = serde_json::to_string(&excluded).map_err(|e| e.to_string())?;
+        assert!(saved.contains("\"in_bom\":false") && saved.contains("\"in_placement\":false"));
+        Ok(())
+    }
 
     fn with_via(drill: f64, covering: Option<ViaCovering>) -> Project {
         let mut p = Project::default();

@@ -377,6 +377,8 @@ fn object_position_user_layer_and_ids() -> T {
         sourcing: Default::default(),
         instance: Default::default(),
         prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     });
     assert_eq!(p.object_position(4), Some(Point::new(3.0, 4.0)));
     p.board.user_layers.push(ArtLayer {

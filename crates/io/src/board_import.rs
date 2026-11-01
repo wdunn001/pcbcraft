@@ -1040,6 +1040,16 @@ impl ImportCtx {
             name: stored.clone(),
             target_length: None,
             length_tolerance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            instance: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
         self.net_by_name.insert(stored, id);
         Some(id)
@@ -1063,6 +1073,16 @@ impl ImportCtx {
             name: "unassigned".into(),
             target_length: None,
             length_tolerance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            instance: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
         self.net_by_name.insert("unassigned".into(), id);
         self.unassigned = Some(id);
@@ -1292,6 +1312,13 @@ impl ImportCtx {
                 }),
                 fields: Vec::new(),
                 sheet: 0,
+                compliance: Default::default(),
+                include_in_bom: true,
+                include_in_placement: true,
+                instance: Default::default(),
+                part: None,
+                prototype: Default::default(),
+                sourcing: Default::default(),
             });
         } else {
             let mut built: Vec<Pad> = Vec::new();
@@ -1341,6 +1368,13 @@ impl ImportCtx {
                 library_footprint: None,
                 fields: Vec::new(),
                 sheet: 0,
+                compliance: Default::default(),
+                include_in_bom: true,
+                include_in_placement: true,
+                instance: Default::default(),
+                part: None,
+                prototype: Default::default(),
+                sourcing: Default::default(),
             });
         }
         self.keep_uuid(&mut preserved, node);
@@ -1696,6 +1730,8 @@ impl ImportCtx {
             from_layer,
             to_layer,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
         });
     }
 
@@ -1875,6 +1911,8 @@ impl ImportCtx {
             max_height: None,
             region,
             profile: None,
+            footprint_ref: Default::default(),
+            forbid: Default::default(),
         };
         board.rule_areas.push(area);
     }
@@ -2140,6 +2178,8 @@ fn pad_hole_fits(pad: &FootprintPad) -> bool {
         rules: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        box_body: Default::default(),
+        retained: Default::default(),
     })
     .is_ok()
 }
@@ -2170,6 +2210,7 @@ fn pins_from(pads: &[Pad]) -> Vec<Pin> {
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: Default::default(),
         });
     }
     pins
