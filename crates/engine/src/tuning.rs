@@ -38,7 +38,6 @@ const DEFAULT_COPPER_MM: f64 = 0.035;
 const VIA_NOTE: &str =
     "Lengths count copper tracks only; via barrels and pad interiors are not included.";
 
-pub(super) fn commands() -> Vec<CommandSpec> {
 /// Register the tuning commands with the engine command table.
 ///
 /// Returns specs for seven commands: net.impedance (estimate single-ended
@@ -60,6 +59,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
 /// # Do not
 ///
 /// - Do not add or remove command ids without updating the schema tests.
+pub(super) fn commands() -> Vec<CommandSpec> {
     vec![
         CommandSpec {
             id: "net.impedance",
@@ -271,6 +271,26 @@ struct MeanderOpts {
 
 const MAX_SKEW_MEANDERS: usize = 32;
 
+/// Dispatch a tuning command to its handler.
+///
+/// Matches the command id against the seven tuning commands and calls the
+/// corresponding handler function. Returns None for ids this module does not
+/// own, so the engine can try other command modules.
+///
+/// # Rules
+///
+/// - The dispatcher never panics; handlers return Result<Value, Error>.
+/// - Handlers validate all inputs before mutating the project.
+///
+/// # Dependencies
+///
+/// - ../lib.rs: Project, Id, Value, Error
+/// - ../../doc/src/lib.rs: length group state carried in Project.board
+///
+/// # Do not
+///
+/// - Do not add or remove match arms without updating commands().
+/// - Do not mutate the project on error; roll back or return before writing.
 pub(super) fn run(
     p: &mut Project,
     next: &mut Id,
@@ -581,8 +601,27 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
     )
 }
 
-/// Remove a net from every length group, or swap it for another net, and
-/// drop groups left with fewer than two nets.
+/// Remove a net from all length-match groups, optionally replacing it.
+///
+/// When a net is deleted or its geometry changes significantly, this removes
+/// the stale reference from every length group. If a replacement net is given,
+/// it is substituted in its place. Groups left with fewer than two nets are
+/// dropped because they no longer serve a length-matching purpose.
+///
+/// # Rules
+///
+/// - The caller decides whether the net is removed or replaced; this function
+///   only updates the group membership.
+/// - Groups with fewer than two nets after the change are discarded.
+///
+/// # Dependencies
+///
+/// - ../lib.rs: Project, Id
+/// - ../../doc/src/lib.rs: Project.board.length_groups
+///
+/// # Do not
+///
+/// - Do not call this for transient routing changes that preserve net identity.
 pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
     for group in p.board.length_groups.iter_mut() {
         if !group.nets.contains(&net) {
