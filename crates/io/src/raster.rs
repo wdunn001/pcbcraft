@@ -828,6 +828,48 @@ mod tests {
     }
 
     #[test]
+    fn dbg_negative_polygon_clears_centre_dot() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.width = 30.0;
+        p.board.height = 30.0;
+        let opts = RasterOptions {
+            layer: FabLayer::LegendTop,
+            dpi: 1440,
+            mirror: false,
+            invert: false,
+            outline: false,
+            registration: None,
+            drill_marks: None,
+            margin_mm: 0.3,
+            depth: RasterDepth::Grey8,
+        };
+        let stroke = Shape::Stroke(
+            vec![Point::new(10.0, 15.0), Point::new(20.0, 15.0)],
+            0.15,
+            false,
+            ShapePolarity::Positive,
+        );
+        let poly = Shape::Polygon(
+            vec![
+                Point::new(12.8, 17.1),
+                Point::new(17.1, 17.1),
+                Point::new(17.1, 12.8),
+                Point::new(12.8, 12.8),
+                Point::new(12.8, 17.1),
+            ],
+            ShapePolarity::Negative,
+        );
+        let r = rasterize_shapes(&p, &[stroke, poly], &opts)?;
+        let RasterPixels::Grey(img) = r.pixels else {
+            return Err("grey".into());
+        };
+        let (cx, cy) = (img.width() / 2, img.height() / 2);
+        let near: Vec<u8> = (0..15).map(|d| img.get_pixel(cx - 7 + d, cy).0[0]).collect();
+        assert_eq!(near, vec![255u8; 15], "centre row {near:?}");
+        Ok(())
+    }
+
+    #[test]
     fn drill_centre_marks_leave_ink_at_each_hole() -> Result<(), String> {
         let mut p = Project::default();
         p.board.width = 30.0;
