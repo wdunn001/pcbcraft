@@ -4,14 +4,14 @@ import { SITE } from '../lib/site';
 import { STATE_LABELS, STATE_COLORS, STATE_DESCRIPTIONS, MATURITY_LABELS, MATURITY_DESCRIPTIONS, MILESTONE_GROUP_LABELS, MILESTONE_GROUP_DESCRIPTIONS } from '../data/status-definitions';
 import statusData from '../data/status.json';
 
-const { features, issues } = statusData;
+const { features, issues, roadmap } = statusData;
 
 // Group features by milestone
-const featuresByMilestone = features.reduce((acc, feature) => {
-  if (!acc[feature.milestone]) acc[feature.milestone] = [];
-  acc[feature.milestone].push(feature);
+const featuresByMilestone = roadmap.reduce((acc, line) => {
+  if (!acc[line.milestone]) acc[line.milestone] = [];
+  acc[line.milestone].push(line);
   return acc;
-}, {} as Record<string, typeof features>);
+}, {} as Record<string, typeof roadmap>);
 
 // Group features by state for the milestone cards
 const featuresByState = features.reduce((acc, feature) => {
@@ -21,55 +21,30 @@ const featuresByState = features.reduce((acc, feature) => {
 }, {} as Record<string, typeof features>);
 
 // Count issues by state
-const issuesByState = issues.reduce((acc, issue) => {
-  if (!acc[issue.state]) acc[issue.state] = 0;
-  acc[issue.state]++;
-  return acc;
-}, {} as Record<string, number>);
+const issuesByState: Record<string, number> = statusData.counts.issues_by_state;
 
-// Platform tiers based on CI status
-const platformTiers = {
-  linux: features.filter(f => f.ci && f.ci.linux && !f.ci.windows && !f.ci.macos).length,
-  windows: features.filter(f => f.ci && f.ci.windows && !f.ci.linux && !f.ci.macos).length,
-  macos: features.filter(f => f.ci && f.ci.macos && !f.ci.linux && !f.ci.windows).length,
-  cross: features.filter(f => f.ci && f.ci.linux && f.ci.windows && f.ci.macos).length,
-  no_ci: features.filter(f => !f.ci).length,
-};
+// CI coverage: a feature has a green CI run on its merge or it does not.
+const withCi = features.filter(f => f.ci).length;
+const noCi = features.length - withCi;
 ---
 
 <MarketingLayout title={`${SITE.name} Status`} description="Track the progress of PCBCraft features and issues">
   <main class="prose dark:prose-invert max-w-none">
     <h1>{SITE.name} Status</h1>
     <p>Last updated: {statusData.generated_at}</p>
-    <p>Total features: {features.length} | Total issues: {issues.length} | API requests: {statusData.api_requests}</p>
+    <p>Total features: {features.length} | Total issues: {issues.length} | API requests: {statusData.source.api_requests}</p>
 
-    <h2>Platform Support</h2>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div class="card bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
-        <h3>Linux</h3>
-        <p class="text-2xl font-bold">{platformTiers.linux} features</p>
-        <p class="text-sm opacity-75">Native Linux support</p>
-      </div>
+    <h2>Continuous integration</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="card bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
-        <h3>Windows</h3>
-        <p class="text-2xl font-bold">{platformTiers.windows} features</p>
-        <p class="text-sm opacity-75">Native Windows support</p>
+        <h3>With a CI run</h3>
+        <p class="text-2xl font-bold">{withCi} features</p>
       </div>
-      <div class="card bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
-        <h3>macOS</h3>
-        <p class="text-2xl font-bold">{platformTiers.macos} features</p>
-        <p class="text-sm opacity-75">Native macOS support</p>
+      <div class="card bg-gray-50 dark:bg-gray-900/20 p-4 rounded-lg">
+        <h3>No CI</h3>
+        <p class="text-2xl font-bold">{noCi} features</p>
+        <p class="text-sm opacity-75">No automated testing yet</p>
       </div>
-    </div>
-    <div class="card bg-amber-50 dark:bg-amber-900/20 p-4 rounded-lg mt-4">
-      <h3>Cross-Platform</h3>
-      <p class="text-2xl font-bold">{platformTiers.cross} features</p>
-      <p class="text-sm opacity-75">Supports all platforms</p>
-    </div>
-    <div class="card bg-gray-50 dark:bg-gray-900/20 p-4 rounded-lg mt-4">
-      <h3>No CI</h3>
-      <p class="text-2xl font-bold">{platformTiers.no_ci} features</p>
-      <p class="text-sm opacity-75">No automated testing yet</p>
     </div>
 
     <h2>Milestones</h2>
@@ -97,7 +72,7 @@ const platformTiers = {
                       <span class={`inline-block px-2 py-1 rounded text-sm ${STATE_COLORS[feature.state]}`}>
                         {STATE_LABELS[feature.state]}
                       </span>
-                      <span class="ml-2 font-medium">{feature.title}</span>
+                      <span class="ml-2 font-medium">{feature.text}</span>
                     </li>
                   ))}
                 </ul>
@@ -112,8 +87,7 @@ const platformTiers = {
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       {Object.entries(STATE_LABELS).map(([stateKey, stateLabel]) => {
         const stateFeatures = featuresByState[stateKey] || [];
-        const hasIssues = stateFeatures.some(f => f.issues.length > 0);
-        return (
+                return (
           <div class="card bg-white dark:bg-slate-800 p-4 rounded-lg">
             <div class="flex items-center justify-between mb-2">
               <h3 class="font-semibold">{stateLabel}</h3>
@@ -129,9 +103,9 @@ const platformTiers = {
                   <li>
                     <div class="flex items-center gap-2">
                       <span class="font-medium">{feature.title}</span>
-                      {feature.maturity === 'tested' && (
+                      {feature.proof === 'tested' && (
                         <span class="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 px-1.5 py-0.5 rounded">
-                          {MATURITY_LABELS[feature.maturity]}
+                          {MATURITY_LABELS[feature.proof]}
                         </span>
                       )}
                     </div>
@@ -153,12 +127,12 @@ const platformTiers = {
     <div class="card bg-white dark:bg-slate-800 p-4 rounded-lg">
       <div class="grid grid-cols-2 gap-4 mb-4">
         <div>
-          <h3 class="font-semibold">Open Issues</h3>
-          <p class="text-2xl font-bold">{issuesByState['open'] || 0}</p>
+          <h3 class="font-semibold">Not yet released</h3>
+          <p class="text-2xl font-bold">{issues.length - (issuesByState['released'] || 0)}</p>
         </div>
         <div>
-          <h3 class="font-semibold">Closed Issues</h3>
-          <p class="text-2xl font-bold">{issuesByState['closed'] || 0}</p>
+          <h3 class="font-semibold">Released</h3>
+          <p class="text-2xl font-bold">{issuesByState['released'] || 0}</p>
         </div>
       </div>
       {issues.length > 0 && (
@@ -205,7 +179,7 @@ const platformTiers = {
           {Object.entries(MILESTONE_GROUP_LABELS).map(([key, label]) => (
             <div>
               <dt class="inline font-semibold">{label}:</dt>
-              <dd class="inline opacity-75 ml-1">{MILESTONE_GROUP_DESCRIPTIONS[key]}</dd>
+              <dd class="inline opacity-75 ml-1">{MILESTONE_GROUP_DESCRIPTIONS[key as keyof typeof MILESTONE_GROUP_DESCRIPTIONS]}</dd>
             </div>
           ))}
         </dl>
