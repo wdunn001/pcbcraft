@@ -457,7 +457,7 @@ pub(super) fn ollama_tools(
     use crate::backend::HttpRequest;
     let origin = api_origin(base_url)?;
     let request = |method, path: &str, body| {
-        let (status, bytes) = http(&HttpRequest {
+        let response = http(&HttpRequest {
             method,
             url: format!("{origin}/api/{path}"),
             headers: if method == "POST" {
@@ -467,12 +467,13 @@ pub(super) fn ollama_tools(
             },
             body,
             timeout_s: 5,
+            stream_out: None,
         })
         .ok()?;
-        if !(200..300).contains(&status) || bytes.len() > 4 * 1024 * 1024 {
+        if !(200..300).contains(&response.status) || response.body.len() > 4 * 1024 * 1024 {
             return None;
         }
-        serde_json::from_slice::<serde_json::Value>(&bytes).ok()
+        serde_json::from_slice::<serde_json::Value>(&response.body).ok()
     };
     if !known_ollama {
         let version = request("GET", "version", None)?;
@@ -527,12 +528,12 @@ mod tests {
             Some("http://[::1]:11434")
         );
         assert_eq!(api_origin("file:///tmp/model"), None);
-        let http: super::crate::backend::HttpFn = std::sync::Arc::new(|request| {
+        let http: crate::backend::HttpFn = std::sync::Arc::new(|request| {
             assert_eq!(request.timeout_s, 5);
             match request.method {
                 "GET" => {
                     assert_eq!(request.url, "http://localhost:11434/api/version");
-                    Ok((200, br#"{"version":"0.0"}"#.to_vec()))
+                    Ok(crate::backend::HttpResponse::ok(br#"{"version":"0.0"}"#.to_vec()))
                 }
                 "POST" => {
                     assert_eq!(request.url, "http://localhost:11434/api/show");
@@ -541,7 +542,7 @@ mod tests {
                             .unwrap(),
                         json!({"model":"chat:4b"})
                     );
-                    Ok((200, br#"{"capabilities":["completion"]}"#.to_vec()))
+                    Ok(crate::backend::HttpResponse::ok(br#"{"capabilities":["completion"]}"#.to_vec()))
                 }
                 _ => Err("unexpected HTTP method".into()),
             }
@@ -554,7 +555,7 @@ mod tests {
             ollama_tools(&http, "http://localhost:11434/v1", "chat:4b", true),
             Some(false)
         );
-        let unavailable: super::crate::backend::HttpFn =
+        let unavailable: crate::backend::HttpFn =
             std::sync::Arc::new(|_| Err("unavailable".into()));
         assert_eq!(
             ollama_tools(&unavailable, "http://localhost:11434/v1", "chat:4b", false),

@@ -18,6 +18,7 @@ fn cfg(url: &str, key: Option<&str>) -> ApiConfig {
         model: "m".into(),
         key: key.map(str::to_string),
         system_note: String::new(),
+        retrieval: None,
     }
 }
 
@@ -184,6 +185,7 @@ fn a_slow_server_hits_the_request_timeout() -> Result<(), String> {
         headers: vec![],
         body: Some(b"{}".to_vec()),
         timeout_s: 1,
+        stream_out: None,
     };
     let t = Instant::now();
     let err = plain_request(&req).err().ok_or("expected a timeout")?;

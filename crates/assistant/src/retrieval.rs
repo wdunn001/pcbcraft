@@ -418,6 +418,7 @@ fn rpc(
         headers,
         body: Some(text.into_bytes()),
         timeout_s: MCP_TIMEOUT_S,
+        stream_out: None,
     };
     let response = http(&req)?;
     if response.status == 401 || response.status == 403 {

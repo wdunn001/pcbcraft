@@ -58,7 +58,7 @@ fn to_line(item: &Item) -> Option<Value> {
             "text": format!("{title}: {}", answer.as_deref().unwrap_or("not answered")),
             "error": false,
         }),
-Item::Queued { .. } => return None,
+        Item::Queued { .. } | Item::Suggestions(_) => return None,
         Item::Sources(links) => json!({
             "k": "sources",
             "links": links.iter().map(|l| json!({"title": l.title, "source": l.source})).collect::<Vec<_>>(),

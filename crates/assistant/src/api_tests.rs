@@ -10,6 +10,7 @@ use crate::turn::ToolRequest;
 use serde_json::{Value, json};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
+use pcbcraft_clock::Instant;
 use std::time::Duration;
 
 type Log = Arc<Mutex<Vec<HttpRequest>>>;
@@ -692,10 +693,10 @@ fn streaming_openai_text(text: &str) -> HttpFn {
     let text = text.to_string();
     Arc::new(move |r: &HttpRequest| {
         if r.method == "GET" {
-            return Ok((200, b"{\"data\":[]}".to_vec()));
+            return Ok(HttpResponse::ok(b"{\"data\":[]}".to_vec()));
         }
         let Some(out) = &r.stream_out else {
-            return Ok((200, openai_text(&text).to_string().into_bytes()));
+            return Ok(HttpResponse::ok(openai_text(&text).to_string().into_bytes()));
         };
         let first = format!(
             "data: {{\"choices\":[{{\"delta\":{{\"content\":{}}}}}]}}\n\n",
@@ -707,7 +708,7 @@ fn streaming_openai_text(text: &str) -> HttpFn {
         let mut sse = first;
         sse.push_str(tail);
         deliver_streamed_body(out, 200, sse.as_bytes())?;
-        Ok((200, Vec::new()))
+        Ok(HttpResponse::ok(Vec::new()))
     })
 }
 
@@ -746,17 +747,17 @@ fn an_openai_stream_shows_text_before_the_turn_ends() -> Result<(), String> {
 fn slow_openai_stream() -> HttpFn {
     Arc::new(move |r: &HttpRequest| {
         if r.method == "GET" {
-            return Ok((200, b"{\"data\":[]}".to_vec()));
+            return Ok(HttpResponse::ok(b"{\"data\":[]}".to_vec()));
         }
         let Some(out) = &r.stream_out else {
-            return Ok((200, openai_text("late").to_string().into_bytes()));
+            return Ok(HttpResponse::ok(openai_text("late").to_string().into_bytes()));
         };
         let chunk = b"data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n";
         out.send(Ok(HttpStreamPart::Chunk(chunk.to_vec())))
             .map_err(|_| "The stream ended early.".to_string())?;
         std::thread::sleep(Duration::from_secs(30));
         let _ = out.send(Ok(HttpStreamPart::End { status: 200 }));
-        Ok((200, Vec::new()))
+        Ok(HttpResponse::ok(Vec::new()))
     })
 }
 

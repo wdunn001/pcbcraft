@@ -86,7 +86,7 @@ fn a_two_call_tool_loop_runs_over_a_socket_and_sends_tool_ids_back() -> Result<(
     assert_eq!(roles, vec!["system", "user", "assistant", "tool"]);
     assert_eq!(msgs[3]["tool_call_id"], "c0");
     for p in srv.posts() {
-        assert_request_shape(p)?;
+        assert_request_shape(&p)?;
     }
     Ok(())
 }
@@ -201,7 +201,7 @@ fn the_plain_function_refuses_https_and_does_not_follow_redirects() -> Result<()
     let mut r = mk(format!("{}/x", redirect.url));
     r.method = "POST";
     r.body = Some(b"{}".to_vec());
-    assert_eq!(plain_request(&r)?.0, 302);
+    assert_eq!(plain_request(&r)?.status, 302);
     assert_eq!(redirect.posts().len(), 1);
     Ok(())
 }
@@ -349,13 +349,14 @@ fn after_apply_the_design_state_is_read_back_through_shared() -> Result<(), Stri
         .filter_map(|c| c["reference"].as_str())
         .collect();
     assert!(refs.iter().any(|r| *r == "R1"), "{refs:?}");
-    let sent_name = srv.posts()[0].body["tools"]
+    let first_post = srv.posts();
+    let sent_name = first_post[0].body["tools"]
         .as_array()
         .and_then(|t| t.iter().find(|x| x["function"]["name"] == wire))
         .ok_or("execute not in tools")?;
     assert_eq!(sent_name["function"]["name"], to_wire("execute"));
     for p in srv.posts() {
-        assert_request_shape(p)?;
+        assert_request_shape(&p)?;
     }
     Ok(())
 }
