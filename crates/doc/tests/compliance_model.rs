@@ -134,7 +134,7 @@ fn manufacturer_alias_normalisation_resolves_names() -> Result<(), String> {
 #[test]
 fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -> Result<(), String>
 {
-    let mut c = pcbcraft_doc::Component {
+    let c = pcbcraft_doc::Component {
         id: 1,
         reference: "R1".into(),
         value: "10k".into(),
@@ -196,14 +196,16 @@ fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -
 
 #[test]
 fn compliance_settings_and_mutes_round_trip() -> Result<(), String> {
-    let mut p = Project::default();
-    p.compliance_settings = ComplianceProjectSettings {
+    let mut p = Project {
+        compliance_settings: ComplianceProjectSettings {
         rule_sets: vec!["synthetic_demo".into()],
         org_role: Some(ComplianceOrgRole::Buyer),
         target_markets: vec!["demo-market".into()],
         board_assembler_country: Default::default(),
         origin_interpretation: Default::default(),
         board_rohs_exemption: Default::default(),
+    },
+        ..Project::default()
     };
     p.compliance_mutes.push(ComplianceFindingMute {
         rule: "demo.declaration_required".into(),

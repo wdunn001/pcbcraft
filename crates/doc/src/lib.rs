@@ -86,6 +86,7 @@ pub use vendor_handoff::{
     MarketplaceSettings, VENDOR_HANDOFF_SCHEMA_VERSION, VendorAdapterDescriptor, VendorAdapterMode,
     VendorHandoffInstanceCapabilities, VendorHandoffModuleSettings, VendorQuoteFileEntry,
     VendorQuoteHandoffManifest, VendorQuoteSettings, fixture_upload_adapter,
+    fixture_upload_archive, fixture_upload_manifest,
 };
 pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
 /// Verbatim interchange subtrees kept for export when the native model has no
@@ -1742,6 +1743,11 @@ impl Layer {
         if s.is_empty() {
             return Err("copper layer name is empty".into());
         }
+        if let Some(count) = layer_names::current_count()
+            && let Some(i) = layer_names::stackup_index(s, count)
+        {
+            return Layer::from_index(i);
+        }
         if s == "F.Cu" {
             return Ok(Layer::Front);
         }
@@ -1765,7 +1771,11 @@ impl Layer {
     }
 
     fn to_file_str(self) -> String {
-        if self.0 == 0 {
+        if let Some(count) = layer_names::current_count()
+            && let Some(name) = layer_names::stackup_name(self.0, count)
+        {
+            name
+        } else if self.0 == 0 {
             "F.Cu".into()
         } else if self.0 == 1 {
             "B.Cu".into()
@@ -2621,18 +2631,6 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
         "dxf" => ("package", "pcb.dxf"),
         "cmp" => ("package", "pcb.cmp"),
         "idf" => ("package", "board.idf"),
-        "vrml" => ("package", "board.wrl"),
-        "step" => ("package", "board.step"),
-        "dsn" => ("package", "pcb.dsn"),
-        "ipc356" => ("package", "test.brd"),
-        "gencad" => ("package", "board.gencad"),
-        "hyperlynx" => ("package", "netlist.csv"),
-        "plot" => ("package", "plot-report.csv"),
-        "report" => ("package", "board-report.txt"),
-        "ps" => ("package", "pcb.ps"),
-        "hpgl" => ("package", "board.hpgl"),
-        "stackup" => ("package", "board-stackup.txt"),
-        "stats" => ("package", "board-stats.csv"),
         "vrml" => ("package", "board.wrl"),
         "step" => ("package", "board.step"),
         "dsn" => ("package", "pcb.dsn"),
@@ -4133,9 +4131,13 @@ impl DecouplingRule {
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(remote = "Self")]
 pub struct Project {
     pub format: String,
     pub version: u32,
+    /// File marker: copper layers are named by stackup (see [`LayerNaming`]).
+    #[serde(default, skip_deserializing)]
+    pub layer_naming: LayerNaming,
     pub name: String,
     /// The unit this design is read in: "mm", "mil" or "inch". Stored
     /// coordinates stay millimetres; inch fabrication output is converted,
@@ -4483,6 +4485,39 @@ pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
     }
     Ok(())
 }
+/// Writes the project with copper layers named by its own stackup.
+///
+/// # Rules
+/// - The context lasts for this call only; see [`layer_names::Scope`].
+///
+/// # Dependencies
+/// - crates/doc/src/layer_names.rs#Scope
+impl Serialize for Project {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let _scope = layer_names::Scope::enter(self.copper_layer_count());
+        Project::serialize(self, serializer)
+    }
+}
+
+/// Reads the project, naming copper layers by its stackup when the file
+/// carries the `layer_naming` marker and by index (the old rule) when not.
+///
+/// # Rules
+/// - Reads the file into a value first, because the stackup may come after
+///   the first item that names a layer.
+///
+/// # Dependencies
+/// - crates/doc/src/layer_names.rs#Scope
+/// - crates/doc/src/layer_names.rs#copper_count_of
+/// - crates/doc/src/layer_names.rs#file_uses_stackup_names
+impl<'de> Deserialize<'de> for Project {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let file = serde_json::Value::deserialize(deserializer)?;
+        let _scope = layer_names::file_uses_stackup_names(&file)
+            .then(|| layer_names::Scope::enter(layer_names::copper_count_of(&file)));
+        Project::deserialize(file).map_err(de::Error::custom)
+    }
+}
 impl Default for Project {
     fn default() -> Self {
         Self {
@@ -4492,6 +4527,7 @@ impl Default for Project {
             library: ProjectLibrary::default(),
             format: "pcbcraft".into(),
             version: 1,
+            layer_naming: LayerNaming,
             name: "Untitled circuit".into(),
             unit: "mm".into(),
             components: vec![],
@@ -8343,8 +8379,10 @@ mod drill_tests {
 
     #[test]
     fn project_validate_rejects_root_sheet_name_that_matches_another_page() -> Result<(), String> {
-        let mut p = Project::default();
-        p.root_sheet_name = Some("Main".into());
+        let mut p = Project {
+            root_sheet_name: Some("Main".into()),
+            ..Default::default()
+        };
         p.sheets.push(Sheet {
             id: 1,
             name: "Main".into(),

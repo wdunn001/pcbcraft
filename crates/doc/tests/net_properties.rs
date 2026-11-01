@@ -1,5 +1,5 @@
 //! Net electrical property storage and class override resolution.
-use pcbcraft_doc::{Id, Net, NetClass, Project};
+use pcbcraft_doc::{Net, NetClass, Project};
 use serde_json::Value;
 
 type T = Result<(), String>;

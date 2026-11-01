@@ -45,56 +45,34 @@ fn project_with_net(copper: u8) -> Project {
 }
 
 #[test]
-fn all_example_files_load_and_validate() {
+fn all_example_files_load_and_validate() -> Result<(), String> {
     let examples_dir = root().join("examples");
-    let entries = match std::fs::read_dir(&examples_dir) {
-        Ok(e) => e,
-        Err(e) => {
-            assert!(false, "examples dir: {}", e);
-            return;
-        }
-    };
+    let entries =
+        std::fs::read_dir(&examples_dir).map_err(|e| format!("examples dir: {e}"))?;
 
     let mut loaded = 0;
     for entry in entries {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(e) => {
-                assert!(false, "entry: {}", e);
-                return;
-            }
-        };
+        let entry = entry.map_err(|e| format!("entry: {e}"))?;
         let path = entry.path();
-        if !path.extension().map_or(false, |e| e == "pcbcraft") {
+        if path.extension().is_none_or(|e| e != "pcbcraft") {
             continue;
         }
 
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(e) => {
-                assert!(false, "read {}: {}", path.display(), e);
-                return;
-            }
-        };
-        let project: Project = match serde_json::from_str(&content) {
-            Ok(p) => p,
-            Err(e) => {
-                assert!(false, "deserialize {}: {}", path.display(), e);
-                return;
-            }
-        };
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        let project: Project = serde_json::from_str(&content)
+            .map_err(|e| format!("deserialize {}: {e}", path.display()))?;
 
         // Validate the loaded project
-        let result = project.validate();
-        if let Err(msg) = result {
-            assert!(false, "{}: validation failed: {}", path.display(), msg);
-            return;
-        }
+        project
+            .validate()
+            .map_err(|msg| format!("{}: validation failed: {msg}", path.display()))?;
 
         loaded += 1;
     }
 
     assert!(loaded > 0, "no example files found");
+    Ok(())
 }
 
 #[test]

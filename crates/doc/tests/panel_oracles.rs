@@ -10,15 +10,17 @@ type T = Result<(), String>;
 
 #[test]
 fn board_copy_size_uses_outline_extents_when_present() -> T {
-    let mut board = Board::default();
-    board.width = 50.0;
-    board.height = 40.0;
-    board.outline = Some(vec![
+    let mut board = Board {
+        width: 50.0,
+        height: 40.0,
+        outline: Some(vec![
         Point::new(5.0, 0.0),
         Point::new(15.0, 0.0),
         Point::new(15.0, 8.0),
         Point::new(5.0, 8.0),
-    ]);
+    ]),
+        ..Board::default()
+    };
     let (w, h) = board_copy_size(&board)?;
     assert!((w - 10.0).abs() < 1e-12);
     assert!((h - 8.0).abs() < 1e-12);
@@ -49,11 +51,13 @@ fn panel_layout_from_grid_places_copy_origins_on_a_hand_grid() -> T {
 #[test]
 fn panel_layout_with_settings_requires_valid_fields() -> T {
     let board = Board::default();
-    let mut settings = PanelSettings::default();
-    settings.enabled = true;
-    settings.columns = 1;
-    settings.rows = 1;
-    settings.tab_channel = 1.5;
+    let mut settings = PanelSettings {
+        enabled: true,
+        columns: 1,
+        rows: 1,
+        tab_channel: 1.5,
+        ..PanelSettings::default()
+    };
     assert!(settings.validate_fields().is_err());
     settings.tab_channel = 1.8;
     settings.validate_fields()?;
@@ -105,7 +109,7 @@ fn panel_score_and_tab_helpers_follow_separation_mode() -> T {
     p.panel.pitch_x = 10.0;
     p.panel.rail = 0.0;
     p.panel.separation = PanelSeparation::VScore;
-    let layout = panel_layout_from_grid(&p.board, &PanelGrid::from(&p.panel)).map_err(|e| e)?;
+    let layout = panel_layout_from_grid(&p.board, &PanelGrid::from(&p.panel))?;
     let scores = panel_score_lines(&p)?;
     assert_eq!(scores.len(), 1);
     let mid_x = layout.board_width + p.panel.pitch_x / 2.0;

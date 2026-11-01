@@ -69,8 +69,8 @@ fn compliance_fields_round_trip_in_project_json() -> Result<(), String> {
 
 #[test]
 fn compliance_bounds_refuse_oversized_declarations() {
-    let mut compliance = Compliance::default();
-    compliance.declarations = (0..65)
+    let compliance = Compliance {
+        declarations: (0..65)
         .map(|i| Declaration {
             regime: format!("r{i}"),
             status: DeclarationStatus::Unknown,
@@ -78,6 +78,8 @@ fn compliance_bounds_refuse_oversized_declarations() {
             source: user_source(),
             as_of: String::new(),
         })
-        .collect();
+        .collect(),
+        ..Compliance::default()
+    };
     assert!(compliance.validate().is_err());
 }
