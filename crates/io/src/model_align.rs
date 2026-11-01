@@ -64,18 +64,46 @@ pub fn model_lead_points(mesh: &LoadedModel) -> Vec<[f64; 3]> {
     if bottom.len() < 4 {
         return Vec::new();
     }
-    let cell = 0.25_f64;
-    let mut buckets: std::collections::BTreeMap<(i32, i32), (f64, f64, f64, u32)> =
+    // Single-linkage clusters: bottom vertices closer than LINK_MM belong to one
+    // terminal, whatever grid they would fall on. A terminal's centre is the mean
+    // of its vertices; stray groups of fewer than three vertices are noise.
+    const LINK_MM: f64 = 0.7;
+    // Keep the pairwise pass cheap on dense meshes: one vertex per 0.05 mm cell,
+    // thinned to a fixed budget.
+    let mut seen = std::collections::BTreeSet::new();
+    bottom.retain(|p| seen.insert(((p[0] / 0.05).round() as i64, (p[1] / 0.05).round() as i64)));
+    const MAX_LINKED: usize = 2000;
+    if bottom.len() > MAX_LINKED {
+        let stride = bottom.len().div_ceil(MAX_LINKED);
+        bottom = bottom.into_iter().step_by(stride).collect();
+    }
+    let mut label: Vec<usize> = (0..bottom.len()).collect();
+    for i in 0..bottom.len() {
+        for j in (i + 1)..bottom.len() {
+            let dx = bottom[i][0] - bottom[j][0];
+            let dy = bottom[i][1] - bottom[j][1];
+            if dx.hypot(dy) <= LINK_MM {
+                let (keep, drop) = (label[i].min(label[j]), label[i].max(label[j]));
+                if keep != drop {
+                    for l in label.iter_mut() {
+                        if *l == drop {
+                            *l = keep;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut groups: std::collections::BTreeMap<usize, (f64, f64, f64, u32)> =
         std::collections::BTreeMap::new();
-    for p in &bottom {
-        let key = ((p[0] / cell).floor() as i32, (p[1] / cell).floor() as i32);
-        let e = buckets.entry(key).or_insert((0.0, 0.0, 0.0, 0));
+    for (p, l) in bottom.iter().zip(&label) {
+        let e = groups.entry(*l).or_insert((0.0, 0.0, 0.0, 0));
         e.0 += p[0];
         e.1 += p[1];
         e.2 += p[2];
         e.3 += 1;
     }
-    let mut clusters: Vec<[f64; 3]> = buckets
+    let mut clusters: Vec<[f64; 3]> = groups
         .into_values()
         .filter(|(_, _, _, n)| *n >= 3)
         .map(|(sx, sy, sz, n)| {

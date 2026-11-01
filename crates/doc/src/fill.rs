@@ -832,7 +832,24 @@ pub fn keepout_hits(project: &Project) -> Result<Vec<KeepoutHit>, String> {
             let Some(rect) = rule_area_keepout_piece(project, area) else {
                 continue;
             };
+            // An area bound to a part keeps other copper away from that part; the
+            // part's own pads are what it surrounds.
+            let own_footprint = area
+                .footprint_ref
+                .as_deref()
+                .and_then(|reference| project.component_by_reference(reference))
+                .and_then(|component| {
+                    project
+                        .board
+                        .footprints
+                        .iter()
+                        .find(|f| f.component == component.id)
+                })
+                .map(|f| f.id);
             for item in &items {
+                if item.kind == Kind::Pad && Some(item.id) == own_footprint {
+                    continue;
+                }
                 let kind = match item.kind {
                     Kind::Pad => KeepoutKind::Pads,
                     Kind::Via => KeepoutKind::Vias,

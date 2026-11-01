@@ -416,8 +416,8 @@ pub fn commands() -> Vec<CommandSpec> {
             "component.field",
             "Set one named component property (datasheet, manufacturer, custom note), or clear it when value is null or omitted",
             schema(
-                json!({"id":id_schema(),"key":{"type":"string"},"value":{"type":["string","null"]}}),
-                &["id", "key"],
+                json!({"id":id_schema(),"reference":{"type":"string","description":"reference designator, used when id is not given"},"key":{"type":"string"},"value":{"type":["string","null"]}}),
+                &["key"],
             ),
         ),
         (
@@ -3259,7 +3259,7 @@ impl Session {
         drc.extend(custom_findings(&self.project));
         drc.extend(height_findings(&self.project));
         let compliance = pcbcraft_rules::compliance_check(&self.project);
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power label or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, labels with no wires or pins, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. When fabrication rules are recorded on the board, track width, drill size, annular ring, copper-to-routed-edge spacing, unlike-net spacing, aspect ratio, and drawn silk text height are compared to those limits, and copper pour neck widths thinner than the minimum track are reported. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. Pin-type rules, hole-to-hole spacing against a fab table, mask dams, and hierarchy are not fully checked."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -6913,7 +6913,11 @@ fn bounded_record_id(id: &str) -> Result<(), Error> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FieldParams {
-    id: Id,
+    #[serde(default)]
+    id: Option<Id>,
+    /// Names the part by its reference designator instead of its id.
+    #[serde(default)]
+    reference: Option<String>,
     key: String,
     #[serde(default)]
     value: Option<String>,
@@ -10482,6 +10486,7 @@ fn run_command(
                         "tracks": imported.board.tracks.len(),
                         "vias": imported.board.vias.len(),
                         "zones": imported.board.zones.len(),
+                        "layers": imported.copper_layer_count(),
                         "preserved_nodes": preserved_nodes,
                         "notices": report.notices,
                     });
@@ -11067,13 +11072,21 @@ fn run_command(
         }
         "component.field" => {
             let a: FieldParams = parse(params)?;
-            let component = p
-                .components
-                .iter_mut()
-                .find(|c| c.id == a.id)
-                .ok_or_else(missing)?;
+            let component = match (a.id, a.reference.as_deref()) {
+                (Some(id), None) => p.components.iter_mut().find(|c| c.id == id),
+                (None, Some(reference)) => {
+                    p.components.iter_mut().find(|c| c.reference == reference)
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "name the part by exactly one of id or reference".into(),
+                    ));
+                }
+            }
+            .ok_or_else(missing)?;
+            let id = component.id;
             let set = set_component_field(component, &a.key, a.value.as_deref())?;
-            Ok(json!({"id": a.id, "key": a.key, "set": set}))
+            Ok(json!({"id": id, "key": a.key, "set": set}))
         }
         "component.set_sourcing" => {
             let a: SourcingParams = parse(params)?;
@@ -28325,12 +28338,12 @@ mod tests {
         )?;
         s.execute(
             "library.footprint.set_model",
-            json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]}),
+            json!({"name":"AlignChip","path":"parts/resistor.wrl","offset":[0,0,0.5]}),
             None,
         )?;
         s.execute(
             "library.footprint.set_model_transform",
-            json!({"name":"R_0805_2012Metric","offset":[1,2,3]}),
+            json!({"name":"AlignChip","offset":[1,2,3]}),
             None,
         )?;
         assert_eq!(
@@ -28339,7 +28352,7 @@ mod tests {
         );
         s.execute(
             "library.footprint.set_model_transform",
-            json!({"name":"R_0805_2012Metric","preset":"rotate_90"}),
+            json!({"name":"AlignChip","preset":"rotate_90"}),
             None,
         )?;
         assert_eq!(
@@ -28349,7 +28362,7 @@ mod tests {
         );
         s.execute(
             "library.footprint.set_model_transform",
-            json!({"name":"R_0805_2012Metric","preset":"mirror"}),
+            json!({"name":"AlignChip","preset":"mirror"}),
             None,
         )?;
         assert_eq!(
@@ -28371,7 +28384,7 @@ mod tests {
         assert!(
             s.execute(
                 "library.footprint.set_model_transform",
-                json!({"name":"R_0805_2012Metric","preset":"nope"}),
+                json!({"name":"AlignChip","preset":"nope"}),
                 None
             )
             .is_err(),
@@ -31910,7 +31923,7 @@ mod tests {
         assert_eq!(back.compliance_mutes.len(), 1);
         assert_eq!(back.compliance_mutes[0].reason, "accepted for prototype");
         let run = s.execute("compliance.check", json!({}), None)?;
-        assert!(run["findings"].as_array().is_some());
+        assert!(run["result"]["findings"].as_array().is_some());
         Ok(())
     }
 
@@ -32024,6 +32037,7 @@ mod tests {
                     .ok_or_else(missing)?,
             );
         }
+        let undo_before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
         let updates: Vec<Value> = ids
             .iter()
             .map(|id| json!({"id": id, "field": {"key": "MPN", "value": "RC0603"}}))
@@ -32037,7 +32051,11 @@ mod tests {
                 Some("RC0603")
             );
         }
-        assert_eq!(s.inspect()["history"]["undo"], 1);
+        assert_eq!(
+            s.inspect()["history"]["undo"].as_u64(),
+            Some(undo_before + 1),
+            "the whole update is one undo step"
+        );
         s.undo()?;
         for id in &ids {
             assert_eq!(
@@ -43921,7 +43939,8 @@ mod tests {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../io/tests/fixtures/box.step");
         let mut text = std::fs::read_to_string(&src).map_err(|e| Error::Invalid(e.to_string()))?;
         let insert = "#200=CARTESIAN_POINT('Mount_A',(5.0,5.0,0.0));\n";
-        if let Some(index) = text.find("ENDSEC;") {
+        // The datum point belongs to the DATA section, which ends at the last ENDSEC.
+        if let Some(index) = text.rfind("ENDSEC;") {
             text.insert_str(index, insert);
         } else {
             text.push_str(insert);

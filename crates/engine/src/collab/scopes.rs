@@ -159,6 +159,16 @@ fn candidate_kinds(project: &Project, command: &str, params: &Value) -> Vec<Enco
         return vec![EncodedScope::board()];
     }
 
+    // A wire joins its endpoints onto one net, so the net is the only thing to lock.
+    if command == "wire.connect"
+        && let Some(net) = params.get("net").and_then(Value::as_u64)
+    {
+        return vec![EncodedScope {
+            kind: ScopeKind::Net,
+            id: net,
+        }];
+    }
+
     let mut out = Vec::new();
 
     if let Some(net) = params.get("net").and_then(Value::as_u64) {

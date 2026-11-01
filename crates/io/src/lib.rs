@@ -3838,6 +3838,9 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
     let columns = bom_field_columns(p, fields)?;
     let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
     for c in &p.components {
+        if !c.in_bom() {
+            continue;
+        }
         if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
             continue;
         }

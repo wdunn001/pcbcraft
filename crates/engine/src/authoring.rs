@@ -564,19 +564,6 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
     let offset = a.offset.unwrap_or([0.0; 3]);
     let scale = a.scale.unwrap_or([1.0; 3]);
     let rotate = a.rotate.unwrap_or([0.0; 3]);
-    let raw_source = format!(
-        "(model \"{}\" (offset (xyz {} {} {})) (scale (xyz {} {} {})) (rotate (xyz {} {} {})))",
-        a.path,
-        offset[0],
-        offset[1],
-        offset[2],
-        scale[0],
-        scale[1],
-        scale[2],
-        rotate[0],
-        rotate[1],
-        rotate[2]
-    );
     let cad_part = a
         .cad_part
         .as_ref()
@@ -589,6 +576,24 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(str::to_owned);
+    let part_suffix = cad_part
+        .as_ref()
+        .map(|part| format!(" (cad_part \"{part}\")"))
+        .unwrap_or_default();
+    let raw_source = format!(
+        "(model \"{}\" (offset (xyz {} {} {})) (scale (xyz {} {} {})) (rotate (xyz {} {} {})){})",
+        a.path,
+        offset[0],
+        offset[1],
+        offset[2],
+        scale[0],
+        scale[1],
+        scale[2],
+        rotate[0],
+        rotate[1],
+        rotate[2],
+        part_suffix
+    );
     if cad_part.as_ref().is_some_and(|s| s.len() > 128)
         || body_id.as_ref().is_some_and(|s| s.len() > 128)
     {
