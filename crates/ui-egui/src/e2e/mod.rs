@@ -37,6 +37,7 @@ mod modifiers;
 mod nets;
 mod online;
 mod outline_arcs;
+mod pads;
 mod pairs;
 mod part_listing;
 mod pnp_machine;

@@ -47,6 +47,7 @@ mod modifier_ui;
 mod motion;
 mod number_entry;
 mod outline_arcs;
+mod pad_tool;
 mod pages;
 mod palette;
 mod placement_machine_ui;
@@ -446,6 +447,7 @@ fn tool_hint(tool: &Tool) -> String {
         }
         Tool::Via => t!("board.tool_hint.lmb_via", common = common),
         Tool::Port => t!("schematic.port.tool_hint", common = common),
+        Tool::Pad => t!("board.tool_hint.lmb_place_a_pad", common = common),
     }
 }
 
@@ -998,6 +1000,7 @@ enum Tool {
     Measure,
     Via,
     Port,
+    Pad,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -1141,6 +1144,7 @@ pub struct App {
     swap_pick: Option<String>,
     swap_name: String,
     hole_diameter: f64,
+    pad_draft: pad_tool::PadFields,
     art_layer: Option<Id>,
     art_shape: DrawShape,
     art_start: Option<Point>,
@@ -1896,6 +1900,7 @@ impl App {
             swap_pick: None,
             swap_name: String::new(),
             hole_diameter: 3.2,
+            pad_draft: pad_tool::PadFields::default(),
             art_layer: None,
             art_shape: DrawShape::Line,
             art_start: None,
@@ -7036,6 +7041,11 @@ impl App {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.draw_tool_options(ui));
+                    }
+                    if matches!(self.tool, Tool::Pad) {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.pad_tool_options(ui));
                     }
                     if matches!(self.tool, Tool::Port) {
                         egui::Frame::NONE

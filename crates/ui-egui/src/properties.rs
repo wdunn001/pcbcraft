@@ -304,6 +304,9 @@ impl App {
                 });
             }
         });
+        if on_board {
+            self.pads_section(ui, id);
+        }
         section(
             ui,
             "manufacturing",

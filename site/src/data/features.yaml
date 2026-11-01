@@ -101,6 +101,11 @@
   status: browser
   evidence: [command:board.fiducial_place, test:a_newcomer_adds_assembly_marks_for_the_build_camera]
 - area: layout
+  name: Pads from the canvases
+  summary: Drop a copper pad on the board, add one to a placed part, or place a pad part in the schematic, with number, shape, size, drill and net.
+  status: browser
+  evidence: [command:pad.add, test:a_newcomer_adds_a_pad_to_the_board]
+- area: layout
   name: Panel planning
   summary: Plan a panel of board copies with gaps and rails and read the finished size.
   status: browser

@@ -108,7 +108,7 @@ impl Tool {
             Self::Hole => ToolKind::Hole,
             Self::NoConnect => ToolKind::NoConnect,
             Self::Fiducial => ToolKind::Fiducial,
-            Self::Port => ToolKind::Place,
+            Self::Port | Self::Pad => ToolKind::Place,
             Self::DrawLayer => ToolKind::DrawLayer,
             Self::Measure => ToolKind::Measure,
         }
