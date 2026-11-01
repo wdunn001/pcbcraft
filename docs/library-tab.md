@@ -1,6 +1,6 @@
 # The Library tab
 
-The Library tab is a work area of its own, between Files and Schematic. It is where you read about
+The Library tab is a work area of its own, the last tab, after Manufacture. It is where you read about
 a part, compare parts, see what they cost and edit them. The Library panel stays in the left aside
 of the Schematic and Layout tabs for finding and placing parts. Issues #695, #698 and #699.
 
