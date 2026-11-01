@@ -248,8 +248,8 @@ fn the_showcase_status_strip_reads_zero_and_the_variant_reads_its_three() -> Res
         );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let errors = app.catalog.plural("board.footer.errors", want.0);
-        let warnings = app.catalog.plural("board.footer.warnings", want.1);
+        let errors = app.catalog.plural("board.footer.errors", want.0 as u64);
+        let warnings = app.catalog.plural("board.footer.warnings", want.1 as u64);
         assert!(
             paints_text(&ctx, &mut app, &errors)?,
             "{file}: strip says {errors}"
