@@ -546,6 +546,7 @@ impl App {
         if let Some(text) = hint {
             self.dock_empty_state(ui, &text);
         }
+        self.dock_library_notices(ui);
         ui.add_space(6.0);
         if ui
             .link(t!("library.browser.browse_component_libraries"))
@@ -553,6 +554,34 @@ impl App {
             .clicked()
         {
             self.change_tab(Tab::Settings);
+        }
+    }
+
+    /// Source and licence lines recorded with parts fetched from open libraries.
+    fn dock_library_notices(&self, ui: &mut egui::Ui) {
+        if self.project.library.notices.is_empty() {
+            return;
+        }
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new(t!("library.dock.notices_heading"))
+                .strong()
+                .font(crate::fonts::Role::Caption.font()),
+        );
+        ui.label(
+            egui::RichText::new(t!("library.dock.notices_intro"))
+                .font(crate::fonts::Role::Caption.font())
+                .color(self.muted()),
+        );
+        for notice in &self.project.library.notices {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(notice.as_str())
+                        .font(crate::fonts::Role::Caption.font())
+                        .color(self.muted()),
+                )
+                .wrap(),
+            );
         }
     }
 
@@ -1265,6 +1294,7 @@ impl App {
                     .clamp(0.01, 40.0),
                 mirror: false,
                 turns: 0,
+                up: false,
             };
             library::paint_library_paths(&painter, picture, camera, paths, accent);
         } else if want_symbol
@@ -1277,6 +1307,7 @@ impl App {
                 zoom: 3.6,
                 mirror: false,
                 turns: 0,
+                up: false,
             };
             for view in part.schematic_views() {
                 self.symbol(
@@ -1348,6 +1379,7 @@ impl App {
                                 .clamp(0.01, 40.0),
                             mirror: false,
                             turns: 0,
+                            up: false,
                         };
                         library::paint_library_paths(&painter, spot, camera, &paths, accent);
                     } else {
@@ -1846,7 +1878,10 @@ impl App {
             return;
         };
         let sku = part.sku.clone();
-        let reply = spawn_read(ctx, move || library_online::import_open(&source, &sku));
+        let fetch_3d = self.preferences.fetch_open_library_3d;
+        let reply = spawn_read(ctx, move || {
+            library_online::import_open(&source, &sku, fetch_3d)
+        });
         self.dock.pending = Some(Pending {
             intent: Intent::Online {
                 target: target.to_owned(),

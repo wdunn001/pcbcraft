@@ -52,13 +52,14 @@ mod targets;
 pub mod theme;
 mod tool_modifiers;
 mod toolbar;
+mod tour;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
 mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
-use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
+use pcbcraft_doc::{Id, PanelSeparation, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
 use pcbcraft_text::t;
@@ -674,6 +675,9 @@ struct Preferences {
     /// Library cards the person starred, by card key.
     #[serde(default)]
     library_favourites: Vec<String>,
+    /// When on, placing an open-library part also fetches its 3D model into the local cache.
+    #[serde(default)]
+    fetch_open_library_3d: bool,
     /// Region layout per workspace id; missing means the workspace default.
     #[serde(default)]
     layouts: std::collections::BTreeMap<String, workspace::RegionLayout>,
@@ -726,6 +730,15 @@ struct Preferences {
     /// Remapped tool modifiers and tool hotkeys; empty means classic defaults.
     #[serde(default)]
     modifiers: tool_modifiers::Bindings,
+    /// When off, no tour chip or first-launch card appears without an explicit ask.
+    #[serde(default = "default_true")]
+    offer_tours: bool,
+    /// Per-tour progress (per browser profile on the web build).
+    #[serde(default)]
+    tour_progress: std::collections::BTreeMap<String, tour::state::TourRecord>,
+    /// Set once any first-launch tour card has been shown or dismissed.
+    #[serde(default)]
+    tour_first_launch_done: bool,
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -762,6 +775,7 @@ impl Default for Preferences {
             aside_lower_tab: 0,
             left_tab: 0,
             library_favourites: Vec::new(),
+            fetch_open_library_3d: false,
             layouts: std::collections::BTreeMap::new(),
             language: default_language(),
             recent_files: Default::default(),
@@ -780,6 +794,9 @@ impl Default for Preferences {
             active_keymap_profile: default_keymap_profile(),
             keymap_profiles: default_keymap_profiles(),
             modifiers: Default::default(),
+            offer_tours: true,
+            tour_progress: std::collections::BTreeMap::new(),
+            tour_first_launch_done: false,
         }
     }
 }
@@ -947,8 +964,10 @@ enum DrawShape {
 /// so drawing and picking cannot disagree.
 ///
 /// # Rules
-/// - Order: shift to the centre, mirror x, turn clockwise by `turns` quarters,
-///   then scale. `turns` is always 0 to 3.
+/// - Order: shift to the centre, mirror x, lift y when `up` is set, turn
+///   clockwise by `turns` quarters, then scale. `turns` is always 0 to 3.
+/// - The board view sets `up`: world +y points up the screen, as in the
+///   manufacturing files and the 3D view. The schematic keeps y down.
 ///
 /// # Do not
 /// - Offset the centre by screen amounts; use [`Camera::pan_screen`].
@@ -960,11 +979,16 @@ struct Camera {
     mirror: bool,
     /// Quarter turns clockwise on screen.
     turns: u8,
+    /// World +y points up the screen (the board view). Off, y runs down.
+    up: bool,
 }
 impl Camera {
     /// A zoom-free offset taken through the mirror and the turns.
     fn turn(self, dx: f64, dy: f64) -> (f64, f64) {
-        let (mut x, mut y) = (if self.mirror { -dx } else { dx }, dy);
+        let (mut x, mut y) = (
+            if self.mirror { -dx } else { dx },
+            if self.up { -dy } else { dy },
+        );
         for _ in 0..(self.turns % 4) {
             (x, y) = (-y, x);
         }
@@ -976,7 +1000,10 @@ impl Camera {
         for _ in 0..(self.turns % 4) {
             (x, y) = (y, -x);
         }
-        (if self.mirror { -x } else { x }, y)
+        (
+            if self.mirror { -x } else { x },
+            if self.up { -y } else { y },
+        )
     }
     fn screen(self, p: Point, rect: Rect) -> egui::Pos2 {
         let (x, y) = self.turn(p.x - self.center.x, p.y - self.center.y);
@@ -995,6 +1022,19 @@ impl Camera {
         let z = self.zoom as f64;
         let (x, y) = self.unturn(d.x as f64 / z, d.y as f64 / z);
         self.center = self.center.offset(Point::new(-x, -y));
+    }
+    /// The on-screen angle (egui: clockwise, radians) of text whose baseline
+    /// runs along world angle `world` (radians, from +x toward +y). Mirrored
+    /// views keep the text readable instead of reversing it.
+    fn text_angle(self, world: f64) -> f32 {
+        let (dx, dy) = self.turn(world.cos(), world.sin());
+        let screen = dy.atan2(dx) as f32;
+        let flipped = screen + std::f32::consts::PI;
+        match (self.mirror, flipped > std::f32::consts::PI) {
+            (false, _) => screen,
+            (true, false) => flipped,
+            (true, true) => flipped - std::f32::consts::TAU,
+        }
     }
     /// Where world +x and +y point on screen, as unit vectors.
     fn axes(self) -> (Vec2, Vec2) {
@@ -1090,10 +1130,13 @@ pub struct App {
     custom_measure: usize,
     custom_limit: f64,
     custom_loud: bool,
+    panel_enabled: bool,
     panel_columns: usize,
     panel_rows: usize,
     panel_gap: f64,
     panel_rail: f64,
+    panel_separation: String,
+    panel_tab_channel: f64,
     panel_plan: Value,
     renumber_plan: Option<RenumberPlan>,
     stack_name: String,
@@ -1186,6 +1229,7 @@ pub struct App {
     pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
     pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
     dock: library_dock::Dock,
+    tour: tour::Controller,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
     /// This design's autosave slot, while the desktop has a recovery folder.
@@ -1440,10 +1484,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
 impl App {
     /// How long ago a snapshot was written, in words.
     fn ago(saved_at: u64) -> String {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = pcbcraft_clock::unix_secs();
         let seconds = now.saturating_sub(saved_at);
         match seconds {
             0..=59 => "just now".into(),
@@ -1815,10 +1856,13 @@ impl App {
             custom_measure: 0,
             custom_limit: 0.2,
             custom_loud: false,
+            panel_enabled: false,
             panel_columns: 2,
             panel_rows: 2,
             panel_gap: 2.0,
             panel_rail: 3.0,
+            panel_separation: "tab".into(),
+            panel_tab_channel: 1.8,
             panel_plan: Value::Null,
             renumber_plan: None,
             stack_name: String::new(),
@@ -1851,6 +1895,7 @@ impl App {
             schematic: Camera {
                 mirror: false,
                 turns: 0,
+                up: false,
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
@@ -1858,6 +1903,7 @@ impl App {
             pcb: Camera {
                 mirror: false,
                 turns: 0,
+                up: true,
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
@@ -1912,12 +1958,76 @@ impl App {
             compare_diff: None,
             compare_tint: std::collections::BTreeMap::new(),
             library,
+            tour: {
+                #[cfg(test)]
+                let catalog = tour::state::e2e_fixture_catalog();
+                #[cfg(not(test))]
+                let catalog = Vec::new();
+                tour::Controller::new(catalog)
+            },
             #[cfg(test)]
             icon_rects: BTreeMap::new(),
             autosave,
             recovery_open: !recovery_offer.is_empty(),
             recovery_offer,
             recovery_dir: recovery,
+        }
+    }
+    fn tour_modal_open(&self) -> bool {
+        self.about_open
+            || self.shortcuts_open
+            || self.command_open
+            || self.compare_open
+            || self.renumber_open
+            || self.edit.dialog.open
+            || self.edit.dialog.preview_open
+    }
+    fn tour_tick(&mut self) {
+        if let Some(ws) = tour::WorkspaceId::from_tab(self.tab) {
+            self.tour.note_workspace_visit(ws);
+        }
+        if self.tour.first_launch_handled() {
+            self.preferences.tour_first_launch_done = true;
+        }
+        let view = tour::state::ShellView {
+            offer_tours: self.preferences.offer_tours,
+            modal_open: self.tour_modal_open(),
+            file_busy: self.pending_source.is_some(),
+            tab: self.tab,
+            workspace: tour::WorkspaceId::from_tab(self.tab),
+            progress: &self.preferences.tour_progress,
+            first_launch_done: self.preferences.tour_first_launch_done,
+            tab_changed_at: self.tour.tab_changed_at(),
+        };
+        self.tour.sync_triggers(view, pcbcraft_clock::instant_now());
+    }
+    fn tour_panel_hints(&mut self, ui: &mut egui::Ui) {
+        let ids: Vec<String> = self.tour.hint_tours().map(|m| m.id.clone()).collect();
+        if ids.is_empty() {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                for id in ids {
+                    self.tour_hint_button(ui, &id);
+                }
+            });
+        });
+    }
+    fn tour_hint_button(&mut self, ui: &mut egui::Ui, tour_id: &str) {
+        if self.tour.meta(tour_id).is_none() {
+            return;
+        }
+        if ui
+            .small_button("?")
+            .on_hover_text(t!("tour.panel_hint.tip"))
+            .clicked()
+        {
+            self.tour.start_from_menu(
+                &mut self.preferences.tour_progress,
+                tour_id,
+                tour::state::MenuAction::Start,
+            );
         }
     }
     fn refresh(&mut self) {
@@ -1953,6 +2063,58 @@ impl App {
             self.width = self.project.board.width;
             self.height = self.project.board.height;
             self.load_properties();
+            self.load_panel_fields_from_project();
+        }
+    }
+    fn load_panel_fields_from_project(&mut self) {
+        if !self.project.panel.enabled {
+            return;
+        }
+        self.panel_enabled = true;
+        self.panel_columns = self.project.panel.columns;
+        self.panel_rows = self.project.panel.rows;
+        if self.project.panel.pitch_x.is_finite() && self.project.panel.pitch_x > 0.0 {
+            self.panel_gap = self.project.panel.pitch_x;
+        }
+        self.panel_rail = self.project.panel.rail;
+        self.panel_tab_channel = self.project.panel.tab_channel;
+        self.panel_separation = match self.project.panel.separation {
+            PanelSeparation::Tab => "tab".into(),
+            PanelSeparation::VScore => "v_score".into(),
+        };
+    }
+    fn panel_set_params(&self) -> Value {
+        json!({
+            "enabled": self.panel_enabled,
+            "columns": self.panel_columns,
+            "rows": self.panel_rows,
+            "pitch_x": self.panel_gap,
+            "pitch_y": self.panel_gap,
+            "rail": self.panel_rail,
+            "tab_channel": self.panel_tab_channel,
+            "separation": self.panel_separation,
+        })
+    }
+    fn export_panel_files(&mut self) {
+        let directory = self.make_directory();
+        if std::fs::create_dir_all(std::path::Path::new(&directory)).is_err() {
+            self.message = t!("status.write_job_file.that_folder_could_not_be");
+            return;
+        }
+        self.run("panel.set", self.panel_set_params());
+        let out = self.run_and_keep("panel.export", json!({"directory": &directory}));
+        if let Some(files) = out.get("files").and_then(Value::as_array) {
+            let names = files
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.message = t!(
+                "status.panel_export_saved",
+                directory = directory,
+                files = names
+            );
+            self.refresh();
         }
     }
     fn execute_palette_params(&mut self) {
@@ -2160,6 +2322,7 @@ impl App {
         if !page(tab) && !page(self.tab) {
             self.needs_fit = true;
         }
+        self.tour.note_tab_change(pcbcraft_clock::instant_now());
         self.tab = tab;
         self.tool = Tool::Select;
         self.drag = None;
@@ -3595,6 +3758,48 @@ impl App {
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
+            ui.menu_button(t!("menu.help.tours"), |ui| {
+                if self.browser {
+                    ui.label(
+                        egui::RichText::new(t!("menu.help.tours.browser_note"))
+                            .small()
+                            .color(self.muted()),
+                    );
+                    ui.separator();
+                }
+                for row in self.tour.menu_rows(&self.preferences.tour_progress) {
+                    let label = pcbcraft_text::lookup(&row.list_key, &[]);
+                    let detail = match row.action {
+                        tour::state::MenuAction::Resume => {
+                            let step = self
+                                .preferences
+                                .tour_progress
+                                .get(&row.id)
+                                .map(|r| r.step + 1)
+                                .unwrap_or(1);
+                            pcbcraft_text::lookup(&row.detail_key, &[("step", &step.to_string())])
+                        }
+                        tour::state::MenuAction::Restart | tour::state::MenuAction::Start => {
+                            pcbcraft_text::lookup(&row.detail_key, &[])
+                        }
+                    };
+                    let tip = pcbcraft_text::lookup(&format!("{}.tip", row.detail_key), &[]);
+                    if ui
+                        .button(format!("{label} ({detail})"))
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        self.tour.start_from_menu(
+                            &mut self.preferences.tour_progress,
+                            &row.id,
+                            row.action,
+                        );
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text(t!("menu.help.tours.tip"));
             ui.separator();
             if ui
                 .button(t!("app.about"))
@@ -3725,6 +3930,9 @@ impl App {
             && let Some(tab) = tabs.get(current)
         {
             self.region().left_tab = tab.id.to_owned();
+        }
+        if self.region().left_tab == "library" {
+            self.tour_panel_hints(ui);
         }
     }
     /// Body of the Layers tab: the parts list and the layer tree.
@@ -4073,6 +4281,7 @@ impl App {
                         let r = PinRef {
                             component: comp.id,
                             pin: pin.number.clone(),
+                            unit: None,
                         };
                         if pin.net == Some(net.id) {
                             members.push((label, r));
@@ -4619,6 +4828,11 @@ impl App {
             t!("settings.settings_tab.reduce_motion"),
         )
         .on_hover_text(t!("settings.settings_tab.reduce_motion.tip"));
+        ui.checkbox(
+            &mut self.preferences.offer_tours,
+            t!("settings.settings_tab.offer_tours"),
+        )
+        .on_hover_text(t!("settings.settings_tab.offer_tours.tip"));
         self.language_menu(ui);
         ui.label(
             egui::RichText::new(t!(
@@ -5187,6 +5401,49 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
+        ui.checkbox(
+            &mut self.panel_enabled,
+            t!("settings.settings_tab.panel_enabled"),
+        )
+        .on_hover_text(t!("settings.settings_tab.panel_enabled.tip"))
+        .named("Panel enabled for manufacturing");
+        ui.horizontal(|ui| {
+            ui.label(t!("settings.settings_tab.panel_separation"));
+            let separation_label = if self.panel_separation == "v_score" {
+                t!("settings.settings_tab.panel_separation_vscore")
+            } else {
+                t!("settings.settings_tab.panel_separation_tab")
+            };
+            egui::ComboBox::from_id_salt("panel-separation")
+                .selected_text(separation_label)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(
+                            self.panel_separation == "tab",
+                            t!("settings.settings_tab.panel_separation_tab"),
+                        )
+                        .on_hover_text(t!("settings.settings_tab.panel_separation_tab.tip"))
+                        .clicked()
+                    {
+                        self.panel_separation = "tab".into();
+                        ui.close();
+                    }
+                    if ui
+                        .selectable_label(
+                            self.panel_separation == "v_score",
+                            t!("settings.settings_tab.panel_separation_vscore"),
+                        )
+                        .on_hover_text(t!("settings.settings_tab.panel_separation_vscore.tip"))
+                        .clicked()
+                    {
+                        self.panel_separation = "v_score".into();
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text(t!("settings.settings_tab.panel_separation.tip"))
+                .named("Panel separation method");
+        });
         ui.horizontal(|ui| {
             ui.add(
                 egui::DragValue::new(&mut self.panel_columns)
@@ -5225,22 +5482,54 @@ impl App {
             .on_hover_text(t!("settings.settings_tab.mm_rail.tip"))
             .named("Rail width");
         });
+        if self.panel_separation == "tab" {
+            ui.horizontal(|ui| {
+                ui.add(crate::number_entry::localized_active(
+                    egui::DragValue::new(&mut self.panel_tab_channel)
+                        .range(1.6..=2.0)
+                        .speed(0.05)
+                        .suffix(format!(
+                            " {}",
+                            t!("settings.settings_tab.panel_tab_channel_suffix")
+                        )),
+                    3,
+                ))
+                .on_hover_text(t!("settings.settings_tab.panel_tab_channel.tip"))
+                .named("Tab channel width");
+            });
+        }
         if ui
-            .button(t!("settings.settings_tab.preview_panel"))
-            .on_hover_text(t!("settings.settings_tab.preview_panel.tip"))
+            .button(t!("settings.settings_tab.apply_panel_settings"))
+            .on_hover_text(t!("settings.settings_tab.apply_panel_settings.tip"))
             .clicked()
         {
-            self.panel_plan = self.run_and_keep(
-                "board.panel",
-                json!({
-                    "columns": self.panel_columns,
-                    "rows": self.panel_rows,
-                    "pitch_x": self.panel_gap,
-                    "pitch_y": self.panel_gap,
-                    "rail": self.panel_rail,
-                }),
-            );
+            self.run("panel.set", self.panel_set_params());
         }
+        ui.horizontal(|ui| {
+            if ui
+                .button(t!("settings.settings_tab.preview_panel"))
+                .on_hover_text(t!("settings.settings_tab.preview_panel.tip"))
+                .clicked()
+            {
+                self.panel_plan = self.run_and_keep(
+                    "board.panel",
+                    json!({
+                        "columns": self.panel_columns,
+                        "rows": self.panel_rows,
+                        "pitch_x": self.panel_gap,
+                        "pitch_y": self.panel_gap,
+                        "rail": self.panel_rail,
+                    }),
+                );
+            }
+            if ui
+                .button(t!("settings.settings_tab.export_panel_files"))
+                .on_hover_text(t!("settings.settings_tab.export_panel_files.tip"))
+                .clicked()
+            {
+                self.export_panel_files();
+            }
+        });
         if let Some(plan) = self.panel_plan.get("panel") {
             let copies = self
                 .panel_plan
@@ -6492,6 +6781,7 @@ impl App {
             let mut padded = egui::Frame::NONE
                 .inner_margin(theme::aside_margin())
                 .begin(ui);
+            self.tour_panel_hints(&mut padded.content_ui);
             assistant::pane::show(self, &mut padded.content_ui);
             padded.end(ui);
             return;
@@ -6948,6 +7238,28 @@ impl App {
                                     ui.label(egui::RichText::new(line).small().color(self.muted()));
                                 }
                             }
+                            for (cmd, list_key) in self.tour.command_entries() {
+                                let label = pcbcraft_text::lookup(&list_key, &[]);
+                                if !query.is_empty()
+                                    && !fuzzy_match(&query, &label)
+                                    && !fuzzy_match(&query, &cmd)
+                                {
+                                    continue;
+                                }
+                                let row_text = t!("tour.command.row", label = label);
+                                if ui
+                                    .selectable_label(false, row_text)
+                                    .on_hover_text(t!("tour.command.row.tip"))
+                                    .clicked()
+                                {
+                                    let id = cmd.strip_prefix("tour:").unwrap_or(&cmd);
+                                    self.tour.start_from_menu(
+                                        &mut self.preferences.tour_progress,
+                                        id,
+                                        tour::state::MenuAction::Start,
+                                    );
+                                }
+                            }
                             for (row, spec) in matches.iter().enumerate() {
                                 let row_text = t!(
                                     "board.footer.id_description",
@@ -7392,6 +7704,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        self.tour_tick();
         icons::install(&ctx);
         a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.assistant_frame(&ctx);
@@ -7447,6 +7760,15 @@ impl App {
                 });
         }
         a11y::paint_focus_ring(&ctx, self.accent());
+        let muted = self.muted();
+        let accent = self.accent();
+        tour::paint_offers(
+            ui,
+            &mut self.tour,
+            &mut self.preferences.tour_progress,
+            muted,
+            accent,
+        );
         self.capture(&ctx);
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
@@ -8541,6 +8863,7 @@ mod tests {
                 Tool::Wire(Some(PinRef {
                     component: 1,
                     pin: "1".into(),
+                    unit: None,
                 })),
                 "second pin",
             ),
@@ -9114,6 +9437,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 });
                 pads.push(pcbcraft_doc::Pad {
                     number,
@@ -9171,7 +9495,7 @@ mod tests {
     #[test]
     #[ignore = "timed bench: run with cargo xtask bench"]
     fn large_board_ten_thousand_pads_stays_within_its_budget() -> Result<(), String> {
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
         let project = large_board()?;
         let pads: usize = project.board.footprints.iter().map(|f| f.pads.len()).sum();
         assert_eq!(pads, 10_240, "the bench board holds ten thousand pads");
@@ -9180,14 +9504,14 @@ mod tests {
             pairs <= items * 40,
             "the broad phase should hand the exact test at most 40 pairs per item, not {pairs} for {items} items"
         );
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let findings = pcbcraft_rules::drc(&project);
         let checks = started.elapsed();
         assert!(
             !findings.is_empty(),
             "the bench board is dense enough to report findings"
         );
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let airwires = pcbcraft_rules::airwires(&project);
         let wires = started.elapsed();
         assert!(
@@ -9209,7 +9533,7 @@ mod tests {
         app.refresh();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         for step in 0..5 {
             frame(
                 &ctx,

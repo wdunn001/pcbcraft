@@ -509,26 +509,22 @@ mod tests {
         let mut project = board();
         project.meta.insert("revision".into(), "B".into());
         project.meta.insert("date".into(), "2026-03-01".into());
-        let part = |id: u64, reference: &str, value: &str, kind: &str| pcbcraft_doc::Component {
-            sheet: 0,
-            id,
-            reference: reference.into(),
-            value: value.into(),
-            kind: kind.into(),
-            position: pcbcraft_geom::Point::new(1.0, 1.0),
-            rotation: 0.0,
-            pins: Vec::new(),
-            units: Vec::new(),
-            library_symbol: None,
-            library_footprint: None,
-            fields: Vec::new(),
-            sourcing: Default::default(),
+        let part = |id: u64, reference: &str, value: &str, kind: &str| {
+            let mut c = pcbcraft_doc::component_template(
+                kind,
+                id,
+                reference.into(),
+                pcbcraft_geom::Point::new(1.0, 1.0),
+            )
+            .ok_or_else(|| format!("no template for {kind}"))?;
+            c.value = value.into();
+            Ok::<_, String>(c)
         };
-        project.components.push(part(1, "R1", "10k", "resistor"));
-        project.components.push(part(2, "C1", "100n", "capacitor"));
+        project.components.push(part(1, "R1", "10k", "resistor")?);
+        project.components.push(part(2, "C1", "100n", "capacitor")?);
         project.validate()?;
         let previous_bom = crate::bom_csv(&project, &[], None)?;
-        project.components.push(part(3, "R2", "1k", "resistor"));
+        project.components.push(part(3, "R2", "1k", "resistor")?);
         project.components.retain(|c| c.reference != "C1");
         project.validate()?;
         let names = vec!["bom.csv".into(), REVISION_NOTES_NAME.into()];

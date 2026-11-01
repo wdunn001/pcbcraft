@@ -1,0 +1,28 @@
+{
+  "keywordSearchReturn": {
+    "numberOfResults": 1,
+    "products": [
+      {
+        "sku": "9338900",
+        "displayName": "YAGEO - RC0603FR-0710KL - RES 10K OHM 1% 1/10W 0603",
+        "productStatus": "STOCKED",
+        "vendorName": "YAGEO",
+        "brandName": "YAGEO",
+        "translatedManufacturerPartNumber": "RC0603FR-0710KL",
+        "productUrl": "https://www.newark.com/yageo/rc0603fr-0710kl/res-10k-ohm-1/dp/9338900",
+        "datasheets": [
+          {
+            "type": "T",
+            "description": "Technical Data Sheet",
+            "url": "https://www.farnell.com/datasheets/example-rc0603.pdf"
+          }
+        ],
+        "prices": [
+          { "from": 1, "to": 99, "cost": 0.01 },
+          { "from": 100, "to": 999, "cost": 0.008 }
+        ],
+        "stock": { "level": 4200, "status": 1 }
+      }
+    ]
+  }
+}

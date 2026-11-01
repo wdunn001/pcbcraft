@@ -278,6 +278,7 @@ impl App {
     }
 
     fn sheet_findings(&mut self, ui: &mut egui::Ui, rows: Vec<Row>) {
+        self.tour_panel_hints(ui);
         if rows.is_empty() {
             empty_state(ui, EMPTY_CHECKS, self.muted());
             ui.label(

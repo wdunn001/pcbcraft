@@ -1,0 +1,19 @@
+[part]
+manufacturer = "Texas Instruments"
+mpn = "TPS54331"
+datasheet_path = "research/sources/library/datasheets/ti/tps54331.pdf"
+datasheet_url = "https://www.ti.com/lit/ds/symlink/tps54331.pdf"
+
+package = "SOIC-8"
+pin_count = 8
+land_pattern_ref = "See mechanical data"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[requirement]]
+type = "decoupling"
+text = "Follow manufacturer decoupling and layout guidance in the datasheet."
+page = 1
+confirmed = false

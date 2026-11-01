@@ -107,6 +107,13 @@ embeds the used definitions, and makes assignment undoable. `board.sync` returns
 `unassigned_components` rather than inventing packages for imported symbols.
 These commands also work in atomic batches and the live desktop bridge.
 
+`part.attach_source` records distributor answers on a placed component in one undo
+step. It requires component `id`, non-empty `manufacturer` and `mpn`, and accepts
+optional `datasheet`, `distributor`, and `sku`. It writes named properties
+`Manufacturer`, `MPN`, `Datasheet`, and either `SKU` or `<distributor> SKU` when a
+seller line is present. Length and control-character checks match `component.field`.
+The library crate searches online part sources; the engine does not call them.
+
 `component.move` and `component.rotate` accept optional `unit` (default 1) for
 independent schematic unit placement. All package pins still use the same
 component ID and physical pin number. `track.route` accepts `layer` (`F.Cu` default
@@ -195,7 +202,7 @@ MCP hints, so a client can decide when to ask the user first.
 
 | Kind | Tools | readOnly | destructive | idempotent |
 | --- | --- | --- | --- | --- |
-| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
+| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.drop_in_check`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
 | Writes files outside the project | `*.write`, `*.export`, `export`, `save`, `library.save`, `library.export_*`, `output_job.package` | no | no | yes |
 | Replaces the whole design | `new_design`, `sample_design`, `open` | no | yes | no |
 | Everything else (`execute`, `batch`, `undo`, `redo`, engine commands, `library.add_folder`, `library.remove_folder`) | edits that can be undone | no | no | no |

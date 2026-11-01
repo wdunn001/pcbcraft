@@ -1,0 +1,33 @@
+MPN,Manufacturer,Quantity,Designators
+MP-100nF,Maker,8,"C10, C13, C14, C15, C16, C7, C8, C9"
+MP-10k,Maker,1,R5
+MP-10uF,Maker,1,C1
+MP-16MHz,Maker,1,Y1
+MP-18pF,Maker,2,"C5, C6"
+MP-1k,Maker,7,"R10, R11, R12, R13, R14, R15, R4"
+MP-1uF,Maker,2,"C12, C17"
+MP-22uF,Maker,2,"C3, C4"
+MP-2k,Maker,1,R3
+MP-3V3,Maker,1,TP2
+MP-47k,Maker,2,"R8, R9"
+MP-47uF,Maker,2,"C11, C2"
+MP-51k,Maker,2,"R1, R2"
+MP-500mA,Maker,1,F1
+MP-Amber,Maker,3,"D1, D6, D7"
+MP-Battery,Maker,1,J2
+MP-Charger,Maker,1,U1
+MP-Climate,Maker,1,U5
+MP-Debug,Maker,1,J3
+MP-Flash,Maker,1,U4
+MP-Green,Maker,3,"D3, D4, D5"
+MP-LDO3V3,Maker,1,U2
+MP-Light,Maker,1,U6
+MP-MCU,Maker,1,U3
+MP-Red,Maker,1,D8
+MP-Reset,Maker,1,SW1
+MP-Switch,Maker,1,U7
+MP-TVS,Maker,1,D2
+MP-USBC,Maker,1,J1
+MP-User1,Maker,1,SW2
+MP-User2,Maker,1,SW3
+MP-VBAT,Maker,1,TP1

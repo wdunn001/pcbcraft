@@ -25,7 +25,7 @@ clipped | Checks | 320 | 1
 escaped | Checks | 320 | 56
 escaped | Settings | 1280 | 3
 clipped | Settings | 320 | 2
-escaped | Settings | 320 | 98
+escaped | Settings | 320 | 104
 clipped | Libraries | 1280 | 6
 escaped | Libraries | 1280 | 3
 clipped | Libraries | 320 | 7
@@ -53,4 +53,4 @@ clipped | View menu | 320 | 1
 escaped | View menu | 320 | 45
 escaped | Help menu | 1280 | 3
 clipped | Help menu | 320 | 1
-escaped | Help menu | 320 | 46
+escaped | Help menu | 320 | 47

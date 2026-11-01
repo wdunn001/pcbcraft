@@ -2,7 +2,8 @@
 use pcbcraft_doc::{
     ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
     PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
-    PanelSeparation, Project, Via, ViaKind, panel_layout, panel_score_lines,
+    PanelSeparation, Project, VALIDATION_CHORD_ERROR, Via, ViaKind, panel_layout,
+    panel_score_lines,
 };
 use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use serde::Serialize;
@@ -11,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod courtyard;
 mod decoupling;
 mod drill;
+mod return_path;
 mod silk;
 mod stub;
 
@@ -921,16 +923,50 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
     airwires_from(&copper(project))
 }
 
+fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
+    project
+        .no_connects
+        .iter()
+        .any(|f| f.pin.component == component && f.pin.pin == pin)
+}
+
+fn net_has_power_driver(project: &Project, net: Id) -> bool {
+    if project
+        .labels
+        .iter()
+        .any(|l| l.net == net && l.kind == "power")
+    {
+        return true;
+    }
+    project.components.iter().any(|c| {
+        if c.kind == "connector" && c.pins.iter().any(|p| p.net == Some(net)) {
+            return true;
+        }
+        c.pins
+            .iter()
+            .any(|p| p.net == Some(net) && p.electrical_type == "power_out")
+    })
+}
+
+fn net_needs_power_not_driven(
+    project: &Project,
+    net: Id,
+    on_net: &[(Id, &str, &pcbcraft_doc::Pin)],
+) -> bool {
+    if net_has_power_driver(project, net) {
+        return false;
+    }
+    on_net.iter().any(|(component, _, pin)| {
+        pin.electrical_type == "power_in"
+            && !pin_flagged_no_connect(project, *component, &pin.number)
+    })
+}
+
 pub fn erc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
     for c in &project.components {
         for p in &c.pins {
-            if p.net.is_none()
-                && !project
-                    .no_connects
-                    .iter()
-                    .any(|f| f.pin.component == c.id && f.pin.pin == p.number)
-            {
+            if p.net.is_none() && !pin_flagged_no_connect(project, c.id, &p.number) {
                 result.push(Finding {
                     code: "unassigned_pin",
                     severity: project.rule_severity("unassigned_pin", "warning"),
@@ -957,6 +993,27 @@ pub fn erc(project: &Project) -> Vec<Finding> {
         }
     }
     for net in &project.nets {
+        let undriven_power = project.components.iter().any(|c| {
+            c.pins.iter().any(|p| {
+                p.net == Some(net.id)
+                    && p.electrical_type == "power_in"
+                    && !pin_flagged_no_connect(project, c.id, &p.number)
+            })
+        });
+        if undriven_power && !net_has_power_driver(project, net.id) {
+            result.push(Finding {
+                code: "power_not_driven",
+                severity: project.rule_severity("power_not_driven", "warning"),
+                message: format!(
+                    "{} has a power input but no power source; drive it from a power output, \
+                     a power label or a connector pin",
+                    net.name
+                ),
+                objects: vec![net.id],
+            });
+        }
+    }
+    for net in &project.nets {
         let mut on_net = vec![];
         for c in &project.components {
             for p in &c.pins {
@@ -968,6 +1025,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
         if on_net.is_empty() {
             continue;
         }
+        let power_not_driven_net = net_needs_power_not_driven(project, net.id, &on_net);
         let mut types = BTreeSet::new();
         for (_, _, p) in &on_net {
             types.insert(p.electrical_type.as_str());
@@ -977,6 +1035,13 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             for j in i..type_list.len() {
                 let ta = type_list[i];
                 let tb = type_list[j];
+                if power_not_driven_net
+                    && ta != "no_connect"
+                    && tb != "no_connect"
+                    && (ta == "power_in" || tb == "power_in")
+                {
+                    continue;
+                }
                 let level = project.pin_matrix_level(ta, tb);
                 if level == "ok" {
                     continue;
@@ -1035,6 +1100,9 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             .any(|(_, _, p)| drives.contains(&p.electrical_type.as_str()));
         if !has_driver {
             for (id, reference, pin) in &on_net {
+                if pin.electrical_type == "power_in" {
+                    continue;
+                }
                 if pin.electrical_type == "input" {
                     result.push(Finding {
                         code: "undriven_input",
@@ -1076,7 +1144,7 @@ fn point_in_polygon(p: Point, polygon: &[Point]) -> bool {
 /// both ends are inside, measured to the traced outline when one is set and
 /// to the plain rectangle otherwise.
 fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
-    let Some(polygon) = &board.outline else {
+    if board.outline.is_none() {
         return [
             a.x,
             b.x,
@@ -1089,17 +1157,22 @@ fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
         ]
         .into_iter()
         .fold(f64::INFINITY, f64::min);
-    };
-    let distance = polygon
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let q = polygon[(i + 1) % polygon.len()];
-            segment_distance(a, b, *p, q)
+    }
+    let ring = board.edge_ring(VALIDATION_CHORD_ERROR);
+    let distance = (0..ring.len())
+        .map(|i| {
+            let p = ring[i];
+            let q = ring[(i + 1) % ring.len()];
+            segment_distance(a, b, p, q)
         })
         .fold(f64::INFINITY, f64::min);
-    if point_in_polygon(a, polygon) && point_in_polygon(b, polygon) {
-        distance
+    let arc_slack = if board.outline_arcs.iter().any(Option::is_some) {
+        VALIDATION_CHORD_ERROR
+    } else {
+        0.0
+    };
+    if point_in_polygon(a, &ring) && point_in_polygon(b, &ring) {
+        distance - arc_slack
     } else {
         -distance
     }
@@ -1857,6 +1930,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         }),
     }
     result.extend(stub::stub_length_findings(project, &items));
+    result.extend(return_path::return_path_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
@@ -2292,7 +2366,11 @@ mod tests {
         assert!(erc(&p).iter().any(|f| f.code == "unassigned_pin"));
         p.no_connects.push(NoConnectFlag {
             id: 9,
-            pin: PinRef { component, pin },
+            pin: PinRef {
+                component,
+                pin,
+                unit: None,
+            },
         });
         p.validate()?;
         assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
@@ -2322,6 +2400,7 @@ mod tests {
                 electrical_type: electrical_type.into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             });
         }
         Ok(())
@@ -2399,6 +2478,101 @@ mod tests {
                 .iter()
                 .any(|f| f.code == "pin_conflict" || f.code == "undriven_input"),
             "{findings:?}"
+        );
+        assert!(
+            !findings.iter().any(|f| f.code == "power_not_driven"),
+            "{findings:?}"
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_undriven_power_input_once() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        let mut u1 = component_template("resistor", 10, "U1".into(), Point::default())
+            .ok_or("template missing")?;
+        u1.pins.clear();
+        p.components.push(u1);
+        let mut u2 = component_template("resistor", 11, "U2".into(), Point::new(10.0, 0.0))
+            .ok_or("template missing")?;
+        u2.pins.clear();
+        p.components.push(u2);
+        pin_on_net(&mut p, 10, "U1", "1", "power_in", 1)?;
+        pin_on_net(&mut p, 11, "U2", "1", "power_in", 1)?;
+        p.pin_matrix.insert(
+            pcbcraft_doc::pin_matrix_key("power_in", "power_in"),
+            "error".into(),
+        );
+        p.validate()?;
+        let findings = erc(&p);
+        let power: Vec<_> = findings
+            .iter()
+            .filter(|f| f.code == "power_not_driven")
+            .collect();
+        assert_eq!(power.len(), 1, "{findings:?}");
+        assert!(
+            !findings.iter().any(|f| f.code == "pin_conflict"),
+            "matrix must defer to power_not_driven: {findings:?}"
+        );
+        assert!(
+            !findings.iter().any(|f| f.code == "undriven_input"),
+            "{findings:?}"
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_power_not_driven_cleared_by_connector_pin() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VCC".into(),
+            ..Default::default()
+        });
+        let mut u1 = component_template("resistor", 10, "U1".into(), Point::default())
+            .ok_or("template missing")?;
+        u1.pins.clear();
+        p.components.push(u1);
+        let mut j1 = component_template("connector", 11, "J1".into(), Point::new(10.0, 0.0))
+            .ok_or("template missing")?;
+        j1.pins.clear();
+        p.components.push(j1);
+        pin_on_net(&mut p, 10, "U1", "1", "power_in", 1)?;
+        pin_on_net(&mut p, 11, "J1", "1", "passive", 1)?;
+        p.validate()?;
+        assert!(
+            !erc(&p).iter().any(|f| f.code == "power_not_driven"),
+            "any connector pin on the net counts as a power source"
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_power_not_driven_exclusion_hides_the_single_finding() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        let mut u1 = component_template("resistor", 10, "U1".into(), Point::default())
+            .ok_or("template missing")?;
+        u1.pins.clear();
+        p.components.push(u1);
+        let mut u2 = component_template("resistor", 11, "U2".into(), Point::new(10.0, 0.0))
+            .ok_or("template missing")?;
+        u2.pins.clear();
+        p.components.push(u2);
+        pin_on_net(&mut p, 10, "U1", "1", "power_in", 1)?;
+        pin_on_net(&mut p, 11, "U2", "1", "passive", 1)?;
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "power_not_driven"));
+        p.rule_exclusions.insert("power_not_driven".into(), vec![1]);
+        assert!(
+            !erc(&p).iter().any(|f| f.code == "power_not_driven"),
+            "one exclusion on the net silences the only finding"
         );
         Ok(())
     }
@@ -3696,6 +3870,49 @@ mod tests {
             !codes(&p).contains(&"mask_covers_pad"),
             "a bare mask stroke has no area to cover an opening"
         );
+    }
+    #[test]
+    fn edge_clearance_measures_the_arc_not_the_chord() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.clearance = 0.5;
+        let a = Point::new(40.0, 0.0);
+        let b = Point::new(40.0, 30.0);
+        let chord = a.distance(b);
+        let radius = 20.0;
+        let sagitta = radius - (radius * radius - chord * chord / 4.0).sqrt();
+        let mid = Point::new(40.0 - sagitta, (a.y + b.y) / 2.0);
+        p.board.outline = Some(vec![
+            Point::new(0.0, 0.0),
+            Point::new(40.0, 0.0),
+            Point::new(40.0, 30.0),
+            Point::new(0.0, 30.0),
+        ]);
+        p.board.outline_arcs = vec![None, Some(mid), None, None];
+        p.nets.push(Net {
+            id: 1,
+            name: "gnd".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 2,
+            net: 1,
+            start: Point::new(39.0, 15.0),
+            end: Point::new(39.2, 15.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        assert!(
+            drc(&p).iter().any(|f| f.code == "board_edge"),
+            "copper in the chord pocket but beyond the arc must fail"
+        );
+        p.board.tracks[0].start = Point::new(25.0, 15.0);
+        p.board.tracks[0].end = Point::new(25.2, 15.0);
+        assert!(
+            !drc(&p).iter().any(|f| f.code == "board_edge"),
+            "copper well inside the arc is clean"
+        );
+        Ok(())
     }
     #[test]
     fn cut_on_the_traced_board_edge_is_not_off_board() {

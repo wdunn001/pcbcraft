@@ -137,6 +137,10 @@ fn a_newcomer_pushes_a_track_aside_with_one_checkbox() -> Result<(), String> {
     let mut app = board(&specs)?;
     app.change_tab(Tab::Settings);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Push other tracks aside", 700.0)?,
+        "Settings should list the push-aside box"
+    );
     authoring::tests::tap(&ctx, &mut app, "Push other tracks aside")?;
     assert!(app.preferences.route_shove, "the box is ticked");
     app.change_tab(Tab::Pcb);

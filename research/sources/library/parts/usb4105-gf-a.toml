@@ -1,0 +1,19 @@
+[part]
+manufacturer = "GCT"
+mpn = "USB4105-GF-A"
+datasheet_path = "research/sources/library/datasheets/gct/usb4105-gf-a.pdf"
+datasheet_url = "https://www.gct.co/files/drawings/usb4105.pdf"
+
+package = "USB-C mid-mount"
+pin_count = 24
+land_pattern_ref = "See mechanical drawing"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[requirement]]
+type = "decoupling"
+text = "Follow manufacturer decoupling and layout guidance in the datasheet."
+page = 1
+confirmed = false

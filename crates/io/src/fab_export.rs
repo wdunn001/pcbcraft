@@ -833,18 +833,6 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     Ok(out)
 }
 
-fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
-    match &p.board.outline {
-        Some(o) => o.iter().map(|pt| (pt.x, pt.y)).collect(),
-        None => vec![
-            (0.0, 0.0),
-            (p.board.width, 0.0),
-            (p.board.width, p.board.height),
-            (0.0, p.board.height),
-        ],
-    }
-}
-
 /// RS-274X fabrication bundle with X2 attributes, split drills, mask and paste.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
@@ -1028,7 +1016,13 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 
     let mut outline = GerberLayer::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
-    outline.stroke(edge_code, &board_edge_points(p), true)?;
+    outline.select(edge_code);
+    let (edge_body, edge_ops) = crate::board_edge::gerber_body(scale, p)?;
+    outline.ops += edge_ops;
+    if outline.ops > MAX_OPS {
+        return Err("gerber export exceeds the object limit".into());
+    }
+    outline.body.push_str(&edge_body);
     for c in &p.board.cutouts {
         outline.ops += 1;
         if outline.ops > MAX_OPS {
@@ -1180,4 +1174,99 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     names.sort();
     files.insert("README-fabrication.txt".into(), fab_readme_text(p, &names)?);
     Ok(files)
+}
+
+#[cfg(test)]
+mod fab_export_tests {
+    use super::*;
+    use pcbcraft_doc::{Hole, Net, Project, Via, ViaCovering};
+
+    #[test]
+    fn tented_via_has_no_mask_opening() -> Result<(), String> {
+        let board = pcbcraft_doc::Project::default().board;
+        let open = Via {
+            id: 1,
+            net: 1,
+            position: Point::new(1.0, 2.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: Some(ViaCovering::Open),
+            covering_bottom: None,
+        };
+        let tented = Via {
+            covering: Some(ViaCovering::Tented),
+            covering_bottom: None,
+            ..open.clone()
+        };
+        assert!(via_mask_opening(&open, &board));
+        assert!(!via_mask_opening(&tented, &board));
+        let no_drill = Via { drill: 0.0, ..open };
+        assert!(!via_mask_opening(&no_drill, &board));
+        Ok(())
+    }
+
+    #[test]
+    fn drill_tool_counts_groups_by_diameter_and_plating() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "N1".into(),
+            ..Default::default()
+        });
+        p.board.vias.push(Via {
+            id: 10,
+            net: 1,
+            position: Point::new(5.0, 5.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+        });
+        p.board.vias.push(Via {
+            id: 11,
+            net: 1,
+            position: Point::new(8.0, 5.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+        });
+        p.board.holes.push(Hole {
+            id: 12,
+            position: Point::new(12.0, 5.0),
+            diameter: 1.0,
+            end: None,
+        });
+        p.validate()?;
+        let counts = drill_tool_counts(&p)?;
+        assert_eq!(counts.get(&(300, 0, true)), Some(&2));
+        assert_eq!(counts.get(&(1000, 0, false)), Some(&1));
+        Ok(())
+    }
+
+    #[test]
+    fn fab_readme_lists_every_file_name_given() -> Result<(), String> {
+        let p = Project {
+            name: "oracle board".into(),
+            ..Default::default()
+        };
+        p.validate()?;
+        let names = vec![
+            "pcb-F.Cu.gbr".into(),
+            "pcb-B.Cu.gbr".into(),
+            "pcb-PTH.drl".into(),
+        ];
+        let text = fab_readme_text(&p, &names)?;
+        for name in &names {
+            assert_eq!(text.matches(name.as_str()).count(), 1, "{name}");
+        }
+        assert!(text.contains("oracle board"));
+        Ok(())
+    }
 }

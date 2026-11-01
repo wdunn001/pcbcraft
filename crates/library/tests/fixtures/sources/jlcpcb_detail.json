@@ -1,0 +1,20 @@
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "componentList": [
+      {
+        "lcscCode": "C25804",
+        "componentModelEn": "RC0603FR-0710KL",
+        "brandNameEn": "YAGEO",
+        "describeEn": "10k Ohm 1% 0603 thick film resistor",
+        "stockNumber": 15000,
+        "componentPriceList": [
+          { "startNumber": 1, "componentPrice": 0.002, "currency": "USD" },
+          { "startNumber": 100, "componentPrice": 0.001, "currency": "USD" }
+        ],
+        "dataSheetUrl": "https://jlcpcb.com/datasheet/example-rc0603.pdf"
+      }
+    ]
+  }
+}

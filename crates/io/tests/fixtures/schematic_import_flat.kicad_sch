@@ -1,0 +1,118 @@
+(kicad_sch (version 20250114) (generator "fixture")
+  (uuid 11111111-1111-1111-1111-111111111101)
+  (paper "A4")
+  (lib_symbols
+    (symbol "Fix:R"
+      (pin_numbers (hide yes))
+      (in_bom yes) (on_board yes)
+      (property "Reference" "R"
+        (at 0 0 0)
+        (effects (font (size 1.27 1.27)))
+      )
+      (property "Value" "R"
+        (at 0 0 0)
+        (effects (font (size 1.27 1.27)))
+      )
+      (property "Footprint" ""
+        (at 0 0 0)
+        (hide yes)
+        (effects (font (size 1.27 1.27)))
+      )
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (hide yes)
+        (effects (font (size 1.27 1.27)))
+      )
+      (symbol "Fix:R_1_1"
+        (pin passive line
+          (at 0 3.81 270)
+          (length 1.27)
+          (name "~" (effects (font (size 1.27 1.27))))
+          (number "1" (effects (font (size 1.27 1.27))))
+        )
+        (pin passive line
+          (at 0 -3.81 90)
+          (length 1.27)
+          (name "~" (effects (font (size 1.27 1.27))))
+          (number "2" (effects (font (size 1.27 1.27))))
+        )
+        (rectangle
+          (start -1.016 -2.54)
+          (end 1.016 2.54)
+          (stroke (width 0.254) (type default))
+          (fill (type none))
+        )
+      )
+      (embedded_fonts no)
+    )
+  )
+  (title_block (title "Flat import fixture"))
+  (symbol
+    (lib_id "Fix:R")
+    (at 100 100 0)
+    (uuid 11111111-1111-1111-1111-111111111111)
+    (property "Reference" "R1"
+      (at 102 100 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "1k"
+      (at 100 102 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "R_0805"
+      (at 100 100 0)
+      (hide yes)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Datasheet" "~"
+      (at 100 100 0)
+      (hide yes)
+      (effects (font (size 1.27 1.27)))
+    )
+  )
+  (symbol
+    (lib_id "Fix:R")
+    (at 160 100 0)
+    (uuid 11111111-1111-1111-1111-111111111112)
+    (property "Reference" "R2"
+      (at 162 100 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "2k"
+      (at 160 102 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "R_0805"
+      (at 160 100 0)
+      (hide yes)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Datasheet" "~"
+      (at 160 100 0)
+      (hide yes)
+      (effects (font (size 1.27 1.27)))
+    )
+  )
+  (wire
+    (pts
+      (xy 100 96.19)
+      (xy 130 96.19)
+      (xy 160 96.19)
+    )
+    (stroke (width 0) (type default))
+    (uuid 11111111-1111-1111-1111-111111111121)
+  )
+  (junction
+    (at 130 96.19)
+    (uuid 11111111-1111-1111-1111-111111111122)
+  )
+  (label "SHARED"
+    (at 130 96.19 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid 11111111-1111-1111-1111-111111111123)
+  )
+  (no_connect
+    (at 160 103.81)
+    (uuid 11111111-1111-1111-1111-111111111124)
+  )
+)

@@ -1,25 +1,50 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod credentials;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
+pub mod drop_in_check;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod element14;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
+pub mod http_client;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
 pub mod listing;
 pub mod listing_adapters;
+pub mod model_transform;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
 pub mod online_import;
 pub mod open_library;
 mod paths;
+pub mod rate_limit;
 mod reader;
 mod sexpr;
+pub mod source_errors;
+pub mod source_hosts;
+pub mod source_log;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
+pub use drop_in_check::{DropInFinding, DropInPart, DropInPin, DropInReport, drop_in_check};
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+pub use model_transform::{
+    model_mirror_y, model_pin1_cycle, model_rotate_z_90, normalize_degrees,
+    refresh_model_raw_source,
+};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
-pub use sexpr::{Error, Limits};
+pub use sexpr::{Error, Limits, Node, parse as parse_sexpr, parse_limits as parse_sexpr_limits};
 pub use symbol_check::check_symbol;
 pub use validation::custom_polygon_error;
 

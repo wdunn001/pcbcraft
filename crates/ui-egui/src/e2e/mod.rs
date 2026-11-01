@@ -40,6 +40,7 @@ mod shell;
 mod showcase;
 mod sourcing;
 mod toolbar;
+mod tours;
 mod tree_rows;
 mod via_covering;
 mod vias;

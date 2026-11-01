@@ -15,6 +15,7 @@
 //! - crates/library/src/cad_cache.rs
 //! - apps/pcbcraft/src/host.rs (same HTTP client, separate agent: no assistant keys travel here)
 
+use pcbcraft_clock::Instant;
 use pcbcraft_library::cad::MAX_FILE_BYTES;
 use pcbcraft_library::cad_cache::CadCache;
 use pcbcraft_library::open_library::{FetchError, Fetcher};
@@ -23,7 +24,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Hosts the open library source reads from.
 pub const OPEN_LIBRARY_HOSTS: &[&str] = &["gitlab.com"];
@@ -129,7 +130,7 @@ impl HttpFetcher {
     fn pace(&self) {
         let wait = match self.last.lock() {
             Ok(mut last) => {
-                let now = Instant::now();
+                let now = pcbcraft_clock::instant_now();
                 let due = last.map(|t| t + self.policy.min_gap).unwrap_or(now);
                 *last = Some(due.max(now));
                 due.saturating_duration_since(now)
@@ -528,7 +529,7 @@ mod tests {
     fn a_silent_host_times_out() -> TestResult {
         let server = serve(vec![Vec::new()])?;
         let (fetcher, _) = local(1024);
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let err = fetcher.get(&url(&server, "/a")).err();
         assert!(matches!(err, Some(FetchError::Failed(_))), "{err:?}");
         assert!(started.elapsed() < Duration::from_secs(3));
@@ -557,7 +558,7 @@ mod tests {
             ..Policy::default()
         };
         let fetcher = HttpFetcher::new(policy, Arc::new(AtomicBool::new(false)));
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         for p in ["/a", "/b", "/c"] {
             got(&fetcher, &url(&server, p))?;
         }

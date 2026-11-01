@@ -1,0 +1,615 @@
+[
+ {
+  "id": "generic_csv",
+  "label": "Generic CSV",
+  "tip": "A plain spreadsheet file with the usual columns. Opens anywhere.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv",
+   "json"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "reference",
+    "header": "Reference"
+   },
+   {
+    "token": "value",
+    "header": "Value"
+   },
+   {
+    "token": "footprint",
+    "header": "Footprint"
+   },
+   {
+    "token": "mpn",
+    "header": "MPN"
+   },
+   {
+    "token": "manufacturer",
+    "header": "Manufacturer"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   }
+  ]
+ },
+ {
+  "id": "generic_mpn",
+  "label": "Generic part list",
+  "tip": "One row per kind of part with manufacturer, part number, supplier and supplier part number. Any site that lets you map columns accepts it.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv",
+   "json"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   },
+   {
+    "token": "reference",
+    "header": "Designators"
+   },
+   {
+    "token": "manufacturer",
+    "header": "Manufacturer"
+   },
+   {
+    "token": "mpn",
+    "header": "MPN"
+   },
+   {
+    "token": "description",
+    "header": "Description"
+   },
+   {
+    "token": "value",
+    "header": "Value"
+   },
+   {
+    "token": "footprint",
+    "header": "Package"
+   },
+   {
+    "token": "supplier",
+    "header": "Supplier"
+   },
+   {
+    "token": "spn",
+    "header": "Supplier Part Number"
+   }
+  ]
+ },
+ {
+  "id": "asm_proto_a",
+  "label": "Prototype assembly, house part numbers",
+  "tip": "Online prototype fab that matches parts by its own part number. One row per kind of part; designators in one cell separated by commas. The part number column carries the house's name on the site; rename the header if the site does not map it. It also takes spreadsheet files; this tool writes CSV and TSV.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ",",
+  "columns": [
+   {
+    "token": "value",
+    "header": "Comment"
+   },
+   {
+    "token": "reference",
+    "header": "Designator"
+   },
+   {
+    "token": "footprint",
+    "header": "Footprint"
+   },
+   {
+    "token": "spn",
+    "header": "Supplier Part #"
+   }
+  ],
+  "requires": [
+   "SPN"
+  ]
+ },
+ {
+  "id": "asm_proto_b",
+  "label": "Prototype assembly, consigned parts",
+  "tip": "Online prototype fab, parts supplied by you. One row per kind of part; the Type column says Surface mount, Thru-hole or Hybrid, worked out from the pads. It also takes spreadsheet files; this tool writes CSV and TSV.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "line",
+    "header": "Line#"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity Per Part Number"
+   },
+   {
+    "token": "reference",
+    "header": "Reference Designator"
+   },
+   {
+    "token": "part_key",
+    "header": "Part Number"
+   },
+   {
+    "token": "description",
+    "header": "Part Description"
+   },
+   {
+    "token": "footprint",
+    "header": "Package"
+   },
+   {
+    "token": "mount",
+    "header": "Type"
+   }
+  ],
+  "requires_any": [
+   "MPN",
+   "SPN"
+  ]
+ },
+ {
+  "id": "asm_proto_b_turnkey",
+  "label": "Prototype assembly, turn-key",
+  "tip": "Online prototype fab that buys the parts. Adds manufacturer, manufacturer part number and distributor part number to the consigned columns. It also takes spreadsheet files; this tool writes CSV and TSV.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "line",
+    "header": "Line#"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity Per Part Number"
+   },
+   {
+    "token": "reference",
+    "header": "Reference Designator"
+   },
+   {
+    "token": "part_key",
+    "header": "Part Number"
+   },
+   {
+    "token": "description",
+    "header": "Part Description"
+   },
+   {
+    "token": "footprint",
+    "header": "Package"
+   },
+   {
+    "token": "mount",
+    "header": "Type"
+   },
+   {
+    "token": "manufacturer",
+    "header": "Manufacturers Name"
+   },
+   {
+    "token": "mpn",
+    "header": "Manufacturers Part Number"
+   },
+   {
+    "token": "spn",
+    "header": "Distributors Part Number"
+   }
+  ],
+  "requires": [
+   "Manufacturer",
+   "MPN"
+  ]
+ },
+ {
+  "id": "asm_proto_c",
+  "label": "Prototype assembly, no header row",
+  "tip": "Online prototype fab that wants no header row: designator, part number, quantity per board. Designators are separated by commas only, with no ranges. Leave out fiducials and test points yourself; this tool does not know which parts they are. It also takes spreadsheet files; this tool writes CSV and TSV.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": false,
+  "group": true,
+  "reference_separator": ",",
+  "columns": [
+   {
+    "token": "reference",
+    "header": "Designator"
+   },
+   {
+    "token": "part_key",
+    "header": "Part Number"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   }
+  ],
+  "requires_any": [
+   "MPN",
+   "SPN"
+  ]
+ },
+ {
+  "id": "asm_eu",
+  "label": "Assembly house, MPN list",
+  "tip": "EU prototype and assembly house. Needs the manufacturer part number, designators, description, value, quantity and package; supplier columns are optional. Header names are not fixed by the house, so these are plain ones. It also takes spreadsheet files; this tool writes CSV and TSV.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "mpn",
+    "header": "MPN"
+   },
+   {
+    "token": "reference",
+    "header": "Reference Designators"
+   },
+   {
+    "token": "description",
+    "header": "Description"
+   },
+   {
+    "token": "value",
+    "header": "Value"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   },
+   {
+    "token": "footprint",
+    "header": "Package"
+   },
+   {
+    "token": "manufacturer",
+    "header": "Manufacturer"
+   },
+   {
+    "token": "supplier",
+    "header": "Supplier"
+   },
+   {
+    "token": "spn",
+    "header": "Supplier Part Number"
+   }
+  ],
+  "requires": [
+   "MPN"
+  ]
+ },
+ {
+  "id": "asm_contract_a",
+  "label": "Contract assembler, CSV",
+  "tip": "Contract assembler that reads a CSV with a column per field. Needs designators and the manufacturer part number. It also accepts dash ranges such as C1-C4; this tool writes the full comma list.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "reference",
+    "header": "Reference Designators"
+   },
+   {
+    "token": "mpn",
+    "header": "Manufacturer Part Number"
+   },
+   {
+    "token": "description",
+    "header": "Description"
+   },
+   {
+    "token": "value",
+    "header": "Value"
+   },
+   {
+    "token": "manufacturer",
+    "header": "Manufacturer"
+   },
+   {
+    "token": "supplier",
+    "header": "Supplier"
+   },
+   {
+    "token": "spn",
+    "header": "Supplier Part Number"
+   }
+  ],
+  "requires": [
+   "MPN"
+  ]
+ },
+ {
+  "id": "dist_us_a",
+  "label": "Large distributor A upload",
+  "tip": "Unverified: no published column list was found. The upload maps columns, so this writes the manufacturer part number or distributor part number, a quantity and the designators as a customer reference.",
+  "verified": false,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "part_key",
+    "header": "Part Number"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   },
+   {
+    "token": "reference",
+    "header": "Customer Reference"
+   }
+  ],
+  "requires_any": [
+   "MPN",
+   "SPN"
+  ]
+ },
+ {
+  "id": "dist_us_b",
+  "label": "Large distributor B upload",
+  "tip": "Distributor upload that maps columns: a part number (its own or the manufacturer's) and a quantity, one part per line. The first row is skipped as a header. Keep to 99 lines and 4 MB unless the distributor raised your limit. It also takes spreadsheet files; this tool writes CSV and TSV.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "part_key",
+    "header": "Part Number"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   }
+  ],
+  "requires_any": [
+   "MPN",
+   "SPN"
+  ],
+  "limits": {
+   "max_rows": 99,
+   "max_bytes": 4194304
+  }
+ },
+ {
+  "id": "dist_us_c",
+  "label": "Large distributor C upload",
+  "tip": "Unverified: no published column list was found. This writes manufacturer part number, description and quantity, which the site is said to match on.",
+  "verified": false,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "part_key",
+    "header": "Part Number"
+   },
+   {
+    "token": "description",
+    "header": "Description"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   }
+  ],
+  "requires_any": [
+   "MPN",
+   "SPN"
+  ]
+ },
+ {
+  "id": "dist_eu_a",
+  "label": "Large distributor D upload",
+  "tip": "Distributor bill tool. Unverified: its template headers were not captured, so the headers here are plain ones. Match values must sit in the first 20 columns. Keep to 1000 lines and 2 MB. It also takes spreadsheet files; this tool writes CSV and TSV.",
+  "verified": false,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "part_key",
+    "header": "Part Number"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   },
+   {
+    "token": "reference",
+    "header": "Reference"
+   }
+  ],
+  "requires_any": [
+   "MPN",
+   "SPN"
+  ],
+  "limits": {
+   "max_rows": 1000,
+   "max_bytes": 2097152
+  }
+ },
+ {
+  "id": "dist_asia_a",
+  "label": "Online part shop upload",
+  "tip": "Part shop bill upload that maps columns: at least two, and quantity is required. Keep to 800 lines and 4 MB. It also takes spreadsheet files; this tool writes CSV and TSV.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "part_key",
+    "header": "Part Number"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   },
+   {
+    "token": "reference",
+    "header": "Designator"
+   }
+  ],
+  "requires_any": [
+   "MPN",
+   "SPN"
+  ],
+  "limits": {
+   "max_rows": 800,
+   "max_bytes": 4194304
+  }
+ },
+ {
+  "id": "tool_search",
+  "label": "Part-search site",
+  "tip": "Part-search bill tool: the manufacturer part number is the key, manufacturer recommended, quantity and designators optional. Keep under 5 MB. Distributor part numbers are not wanted here.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "json"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "mpn",
+    "header": "MPN"
+   },
+   {
+    "token": "manufacturer",
+    "header": "Manufacturer"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   },
+   {
+    "token": "reference",
+    "header": "Designators"
+   }
+  ],
+  "requires": [
+   "MPN"
+  ],
+  "limits": {
+   "max_bytes": 5242880
+  }
+ },
+ {
+  "id": "tool_platform",
+  "label": "Costing platform",
+  "tip": "Bill costing platform. Needs manufacturer, manufacturer part number and quantity or designators; it recognizes many header aliases.",
+  "verified": true,
+  "file_type": "csv",
+  "file_types": [
+   "csv",
+   "tsv"
+  ],
+  "header": true,
+  "group": true,
+  "reference_separator": ", ",
+  "columns": [
+   {
+    "token": "manufacturer",
+    "header": "Manufacturer"
+   },
+   {
+    "token": "mpn",
+    "header": "MPN"
+   },
+   {
+    "token": "quantity",
+    "header": "Quantity"
+   },
+   {
+    "token": "reference",
+    "header": "Designator"
+   }
+  ],
+  "requires": [
+   "Manufacturer",
+   "MPN"
+  ]
+ }
+]

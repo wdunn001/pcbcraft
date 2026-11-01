@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Overrides the recovery folder; tests set it so they never touch the real
 /// one. Guard writes with [`RECOVERY_TEST_LOCK`] like the recents list does.
@@ -76,10 +75,7 @@ pub struct Entry {
 }
 
 fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    pcbcraft_clock::unix_secs()
 }
 
 /// An id names files in the folder, so it stays short and free of separators.
@@ -117,7 +113,8 @@ pub fn orphans(dir: &Path) -> Vec<Entry> {
         })
         .take(1000)
         .collect();
-    found.sort_by_key(|e| std::cmp::Reverse(e.saved_at));
+    // Snapshots saved in the same second order by their id, whose last part counts up.
+    found.sort_by_key(|e| std::cmp::Reverse((e.saved_at, e.id.len(), e.id.clone())));
     found
 }
 

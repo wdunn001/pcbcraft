@@ -22,6 +22,7 @@ mod coverage;
 mod doc_check;
 mod e2e;
 mod i18n;
+mod lint;
 mod showcase;
 mod status_data;
 mod status_schema;
@@ -29,11 +30,12 @@ mod tooltips;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const USAGE: &str = "usage: cargo xtask <command>
 
   ci           policy, fmt, clippy, test, wasm and docs (run before committing)
+  lint         stage 1: conflict markers, workflow files, fmt, policy, layers, docs check, strings check [--json]
   policy       dependency layers and lint configuration
   layers       dependency layers only
   fmt          rustfmt check
@@ -41,6 +43,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   test         workspace tests (cargo-nextest when installed) and doctests
   bench        timed large-board bench (release, ignored tests)
   wasm         WebAssembly check of the shared UI and browser entry point
+  wasm-deps    the portable crates must pass cargo check for wasm32; reports the craft-libs revision
   tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
   docs check   documentation standard: paths, trait implementation lists, AGENTS.md, missing-docs ratchet
@@ -262,7 +265,58 @@ fn wasm() -> Result<(), String> {
     for package in WASM_PACKAGES {
         args.extend(["-p", package]);
     }
-    cargo(&args)
+    cargo(&args)?;
+
+    if !has_program("trunk") {
+        return Err("trunk is not installed: see apps/pcbcraft-web and docs/ci.md".into());
+    }
+    let web = root()?.join("apps/pcbcraft-web");
+    run_env_in(
+        &web,
+        "trunk",
+        &["build", "--release", "--public-url", "./"],
+        &[],
+    )?;
+
+    if !has_program("node") {
+        return Err("node is not installed".into());
+    }
+    if !web.join("node_modules/playwright").is_dir() {
+        run_env_in(&web, "npm", &["ci", "--no-audit", "--no-fund"], &[])?;
+        run_env_in(&web, "npx", &["playwright", "install", "chromium"], &[])?;
+    }
+    run_env_in(&web, "node", &["scripts/smoke-first-frame.mjs"], &[])
+}
+
+/// True when `<name> --version` succeeds.
+fn has_program(name: &str) -> bool {
+    Command::new(name)
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+/// Runs a program in a directory and fails on a non-zero exit.
+fn run_env_in(
+    dir: &Path,
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> Result<(), String> {
+    let mut command = Command::new(program);
+    command.args(args).current_dir(dir);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let ok = command
+        .status()
+        .map_err(|e| format!("{program} {}: {e}", args.join(" ")))?
+        .success();
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("{program} {} failed", args.join(" ")))
+    }
 }
 
 /// Builds rustdoc with warnings denied. The documentation standard check is `doc_check::run`.
@@ -345,7 +399,7 @@ fn layers() -> Result<(), String> {
     let metadata = workspace_metadata()?;
     let layer = |name: &str| -> Option<u8> {
         match name {
-            "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" => Some(0),
+            "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" | "pcbcraft-clock" => Some(0),
             "pcbcraft-doc" | "pcbcraft-library" | "pcbcraft-sim" => Some(1),
             "pcbcraft-rules" | "pcbcraft-io" => Some(2),
             "pcbcraft-engine" => Some(3),
@@ -369,6 +423,10 @@ fn layers() -> Result<(), String> {
             .ok_or("missing dependencies")?
         {
             let dep = str_field(dependency, "name")?;
+            // Test-only dependencies may reach upward; they never ship.
+            if dependency.get("kind").and_then(serde_json::Value::as_str) == Some("dev") {
+                continue;
+            }
             if layer(dep).is_some_and(|target| target > level)
                 || (level < 4
                     && ["egui", "eframe", "wgpu", "winit", "rfd", "craft-ui"].contains(&dep))
@@ -518,7 +576,7 @@ fn screenshots(args: &[String]) -> Result<(), String> {
             .current_dir(&root)
             .spawn()
             .map_err(|e| format!("{}: {e}", bin.display()))?;
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let finished = loop {
             match child.try_wait().map_err(|e| e.to_string())? {
                 Some(status) => break Some(status),
@@ -545,6 +603,103 @@ fn screenshots(args: &[String]) -> Result<(), String> {
     }
 }
 
+/// Portable crates that must build for wasm32 (short names; the package is
+/// `pcbcraft-<name>`).
+const PORTABLE_CRATES: [&str; 15] = [
+    "geom",
+    "doc",
+    "calc",
+    "rules",
+    "sim",
+    "text",
+    "clock",
+    "io",
+    "engine",
+    "mcp",
+    "ui-egui",
+    "library",
+    "plugin",
+    "portal",
+    "publication",
+];
+
+/// Reads the revision of the shared `craft-libs` git dependency from a workspace manifest.
+fn craft_libs_rev(manifest: &str) -> Option<String> {
+    let line = manifest
+        .lines()
+        .find(|l| l.contains("craft-libs") && l.contains("rev"))?;
+    let after = line.split("rev").nth(1)?;
+    let start = after.find('"')? + 1;
+    let len = after.get(start..)?.find('"')?;
+    Some(after.get(start..start + len)?.to_string())
+}
+
+/// The portable crates must keep building for the browser. Also reports the shared
+/// library revision and warns when a sibling checkout pins a different one.
+fn wasm_deps() -> Result<(), String> {
+    let root = root()?;
+    let manifest = std::fs::read_to_string(root.join("Cargo.toml")).map_err(|e| e.to_string())?;
+    match craft_libs_rev(&manifest) {
+        Some(rev) => {
+            println!("craft-libs revision pinned here: {rev}");
+            let sibling = match std::env::var("SOLIDCRAFT_DIR") {
+                Ok(dir) => PathBuf::from(dir),
+                Err(_) => root.join("..").join("solidcraft"),
+            };
+            if let Ok(other) = std::fs::read_to_string(sibling.join("Cargo.toml")) {
+                match craft_libs_rev(&other) {
+                    Some(theirs) if theirs != rev => println!(
+                        "warning: craft-libs revision differs from the sibling checkout ({theirs}); align them"
+                    ),
+                    Some(_) => println!("craft-libs revision matches the sibling checkout"),
+                    None => {}
+                }
+            }
+        }
+        None => println!("warning: no craft-libs revision found in Cargo.toml"),
+    }
+    // A crate that is not in this checkout yet is skipped, so the list can name
+    // crates that land on other branches first.
+    let names: Vec<String> = PORTABLE_CRATES
+        .iter()
+        .filter(|name| root.join("crates").join(name).join("Cargo.toml").is_file())
+        .map(|name| format!("pcbcraft-{name}"))
+        .collect();
+    let mut args = vec!["check", "--locked", "--target", "wasm32-unknown-unknown"];
+    for name in &names {
+        args.extend(["-p", name]);
+    }
+    cargo(&args)
+}
+
+/// Stage 1 of CI: the cheap checks in order, one result per step. `--json` adds the
+/// result array as the last line. Every step runs; the exit code is non-zero if any failed.
+fn lint_stage(args: &[String]) -> Result<(), String> {
+    let root = root()?;
+    let results = vec![
+        lint::timed("conflict-markers", || lint::conflict_markers(&root)),
+        lint::timed("workflows", || lint::workflows(&root)),
+        lint::timed("fmt", fmt),
+        lint::timed("policy", lint_policy),
+        lint::timed("layers", layers),
+        lint::timed("docs-check", || doc_check::run(&[])),
+        lint::timed("strings-check", || strings(Some("check"))),
+    ];
+    if args.iter().any(|a| a == "--json") {
+        println!("{}", lint::to_json(&results));
+    }
+    let failed: Vec<&str> = results
+        .iter()
+        .filter(|r| !r.ok)
+        .map(|r| r.step.as_str())
+        .collect();
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("lint failed: {}", failed.join(", ")))
+    }
+}
+
 /// Dispatches the subcommand named on the command line; `ci` is the default.
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -565,6 +720,8 @@ fn run() -> Result<(), String> {
             lint_policy()?;
         }
         "layers" => layers()?,
+        "lint" => lint_stage(args.get(1..).unwrap_or(&[]))?,
+        "wasm-deps" => wasm_deps()?,
         "fmt" => fmt()?,
         "clippy" => clippy()?,
         "test" => test()?,

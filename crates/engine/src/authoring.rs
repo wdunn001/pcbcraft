@@ -1,3 +1,18 @@
+//! Project-library editing commands: import, pin and pad edits, artwork, metadata,
+//! geometry, and placing library parts on the schematic.
+//!
+//! Context: `commands()` registers MCP ids; `run` dispatches each id to validation and
+//! mutation on `Project::library`. Geometry helpers below `run` are shared by several arms.
+//!
+//! # Rules
+//! - Library names are 1 to 128 bytes; pin and pad numbers are 1 to 32 bytes unless noted.
+//! - After each mutation the touched definition and `Project::library` are validated again.
+//!
+//! # Dependencies
+//! - crates/engine/src/lib.rs
+//! - crates/library/src/lib.rs
+//! - crates/geom/src/lib.rs
+
 use super::*;
 use pcbcraft_library::{
     FootprintDefinition, FootprintPad, Graphic, LandPatternDensity, LandPatternParams,
@@ -20,12 +35,13 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
+        ("library.footprint.set_model_transform","Change the offset, scale or rotation on an existing project-library 3D model without replacing its file path; use preset rotate_90, mirror or pin1_cycle for quick alignment, or give offset, scale and rotate arrays in millimetres and degrees; placed instances keep their embedded copy until footprint.refresh",schema(json!({"name":{"type":"string"},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"preset":{"type":"string","enum":["rotate_90","mirror","pin1_cycle"]}}),&["name"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.renumber_pads","Renumber pads on a project-library footprint with an ordered old-to-new map; embedded copies, their placed pads and matching component pins follow, and a target number already held by an untouched pad is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
         ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
-        ("library.footprint.generate","Build an IPC-style land pattern from a bounded family name and package parameters, then create or replace that footprint in the project library",schema(json!({"family":{"type":"string","enum":["chip_2terminal","sot","soic","qfp","qfn","bga","dip","header_single","header_double","radial","axial"]},"density":{"type":"string","enum":["A","B","C"],"default":"B"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string"},"keywords":{"type":"string"},"pitch":{"type":"number"},"pin_count":{"type":"integer","minimum":1,"maximum":256},"body_x":{"type":"number"},"body_y":{"type":"number"},"body_z":{"type":"number"},"rows":{"type":"integer","minimum":2,"maximum":50},"cols":{"type":"integer","minimum":2,"maximum":50},"row_spacing":{"type":"number"},"terminal_width":{"type":"number"},"thermal":{"type":"boolean"}}),&["family","name"])),
+        ("library.footprint.generate","Build an IPC-style land pattern from a bounded family name and package parameters, then create or replace that footprint in the project library",schema(json!({"family":{"type":"string","enum":["chip_2terminal","sot","soic","tssop","ssop","msop","qfp","qfn","dfn","bga","lga","dip","header_single","header_double","radial","axial","sod","to_single"]},"density":{"type":"string","enum":["A","B","C"],"default":"B"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string"},"keywords":{"type":"string"},"pitch":{"type":"number"},"pin_count":{"type":"integer","minimum":1,"maximum":256},"body_x":{"type":"number"},"body_y":{"type":"number"},"body_z":{"type":"number"},"rows":{"type":"integer","minimum":2,"maximum":50},"cols":{"type":"integer","minimum":2,"maximum":50},"row_spacing":{"type":"number"},"terminal_width":{"type":"number"},"thermal":{"type":"boolean"}}),&["family","name"])),
         ("library.footprint.check","Read-only library-quality check on a project-library footprint by name or on an inline definition; returns structured findings",schema(json!({"name":{"type":"string"},"definition":{"type":"object"}}),&[])),
         ("library.footprint.pad_set","Add or replace one pad on a project-library footprint by its number, so custom packages gain exposed pads, thermal vias or extra terminals without rewriting the whole definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"object","description":"a full pad: number, shape, size, position, layers and optional drill, as library readers emit them"}}),&["name","pad"])),
         ("library.footprint.pad_remove","Remove one pad from a project-library footprint by its number; the footprint keeps at least one pad, and placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"}}),&["name","pad"])),
@@ -222,6 +238,16 @@ struct PadSetParams {
     name: String,
     pad: FootprintPad,
 }
+/// Input for `library.footprint.scale` and `library.symbol.scale`; scales every pad or
+/// pin, artwork, and footprint model anchor together about the origin.
+///
+/// # Rules
+/// - Name must be 1 to 128 bytes; factor must be finite, positive, and at most 1000.
+/// - Scaled coordinates must pass `Point::valid`.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ScaleParams {
@@ -229,6 +255,15 @@ struct ScaleParams {
     factor: f64,
 }
 
+/// Input for `library.footprint.recenter` and `library.symbol.recenter`; slides the whole
+/// definition by one offset in millimetres.
+///
+/// # Rules
+/// - Name must be 1 to 128 bytes; delta must be finite with each axis within 1000 mm.
+/// - Shifted coordinates must pass `Point::valid`.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecenterParams {
@@ -236,6 +271,15 @@ struct RecenterParams {
     delta: Point,
 }
 
+/// Input for `library.symbol.rotate`, `library.symbol.mirror`, `library.footprint.rotate`,
+/// and `library.footprint.mirror`; turns or flips the whole library definition.
+///
+/// # Rules
+/// - Name must be 1 to 128 bytes; rotation needs finite degrees within 100000 and no axis.
+/// - Mirror needs axis `"y"` and must not also send degrees.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GeometryParams {
@@ -246,6 +290,15 @@ struct GeometryParams {
     axis: Option<String>,
 }
 
+/// Input for `library.symbol.set_extends` and `library.symbol.clear_extends`; records or
+/// clears the parent symbol name on a project-library symbol.
+///
+/// # Rules
+/// - Symbol name must be 1 to 128 bytes; set_extends needs a parent name in the library.
+/// - A symbol cannot inherit from itself.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SymbolExtendsParams {
@@ -254,6 +307,14 @@ struct SymbolExtendsParams {
     extends: Option<String>,
 }
 
+/// Input for `library.symbol.rename` and `library.footprint.rename`; changes the library
+/// entry name in place while keeping pins or pads and graphics unchanged.
+///
+/// # Rules
+/// - Current and new names must each be 1 to 128 bytes; the new name must not collide.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RenameParams {
@@ -261,6 +322,15 @@ struct RenameParams {
     new_name: String,
 }
 
+/// Input for `library.symbol.set_properties` and `library.footprint.set_properties`; updates
+/// searchable metadata one field at a time.
+///
+/// # Rules
+/// - Name must be 1 to 128 bytes; at least one property field must be present.
+/// - Text fields are capped at 128 KiB; footprints accept description and keywords only.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetPropertyParams {
@@ -278,12 +348,28 @@ struct SetPropertyParams {
     #[serde(default)]
     set: Option<String>,
 }
+/// Input for `library.footprint.graphic_add`; appends one graphic primitive to a footprint.
+///
+/// # Rules
+/// - Footprint name must be 1 to 128 bytes; the graphic layer must pass `graphic_layer`.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicAddParams {
     name: String,
     graphic: Graphic,
 }
+/// Input for `library.footprint.graphic_set` and `library.symbol.graphic_set`; replaces one
+/// artwork entry by zero-based index.
+///
+/// # Rules
+/// - Name must be 1 to 128 bytes; index must address an existing graphic.
+/// - Replacement graphic layer must pass `graphic_layer`.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicSetParams {
@@ -291,12 +377,30 @@ struct GraphicSetParams {
     index: usize,
     graphic: Graphic,
 }
+/// Input for `library.footprint.graphic_remove` and `library.symbol.graphic_remove`; drops
+/// one artwork entry by zero-based index.
+///
+/// # Rules
+/// - Name must be 1 to 128 bytes; index must address an existing graphic.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicRemoveParams {
     name: String,
     index: usize,
 }
+/// Input for `library.footprint.graphic_move` and `library.symbol.graphic_move`; slides one
+/// graphic by a delta in millimetres.
+///
+/// # Rules
+/// - Name must be 1 to 128 bytes; delta must be finite with each axis within 1000 mm.
+/// - Shifted vertices must pass `Point::valid`.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicMoveParams {
@@ -304,6 +408,15 @@ struct GraphicMoveParams {
     index: usize,
     delta: Point,
 }
+/// Input for `library.footprint.graphic_rotate`, `library.symbol.graphic_rotate`,
+/// `library.footprint.graphic_mirror`, and `library.symbol.graphic_mirror`.
+///
+/// # Rules
+/// - Name must be 1 to 128 bytes; index must address an existing graphic.
+/// - Rotate needs finite degrees within 100000; mirror needs axis `"y"`.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicTurnParams {
@@ -314,6 +427,15 @@ struct GraphicTurnParams {
     #[serde(default)]
     axis: Option<String>,
 }
+/// Input for `library.footprint.graphic_scale` and `library.symbol.graphic_scale`; resizes
+/// one graphic about the origin.
+///
+/// # Rules
+/// - Name must be 1 to 128 bytes; factor must be finite, positive, and at most 1000.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicScaleParams {
@@ -321,6 +443,14 @@ struct GraphicScaleParams {
     index: usize,
     factor: f64,
 }
+/// Input for `library.footprint.graphic_clear`; removes footprint artwork on one layer or all layers.
+///
+/// # Rules
+/// - Footprint name must be 1 to 128 bytes; an optional layer must not be empty.
+/// - Refuses when no graphics would be removed.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicClearParams {
@@ -328,6 +458,14 @@ struct GraphicClearParams {
     #[serde(default)]
     layer: Option<String>,
 }
+/// Input for `library.symbol.graphic_add`; appends one graphic to a symbol unit and body style.
+///
+/// # Rules
+/// - Symbol name must be 1 to 128 bytes; unit and body_style default to 1 when omitted.
+/// - Graphic layer must pass `graphic_layer`.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SymbolGraphicAddParams {
@@ -338,6 +476,14 @@ struct SymbolGraphicAddParams {
     body_style: Option<u32>,
     graphic: Graphic,
 }
+/// Input for `library.symbol.graphic_clear`; removes all graphics on one symbol unit.
+///
+/// # Rules
+/// - Symbol name must be 1 to 128 bytes; unit defaults to 1 when omitted.
+/// - Refuses when the unit has no graphics to remove.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SymbolGraphicClearParams {
@@ -351,12 +497,29 @@ struct PinSetParams {
     name: String,
     pin: SymbolPin,
 }
+/// Input for `library.symbol.pin_remove`; drops one pin by number from a project-library symbol.
+///
+/// # Rules
+/// - Symbol name must be 1 to 128 bytes; pin number must be 1 to 32 bytes.
+/// - The symbol must keep at least one pin after removal.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PinRemoveParams {
     name: String,
     pin: String,
 }
+/// Input for `library.symbol.pin_move`; slides one pin by a delta without changing its metadata.
+///
+/// # Rules
+/// - Symbol and pin number bounds match pin_remove; delta must be finite within 1000 mm per axis.
+/// - Moved position must pass `Point::valid`.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PinMoveParams {
@@ -364,6 +527,14 @@ struct PinMoveParams {
     pin: String,
     delta: Point,
 }
+/// Input for `library.symbol.pin_rotate` and `library.symbol.pin_mirror`; turns or flips one pin.
+///
+/// # Rules
+/// - Symbol and pin number bounds match pin_remove; rotate needs finite degrees within 100000.
+/// - Mirror needs axis `"y"` and must not also send degrees.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PinTurnParams {
@@ -416,6 +587,19 @@ pub(super) struct ModelParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ModelTransformParams {
+    name: String,
+    #[serde(default)]
+    offset: Option<[f64; 3]>,
+    #[serde(default)]
+    scale: Option<[f64; 3]>,
+    #[serde(default)]
+    rotate: Option<[f64; 3]>,
+    #[serde(default)]
+    preset: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RulesParams {
     name: String,
     #[serde(default)]
@@ -425,6 +609,15 @@ struct RulesParams {
     #[serde(default)]
     paste_margin: Option<f64>,
 }
+/// Input for `component.place_custom`; places a project-library symbol on the schematic.
+///
+/// # Rules
+/// - The symbol name must exist in `Project::library`.
+/// - Optional rotation is applied via `turn_placed` after placement.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Place {
@@ -435,6 +628,15 @@ struct Place {
     #[serde(default)]
     rotation: Option<f64>,
 }
+/// Input for `footprint.assign_custom`; binds a project-library footprint to one component.
+///
+/// # Rules
+/// - The footprint name must exist in `Project::library`.
+/// - Pad numbers must match the component pins exactly or the arm refuses.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Assign {
@@ -495,6 +697,67 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
         raw_source,
     })
 }
+
+fn transform_triple_sane(t: &[f64; 3], positive_scale: bool) -> bool {
+    t.iter()
+        .all(|x| x.is_finite() && x.abs() <= 100_000.0 && (!positive_scale || *x != 0.0))
+}
+
+fn apply_model_transform(
+    model: &mut pcbcraft_library::Model3D,
+    a: &ModelTransformParams,
+) -> Result<(), Error> {
+    if a.preset.is_none() && a.offset.is_none() && a.scale.is_none() && a.rotate.is_none() {
+        return Err(Error::Invalid(
+            "set offset, scale, rotate or a preset".into(),
+        ));
+    }
+    if let Some(preset) = &a.preset {
+        if a.offset.is_some() || a.scale.is_some() || a.rotate.is_some() {
+            return Err(Error::Invalid(
+                "preset cannot mix with explicit transforms".into(),
+            ));
+        }
+        match preset.as_str() {
+            "rotate_90" => pcbcraft_library::model_rotate_z_90(model),
+            "mirror" => pcbcraft_library::model_mirror_y(model),
+            "pin1_cycle" => pcbcraft_library::model_pin1_cycle(model),
+            other => return Err(Error::Invalid(format!("unknown preset {other}"))),
+        }
+        return Ok(());
+    }
+    if let Some(offset) = a.offset {
+        if !transform_triple_sane(&offset, false) {
+            return Err(Error::Invalid(
+                "model offsets must be finite and within 100000 mm".into(),
+            ));
+        }
+        model.offset = offset;
+    }
+    if let Some(scale) = a.scale {
+        if !transform_triple_sane(&scale, true) {
+            return Err(Error::Invalid(
+                "model scales must be finite, non-zero and within 100000".into(),
+            ));
+        }
+        model.scale = scale;
+    }
+    if let Some(rotate) = a.rotate {
+        if !transform_triple_sane(&rotate, false) {
+            return Err(Error::Invalid(
+                "model rotations must be finite and within 100000 degrees".into(),
+            ));
+        }
+        model.rotate = [
+            pcbcraft_library::normalize_degrees(rotate[0]),
+            pcbcraft_library::normalize_degrees(rotate[1]),
+            pcbcraft_library::normalize_degrees(rotate[2]),
+        ];
+    }
+    pcbcraft_library::refresh_model_raw_source(model);
+    Ok(())
+}
+
 pub(super) fn run(
     p: &mut Project,
     next: &mut Id,
@@ -572,6 +835,28 @@ pub(super) fn run(
             def.model = Some(model);
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name, "path": def.model.as_ref().map(|m| m.path.clone())}))
+        }
+        "library.footprint.set_model_transform" => {
+            let a: ModelTransformParams = parse(params)?;
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            let model = def
+                .model
+                .as_mut()
+                .ok_or_else(|| Error::Invalid("footprint has no 3D model to transform".into()))?;
+            apply_model_transform(model, &a)?;
+            let applied = json!({
+                "name": a.name,
+                "offset": model.offset,
+                "scale": model.scale,
+                "rotate": model.rotate,
+            });
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(applied)
         }
         "library.footprint.clear_model" => {
             let a: Name = parse(params)?;
@@ -2642,6 +2927,10 @@ fn parked_position(p: &Project) -> Point {
     Point::new(0.0, bottom + 20.0)
 }
 
+/// Upserts one footprint into `Project::library` by name and keeps the footprint list sorted.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 fn import_footprint(p: &mut Project, def: pcbcraft_library::FootprintDefinition) {
     if let Some(existing) = p.library.footprints.iter_mut().find(|f| f.name == def.name) {
         *existing = def;
@@ -2651,6 +2940,10 @@ fn import_footprint(p: &mut Project, def: pcbcraft_library::FootprintDefinition)
     p.library.footprints.sort_by(|a, b| a.name.cmp(&b.name));
 }
 
+/// Upserts one symbol into `Project::library` by name and keeps the symbol list sorted.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 fn import_symbol(p: &mut Project, def: pcbcraft_library::SymbolDefinition) {
     if let Some(existing) = p.library.symbols.iter_mut().find(|s| s.name == def.name) {
         *existing = def;
@@ -2660,6 +2953,13 @@ fn import_symbol(p: &mut Project, def: pcbcraft_library::SymbolDefinition) {
     p.library.symbols.sort_by(|a, b| a.name.cmp(&b.name));
 }
 
+/// Returns the layer name on a library graphic after checking it is 1 to 64 bytes.
+///
+/// # Rules
+/// - Empty or overlong layer strings return `Error::Invalid`.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 fn graphic_layer(graphic: &Graphic) -> Result<String, Error> {
     let layer = match graphic {
         Graphic::Line { layer, .. }
@@ -2675,6 +2975,11 @@ fn graphic_layer(graphic: &Graphic) -> Result<String, Error> {
     Ok(layer.clone())
 }
 
+/// Applies a point transform to every vertex of a graphic primitive.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
+/// - crates/geom/src/lib.rs
 fn shift_graphic(
     g: &mut Graphic,
     shift: &dyn Fn(Point) -> Result<Point, Error>,
@@ -2706,6 +3011,11 @@ fn shift_graphic(
     Ok(())
 }
 
+/// Scales graphic vertices and stroke or text dimensions using caller-supplied closures.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
+/// - crates/geom/src/lib.rs
 fn scale_graphic(
     g: &mut Graphic,
     scale: &dyn Fn(Point) -> Result<Point, Error>,
@@ -2762,6 +3072,13 @@ fn scale_graphic(
     Ok(())
 }
 
+/// Rotates a point about the origin by the given cosine and sine; refuses a result outside the board range.
+///
+/// # Rules
+/// - Returns `Error::Invalid` when the turned point fails `Point::valid`.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
 fn rot(p: Point, cos: f64, sin: f64) -> Result<Point, Error> {
     let out = Point::new(p.x * cos - p.y * sin, p.x * sin + p.y * cos);
     if out.valid() {
@@ -2773,6 +3090,10 @@ fn rot(p: Point, cos: f64, sin: f64) -> Result<Point, Error> {
     }
 }
 
+/// Adds the arcsine of the clamped second argument, in degrees, to a facing angle.
+///
+/// # Rules
+/// - Returns `Error::Invalid` when the sum is not finite.
 fn turn(angle: f64, sin: f64) -> Result<f64, Error> {
     let turned = angle + sin.clamp(-1.0, 1.0).asin().to_degrees();
     if turned.is_finite() {
@@ -2782,10 +3103,15 @@ fn turn(angle: f64, sin: f64) -> Result<f64, Error> {
     }
 }
 
+/// Mirrors a point across the vertical axis by negating x.
 fn flip_x(p: Point) -> Point {
     Point::new(-p.x, p.y)
 }
 
+/// Mirrors a facing angle for vertical flip and normalizes into (-180, 180] degrees.
+///
+/// # Rules
+/// - Returns `Error::Invalid` when the normalized angle is not finite.
 fn flip_angle(angle: f64) -> Result<f64, Error> {
     let mut turned = 180.0 - angle;
     while turned > 180.0 {
@@ -2801,6 +3127,10 @@ fn flip_angle(angle: f64) -> Result<f64, Error> {
     }
 }
 
+/// Rotates every vertex of a graphic about the origin; updates text angle via `turn`.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 fn rotate_graphic(g: &mut Graphic, cos: f64, sin: f64) -> Result<(), Error> {
     match g {
         Graphic::Line { start, end, .. } => {
@@ -2834,6 +3164,10 @@ fn rotate_graphic(g: &mut Graphic, cos: f64, sin: f64) -> Result<(), Error> {
     Ok(())
 }
 
+/// Mirrors a graphic about the vertical axis; reverses polyline order and updates text angle.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 fn mirror_graphic(g: &mut Graphic) -> Result<(), Error> {
     match g {
         Graphic::Line { start, end, .. } => {
@@ -2870,6 +3204,10 @@ fn mirror_graphic(g: &mut Graphic) -> Result<(), Error> {
     Ok(())
 }
 
+/// Rotates every pin and unit graphic on a symbol by degrees about the origin.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 fn rotate_symbol(symbol: &mut SymbolDefinition, degrees: f64) -> Result<(usize, usize), Error> {
     let rad = degrees.to_radians();
     let (cos, sin) = (rad.cos(), rad.sin());
@@ -2885,6 +3223,10 @@ fn rotate_symbol(symbol: &mut SymbolDefinition, degrees: f64) -> Result<(usize, 
     Ok((symbol.pins.len(), count))
 }
 
+/// Mirrors every pin and unit graphic on a symbol about the vertical axis.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 fn mirror_symbol(symbol: &mut SymbolDefinition) -> Result<(usize, usize), Error> {
     for pin in symbol.pins.iter_mut() {
         pin.position = flip_x(pin.position);
@@ -2898,6 +3240,10 @@ fn mirror_symbol(symbol: &mut SymbolDefinition) -> Result<(usize, usize), Error>
     Ok((symbol.pins.len(), count))
 }
 
+/// Rotates every pad, drill offset, and graphic on a footprint by degrees about the origin.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 fn rotate_footprint(
     footprint: &mut FootprintDefinition,
     degrees: f64,
@@ -2919,6 +3265,10 @@ fn rotate_footprint(
     Ok((footprint.pads.len(), count))
 }
 
+/// Mirrors every pad, drill offset, and graphic on a footprint about the vertical axis.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs
 fn mirror_footprint(footprint: &mut FootprintDefinition) -> Result<(usize, usize), Error> {
     for pad in footprint.pads.iter_mut() {
         pad.position = flip_x(pad.position);
