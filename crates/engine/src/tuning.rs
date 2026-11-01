@@ -1,4 +1,33 @@
 //! Impedance estimates, length-match groups and the meander length tuner.
+//!
+//! This module provides commands for estimating trace impedance from the
+//! board stackup, declaring length-match groups for differential pairs and
+//! buses, and inserting serpentine meanders to equalize net lengths or close
+//! skew. It reads the board geometry and stackup but does not route or
+//! repurpose other copper.
+//!
+//! # Rules
+//!
+//! - Impedance uses the Hammerstad and Jensen 1980 microstrip model with
+//!   thickness correction; coupled pairs use the edge-coupled zero-thickness
+//!   model.
+//! - Length-match groups hold two to 256 distinct nets; DRC flags any group
+//!   whose routed lengths differ by more than its tolerance.
+//! - Meander tuning replaces one straight track at a time; it refuses curved
+//!   tracks, differential pair nets, and runs with no clear room.
+//! - All estimates count copper track length only; via barrels and pad
+//!   interiors are not included.
+//!
+//! # Dependencies
+//!
+//! - ../../geom/src/impedance.rs: closed-form impedance and width-solver functions
+//! - ../../geom/src/meander.rs: serpentine shape generation and length accounting
+//!
+//! # Do not
+//!
+//! - Do not route or rewire nets; only insert copper to add length.
+//! - Do not tune a differential pair side alone; use track.tune_skew instead.
+//! - Do not exceed fifteen dielectric heights of bump amplitude.
 use super::*;
 use pcbcraft_geom::impedance as imp;
 use pcbcraft_geom::meander::{self, Corner, Run, Seg};
@@ -10,6 +39,27 @@ const VIA_NOTE: &str =
     "Lengths count copper tracks only; via barrels and pad interiors are not included.";
 
 pub(super) fn commands() -> Vec<CommandSpec> {
+/// Register the tuning commands with the engine command table.
+///
+/// Returns specs for seven commands: net.impedance (estimate single-ended
+/// and differential impedance), impedance.calc (pure calculator),
+/// board.set_length_group and board.remove_length_group (declare and remove
+/// length-match groups), net.length_groups (report group skew),
+/// track.tune_length (insert a serpentine to reach a target length), and
+/// track.tune_skew (close differential pair skew with serpentines).
+///
+/// # Rules
+///
+/// - Each spec carries an input schema that validates parameter ranges.
+/// - Descriptions are written for users, not implementers.
+///
+/// # Dependencies
+///
+/// - ../lib.rs: CommandSpec, schema, id_schema
+///
+/// # Do not
+///
+/// - Do not add or remove command ids without updating the schema tests.
     vec![
         CommandSpec {
             id: "net.impedance",
