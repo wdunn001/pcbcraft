@@ -25,7 +25,7 @@ pub(crate) enum Loudness {
 /// One finding flattened for display.
 #[derive(Clone, Debug)]
 pub(crate) struct Row {
-    /// Where it came from: "erc", "drc" or "lib".
+    /// Where it came from: "erc", "drc", "peripheral" or "lib".
     pub(crate) key: &'static str,
     pub(crate) code: String,
     pub(crate) message: String,
@@ -79,7 +79,7 @@ impl FindingSet {
     /// list.
     pub(crate) fn build(checks: &Value, library: &[library_quality::QualityFinding]) -> Self {
         let mut rows = Vec::new();
-        for key in ["erc", "drc"] {
+        for key in ["erc", "drc", "peripheral"] {
             let Some(list) = checks.get(key).and_then(Value::as_array) else {
                 continue;
             };
