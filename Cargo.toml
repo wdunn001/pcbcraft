@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
+# A patched copy of a third-party crate is built as a dependency only.
+exclude = ["vendor/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -93,3 +95,10 @@ opt-level = 3
 [profile.release]
 lto = "thin"
 strip = true
+
+# ipc2581 0.3.3 pins quick-xml 0.39, which RUSTSEC-2026-0194 and RUSTSEC-2026-0195
+# flag. The crate uses quick-xml in one place (`escape::escape` in types/avl.rs), so
+# this copy of 0.3.3 only raises that requirement to 0.41. Drop it when ipc2581
+# publishes a release that does.
+[patch.crates-io]
+ipc2581 = { path = "vendor/ipc2581" }

@@ -513,6 +513,14 @@ fn parse_missing_docs(stdout: &str) -> BTreeMap<String, u64> {
         {
             continue;
         }
+        // A patched copy of a third-party crate under vendor/ is not ours to document.
+        if value
+            .get("package_id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|id| id.contains("/vendor/"))
+        {
+            continue;
+        }
         let name = value
             .get("package_id")
             .and_then(serde_json::Value::as_str)
