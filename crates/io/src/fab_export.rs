@@ -1147,25 +1147,23 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     files.extend(crate::backdrill::backdrill_files(
         p, scale, origin, inch, tolerance,
     )?);
-    if !plated.is_empty() {
-        files.insert(
-            "pcb-Plated.drl".into(),
-            write_excellon(&plated, "Plated,1,2,PTH", scale, origin, inch, tolerance)?,
-        );
-    }
-    if !unplated.is_empty() {
-        files.insert(
-            "pcb-NPTH.drl".into(),
-            write_excellon(
-                &unplated,
-                "NonPlated,1,2,NPTH",
-                scale,
-                origin,
-                inch,
-                tolerance,
-            )?,
-        );
-    }
+    // Both split drill files are always written, empty ones included, so a
+    // fabricator finds the same set of files for every board.
+    files.insert(
+        "pcb-Plated.drl".into(),
+        write_excellon(&plated, "Plated,1,2,PTH", scale, origin, inch, tolerance)?,
+    );
+    files.insert(
+        "pcb-NPTH.drl".into(),
+        write_excellon(
+            &unplated,
+            "NonPlated,1,2,NPTH",
+            scale,
+            origin,
+            inch,
+            tolerance,
+        )?,
+    );
     // Blind and buried vias drill in their own passes: one file per span.
     let last = p.copper_layer_count().saturating_sub(1);
     let mut spans: BTreeMap<(u8, u8), Vec<DrillHit>> = BTreeMap::new();

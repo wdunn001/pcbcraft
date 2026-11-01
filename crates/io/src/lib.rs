@@ -3900,11 +3900,11 @@ fn gerber_files_core(
                 return Err("gerber export exceeds the object limit".into());
             }
             outline.arcs.push_str(&format!(
-                "X{}Y{}D02*\nI{}J{}G02*\n",
-                coordinate((c.center.x - c.radius) * scale),
-                coordinate(c.center.y * scale),
+                "G75*\nX{x}Y{y}D02*\nX{x}Y{y}I{}J{}G02*\nG01*\n",
                 coordinate(c.radius * scale),
-                0
+                0,
+                x = coordinate((c.center.x - c.radius) * scale),
+                y = coordinate(c.center.y * scale),
             ));
             report.record_written();
         } else {
@@ -10687,7 +10687,7 @@ mod tests {
         );
         assert!(
             front.contains("D10*\nG36*\nX5000000Y5000000D02*\nX45000000Y5000000D01*\n"),
-            "the poured zone must appear as a filled region"
+            "the poured zone must appear as a filled region: {front}"
         );
         assert!(
             front.contains("X30000000Y10000000D03*\n"),
@@ -10717,7 +10717,7 @@ mod tests {
             "the board edge must be traced"
         );
         assert!(
-            outline.contains("X44000000Y20000000D02*\nI2000000J0G02*\n"),
+            outline.contains("X44000000Y20000000D02*\nX44000000Y20000000I2000000J0G02*\n"),
             "the circular cutout must trace a circle"
         );
         let drill = &files["pcb-Drill.drl"];

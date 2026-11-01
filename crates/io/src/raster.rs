@@ -352,8 +352,11 @@ fn fill_polygon_grey(image: &mut GrayImage, points: &[Point], color: u8) {
     for y in top..=bottom {
         let row = f64::from(y) + 0.5;
         let mut crossings: Vec<f64> = vec![];
-        for edge in points.windows(2) {
-            let (a, b) = (edge[0], edge[1]);
+        // A polygon is always closed: the last point joins back to the first,
+        // whether or not the ring repeats its first point.
+        for (index, a) in points.iter().enumerate() {
+            let b = points[(index + 1) % points.len()];
+            let a = *a;
             if (a.y > row) != (b.y > row) {
                 let dx = b.x - a.x;
                 if dx.abs() > 1e-12 || a.y != b.y {
