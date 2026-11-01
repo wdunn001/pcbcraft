@@ -173,7 +173,7 @@ mod tests {
         let mut project = Project::default();
         assert!(!project_has_content(&project));
         project.nets.push(pcbcraft_doc::Net {
-            id: pcbcraft_doc::Id(1),
+            id: 1,
             name: "GND".into(),
             target_length: None,
             length_tolerance: None,
@@ -201,7 +201,7 @@ mod tests {
                     saved_revision: Some(0),
                     shell: DocumentShellState {
                         workbench_tab: WorkbenchTab::Schematic,
-                        selected: Some(Id(1)),
+                        selected: Some(1),
                         selected_unit: 1,
                     },
                 },
@@ -210,7 +210,7 @@ mod tests {
                     saved_revision: Some(0),
                     shell: DocumentShellState {
                         workbench_tab: WorkbenchTab::Pcb,
-                        selected: Some(Id(2)),
+                        selected: Some(2),
                         selected_unit: 2,
                     },
                 },
@@ -220,18 +220,18 @@ mod tests {
         let mut live = slots.documents[0].shell.clone();
         slots.activate_document(1, &mut live).unwrap();
         assert_eq!(live.workbench_tab, WorkbenchTab::Pcb);
-        assert_eq!(live.selected, Some(Id(2)));
+        assert_eq!(live.selected, Some(2));
         assert_eq!(live.selected_unit, 2);
 
         live.workbench_tab = WorkbenchTab::Libraries;
-        live.selected = Some(Id(99));
+        live.selected = Some(99);
         slots.activate_document(0, &mut live).unwrap();
         assert_eq!(live.workbench_tab, WorkbenchTab::Schematic);
-        assert_eq!(live.selected, Some(Id(1)));
+        assert_eq!(live.selected, Some(1));
         assert_eq!(
             slots.documents[1].shell.workbench_tab,
             WorkbenchTab::Libraries
         );
-        assert_eq!(slots.documents[1].shell.selected, Some(Id(99)));
+        assert_eq!(slots.documents[1].shell.selected, Some(99));
     }
 }

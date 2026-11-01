@@ -53,6 +53,8 @@ pub enum GeneratedOutput {
     Bytes(Vec<u8>),
     /// Several text files keyed by relative file name.
     Files(BTreeMap<String, String>),
+    /// Several binary files keyed by relative file name.
+    BinaryFiles(BTreeMap<String, Vec<u8>>),
 }
 
 /// Gives a project saved before artifacts existed one artifact per legacy
@@ -98,6 +100,12 @@ pub fn output_hash(output: &GeneratedOutput) -> String {
             for (name, body) in map {
                 hasher.update(name.as_bytes());
                 hasher.update(body.as_bytes());
+            }
+        }
+        GeneratedOutput::BinaryFiles(map) => {
+            for (name, body) in map {
+                hasher.update(name.as_bytes());
+                hasher.update(body.as_slice());
             }
         }
     }
@@ -297,7 +305,17 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
         "placement" => placement_artifact(p, artifact),
         "drill_map" => Ok(GeneratedOutput::Text(drill_chart_csv(p)?)),
         "fab_drawing" => Ok(GeneratedOutput::Bytes(fab_drawing_pdf(p)?)),
-        "assembly_drawing" => Ok(GeneratedOutput::Bytes(pdf_document(p, "schematic")?)),
+        "assembly_drawing" => {
+            if !artifact.path.ends_with('/') {
+                return Err(
+                    "assembly_drawing path must be a folder ending in /, for example assembly/"
+                        .into(),
+                );
+            }
+            Ok(GeneratedOutput::BinaryFiles(
+                crate::assembly_drawing::assembly_drawing_pdfs(p)?,
+            ))
+        }
         "raster_image" => Ok(GeneratedOutput::Text(svg(
             p,
             settings_view(&artifact.settings),
@@ -399,6 +417,38 @@ pub fn write_generated(
             written.sort();
             Ok(written)
         }
+        GeneratedOutput::BinaryFiles(map) => {
+            let base = if artifact.path.ends_with('/') {
+                directory.join(&artifact.path)
+            } else if artifact.path.is_empty() {
+                directory.to_path_buf()
+            } else {
+                directory.join(&artifact.path)
+            };
+            let mut written = Vec::new();
+            for (name, body) in map {
+                if name.contains("..")
+                    || Path::new(name)
+                        .components()
+                        .any(|c| c == Component::ParentDir)
+                {
+                    return Err("generated file name escapes the output folder".into());
+                }
+                let path = base.join(name);
+                write_parent(&path)?;
+                crate::atomic_write(&path, body)?;
+                let rel = if artifact.path.ends_with('/') {
+                    format!("{}{name}", artifact.path)
+                } else if artifact.path.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", artifact.path, name)
+                };
+                written.push(rel);
+            }
+            written.sort();
+            Ok(written)
+        }
     }
 }
 
@@ -473,6 +523,31 @@ mod generate_tests {
         };
         assert!(map.contains_key("isolation-top.nc"));
         assert!(map["isolation-top.nc"].starts_with("G21\n"));
+        Ok(())
+    }
+
+    #[test]
+    fn generate_assembly_drawing_writes_top_and_bottom_pdfs() -> Result<(), String> {
+        let project = Project::default();
+        let artifact = Artifact {
+            id: 1,
+            name: "assembly".into(),
+            kind: "assembly_drawing".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "assembly/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::BinaryFiles(map) = out else {
+            return Err("expected binary file map".into());
+        };
+        assert_eq!(map.len(), 2);
+        assert!(map["assembly-top.pdf"].starts_with(b"%PDF-1.4"));
+        assert!(map["assembly-bottom.pdf"].starts_with(b"%PDF-1.4"));
         Ok(())
     }
 

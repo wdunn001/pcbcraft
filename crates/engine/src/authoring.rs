@@ -714,6 +714,7 @@ pub(super) fn run(
                 Error::Invalid("footprint has no 3D model to transform".into())
             })?;
             apply_model_transform(model, &a)?;
+            let model = model.clone();
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({
                 "name": a.name,

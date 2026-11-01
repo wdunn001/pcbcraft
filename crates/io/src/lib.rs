@@ -77,7 +77,7 @@ mod registry;
 mod panel_export;
 mod schematic_sim;
 mod si_export;
-mod part_bodies;
+pub mod part_bodies;
 mod part_model;
 mod plot_read;
 mod step_merge;

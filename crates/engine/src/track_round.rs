@@ -67,7 +67,7 @@ fn drc_clearance_keys(p: &Project) -> BTreeSet<(String, Vec<Id>)> {
         .map(|f| {
             let mut objects = f.objects;
             objects.sort_unstable();
-            (f.code, objects)
+            (f.code.to_string(), objects)
         })
         .collect()
 }

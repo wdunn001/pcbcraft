@@ -139,6 +139,8 @@ pub fn set_net_properties(p: &mut Project, params: &Value) -> Result<Value, Erro
         insulation,
         return_path_rule,
     )?;
+    let net_id = net.id;
+    let net = p.nets.iter().find(|n| n.id == net_id).ok_or_else(missing)?;
     Ok(net_properties_json(p, net))
 }
 

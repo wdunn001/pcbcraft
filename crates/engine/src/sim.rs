@@ -208,7 +208,7 @@ fn build_netlist(p: &Project) -> Result<BuiltNetlist, String> {
         }
         let value_text = comp
             .field("sim.value")
-            .or_else(|| comp.value.as_deref())
+            .or_else(|| Some(comp.value.as_str()).filter(|v| !v.is_empty()))
             .ok_or_else(|| format!("{} needs a value for sim.model {upper}", comp.reference))?;
         let value = parse_value(value_text).map_err(|e| {
             format!("{}: {e}", comp.reference)
@@ -319,7 +319,7 @@ fn node_index(
         .find(|q| q.number == pin)
         .ok_or_else(|| format!("{} has no pin {pin}", comp.reference))?;
     let Some(net) = pin.net else {
-        return Err(format!("{} pin {pin} is not on a net", comp.reference));
+        return Err(format!("{} pin {} is not on a net", comp.reference, pin.number));
     };
     if net == ground {
         return Ok(0);
@@ -336,7 +336,7 @@ fn node_index(
                         n.name
                     )
                 })
-                .unwrap_or_else(|| format!("{} pin {pin} is on an unknown net", comp.reference))
+                .unwrap_or_else(|| format!("{} pin {} is on an unknown net", comp.reference, pin.number))
         })
 }
 
