@@ -37,6 +37,7 @@ pub trait DatasheetTableExtractor {
 /// otherwise returns an error directing callers to supply a [`TextDocument`].
 pub struct DefaultDatasheetTableExtractor;
 
+/// Contract: crates/library/src/datasheet_extract/mod.rs
 impl DatasheetTableExtractor for DefaultDatasheetTableExtractor {
     fn extract(&self, pdf_bytes: &[u8]) -> Result<DatasheetExtractBundle, String> {
         #[cfg(feature = "datasheet-sidecar")]
@@ -51,6 +52,7 @@ impl DatasheetTableExtractor for DefaultDatasheetTableExtractor {
     }
 }
 
+/// Contract: crates/library/src/datasheet_extract/mod.rs
 impl DatasheetTableExtractor for TextTableExtractor {
     fn extract(&self, pdf_bytes: &[u8]) -> Result<DatasheetExtractBundle, String> {
         let _ = pdf_bytes;

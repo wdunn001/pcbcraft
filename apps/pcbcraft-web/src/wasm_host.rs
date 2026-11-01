@@ -80,6 +80,7 @@ impl WasmHost {
     }
 }
 
+/// Contract: crates/mcp/src/project_host.rs
 impl ProjectHost for WasmHost {
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)> {
         PENDING_OPEN.with(|slot| slot.borrow_mut().take())

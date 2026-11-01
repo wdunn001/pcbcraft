@@ -14,6 +14,7 @@ const MAX_SIDE_PX: f32 = 16_000.0;
 #[derive(Default)]
 pub struct HayroRenderer;
 
+/// Contract: crates/datasheet/src/traits.rs
 impl PageRenderer for HayroRenderer {
     type Document = HayroDocument;
 
@@ -82,6 +83,7 @@ impl HayroDocument {
     }
 }
 
+/// Contract: crates/datasheet/src/traits.rs
 impl PageDocument for HayroDocument {
     fn page_count(&self) -> u32 {
         self.pdf.pages().len().min(u32::MAX as usize) as u32

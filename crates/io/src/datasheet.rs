@@ -82,6 +82,7 @@ impl Default for HttpDatasheetTransport {
     }
 }
 
+/// Contract: crates/library/src/datasheet.rs
 impl DatasheetTransport for HttpDatasheetTransport {
     fn fetch(
         &self,

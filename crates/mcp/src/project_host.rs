@@ -25,6 +25,7 @@ pub trait ProjectHost {
 /// Desktop default: filesystem and MCP paths stay in the existing menu handlers.
 pub struct NativeHost;
 
+/// Contract: crates/mcp/src/project_host.rs
 impl ProjectHost for NativeHost {
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)> {
         None
@@ -80,6 +81,7 @@ pub fn replace_session_from_open(
     }
 }
 
+/// Contract: crates/mcp/src/project_host.rs
 impl ProjectHost for MemHost {
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)> {
         if self.open_queue.is_empty() {
