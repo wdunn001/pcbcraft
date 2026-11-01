@@ -7918,14 +7918,19 @@ impl App {
         });
     }
     fn board3d_tab(&mut self, ui: &mut egui::Ui) {
-        let env = board3d::Env {
+        let design_dir = std::path::Path::new(&self.path)
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty());
+        let mut env = board3d::Env {
             project: &self.project,
             revision: self.revision,
             selected: self.selected,
             bg: self.surface(),
             muted: self.muted(),
+            design_dir,
+            message: Some(&mut self.message),
         };
-        if let Some(id) = board3d::show(&mut self.view3d, ui, &env) {
+        if let Some(id) = board3d::show(&mut self.view3d, ui, &mut env) {
             self.select(Some(id));
         }
     }
@@ -9720,6 +9725,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 });
                 pads.push(pcbcraft_doc::Pad {
                     number,
@@ -9744,6 +9750,12 @@ mod tests {
                 fields: Vec::new(),
                 sourcing: Default::default(),
                 sheet: 0,
+                compliance: Default::default(),
+                include_in_bom: true,
+                include_in_placement: true,
+                instance: Default::default(),
+                part: None,
+                prototype: Default::default(),
             });
             project.board.footprints.push(pcbcraft_doc::Footprint {
                 id: 2000 + package,
@@ -9753,6 +9765,7 @@ mod tests {
                 locked: None,
                 side: None,
                 pads,
+                preserved: Default::default(),
             });
         }
         for track in 0..400u64 {
@@ -9768,6 +9781,7 @@ mod tests {
                 width: 0.25,
                 layer: pcbcraft_doc::Layer::Front,
                 arc: None,
+                preserved: Default::default(),
             });
         }
         project.validate()?;

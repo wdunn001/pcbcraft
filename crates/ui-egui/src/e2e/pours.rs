@@ -106,7 +106,6 @@ fn pour_app(wall: bool, blocked: bool) -> Result<(App, egui::Context, Id), Strin
                 castellated: None,
                 geometry: Some(pad),
             }],
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         s.replace(p).map_err(|e| e.to_string())?;
     }

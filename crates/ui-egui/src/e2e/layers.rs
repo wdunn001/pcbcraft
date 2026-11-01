@@ -100,7 +100,6 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
         width: 0.25,
         layer: pcbcraft_doc::Layer::Front,
         arc: None,
-        preserved: pcbcraft_doc::PreservedSource::default(),
     });
     let spot = Point::new(15.0, 10.0);
     assert_eq!(app.pick_object(spot, 10.0), Some(9_999));

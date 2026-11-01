@@ -1,7 +1,7 @@
 //! Culls and level-of-detail choices before rasterisation.
 
 use pcbcraft_io::{BoardMesh, MeshPart, PartKind};
-use super::super::{dot, flip, sub, Basis, V, NEAR};
+use super::{Basis, NEAR, V, dot, flip, sub};
 
 /// Screen-space size below which a body draws as its bounding box.
 const LOD_BOX_PX: f64 = 6.0;
@@ -156,8 +156,8 @@ fn projected_size(min: V, max: V, basis: &Basis, focal: f64, cx: f64, cy: f64) -
     let mut max_sx = f64::NEG_INFINITY;
     let mut max_sy = f64::NEG_INFINITY;
     for z in [min[2], max[2]] {
-        for &x in [min[0], max[0]] {
-            for &y in [min[1], max[1]] {
+        for x in [min[0], max[0]] {
+            for y in [min[1], max[1]] {
                 let p = flip([x, y, z]);
                 let rel = sub(p, basis.eye);
                 let depth = dot(rel, basis.fwd);
@@ -207,8 +207,8 @@ fn frustum_skip_bounds(
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
     for z in [min[2], max[2]] {
-        for &x in [min[0], max[0]] {
-            for &y in [min[1], max[1]] {
+        for x in [min[0], max[0]] {
+            for y in [min[1], max[1]] {
                 let p = flip([x, y, z]);
                 let rel = sub(p, basis.eye);
                 let depth = dot(rel, basis.fwd);

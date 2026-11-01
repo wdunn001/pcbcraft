@@ -1443,6 +1443,8 @@ impl App {
                     .min((rect.height() - 24.0) / extent.y as f32)
                     .clamp(0.01, 60.0),
                 mirror: false,
+                turns: Default::default(),
+                up: Default::default(),
             };
             library::paint_library_paths(&painter, rect, camera, &paths, self.accent());
             return true;
@@ -1455,6 +1457,8 @@ impl App {
                 center: Point::new(0.0, 0.0),
                 zoom: (rect.height() / 14.0).clamp(2.0, 12.0),
                 mirror: false,
+                turns: Default::default(),
+                up: Default::default(),
             };
             for view in part.schematic_views() {
                 self.symbol(

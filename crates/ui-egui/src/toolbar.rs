@@ -580,10 +580,16 @@ impl App {
                         Segment {
                             label: &chamfer,
                             tip: &chamfer_tip,
+                            count: Default::default(),
+                            disabled: Default::default(),
+                            icon: Default::default(),
                         },
                         Segment {
                             label: &square,
                             tip: &square_tip,
+                            count: Default::default(),
+                            disabled: Default::default(),
+                            icon: Default::default(),
                         },
                     ],
                 );

@@ -2686,8 +2686,10 @@ mod library_render_tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
-        sourcing: Default::default(),
         compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             preserved: pcbcraft_doc::PreservedSource::default(),
@@ -2705,7 +2707,6 @@ mod library_render_tests {
                 castellated: None,
                 geometry: None,
             }],
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);

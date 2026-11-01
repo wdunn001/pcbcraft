@@ -22,7 +22,6 @@ pub(super) struct EditState {
     /// The Import, Save as and Export dialog (see file_dialogs.rs).
     pub dialog: crate::file_dialogs::DialogState,
 pub filter: SelectionFilter,
-    pub dialog: crate::file_dialogs::DialogState,
     pub box_from: Option<Point>,
     pub box_to: Option<Point>,
     pub box_extend: bool,
