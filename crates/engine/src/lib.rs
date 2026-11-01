@@ -3338,6 +3338,15 @@ fn parse<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, Error> {
     serde_json::from_value(v.clone()).map_err(|e| Error::Invalid(e.to_string()))
 }
 
+/// Split a help query into lowercase tokens for matching.
+///
+/// # Rules
+/// - Whitespace separates tokens.
+/// - Empty tokens are discarded.
+///
+/// # Do not
+/// - Call on strings that will be matched case-sensitively.
+
 fn help_query_tokens(query: &str) -> Vec<String> {
     query
         .split_whitespace()
@@ -3346,10 +3355,27 @@ fn help_query_tokens(query: &str) -> Vec<String> {
         .collect()
 }
 
+/// Check if all query tokens appear in the target string.
+///
+/// # Rules
+/// - Matching is case-insensitive.
+/// - All tokens must be found, not just one.
+
 fn help_all_tokens_in(haystack: &str, toks: &[String]) -> bool {
     let h = haystack.to_ascii_lowercase();
     toks.iter().all(|t| h.contains(t.as_str()))
 }
+
+/// Rank a command spec against a help query.
+///
+/// # Rules
+/// - Exact id match ranks highest (0).
+/// - Prefix match ranks next (2).
+/// - Token match in id ranks next (4).
+/// - Token match in description ranks lowest (5).
+///
+/// # Do not
+/// - Call with an empty query string.
 
 fn help_rank_command(query: &str, spec: &CommandSpec) -> Option<(&'static str, u8)> {
     let q = query.trim();
@@ -3377,6 +3403,14 @@ fn help_rank_command(query: &str, spec: &CommandSpec) -> Option<(&'static str, u
     None
 }
 
+/// Look up a command description by id in the spec list.
+///
+/// # Rules
+/// - Returns an empty string when the id is not found.
+///
+/// # Do not
+/// - Use for error handling; use find() directly if missing matters.
+
 fn help_command_description<'a>(specs: &'a [CommandSpec], id: &str) -> &'a str {
     specs
         .iter()
@@ -3384,6 +3418,16 @@ fn help_command_description<'a>(specs: &'a [CommandSpec], id: &str) -> &'a str {
         .map(|s| s.description)
         .unwrap_or("")
 }
+
+/// Search the glossary and command list, returning ranked JSON hits.
+///
+/// # Rules
+/// - Combines glossary term matches and command id/description matches.
+/// - Results are deduplicated by kind and id.
+/// - Returns at most `limit` hits.
+///
+/// # Dependencies
+/// - crates/calc/src/lib.rs (search_glossary)
 
 fn help_glossary_json(query: &str, limit: usize) -> Value {
     let specs = commands();
@@ -3465,6 +3509,14 @@ fn help_glossary_json(query: &str, limit: usize) -> Value {
     }
     json!({"hits": hits, "count": hits.len()})
 }
+
+/// Retrieve a single glossary term by id and return it as JSON.
+///
+/// # Rules
+/// - Returns an error when the id is not found.
+///
+/// # Dependencies
+/// - crates/calc/src/lib.rs (term_by_id)
 
 fn help_term_json(id: &str) -> Result<Value, Error> {
     let Some(t) = pcbcraft_calc::term_by_id(id) else {
@@ -3752,6 +3804,14 @@ fn render_kind(
     Ok(out)
 }
 
+/// Build a JSON finding object for rule checks.
+///
+/// # Rules
+/// - The hint field is only included when provided.
+///
+/// # Do not
+/// - Call for findings that should be filtered by exclusion rules.
+
 fn check_finding_json(
     code: &str,
     severity: &str,
@@ -3933,6 +3993,15 @@ fn height_findings(p: &Project) -> Vec<Value> {
     out
 }
 
+/// Check if a component has no valid height field.
+///
+/// # Rules
+/// - Returns true when the height field is missing or invalid.
+/// - Valid heights are 0.05 to 100.0 mm.
+///
+/// # Do not
+/// - Use to validate the height value itself.
+
 fn component_uses_default_body_height(p: &Project, component_id: Id) -> bool {
     let Some(component) = p.component(component_id) else {
         return true;
@@ -3947,6 +4016,15 @@ fn component_uses_default_body_height(p: &Project, component_id: Id) -> bool {
         Ok(v) if v.is_finite() && (0.05..=100.0).contains(&v)
     )
 }
+
+/// Import a netlist into the project, validating pin references.
+///
+/// # Rules
+/// - Validates all pin references before making changes.
+/// - Errors if any pin already belongs to a different net.
+///
+/// # Do not
+/// - Call with unvalidated input from external sources.
 
 fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Result<Value, Error> {
     if a.nets.is_empty() || a.nets.len() > 256 {
@@ -4055,6 +4133,15 @@ pub(crate) fn allocate(next: &mut Id) -> Result<Id, Error> {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `component.add`: place a new component on the board.
+///
+/// # Rules
+/// - `kind` must be `component`, `footprint`, or `schematic`.
+/// - Position must be within board bounds.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct Add {
     kind: String,
     position: Point,
@@ -4065,6 +4152,15 @@ struct Add {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `library.place`: place a component from a library file.
+///
+/// # Rules
+/// - `path` must be a valid library file path.
+/// - `symbol` must exist in the library.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct PlaceLibrary {
     path: String,
     symbol: String,
@@ -4136,18 +4232,42 @@ struct LockParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `component.set_in_bom`: include or exclude a component from the bill of materials.
+///
+/// # Rules
+/// - The component id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct ComponentInBomParams {
     id: Id,
     in_bom: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `component.set_in_placement`: include or exclude a component from the placement file.
+///
+/// # Rules
+/// - The component id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct ComponentInPlacementParams {
     id: Id,
     in_placement: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `board.set_clearance`: set the default clearance for the board.
+///
+/// # Rules
+/// - Clearance must be a non-negative value in mm.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct BoardClearanceParams {
     clearance: f64,
 }
@@ -4268,30 +4388,73 @@ fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `component.assign_footprint`: assign a footprint to a component.
+///
+/// # Rules
+/// - The component and footprint ids must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct AssignFootprint {
     id: Id,
     path: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `pattern.assign`: assign a pattern to an object.
+///
+/// # Rules
+/// - The object and pattern ids must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct AssignPatternParams {
     pattern: String,
     path: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `library.refresh_symbol`: refresh a library symbol from its source file.
+///
+/// # Rules
+/// - The symbol id must exist.
+/// - The path must be a valid library file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct RefreshSymbolParams {
     path: String,
     symbol: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `library.refresh_footprint`: refresh a library footprint from its source file.
+///
+/// # Rules
+/// - The footprint id must exist.
+/// - The path must be a valid library file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct RefreshFootprintParams {
     library: Option<String>,
     name: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `table.assign`: assign rows to a table.
+///
+/// # Rules
+/// - The table id must exist.
+/// - All row ids must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct AssignTableParams {
     rows: Vec<AssignTableRow>,
 }
@@ -4304,6 +4467,15 @@ struct AssignTableRow {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `object.assign_file`: attach a file reference to an object.
+///
+/// # Rules
+/// - The object id must exist.
+/// - The path must be a valid file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct AssignFileParams {
     path: String,
 }
@@ -4434,6 +4606,14 @@ fn component_pads(c: &Component) -> Vec<Pad> {
     }
 }
 
+/// Find the rightmost x coordinate of the board outline.
+///
+/// # Rules
+/// - Returns the board width when no outline is set.
+///
+/// # Do not
+/// - Use to check if a point is inside the board.
+
 fn board_outline_max_x(board: &pcbcraft_doc::Board) -> f64 {
     if let Some(outline) = &board.outline {
         outline.iter().map(|p| p.x).fold(0.0_f64, |a, b| a.max(b))
@@ -4441,6 +4621,15 @@ fn board_outline_max_x(board: &pcbcraft_doc::Board) -> f64 {
         board.width
     }
 }
+
+/// Sync board footprints from schematic components, staging new ones.
+///
+/// # Rules
+/// - Removes footprints whose components no longer exist.
+/// - New footprints are placed in a staging area to the right of the board.
+///
+/// # Do not
+/// - Call with unvalidated component data.
 
 fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Error> {
     let live: Vec<Id> = p.components.iter().map(|c| c.id).collect();
@@ -4483,6 +4672,14 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
         json!({"footprints":p.board.footprints.iter().map(|f|json!({"id":f.id,"component":f.component})).collect::<Vec<_>>(),"unassigned_components":skipped}),
     )
 }
+
+/// Check if a command should trigger board synchronization.
+///
+/// # Rules
+/// - Returns true for commands that change component or net connectivity.
+///
+/// # Do not
+/// - Use to determine if a command modifies the board.
 
 fn command_triggers_board_sync(command: &str) -> bool {
     matches!(
@@ -4630,6 +4827,15 @@ fn assign_to(
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `object.move`: move an object to a new position.
+///
+/// # Rules
+/// - The object id must exist.
+/// - Position must be within board bounds.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct Move {
     id: Id,
     position: Point,
@@ -4637,6 +4843,15 @@ struct Move {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `object.rotate`: rotate an object by a given angle.
+///
+/// # Rules
+/// - The object id must exist.
+/// - Degrees must be in the range -360 to 360.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct Rotate {
     id: Id,
     degrees: f64,
@@ -4644,29 +4859,71 @@ struct Rotate {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `component.set_value`: set a component value.
+///
+/// # Rules
+/// - The component id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct ValueParams {
     id: Id,
     value: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `component.set_kind`: set a component kind.
+///
+/// # Rules
+/// - The component id must exist.
+/// - The kind must be a valid component kind.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct SetKindParams {
     id: Id,
     kind: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `net.rename`: rename a net.
+///
+/// # Rules
+/// - The name must be unique among existing nets.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct Name {
     name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `object.set_meta`: set a metadata key-value pair on an object.
+///
+/// # Rules
+/// - The object id must exist.
+/// - Key and value must be non-empty.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct MetaParams {
     key: String,
     value: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `parameter.set`: set a design parameter value.
+///
+/// # Rules
+/// - The parameter name must be a valid identifier.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct ParameterSetParams {
     name: String,
     value: f64,
@@ -4675,6 +4932,14 @@ struct ParameterSetParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `parameter.remove`: remove a design parameter.
+///
+/// # Rules
+/// - The parameter name must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct ParameterRemoveParams {
     name: String,
     #[serde(default)]
@@ -4682,27 +4947,70 @@ struct ParameterRemoveParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `project.set_unit`: set the project unit system.
+///
+/// # Rules
+/// - The unit must be `mm` or `inch`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct ProjectSetUnitParams {
     unit: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `project.set_auto_sync`: enable or disable automatic board sync.
+///
+/// # Rules
+/// - When enabled, board syncs automatically after schematic changes.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct ProjectSetAutoSyncParams {
     auto_sync: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `archive.path`: set the archive file path.
+///
+/// # Rules
+/// - The path must be writable.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct ArchivePathParams {
     path: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `project.import`: import a project from a file.
+///
+/// # Rules
+/// - The path must be a valid file.
+/// - The format must be a supported import format.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct ProjectImportParams {
     path: String,
     format: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `laser.export`: export a laser engraving job file.
+///
+/// # Rules
+/// - The side must be `top` or `bottom`.
+/// - The profile must exist.
+/// - The format must be `json` or `csv`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct LaserJobExportParams {
     side: String,
     profile_id: String,
@@ -4721,19 +5029,40 @@ struct LaserJobExportParams {
     #[serde(default)]
     path: Option<String>,
 }
+/// Default laser job mirror axis: y.
+
 fn laser_job_mirror_default() -> String {
     "y".into()
 }
+/// Default laser job isolation width in mm.
+
 fn laser_job_isolation_default() -> f64 {
     0.05
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `object.get_meta`: get a metadata value by key.
+///
+/// # Rules
+/// - The object id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct MetaKeyParams {
     key: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `project.replace`: search and replace text across the project.
+///
+/// # Rules
+/// - Search and replace must be non-empty.
+/// - Scope must be a valid replacement scope.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct ReplaceParams {
     search: String,
     replace: String,
@@ -4748,12 +5077,30 @@ fn replace_all_scope() -> String {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `net.connect`: connect pins to a net.
+///
+/// # Rules
+/// - The net id must exist.
+/// - All pin references must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct Connect {
     net: Id,
     pins: Vec<PinRef>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `track.set_net`: assign a net to a track or via.
+///
+/// # Rules
+/// - The object id must be a track or via.
+/// - The net id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct CopperNetParams {
     id: Id,
     net: Id,
@@ -4789,12 +5136,29 @@ struct DrawnWireParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `wire.place_tee`: place a T-connection on an existing wire.
+///
+/// # Rules
+/// - The wire id must exist.
+/// - The point must be on the wire.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct WirePlaceTeeParams {
     wire: Id,
     at: Point,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `wire.place`: place a new wire segment.
+///
+/// # Rules
+/// - At least two points must be provided.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+
 struct WirePlaceParams {
     points: Vec<Point>,
     #[serde(default)]
