@@ -87,16 +87,30 @@ fn a_newcomer_opens_files_and_sees_recent_projects() -> Result<(), String> {
 fn a_newcomer_never_sees_the_library_on_the_files_tab() -> Result<(), String> {
     let recents = IsolatedRecents::new()?;
     let (ctx, mut app, _) = files_tab(&recents)?;
-    for words in ["Library", "Layers", "Search parts"] {
+    // The Library is one of the five main tabs, so its name is always on the tab row; what
+    // the Files tab must not have is a Library tab (or Layers) in its left aside.
+    for words in ["Layers", "Search parts"] {
         assert!(
             !paints_text(&ctx, &mut app, words)?,
             "the Files tab does not show {words}"
         );
     }
+    let aside_tabs = |app: &App| -> Vec<&'static str> {
+        app.workspace().left_tabs().iter().map(|t| t.id).collect()
+    };
+    assert_eq!(
+        aside_tabs(&app),
+        ["files"],
+        "the Files left aside lists no Library tab"
+    );
     app.change_tab(Tab::Schematic);
     assert!(
         paints_text(&ctx, &mut app, "Library")?,
         "the drawing tabs still have it"
+    );
+    assert!(
+        aside_tabs(&app).contains(&"library"),
+        "the drawing tabs keep a Library tab in the left aside"
     );
     Ok(())
 }

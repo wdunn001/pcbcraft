@@ -81,7 +81,13 @@ impl Pane {
         let Some(path) = url.strip_prefix("file://") else {
             return false;
         };
-        let path = path.trim_start_matches('/');
+        // `file:///C:/x.pdf` carries a slash before the drive letter; `file:///tmp/x.pdf`
+        // keeps its root slash.
+        let rooted = format!("/{}", path.trim_start_matches('/'));
+        let path = match rooted.as_bytes() {
+            [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => &rooted[1..],
+            _ => rooted.as_str(),
+        };
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
             Err(_) => return false,
@@ -266,7 +272,7 @@ impl Pane {
                 let prev = secondary_button(
                     ui,
                     None,
-                    "◀",
+                    &t!("datasheet.pane.prev_page"),
                     &t!("datasheet.pane.prev_page.tip"),
                     Size::Small,
                     self.page > 0,
@@ -284,7 +290,7 @@ impl Pane {
                 let next = secondary_button(
                     ui,
                     None,
-                    "▶",
+                    &t!("datasheet.pane.next_page"),
                     &t!("datasheet.pane.next_page.tip"),
                     Size::Small,
                     self.page + 1 < pages,
@@ -451,6 +457,7 @@ impl Pane {
 
     #[cfg(test)]
     pub(crate) fn select_all_on_page(&mut self) {
+        self.reload_layer();
         if self.layer.is_empty() {
             return;
         }

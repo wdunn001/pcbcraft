@@ -82,7 +82,7 @@ fn paint_active_runner(
                             ctrl.advance(progress);
                         }
                     });
-                    ui.label(RichText::new(t!("tour.runner.hint")).small().color(muted));
+                    ui.label(crate::fonts::caption(t!("tour.runner.hint")).color(muted));
                 });
         });
 }
@@ -121,11 +121,7 @@ fn paint_first_launch_card(
                     ctrl.dismiss_first_launch_card();
                 }
             });
-            ui.label(
-                RichText::new(t!("tour.card.first_launch.footer"))
-                    .small()
-                    .color(muted),
-            );
+            ui.label(crate::fonts::caption(t!("tour.card.first_launch.footer")).color(muted));
         });
     if !open {
         ctrl.dismiss_first_launch_card();
@@ -171,7 +167,7 @@ fn paint_tab_chip(
                             ctrl.dismiss_chip(&meta.id);
                         }
                     });
-                    ui.label(RichText::new(t!("tour.chip.hint")).small().color(muted));
+                    ui.label(crate::fonts::caption(t!("tour.chip.hint")).color(muted));
                 });
         });
 }

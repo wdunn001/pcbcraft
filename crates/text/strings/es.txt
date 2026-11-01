@@ -234,6 +234,7 @@ tree.explain.pad = The copper spot where a part's pin is soldered.
 tree.explain.pin = One pin of a part and the net it connects to.
 tree.explain.track = A strip of copper that carries a signal between two points.
 tree.explain.zone = A filled copper area, often used for ground or power.
+tree.explain.zones = The filled copper areas on this side, such as ground or power pours.
 tree.explain.wire = A drawn connection between two pins.
 tree.explain.label = A name tag that joins this point to the net with the same name.
 tree.explain.page = One sheet of the schematic. Switch pages to draw a different part of the circuit.

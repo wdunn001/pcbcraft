@@ -321,9 +321,7 @@ impl App {
         let Some(seg) = self.outline_ui.segment else {
             if outline_points(&self.project).is_some() {
                 ui.label(
-                    egui::RichText::new(t!("board.outline.select_hint"))
-                        .small()
-                        .color(self.muted()),
+                    crate::fonts::caption(t!("board.outline.select_hint")).color(self.muted()),
                 );
             }
             return;

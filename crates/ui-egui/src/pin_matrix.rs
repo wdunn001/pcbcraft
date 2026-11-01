@@ -114,129 +114,127 @@ impl App {
     /// - Compute findings here; `crates/rules/src/lib.rs` owns that.
     pub(crate) fn pin_matrix_section(&mut self, ui: &mut egui::Ui) {
         ui.add_space(12.0);
-        let header = egui::CollapsingHeader::new(
-            egui::RichText::new(t!("checks.pin_matrix.title"))
-                .size(18.0)
-                .strong(),
-        )
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(t!("checks.pin_matrix.blurb"))
-                    .small()
-                    .color(self.muted()),
-            );
-            ui.add_space(8.0);
-            let changed = !self.project.pin_matrix.is_empty();
-            ui.add_enabled_ui(changed, |ui| {
-                if ui
-                    .tap_button(t!("checks.pin_matrix.reset"))
-                    .on_hover_text(t!("checks.pin_matrix.reset.tip"))
-                    .clicked()
-                {
-                    self.run("erc.matrix_reset", json!({}));
-                }
-            });
-            ui.add_space(8.0);
-            let mut chosen: Option<(String, String, String)> = None;
-            egui::ScrollArea::horizontal()
-                .id_salt("pin-matrix-scroll")
+        let header =
+            egui::CollapsingHeader::new(crate::fonts::title(t!("checks.pin_matrix.title")))
+                .default_open(true)
                 .show(ui, |ui| {
-                    egui::Grid::new("pin-matrix-grid")
-                        .spacing(egui::vec2(4.0, 4.0))
+                    ui.label(
+                        crate::fonts::caption(t!("checks.pin_matrix.blurb")).color(self.muted()),
+                    );
+                    ui.add_space(8.0);
+                    let changed = !self.project.pin_matrix.is_empty();
+                    ui.add_enabled_ui(changed, |ui| {
+                        if ui
+                            .tap_button(t!("checks.pin_matrix.reset"))
+                            .on_hover_text(t!("checks.pin_matrix.reset.tip"))
+                            .clicked()
+                        {
+                            self.run("erc.matrix_reset", json!({}));
+                        }
+                    });
+                    ui.add_space(8.0);
+                    let mut chosen: Option<(String, String, String)> = None;
+                    egui::ScrollArea::horizontal()
+                        .id_salt("pin-matrix-scroll")
                         .show(ui, |ui| {
-                            ui.label("");
-                            for column in PIN_ELECTRICAL_TYPES {
-                                let (_, short, tip) = type_words(column);
-                                ui.label(egui::RichText::new(short).small())
-                                    .on_hover_text(tip);
-                            }
-                            ui.end_row();
-                            for (row_index, row) in PIN_ELECTRICAL_TYPES.iter().enumerate() {
-                                let (name, _, tip) = type_words(row);
-                                ui.label(name).on_hover_text(tip);
-                                for (column_index, column) in
-                                    PIN_ELECTRICAL_TYPES.iter().enumerate()
-                                {
-                                    if column_index > row_index {
-                                        ui.label("");
-                                        continue;
+                            egui::Grid::new("pin-matrix-grid")
+                                .spacing(egui::vec2(4.0, 4.0))
+                                .show(ui, |ui| {
+                                    ui.label("");
+                                    for column in PIN_ELECTRICAL_TYPES {
+                                        let (_, short, tip) = type_words(column);
+                                        ui.label(crate::fonts::caption(short)).on_hover_text(tip);
                                     }
-                                    let level = self.project.pin_matrix_level(row, column);
-                                    let custom = level != default_pin_matrix_level(row, column);
-                                    let (row_name, _, _) = type_words(row);
-                                    let (column_name, _, _) = type_words(column);
-                                    let word = level_word(&level);
-                                    let face = if custom {
-                                        format!("{word} *")
-                                    } else {
-                                        word.clone()
-                                    };
-                                    let tint = match level.as_str() {
-                                        "error" => egui::Color32::from_rgb(150, 50, 50),
-                                        "warning" => egui::Color32::from_rgb(150, 110, 30),
-                                        _ => egui::Color32::from_rgb(40, 100, 60),
-                                    };
-                                    let response = ui
-                                        .add(
-                                            egui::Button::new(
-                                                egui::RichText::new(face)
-                                                    .small()
-                                                    .color(egui::Color32::WHITE),
-                                            )
-                                            .fill(tint)
-                                            .min_size(egui::vec2(60.0, 24.0)),
-                                        )
-                                        .on_hover_text(if custom {
-                                            t!(
-                                                "checks.pin_matrix.cell.changed.tip",
-                                                a = row_name,
-                                                b = column_name,
-                                                level = word.clone(),
-                                                default = level_word(default_pin_matrix_level(
-                                                    row, column
-                                                ))
-                                            )
-                                        } else {
-                                            t!(
-                                                "checks.pin_matrix.cell.tip",
-                                                a = row_name,
-                                                b = column_name,
-                                                level = word.clone()
-                                            )
-                                        });
-                                    a11y::name_control(
-                                        &response,
-                                        &t!(
-                                            "checks.pin_matrix.cell.name",
-                                            a = row_name,
-                                            b = column_name,
-                                            level = word
-                                        ),
-                                        None,
-                                    );
-                                    ui.ctx().data_mut(|d| {
-                                        d.insert_temp(cell_memory_id(row, column), response.rect);
-                                    });
-                                    if response.clicked() {
-                                        chosen = Some((
-                                            (*row).to_owned(),
-                                            (*column).to_owned(),
-                                            next_level(&level).to_owned(),
-                                        ));
+                                    ui.end_row();
+                                    for (row_index, row) in PIN_ELECTRICAL_TYPES.iter().enumerate()
+                                    {
+                                        let (name, _, tip) = type_words(row);
+                                        ui.label(name).on_hover_text(tip);
+                                        for (column_index, column) in
+                                            PIN_ELECTRICAL_TYPES.iter().enumerate()
+                                        {
+                                            if column_index > row_index {
+                                                ui.label("");
+                                                continue;
+                                            }
+                                            let level = self.project.pin_matrix_level(row, column);
+                                            let custom =
+                                                level != default_pin_matrix_level(row, column);
+                                            let (row_name, _, _) = type_words(row);
+                                            let (column_name, _, _) = type_words(column);
+                                            let word = level_word(&level);
+                                            let face = if custom {
+                                                format!("{word} *")
+                                            } else {
+                                                word.clone()
+                                            };
+                                            let tint = match level.as_str() {
+                                                "error" => egui::Color32::from_rgb(150, 50, 50),
+                                                "warning" => egui::Color32::from_rgb(150, 110, 30),
+                                                _ => egui::Color32::from_rgb(40, 100, 60),
+                                            };
+                                            let response = ui
+                                                .add(
+                                                    egui::Button::new(
+                                                        crate::fonts::caption(face)
+                                                            .color(egui::Color32::WHITE),
+                                                    )
+                                                    .fill(tint)
+                                                    .min_size(egui::vec2(60.0, 24.0)),
+                                                )
+                                                .on_hover_text(if custom {
+                                                    t!(
+                                                        "checks.pin_matrix.cell.changed.tip",
+                                                        a = row_name,
+                                                        b = column_name,
+                                                        level = word.clone(),
+                                                        default = level_word(
+                                                            default_pin_matrix_level(row, column)
+                                                        )
+                                                    )
+                                                } else {
+                                                    t!(
+                                                        "checks.pin_matrix.cell.tip",
+                                                        a = row_name,
+                                                        b = column_name,
+                                                        level = word.clone()
+                                                    )
+                                                });
+                                            a11y::name_control(
+                                                &response,
+                                                &t!(
+                                                    "checks.pin_matrix.cell.name",
+                                                    a = row_name,
+                                                    b = column_name,
+                                                    level = word
+                                                ),
+                                                None,
+                                            );
+                                            ui.ctx().data_mut(|d| {
+                                                d.insert_temp(
+                                                    cell_memory_id(row, column),
+                                                    response.rect,
+                                                );
+                                            });
+                                            if response.clicked() {
+                                                chosen = Some((
+                                                    (*row).to_owned(),
+                                                    (*column).to_owned(),
+                                                    next_level(&level).to_owned(),
+                                                ));
+                                            }
+                                        }
+                                        ui.end_row();
                                     }
-                                }
-                                ui.end_row();
-                            }
+                                });
                         });
+                    if let Some((type_a, type_b, level)) = chosen {
+                        self.run(
+                            "erc.matrix_set",
+                            json!({"type_a": type_a, "type_b": type_b, "level": level}),
+                        );
+                    }
                 });
-            if let Some((type_a, type_b, level)) = chosen {
-                self.run(
-                    "erc.matrix_set",
-                    json!({"type_a": type_a, "type_b": type_b, "level": level}),
-                );
-            }
-        });
         header
             .header_response
             .on_hover_text(t!("checks.pin_matrix.title.tip"));

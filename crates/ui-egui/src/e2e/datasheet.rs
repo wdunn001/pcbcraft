@@ -110,22 +110,32 @@ fn a_newcomer_opens_a_local_datasheet_from_properties() -> Result<(), String> {
     );
     let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let at = centre_of(&out, "View datasheet", f32::MAX).ok_or("view datasheet button")?;
-    let out = frame(
+    // Rest the pointer on the button, press, and let go: a click needs the release.
+    frame(
         &ctx,
         &mut app,
-        vec![egui::Event::PointerButton {
-            pos: at,
-            button: egui::PointerButton::Primary,
-            pressed: true,
-            modifiers: egui::Modifiers::NONE,
-        }],
+        vec![egui::Event::PointerMoved(at)],
         egui::Modifiers::NONE,
     );
-    let opened_browser = out
-        .platform_output
-        .commands
-        .iter()
-        .any(|c| matches!(c, egui::OutputCommand::OpenUrl(_)));
+    let mut opened_browser = false;
+    for pressed in [true, false] {
+        let out = frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            egui::Modifiers::NONE,
+        );
+        opened_browser |= out
+            .platform_output
+            .commands
+            .iter()
+            .any(|c| matches!(c, egui::OutputCommand::OpenUrl(_)));
+    }
     assert!(
         !opened_browser,
         "a local file should open in the app, not the browser"

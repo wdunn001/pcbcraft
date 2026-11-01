@@ -158,7 +158,7 @@ fn a_newcomer_picks_each_row_of_the_layout_tree() -> Result<(), String> {
         &ctx,
         &mut app,
         &[
-            "button:Layer # \u{b7} Bottom",
+            "button:Layer # \u{b7} Bottom, shown, unlocked",
             "button:Solder mask, shown, unlocked",
             "button:Paste, shown, unlocked",
             "button:Edge, # x # mm",
@@ -182,19 +182,19 @@ fn a_newcomer_hides_and_locks_each_layout_layer_from_its_row() -> Result<(), Str
         &ctx,
         &mut app,
         &[
-            ("button:Hide Copper", "button:Show Copper"),
-            ("button:Hide Silkscreen", "button:Show Silkscreen"),
+            ("button:Hide Tracks", "button:Show Tracks"),
+            ("button:Hide Package artwork", "button:Show Package artwork"),
             // The drawing paints no solder mask or paste yet: the eye is inert.
             ("button:Hide Solder mask", "button:Hide Solder mask"),
             ("button:Hide Paste", "button:Hide Paste"),
-            ("button:Hide Components", "button:Show Components"),
+            ("button:Hide Pads", "button:Show Pads"),
             ("button:Hide Drills and vias", "button:Show Drills and vias"),
             ("button:Hide Board edge", "button:Show Board edge"),
-            ("button:Lock Copper", "button:Unlock Copper"),
+            ("button:Lock Tracks", "button:Unlock Tracks"),
             ("button:Lock Silkscreen", "button:Unlock Silkscreen"),
             ("button:Lock Solder mask", "button:Unlock Solder mask"),
             ("button:Lock Paste", "button:Unlock Paste"),
-            ("button:Lock Components", "button:Unlock Components"),
+            ("button:Lock Pads", "button:Unlock Pads"),
             ("button:Lock Board edge", "button:Unlock Board edge"),
         ],
     )?;
@@ -204,7 +204,8 @@ fn a_newcomer_hides_and_locks_each_layout_layer_from_its_row() -> Result<(), Str
 #[test]
 fn a_newcomer_opens_and_closes_the_branches_of_the_layout_tree() -> Result<(), String> {
     let (ctx, mut app) = practice(Tab::Pcb);
-    for branch in ["Copper", "Silkscreen", "Components"] {
+    // The top layer opens with its Tracks branch showing; the others start closed.
+    for branch in ["Silkscreen", "Pads"] {
         flips_to(
             &ctx,
             &mut app,
@@ -213,7 +214,7 @@ fn a_newcomer_opens_and_closes_the_branches_of_the_layout_tree() -> Result<(), S
         )?;
     }
     for branch in [
-        "Copper",
+        "Tracks",
         "Board edge",
         "Layer # \u{b7} Top",
         "Layer # \u{b7} Bottom",

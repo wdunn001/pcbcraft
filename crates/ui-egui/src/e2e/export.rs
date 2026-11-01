@@ -45,6 +45,11 @@ fn right_click_first_part(ctx: &egui::Context, app: &mut App) -> Result<Id, Stri
     Ok(fp)
 }
 
+/// Scroll the format list of the open dialog until `label` shows.
+fn in_format_list(ctx: &egui::Context, app: &mut App, label: &str) -> Result<bool, String> {
+    scrolled_to_at(ctx, app, label, 450.0)
+}
+
 fn file_export(ctx: &egui::Context, app: &mut App, entry: &str) -> Result<(), String> {
     authoring::tests::tap(ctx, app, "File")?;
     authoring::tests::tap(ctx, app, "Export")?;
@@ -182,19 +187,20 @@ fn a_newcomer_finds_every_export_format_in_export_as() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());
     file_export(&ctx, &mut app, "More…")?;
-    for (group, _) in formats::grouped(Direction::Export, Scope::Output) {
+    // The list scrolls inside the dialog, so a newcomer reads it top to bottom.
+    for (group, list) in formats::grouped(Direction::Export, Scope::Output) {
         assert!(
-            paints_text(&ctx, &mut app, group.label())?,
+            in_format_list(&ctx, &mut app, group.label())?,
             "heading {}",
             group.label()
         );
-    }
-    for f in formats::listed(Direction::Export, Scope::Output) {
-        assert!(
-            paints_text(&ctx, &mut app, f.label)?,
-            "{} is listed",
-            f.label
-        );
+        for f in list {
+            assert!(
+                in_format_list(&ctx, &mut app, f.label)?,
+                "{} is listed",
+                f.label
+            );
+        }
     }
     for project_format in formats::listed(Direction::Export, Scope::Project) {
         assert!(
@@ -204,8 +210,8 @@ fn a_newcomer_finds_every_export_format_in_export_as() -> Result<(), String> {
         );
     }
     assert!(
-        paints_text(&ctx, &mut app, "Packages")?
-            && paints_text(&ctx, &mut app, "Prototype fab (Gerber + drill)")?
+        in_format_list(&ctx, &mut app, "Packages")?
+            && in_format_list(&ctx, &mut app, "Prototype fab (Gerber + drill)")?
             && !paints_text(&ctx, &mut app, "No packages yet.")?,
         "the Packages group lists the bundled packages"
     );
@@ -410,10 +416,7 @@ fn a_newcomer_exports_a_fab_package_from_export() -> Result<(), String> {
     let (ctx, mut app) = board(dir.path());
     file_export(&ctx, &mut app, "More…")?;
     // The window sizes itself over a few frames; the Packages group is the last in the list.
-    let mut listed = false;
-    for _ in 0..12 {
-        listed = listed || paints_text(&ctx, &mut app, "Prototype fab (Gerber + drill)")?;
-    }
+    let listed = in_format_list(&ctx, &mut app, "Prototype fab (Gerber + drill)")?;
     assert!(listed, "the fab package is listed under Packages");
     authoring::tests::tap(&ctx, &mut app, "Prototype fab (Gerber + drill)")?;
     for _ in 0..4 {

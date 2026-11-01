@@ -150,7 +150,9 @@ fn widths(
     total: f32,
 ) -> Vec<f32> {
     if icons_only {
-        return vec![ICON_ONLY_WIDTH; items.len()];
+        // A full-width track shares its length between the icons; a compact one hugs them.
+        let share = (total - 2.0 * TRACK_PADDING) / items.len() as f32;
+        return vec![share.max(ICON_ONLY_WIDTH); items.len()];
     }
     let mut w: Vec<f32> = items
         .iter()
