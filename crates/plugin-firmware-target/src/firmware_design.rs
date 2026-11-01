@@ -70,7 +70,7 @@ pub struct FirmwareContext {
     pub mcu_component: Component,
 }
 
-pub fn embedded_file<'a>(project: &Project, name: &str) -> Option<&'a EmbeddedFile> {
+pub fn embedded_file<'a>(project: &'a Project, name: &str) -> Option<&'a EmbeddedFile> {
     project.files.iter().find(|f| f.name == name)
 }
 
@@ -160,6 +160,13 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         let ctx = load_firmware_context(&project)?;
         assert_eq!(ctx.design.board.name, "TESTFC");

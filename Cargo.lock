@@ -3523,12 +3523,15 @@ dependencies = [
 name = "pcbcraft-web"
 version = "0.1.0"
 dependencies = [
+ "eframe",
  "js-sys",
+ "pcbcraft-doc",
  "pcbcraft-engine",
  "pcbcraft-library",
  "pcbcraft-mcp",
  "pcbcraft-text",
  "pcbcraft-ui-egui",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

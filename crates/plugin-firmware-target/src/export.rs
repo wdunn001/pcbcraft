@@ -188,6 +188,13 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         project
     }
