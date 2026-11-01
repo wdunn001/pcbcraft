@@ -452,6 +452,7 @@ fn clean(s: &str) -> String {
 ///
 /// # Do not
 /// - Format a number here; the caller rounds for its own file.
+#[allow(dead_code)]
 pub fn placed_rows(
     p: &Project,
     flavour: &PlacementFlavour,

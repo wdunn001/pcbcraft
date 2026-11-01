@@ -1034,7 +1034,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 
     let hits = collect_drill_hits(p)?;
     let origin = p.board.drill_origin;
-    let tolerance = drill_tolerance(p);
+    let _tolerance = drill_tolerance(p);
     let plated: Vec<DrillHit> = hits
         .iter()
         .copied()

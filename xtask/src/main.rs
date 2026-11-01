@@ -339,9 +339,9 @@ fn wasm() -> Result<(), String> {
     let conf = root()?.join("clippy-wasm");
     let mut clippy_args = vec!["clippy", "--locked", "--target", "wasm32-unknown-unknown"];
     for package in WASM_PACKAGES {
-        clippy_args.extend(["-p", package, "--lib"]);
+        clippy_args.extend(["-p", package]);
     }
-    clippy_args.extend(["--", "-D", "warnings"]);
+    clippy_args.extend(["--lib", "--", "-D", "warnings"]);
     run_env(
         "cargo",
         &clippy_args,

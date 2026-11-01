@@ -24,7 +24,8 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 /// Metadata key PCBCraft writes in exported SolidCraft files.
-pub const PCBCraft_METADATA_KEY: &str = "org.pcbcraft";
+#[allow(dead_code)]
+pub const PCBCRAFT_METADATA_KEY: &str = "org.pcbcraft";
 const DISPLAY_PREVIEW_JSON: &str = "cache/preview.json";
 const DISPLAY_PREVIEW_BIN: &str = "cache/preview.bin";
 
@@ -38,6 +39,7 @@ pub fn load_solidcraft_model(
 }
 
 /// Cache token from file bytes and an optional in-file part name.
+#[allow(dead_code)]
 pub fn solidcraft_cache_token(bytes: &[u8], cad_part: Option<&str>) -> String {
     let hash = content_sha256_hex(bytes);
     match cad_part.filter(|p| !p.is_empty()) {
@@ -47,16 +49,18 @@ pub fn solidcraft_cache_token(bytes: &[u8], cad_part: Option<&str>) -> String {
 }
 
 /// True when metadata marks a PCBCraft footprint-body export (pad-plane frame).
+#[allow(dead_code)]
 pub fn solidcraft_is_footprint_export(design: &SolidcraftDesign) -> bool {
     design
         .metadata
-        .get(PCBCraft_METADATA_KEY)
+        .get(PCBCRAFT_METADATA_KEY)
         .and_then(Value::as_object)
         .and_then(|m| m.get("frame"))
         .and_then(Value::as_str)
         .is_some_and(|f| f == "footprint_pad_plane")
 }
 
+#[allow(dead_code)]
 pub fn content_sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }

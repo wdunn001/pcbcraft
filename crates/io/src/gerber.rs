@@ -349,8 +349,8 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
         if !p.via_span_layers(v).contains(&layer) {
             continue;
         }
-        if p.remove_unused_inner_pads_enabled() && !p.copper_layer_is_end(layer) {
-            if !plated_item_connected_on_layer(
+        if p.remove_unused_inner_pads_enabled() && !p.copper_layer_is_end(layer)
+            && !plated_item_connected_on_layer(
                 p,
                 v.net,
                 v.position,
@@ -360,7 +360,6 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             ) {
                 continue;
             }
-        }
         let code = define(Aperture::Standard(format!("C,{}", decimal(v.diameter))));
         select(&mut body, code);
         let at = to_gerber(v.position);

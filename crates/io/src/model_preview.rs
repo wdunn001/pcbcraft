@@ -100,7 +100,7 @@ pub fn preview_loaded_model(model: &LoadedModel, opts: &ModelPreviewOptions) -> 
         if dot3(n, view) >= 0.0 {
             continue;
         }
-        let shade = (dot3(n, light).max(0.15).min(1.0) * 255.0) as u8;
+        let shade = (dot3(n, light).clamp(0.15, 1.0) * 255.0) as u8;
         let color = [
             (base[0] * shade as f32) as u8,
             (base[1] * shade as f32) as u8,
@@ -142,6 +142,7 @@ pub fn preview_loaded_model(model: &LoadedModel, opts: &ModelPreviewOptions) -> 
     image
 }
 
+#[allow(clippy::too_many_arguments)]
 fn project(
     p: [f64; 3],
     center: [f64; 3],

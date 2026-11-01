@@ -174,6 +174,7 @@ fn extension(path: &str) -> String {
         .to_ascii_lowercase()
 }
 
+#[allow(dead_code)]
 fn default_import_cache() -> &'static crate::ImportCache {
     static CACHE: OnceLock<crate::ImportCache> = OnceLock::new();
     CACHE.get_or_init(crate::ImportCache::default)
@@ -213,6 +214,7 @@ pub fn load_model_with_part(
 }
 
 /// Cache key for SolidCraft models from file content, not modification time.
+#[allow(dead_code)]
 pub fn model_cache_key_solidcraft(
     path: &str,
     bytes: &[u8],

@@ -23,6 +23,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
         ("library.footprint.set_model_transform","Change the offset, scale or rotation on an existing project-library 3D model without replacing its file path; use preset rotate_90, mirror or pin1_cycle for quick alignment, or give offset, scale and rotate arrays in millimetres and degrees; placed instances keep their embedded copy until footprint.refresh",schema(json!({"name":{"type":"string"},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"preset":{"type":"string","enum":["rotate_90","mirror","pin1_cycle"]}}),&["name"])),
+        ("library.footprint.embed_model","Store the converted compact model on a project-library footprint so the project renders without the original file; reads from the footprint path or an override on the desktop",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024}}),&["name"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.export_companion_cad","Write a footprint package body as a companion CAD project with a STEP sidecar in a folder on disk, then attach the project as the footprint 3D model",schema(json!({"name":{"type":"string"},"directory":{"type":"string","maxLength":1024},"base_name":{"type":"string","maxLength":128},"height_mm":{"type":"number","minimum":0.05,"maximum":100}}),&["name","directory","base_name"])),
         ("library.footprint.link_companion_cad","Attach a companion CAD project as the footprint 3D model, keeping an optional part name and stable body id for reimport alignment",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"cad_part":{"type":"string","maxLength":128},"body_id":{"type":"string","maxLength":128}}),&["name","path"])),
@@ -766,6 +767,95 @@ pub(super) fn run(
                 "scale": model.scale,
                 "rotate": model.rotate,
             }))
+        }
+        "library.footprint.embed_model" => {
+            #[cfg(target_arch = "wasm32")]
+            {
+                return Err(Error::Invalid(
+                    "embedding a model needs the desktop app".into(),
+                ));
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let a: EmbedModelParams = parse(params)?;
+                let def = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|s| s.name == a.name)
+                    .ok_or_else(missing)?;
+                let path = a
+                    .path
+                    .as_deref()
+                    .or_else(|| def.model.as_ref().map(|m| m.path.as_str()))
+                    .filter(|p| !p.is_empty())
+                    .ok_or_else(|| {
+                        Error::Invalid("set a model path on the footprint first".into())
+                    })?;
+                if path.len() > 1024 {
+                    return Err(Error::Invalid("model path must be 1 to 1024 bytes".into()));
+                }
+                let bytes = std::fs::read(path).map_err(|_| {
+                    Error::Invalid(format!("the model file {path} was not found"))
+                })?;
+                let (load_path, source) = if path
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+                {
+                    let (step_name, step_bytes) =
+                        pcbcraft_io::first_step_from_vendor_zip(&bytes).map_err(|e| {
+                            Error::Invalid(e.0)
+                        })?;
+                    (step_name, step_bytes)
+                } else {
+                    (path.to_owned(), bytes)
+                };
+                let cache = pcbcraft_io::ImportCache::default();
+                let loaded = cache
+                    .load_or_convert(&load_path, &source)
+                    .map_err(|e| Error::Invalid(e.0))?;
+                let digest = pcbcraft_io::source_digest(&source);
+                let tol = if load_path
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "step" | "stp"))
+                {
+                    pcbcraft_io::STEP_TOLERANCE_MM
+                } else {
+                    0.0
+                };
+                let embedded = pcbcraft_io::encode_compact_base64(
+                    &loaded,
+                    pcbcraft_io::LOADER_VERSION,
+                    tol,
+                    &digest,
+                )
+                .map_err(|e| Error::Invalid(e.0))?;
+                match &mut def.model {
+                    Some(m) => {
+                        if a.path.is_some() {
+                            m.path = path.to_owned();
+                        }
+                        m.embedded = embedded;
+                    }
+                    None => {
+                        let mut m = build_model(&ModelParams {
+                            name: a.name.clone(),
+                            path: path.to_owned(),
+                            offset: None,
+                            scale: None,
+                            rotate: None,
+                            body_id: Default::default(),
+                            cad_part: Default::default(),
+                        })?;
+                        m.embedded = embedded;
+                        def.model = Some(m);
+                    }
+                }
+                def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                Ok(json!({"name": a.name, "embedded": true}))
+            }
         }
         "library.footprint.clear_model" => {
             let a: Name = parse(params)?;

@@ -121,9 +121,9 @@ fn drill_section_lines(p: &Project) -> Result<Vec<String>, String> {
     let csv = drill_chart_csv(p)?;
     let mut rows: Vec<String> = Vec::new();
     for line in csv.lines() {
-        if line.starts_with("TOOL,") {
-            rows.push(line.to_string());
-        } else if line.starts_with('T') && line.contains(',') && !line.starts_with("TOTAL") {
+        if line.starts_with("TOOL,")
+            || (line.starts_with('T') && line.contains(',') && !line.starts_with("TOTAL"))
+        {
             rows.push(line.to_string());
         }
     }
@@ -221,7 +221,7 @@ fn notes_section_lines(p: &Project) -> Result<Vec<String>, String> {
     if let Some(v) = p.meta.get("impedance").filter(|s| !s.is_empty()) {
         lines.push(format!("Impedance notes: {v}"));
     }
-    if p.board.finish.trim().len() > 0 {
+    if !p.board.finish.trim().is_empty() {
         lines.push(format!("Surface finish: {}", p.board.finish.trim()));
     }
     Ok(lines)

@@ -47,11 +47,10 @@ fn board_outline_ring(p: &Project) -> Vec<Point> {
     match &p.board.outline {
         Some(outline) if outline.len() >= 3 => {
             let mut ring = outline.clone();
-            if ring.first() != ring.last() {
-                if let Some(first) = ring.first().copied() {
+            if ring.first() != ring.last()
+                && let Some(first) = ring.first().copied() {
                     ring.push(first);
                 }
-            }
             ring
         }
         _ => vec![

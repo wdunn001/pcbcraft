@@ -14,7 +14,7 @@ pub fn gltf_bounds(path: &str, scale: [f64; 3]) -> Result<TriangleMesh, String> 
         .collect();
     let triangles: Vec<[u32; 3]> = model
         .indices
-        .chunks_exact(3)
+        .as_chunks::<3>().0.iter()
         .map(|tri| [tri[0], tri[1], tri[2]])
         .collect();
     let mesh = TriangleMesh {

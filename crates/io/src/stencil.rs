@@ -100,7 +100,7 @@ fn paste_margin(p: &Project, footprint: &Footprint) -> f64 {
         .unwrap_or(crate::gerber::DEFAULT_PASTE_MARGIN)
 }
 
-fn pad_on_layer(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
+fn pad_on_layer(_fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
     let paste = if layer == Layer::Front {
         "F.Paste"
     } else {

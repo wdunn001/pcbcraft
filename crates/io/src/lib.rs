@@ -14,7 +14,6 @@ mod bitmap_trace;
 mod board_edge;
 mod board_import;
 mod board_mesh;
-mod board_mesh_bench;
 mod bom_flavour;
 mod bom_sheet;
 mod bring_up;
@@ -45,7 +44,7 @@ mod solidcraft_model;
 mod starter_models;
 mod stencil;
 mod stencil_laser;
-pub use board_mesh_bench::bench_project_600_parts;
+pub use board_mesh::bench_project_600_parts;
 mod compliance_list;
 mod datasheet_cache;
 mod diff;
@@ -228,7 +227,8 @@ pub use machine_profile::{
     machine_profile_to_toml,
 };
 pub use mesh_material::{
-    MaterialClass, classify_model_color, linear_to_srgb_byte, parametric_body_material,
+    MaterialClass, MaterialDraw, MaterialLights, MaterialSurface, classify_model_color,
+    linear_to_srgb_byte, material_surface, parametric_body_material, shade_material_pixel,
     srgb_channel_to_linear, srgb_to_linear,
 };
 pub use migrate::{CURRENT_VERSION, migrate, read_project};
@@ -481,19 +481,16 @@ pub fn open_document(bytes: &[u8], filename_hint: &str) -> Result<OpenKind, Stri
             file.library.validate()?;
             return Ok(OpenKind::Library(file.library));
         }
-        if let Ok(mut project) = serde_json::from_str::<Project>(text) {
-            if migrate_loaded_project(&mut project).is_ok() && project.validate().is_ok() {
+        if let Ok(mut project) = serde_json::from_str::<Project>(text)
+            && migrate_loaded_project(&mut project).is_ok() && project.validate().is_ok() {
                 return Ok(OpenKind::Project(Box::new(project)));
             }
-        }
     }
-    if bytes.starts_with(b"PK\x03\x04") {
-        if let Ok(mut project) = archive_project(bytes) {
-            if migrate_loaded_project(&mut project).is_ok() && project.validate().is_ok() {
+    if bytes.starts_with(b"PK\x03\x04")
+        && let Ok(mut project) = archive_project(bytes)
+            && migrate_loaded_project(&mut project).is_ok() && project.validate().is_ok() {
                 return Ok(OpenKind::Project(Box::new(project)));
             }
-        }
-    }
     Err("unrecognized or invalid design file".into())
 }
 
@@ -911,7 +908,7 @@ struct PdfPage {
 }
 /// Any surface that can receive the shared view drawing: path outlines,
 /// circles and text, in millimetre design coordinates.
-pub(crate) trait DrawPage {
+pub trait DrawPage {
     fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String>;
     fn circle(
         &mut self,
@@ -2405,8 +2402,8 @@ pub fn step_board_with_models(
         if let Some(fp) = p.board.footprints.iter().find(|f| {
             refs.get(&f.component)
                 .is_some_and(|c| c.reference == body.name)
-        }) {
-            if let Some(model) = refs
+        })
+            && let Some(model) = refs
                 .get(&fp.component)
                 .and_then(|c| c.library_footprint.as_ref())
                 .and_then(|l| l.definition.model.as_ref())
@@ -2467,7 +2464,6 @@ pub fn step_board_with_models(
                     ));
                 }
             }
-        }
         if placed_vendor {
             continue;
         }
@@ -3148,12 +3144,14 @@ pub fn gerber_files_with_budget(
         .map(|(files, _report, warnings)| (files, warnings))
 }
 
+type GerberFilesOut = (BTreeMap<String, String>, GerberArcReport, Vec<String>);
+
 fn gerber_files_core(
     p: &Project,
     creation: &str,
     opts: GerberArcOptions,
     max_ops: usize,
-) -> Result<(BTreeMap<String, String>, GerberArcReport, Vec<String>), String> {
+) -> Result<GerberFilesOut, String> {
     p.validate()?;
     let max_ops_limit = max_ops;
     let mut report = GerberArcReport::default();
@@ -3163,6 +3161,7 @@ fn gerber_files_core(
     // stored in millimetres, so every written value is rescaled here.
     let inch = p.unit == "inch";
     let scale = if inch { 1.0 / 25.4 } else { 1.0 };
+    #[allow(dead_code)]
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     enum Ap {
         Circle(u64),
@@ -3299,6 +3298,7 @@ fn gerber_files_core(
             }
             Ok(())
         }
+        #[allow(clippy::too_many_arguments)]
         fn arc_stroke(
             &mut self,
             code: u32,
@@ -3418,7 +3418,7 @@ fn gerber_files_core(
                 }
                 defined.push((*code, block));
             }
-            for (_, (code, block)) in &self.shaped {
+            for (code, block) in self.shaped.values() {
                 defined.push((*code, block.clone()));
             }
             defined.sort_by_key(|(code, _)| *code);
@@ -4018,6 +4018,7 @@ fn csv_cell(text: &str) -> String {
 }
 /// Plain-text netlist: one line per connected net, listing the component
 /// pins it carries as `REFERENCE.PIN`, sorted by net name and reference.
+#[allow(dead_code)]
 fn xml_escape(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for ch in value.chars() {

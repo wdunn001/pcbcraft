@@ -345,6 +345,7 @@ pub(super) fn collect_enterprises(p: &Project, meta: &AssemblyMeta) -> BTreeMap<
 struct BomGroup {
     oem_id: String,
     description: String,
+    #[allow(dead_code)]
     package: String,
     pin_count: usize,
     refdes: Vec<BomRef>,
@@ -471,13 +472,11 @@ fn placed_mount(f: &Footprint) -> Option<&'static str> {
 fn export_rotation(p: &Project, f: &Footprint) -> f64 {
     let back = f.board_side() == Layer::Back;
     let mut rotation = f.rotation;
-    if back {
-        if let Some(profile) = p.machine_profiles.iter().find(|m| m.kind == "pick_place") {
-            if profile.output.mirror_bottom {
+    if back
+        && let Some(profile) = p.machine_profiles.iter().find(|m| m.kind == "pick_place")
+            && profile.output.mirror_bottom {
                 rotation = -rotation;
             }
-        }
-    }
     rotation.rem_euclid(360.0)
 }
 
@@ -493,6 +492,7 @@ fn moisture_ipc(level: u8) -> Option<&'static str> {
     }
 }
 
+#[allow(dead_code)]
 trait ProjectExt {
     fn component(&self, id: u64) -> Option<&Component>;
 }

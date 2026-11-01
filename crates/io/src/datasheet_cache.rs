@@ -12,7 +12,7 @@ pub struct DatasheetCacheResult {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn fetch_datasheet_cache(
     url: &str,
-    extra_headers: &[(String, String)],
+    _extra_headers: &[(String, String)],
 ) -> Result<DatasheetCacheResult, String> {
     if url.is_empty() || url.len() > 4096 {
         return Err("datasheet URL invalid".into());
@@ -82,10 +82,5 @@ fn cache_dir() -> Result<std::path::PathBuf, String> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn format_timestamp() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    format!("{secs}")
+    format!("{}", pcbcraft_clock::unix_secs())
 }

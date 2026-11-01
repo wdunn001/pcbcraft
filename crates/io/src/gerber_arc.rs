@@ -1,5 +1,5 @@
 //! Gerber arc export policy: true arcs or chord flattening with a report.
-use pcbcraft_doc::{FabRules, Project};
+use pcbcraft_doc::Project;
 use pcbcraft_geom::{Arc, Point};
 use serde_json::Value;
 

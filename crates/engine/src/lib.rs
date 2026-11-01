@@ -3048,6 +3048,14 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(sim::commands())
         .chain(datasheet_annotations::commands())
         .chain(via_protection::commands())
+        .chain(backdrill::commands())
+        .chain(layout::commands())
+        .chain(part_save::commands())
+        .chain(publication::commands())
+        .chain(teardrop::commands())
+        .chain(calc::commands())
+        .chain(vendor_handoff_commands())
+        .chain(firmware_plugin_commands())
         .collect()
 }
 
@@ -10189,6 +10197,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = part_save::run(config, p, command, params) {
+        return result;
+    }
+    if let Some(result) = calc::run_mut(p, command, params) {
         return result;
     }
     if let Some(result) = calc::run(p, command, params) {

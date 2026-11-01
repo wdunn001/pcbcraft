@@ -219,7 +219,7 @@ fn board_outline_ring(p: &Project) -> Vec<Point> {
 
 fn scaled_pad_ring(
     pad: &Pad,
-    fp: &Footprint,
+    _fp: &Footprint,
     position: Point,
     scale: f64,
 ) -> Result<Vec<Point>, String> {
@@ -228,7 +228,7 @@ fn scaled_pad_ring(
         .into_iter()
         .map(|pt| Point::new(pt.x * scale, pt.y * scale))
         .collect();
-    let mut ring: Vec<Point> = local.iter().map(|pt| position.offset(*pt)).collect();
+    let ring: Vec<Point> = local.iter().map(|pt| position.offset(*pt)).collect();
     close_ring(ring)
 }
 

@@ -72,6 +72,7 @@ pub(crate) fn smd_aperture_function(fp: &Footprint, pad: &Pad) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn pad_is_through(pad: &Pad) -> bool {
     pad.geometry.as_ref().is_some_and(|g| {
         g.pad_type == "thru_hole" || g.drill.is_some() || g.layers.iter().any(|l| l == "*.Cu")
@@ -82,6 +83,7 @@ pub(crate) fn copper_layer_is_back(p: &Project, layer: Layer) -> bool {
     layer.index() + 1 == p.copper_layer_count()
 }
 
+#[allow(dead_code)]
 pub(crate) fn copper_file_function(p: &Project, layer: Layer) -> String {
     let index = layer.index() + 1;
     let side = if layer.index() == 0 {
@@ -94,11 +96,13 @@ pub(crate) fn copper_file_function(p: &Project, layer: Layer) -> String {
     format!("Copper,L{index},{side}")
 }
 
+#[allow(dead_code)]
 pub(crate) fn copper_gerber_basename(p: &Project, layer: Layer) -> String {
     let name = p.layer_name(layer);
     format!("pcb-{name}.gbr")
 }
 
+#[allow(dead_code)]
 pub(crate) fn pad_copper_aperture_function(
     p: &Project,
     layer: Layer,
@@ -206,10 +210,7 @@ pub(crate) fn plane_pour_aperture_flashes(
 
 /// Gerber file function for a mask-family stack row and its outward index (1 is outermost).
 pub(crate) fn mask_row_file_function(kind: &str, side: &str, outward_index: u8) -> Option<String> {
-    let face = match side {
-        "bottom" => "Bot",
-        "top" | _ => "Top",
-    };
+    let face = if side == "bottom" { "Bot" } else { "Top" };
     let base = match kind {
         "soldermask" => "Soldermask",
         "peelable_mask" => "Peelablemask",

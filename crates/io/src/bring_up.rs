@@ -52,13 +52,12 @@ fn power_nets(project: &Project) -> BTreeMap<Id, PowerKind> {
             .or_insert_with(|| power_kind(project.net_name(label.net)).unwrap_or(PowerKind::Rail));
     }
     for pin in project.components.iter().flat_map(|c| c.pins.iter()) {
-        if pin.electrical_type == "power_in" || pin.electrical_type == "power_out" {
-            if let Some(net) = pin.net.filter(|n| *n != 0) {
+        if (pin.electrical_type == "power_in" || pin.electrical_type == "power_out")
+            && let Some(net) = pin.net.filter(|n| *n != 0) {
                 found.entry(net).or_insert_with(|| {
                     power_kind(project.net_name(net)).unwrap_or(PowerKind::Rail)
                 });
             }
-        }
     }
     found
 }
@@ -191,7 +190,7 @@ fn write_rails(out: &mut String, project: &Project, rails: &BTreeMap<Id, PowerKi
     out.push_str("| --- | --- | --- |\n");
     for (id, kind) in rails {
         let name = project.net_name(*id);
-        let expected = expected_voltage_v(&name, *kind);
+        let expected = expected_voltage_v(name, *kind);
         let note = if *kind == PowerKind::Ground {
             "common return"
         } else {
@@ -306,10 +305,10 @@ pub fn bring_up_plan_csv(project: &Project) -> Result<String, String> {
     ));
     for (id, kind) in &rails {
         let name = project.net_name(*id);
-        let expected = expected_voltage_v(&name, *kind);
+        let expected = expected_voltage_v(name, *kind);
         out.push_str(&format!(
             "rail,{},{},,\n",
-            csv_cell(&name),
+            csv_cell(name),
             csv_cell(&expected)
         ));
     }
@@ -336,7 +335,7 @@ pub fn bring_up_plan_csv(project: &Project) -> Result<String, String> {
     for net in &report.uncovered {
         out.push_str(&format!(
             "missing_testpoint,{},{},,\n",
-            csv_cell(&project.net_name(*net)),
+            csv_cell(project.net_name(*net)),
             csv_cell(&format!(
                 "min pad {:.3} mm, spacing {:.3} mm",
                 settings.min_pad_mm, settings.min_spacing_mm

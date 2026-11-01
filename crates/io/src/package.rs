@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 /// Name of the manifest entry, first in every package.
 pub const MANIFEST_NAME: &str = "manifest.json";
 /// Plain-text revision notes written into every fabrication package.
+#[allow(dead_code)]
 pub const REVISION_NOTES_NAME: &str = "REVISION-NOTES.txt";
 /// Most files one package may hold, the manifest included.
 pub const MAX_PACKAGE_FILES: usize = 256;
@@ -179,6 +180,7 @@ fn check_entries(entries: &[PackageEntry]) -> Result<(), String> {
 }
 
 /// Every entry of a stored ZIP this crate writes, in archive order.
+#[allow(dead_code)]
 pub fn package_stored_zip_entries(zip: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
     let mut entries = Vec::new();
     let mut at = 0usize;
@@ -211,6 +213,7 @@ pub fn package_stored_zip_entries(zip: &[u8]) -> Result<Vec<(String, Vec<u8>)>, 
 }
 
 /// Read the bill of materials CSV from a prior package zip, when one was included.
+#[allow(dead_code)]
 pub fn previous_bom_from_package(zip: &[u8]) -> Result<Option<String>, String> {
     for (name, bytes) in package_stored_zip_entries(zip)? {
         if name == "bom.csv" {
@@ -220,6 +223,7 @@ pub fn previous_bom_from_package(zip: &[u8]) -> Result<Option<String>, String> {
     Ok(None)
 }
 
+#[allow(dead_code)]
 fn csv_row_fields(line: &str) -> Vec<String> {
     let mut fields = Vec::new();
     let mut field = String::new();
@@ -251,6 +255,7 @@ fn csv_row_fields(line: &str) -> Vec<String> {
 }
 
 /// Designator references listed in a bill of materials CSV this crate writes.
+#[allow(dead_code)]
 pub fn bom_references_from_csv(csv: &str) -> Result<BTreeSet<String>, String> {
     let mut lines = csv.lines();
     let header = lines
@@ -280,6 +285,7 @@ pub fn bom_references_from_csv(csv: &str) -> Result<BTreeSet<String>, String> {
     Ok(refs)
 }
 
+#[allow(dead_code)]
 fn copper_layer_count(p: &Project) -> usize {
     let recorded = p
         .board
@@ -290,6 +296,7 @@ fn copper_layer_count(p: &Project) -> usize {
     if recorded > 0 { recorded } else { 2 }
 }
 
+#[allow(dead_code)]
 fn meta_or_not_recorded(p: &Project, key: &str) -> String {
     p.meta
         .get(key)
@@ -299,6 +306,7 @@ fn meta_or_not_recorded(p: &Project, key: &str) -> String {
 }
 
 /// Deterministic revision notes for a fabrication package.
+#[allow(dead_code)]
 pub fn package_revision_notes(
     p: &Project,
     job: &str,
@@ -361,6 +369,7 @@ pub fn package_revision_notes(
 }
 
 /// Append revision notes to the entries about to be zipped.
+#[allow(dead_code)]
 pub fn attach_revision_notes_entry(
     p: &Project,
     job: &str,

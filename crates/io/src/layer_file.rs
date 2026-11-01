@@ -29,11 +29,10 @@ fn rewrite_copper_strings(value: &mut Value, project: &Project) {
         Value::Object(map) => {
             for (key, child) in map.iter_mut() {
                 if COPPER_LAYER_KEYS.contains(&key.as_str()) {
-                    if let Value::String(name) = child {
-                        if let Ok(layer) = project.resolve_copper_layer(name) {
+                    if let Value::String(name) = child
+                        && let Ok(layer) = project.resolve_copper_layer(name) {
                             *name = project.layer_name(layer);
                         }
-                    }
                 } else {
                     rewrite_copper_strings(child, project);
                 }

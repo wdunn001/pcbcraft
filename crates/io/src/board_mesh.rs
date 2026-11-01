@@ -18,11 +18,11 @@
 //! Limits are explicit: [`BoardMesh::warnings`] says what was skipped and why.
 #[path = "board_mesh_bench.rs"]
 mod board_mesh_bench;
+pub use board_mesh_bench::bench_project_600_parts;
 use crate::mesh_material::{MaterialClass, parametric_body_material};
 use crate::model_load::LoadedModel;
 use crate::parametric_body::ParametricBody;
-pub use board_mesh_bench::bench_project_600_parts;
-use pcbcraft_doc::{ArtKind, ArtShape, Component, Footprint, Id, Layer, Pad, Project};
+use pcbcraft_doc::{ArtKind, ArtShape, Footprint, Id, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::Model3D;
 use serde_json::{Value, json};
@@ -44,7 +44,9 @@ const MAX_RING: usize = 256;
 const MAX_MERGED_VERTICES: usize = 12_000;
 const MAX_HOLES_PER_POLYGON: usize = 2_000;
 const EPS: f64 = 1e-9;
+#[allow(dead_code)]
 const DECAL_MIN_AREA: f64 = 14.0;
+#[allow(dead_code)]
 const DECAL_RAISE: f64 = 0.06;
 
 /// What a part of the mesh is.
@@ -970,7 +972,7 @@ fn build_parametric_prototype(
         let (lo, hi) = (body.standoff + z0, body.standoff + z1);
         if bottom { (-hi, -lo) } else { (lo, hi) }
     };
-    let mut extrude = |b: &mut Builder<'_>,
+    let extrude = |b: &mut Builder<'_>,
                        ring: &[Point],
                        z0: f64,
                        z1: f64,
@@ -1182,6 +1184,7 @@ fn parse_height(text: &str) -> Option<f64> {
     (v.is_finite() && (0.05..=100.0).contains(&v)).then_some(v)
 }
 
+#[allow(dead_code)]
 fn glyph_rows(ch: char) -> [u8; 3] {
     match ch {
         '0' => [0b111, 0b101, 0b111],
@@ -1224,6 +1227,7 @@ fn glyph_rows(ch: char) -> [u8; 3] {
     }
 }
 
+#[allow(dead_code)]
 fn decal_rings(text: &str, cx: f64, cy: f64, span_w: f64, span_h: f64) -> Vec<Vec<Point>> {
     let chars: Vec<char> = text.chars().collect();
     if chars.is_empty() {

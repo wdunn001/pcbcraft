@@ -161,7 +161,7 @@ impl Writer {
             xml_escape(&row.name)
         ))?;
         if let Some(spec_id) = spec_id_for_layer(row) {
-            self.push(&format!("<SpecRef id=\"{spec_id}\"/>\n"));
+            self.push(&format!("<SpecRef id=\"{spec_id}\"/>\n"))?;
         }
         self.push("</Layer>\n")?;
         Ok(())
@@ -447,7 +447,7 @@ impl Writer {
                 continue;
             }
             hole_id += 1;
-            let padstack = if p.via_kind(via) == pcbcraft_doc::ViaKind::Buried
+            let _padstack = if p.via_kind(via) == pcbcraft_doc::ViaKind::Buried
                 || p.via_kind(via) == pcbcraft_doc::ViaKind::Blind
             {
                 "via_antipad"
@@ -537,7 +537,7 @@ fn synthesized_stackup(p: &Project) -> Vec<LayerRecord> {
         ..LayerRecord::default()
     });
     for layer in 0..copper {
-        let name = p.layer_name(Layer::from_index(layer as u8).unwrap_or(Layer::Front));
+        let name = p.layer_name(Layer::from_index(layer).unwrap_or(Layer::Front));
         rows.push(LayerRecord {
             name,
             kind: "copper".into(),
@@ -620,9 +620,12 @@ fn ipc_layer_attrs(p: &Project, row: &LayerRecord) -> (&'static str, &'static st
 }
 
 fn spec_id_for_layer(row: &LayerRecord) -> Option<String> {
-    if row.is_dielectric() || row.material.is_some() || row.dk.is_some() || row.df.is_some() {
-        Some(format!("spec_{}", sanitize_id(&row.name)))
-    } else if row.kind == "copper" && row.copper_weight_oz.is_some() {
+    if row.is_dielectric()
+        || row.material.is_some()
+        || row.dk.is_some()
+        || row.df.is_some()
+        || (row.kind == "copper" && row.copper_weight_oz.is_some())
+    {
         Some(format!("spec_{}", sanitize_id(&row.name)))
     } else {
         None
@@ -634,26 +637,25 @@ fn spec_for_layer(row: &LayerRecord) -> Option<String> {
     let mut block = format!("<Spec name=\"{id}\">\n");
     if row.is_dielectric() {
         if let Some(dk) = row.dk() {
-            let _ = write!(
+            let _ = writeln!(
                 block,
-                "<Dielectric type=\"DIELECTRIC_CONSTANT\"><Property value=\"{dk:.6}\"/></Dielectric>\n"
+                "<Dielectric type=\"DIELECTRIC_CONSTANT\"><Property value=\"{dk:.6}\"/></Dielectric>"
             );
         }
         if let Some(df) = row.df() {
-            let _ = write!(
+            let _ = writeln!(
                 block,
-                "<Loss type=\"LOSS_TANGENT\"><Property value=\"{df:.6}\"/></Loss>\n"
+                "<Loss type=\"LOSS_TANGENT\"><Property value=\"{df:.6}\"/></Loss>"
             );
         }
     }
-    if row.kind == "copper" {
-        if let Some(oz) = row.copper_weight_oz {
-            let _ = write!(
+    if row.kind == "copper"
+        && let Some(oz) = row.copper_weight_oz {
+            let _ = writeln!(
                 block,
-                "<Conductor type=\"WEIGHT\"><Property value=\"{oz:.6}\"/></Conductor>\n"
+                "<Conductor type=\"WEIGHT\"><Property value=\"{oz:.6}\"/></Conductor>"
             );
         }
-    }
     block.push_str("</Spec>\n");
     Some(block)
 }

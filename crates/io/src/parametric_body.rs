@@ -427,6 +427,7 @@ struct PadBox {
     hi: Point,
     through: bool,
     round: bool,
+    #[allow(dead_code)]
     number: String,
 }
 
@@ -1151,6 +1152,7 @@ fn through_body(
 }
 
 /// Axis-aligned bounds of all solids in footprint-local space.
+#[allow(dead_code)]
 pub(crate) fn local_bounds(body: &ParametricBody) -> (Point, Point, f64, f64) {
     let mut lo = Point::new(f64::MAX, f64::MAX);
     let mut hi = Point::new(f64::MIN, f64::MIN);
@@ -1179,7 +1181,8 @@ pub(crate) fn local_bounds(body: &ParametricBody) -> (Point, Point, f64, f64) {
     (lo, hi, z_lo, z_hi)
 }
 
-pub(crate) fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -> bool {
+#[allow(dead_code)]
+fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -> bool {
     if thermal_pad(pad, all) {
         let (blo, bhi) = ring_bounds(&body.ring);
         return pad.lo.x >= blo.x - EPS

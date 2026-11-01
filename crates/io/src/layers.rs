@@ -66,6 +66,7 @@ pub fn fabrication_point(p: &Project, board: Point) -> Point {
 }
 
 /// Same transform as [`fabrication_point`], as a coordinate pair.
+#[allow(dead_code)]
 pub fn fabrication_xy(p: &Project, x: f64, y: f64) -> (f64, f64) {
     let f = fabrication_point(p, Point::new(x, y));
     (f.x, f.y)
@@ -188,7 +189,7 @@ fn push_zone(shapes: &mut Vec<Shape>, zone: &CopperZone, p: &Project) {
 fn push_track(shapes: &mut Vec<Shape>, track: &Track, p: &Project) {
     if let Some(arc) = track.curve() {
         let centerline = pcbcraft_doc::arc_polyline(&arc, crate::DEFAULT_MAX_DEVIATION_MM);
-        let mut points: Vec<Point> = centerline
+        let points: Vec<Point> = centerline
             .into_iter()
             .map(|pt| fabrication_point(p, pt))
             .collect();

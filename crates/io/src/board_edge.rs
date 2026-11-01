@@ -62,6 +62,7 @@ pub(crate) fn flat_ring(p: &Project, max_chord_error: f64) -> Vec<Point> {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn flat_tuples(p: &Project, max_chord_error: f64) -> Vec<(f64, f64)> {
     flat_ring(p, max_chord_error)
         .iter()
@@ -116,6 +117,7 @@ pub(crate) fn gerber_body(scale: f64, p: &Project) -> Result<(String, usize), St
     Ok((out, ops))
 }
 
+#[allow(dead_code)]
 pub(crate) fn svg_path_d(p: &Project) -> String {
     let segs = segments(p);
     let mut d = String::new();
@@ -147,6 +149,7 @@ pub(crate) fn svg_path_d(p: &Project) -> String {
     d
 }
 
+#[allow(dead_code)]
 pub(crate) fn write_dxf_edge(w: &mut super::DxfWriter, p: &Project) -> Result<(), String> {
     let segs = segments(p);
     if segs.is_empty() {
