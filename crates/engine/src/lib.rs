@@ -2361,11 +2361,11 @@ json!({"code":{"type":"string","description":"check code: unassigned_pin, single
             schema(json!({}), &[]),
         ),
         (
-            "rules.decoupling_max_mm",
-            "Set the maximum board distance in millimetres from an IC power pin pad to a decoupling capacitor on the same net",
+            "rules.decoupling_set",
+            "Set how close a capacitor must be to an integrated circuit power pin for the missing_decoupling check, and the capacitor value its findings suggest; give at least one field",
             schema(
-                json!({"max_mm":{"type":"number","minimum":0.5,"maximum":50,"description":"pad-centre limit in millimetres; schematic-only designs ignore distance"}}),
-                &["max_mm"],
+                json!({"max_distance_mm":{"type":"number","minimum":0.1,"maximum":50,"description":"pad centre to pad centre, millimetres; default 3"},"suggested_value":{"type":"string","maxLength":32,"description":"capacitor value findings suggest, default 100 nF"}}),
+                &[],
             ),
         ),
         (
@@ -6026,11 +6026,6 @@ struct RuleSeverityParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RuleDecouplingMaxMmParams {
-    max_mm: f64,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct RuleEsdMaxMmParams {
     max_mm: f64,
 }
@@ -6487,6 +6482,8 @@ struct DiffPairParams {
     #[serde(default)]
     impedance_tolerance: Option<f64>,
     #[serde(default)]
+    equal_vias: Option<bool>,
+    #[serde(default)]
     id: Option<Id>,
 }
 #[derive(Deserialize)]
@@ -6572,7 +6569,7 @@ struct UpdateItem {
     #[serde(default)]
     size: Option<f64>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentUpdateField {
     key: String,
@@ -8832,6 +8829,7 @@ fn merge_design_block_template(
             return_path_rule: Default::default(),
             temperature_rise: Default::default(),
             working_voltage: Default::default(),
+            max_length: Default::default(),
         });
     }
     for component in block.components {
@@ -11336,8 +11334,6 @@ fn run_command(
             };
             text(&mut next.manufacturer, a.manufacturer);
             text(&mut next.mpn, a.mpn);
-text(&mut next.manufacturer, a.manufacturer);
-            text(&mut next.mpn, a.mpn);
             text(&mut next.description, a.description);
             if let Some(v) = a.lifecycle {
                 next.lifecycle = v;
@@ -12184,6 +12180,8 @@ if let Some(v) = a.packaging {
                 working_voltage: None,
                 insulation: None,
                 return_path_rule: None,
+                backdrill: Default::default(),
+                fast: Default::default(),
             });
             Ok(json!({"id": id}))
         }
@@ -12542,11 +12540,13 @@ if let Some(v) = a.packaging {
                     "target impedance must be 1 to 2000 ohms".into(),
                 ));
             }
-            let class = p
+            let class_index = p
                 .net_classes
-                .iter_mut()
-                .find(|k| k.id == a.class)
+                .iter()
+                .position(|k| k.id == a.class)
                 .ok_or_else(missing)?;
+            let mut class_work = p.net_classes[class_index].clone();
+            let class = &mut class_work;
             let via_diameter = a.via_diameter.or(class.via_diameter);
             let via_drill = a.via_drill.or(class.via_drill);
             if via_diameter
@@ -12600,6 +12600,8 @@ if let Some(v) = a.packaging {
                 class.impedance_tolerance_pct = Some(v);
             }
             net_properties::apply_class_property_updates(p, class, params)?;
+            p.net_classes[class_index] = class_work.clone();
+            let class = &p.net_classes[class_index];
             let mut out = json!({
                 "class": class.id,
                 "name": class.name,
@@ -16797,6 +16799,8 @@ if let Some(v) = a.packaging {
                 to_layer,
                 covering: None,
                 backdrill: None,
+                covering_bottom: Default::default(),
+                preserved: Default::default(),
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -16825,13 +16829,13 @@ if let Some(v) = a.packaging {
                 .ok_or_else(missing)?;
             let (from_layer, to_layer) =
                 resolve_via_span(p, a.from_layer.as_deref(), a.to_layer.as_deref(), current)?;
-            let via = p
+            let mut moved = p
                 .board
                 .vias
-                .iter_mut()
+                .iter()
                 .find(|v| v.id == a.id)
-                .ok_or_else(missing)?;
-            let mut moved = via.clone();
+                .ok_or_else(missing)?
+                .clone();
             moved.from_layer = from_layer;
             moved.to_layer = to_layer;
             if let Some(spec) = moved.backdrill {
@@ -16841,6 +16845,12 @@ if let Some(v) = a.packaging {
                     ))
                 })?;
             }
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
             via.from_layer = from_layer;
             via.to_layer = to_layer;
             let via = via.clone();
@@ -18916,15 +18926,31 @@ if let Some(v) = a.packaging {
             p.esd_max_distance_mm = a.max_mm;
             Ok(json!({"esd_max_distance_mm": a.max_mm}))
         }
-        "rules.decoupling_max_mm" => {
-            let a: RuleDecouplingMaxMmParams = parse(params)?;
-            if !a.max_mm.is_finite() || a.max_mm < 0.5 || a.max_mm > 50.0 {
+        "rules.decoupling_set" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Params {
+                max_distance_mm: Option<f64>,
+                suggested_value: Option<String>,
+            }
+            let a: Params = parse(params)?;
+            if a.max_distance_mm.is_none() && a.suggested_value.is_none() {
                 return Err(Error::Invalid(
-                    "decoupling distance must be 0.5 to 50 mm".into(),
+                    "give max_distance_mm, suggested_value or both".into(),
                 ));
             }
-            p.decoupling_max_mm = a.max_mm;
-            Ok(json!({"decoupling_max_mm": a.max_mm}))
+            let mut rule = p.decoupling.clone();
+            if let Some(d) = a.max_distance_mm {
+                rule.max_distance_mm = d;
+            }
+            if let Some(v) = a.suggested_value {
+                rule.suggested_value = v.trim().to_string();
+            }
+            rule.validate().map_err(Error::Invalid)?;
+            p.decoupling = rule;
+            Ok(
+                json!({"max_distance_mm": p.decoupling.max_distance_mm, "suggested_value": p.decoupling.suggested_value}),
+            )
         }
         "rules.exclude" => {
             let a: RuleExcludeParams = parse(params)?;
@@ -21110,14 +21136,15 @@ if let Some(v) = a.packaging {
             let template_anchor = template_component_by_reference(p, source.sheet, &a.anchor_reference)
                 .ok_or_else(|| {
                     Error::Invalid("anchor reference is missing on the template page".into())
-                })?;
+                })?
+                .clone();
             let source_anchor = component_for_instance_prototype(
                 p,
                 source.id,
                 template_anchor.id,
             )
             .ok_or_else(missing)?;
-            let source_fp = footprint_for_component(p, source_anchor.id).ok_or_else(|| {
+            let source_fp = footprint_for_component(p, source_anchor.id).cloned().ok_or_else(|| {
                 Error::Invalid(
                     "sync footprints before repeating layout across instances".into(),
                 )
@@ -21140,14 +21167,15 @@ if let Some(v) = a.packaging {
                     .sheet_instances
                     .iter()
                     .find(|i| i.id == *target_id)
-                    .ok_or_else(missing)?;
+                    .ok_or_else(missing)?
+                    .clone();
                 let target_anchor = component_for_instance_prototype(
                     p,
                     *target_id,
                     template_anchor.id,
                 )
                 .ok_or_else(missing)?;
-                let target_fp = footprint_for_component(p, target_anchor.id).ok_or_else(|| {
+                let target_fp = footprint_for_component(p, target_anchor.id).cloned().ok_or_else(|| {
                     Error::Invalid(
                         "sync footprints before repeating layout across instances".into(),
                     )
@@ -21175,14 +21203,15 @@ if let Some(v) = a.packaging {
                     )
                     .ok_or_else(missing)?;
                     let source_foot = footprint_for_component(p, source_part.id)
+                        .cloned()
                         .ok_or_else(missing)?;
-                    let target_foot = p
+                    let target_index = p
                         .board
                         .footprints
-                        .iter_mut()
-                        .find(|f| f.component == target_part.id)
+                        .iter()
+                        .position(|f| f.component == target_part.id)
                         .ok_or_else(missing)?;
-                    if footprint_locked(p, target_foot.id) {
+                    if footprint_locked(p, p.board.footprints[target_index].id) {
                         return Err(Error::Invalid(
                             "a target footprint is locked against placement changes".into(),
                         ));
@@ -21200,6 +21229,7 @@ if let Some(v) = a.packaging {
                             "the repeated layout would move a footprint out of range".into(),
                         ));
                     }
+                    let target_foot = &mut p.board.footprints[target_index];
                     target_foot.position = want;
                     target_foot.rotation = source_foot.rotation;
                 }
@@ -21236,18 +21266,13 @@ if let Some(v) = a.packaging {
                         .collect::<Vec<_>>()
                     {
                         let id = allocate(next)?;
-                        p.board.tracks.push(Track {
-                            id,
-                            net: target_net,
-                            start: track.start.offset(layout_shift),
-                            end: track.end.offset(layout_shift),
-                            width: track.width,
-                            layer: track.layer,
-                            arc: track
-                                .arc
-                                .map(|mid| mid.offset(layout_shift)),
-                            preserved: Default::default(),
-                        });
+                        let mut copy = track.clone();
+                        copy.id = id;
+                        copy.net = target_net;
+                        copy.start = track.start.offset(layout_shift);
+                        copy.end = track.end.offset(layout_shift);
+                        copy.arc = track.arc.map(|mid| mid.offset(layout_shift));
+                        p.board.tracks.push(copy);
                         copied_tracks += 1;
                     }
                     for via in p
@@ -21259,19 +21284,11 @@ if let Some(v) = a.packaging {
                         .collect::<Vec<_>>()
                     {
                         let id = allocate(next)?;
-                        p.board.vias.push(Via {
-                            id,
-                            net: target_net,
-                            position: via.position.offset(layout_shift),
-                            diameter: via.diameter,
-                            drill: via.drill,
-                            backdrill: Default::default(),
-                            covering: Default::default(),
-                            covering_bottom: Default::default(),
-                            from_layer: Default::default(),
-                            preserved: Default::default(),
-                            to_layer: Default::default(),
-                        });
+                        let mut copy = via.clone();
+                        copy.id = id;
+                        copy.net = target_net;
+                        copy.position = via.position.offset(layout_shift);
+                        p.board.vias.push(copy);
                         copied_vias += 1;
                     }
                 }
@@ -22890,8 +22907,8 @@ mod tests {
             pin: "1".into(),
             unit: Default::default(),
         };
-        let start = s.pin_position(&from).ok_or_else(missing)?;
-        let end = s.pin_position(&to).ok_or_else(missing)?;
+        let start = s.project.pin_position(&from).ok_or_else(missing)?;
+        let end = s.project.pin_position(&to).ok_or_else(missing)?;
         let bend = Point::new((start.x + end.x) / 2.0, start.y + 5.0);
         let revision = s.revision;
         s.execute(
@@ -22910,12 +22927,12 @@ mod tests {
         assert_eq!(s.project.drawn_wires.len(), 1);
         assert_eq!(s.project.drawn_wires[0].points.len(), 3);
         let net = s.project.drawn_wires[0].net.ok_or_else(missing)?;
-        assert_eq!(s.pin(&from).ok_or_else(missing)?.net, Some(net));
-        assert_eq!(s.pin(&to).ok_or_else(missing)?.net, Some(net));
+        assert_eq!(s.project.pin(&from).ok_or_else(missing)?.net, Some(net));
+        assert_eq!(s.project.pin(&to).ok_or_else(missing)?.net, Some(net));
         s.undo()?;
         assert!(s.project.drawn_wires.is_empty());
-        assert_eq!(s.pin(&from).ok_or_else(missing)?.net, None);
-        assert_eq!(s.pin(&to).ok_or_else(missing)?.net, None);
+        assert_eq!(s.project.pin(&from).ok_or_else(missing)?.net, None);
+        assert_eq!(s.project.pin(&to).ok_or_else(missing)?.net, None);
         assert_eq!(s.project.nets.len(), 0);
         Ok(())
     }
@@ -22955,8 +22972,8 @@ mod tests {
             pin: "1".into(),
             unit: Default::default(),
         };
-        let start = s.pin_position(&from).ok_or_else(missing)?;
-        let end = s.pin_position(&to).ok_or_else(missing)?;
+        let start = s.project.pin_position(&from).ok_or_else(missing)?;
+        let end = s.project.pin_position(&to).ok_or_else(missing)?;
         let saved = s.inspect();
         let err = match s.execute(
             "wire.place",
@@ -29015,7 +29032,7 @@ mod tests {
         Ok(())
     }
     #[test]
-fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error> {
+    fn library_footprint_model_auto_align_edits_transform_and_undoes() -> Result<(), Error> {
         let mut s = Session::default();
         let pitch = 3.0;
         let half = pitch / 2.0;
@@ -29372,9 +29389,8 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
             return Ok(());
         };
         let mut s = Session::default();
-        let path = std::path::Path::new(&library_fixture(
-            "open_library/R_0603_1608Metric.kicad_mod",
-        ));
+        let fixture_path = library_fixture("open_library/R_0603_1608Metric.kicad_mod");
+        let path = std::path::Path::new(&fixture_path);
         let definition = library::footprint(path)?;
         s.execute(
             "library.footprint.upsert",
@@ -31670,30 +31686,31 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
     fn decoupling_distance_is_set_saved_and_refused_when_out_of_range() -> Result<(), Error> {
         let mut s = Session::default();
         assert!(
-            (s.project.decoupling_max_mm - 3.0).abs() < 1e-9,
+            (s.project.decoupling.max_distance_mm - 3.0).abs() < 1e-9,
             "projects start with a 3 mm decoupling limit"
         );
-        s.execute("rules.decoupling_max_mm", json!({"max_mm": 5.0}), None)?;
-        assert!((s.project.decoupling_max_mm - 5.0).abs() < 1e-9);
+        s.execute("rules.decoupling_set", json!({"max_distance_mm": 5.0}), None)?;
+        assert!((s.project.decoupling.max_distance_mm - 5.0).abs() < 1e-9);
         let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
         let loaded: pcbcraft_doc::Project =
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         loaded.validate()?;
-        assert!((loaded.decoupling_max_mm - 5.0).abs() < 1e-9);
+        assert!((loaded.decoupling.max_distance_mm - 5.0).abs() < 1e-9);
         let before = s.inspect();
         for params in [
-            json!({"max_mm": 0.0}),
-            json!({"max_mm": 50.1}),
-            json!({"max_mm": "wide"}),
-            json!({"max_mm": 5.0, "extra": 1}),
+            json!({"max_distance_mm": 0.0}),
+            json!({"max_distance_mm": 50.1}),
+            json!({"max_distance_mm": "wide"}),
+            json!({"max_distance_mm": 5.0, "extra": 1}),
+            json!({}),
         ] {
             assert!(
-                s.execute("rules.decoupling_max_mm", params, None).is_err(),
+                s.execute("rules.decoupling_set", params, None).is_err(),
                 "bad decoupling distance leaves the project unchanged"
             );
         }
         assert_eq!(s.inspect(), before);
-        assert!((s.project.decoupling_max_mm - 5.0).abs() < 1e-9);
+        assert!((s.project.decoupling.max_distance_mm - 5.0).abs() < 1e-9);
         Ok(())
     }
     #[test]
@@ -32629,7 +32646,8 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
             json!({"rule":"demo.declaration_required","component":r1,"reason":"accepted for prototype"}),
             None,
         )?;
-        let after = s.checks()["compliance"].as_array().ok_or_else(missing)?;
+        let checks_after = s.checks();
+        let after = checks_after["compliance"].as_array().ok_or_else(missing)?;
         assert!(
             after.len() < before,
             "muted finding drops out of the compliance report"
@@ -32763,14 +32781,14 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
         assert_eq!(out["changed"], 3);
         for id in &ids {
             assert_eq!(
-                s.project.component(*id)?.field("MPN"),
+                s.project.component(*id).ok_or_else(missing)?.field("MPN"),
                 Some("RC0603")
             );
         }
         assert_eq!(s.inspect()["history"]["undo"], 1);
         s.undo()?;
         for id in &ids {
-            assert_eq!(s.project.component(*id)?.field("MPN"), None);
+            assert_eq!(s.project.component(*id).ok_or_else(missing)?.field("MPN"), None);
         }
         Ok(())
     }
@@ -32856,7 +32874,8 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
             json!({"name":"Slim","dnp":[r3]}),
             None,
         )?;
-        let plain = s.execute("components.table.export", json!({}), None)?["result"]["csv"]
+        let plain_out = s.execute("components.table.export", json!({}), None)?;
+        let plain = plain_out["result"]["csv"]
             .as_str()
             .ok_or_else(missing)?;
         let lines: Vec<&str> = plain.lines().collect();
@@ -32869,11 +32888,12 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
         assert_eq!(lines[1], "R1,1k,starter pads,");
         assert_eq!(lines[2], "R2,10k,starter pads,");
         assert_eq!(lines[3], "R3,10k,starter pads,RC0603");
-        let slim = s.execute(
+        let slim_out = s.execute(
             "components.table.export",
             json!({"variant":"Slim"}),
             None,
-        )?["result"]["csv"]
+        )?;
+        let slim = slim_out["result"]["csv"]
             .as_str()
             .ok_or_else(missing)?;
         assert_eq!(
@@ -39078,7 +39098,8 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
             None,
         )?;
         for name in ["bring-up-plan.md", "bring-up-plan.csv"] {
-            let text = std::fs::read_to_string(directory.join(name)).map_err(Error::Invalid)?;
+            let text = std::fs::read_to_string(directory.join(name))
+                .map_err(|e| Error::Invalid(e.to_string()))?;
             assert!(!text.is_empty(), "{name} should not be empty");
         }
         let _ = std::fs::remove_dir_all(&directory);
@@ -44008,11 +44029,12 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
         )?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
-        let generated = s.query(
+        let generated_out = s.query(
             "artifact.generate",
             json!({"id": artifact}),
             None,
-        )?["result"]["payload"]
+        )?;
+        let generated = generated_out["result"]["payload"]
             .as_str()
             .ok_or_else(missing)?;
         assert!(
@@ -44993,7 +45015,7 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
 
     #[test]
     fn help_glossary_thicker_track_includes_track_width_and_set_width_command() -> Result<(), Error> {
-        let s = Session::default();
+        let mut s = Session::default();
         let rev = s.revision;
         let nets_before = s.project.nets.len();
         let out = s.execute(

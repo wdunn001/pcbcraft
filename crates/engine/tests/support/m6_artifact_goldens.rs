@@ -58,6 +58,13 @@ fn generated_to_golden(output: &GeneratedOutput) -> String {
             }
             out
         }
+        GeneratedOutput::BinaryFiles(map) => {
+            let mut out = String::new();
+            for (name, body) in map {
+                out.push_str(&format!("=== {name} ===\n{}", binary_summary(body)));
+            }
+            out
+        }
     }
 }
 

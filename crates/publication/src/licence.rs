@@ -29,7 +29,7 @@ pub enum LicenceVerdict {
 #[derive(Clone, Debug)]
 pub struct LicenceTable {
     pub licences: Vec<String>,
-    compat: BTreeMap<String, BTreeMap<String, LicenceVerdict>>,
+    pub compat: BTreeMap<String, BTreeMap<String, LicenceVerdict>>,
     restricted_sources: Vec<String>,
 }
 

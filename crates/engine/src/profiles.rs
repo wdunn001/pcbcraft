@@ -358,6 +358,12 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                     gap: pair.gap,
                     length_tolerance: tolerance,
                     profile: Some(profile_id.clone()),
+                    equal_vias: Default::default(),
+                    impedance_tolerance: Default::default(),
+                    max_uncoupled_length: Default::default(),
+                    skew_limit_mm: Default::default(),
+                    skew_limit_ps: Default::default(),
+                    target_impedance: Default::default(),
                 });
             }
         }
@@ -439,6 +445,8 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                         height: area.height,
                     },
                     profile: Some(profile_id.clone()),
+                    footprint_ref: Default::default(),
+                    forbid: Default::default(),
                 });
             }
         }
@@ -582,6 +590,23 @@ fn find_or_create_class<'a>(
         pair_gap: None,
         nets: Vec::new(),
         profile: Some(profile_id.to_string()),
+        backdrill: Default::default(),
+        corner_radius: Default::default(),
+        current: Default::default(),
+        fast: Default::default(),
+        impedance_target: Default::default(),
+        impedance_tolerance_pct: Default::default(),
+        insulation: Default::default(),
+        line_structure: Default::default(),
+        max_length: Default::default(),
+        max_vias: Default::default(),
+        min_radius: Default::default(),
+        reference_layers: Default::default(),
+        return_path_rule: Default::default(),
+        rise_time: Default::default(),
+        target_impedance: Default::default(),
+        temperature_rise: Default::default(),
+        working_voltage: Default::default(),
     });
     p.net_classes
         .last_mut()

@@ -837,7 +837,8 @@ fn meander_one_track(p: &mut Project, next: &mut Id, opts: MeanderOpts) -> Resul
             (low > extra && low - extra <= tolerance).then_some(meander::MIN_AMPLITUDE)
         })
     };
-    let sides: &[i8] = match opts.fixed_side {
+    let fixed_side = opts.fixed_side;
+    let sides: &[i8] = match &fixed_side {
         Some(s) => std::slice::from_ref(s),
         None => &[1, -1],
     };
@@ -891,7 +892,7 @@ fn meander_one_track(p: &mut Project, next: &mut Id, opts: MeanderOpts) -> Resul
     let mut tries = vec![1, (nmax / 2).max(1), nmax];
     tries.dedup();
     for n in tries {
-        for side in sides {
+        for &side in sides {
             let run = Run { side, ..base };
             let clean = |amplitude: f64| -> Result<Option<f64>, Error> {
                 let Some(path) = meander::shape(&run, n, amplitude) else {

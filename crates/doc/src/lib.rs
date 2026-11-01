@@ -143,7 +143,7 @@ pub mod firmware_design;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
 };
-use pcbcraft_geom::{Point, positive};
+use pcbcraft_geom::{Point, point_segment, polygon_boundary_distance, positive};
 use pcbcraft_library::PadShape;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -3051,6 +3051,45 @@ impl ArtKind {
         }
     }
 }
+/// Shortest allowed stroke on a drawn layer, in millimetres.
+pub const ART_STROKE_MIN_MM: f64 = 0.001;
+
+/// True when every corner coordinate differs from every other.
+pub fn art_vertices_distinct(points: &[Point]) -> bool {
+    let distinct: BTreeSet<(u64, u64)> = points
+        .iter()
+        .map(|p| (p.x.to_bits(), p.y.to_bits()))
+        .collect();
+    distinct.len() == points.len()
+}
+
+fn art_line_endpoints_ok(start: Point, end: Point) -> bool {
+    start.valid() && end.valid() && start.distance(end) >= ART_STROKE_MIN_MM
+}
+
+fn art_text_extent(text: &str, size: f64) -> (f64, f64) {
+    let chars = text.chars().count().max(1) as f64;
+    (chars * size * 0.55, size)
+}
+
+fn art_box_distance(at: Point, min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> f64 {
+    let dx = if at.x < min_x {
+        min_x - at.x
+    } else if at.x > max_x {
+        at.x - max_x
+    } else {
+        0.0
+    };
+    let dy = if at.y < min_y {
+        min_y - at.y
+    } else if at.y > max_y {
+        at.y - max_y
+    } else {
+        0.0
+    };
+    (dx * dx + dy * dy).sqrt()
+}
+
 /// One figure drawn on a user layer, in board millimetres.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum ArtShape {
@@ -3109,6 +3148,39 @@ impl ArtShape {
         }
     }
 
+    /// Minimum distance from a board point to this figure, for canvas picking.
+    pub fn pick_distance(&self, at: Point) -> f64 {
+        match self {
+            Self::Line { start, end } => point_segment(at, *start, *end),
+            Self::Circle { center, radius } => (at.distance(*center) - *radius).abs(),
+            Self::Rect { .. } | Self::Poly { .. } => self
+                .paths()
+                .iter()
+                .map(|path| {
+                    if path.points.len() < 2 {
+                        f64::INFINITY
+                    } else if path.closed {
+                        polygon_boundary_distance(at, &path.points)
+                    } else {
+                        path.points
+                            .windows(2)
+                            .map(|pair| point_segment(at, pair[0], pair[1]))
+                            .fold(f64::INFINITY, f64::min)
+                    }
+                })
+                .fold(f64::INFINITY, f64::min),
+            Self::Text {
+                at: anchor,
+                text,
+                size,
+                ..
+            } => {
+                let (width, height) = art_text_extent(text, *size);
+                art_box_distance(at, anchor.x, anchor.y, anchor.x + width, anchor.y + height)
+            }
+        }
+    }
+
     /// The straight-line paths this figure draws, in board millimetres.
     pub fn paths(&self) -> Vec<ArtPath> {
         match self {
@@ -3157,7 +3229,7 @@ impl ArtShape {
 
     fn valid(&self) -> bool {
         match self {
-            Self::Line { start, end } => start.valid() && end.valid(),
+            Self::Line { start, end } => art_line_endpoints_ok(*start, *end),
             Self::Rect {
                 x,
                 y,
@@ -3177,7 +3249,9 @@ impl ArtShape {
             }
             Self::Circle { center, radius } => center.valid() && (0.001..=500.0).contains(radius),
             Self::Poly { points } => {
-                (2..=64).contains(&points.len()) && points.iter().all(|pt| pt.valid())
+                (2..=64).contains(&points.len())
+                    && points.iter().all(|pt| pt.valid())
+                    && art_vertices_distinct(points)
             }
             Self::Text {
                 at,
@@ -4260,6 +4334,9 @@ pub struct ProjectLibrary {
     /// do not fit in the symbol or footprint files, one record per symbol.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub part_sidecars: Vec<pcbcraft_library::PartSidecar>,
+    /// Interface rule profiles embedded in this design, overriding built-ins by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interface_profiles: Vec<InterfaceProfileEntry>,
     /// Generic part definitions copied into the project (symbol, footprint, parameters).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub part_components: Vec<pcbcraft_library::records::ComponentRecord>,
@@ -4282,6 +4359,16 @@ impl ProjectLibrary {
             return Err("project library supports at most 256 parts".into());
         }
         pcbcraft_library::records::validate_store(&self.part_components, &self.orderable_parts)?;
+        if self.interface_profiles.len() > 64 {
+            return Err("project library supports at most 64 interface profiles".into());
+        }
+        let mut profile_ids = BTreeSet::new();
+        for entry in &self.interface_profiles {
+            entry.validate()?;
+            if !profile_ids.insert(&entry.id) {
+                return Err("duplicate interface profile id in project library".into());
+            }
+        }
         if self.part_sidecars.len() > 256 {
             return Err("project library supports at most 256 part records".into());
         }
@@ -8393,6 +8480,46 @@ mod art_tests {
             .paths()
             .is_empty(),
             "text needs a stroke font, so it draws no straight path"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn art_shape_pick_distance_finds_strokes_and_labels() -> Result<(), String> {
+        let line = ArtShape::Line {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(10.0, 0.0),
+        };
+        assert!(
+            (line.pick_distance(Point::new(5.0, 0.5)) - 0.5).abs() < 1e-9,
+            "a line reads by segment distance"
+        );
+        let circle = ArtShape::Circle {
+            center: Point::new(0.0, 0.0),
+            radius: 5.0,
+        };
+        assert!(
+            (circle.pick_distance(Point::new(5.0, 0.0)) - 0.0).abs() < 1e-9,
+            "a circle reads on its radius"
+        );
+        let label = ArtShape::Text {
+            at: Point::new(1.0, 2.0),
+            text: "A".into(),
+            size: 2.0,
+            rotate: 0.0,
+        };
+        assert_eq!(
+            label.pick_distance(Point::new(1.5, 2.5)),
+            0.0,
+            "text reads inside its cap-height box"
+        );
+        assert!(
+            !art_vertices_distinct(&[Point::new(0.0, 0.0), Point::new(0.0, 0.0)]),
+            "duplicate corners are caught before a poly is stored"
+        );
+        assert!(
+            Point::new(1.0, 1.0).distance(Point::new(1.0, 1.0)) < ART_STROKE_MIN_MM,
+            "a repeated click produces a stroke shorter than the minimum"
         );
         Ok(())
     }

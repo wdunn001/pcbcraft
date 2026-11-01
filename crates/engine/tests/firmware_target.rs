@@ -33,6 +33,7 @@ fn firmware_fixture_project() -> Project {
                 electrical_type: "bidirectional".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             },
             Pin {
                 number: "PB2".into(),
@@ -42,6 +43,7 @@ fn firmware_fixture_project() -> Project {
                 electrical_type: "input".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             },
         ],
         units: vec![],
@@ -49,6 +51,13 @@ fn firmware_fixture_project() -> Project {
         library_footprint: None,
         fields: vec![],
         sheet: 0,
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     });
     project.nets.push(Net {
         id: 10,
@@ -71,7 +80,8 @@ fn a_newcomer_is_told_a_pin_cannot_do_the_function_it_was_given() -> Result<(), 
         .replace("function = \"SPI1_SCK\"", "function = \"CAN1_TX\"");
     let mut session = Session::default();
     session.project = project;
-    let peripheral = session.checks()["peripheral"]
+    let checks = session.checks();
+    let peripheral = checks["peripheral"]
         .as_array()
         .ok_or("peripheral findings missing")?;
     assert!(

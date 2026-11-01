@@ -7,7 +7,8 @@ fn missing() -> Error {
 }
 
 fn drc_codes(s: &mut Session) -> Result<Vec<String>, Error> {
-    let drc = s.checks()["drc"].as_array().ok_or_else(missing)?;
+    let checks = s.checks();
+    let drc = checks["drc"].as_array().ok_or_else(missing)?;
     Ok(drc
         .iter()
         .filter_map(|f| f["code"].as_str().map(str::to_string))

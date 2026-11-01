@@ -224,22 +224,21 @@ fn manifest_slugs_match_built_ins_and_manifest_jsonl() {
         assert_eq!(*slug, builtin.id);
     }
     let manifest = include_str!("../profiles/manifest.jsonl");
-    let manifest_slugs: std::collections::BTreeSet<&str> = manifest
+    let manifest_slugs: std::collections::BTreeSet<String> = manifest
         .lines()
         .filter(|l| !l.trim().is_empty())
         .filter_map(|line| {
-            serde_json::from_str::<serde_json::Value>(line)
-                .ok()
-                .and_then(|v| {
-                    (v["topic"].as_str() == Some("netrules"))
-                        .then_some(v["slug"].as_str())
-                        .flatten()
-                })
+            let v = serde_json::from_str::<serde_json::Value>(line).ok()?;
+            if v["topic"].as_str() == Some("netrules") {
+                v["slug"].as_str().map(str::to_owned)
+            } else {
+                None
+            }
         })
         .collect();
     for slug in slugs {
         assert!(
-            manifest_slugs.contains(slug),
+            manifest_slugs.contains(*slug),
             "manifest.jsonl missing {slug}"
         );
     }

@@ -3451,8 +3451,13 @@ name = "pcbcraft-publication"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "pcbcraft-doc",
+ "pcbcraft-io",
+ "pcbcraft-library",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
  "toml 0.8.23",
 ]
 

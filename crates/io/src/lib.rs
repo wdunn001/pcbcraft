@@ -132,7 +132,7 @@ pub use assembly_profiles::{AssemblyPlacementProfile, BottomRotationPolicy, Plac
 /// - crates/io/src/board_mesh.rs
 pub use model_align::{AutoAlignResult, COARSE_ALIGN_MM, auto_align_model, model_lead_points, shift_mesh, test_chip_mesh};
 pub use board_mesh::{BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup, ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, board_mesh_with_dir, model_matrix, with_models};
-pub use cam::{CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions, MirrorAxis as CamMirrorAxis, RubRegion, Side, Spindle, Tool, isolation_gcode, isolation_paths, rubout_paths};
+pub use cam::{CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions, MirrorAxis as CamMirrorAxis, RubRegion, Side, Spindle, Tool, isolation_gcode, isolation_options_from_value, isolation_paths, isolation_toolpaths, rubout_paths};
 pub use cam_drill::{CamProfile, CutDirection, Dialect as DrillDialect, DrillHit, DrillOptions, DrillOrder, DrillTool, OutlineCompensation, OutlineOptions, Tabs, Tool as DrillMillTool, ToolChange, drill_gcode, drill_tools, outline_gcode};
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
 pub use compliance_report::{ComplianceReportFormat, ComplianceReportOptions, RuleSetLine, SnapshotLine, WaiverLine, compliance_report_bytes, compliance_report_markdown};

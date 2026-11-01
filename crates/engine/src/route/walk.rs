@@ -252,6 +252,7 @@ pub fn skeletons(a: Point, b: Point) -> Vec<Vec<Point>> {
 }
 
 /// Why a path could not be found.
+#[derive(Debug)]
 pub enum Failure {
     OutsideBoard,
     TooClose(Id),

@@ -401,7 +401,7 @@ mod tests {
     fn part_saved_to_personal_folder_reloads_with_fields_and_alternates() -> Result<(), Error> {
         let _dir = TestDirectory::new().map_err(Error::Invalid)?;
         let personal = _dir.path.join("my-parts");
-        std::fs::create_dir_all(&personal).map_err(Error::Invalid)?;
+        std::fs::create_dir_all(&personal).map_err(|e| Error::Invalid(e.to_string()))?;
         add_folder(
             personal
                 .to_str()
@@ -423,7 +423,7 @@ mod tests {
         let footprint = pcbcraft_library::read_footprint(
             "(footprint SaveMeFP (layer F.Cu) (pad 1 smd rect (at 0 0) (size 1 1) (layers F.Cu)))",
         )
-        .map_err(Error::Invalid)?;
+        .map_err(|e| Error::Invalid(e.to_string()))?;
         s.execute(
             "library.footprint.upsert",
             json!({"definition": footprint}),

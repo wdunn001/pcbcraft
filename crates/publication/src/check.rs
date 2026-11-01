@@ -1,7 +1,7 @@
 //! Stage 0 rule checks for publication bundles.
 
 use crate::hash::{bundle_root_hash, sha256_hex};
-use crate::licence::{lineage_compatible, spdx_allowed};
+use crate::spdx::{lineage_compatible, spdx_allowed};
 use crate::manifest::{PublicationManifest, SCHEMA_VERSION};
 use crate::zip_read::{entries_map, read_stored_zip, ZipEntry};
 use pcbcraft_doc::Project;
@@ -355,7 +355,7 @@ fn normalize_confusable(text: &str) -> String {
             '\u{0441}' | '\u{0421}' => 'c',
             '\u{0445}' | '\u{0425}' => 'x',
             other if other.is_ascii_alphanumeric() => other.to_ascii_lowercase(),
-            _ => other,
+            other => other,
         })
         .collect()
 }

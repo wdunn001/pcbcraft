@@ -594,7 +594,7 @@ fn skeletons_lists_four_one_bend_routes_for_a_generic_offset() {
     let b = Point::new(4.0, 2.0);
     let routes = skeletons(a, b);
     assert_eq!(routes.len(), 4);
-    let via_diag = 2.0 + (2.0f64).hypot(2.0, 2.0);
+    let via_diag = 2.0 + (2.0f64).hypot(2.0);
     let via_l = 6.0;
     let mut lengths: Vec<f64> = routes.iter().map(|p| length(p)).collect();
     lengths.sort_by(|x, y| x.partial_cmp(y).unwrap_or(Ordering::Equal));

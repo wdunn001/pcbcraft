@@ -34,6 +34,7 @@ fn wired_project() -> Result<Project, Error> {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             },
             Pin {
                 number: "2".into(),
@@ -43,12 +44,20 @@ fn wired_project() -> Result<Project, Error> {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             },
         ],
         units: vec![],
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     });
     p.validate().map_err(|e| Error::Invalid(e.to_string()))?;
     Ok(p)
