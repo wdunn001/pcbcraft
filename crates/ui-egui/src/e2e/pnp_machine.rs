@@ -112,9 +112,9 @@ fn a_newcomer_changes_a_parts_nozzle_and_exports_the_machine_file() -> Result<()
     let sheet = std::fs::read_to_string(folder.join("pick-and-place").join("FeederSheet.csv"))
         .map_err(|e| e.to_string())?;
     assert!(top.starts_with("NEODEN,YY1,P&P FILE"), "{top}");
-    assert!(top.contains("U4,Flash,SOIC-8,"), "{top}");
+    assert!(top.contains("U4,Flash,SOIC-8_N,"), "{top}");
     assert!(
-        sheet.contains("Flash,SOIC-8,,CN400,1"),
+        sheet.contains("Flash,SOIC-8_N,,CN400,1"),
         "the feeder sheet names the new nozzle: {sheet}"
     );
     let _ = std::fs::remove_dir_all(&folder);
