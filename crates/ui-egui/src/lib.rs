@@ -9039,13 +9039,35 @@ mod tests {
     }
 
     /// Every files-on-disk side effect of a window goes below the folder its
-    /// session carries, and a session built by a test has none. This proves it
-    /// for the whole suite: the suite runs again in a child process whose
-    /// home, configuration and cache folders are empty sentinels, and any file
-    /// that shows up in one means some test reached the real folders.
+    /// session carries, and a session built by a test has none.
+    ///
+    /// Intent: no test may write into the real configuration, cache or data
+    /// folders. Two checks keep that true without running the suite twice
+    /// (the whole suite as a child took over ten minutes on a busy runner):
+    /// - a bounded set of stories that touch every path that leaked before
+    ///   (the 3D view's model cache, the open-library source cache, saved
+    ///   settings, recents, library folders, the sourcing and datasheet
+    ///   panels) runs in a child process whose home, configuration and cache
+    ///   folders are empty sentinels, and any file that shows up in one means
+    ///   a test reached the real folders;
+    /// - a source scan (`real_folders_are_named_only_where_a_session_has_a_folder`)
+    ///   fails when a new file starts naming those folders.
+    ///
+    /// Add a story's module to `COVERED` when it exercises a new on-disk path.
     #[test]
     fn the_ui_suite_leaves_the_real_configuration_folder_untouched() -> Result<(), String> {
         const INNER: &str = "PCBCRAFT_CONFIG_PROOF_INNER";
+        /// Name filters of the stories the child runs.
+        const COVERED: [&str; 8] = [
+            "e2e::board3d",
+            "e2e::files_home",
+            "e2e::settings",
+            "e2e::library::",
+            "e2e::library_dock",
+            "e2e::datasheet",
+            "e2e::online",
+            "e2e::tours_progress",
+        ];
         if std::env::var_os(INNER).is_some() {
             return Ok(());
         }
@@ -9076,8 +9098,9 @@ mod tests {
         );
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let run = std::process::Command::new(exe)
+            .args(["--test-threads=8"])
+            .args(COVERED)
             .args([
-                "--test-threads=32",
                 "--skip",
                 "the_ui_suite_leaves_the_real_configuration_folder_untouched",
             ])
@@ -9100,12 +9123,75 @@ mod tests {
             found.is_empty(),
             "the suite wrote into the real configuration folders: {found:?}"
         );
+        let ran = log
+            .lines()
+            .find_map(|l| {
+                l.strip_prefix("running ")?
+                    .split(' ')
+                    .next()?
+                    .parse::<u32>()
+                    .ok()
+            })
+            .unwrap_or(0);
+        assert!(ran >= 20, "the sentinel run ran only {ran} stories");
         assert!(
             run.status.success(),
             "the suite failed in the sentinel run:\n{}",
             tail.into_iter().rev().collect::<Vec<_>>().join("\n")
         );
         Ok(())
+    }
+
+    /// The folders of the real user are named in two places only: the open-library
+    /// source cache, which runs only for a session that carries a settings folder,
+    /// and the library workspace's cache path. A new file that names them must be
+    /// added here after checking that a test session cannot reach it.
+    #[test]
+    fn real_folders_are_named_only_where_a_session_has_a_folder() {
+        let tokens = [
+            ["default_cache", "_dir("].concat(),
+            ["from_", "environment("].concat(),
+            ["ImportCache::", "default("].concat(),
+            ["ModelCache::", "default("].concat(),
+        ];
+        let allowed = ["sources.rs", "library_workspace/mod.rs"];
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if path.file_name().is_some_and(|n| n == "e2e") {
+                        continue;
+                    }
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                let name = path
+                    .strip_prefix(&root)
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_default();
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                let code: String = text
+                    .lines()
+                    .filter(|l| !l.trim_start().starts_with("//"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if tokens.iter().any(|t| code.contains(t.as_str()))
+                    && !allowed.contains(&name.as_str())
+                {
+                    offenders.push(name);
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these files name the real user folders: {offenders:?}"
+        );
     }
 
     #[test]
