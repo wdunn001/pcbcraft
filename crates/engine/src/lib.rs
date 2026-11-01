@@ -22023,8 +22023,27 @@ mod tests {
         )?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
+        assert!(
+            s.project.board.footprints.is_empty(),
+            "a symbol with no footprint stays off the board until one is assigned"
+        );
+        let footprint = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": footprint}),
+            None,
+        )?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id": id, "name": "R_0805_2012Metric"}),
+            None,
+        )?;
         assert_eq!(s.project.board.footprints.len(), 1);
         assert_eq!(s.project.board.footprints[0].component, id);
+        s.undo()?;
+        s.undo()?;
         s.undo()?;
         assert!(s.project.components.is_empty());
         assert!(s.project.board.footprints.is_empty());

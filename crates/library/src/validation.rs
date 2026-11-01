@@ -248,7 +248,7 @@ impl FootprintDefinition {
                 || m.path.len() > 1024
                 || !m.offset.iter().all(|v| scalar(*v))
                 || !m.rotate.iter().all(|v| scalar(*v))
-                || !m.scale.iter().all(|v| scalar(*v) && *v > 0.0)
+                || !m.scale.iter().all(|v| scalar(*v) && *v != 0.0)
             {
                 return Err(bad("invalid 3D model reference"));
             }

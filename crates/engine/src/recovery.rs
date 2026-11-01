@@ -113,7 +113,8 @@ pub fn orphans(dir: &Path) -> Vec<Entry> {
         })
         .take(1000)
         .collect();
-    found.sort_by_key(|e| std::cmp::Reverse(e.saved_at));
+    // Snapshots saved in the same second order by their id, whose last part counts up.
+    found.sort_by_key(|e| std::cmp::Reverse((e.saved_at, e.id.len(), e.id.clone())));
     found
 }
 
