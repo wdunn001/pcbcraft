@@ -306,7 +306,9 @@ impl Controller {
                     if meta.workspace != ws || !self.session.visits.contains(&ws) {
                         continue;
                     }
-                    if self.session.chip_dismissed.contains(&meta.id) {
+                    if self.session.chip_dismissed.contains(&meta.id)
+                        || self.session.version_chip_shown.contains(&meta.id)
+                    {
                         continue;
                     }
                     if tour_finished(view.progress.get(&meta.id), meta.version) {

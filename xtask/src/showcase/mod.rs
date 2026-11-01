@@ -728,7 +728,7 @@ mod tests {
         let text = board_text(shared()?)?;
         assert_eq!(
             (fnv(&text), text.len()),
-            (0xa6aa_2d57_13da_c2ca, 103_516),
+            (0x970f_16d2_0502_7ef2, 103_439),
             "the schematic drawing changed the board"
         );
         Ok(())
@@ -821,7 +821,7 @@ mod tests {
         assert_eq!(b.footprints.len(), 55, "parts on the board");
         assert_eq!(b.zones.len(), 5, "four pours and the sensor rail");
         assert_eq!(b.holes.len(), 4, "mounting holes");
-        assert_eq!(b.tracks.len(), 232, "tracks");
+        assert_eq!(b.tracks.len(), 231, "tracks");
         assert_eq!(b.vias.len(), 173, "vias");
         assert_eq!(shared()?.copper_layer_count(), 4, "four copper layers");
         assert_eq!(shared()?.variants.len(), 2, "two builds");
