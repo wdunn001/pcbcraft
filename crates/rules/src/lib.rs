@@ -1,4 +1,13 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
+//!
+//! # Rules
+//! - One finding per rule violation; objects list every relevant id.
+//! - A finding code never changes once published; severities are per-project overrides.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs
+//! - crates/geom/src/lib.rs
+//!
 use pcbcraft_doc::{
     ArtKind, ArtShape, Board, Component, FabRules, Footprint, Id, Layer, PANEL_ASSEMBLER_MAX_MM,
     PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM,
@@ -40,6 +49,8 @@ pub use compliance::{
 pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
 
 #[derive(Clone, Debug, Serialize)]
+/// One check result: a rule code, severity, message and the objects involved.
+/// Severity is stored as a string so it can be overridden per project.
 pub struct Finding {
     pub code: &'static str,
     pub severity: String,
@@ -117,6 +128,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
 ];
 
 #[derive(Clone, Debug, Serialize)]
+/// A connection to route: two endpoints on the same net.
 pub struct Airwire {
     pub net: Id,
     pub from: Point,
@@ -1023,6 +1035,7 @@ fn airwires_from(items: &[Copper]) -> Vec<Airwire> {
     }
     result
 }
+/// Airwires for nets that have copper on both ends but no track between them.
 pub fn airwires(project: &Project) -> Vec<Airwire> {
     airwires_from(&copper(project))
 }
@@ -1044,6 +1057,7 @@ fn word_tvs(text: &str) -> bool {
         .any(|w| w == "tvs")
 }
 
+/// True when the component is an ESD transient-voltage suppressor.
 pub fn is_tvs(component: &Component) -> bool {
     if component.kind == "tvs" {
         return true;
@@ -1201,6 +1215,7 @@ pub fn peripheral(project: &Project) -> Vec<Finding> {
     peripheral::peripheral(project)
 }
 
+/// Electrical rule checks: pin conflicts, undriven inputs, decoupling and pull-ups.
 pub fn erc(project: &Project) -> Vec<Finding> {
     // A board imported without a schematic has no pins to check.
     if project.board_only {
@@ -1823,6 +1838,7 @@ pub fn copper_conflicts(project: &Project, ids: &[Id]) -> Vec<Finding> {
     found.retain(|f| !project.rule_disabled(f.code));
     found
 }
+/// Geometric and fabrication checks: clearance, track width, vias, panel and silkscreen.
 pub fn drc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
     let items = copper(project);
@@ -2482,6 +2498,7 @@ fn pad_annular_ring(rules: &FabRules, pad: &Pad) -> Option<f64> {
 /// Deepest hole, as a ratio of span depth to drill, a mechanical drill makes.
 const MECHANICAL_ASPECT_LIMIT: f64 = 8.0;
 
+/// Warning when the via depth to drill ratio is too high to plate reliably.
 pub fn via_aspect_warning(project: &Project, via: &pcbcraft_doc::Via) -> Option<String> {
     let board = &project.board;
     let depth = if project.via_kind(via) == ViaKind::Through && board.layer_records.is_empty() {
