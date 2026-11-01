@@ -388,9 +388,10 @@ impl State {
         let viewport = ui.available_rect_before_wrap();
         let mut scale = self.scale;
         if self.fit_width
-            && let Ok(size) = doc.page_size_pt(0) {
-                scale = (viewport.width() / page_width_px(size, 1.0)).clamp(0.2, 6.0);
-            }
+            && let Ok(size) = doc.page_size_pt(0)
+        {
+            scale = (viewport.width() / page_width_px(size, 1.0)).clamp(0.2, 6.0);
+        }
         self.scale = scale;
         let heights = self.page_heights(scale);
         let total_h = scroll_height(&heights);

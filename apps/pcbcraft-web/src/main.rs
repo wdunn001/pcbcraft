@@ -213,18 +213,15 @@ fn show_crash_notice() {
 /// - Read files from disk; the browser has none.
 #[cfg(any(target_arch = "wasm32", test))]
 fn opening_session(storage: Option<&dyn eframe::Storage>) -> pcbcraft_engine::Session {
-    if let Some(text) = storage.and_then(|storage| storage.get_string("recovery")) {
-        if text.len() <= pcbcraft_io_limit() {
-            if let Ok(project) = serde_json::from_str::<pcbcraft_doc::Project>(&text) {
-                if project.validate().is_ok() {
+    if let Some(text) = storage.and_then(|storage| storage.get_string("recovery"))
+        && text.len() <= pcbcraft_io_limit()
+            && let Ok(project) = serde_json::from_str::<pcbcraft_doc::Project>(&text)
+                && project.validate().is_ok() {
                     let mut session = pcbcraft_engine::Session::default();
                     if session.replace(project).is_ok() {
                         return session;
                     }
                 }
-            }
-        }
-    }
     demo_session()
 }
 
@@ -234,6 +231,7 @@ fn demo_session() -> pcbcraft_engine::Session {
     pcbcraft_engine::Session::sample().unwrap_or_default()
 }
 
+#[allow(dead_code)]
 fn pcbcraft_io_limit() -> usize {
     8 * 1024 * 1024
 }
@@ -268,13 +266,10 @@ mod tests {
     }
 
     #[test]
-    fn reload_restores_a_saved_project_over_the_demo_board() {
+    fn reload_restores_a_saved_project_over_the_demo_board() -> Result<(), String> {
         let demo = Session::sample().unwrap_or_default();
         let shared = pcbcraft_mcp::shared(demo);
-        let Ok(mut session) = shared.lock() else {
-            assert!(false, "lock session");
-            return;
-        };
+        let mut session = shared.lock().map_err(|_| "lock session".to_string())?;
         assert!(
             session
                 .execute(
@@ -287,10 +282,7 @@ mod tests {
         );
         let saved = session.project.clone();
         drop(session);
-        let Ok(recovery) = serde_json::to_string(&saved) else {
-            assert!(false, "serialize recovery");
-            return;
-        };
+        let recovery = serde_json::to_string(&saved).map_err(|e| format!("serialize recovery: {e}"))?;
         let storage = MapStorage(BTreeMap::from([("recovery".into(), recovery)]));
         let opened = opening_session(Some(&storage));
         assert!(
@@ -301,6 +293,7 @@ mod tests {
                 .any(|c| (c.position.x - 99.0).abs() < 0.01),
             "recovery should replace the demo board"
         );
+        Ok(())
     }
 
     /// The paragraph in index.html says what the catalog says.

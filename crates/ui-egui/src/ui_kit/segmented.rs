@@ -132,7 +132,7 @@ fn next_enabled(current: usize, items: &[Segment<'_>], step: i32) -> usize {
         return current.min(items.len().saturating_sub(1));
     }
     let pos = enabled.iter().position(|&i| i == current).unwrap_or(0);
-    
+
     if step >= 0 {
         enabled[(pos + 1).min(enabled.len() - 1)]
     } else {
@@ -215,9 +215,10 @@ pub fn segmented_styled(
     }
     *selected = (*selected).min(count - 1);
     if items[*selected].disabled.is_some()
-        && let Some(&first) = enabled_indices(items).first() {
-            *selected = first;
-        }
+        && let Some(&first) = enabled_indices(items).first()
+    {
+        *selected = first;
+    }
     let panel_width = ui.max_rect().width();
     let icons_only = panel_width < ICON_ONLY_BREAK && items.iter().all(|s| s.icon.is_some());
     let total = if style.full_width {
@@ -301,15 +302,16 @@ pub fn segmented_styled(
         }
     }
     if outer.clicked()
-        && let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            for (i, rect) in rects.iter().enumerate() {
-                if rect.contains(pos) && items[i].disabled.is_none() && i != *selected {
-                    *selected = i;
-                    outer.mark_changed();
-                    break;
-                }
+        && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+    {
+        for (i, rect) in rects.iter().enumerate() {
+            if rect.contains(pos) && items[i].disabled.is_none() && i != *selected {
+                *selected = i;
+                outer.mark_changed();
+                break;
             }
         }
+    }
     let pointer = ui.input(|i| i.pointer.hover_pos());
     paint(
         ui,

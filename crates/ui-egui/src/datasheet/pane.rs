@@ -371,12 +371,13 @@ impl Pane {
         }
         if let Some(doc) = self.doc.as_ref()
             && let Ok(label) = doc.page_plain_text(self.page)
-                && !label.is_empty() {
-                    ui.ctx()
-                        .accesskit_node_builder(self.page_response_id, |node| {
-                            node.set_label(label);
-                        });
-                }
+            && !label.is_empty()
+        {
+            ui.ctx()
+                .accesskit_node_builder(self.page_response_id, |node| {
+                    node.set_label(label);
+                });
+        }
         self.ensure_texture(ctx);
         let tex = self.texture.as_ref().map(|(_, h)| h.clone());
         let available = ui.available_size();
@@ -406,13 +407,15 @@ impl Pane {
             }
         }
         if response.dragged()
-            && let Some(pos) = response.interact_pointer_pos() {
-                let (x, y) = self.screen_to_page(rect, pos);
-                if let Some(focus) = char_at_point(&self.layer, x, y)
-                    && let Some(sel) = &mut self.selection {
-                        sel.focus = focus;
-                    }
+            && let Some(pos) = response.interact_pointer_pos()
+        {
+            let (x, y) = self.screen_to_page(rect, pos);
+            if let Some(focus) = char_at_point(&self.layer, x, y)
+                && let Some(sel) = &mut self.selection
+            {
+                sel.focus = focus;
             }
+        }
         if response.clicked() {
             let (x, y) =
                 self.screen_to_page(rect, response.interact_pointer_pos().unwrap_or(rect.min));

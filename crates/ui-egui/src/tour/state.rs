@@ -219,7 +219,8 @@ impl Controller {
 
     #[cfg(test)]
     pub fn test_quiet_tab_changes(&mut self) {
-        self.session.tab_changed_at = Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_secs(1));
+        self.session.tab_changed_at =
+            Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_secs(1));
     }
 
     pub fn note_tab_change(&mut self, now: Instant) {
@@ -504,7 +505,9 @@ mod tests {
             workspace: Some(WorkspaceId::Layout),
             progress,
             first_launch_done: false,
-            tab_changed_at: Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1)),
+            tab_changed_at: Some(
+                pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1),
+            ),
         }
     }
 
@@ -576,7 +579,9 @@ mod tests {
             workspace: Some(WorkspaceId::Layout),
             progress: &progress,
             first_launch_done: true,
-            tab_changed_at: Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1)),
+            tab_changed_at: Some(
+                pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1),
+            ),
         };
         ctrl.sync_triggers(view, pcbcraft_clock::instant_now());
         let offer = ctrl.pending_offer().ok_or("expected version chip")?;

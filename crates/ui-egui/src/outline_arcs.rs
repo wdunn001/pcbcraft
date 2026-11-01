@@ -48,10 +48,10 @@ impl OutlineUi {
             self.convex = true;
             if let Some(seg) = self.segment
                 && let Some(points) = project.board.outline.as_ref()
-                    && let Some(arc) = segment_arc(points, &project.board.outline_arcs, seg)
-                {
-                    self.radius = arc.radius;
-                }
+                && let Some(arc) = segment_arc(points, &project.board.outline_arcs, seg)
+            {
+                self.radius = arc.radius;
+            }
         }
     }
 
@@ -268,20 +268,20 @@ impl App {
             return;
         };
         if response.drag_started_by(egui::PointerButton::Primary)
-            && let Some(hit) = pick_at(&self.project, pos, zoom) {
-                self.edit.press = None;
-                self.select(None);
-                self.outline_ui.pick(hit, &self.project);
-                self.outline_ui.drag = Some(match hit {
-                    OutlineHit::Vertex(i) => OutlineDrag::Vertex(i),
-                    OutlineHit::ArcMid(i) | OutlineHit::Segment(i) => OutlineDrag::ArcMid(i),
-                });
-                self.outline_ui.drag_preview = Some(crate::canvas::snap(pos));
-            }
-        if response.dragged_by(egui::PointerButton::Primary)
-            && self.outline_ui.drag.is_some() {
-                self.outline_ui.drag_preview = Some(crate::canvas::snap(pos));
-            }
+            && let Some(hit) = pick_at(&self.project, pos, zoom)
+        {
+            self.edit.press = None;
+            self.select(None);
+            self.outline_ui.pick(hit, &self.project);
+            self.outline_ui.drag = Some(match hit {
+                OutlineHit::Vertex(i) => OutlineDrag::Vertex(i),
+                OutlineHit::ArcMid(i) | OutlineHit::Segment(i) => OutlineDrag::ArcMid(i),
+            });
+            self.outline_ui.drag_preview = Some(crate::canvas::snap(pos));
+        }
+        if response.dragged_by(egui::PointerButton::Primary) && self.outline_ui.drag.is_some() {
+            self.outline_ui.drag_preview = Some(crate::canvas::snap(pos));
+        }
         if response.drag_stopped_by(egui::PointerButton::Primary) {
             let Some(drag) = self.outline_ui.drag.take() else {
                 return;

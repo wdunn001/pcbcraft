@@ -1355,8 +1355,7 @@ impl App {
         }
         let path = path.trim();
         if path.is_empty() {
-            self.library.editor.notice =
-                Some(t!("library.project_library.export_path_required"));
+            self.library.editor.notice = Some(t!("library.project_library.export_path_required"));
             return;
         }
         let params = json!({"kind": kind, "path": path, "names": names});

@@ -10,9 +10,9 @@ pub mod playback;
 pub mod replay;
 pub mod state;
 
-pub(crate) use offer::paint_offers;
-pub(crate) use state::{Controller, WorkspaceId};
 #[cfg(test)]
 pub(crate) use layout::step_layout;
+pub(crate) use offer::paint_offers;
 #[cfg(test)]
 pub(crate) use state::Trigger;
+pub(crate) use state::{Controller, WorkspaceId};

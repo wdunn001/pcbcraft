@@ -186,10 +186,11 @@ fn openai_completion_to_sse(json_body: &str) -> String {
     if let Some(t) = v
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
-        && !t.is_empty() {
-            let line = json!({"choices": [{"delta": {"content": t}}]});
-            out.push_str(&format!("data: {line}\n\n"));
-        }
+        && !t.is_empty()
+    {
+        let line = json!({"choices": [{"delta": {"content": t}}]});
+        out.push_str(&format!("data: {line}\n\n"));
+    }
     if let Some(calls) = v
         .pointer("/choices/0/message/tool_calls")
         .and_then(Value::as_array)

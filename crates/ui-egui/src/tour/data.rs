@@ -146,9 +146,10 @@ fn validate_with_catalog(doc: &Doc, keys: &BTreeSet<String>) -> Result<(), Strin
             require_catalog_key(keys, &step.title, &format!("{ctx} title"))?;
             require_catalog_key(keys, &step.body, &format!("{ctx} body"))?;
             if let Some(cond) = &step.condition
-                && !CONDITIONS.contains(&cond.as_str()) {
-                    return Err(format!("{ctx}: unknown condition `{cond}`"));
-                }
+                && !CONDITIONS.contains(&cond.as_str())
+            {
+                return Err(format!("{ctx}: unknown condition `{cond}`"));
+            }
             if let Some(wait) = &step.wait_for {
                 validate_wait_for(wait, &command_ids)
                     .map_err(|reason| format!("{ctx}: {reason}"))?;

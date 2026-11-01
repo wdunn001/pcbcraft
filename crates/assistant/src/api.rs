@@ -573,9 +573,10 @@ impl Worker {
                 return text;
             }
             if http_result.is_none()
-                && let Ok(r) = rx.try_recv() {
-                    http_result = Some(r);
-                }
+                && let Ok(r) = rx.try_recv()
+            {
+                http_result = Some(r);
+            }
             if let Some(Ok(resp)) = &http_result {
                 let (status, bytes) = (&resp.status, &resp.body);
                 // A streamed reply with an empty body waits for [`HttpStreamPart::End`].

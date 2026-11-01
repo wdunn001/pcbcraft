@@ -405,7 +405,9 @@ mod tests {
 
     #[test]
     fn overlay_stays_inside_the_frame_budget() -> Result<(), String> {
-        let _turn = AFFORDANCE_BUDGET_TEST_LOCK.lock().map_err(|e| format!("{}: {e:?}", "budget lock"))?;
+        let _turn = AFFORDANCE_BUDGET_TEST_LOCK
+            .lock()
+            .map_err(|e| format!("{}: {e:?}", "budget lock"))?;
         let ctx = egui::Context::default();
         let shape = part();
         // A busy net: 200 other segments glow faintly.

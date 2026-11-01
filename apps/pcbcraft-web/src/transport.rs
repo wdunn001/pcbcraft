@@ -18,6 +18,7 @@
 //! # Do not
 //! - Use `async`/`.await` inside `Fetcher::get` (no async-to-sync bridge).
 
+#[cfg(target_arch = "wasm32")]
 use pcbcraft_library::cad::MAX_FILE_BYTES;
 use pcbcraft_library::open_library::{FetchError, Fetcher};
 use std::collections::BTreeMap;
@@ -181,6 +182,7 @@ impl BrowserTransport {
         }
     }
 
+    #[allow(irrefutable_let_patterns)]
     fn drain_recorded_one(&self) {
         let Backend::Recorded { index, base } = &self.inner.backend else {
             return;
@@ -459,6 +461,7 @@ impl Fetcher for PollingFetcher {
     }
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 fn encode_path(text: &str) -> String {
     text.split('/')
         .map(|part| {

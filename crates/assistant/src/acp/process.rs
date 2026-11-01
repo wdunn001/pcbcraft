@@ -307,7 +307,11 @@ mod tests {
         let mut p = AgentProcess::spawn(&argv, &dir, &[], || {}).map_err(|e| format!("{e:?}"))?;
         let mut pids = vec![p.pid().ok_or("missing value")?];
         while pids.len() < 3 {
-            match p.from_agent.recv_timeout(Duration::from_secs(10)).map_err(|e| format!("{e:?}"))? {
+            match p
+                .from_agent
+                .recv_timeout(Duration::from_secs(10))
+                .map_err(|e| format!("{e:?}"))?
+            {
                 FromAgent::Line(l) => pids.push(l.trim().parse().map_err(|e| format!("{e:?}"))?),
                 FromAgent::Exited(tail) => {
                     return Err(format!("the fake agent ended early: {tail:?}"));
@@ -357,9 +361,14 @@ mod tests {
             "-c".to_string(),
             "sleep 300 & echo $!; wait".to_string(),
         ];
-        let p = AgentProcess::spawn(&argv, &std::env::temp_dir(), &[], || {}).map_err(|e| format!("{e:?}"))?;
+        let p = AgentProcess::spawn(&argv, &std::env::temp_dir(), &[], || {})
+            .map_err(|e| format!("{e:?}"))?;
         let leader = p.pid().ok_or("missing value")?;
-        let FromAgent::Line(l) = p.from_agent.recv_timeout(Duration::from_secs(10)).map_err(|e| format!("{e:?}"))? else {
+        let FromAgent::Line(l) = p
+            .from_agent
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|e| format!("{e:?}"))?
+        else {
             return Err("no helper id".to_string());
         };
         let helper: u32 = l.trim().parse().map_err(|e| format!("{e:?}"))?;

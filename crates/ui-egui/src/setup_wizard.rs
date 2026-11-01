@@ -69,7 +69,6 @@ impl Default for State {
 
 impl State {
     pub fn open_for_project(project: &Project) -> Self {
-        
         Self {
             width: project.board.width,
             height: project.board.height,

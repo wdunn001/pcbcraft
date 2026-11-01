@@ -460,11 +460,10 @@ fn parse_sse_json(raw: &[u8]) -> Result<Value, String> {
                 data.push_str(rest.trim());
             }
         }
-        if (event == "message" || event.is_empty())
-            && !data.is_empty() {
-                return serde_json::from_str(&data)
-                    .map_err(|_| "The event data was not valid JSON.".into());
-            }
+        if (event == "message" || event.is_empty()) && !data.is_empty() {
+            return serde_json::from_str(&data)
+                .map_err(|_| "The event data was not valid JSON.".into());
+        }
     }
     Err("The retrieval service sent no JSON message.".into())
 }
@@ -514,9 +513,10 @@ fn session_from_response(response: &HttpResponse) -> Option<String> {
 
 pub(crate) fn merge_session(reply: &mut Value, response: &HttpResponse) {
     if let Some(sid) = session_from_response(response)
-        && let Some(obj) = reply.as_object_mut() {
-            obj.insert("_session".into(), json!(sid));
-        }
+        && let Some(obj) = reply.as_object_mut()
+    {
+        obj.insert("_session".into(), json!(sid));
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -672,7 +672,8 @@ mod tests {
     #[test]
     fn register_tool_name_maps_search_knowledge_to_itself() -> Result<(), String> {
         let list = pcbcraft_mcp::tool_list();
-        let mut names = crate::tool_names::ToolNames::from_list(&list).map_err(|e| format!("{}: {e:?}", "tool names"))?;
+        let mut names = crate::tool_names::ToolNames::from_list(&list)
+            .map_err(|e| format!("{}: {e:?}", "tool names"))?;
         register_tool_name(&mut names);
         assert_eq!(names.mcp_name(MODEL_TOOL_NAME), Some(MODEL_TOOL_NAME));
         Ok(())

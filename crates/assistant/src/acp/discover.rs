@@ -543,8 +543,10 @@ mod tests {
                 "POST" => {
                     assert_eq!(request.url, "http://localhost:11434/api/show");
                     assert_eq!(
-                        serde_json::from_slice::<serde_json::Value>(request.body.as_ref().ok_or("missing value")?)
-                            .map_err(|e| format!("{e:?}"))?,
+                        serde_json::from_slice::<serde_json::Value>(
+                            request.body.as_ref().ok_or("missing value")?
+                        )
+                        .map_err(|e| format!("{e:?}"))?,
                         json!({"model":"chat:4b"})
                     );
                     Ok(crate::backend::HttpResponse::ok(
@@ -628,16 +630,29 @@ mod tests {
     fn signed_in_comes_from_the_agents_own_file_or_a_key_variable() -> Result<(), String> {
         let home = std::env::temp_dir().join(format!("sc-agent-login-{}", std::process::id()));
         std::fs::create_dir_all(home.join(".gemini")).map_err(|e| format!("{e:?}"))?;
-        let gemini = KNOWN.iter().find(|k| k.id == "gemini").ok_or("missing value")?;
-        let qwen = KNOWN.iter().find(|k| k.id == "qwen").ok_or("missing value")?;
-        let goose = KNOWN.iter().find(|k| k.id == "goose").ok_or("missing value")?;
-        let grok = KNOWN.iter().find(|k| k.id == "grok").ok_or("missing value")?;
+        let gemini = KNOWN
+            .iter()
+            .find(|k| k.id == "gemini")
+            .ok_or("missing value")?;
+        let qwen = KNOWN
+            .iter()
+            .find(|k| k.id == "qwen")
+            .ok_or("missing value")?;
+        let goose = KNOWN
+            .iter()
+            .find(|k| k.id == "goose")
+            .ok_or("missing value")?;
+        let grok = KNOWN
+            .iter()
+            .find(|k| k.id == "grok")
+            .ok_or("missing value")?;
         if std::env::var_os("GEMINI_API_KEY").is_none()
             && std::env::var_os("GOOGLE_API_KEY").is_none()
         {
             assert_eq!(login_of(gemini, Some(&home)), Login::NotLoggedIn);
         }
-        std::fs::write(home.join(".gemini/oauth_creds.json"), "{}").map_err(|e| format!("{e:?}"))?;
+        std::fs::write(home.join(".gemini/oauth_creds.json"), "{}")
+            .map_err(|e| format!("{e:?}"))?;
         assert_eq!(login_of(gemini, Some(&home)), Login::LooksLoggedIn);
         if std::env::var_os("DASHSCOPE_API_KEY").is_none() {
             assert_eq!(login_of(qwen, Some(&home)), Login::NotLoggedIn);
@@ -651,7 +666,10 @@ mod tests {
             assert_eq!(login_of(grok, Some(&home)), Login::NotLoggedIn);
         }
         // Antigravity's server keeps its own login, apart from the retired Gemini CLI's.
-        let agy = KNOWN.iter().find(|k| k.id == "antigravity").ok_or("missing value")?;
+        let agy = KNOWN
+            .iter()
+            .find(|k| k.id == "antigravity")
+            .ok_or("missing value")?;
         if std::env::var_os("GEMINI_API_KEY").is_none() {
             assert_eq!(
                 login_of(agy, Some(&home)),
@@ -659,7 +677,8 @@ mod tests {
                 "the Gemini CLI's file is not its login"
             );
         }
-        std::fs::create_dir_all(home.join(".gemini/antigravity-acp")).map_err(|e| format!("{e:?}"))?;
+        std::fs::create_dir_all(home.join(".gemini/antigravity-acp"))
+            .map_err(|e| format!("{e:?}"))?;
         std::fs::write(
             home.join(".gemini/antigravity-acp/acp_token.json"),
             "not credential data",
@@ -668,7 +687,8 @@ mod tests {
         assert_eq!(login_of(agy, Some(&home)), Login::LooksLoggedIn);
         std::fs::create_dir_all(home.join(".grok")).map_err(|e| format!("{e:?}"))?;
         // Discovery checks only for the file; it never needs to parse the user's tokens.
-        std::fs::write(home.join(".grok/auth.json"), "not credential data").map_err(|e| format!("{e:?}"))?;
+        std::fs::write(home.join(".grok/auth.json"), "not credential data")
+            .map_err(|e| format!("{e:?}"))?;
         assert_eq!(login_of(grok, Some(&home)), Login::LooksLoggedIn);
         let _ = std::fs::remove_dir_all(home);
         Ok(())
