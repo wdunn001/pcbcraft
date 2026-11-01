@@ -17304,7 +17304,7 @@ fn run_command(
                         if a.net.is_some_and(|n| t.net != n) || !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "net": t.net, "layer": t.layer}));
+                        found.push(json!({"id": t.id, "net": t.net, "layer": p.layer_name(t.layer)}));
                     }
                 }
                 "via" => {
@@ -17321,7 +17321,7 @@ fn run_command(
                             continue;
                         }
                         found.push(
-                            json!({"id": z.id, "net": z.net, "layer": z.layer, "filled": z.filled}),
+                            json!({"id": z.id, "net": z.net, "layer": p.layer_name(z.layer), "filled": z.filled}),
                         );
                     }
                 }
@@ -17352,7 +17352,7 @@ fn run_command(
                         if !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "text": t.text, "layer": t.layer}));
+                        found.push(json!({"id": t.id, "text": t.text, "layer": p.layer_name(t.layer)}));
                     }
                 }
                 "component" => {
@@ -38440,7 +38440,10 @@ mod tests {
                 s.execute("machine.add", json!({"preset": preset}), None)?;
             }
         }
-        assert_eq!(s.project.machine_profiles.len(), 5);
+        assert_eq!(
+            s.project.machine_profiles.len(),
+            pcbcraft_io::builtin_machine_profile_ids().len()
+        );
         assert!(
             s.execute("machine.add", json!({"preset":"commarker-b6-mopa"}), None)
                 .is_err()
@@ -44134,7 +44137,10 @@ mod tests {
         assert!(s.project.is_bottom(track.layer));
         assert_eq!(s.project.layer_name(track.layer), "B.Cu");
         let found = s.execute("items.find", json!({"kind":"track","layer":"B.Cu"}), None)?;
-        assert_eq!(found["result"][0]["layer"], "B.Cu", "{found} after {added}");
+        assert_eq!(
+            found["result"]["items"][0]["layer"], "B.Cu",
+            "{found} after {added}"
+        );
         // The layer it lands on in fabrication output is the last copper file.
         let bottom = pcbcraft_io::gerber_copper(&s.project, s.project.bottom_layer())
             .map_err(Error::Invalid)?;
