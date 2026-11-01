@@ -9,6 +9,11 @@ pub fn command_lock_scope(project: &Project, command: &str, params: &Value) -> S
 
 /// Commands that only read the design and never join a room batch.
 pub(super) fn room_read_only(id: &str) -> bool {
+    reads_the_design(id) || host_file_command(id)
+}
+
+/// Commands that read the design and change nothing in it.
+pub(crate) fn reads_the_design(id: &str) -> bool {
     matches!(
         id,
         "design.summary"
@@ -77,21 +82,25 @@ pub(super) fn room_read_only(id: &str) -> bool {
         || id.ends_with(".generate")
         || id.starts_with("file.")
         || id.starts_with("view.")
-        || matches!(
-            id,
-            "project.export_archive"
-                | "project.import_archive"
-                | "output_job.package"
-                | "output_job.run"
-                | "artifact.export"
-                | "library.import_footprint_file"
-                | "library.import_symbol_file"
-                | "library.import_footprint_dir"
-                | "library.import_symbol_dir"
-                | "library.load"
-                | "library.import_online"
-                | "library.place_online"
-        )
+}
+
+/// Commands that read or write host files, so a shared room cannot replay them.
+fn host_file_command(id: &str) -> bool {
+    matches!(
+        id,
+        "project.export_archive"
+            | "project.import_archive"
+            | "output_job.package"
+            | "output_job.run"
+            | "artifact.export"
+            | "library.import_footprint_file"
+            | "library.import_symbol_file"
+            | "library.import_footprint_dir"
+            | "library.import_symbol_dir"
+            | "library.load"
+            | "library.import_online"
+            | "library.place_online"
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

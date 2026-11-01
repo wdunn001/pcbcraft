@@ -7,6 +7,7 @@ mod scopes;
 
 pub use apply::{OrderedRoomApply, RoomOp};
 pub use scopes::command_lock_scope;
+pub(crate) use scopes::reads_the_design;
 
 use crate::{Error, Session};
 use serde_json::Value;

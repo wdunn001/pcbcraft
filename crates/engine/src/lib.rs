@@ -8418,7 +8418,7 @@ fn command_never_edits(command: &str) -> bool {
     matches!(
         command,
         "library.export" | "selection.copy_text" | "plugins.export" | "plugins.list"
-    ) || !collab::shareable_room_command(command)
+    ) || collab::reads_the_design(command)
 }
 
 fn missing() -> Error {
