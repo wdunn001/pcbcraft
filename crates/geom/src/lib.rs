@@ -359,7 +359,7 @@ pub fn hatch(rings: &[Ring], spacing_mm: f64, angle_deg: f64) -> Vec<(Point, Poi
             }
         }
         hits.sort_by(f64::total_cmp);
-        for pair in hits.chunks_exact(2) {
+        for pair in hits.windows(2).step_by(2) {
             let (t0, t1) = (pair[0], pair[1]);
             if t1 - t0 < 1e-9 {
                 continue;
