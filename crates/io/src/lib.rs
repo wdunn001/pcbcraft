@@ -11252,42 +11252,54 @@ mod tests {
         });
         project.validate()?;
         let text = ipc2581_text(&project)?;
+        validate_ipc2581_document(&text)?;
         assert!(
             text.starts_with(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<EDA3D version=\"IPC-2581\""
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<IPC-2581 revision=\"C\""
             ),
             "the document opens as XML naming the standard"
         );
         assert!(
-            text.contains("<NET name=\"P&amp;&amp;R\">"),
+            text.contains("<LogicalNet name=\"P&amp;&amp;R\">"),
             "net names are escaped for XML"
         );
         assert!(
-            text.contains("<PIN id=\"R5.1\"/>") && text.contains("<PIN id=\"U1.1\"/>"),
+            text.contains("<PinRef componentRef=\"R5\" pin=\"1\"/>")
+                && text.contains("<PinRef componentRef=\"U1\" pin=\"1\"/>"),
             "the net lists the pins that share it"
         );
+        let u1 = text
+            .lines()
+            .position(|l| l.starts_with("<Component refDes=\"U1\" packageRef="))
+            .ok_or("U1 is not placed")?;
         assert!(
-            text.contains("<COMPONENT ref=\"U1\" package=\"resistor\" x=\"20.000\" y=\"15.000\""),
+            text.lines()
+                .nth(u1 + 1)
+                .is_some_and(|l| l == "<Location x=\"20.000000\" y=\"15.000000\"/>"),
             "placed parts carry their reference, package and position"
         );
         assert!(
-            text.contains("<TRACK start_x=\"11.000\"") && text.contains("net=\"P&amp;&amp;R\""),
+            text.contains("<Set net=\"P&amp;&amp;R\">")
+                && text.contains("<PolyBegin x=\"11.000000\" y=\"8.000000\"/>"),
             "front copper is listed with its net"
         );
         assert!(
-            text.contains("drill=\"0.300\"") && text.contains("plated=\"true\""),
+            text.contains("platingStatus=\"VIA\"") && text.contains("diameter=\"0.300000\""),
             "the plated via is a hole"
         );
         assert!(
-            text.contains("drill=\"3.000\" plated=\"false\"")
-                || text.contains("diameter=\"3.000\" plated=\"false\""),
+            text.contains("diameter=\"3.000000\" platingStatus=\"NONPLATED\""),
             "the unplated mounting hole is marked unplated"
         );
         assert!(
-            text.contains("<LAYER name=\"circuit1\" copper=\"B.Cu\">"),
+            text.contains("<LayerFeature layerRef=\"F.Cu\">")
+                && text.contains("<LayerFeature layerRef=\"B.Cu\">"),
             "both copper layers get their own section"
         );
-        assert!(text.ends_with("</EDA3D>\n"), "the document closes cleanly");
+        assert!(
+            text.ends_with("</IPC-2581>\n"),
+            "the document closes cleanly"
+        );
         Ok(())
     }
 
@@ -11301,58 +11313,59 @@ mod tests {
         rest[..end].parse().map_err(|_| format!("invalid {name}"))
     }
 
+    /// Length of the first routed polyline of the exchange file: straight steps
+    /// by chord, curved steps by the arc from the recorded centre and direction.
     fn ipc2581_exported_track_length_mm(text: &str) -> Result<f64, String> {
-        if let Some(line) = text.lines().find(|l| l.starts_with("<TRACK ")) {
-            let sx = ipc2581_attr(line, "start_x")?;
-            let sy = ipc2581_attr(line, "start_y")?;
-            let ex = ipc2581_attr(line, "end_x")?;
-            let ey = ipc2581_attr(line, "end_y")?;
-            if line.contains("center_x=\"") {
-                let cx = ipc2581_attr(line, "center_x")?;
-                let cy = ipc2581_attr(line, "center_y")?;
-                let clockwise = line.contains("clockwise=\"true\"");
-                let start = Point::new(sx, sy);
-                let end = Point::new(ex, ey);
-                let center = Point::new(cx, cy);
-                let radius = start.distance(center);
-                if !pcbcraft_geom::positive(radius) {
-                    return Err("arc radius is missing".into());
-                }
-                let a0 = (start.y - center.y).atan2(start.x - center.x);
-                let a1 = (end.y - center.y).atan2(end.x - center.x);
-                let mut sweep = a1 - a0;
-                if clockwise {
-                    while sweep >= 0.0 {
-                        sweep -= std::f64::consts::TAU;
-                    }
-                } else {
-                    while sweep <= 0.0 {
-                        sweep += std::f64::consts::TAU;
-                    }
-                }
-                return Ok(radius * sweep.abs());
-            }
-            return Ok(Point::new(sx, sy).distance(Point::new(ex, ey)));
-        }
-        let start = text.find("<TRACK_POLYLINE ").ok_or("no track in export")?;
+        let start = text.find("<Polyline>").ok_or("no track in export")?;
         let end = text[start..]
-            .find("</TRACK_POLYLINE>")
-            .ok_or("polyline track is unclosed")?
+            .find("</Polyline>")
+            .ok_or("polyline is unclosed")?
             + start;
-        let block = &text[start..end];
-        let mut vertices = Vec::new();
-        for line in block.lines() {
-            if line.starts_with("<VERTEX ") {
-                vertices.push(Point::new(
+        let mut at: Option<Point> = None;
+        let mut length = 0.0;
+        for line in text[start..end].lines() {
+            if line.starts_with("<PolyBegin ") {
+                at = Some(Point::new(
                     ipc2581_attr(line, "x")?,
                     ipc2581_attr(line, "y")?,
                 ));
+            } else if line.starts_with("<PolyStepSegment ") || line.starts_with("<PolyStepCurve ")
+            {
+                let from = at.ok_or("a step comes before the polyline begins")?;
+                let to = Point::new(ipc2581_attr(line, "x")?, ipc2581_attr(line, "y")?);
+                if line.starts_with("<PolyStepCurve ") {
+                    let center = Point::new(
+                        ipc2581_attr(line, "centerX")?,
+                        ipc2581_attr(line, "centerY")?,
+                    );
+                    let clockwise = line.contains("clockwise=\"true\"");
+                    let radius = from.distance(center);
+                    if !pcbcraft_geom::positive(radius) {
+                        return Err("arc radius is missing".into());
+                    }
+                    let a0 = (from.y - center.y).atan2(from.x - center.x);
+                    let a1 = (to.y - center.y).atan2(to.x - center.x);
+                    let mut sweep = a1 - a0;
+                    if clockwise {
+                        while sweep >= 0.0 {
+                            sweep -= std::f64::consts::TAU;
+                        }
+                    } else {
+                        while sweep <= 0.0 {
+                            sweep += std::f64::consts::TAU;
+                        }
+                    }
+                    length += radius * sweep.abs();
+                } else {
+                    length += from.distance(to);
+                }
+                at = Some(to);
             }
         }
-        if vertices.len() < 2 {
+        if at.is_none() {
             return Err("polyline track needs at least two vertices".into());
         }
-        Ok(vertices.windows(2).map(|w| w[0].distance(w[1])).sum())
+        Ok(length)
     }
 
     #[test]
@@ -11378,8 +11391,8 @@ mod tests {
         let arc = track.curve().ok_or("track has no arc")?;
         let text = ipc2581_text(&project)?;
         assert!(
-            text.contains(&format!("center_x=\"{:.3}\"", arc.center.x))
-                && text.contains(&format!("center_y=\"{:.3}\"", arc.center.y))
+            text.contains(&format!("centerX=\"{:.6}\"", arc.center.x))
+                && text.contains(&format!("centerY=\"{:.6}\"", arc.center.y))
                 && text.contains("clockwise=\"true\""),
             "the exchange file keeps the arc centre and sweep direction"
         );
@@ -11414,11 +11427,11 @@ mod tests {
         project.validate()?;
         let assembly = ipc2581_text(&project)?;
         assert!(
-            assembly.contains("<TRACK ") && assembly.contains("center_x="),
+            assembly.contains("<PolyStepCurve ") && assembly.contains("centerX="),
             "the assembly exchange lists the curved track as an arc"
         );
         assert!(
-            assembly.contains("<LAYER name=\"circuit0\" copper=\"F.Cu\">"),
+            assembly.contains("<LayerFeature layerRef=\"F.Cu\">"),
             "front copper stays in the assembly layer section"
         );
         Ok(())
@@ -11569,27 +11582,33 @@ mod tests {
         });
         project.validate()?;
         let text = idf_board(&project)?;
+        let library = idf_library(&project)?;
         assert!(
-            text.starts_with(".FILE_IDF\n.3DIDF VERSION: 2.0\n.UNITS:\tmillmm\n"),
-            "a mechanical drawing declares itself in millimetres"
+            text.starts_with(".HEADER\nBOARD_FILE 3.0"),
+            "a mechanical drawing declares IDF 3.0 in millimetres"
         );
         assert!(
-            text.contains(".BODY 60.000 40.000 0.000 0.000"),
+            text.contains(".BOARD_OUTLINE ECAD\n") && text.contains("0 60.000 0.000 0.0\n"),
             "the board outline size is carried"
         );
         assert!(
-            text.contains(".END_BODY R5\t12.500\t8.250\tFRONT\t90.000\t0\n"),
-            "front parts list position, side and rotation"
+            text.contains("TEST_ONE Test/TEST_ONE R5\n12.500 8.250 0.000 90.000 TOP PLACED\n"),
+            "front parts list position, side and rotation by footprint name"
         );
         assert!(
-            text.contains(".END_BODY U1\t30.000\t20.000\tFRONT\t0.000\t1\n"),
+            text.contains("TEST_ONE Test/TEST_ONE U1\n30.000 20.000 0.000 0.000 TOP PLACED\n"),
             "every part is listed in placement order"
         );
-        assert!(
-            text.contains(".PIN 2\n") && text.matches(".END_PIN {\t}").count() == 2,
-            "the embedded pin file lists every part with a default height"
+        assert_eq!(
+            library.matches(".ELECTRICAL").count(),
+            1,
+            "one library outline"
         );
-        assert!(text.ends_with(".END_FILE_IDF\n"), "the file closes");
+        assert!(
+            library.contains("TEST_ONE Test/TEST_ONE MM 1.500"),
+            "library height defaults match component bodies export"
+        );
+        assert!(text.ends_with(".END_PLACEMENT\n"), "the board file closes");
         assert_eq!(
             idf_board(&Project::default()).err(),
             Some("board has no placed footprints to export".into()),
@@ -11706,7 +11725,7 @@ mod tests {
             "two instances of the same footprint share one library outline"
         );
         assert!(
-            library.contains("TEST_ONE Test/TEST_ONE MM 1.5\n"),
+            library.contains("TEST_ONE Test/TEST_ONE MM 1.500\n"),
             "the library entry uses the shared geometry name, part id and default body height"
         );
         let board = idf_board(&project)?;
@@ -11736,11 +11755,11 @@ mod tests {
         ]);
         let text = placement_text(&project)?;
         assert!(
-            text.contains("SMT,\"FID01\",2.000,3.000,0.0,T,FIDUCIAL"),
+            text.contains("SMT,\"FID01\",2.000,3.000,0.0,T,\"FIDUCIAL\""),
             "the front mark is listed as a top-side fiducial"
         );
         assert!(
-            text.contains("SMT,\"FID02\",58.000,37.000,0.0,B,FIDUCIAL"),
+            text.contains("SMT,\"FID02\",58.000,37.000,0.0,B,\"FIDUCIAL\""),
             "the back mark is listed on the bottom side"
         );
         Ok(())
@@ -12270,7 +12289,18 @@ mod tests {
                     keywords: String::new(),
                     footprint: "Test_Pad".into(),
                     set: String::new(),
-                    pins: vec![],
+                    pins: vec![pcbcraft_library::SymbolPin {
+                        number: "1".into(),
+                        name: "TP".into(),
+                        position: Point::new(0.0, 0.0),
+                        angle: 0.0,
+                        length: 2.54,
+                        electrical_type: "passive".into(),
+                        unit: 1,
+                        body_style: 1,
+                        graphical_style: "line".into(),
+                        visible: true,
+                    }],
                     graphics: vec![],
                     extends: None,
                     raw_source: String::new(),
@@ -12557,8 +12587,8 @@ mod tests {
         let arc = project.board.tracks[0].curve().ok_or("track has no arc")?;
         let ipc = ipc2581_text(&project)?;
         assert!(
-            ipc.contains(&format!("center_x=\"{:.3}\"", arc.center.x))
-                && ipc.contains(&format!("center_y=\"{:.3}\"", arc.center.y)),
+            ipc.contains(&format!("centerX=\"{:.6}\"", arc.center.x))
+                && ipc.contains(&format!("centerY=\"{:.6}\"", arc.center.y)),
             "the assembly exchange keeps the arc centre instead of flattening to a chord"
         );
         Ok(())
@@ -13179,7 +13209,7 @@ mod tests {
             position: Point::new(0.0, 0.0),
             rotation: 0.0,
             size: Point::new(1.0, 1.0),
-            layers: vec!["B.Cu".into()],
+            layers: vec!["F.Cu".into()],
             drill: None,
             roundrect_ratio: None,
             chamfer: None,
@@ -13215,7 +13245,7 @@ mod tests {
                     name: "QFN-16".into(),
                     description: String::new(),
                     keywords: String::new(),
-                    pads: vec![],
+                    pads: vec![back_pad.clone()],
                     graphics: vec![],
                     model: None,
                     rules: None,
@@ -13249,7 +13279,7 @@ mod tests {
                 geometry: Some(back_pad),
             }],
             preserved: Default::default(),
-            side: Default::default(),
+            side: Some(pcbcraft_doc::Layer::Back),
         });
         project.validate()?;
         let text = parts_table_csv_layout(&project, None)?;
@@ -15776,7 +15806,16 @@ mod tests {
             kind: "capacitor".into(),
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
-            pins: vec![],
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                name: String::new(),
+                offset: Point::new(0.0, 0.0),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+                appearances: Default::default(),
+            }],
             units: vec![],
             library_symbol: None,
             library_footprint: Some(pcbcraft_doc::LibraryFootprint {

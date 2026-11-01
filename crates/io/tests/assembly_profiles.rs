@@ -134,7 +134,7 @@ fn two_side_board() -> Result<Project, String> {
         "R2",
         "0603",
         (20.0, 8.0, 45.0),
-        ("smd", &["B.Cu"]),
+        ("smd", &["F.Cu"]),
         Some(Layer::Back),
     );
     p.validate()?;

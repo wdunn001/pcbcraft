@@ -54,21 +54,34 @@ impl Writer {
         let enterprises = collect_enterprises(p, &assembly);
         self.push("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")?;
         self.push(&format!("<IPC-2581 revision=\"C\" xmlns=\"{NS}\">\n"))?;
-        self.write_content(&assembly)?;
+        self.write_content(p, &assembly)?;
         self.write_logistic_header(&enterprises)?;
         self.write_history_record(p)?;
+        self.write_assembly_bom_root(p, &assembly)?;
         self.push("<Ecad name=\"PCBCraft\">\n")?;
         self.write_cad_header(p)?;
         self.write_cad_data(p, &assembly)?;
         self.push("</Ecad>\n")?;
-        self.write_assembly_root(p, &assembly)?;
+        self.write_assembly_avl_root(p, &assembly)?;
         self.push("</IPC-2581>\n")?;
         Ok(())
     }
 
-    fn write_content(&mut self, assembly: &AssemblyMeta) -> Result<(), String> {
+    fn write_content(&mut self, p: &Project, assembly: &AssemblyMeta) -> Result<(), String> {
         self.push("<Content roleRef=\"Owner\">\n")?;
         self.push("<FunctionMode mode=\"FABRICATION\"/>\n")?;
+        // The content section names the step and every layer it uses, the
+        // stackup rows first and then the drill spans.
+        self.push("<StepRef name=\"Board\"/>\n")?;
+        for row in stackup_rows(p) {
+            self.push(&format!("<LayerRef name=\"{}\"/>\n", xml_escape(&row.name)))?;
+        }
+        for span in drill_span_layers(p)? {
+            self.push(&format!(
+                "<LayerRef name=\"{}\"/>\n",
+                xml_escape(&span.layer_name)
+            ))?;
+        }
         self.write_content_assembly_refs(assembly)?;
         self.push("<DictionaryColor/>\n")?;
         self.push("<DictionaryLineDesc units=\"MILLIMETER\">\n")?;

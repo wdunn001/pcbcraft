@@ -139,7 +139,7 @@ fn fab_bundle_project() -> Result<Project, String> {
     embedded2.number = "2".into();
     embedded2.position = Point::new(2.0, 0.0);
     project.board.footprints.push(pcbcraft_doc::Footprint {
-        id: 1,
+        id: 9,
         component: 1,
         position: Point::new(0.0, 0.0),
         rotation: 0.0,

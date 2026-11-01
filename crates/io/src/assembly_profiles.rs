@@ -504,7 +504,10 @@ pub fn gerber_component_layers(
             unit = if inch { "MOIN" } else { "MOMM" },
             aperture = aperture_mm,
         );
-        files.insert(format!("pcb-{suffix}.Cmp.gbr"), text);
+        files.insert(
+            format!("pcb-{suffix}.Cmp.gbr"),
+            crate::gerber_fidelity::attach_gerber_md5(text),
+        );
     }
     Ok(files)
 }
