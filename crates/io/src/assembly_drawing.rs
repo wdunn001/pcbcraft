@@ -432,6 +432,7 @@ impl SvgPage {
     }
 }
 
+/// Contract: crates/io/src/lib.rs
 impl DrawPage for SvgPage {
     fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String> {
         self.ops += 1;

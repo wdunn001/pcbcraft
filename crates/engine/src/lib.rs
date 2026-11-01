@@ -10531,7 +10531,7 @@ fn run_command_part_1(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "project.rename" => {
             let a: Name = parse(params)?;
@@ -11078,7 +11078,7 @@ fn run_command_part_2(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "footprint.assign_table" => {
             let a: AssignTableParams = parse(params)?;
@@ -11608,7 +11608,7 @@ fn run_command_part_3(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "component.apply_listing" => {
             let a: ApplyListingParams = parse(params)?;
@@ -12163,7 +12163,7 @@ fn run_command_part_4(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "net.swap" => {
             let a: NetSwapParams = parse(params)?;
@@ -12695,7 +12695,7 @@ fn run_command_part_5(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "netclass.via_rules" => {
             let a: ViaRulesParams = parse(params)?;
@@ -13226,7 +13226,7 @@ fn run_command_part_6(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "padstack.rename" => {
             let a: PadstackRenameParams = parse(params)?;
@@ -13764,7 +13764,7 @@ fn run_command_part_7(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "svg.import" => {
             let a: SvgImportParams = parse(params)?;
@@ -14311,7 +14311,7 @@ fn run_command_part_8(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "wire.remove_point" => {
             let a: RemovePointParams = parse(params)?;
@@ -14850,7 +14850,7 @@ fn run_command_part_9(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "dimension.radius" | "dimension.diameter" => {
             let diameter = command == "dimension.diameter";
@@ -15400,7 +15400,7 @@ fn run_command_part_10(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "schematic.remove_port" => {
             let a: IdParams = parse(params)?;
@@ -15973,7 +15973,7 @@ fn run_command_part_11(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "graphic.set_point" => {
             let a: GraphicPointParams = parse(params)?;
@@ -16533,7 +16533,7 @@ fn run_command_part_12(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "board.fiducial_remove" => {
             let a: IdParams = parse(params)?;
@@ -17065,7 +17065,7 @@ fn run_command_part_13(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "board.datum_rename" => {
             let a: DatumRenameParams = parse(params)?;
@@ -17605,7 +17605,7 @@ fn run_command_part_14(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "zone.remove_point" => {
             let a: ZoneRemoveParams = parse(params)?;
@@ -18201,7 +18201,7 @@ fn run_command_part_15(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "board.statistics" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
@@ -18744,7 +18744,7 @@ fn run_command_part_16(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "board.stackup_move_layer" => {
             let a: StackupMoveParams = parse(params)?;
@@ -19275,7 +19275,7 @@ fn run_command_part_17(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "rules.decoupling_set" => {
             #[derive(Deserialize)]
@@ -19821,7 +19821,7 @@ fn run_command_part_18(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "board.layer_circle_add" => {
             let a: LayerCircleParams = parse(params)?;
@@ -20370,7 +20370,7 @@ fn run_command_part_19(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "output_job.add" => {
             let a: OutputJobAddParams = parse(params)?;
@@ -20923,7 +20923,7 @@ fn run_command_part_20(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "artifact.remove" => {
             if !mutating {
@@ -21469,7 +21469,7 @@ fn run_command_part_21(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "footprint.set_locked" => {
             let a: LockParams = parse(params)?;
@@ -21997,7 +21997,7 @@ fn run_command_part_22(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "track.round_corners" => track_round::run(p, next, parse(params)?),
         "track.move" => {
@@ -22577,7 +22577,7 @@ fn run_command_part_23(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    let _ = (&config, &record_revision, &mutating);
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "object.nudge" => {
             let a: NudgeParams = parse(params)?;

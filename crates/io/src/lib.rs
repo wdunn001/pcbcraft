@@ -937,6 +937,7 @@ pub trait DrawPage {
     ) -> Result<(), String>;
     fn text(&mut self, at: Point, size: f64, rgb: [f64; 3], value: &str) -> Result<(), String>;
 }
+/// Contract: crates/io/src/lib.rs
 impl DrawPage for PdfPage {
     fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String> {
         PdfPage::path(self, points, rgb, w, fill)
@@ -1656,6 +1657,7 @@ impl Hpgl {
         )
     }
 }
+/// Contract: crates/io/src/lib.rs
 impl DrawPage for Hpgl {
     fn path(
         &mut self,
