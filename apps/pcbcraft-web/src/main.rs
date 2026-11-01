@@ -215,13 +215,14 @@ fn show_crash_notice() {
 fn opening_session(storage: Option<&dyn eframe::Storage>) -> pcbcraft_engine::Session {
     if let Some(text) = storage.and_then(|storage| storage.get_string("recovery"))
         && text.len() <= pcbcraft_io_limit()
-            && let Ok(project) = serde_json::from_str::<pcbcraft_doc::Project>(&text)
-                && project.validate().is_ok() {
-                    let mut session = pcbcraft_engine::Session::default();
-                    if session.replace(project).is_ok() {
-                        return session;
-                    }
-                }
+        && let Ok(project) = serde_json::from_str::<pcbcraft_doc::Project>(&text)
+        && project.validate().is_ok()
+    {
+        let mut session = pcbcraft_engine::Session::default();
+        if session.replace(project).is_ok() {
+            return session;
+        }
+    }
     demo_session()
 }
 
@@ -282,7 +283,8 @@ mod tests {
         );
         let saved = session.project.clone();
         drop(session);
-        let recovery = serde_json::to_string(&saved).map_err(|e| format!("serialize recovery: {e}"))?;
+        let recovery =
+            serde_json::to_string(&saved).map_err(|e| format!("serialize recovery: {e}"))?;
         let storage = MapStorage(BTreeMap::from([("recovery".into(), recovery)]));
         let opened = opening_session(Some(&storage));
         assert!(
