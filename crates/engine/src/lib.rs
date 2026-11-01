@@ -3346,7 +3346,6 @@ fn parse<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, Error> {
 ///
 /// # Do not
 /// - Call on strings that will be matched case-sensitively.
-
 fn help_query_tokens(query: &str) -> Vec<String> {
     query
         .split_whitespace()
@@ -3360,7 +3359,6 @@ fn help_query_tokens(query: &str) -> Vec<String> {
 /// # Rules
 /// - Matching is case-insensitive.
 /// - All tokens must be found, not just one.
-
 fn help_all_tokens_in(haystack: &str, toks: &[String]) -> bool {
     let h = haystack.to_ascii_lowercase();
     toks.iter().all(|t| h.contains(t.as_str()))
@@ -3376,7 +3374,6 @@ fn help_all_tokens_in(haystack: &str, toks: &[String]) -> bool {
 ///
 /// # Do not
 /// - Call with an empty query string.
-
 fn help_rank_command(query: &str, spec: &CommandSpec) -> Option<(&'static str, u8)> {
     let q = query.trim();
     if q.is_empty() {
@@ -3410,7 +3407,6 @@ fn help_rank_command(query: &str, spec: &CommandSpec) -> Option<(&'static str, u
 ///
 /// # Do not
 /// - Use for error handling; use find() directly if missing matters.
-
 fn help_command_description<'a>(specs: &'a [CommandSpec], id: &str) -> &'a str {
     specs
         .iter()
@@ -3428,7 +3424,6 @@ fn help_command_description<'a>(specs: &'a [CommandSpec], id: &str) -> &'a str {
 ///
 /// # Dependencies
 /// - crates/calc/src/lib.rs (search_glossary)
-
 fn help_glossary_json(query: &str, limit: usize) -> Value {
     let specs = commands();
     let mut rows: Vec<(u8, Value)> = Vec::new();
@@ -3517,7 +3512,6 @@ fn help_glossary_json(query: &str, limit: usize) -> Value {
 ///
 /// # Dependencies
 /// - crates/calc/src/lib.rs (term_by_id)
-
 fn help_term_json(id: &str) -> Result<Value, Error> {
     let Some(t) = pcbcraft_calc::term_by_id(id) else {
         return Err(Error::Invalid(format!("unknown glossary id {id}")));
@@ -3811,7 +3805,6 @@ fn render_kind(
 ///
 /// # Do not
 /// - Call for findings that should be filtered by exclusion rules.
-
 fn check_finding_json(
     code: &str,
     severity: &str,
@@ -4001,7 +3994,6 @@ fn height_findings(p: &Project) -> Vec<Value> {
 ///
 /// # Do not
 /// - Use to validate the height value itself.
-
 fn component_uses_default_body_height(p: &Project, component_id: Id) -> bool {
     let Some(component) = p.component(component_id) else {
         return true;
@@ -4025,7 +4017,6 @@ fn component_uses_default_body_height(p: &Project, component_id: Id) -> bool {
 ///
 /// # Do not
 /// - Call with unvalidated input from external sources.
-
 fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Result<Value, Error> {
     if a.nets.is_empty() || a.nets.len() > 256 {
         return Err(Error::Invalid("netlist must hold 1 to 256 nets".into()));
@@ -4141,7 +4132,6 @@ pub(crate) fn allocate(next: &mut Id) -> Result<Id, Error> {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct Add {
     kind: String,
     position: Point,
@@ -4160,7 +4150,6 @@ struct Add {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct PlaceLibrary {
     path: String,
     symbol: String,
@@ -4239,7 +4228,6 @@ struct LockParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct ComponentInBomParams {
     id: Id,
     in_bom: bool,
@@ -4253,7 +4241,6 @@ struct ComponentInBomParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct ComponentInPlacementParams {
     id: Id,
     in_placement: bool,
@@ -4267,7 +4254,6 @@ struct ComponentInPlacementParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct BoardClearanceParams {
     clearance: f64,
 }
@@ -4395,7 +4381,6 @@ fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct AssignFootprint {
     id: Id,
     path: String,
@@ -4409,7 +4394,6 @@ struct AssignFootprint {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct AssignPatternParams {
     pattern: String,
     path: String,
@@ -4424,7 +4408,6 @@ struct AssignPatternParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct RefreshSymbolParams {
     path: String,
     symbol: String,
@@ -4439,7 +4422,6 @@ struct RefreshSymbolParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct RefreshFootprintParams {
     library: Option<String>,
     name: Option<String>,
@@ -4454,7 +4436,6 @@ struct RefreshFootprintParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct AssignTableParams {
     rows: Vec<AssignTableRow>,
 }
@@ -4475,7 +4456,6 @@ struct AssignTableRow {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct AssignFileParams {
     path: String,
 }
@@ -4613,7 +4593,6 @@ fn component_pads(c: &Component) -> Vec<Pad> {
 ///
 /// # Do not
 /// - Use to check if a point is inside the board.
-
 fn board_outline_max_x(board: &pcbcraft_doc::Board) -> f64 {
     if let Some(outline) = &board.outline {
         outline.iter().map(|p| p.x).fold(0.0_f64, |a, b| a.max(b))
@@ -4630,7 +4609,6 @@ fn board_outline_max_x(board: &pcbcraft_doc::Board) -> f64 {
 ///
 /// # Do not
 /// - Call with unvalidated component data.
-
 fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Error> {
     let live: Vec<Id> = p.components.iter().map(|c| c.id).collect();
     p.board.footprints.retain(|f| live.contains(&f.component));
@@ -4680,7 +4658,6 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
 ///
 /// # Do not
 /// - Use to determine if a command modifies the board.
-
 fn command_triggers_board_sync(command: &str) -> bool {
     matches!(
         command,
@@ -4835,7 +4812,6 @@ fn assign_to(
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct Move {
     id: Id,
     position: Point,
@@ -4851,7 +4827,6 @@ struct Move {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct Rotate {
     id: Id,
     degrees: f64,
@@ -4866,7 +4841,6 @@ struct Rotate {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct ValueParams {
     id: Id,
     value: String,
@@ -4881,7 +4855,6 @@ struct ValueParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct SetKindParams {
     id: Id,
     kind: String,
@@ -4895,7 +4868,6 @@ struct SetKindParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct Name {
     name: String,
 }
@@ -4909,7 +4881,6 @@ struct Name {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct MetaParams {
     key: String,
     value: String,
@@ -4923,7 +4894,6 @@ struct MetaParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct ParameterSetParams {
     name: String,
     value: f64,
@@ -4939,7 +4909,6 @@ struct ParameterSetParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct ParameterRemoveParams {
     name: String,
     #[serde(default)]
@@ -4954,7 +4923,6 @@ struct ParameterRemoveParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct ProjectSetUnitParams {
     unit: String,
 }
@@ -4967,7 +4935,6 @@ struct ProjectSetUnitParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct ProjectSetAutoSyncParams {
     auto_sync: bool,
 }
@@ -4980,7 +4947,6 @@ struct ProjectSetAutoSyncParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct ArchivePathParams {
     path: String,
 }
@@ -4994,7 +4960,6 @@ struct ArchivePathParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct ProjectImportParams {
     path: String,
     format: String,
@@ -5010,7 +4975,6 @@ struct ProjectImportParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct LaserJobExportParams {
     side: String,
     profile_id: String,
@@ -5030,12 +4994,10 @@ struct LaserJobExportParams {
     path: Option<String>,
 }
 /// Default laser job mirror axis: y.
-
 fn laser_job_mirror_default() -> String {
     "y".into()
 }
 /// Default laser job isolation width in mm.
-
 fn laser_job_isolation_default() -> f64 {
     0.05
 }
@@ -5048,7 +5010,6 @@ fn laser_job_isolation_default() -> f64 {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct MetaKeyParams {
     key: String,
 }
@@ -5062,7 +5023,6 @@ struct MetaKeyParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct ReplaceParams {
     search: String,
     replace: String,
@@ -5085,7 +5045,6 @@ fn replace_all_scope() -> String {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct Connect {
     net: Id,
     pins: Vec<PinRef>,
@@ -5100,7 +5059,6 @@ struct Connect {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct CopperNetParams {
     id: Id,
     net: Id,
@@ -5144,7 +5102,6 @@ struct DrawnWireParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct WirePlaceTeeParams {
     wire: Id,
     at: Point,
@@ -5158,7 +5115,6 @@ struct WirePlaceTeeParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-
 struct WirePlaceParams {
     points: Vec<Point>,
     #[serde(default)]
