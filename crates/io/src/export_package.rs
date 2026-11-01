@@ -442,6 +442,11 @@ fn render_content(
                 else {
                     continue;
                 };
+                // Assembly component layers have no Protel extension and are
+                // not fabrication layers; a Protel-style package leaves them out.
+                if protel && layer.ends_with(".Cmp") {
+                    continue;
+                }
                 let ext = if protel { protel_ext(layer) } else { "gbr" };
                 out.push(text_entry(
                     name(Some(side_of(layer)), Some(layer), Some(ext))?,

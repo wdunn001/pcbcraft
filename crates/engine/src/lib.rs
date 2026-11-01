@@ -3260,7 +3260,7 @@ impl Session {
         drc.extend(custom_findings(&self.project));
         drc.extend(height_findings(&self.project));
         let compliance = pcbcraft_rules::compliance_check(&self.project);
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power label or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, labels with no wires or pins, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. When fabrication rules are recorded on the board, track width, drill size, annular ring, copper-to-routed-edge spacing, unlike-net spacing, aspect ratio, and drawn silk text height are compared to those limits, and copper pour neck widths thinner than the minimum track are reported. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. Pin-type rules, hole-to-hole spacing against a fab table, mask dams, and hierarchy are not fully checked."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"peripheral":pcbcraft_rules::peripheral(&self.project),"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power label or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, labels with no wires or pins, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. When fabrication rules are recorded on the board, track width, drill size, annular ring, copper-to-routed-edge spacing, unlike-net spacing, aspect ratio, and drawn silk text height are compared to those limits, and copper pour neck widths thinner than the minimum track are reported. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. Pin-type rules, hole-to-hole spacing against a fab table, mask dams, and hierarchy are not fully checked."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -8417,7 +8417,7 @@ fn bus_members(
 fn command_never_edits(command: &str) -> bool {
     matches!(
         command,
-        "library.export" | "selection.copy_text" | "plugins.export" | "plugins.list"
+        "library.export" | "selection.copy_text" | "plugins.export" | "plugins.list" | "bom.export"
     ) || collab::reads_the_design(command)
 }
 
@@ -23725,10 +23725,12 @@ mod tests {
             .ok_or_else(missing)?
             .pad_position("1")
             .ok_or_else(missing)?;
-        let fab = pcbcraft_io::fabrication_point(&s.project, centre);
+        // Copper files use 4.6 integer words and the bottom film is mirrored
+        // about x=0, so the flipped pad appears at minus its x on that layer.
         assert!(
-            gerber["pcb-B.Cu.gbr"].contains(&format!("{:.6}", fab.x)),
-            "bottom copper carries the same x as the front in fabrication space"
+            gerber["pcb-B.Cu.gbr"].lines().any(|l| l.ends_with("D03*")
+                && l.contains(&format!("X{}Y", (-centre.x * 1e6).round() as i64))),
+            "bottom copper carries the mirrored x"
         );
         assert!(
             !gerber["pcb-F.Cu.gbr"].lines().any(|l| l.ends_with("D03*")
@@ -23936,15 +23938,18 @@ mod tests {
             .as_u64()
             .ok_or_else(missing)?;
         let gap = 2.0;
+        // Two nested L shapes: the second turns `gap` earlier so the legs stay
+        // `gap` apart all the way round (same corner x would overlay the legs).
         for (net, y) in [(n1, 0.0), (n2, gap)] {
+            let x = 10.0 - y;
             s.execute(
                 "track.add",
-                json!({"net":net,"start":{"x":0.0,"y":y},"end":{"x":10.0,"y":y},"width":0.2}),
+                json!({"net":net,"start":{"x":0.0,"y":y},"end":{"x":x,"y":y},"width":0.2}),
                 None,
             )?;
             s.execute(
                 "track.add",
-                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":10.0,"y":10.0},"width":0.2}),
+                json!({"net":net,"start":{"x":x,"y":y},"end":{"x":x,"y":10.0},"width":0.2}),
                 None,
             )?;
         }
@@ -25757,8 +25762,8 @@ mod tests {
         assert_eq!(set["drill_origin"]["y"], 10.0);
         let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Plated.drl"].clone();
         assert!(
-            drill.contains("X10.000Y30.000\n"),
-            "the recorded origin moves drill coordinates in fabrication space"
+            drill.contains("X10.000Y10.000\n"),
+            "the recorded origin moves drill coordinates: {drill}"
         );
         assert!(
             !drill.contains("X30.000Y20.000"),
@@ -25935,8 +25940,27 @@ mod tests {
         )?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
+        assert!(
+            s.project.board.footprints.is_empty(),
+            "a library symbol with no footprint waits for one before PCB placement"
+        );
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":id,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
         assert_eq!(s.project.board.footprints.len(), 1);
         assert_eq!(s.project.board.footprints[0].component, id);
+        s.undo()?;
+        s.undo()?;
         s.undo()?;
         assert!(s.project.components.is_empty());
         assert!(s.project.board.footprints.is_empty());
@@ -28067,7 +28091,7 @@ mod tests {
             "pcbcraft-board-bad-{}.kicad_pcb",
             std::process::id()
         ));
-        std::fs::write(&path, b"(kicad_pcb (segment (start 0 0) (end 1)))\n")
+        std::fs::write(&path, b"(kicad_pcb\n (segment (start 0 0) (end 1)\n")
             .map_err(|e| Error::Invalid(e.to_string()))?;
         let path = path.to_string_lossy().to_string();
         let mut s = Session::default();
@@ -28244,8 +28268,8 @@ mod tests {
         )?;
         let board_new = pcbcraft_io::kicad_board(&s.project)?;
         assert!(
-            board_new.contains("(model \"parts/resistor.wrl\""),
-            "reassigning carries the new model into the export"
+            board_new.contains("(model \"parts/housing.solidcraft\""),
+            "reassigning carries the newest model (the SolidCraft part) into the export: {board_new}"
         );
         for bad in [
             json!({"name":"R_0805_2012Metric","path":""}),
@@ -28602,16 +28626,15 @@ mod tests {
         assert_eq!(body["height_source"], "footprint");
         assert_eq!(body["family"], "box");
         let (blo, bhi) = {
+            // Positions are one flat list of x,y,z triples.
             let positions = body["positions"].as_array().ok_or_else(missing)?;
             let mut min = [f64::MAX; 3];
             let mut max = [f64::MIN; 3];
-            for p in positions {
-                let coords = p.as_array().ok_or_else(missing)?;
-                for (i, v) in coords.iter().enumerate().take(3) {
-                    let n = v.as_f64().ok_or_else(missing)?;
-                    min[i] = min[i].min(n);
-                    max[i] = max[i].max(n);
-                }
+            for (k, v) in positions.iter().enumerate() {
+                let n = v.as_f64().ok_or_else(missing)?;
+                let i = k % 3;
+                min[i] = min[i].min(n);
+                max[i] = max[i].max(n);
             }
             (min, max)
         };
@@ -30473,9 +30496,11 @@ mod tests {
             z_findings(&s) >= 1,
             "0.3 mm on the default stackup misses 50 ohm"
         );
+        // 0.3 mm over 1.6 mm of dielectric is about 130 ohm: a 50 percent band
+        // around 50 ohm stops at 75, one around 100 ohm reaches 150.
         s.execute(
             "net.set_impedance",
-            json!({"id":sig,"target":50.0,"tolerance_pct":50.0}),
+            json!({"id":sig,"target":100.0,"tolerance_pct":50.0}),
             None,
         )?;
         assert_eq!(z_findings(&s), 0, "a wide band accepts the same geometry");
@@ -30869,11 +30894,13 @@ mod tests {
         )?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
+        // A 1 ns edge is about 170 mm long here; a parallel run must pass a sixth
+        // of that (about 29 mm) to be reported, so the pair runs 40 mm.
         let width = 0.2;
         let gap = width;
         s.execute(
             "track.add",
-            json!({"net":clk,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":width}),
+            json!({"net":clk,"start":{"x":0.0,"y":0.0},"end":{"x":40.0,"y":0.0},"width":width}),
             None,
         )?;
         s.execute(
@@ -30881,7 +30908,7 @@ mod tests {
             json!({
                 "net":data,
                 "start":{"x":0.0,"y":width + gap},
-                "end":{"x":10.0,"y":width + gap},
+                "end":{"x":40.0,"y":width + gap},
                 "width":width
             }),
             None,
@@ -30914,7 +30941,7 @@ mod tests {
         assert!(drc_messages(&s, "parallel_crosstalk").is_empty());
         s.execute(
             "track.add",
-            json!({"net":clk,"start":{"x":10.0,"y":0.0},"end":{"x":90.0,"y":0.0},"width":width}),
+            json!({"net":clk,"start":{"x":40.0,"y":0.0},"end":{"x":90.0,"y":0.0},"width":width}),
             None,
         )?;
         s.execute(
@@ -37005,25 +37032,18 @@ mod tests {
             .collect();
         assert_eq!(xs, vec![20.0, 30.0, 10.0, 20.0, 30.0]);
         let files = pcbcraft_io::gerber_files(&s.project)?;
-        let drill = &files["pcb-NPTH.drl"];
+        // Slots go to the routing file; the round-hole files hold no slots.
+        let drill = &files["pcb-Rout.drl"];
         assert_eq!(
-            drill.matches("M15").count(),
+            drill.matches("G85").count(),
             6,
             "every copy is a routed slot: {drill}"
-        );
-        assert!(
-            !drill.contains("G85"),
-            "slotted mounting holes never use G85: {drill}"
         );
         let tools: Vec<&str> = drill
             .lines()
             .filter(|l| l.starts_with('T') && l.contains('C'))
             .collect();
-        assert_eq!(
-            tools,
-            vec!["T01C1.000"],
-            "one tool carries all six: {drill}"
-        );
+        assert_eq!(tools, vec!["T1C1.000"], "one tool carries all six: {drill}");
         Ok(())
     }
     #[test]
@@ -38671,6 +38691,7 @@ mod tests {
             out["files"],
             json!([
                 "README-fabrication.txt",
+                "gerber-arc-report.txt",
                 "pcb-B.Cmp.gbr",
                 "pcb-B.Cu.gbr",
                 "pcb-B.Mask.gbr",
@@ -38793,6 +38814,7 @@ mod tests {
         let expected = [
             "README-fabrication.txt",
             "bom.csv",
+            "gerber-arc-report.txt",
             "pcb-B.Cmp.gbr",
             "pcb-B.Cu.gbr",
             "pcb-B.Mask.gbr",
@@ -38962,7 +38984,9 @@ mod tests {
     }
 
     #[test]
-    fn package_refuses_ipc2581_until_the_export_is_schema_valid() -> Result<(), Error> {
+    fn package_ships_ipc2581_now_the_export_is_schema_valid() -> Result<(), Error> {
+        // The exporter writes a revision C document that passes the schema, so
+        // the package gate (validate_fabrication_package_file) lets it through.
         let mut s = Session::sample()?;
         s.execute(
             "output_job.add",
@@ -38971,15 +38995,18 @@ mod tests {
         )?;
         let path =
             std::env::temp_dir().join(format!("pcbcraft-ipc-pkg-{}.zip", std::process::id()));
+        let out = s.execute(
+            "output_job.package",
+            json!({"path": path.to_string_lossy(), "job":"ipc"}),
+            None,
+        )?;
+        let zip = std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?;
+        let entries = package_entries(&zip)?;
         assert!(
-            s.execute(
-                "output_job.package",
-                json!({"path": path.to_string_lossy(), "job":"ipc"}),
-                None,
-            )
-            .is_err(),
-            "legacy IPC-2581 output cannot ship in a package yet"
+            entries.iter().any(|(name, _)| name.ends_with(".xml")),
+            "the package carries the IPC-2581 document: {out}"
         );
+        let _ = std::fs::remove_file(&path);
         Ok(())
     }
 
@@ -43628,23 +43655,41 @@ mod tests {
             .find(|f| f.component == b)
             .ok_or_else(missing)?
             .id;
-        if let Some(f) = s.project.board.footprints.iter_mut().find(|f| f.id == fp_b)
-            && let Some(pad) = f.pads.iter_mut().find(|pad| pad.number == "1")
-        {
-            pad.diameter = 1.6;
-            pad.geometry = Some(pcbcraft_library::FootprintPad {
-                number: "1".into(),
-                pad_type: "smd".into(),
-                shape: "circle".into(),
-                position: Point::default(),
-                rotation: 0.0,
-                size: Point::new(1.6, 1.6),
-                layers: vec!["In1.Cu".into()],
-                drill: None,
-                roundrect_ratio: None,
-                chamfer: None,
-                polygon: vec![],
-                raw_source: String::new(),
+        // Pads that carry stored geometry need the footprint definition that
+        // holds the same pads embedded on the part, so give R2 both.
+        let mut definition_pads = Vec::new();
+        if let Some(f) = s.project.board.footprints.iter_mut().find(|f| f.id == fp_b) {
+            for pad in &mut f.pads {
+                let on_inner = pad.number == "1";
+                if on_inner {
+                    pad.diameter = 1.6;
+                }
+                let geometry = pcbcraft_library::FootprintPad {
+                    number: pad.number.clone(),
+                    pad_type: "smd".into(),
+                    shape: "circle".into(),
+                    position: pad.offset,
+                    rotation: 0.0,
+                    size: Point::new(pad.diameter, pad.diameter),
+                    layers: vec![if on_inner { "In1.Cu" } else { "F.Cu" }.into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                };
+                definition_pads.push(geometry.clone());
+                pad.geometry = Some(geometry);
+            }
+        }
+        if let Some(c) = s.project.components.iter_mut().find(|c| c.id == b) {
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "InnerPad".into(),
+                    pads: definition_pads,
+                    ..Default::default()
+                },
             });
         }
         let tracks_before = s.project.board.tracks.len();

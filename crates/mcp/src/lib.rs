@@ -808,6 +808,7 @@ pub(crate) fn invoke_session(
                         .collect::<Vec<_>>()
                 };
                 return Ok(text_result(json!({
+                    "revision": report["revision"],
                     "erc": keep("erc"),
                     "drc": keep("drc"),
                     "airwires": report["airwires"],

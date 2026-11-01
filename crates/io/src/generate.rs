@@ -77,6 +77,9 @@ pub fn migrate_loaded_project(project: &mut Project) -> Result<(), String> {
         project.migrate_output_jobs_to_artifacts(&mut next)?;
     }
     project.adopt_free_form_sourcing();
+    // Files from before component kinds were stored carry "library"; give
+    // each part the kind its symbol and footprint imply.
+    project.migrate_component_kinds();
     Ok(())
 }
 
@@ -160,6 +163,28 @@ fn placement_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutpu
         return Ok(GeneratedOutput::Text(files.remove(0).1));
     }
     Ok(GeneratedOutput::Files(files.into_iter().collect()))
+}
+
+/// The pick and place files for the machine profile the artifact names.
+fn placement_yy1_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let machine_id = artifact
+        .machine
+        .as_deref()
+        .ok_or("placement_yy1 artifacts must name a machine profile on the design")?;
+    let profile = p
+        .machine_profiles
+        .iter()
+        .find(|m| m.id == machine_id)
+        .ok_or_else(|| format!("no machine profile named {machine_id} in the design"))?;
+    let (side, options) = crate::neoden_yy1_from_artifact_settings(&artifact.settings)?;
+    let out = crate::placement_neoden_yy1(p, side, profile, &options)?;
+    // The files are CSV text.
+    Ok(GeneratedOutput::Files(
+        out.files
+            .into_iter()
+            .map(|(name, bytes)| (name, String::from_utf8_lossy(&bytes).into_owned()))
+            .collect(),
+    ))
 }
 
 fn settings_view(settings: &serde_json::Value) -> &str {
@@ -336,6 +361,18 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
         "outline_gcode" => Err("outline gcode is not available yet; see issue #331".into()),
         "stencil" => Err("stencil output is not available yet; see issue #325".into()),
         "laser_path" => Err("laser path output is not available yet; see issue #358".into()),
+        "placement_yy1" => placement_yy1_artifact(p, artifact),
+        "conformal_coat_plot" => {
+            if p.board.conformal_coat_keepout.is_none() {
+                return Err(
+                    "conformal coat plot is not available yet: the board has no keep-out configured"
+                        .into(),
+                );
+            }
+            Ok(GeneratedOutput::Text(crate::conformal_coat_keepout_gerber(
+                p,
+            )?))
+        }
         other => Err(format!("unknown artifact kind {other}")),
     }
 }

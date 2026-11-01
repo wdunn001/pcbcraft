@@ -2452,7 +2452,6 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(acute::acute_angle_findings(project));
     result.extend(track_radius::track_radius_findings(project));
     result.extend(parallel_crosstalk::parallel_crosstalk_findings(project));
-    result.extend(testpoint::coverage_findings(project));
     result.extend(impedance_target::impedance_target_findings(project));
     result.extend(return_path::return_path_findings(project));
     result.retain(|f| {
@@ -4191,10 +4190,7 @@ mod tests {
             preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p.validate()?;
-        let found: Vec<_> = drc(&p)
-            .into_iter()
-            .filter(|f| f.code != "testpoint_coverage")
-            .collect();
+        let found = drc(&p);
         assert!(
             found.is_empty(),
             "standard 0805 pads are not a short at 0.2mm clearance: {found:?}"

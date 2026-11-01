@@ -174,11 +174,13 @@ fn seed_spec(kind: &str) -> (String, Vec<String>, Value) {
         "drill_unplated" => ("drill-unplated.drl", vec![], json!({})),
         "drill_map" => ("board-drill-tools.csv", vec![], json!({})),
         "placement" => ("placement.txt", vec![], json!({})),
+        "placement_yy1" => ("yy1/", vec![], json!({"side": "top", "layout": "native"})),
+        "conformal_coat_plot" => ("conformal-coat-keepout.gbr", vec![], json!({})),
         "bom" => ("bom.csv", vec![], json!({})),
-        "assembly_drawing" => ("assembly.pdf", vec![], json!({})),
+        "assembly_drawing" => ("assembly/", vec![], json!({})),
         "fab_drawing" => ("board.pdf", vec![], json!({"view":"pcb"})),
         "raster_image" => ("board.svg", vec![], json!({"view":"pcb"})),
-        "isolation_gcode" => ("isolation.nc", vec![], json!({})),
+        "isolation_gcode" => ("isolation.nc", vec![], json!({"side": "top"})),
         "drill_gcode" => ("drill.nc", vec![], json!({})),
         "outline_gcode" => ("outline.nc", vec![], json!({})),
         "laser_path" => ("laser.job", vec![], json!({})),
@@ -200,6 +202,10 @@ fn reference_board_session() -> Result<Session, String> {
     session
         .replace(project)
         .map_err(|e| format!("replace: {e}"))?;
+    // The pick and place artifact names a machine profile held on the design.
+    session
+        .execute("machine.add", json!({"preset": "neoden-yy1"}), None)
+        .map_err(|e| format!("machine.add: {e}"))?;
     Ok(session)
 }
 
@@ -218,6 +224,7 @@ fn seed_artifacts(session: &mut Session) -> Result<Vec<(String, Id)>, String> {
                         "layers": layers,
                         "settings": settings,
                         "path": path,
+                        "machine": if *kind == "placement_yy1" { json!("neoden-yy1") } else { Value::Null },
                     }),
                 }],
                 None,

@@ -49,7 +49,7 @@ fn a_newcomer_imports_a_newer_list_and_sees_what_changed() -> Result<(), String>
         let stale = session
             .execute(
                 "compliance.list_staleness",
-                json!({"list_id": "synthetic-demo-entities", "today": "2026-10-01"}),
+                json!({"list_id": "synthetic-demo-entities", "today": "2027-01-01"}),
                 None,
             )
             .map_err(|e| e.to_string())?;
