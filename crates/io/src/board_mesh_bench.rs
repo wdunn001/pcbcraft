@@ -15,7 +15,7 @@ fn chip_pad(number: &str, x: f64, y: f64) -> Pad {
         number: number.into(),
         offset: Point::new(x, y),
         diameter: 1.025,
-        net: None,
+        net: (number == "1").then_some(1),
         castellated: None,
         geometry: Some(pcbcraft_library::FootprintPad {
             number: number.into(),

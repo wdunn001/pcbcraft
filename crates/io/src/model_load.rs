@@ -18,7 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 /// Bumped whenever the reader changes what a file produces, so a cache of
 /// older results is never served.
-pub const LOADER_VERSION: u32 = 2;
+pub const LOADER_VERSION: u32 = 3;
 /// Largest model file read, in bytes.
 pub const MAX_MODEL_BYTES: usize = 32 * 1024 * 1024;
 /// Most vertices one model may produce.

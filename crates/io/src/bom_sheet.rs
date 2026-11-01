@@ -72,7 +72,7 @@ pub fn bom_sheet_rows(p: &Project, params: &BomSheetParams) -> Result<Vec<BomShe
         let property_values: Vec<String> = params
             .fields
             .iter()
-            .map(|key| c.field(key).unwrap_or("").to_string())
+            .map(|key| c.bom_value(key))
             .collect();
         let apart = if params.group {
             String::new()

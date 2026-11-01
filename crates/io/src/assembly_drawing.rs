@@ -574,6 +574,10 @@ mod tests {
             reference: "R1".into(),
             value: "1k".into(),
             kind: "resistor".into(),
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "project".into(),
+                definition: footprint.clone(),
+            }),
             ..Default::default()
         });
         project.components.push(Component {
@@ -581,6 +585,10 @@ mod tests {
             reference: "R2".into(),
             value: "2k2".into(),
             kind: "resistor".into(),
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "project".into(),
+                definition: footprint.clone(),
+            }),
             ..Default::default()
         });
         project.board.footprints.push(Footprint {

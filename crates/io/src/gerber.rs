@@ -702,7 +702,6 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
         let code = sheet.define(Opening::Circle(microns(diameter)), "SMDPad,CuDef")?;
         sheet.flash(code, mirror(v.position, layer))?;
-        sheet.flash(code, mirror(v.position, layer))?;
     }
     let (function, comment) = match layer {
         Layer::Back => ("Soldermask,Bot", "bottom solder mask"),

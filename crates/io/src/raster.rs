@@ -829,9 +829,14 @@ mod tests {
         let mut p = Project::default();
         p.board.width = 30.0;
         p.board.height = 30.0;
+        p.nets.push(pcbcraft_doc::Net {
+            id: 2,
+            name: "N".into(),
+            ..Default::default()
+        });
         p.board.vias.push(pcbcraft_doc::Via {
             id: 1,
-            net: 1,
+            net: 2,
             position: Point::new(10.0, 12.0),
             diameter: 0.8,
             drill: 0.8,

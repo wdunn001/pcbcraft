@@ -411,7 +411,7 @@ mod stencil_tests {
             net: Default::default(),
         };
         p.board.footprints.push(Footprint {
-            id: 1,
+            id: 3,
             component: 1,
             position: Point::new(30.0, 20.0),
             rotation: 0.0,

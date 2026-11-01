@@ -186,6 +186,22 @@ impl MeshPart {
         }
         self.bounds()
     }
+    /// The part with its instanced prototype expanded into plain world-space
+    /// triangles, for writers that take a flat mesh. A part that is not
+    /// instanced comes back unchanged.
+    pub fn flattened(&self) -> MeshPart {
+        let (Some(proto), Some(m)) = (&self.prototype, &self.instance) else {
+            return self.clone();
+        };
+        let mut out = self.clone();
+        out.positions = proto.positions.iter().map(|p| apply_matrix(m, *p)).collect();
+        out.indices = proto.indices.clone();
+        out.materials = proto.materials.clone();
+        out.authored_colors = proto.authored_colors.clone();
+        out.prototype = None;
+        out.instance = None;
+        out
+    }
     pub fn triangle_count(&self) -> usize {
         if let Some(proto) = &self.prototype {
             return proto.indices.len() / 3;
@@ -2120,12 +2136,29 @@ mod tests {
         let body = part(&mesh, PartKind::Body)?;
         assert_eq!(body.family.as_deref(), Some("chip"));
         assert_eq!(body.component, Some(11));
-        let (blo, bhi) = body.bounds().ok_or("no body bounds")?;
+        // The body shell is the first solid of the instanced prototype; the
+        // leads and the polarity mark that follow reach past it.
+        let proto = body.prototype.as_ref().ok_or("body is not instanced")?;
+        let m = body.instance.as_ref().ok_or("body has no placement")?;
+        let shell = proto.shell_triangles as usize * 3;
+        let world: Vec<[f64; 3]> = proto.indices[..shell]
+            .iter()
+            .map(|i| apply_matrix(m, proto.positions[*i as usize]))
+            .collect();
+        let blo = world.iter().fold([f64::MAX; 3], |a, p| {
+            [a[0].min(p[0]), a[1].min(p[1]), a[2].min(p[2])]
+        });
+        let bhi = world.iter().fold([f64::MIN; 3], |a, p| {
+            [a[0].max(p[0]), a[1].max(p[1]), a[2].max(p[2])]
+        });
         assert!(
             close(blo[2], 1.6) && close(bhi[2], 1.6 + 0.55),
             "{blo:?} {bhi:?}"
         );
         assert!(close(bhi[0] - blo[0], 1.95));
+        // The two pad-sized leads reach to the outer pad edges.
+        let (wlo, whi) = body.bounds().ok_or("no body bounds")?;
+        assert!(whi[0] - wlo[0] > 2.8, "{wlo:?} {whi:?}");
         assert!(mesh.parts.iter().all(|p| p.kind != PartKind::CopperBottom));
         Ok(())
     }
@@ -2134,7 +2167,12 @@ mod tests {
     fn every_triangle_has_a_material_id() -> Check {
         let mesh = board_mesh(&resistor_project(), MeshLayers::default())?;
         for part in &mesh.parts {
-            assert_eq!(part.materials.len(), part.triangle_count(), "{}", part.name);
+            // An instanced body keeps its materials on the shared prototype.
+            let materials = part
+                .prototype
+                .as_ref()
+                .map_or(&part.materials, |proto| &proto.materials);
+            assert_eq!(materials.len(), part.triangle_count(), "{}", part.name);
         }
         Ok(())
     }

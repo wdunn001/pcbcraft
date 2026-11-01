@@ -462,9 +462,9 @@ pub fn gerber_component_layers(
             }
             body.push_str(&format!("%TO.CRot,{rotation:.3}*%\n"));
             body.push_str(&format!(
-                "X{:.6}Y{:.6}D03*\n%TD*%\n",
-                f.position.x * scale,
-                f.position.y * scale
+                "X{}Y{}D03*\n%TD*%\n",
+                crate::gerber::coordinate(f.position.x * scale),
+                crate::gerber::coordinate(f.position.y * scale)
             ));
         }
         for (i, fid) in p.board.fiducials.iter().enumerate() {
@@ -481,9 +481,9 @@ pub fn gerber_component_layers(
             body.push_str("%TO.CMnt,Fiducial*%\n");
             body.push_str("%TO.CRot,0*%\n");
             body.push_str(&format!(
-                "X{:.6}Y{:.6}D03*\n%TD*%\n",
-                fid.position.x * scale,
-                fid.position.y * scale
+                "X{}Y{}D03*\n%TD*%\n",
+                crate::gerber::coordinate(fid.position.x * scale),
+                crate::gerber::coordinate(fid.position.y * scale)
             ));
         }
         let file_function = format!("Component,L{layer_index},{side_tag}");

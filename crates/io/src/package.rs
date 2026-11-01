@@ -526,7 +526,7 @@ mod tests {
             kind: kind.into(),
             position: pcbcraft_geom::Point::new(1.0, 1.0),
             rotation: 0.0,
-            pins: Vec::new(),
+            pins: vec![pcbcraft_doc::Pin::default()],
             units: Vec::new(),
             library_symbol: None,
             library_footprint: None,

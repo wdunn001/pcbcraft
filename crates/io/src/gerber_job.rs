@@ -364,8 +364,8 @@ mod tests {
             .ok_or("FilesAttributes must be an array")?;
         assert_eq!(
             listed.len(),
-            files.len() - 2,
-            "every file but the manifest and the readme is listed"
+            files.len() - 3,
+            "every file but the manifest, the readme and the arc report is listed"
         );
         for entry in listed {
             let path = entry["Path"].as_str().ok_or("every entry has a Path")?;

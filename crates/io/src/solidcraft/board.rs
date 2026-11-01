@@ -124,10 +124,13 @@ pub fn solidcraft_board(
     }
 
     let mut part_names: BTreeSet<String> = BTreeSet::new();
-    for part in mesh.parts.iter().filter(|p| p.kind == PartKind::Body) {
-        let Some(component_id) = part.component else {
+    for body_part in mesh.parts.iter().filter(|p| p.kind == PartKind::Body) {
+        let Some(component_id) = body_part.component else {
             continue;
         };
+        // Bodies are instanced on a shared prototype; the file stores plain triangles.
+        let flat = body_part.flattened();
+        let part = &flat;
         if part.indices.is_empty() {
             continue;
         }
@@ -666,8 +669,9 @@ mod tests {
             let source = board
                 .parts
                 .iter()
-                .find(|p| p.component == Some(component))
-                .ok_or("part missing")?;
+                .find(|p| p.component == Some(component) && p.kind == PartKind::Body)
+                .ok_or("part missing")?
+                .flattened();
             let occurrence = list(&doc, "occurrences")?
                 .iter()
                 .find(|o| o.get("name").and_then(Value::as_str) == Some(reference))

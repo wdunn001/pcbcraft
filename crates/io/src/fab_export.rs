@@ -1211,6 +1211,11 @@ mod fab_export_tests {
     #[test]
     fn drill_tool_counts_groups_by_diameter_and_plating() -> Result<(), String> {
         let mut p = Project::default();
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "N".into(),
+            ..Default::default()
+        });
         p.board.vias.push(Via {
             id: 10,
             net: 1,

@@ -413,7 +413,14 @@ mod tests {
             rotation: 0.0,
             locked: None,
             side: None,
-            pads: vec![],
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.0,
+                net: Some(2),
+                castellated: Default::default(),
+                geometry: None,
+            }],
             preserved: Default::default(),
         });
         p.validate()?;

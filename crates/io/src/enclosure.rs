@@ -431,7 +431,7 @@ mod tests {
     }
 
     fn inject_before_endsec(mut text: String, line: &str) -> Vec<u8> {
-        if let Some(index) = text.find("ENDSEC;") {
+        if let Some(index) = text.rfind("ENDSEC;") {
             text.insert_str(index, line);
         } else {
             text.push_str(line);

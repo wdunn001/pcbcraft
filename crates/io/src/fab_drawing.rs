@@ -36,13 +36,12 @@ pub fn fab_drawing_pdf(p: &Project) -> Result<Vec<u8>, String> {
         notes_section_lines(p)?,
     )?;
     y = write_section(p, &mut sheet, y, "Board class", board_class_lines(p)?)?;
-    let _ = write_section(
-        p,
-        &mut sheet,
-        y.min(120.0),
-        "Revision block",
-        revision_block_lines(p),
-    )?;
+    // The revision block sits at the foot of the sheet: it starts high enough
+    // that its last line still clears the bottom margin, however many lines
+    // the title block carries.
+    let revision = revision_block_lines(p);
+    let foot = 80.0 + 16.0 + 11.0 * revision.len() as f64;
+    let _ = write_section(p, &mut sheet, y.min(foot), "Revision block", revision)?;
     pdf_bytes_from_ops(sheet.ops, 842.0, 595.0)
 }
 

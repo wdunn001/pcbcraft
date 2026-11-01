@@ -68,6 +68,7 @@ mod import_cache;
 mod interface_profile;
 mod ipc2581_export;
 mod laser;
+#[allow(dead_code)]
 mod layer_file;
 mod layers;
 mod library_render;
@@ -355,8 +356,9 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 pub fn load(path: &Path) -> Result<Project, String> {
     let text = read_text(path)?;
     let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    let mut project: Project = serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
-    layer_file::read_stackup_copper_names(&mut project, &root)?;
+    // The document model reads copper layer names against the stackup itself
+    // (legacy files without the naming marker keep their index-derived names).
+    let mut project: Project = serde_json::from_value(root).map_err(|e| e.to_string())?;
     migrate_loaded_project(&mut project)?;
     project.validate()?;
     Ok(project)
@@ -422,8 +424,8 @@ pub fn save(project: &Project, path: &Path) -> Result<(), String> {
 /// Serialize a validated project to JSON bytes for upload and download round-trips.
 pub fn save_bytes(project: &Project) -> Result<Vec<u8>, String> {
     project.validate()?;
-    let mut root = serde_json::to_value(project).map_err(|e| e.to_string())?;
-    layer_file::write_stackup_copper_names(&mut root, project);
+    // The document model writes the stackup copper names and the naming marker.
+    let root = serde_json::to_value(project).map_err(|e| e.to_string())?;
     let bytes = serde_json::to_vec_pretty(&root).map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err("project exceeds 8 MiB".into());
@@ -3059,22 +3061,25 @@ fn excellon_drill_file(
             .or_default()
             .push((hit.x, hit.y, hit.ux, hit.uy));
     }
-    let (drill_header, drill_prec) = if inch { ("INCH", 4) } else { ("METRIC", 3) };
-    let mut drill = format!("M48\n{drill_header}\n");
-    let tool_keys: Vec<_> = drills.keys().copied().collect();
-    if tool_keys.len() > 99 {
-        return Err("drill export needs 99 or fewer distinct tools".into());
+    let (drill_header, drill_prec) = if inch {
+        ("INCH,TZ", 4)
+    } else {
+        ("METRIC,TZ", 3)
+    };
+    let mut drill = format!("M48\nFMAT,2\n{drill_header}\n");
+    if drills.len() > 64 {
+        return Err("drill export needs 64 or fewer distinct tools".into());
     }
-    for (n, (d, _)) in tool_keys.iter().enumerate() {
+    for (n, (d, _)) in drills.keys().enumerate() {
         drill.push_str(&format!(
-            "T{:02}C{:.drill_prec$}\n",
+            "T{}C{:.drill_prec$}\n",
             n + 1,
             *d as f64 / 1000.0 * scale
         ));
     }
     drill.push_str("%\nG90\nG05\n");
     for (n, holes) in drills.values().enumerate() {
-        drill.push_str(&format!("T{:02}\n", n + 1));
+        drill.push_str(&format!("T{}\n", n + 1));
         for (x, y, ux, uy) in holes {
             let (x, y) = (x - origin.x, y - origin.y);
             let (x, y) = (x * scale, y * scale);
@@ -3083,7 +3088,7 @@ fn excellon_drill_file(
                 drill.push_str(&format!("X{x:.drill_prec$}Y{y:.drill_prec$}\n"));
             } else {
                 drill.push_str(&format!(
-                    "G00X{a:.drill_prec$}Y{b:.drill_prec$}\nM15\nG01X{c:.drill_prec$}Y{d:.drill_prec$}\nM16\n",
+                    "X{a:.drill_prec$}Y{b:.drill_prec$}G85X{c:.drill_prec$}Y{d:.drill_prec$}\n",
                     a = x - ux,
                     b = y - uy,
                     c = x + ux,
@@ -3332,13 +3337,13 @@ fn gerber_files_core(
             self.body.push_str(&format!("D{code}D02*\n"));
             self.body.push_str("G75*\n");
             self.body.push_str(&format!(
-                "X{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\nG01*\n",
-                sx * self.scale,
-                sy * self.scale,
-                ex * self.scale,
-                ey * self.scale,
-                (cx - sx) * self.scale,
-                (cy - sy) * self.scale,
+                "X{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\nG01*\n",
+                coordinate(sx * self.scale),
+                coordinate(sy * self.scale),
+                coordinate(ex * self.scale),
+                coordinate(ey * self.scale),
+                coordinate((cx - sx) * self.scale),
+                coordinate((cy - sy) * self.scale),
                 if clockwise { 2 } else { 3 }
             ));
             Ok(())
@@ -3691,11 +3696,11 @@ fn gerber_files_core(
                 return Err("gerber export exceeds the object limit".into());
             }
             outline.arcs.push_str(&format!(
-                "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
-                (c.center.x - c.radius) * scale,
-                c.center.y * scale,
-                c.radius * scale,
-                0.0
+                "X{}Y{}D02*\nI{}J{}G02*\n",
+                coordinate((c.center.x - c.radius) * scale),
+                coordinate(c.center.y * scale),
+                coordinate(c.radius * scale),
+                0
             ));
             report.record_written();
         } else {
@@ -3828,47 +3833,29 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     fab_export::fab_readme_text(p, file_names)
 }
 
-/// Bill of materials as CSV: identical parts collapsed into one row with a
-/// sorted, quoted reference list. Requested property keys become extra
-/// columns; with no request, the columns the project itself defines are
-/// printed under their labels.
+/// Bill of materials as generic CSV: the same columns as the Export dialog's
+/// default flavour. Identical parts share one row; references are joined with
+/// `, `. Requested property keys become extra columns after Quantity; with no
+/// request, the columns the project itself defines are printed under their
+/// labels.
 pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<String, String> {
-    p.validate()?;
-    let variant = resolve_bom_variant(p, variant)?;
-    let columns = bom_field_columns(p, fields)?;
-    let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
-    for c in &p.components {
-        if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
-            continue;
-        }
-        let footprint = component_footprint_export(c, variant);
-        let values: Vec<String> = columns.iter().map(|(key, _)| c.bom_value(key)).collect();
-        groups
-            .entry((c.value.clone(), c.kind.clone(), footprint, values))
-            .or_default()
-            .push(c.reference.clone());
-    }
-    let mut out = String::from("quantity,references,value,kind,footprint");
-    for (_, header) in &columns {
-        out.push(',');
-        out.push_str(&csv_cell(header));
-    }
-    out.push('\n');
-    for ((value, kind, footprint, values), mut references) in groups {
-        references.sort();
-        let joined = references.join(",");
-        out.push_str(&references.len().to_string());
-        for cell in [joined, value, kind, footprint] {
-            out.push(',');
-            out.push_str(&csv_cell(&cell));
-        }
-        for value in values {
-            out.push(',');
-            out.push_str(&csv_cell(&value));
-        }
-        out.push('\n');
-    }
-    Ok(out)
+    // The same row collection and columns as the Export dialog's default
+    // flavour and the engine's bill export; with no requested keys, the
+    // columns the project itself defines are printed under their labels.
+    let keys: Vec<String> = if fields.is_empty() {
+        p.bom_fields.iter().map(|f| f.key.clone()).collect()
+    } else {
+        fields.to_vec()
+    };
+    bom_sheet::bom_sheet_generic_csv_for_project(
+        p,
+        &BomSheetParams {
+            fields: keys,
+            variant: variant.map(str::to_owned),
+            ids: vec![],
+            group: true,
+        },
+    )
 }
 fn resolve_bom_variant<'a>(
     p: &'a Project,
@@ -8991,16 +8978,15 @@ mod tests {
         });
         project.validate()?;
         let files = gerber_files(&project)?;
-        let drill = &files["pcb-NPTH.drl"];
+        let drill = &files["pcb-Drill.drl"];
         assert!(
-            drill.contains("T01C1.000\n"),
+            drill.contains("T1C1.000\n"),
             "the tool is the slot width: {drill}"
         );
         assert!(
-            drill.contains("G00X10.000Y10.000\nM15\nG01X14.000Y10.000\nM16\n"),
-            "the slot is routed between the two centres: {drill}"
+            drill.contains("X10.000Y10.000G85X14.000Y10.000\n"),
+            "one hit spans the two centres: {drill}"
         );
-        assert!(!drill.contains("G85"), "XNC slots never use G85: {drill}");
         assert!(drill.ends_with("M30\n"));
         let map = &files["pcb-DrillMap.gbr"];
         assert!(
@@ -10241,16 +10227,11 @@ mod tests {
         );
         let drill = &files["pcb-Plated.drl"];
         assert!(
-            drill.contains("; #@! TF.FileFunction,Plated,1,2,PTH\n")
-                && drill.contains("M48\nINCH\n"),
+            drill.starts_with("M48\nPlated,1,2,PTH\nFMAT,2\nINCH,TZ\n"),
             "the drill header declares inches: {drill}"
         );
         assert!(
-            !drill.contains("FMAT") && !drill.contains(",TZ"),
-            "XNC omits FMAT and trailing-zero words: {drill}"
-        );
-        assert!(
-            drill.contains("T01C0.0118\n"),
+            drill.contains("T1C0.0118\n"),
             "a 0.3 mm bit is a 0.0118 inch bit"
         );
         assert!(
@@ -10457,10 +10438,24 @@ mod tests {
         assert_eq!(
             files.keys().collect::<Vec<_>>(),
             vec![
+                "README-fabrication.txt",
+                "gerber-arc-report.txt",
+                "pcb-B.Cmp.gbr",
                 "pcb-B.Cu.gbr",
+                "pcb-B.Mask.gbr",
+                "pcb-B.Paste.gbr",
+                "pcb-B.SilkS.gbr",
                 "pcb-Drill.drl",
+                "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
-                "pcb-F.Cu.gbr"
+                "pcb-F.Cmp.gbr",
+                "pcb-F.Cu.gbr",
+                "pcb-F.Mask.gbr",
+                "pcb-F.Paste.gbr",
+                "pcb-F.SilkS.gbr",
+                "pcb-NPTH.drl",
+                "pcb-Plated.drl",
+                "pcb-job.gbrjob",
             ]
         );
         let front = &files["pcb-F.Cu.gbr"];
@@ -15162,7 +15157,7 @@ mod tests {
         let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
         assert!(
-            plated.contains("T01C0.800\n"),
+            plated.contains("T1C0.800\n"),
             "numbered through-hole pads stay on the plated drill file"
         );
         assert!(
@@ -15170,7 +15165,7 @@ mod tests {
             "peg coordinates must not appear in the plated drill file: {plated}"
         );
         assert!(
-            npth.contains("T01C3.000\n"),
+            npth.contains("T1C3.000\n"),
             "both pegs share one unplated tool"
         );
         assert!(
@@ -15295,8 +15290,8 @@ mod tests {
         let files = gerber_files(&project)?;
         let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
-        assert!(plated.contains("T01C0.300\n") && !plated.contains("T01C3.000\n"));
-        assert!(npth.contains("T01C3.000\n") && !npth.contains("0.300"));
+        assert!(plated.contains("T1C0.300\n") && !plated.contains("T1C3.000\n"));
+        assert!(npth.contains("T1C3.000\n") && !npth.contains("0.300"));
         Ok(())
     }
 
@@ -15332,11 +15327,11 @@ mod tests {
         let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
         for text in [plated.as_str(), npth.as_str()] {
-            assert!(!text.contains("FMAT") && !text.contains(",TZ"));
+            assert!(text.contains("FMAT,2\n"));
             assert!(text.ends_with("M30\n"));
         }
-        let (p_tools, p_hits) = parse_xnc_drill(plated)?;
-        let (n_tools, n_hits) = parse_xnc_drill(npth)?;
+        let (p_tools, p_hits) = parse_excellon_drill(plated)?;
+        let (n_tools, n_hits) = parse_excellon_drill(npth)?;
         assert_eq!(p_tools.len(), 1);
         assert_eq!(n_tools.len(), 1);
         assert!((p_tools[0].diameter_mm - 0.3).abs() < 1e-6);
@@ -16142,7 +16137,7 @@ mod tests {
             "each via tool clears its attribute so later tools do not inherit it"
         );
         assert_eq!(
-            drill.matches("\nT01C0.300\n").count() + drill.matches("\nT02C0.300\n").count(),
+            drill.matches("\nT1C0.300\n").count() + drill.matches("\nT2C0.300\n").count(),
             2,
             "one tool per covering: {drill}"
         );
@@ -16323,7 +16318,7 @@ mod tests {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[test]
     fn four_layer_project_save_is_byte_stable_on_second_write() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
@@ -16376,7 +16371,7 @@ mod tests {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[test]
     fn six_layer_project_save_is_byte_stable_on_second_write() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
@@ -16424,7 +16419,7 @@ mod tests {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[test]
     fn an_arced_corner_round_trips_through_save_and_open() -> Result<(), String> {
         let mut project = Project::default();
         project.board.outline = Some(vec![

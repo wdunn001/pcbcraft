@@ -183,7 +183,13 @@ pub fn laser_board_cut_dxf(p: &Project, options: &LaserBoardCutOptions) -> Resul
 fn board_cut_rings(p: &Project, kerf_offset_mm: f64) -> Result<Vec<Vec<Point>>, String> {
     let outline = board_outline_ring(p);
     let offset = crate::cam_drill::offset_ring(&outline, kerf_offset_mm);
-    if !polygon_is_simple(&offset) {
+    // The offset ring repeats its first point as the closing vertex; the
+    // simplicity test wants the open ring.
+    let open = match offset.split_last() {
+        Some((last, rest)) if rest.first() == Some(last) => rest,
+        _ => offset.as_slice(),
+    };
+    if !polygon_is_simple(open) {
         return Err("board outline with kerf offset is not a simple ring".into());
     }
     let mut rings = vec![offset];
@@ -389,7 +395,7 @@ mod tests {
         project.board.width = 20.0;
         project.board.height = 15.0;
         project.board.footprints = vec![Footprint {
-            id: 1,
+            id: 3,
             component: 2,
             position: Point::new(5.0, 7.5),
             rotation: 0.0,

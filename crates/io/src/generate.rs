@@ -481,7 +481,7 @@ mod generate_tests {
             ..pcbcraft_doc::Net::default()
         });
         project.board.tracks.push(pcbcraft_doc::Track {
-            id: 1,
+            id: 3,
             net: 1,
             start: pcbcraft_geom::Point::new(5.0, 10.0),
             end: pcbcraft_geom::Point::new(15.0, 10.0),
@@ -558,7 +558,8 @@ mod generate_tests {
         let GeneratedOutput::Files(map) = out else {
             return Err("expected a file map".into());
         };
-        assert_eq!(map, gerber_files(&project)?);
+        // A package is dated with the fixed package date so its hash is stable.
+        assert_eq!(map, crate::gerber_files_at(&project, PACKAGE_CREATION_DATE)?);
         Ok(())
     }
 

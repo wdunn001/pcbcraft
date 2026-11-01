@@ -49,6 +49,14 @@ struct GroundChoice {
 /// Builds the passive schematic netlist stamped by `sim.model` fields.
 pub fn build_schematic_netlist(p: &Project) -> Result<SchematicNetlist, String> {
     p.validate()?;
+    // A design with no stamped part is reported as such before any ground
+    // question, since there is nothing to ground yet.
+    if !p.components.iter().any(|c| c.field("sim.model").is_some()) {
+        return Err(
+            "no parts have sim.model set to R, V or I; mark the parts you want in the netlist first"
+                .into(),
+        );
+    }
     let ground = pick_ground(p)?;
     let mut node_by_net: BTreeMap<Id, SimNode> = BTreeMap::new();
     node_by_net.insert(
@@ -385,7 +393,7 @@ mod tests {
             id: 10,
             reference: "R1".into(),
             value: "1k".into(),
-            kind: "R".into(),
+            kind: "resistor".into(),
             position: pcbcraft_geom::Point { x: 0.0, y: 0.0 },
             rotation: 0.0,
             pins: vec![
@@ -430,7 +438,7 @@ mod tests {
             id: 11,
             reference: "R2".into(),
             value: "1k".into(),
-            kind: "R".into(),
+            kind: "resistor".into(),
             position: pcbcraft_geom::Point { x: 0.0, y: 0.0 },
             rotation: 0.0,
             pins: vec![
