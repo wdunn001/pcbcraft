@@ -3,6 +3,12 @@
 //! Hulls come from `pcbcraft_rules::obstacles`, the same copper list the checks
 //! use, grown by clearance plus half the track width. Limits are iteration
 //! counts only (never time), so identical input gives identical copper.
+//!
+//! # Dependencies
+//! - crates/engine/src/lib.rs
+//! - crates/doc/src/lib.rs
+//! - crates/geom/src/lib.rs
+//! - crates/rules/src/lib.rs
 mod drag;
 mod shove;
 mod walk;
@@ -27,6 +33,15 @@ pub(crate) const MARGIN: f64 = 1e-4;
 
 #[derive(Deserialize, Clone, Copy, Default, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
+/// How to route a track between two points.
+///
+/// # Rules
+/// - Orthogonal ignores obstacles; Octilinear walks around them; OctilinearShove pushes other nets aside.
+/// - Identical input always produces identical copper.
+///
+/// # Do not
+/// - Change the default; UI and CLI expect Orthogonal when mode is not given.
+
 pub(crate) enum Mode {
     /// One bend, right angles, no obstacle checks (the original behaviour).
     #[default]
@@ -39,6 +54,15 @@ pub(crate) enum Mode {
 
 #[derive(Deserialize, Clone)]
 #[serde(untagged)]
+/// What a route command can target at each end.
+///
+/// # Rules
+/// - Pad endpoints supply their net; bare points require `net` in the command.
+/// - Both ends must resolve to the same layer.
+///
+/// # Do not
+/// - Add a third variant; the resolver assumes pad-or-point at both ends.
+
 pub(crate) enum Endpoint {
     Pad(PadRef),
     Point(Point),
