@@ -122,7 +122,8 @@ fn validate_pin_signal(
             "pin {pin_name} alternate function {af} exceeds max {max_af}"
         )));
     }
-    let Some((instance, signal_part)) = signal.split_once('.') else {
+    // The instance may itself contain a dot (USB.FS), so the signal is the last part.
+    let Some((instance, signal_part)) = signal.rsplit_once('.') else {
         return Err(err(format!(
             "pin {pin_name} signal {signal} must be INSTANCE.SIGNAL"
         )));
@@ -157,12 +158,9 @@ fn validate_package_pins(package: &McuPackage, pin_names: &BTreeSet<&str>) -> Re
             package.id
         )));
     }
-    let mut seen = BTreeSet::new();
     for pin in &package.pins {
         bounded_name("package pin", pin)?;
-        if !seen.insert(pin.as_str()) {
-            return Err(err(format!("package {} lists pin {pin} twice", package.id)));
-        }
+        // A supply pin (VSS, VDD) appears once per ball or lead, so repeats are legal.
         if !pin_names.contains(pin.as_str()) {
             return Err(err(format!(
                 "package {} pin {pin} is missing from the pin mux table",

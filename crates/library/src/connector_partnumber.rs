@@ -288,6 +288,10 @@ pub fn parse_partial(spec_set: &[SeriesSpec], text: &str) -> (ParsedPart, Vec<Fi
     let mut errors = Vec::new();
     for field in &spec.fields {
         if rest.is_empty() {
+            // Optional trailing segments may simply be absent.
+            if matches!(field.kind, FieldKind::OptionalEnum { .. }) {
+                continue;
+            }
             errors.push(FieldError {
                 field: field.id.clone(),
                 message: format!("expected {}", field.label),
@@ -301,7 +305,7 @@ pub fn parse_partial(spec_set: &[SeriesSpec], text: &str) -> (ParsedPart, Vec<Fi
                     errors.push(FieldError::unknown_field(&field.id, vec![text.clone()]));
                     break;
                 }
-                values.insert(field.id.clone(), text.clone());
+                // A literal segment is fixed by the series, so it is not an option to report.
                 rest = strip_prefix_or_empty(rest, text);
                 rest = strip_sep(rest);
             }

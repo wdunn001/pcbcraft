@@ -611,11 +611,11 @@ pub struct Net {
     /// Target total routed length for this net, in millimetres. Only checked
     /// when the net belongs to no net class; classified nets follow their
     /// class target.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_length: Option<f64>,
     /// How far this net may deviate from its target length, in millimetres.
     /// Defaults to zero, and requires a target.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
     /// Largest total routed length allowed for this net, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
