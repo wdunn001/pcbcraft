@@ -6571,12 +6571,14 @@ impl Project {
                 }
             }
         }
+        // A sheet instance may repeat the references of its template page, so a
+        // reference is unique within its instance, not across the whole design.
         let mut refs = BTreeSet::new();
         for c in &self.components {
             if !c.position.valid()
                 || !c.rotation.is_finite()
                 || c.rotation.abs() > 360_000.0
-                || !refs.insert(&c.reference)
+                || !refs.insert((&c.reference, c.instance))
                 || c.reference.is_empty()
                 || c.reference.len() > 64
                 || c.value.len() > 256

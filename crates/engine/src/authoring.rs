@@ -826,7 +826,9 @@ pub(super) fn run(
                 positions,
                 indices: a.indices,
                 color: None,
-                ..Default::default()
+                body_colors: None,
+                triangle_materials: Vec::new(),
+                authored_colors: Vec::new(),
             };
             let def = p
                 .library

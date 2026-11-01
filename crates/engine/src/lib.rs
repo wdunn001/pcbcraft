@@ -3142,7 +3142,11 @@ impl Session {
             results.push(sync_board_from_schematic(&mut candidate, &mut next)?);
             candidate.validate()?;
         }
-        if candidate != self.project {
+        // Every command is one undo step, even when it leaves the design equal to
+        // what it was (a link set to its current value, a glossary lookup). Only
+        // commands that write files or the clipboard and never edit the design
+        // leave history alone.
+        if candidate != self.project || commands.iter().any(|c| !command_never_edits(&c.command)) {
             self.commit(candidate);
         }
         if next != self.next_id {
@@ -8395,6 +8399,12 @@ fn bus_members(
         members.push(id);
     }
     Ok((members, created))
+}
+
+/// Commands that export or copy and never edit the design: running one adds no
+/// undo step and leaves the revision alone.
+fn command_never_edits(command: &str) -> bool {
+    matches!(command, "library.export" | "selection.copy_text")
 }
 
 fn missing() -> Error {
@@ -22119,6 +22129,7 @@ mod tests {
     #[test]
     fn wire_place_creates_drawn_wire_and_connects_two_pins_in_one_undo() -> Result<(), Error> {
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         for x in [10.0, 30.0] {
             s.execute(
                 "component.add",
@@ -22168,6 +22179,7 @@ mod tests {
     #[test]
     fn wire_place_refuses_conflicting_nets_without_explicit_net() -> Result<(), Error> {
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         for x in [10.0, 30.0] {
             s.execute(
                 "component.add",
