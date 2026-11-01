@@ -10,6 +10,7 @@ use crate::board_mesh::graphic_layer;
 use pcbcraft_doc::{Footprint, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintDefinition;
+use pcbcraft_library::is_courtyard_layer as is_courtyard;
 
 /// Body height in millimetres when a part states none.
 pub const DEFAULT_BODY_HEIGHT_MM: f64 = 1.5;
@@ -55,10 +56,6 @@ fn body_height(text: Option<&str>) -> f64 {
         Ok(v) if v.is_finite() && (MIN_BODY_HEIGHT_MM..=MAX_BODY_HEIGHT_MM).contains(&v) => v,
         _ => DEFAULT_BODY_HEIGHT_MM,
     }
-}
-
-fn is_courtyard(layer: &str) -> bool {
-    matches!(layer, "F.CrtYd" | "B.CrtYd" | "pcbcraft.courtyard")
 }
 
 /// Package geometry and part number strings for a placed footprint.

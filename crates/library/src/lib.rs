@@ -100,6 +100,7 @@ pub use datasheet::{
 };
 pub use footprint_check::{
     FindingSeverity, FootprintFinding, check_footprint, courtyard_half_extents,
+    courtyard_layer_is_back, is_courtyard_layer,
 };
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 pub use ipc7351::generate_footprint_from_key;

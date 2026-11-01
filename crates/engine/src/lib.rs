@@ -30076,6 +30076,59 @@ mod tests {
     }
 
     #[test]
+    fn generated_courtyard_is_on_the_grid_and_replaces_an_imported_one() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        let imported = definition
+            .graphics
+            .iter()
+            .filter(|g| {
+                matches!(g, pcbcraft_library::Graphic::Rectangle { layer, .. } if pcbcraft_library::is_courtyard_layer(layer))
+            })
+            .count();
+        assert_eq!(
+            imported, 1,
+            "the fixture arrives with one imported courtyard"
+        );
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.generate_courtyard",
+            json!({"name": "R_0805_2012Metric", "margin": 0.237}),
+            None,
+        )?;
+        let def = s
+            .project
+            .library
+            .footprints
+            .first()
+            .ok_or_else(missing)?
+            .clone();
+        let yards: Vec<_> = def
+            .graphics
+            .iter()
+            .filter(|g| {
+                matches!(g, pcbcraft_library::Graphic::Rectangle { layer, .. } if pcbcraft_library::is_courtyard_layer(layer))
+            })
+            .collect();
+        assert_eq!(yards.len(), 1, "the imported courtyard is replaced");
+        let findings: Vec<String> = pcbcraft_library::check_footprint(&def)
+            .into_iter()
+            .map(|f| f.code)
+            .collect();
+        assert!(
+            !findings.iter().any(|c| c.starts_with("lib_courtyard")),
+            "an odd margin still lands on the grid and encloses the artwork: {findings:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn footprint_generate_upserts_valid_definition() -> Result<(), Error> {
         let mut s = Session::default();
         assert_eq!(s.project.library.footprints.len(), 0);
