@@ -716,13 +716,13 @@ mod tests {
                 (DOCUMENT_ENTRY.to_string(), document.clone()),
                 (bad.to_string(), b"x".to_vec()),
             ];
-            let zip = crate::zip_entries(&files)?;
+            let zip = crate::zip_entries_unchecked(&files)?;
             assert!(
                 read_solidcraft_container(&zip).is_err(),
                 "unsafe name {bad:?} is refused"
             );
         }
-        let dup = crate::zip_entries(&[
+        let dup = crate::zip_entries_unchecked(&[
             (CONTAINER_ENTRY.to_string(), container_meta.clone()),
             (DOCUMENT_ENTRY.to_string(), document.clone()),
             ("note.txt".into(), b"a".to_vec()),

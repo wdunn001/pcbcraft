@@ -1076,7 +1076,11 @@ pub fn with_models(
         if part.kind != PartKind::Body {
             continue;
         }
-        match lookup(model) {
+        let looked = match &model.preloaded {
+            Some(m) => ModelLookup::Ready(m.clone()),
+            None => lookup(model),
+        };
+        match looked {
             ModelLookup::Loading => notes.push((id, ModelStatus::Loading)),
             ModelLookup::Failed(reason) => notes.push((id, ModelStatus::Failed(reason))),
             ModelLookup::Ready(m) => {

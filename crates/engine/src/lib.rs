@@ -8880,12 +8880,12 @@ fn merge_design_block_template(
             from: PinRef {
                 component: *id_map.get(&wire.from.component).ok_or_else(missing)?,
                 pin: wire.from.pin.clone(),
-                unit: Default::default(),
+                unit: None,
             },
             to: PinRef {
                 component: *id_map.get(&wire.to.component).ok_or_else(missing)?,
                 pin: wire.to.pin.clone(),
-                unit: Default::default(),
+                unit: None,
             },
         });
     }
@@ -22910,12 +22910,12 @@ mod tests {
         let from = PinRef {
             component: 1,
             pin: "2".into(),
-            unit: Default::default(),
+            unit: None,
         };
         let to = PinRef {
             component: 2,
             pin: "1".into(),
-            unit: Default::default(),
+            unit: None,
         };
         let start = s.project.pin_position(&from).ok_or_else(missing)?;
         let end = s.project.pin_position(&to).ok_or_else(missing)?;
@@ -22975,12 +22975,12 @@ mod tests {
         let from = PinRef {
             component: 1,
             pin: "2".into(),
-            unit: Default::default(),
+            unit: None,
         };
         let to = PinRef {
             component: 2,
             pin: "1".into(),
-            unit: Default::default(),
+            unit: None,
         };
         let start = s.project.pin_position(&from).ok_or_else(missing)?;
         let end = s.project.pin_position(&to).ok_or_else(missing)?;

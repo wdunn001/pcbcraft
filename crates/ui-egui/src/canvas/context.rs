@@ -382,7 +382,7 @@ impl App {
                 if let Some(at) = self.project.pin_position(&PinRef {
                     component: pin.component,
                     pin: pin.pin.clone(),
-                    unit: Default::default(),
+                    unit: None,
                 }) {
                     self.wire_route = vec![at];
                 }

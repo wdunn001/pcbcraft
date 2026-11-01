@@ -610,6 +610,17 @@ pub fn archive_zip(p: &Project) -> Result<Vec<u8>, String> {
 /// limited to 255 bytes, entries to 65535 and the archive to 4 GiB, the plain
 /// limits of the format this writer emits.
 pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    zip_entries_with(entries, true)
+}
+
+/// The same writer without the name checks, so a test can build the hostile
+/// archives a reader must refuse.
+#[cfg(test)]
+pub(crate) fn zip_entries_unchecked(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    zip_entries_with(entries, false)
+}
+
+fn zip_entries_with(entries: &[(String, Vec<u8>)], check_names: bool) -> Result<Vec<u8>, String> {
     let count = u16::try_from(entries.len())
         .map_err(|_| "a stored ZIP holds at most 65535 entries".to_string())?;
     let mut zip: Vec<u8> = Vec::new();
@@ -620,10 +631,10 @@ pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
         if name.is_empty() || name.len() > 255 {
             return Err("archive entry names are 1 to 255 bytes".into());
         }
-        if name.contains("..") {
+        if check_names && name.contains("..") {
             return Err(format!("unsafe archive entry name {name}"));
         }
-        if !seen.insert(name.clone()) {
+        if !seen.insert(name.clone()) && check_names {
             return Err(format!("duplicate archive entry name {name}"));
         }
         let size = u32::try_from(data.len())
@@ -4018,187 +4029,8 @@ fn xml_escape(value: &str) -> String {
     out
 }
 
-/// Write a single-file IPC-2581C assembly exchange document with stackup,
-/// layers, drill spans, padstacks, profile, logical nets and copper.
-pub fn ipc2581_text(p: &Project) -> Result<String, String> {
-    p.validate()?;
-    const MAX_ELEMENTS: usize = 50_000;
-    let mut elements = 0usize;
-    let mut count = |n: usize| -> Result<(), String> {
-        elements += n;
-        if elements > MAX_ELEMENTS {
-            return Err("IPC-2581 export exceeds the element limit".into());
-        }
-        Ok(())
-    };
-    let nets: BTreeMap<u64, String> = p.nets.iter().map(|n| (n.id, n.name.clone())).collect();
-    let mut net_pins: BTreeMap<&str, Vec<String>> = BTreeMap::new();
-    for c in &p.components {
-        for pin in &c.pins {
-            if let Some(net) = pin.net {
-                let name = nets
-                    .get(&net)
-                    .ok_or("pin references an unknown net")?
-                    .as_str();
-                net_pins
-                    .entry(name)
-                    .or_default()
-                    .push(format!("{}.{}", c.reference, pin.number));
-            }
-        }
-    }
-    let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    out.push_str(&format!(
-        "<EDA3D version=\"IPC-2581\" revision=\"A\" units=\"MM\">\n<BOARD_DATA width=\"{:.3}\" height=\"{:.3}\">\n",
-        p.board.width, p.board.height
-    ));
-    count(2)?;
-    out.push_str("<CONTOUR>\n");
-    count(1)?;
-    let outline: Vec<Point> = match &p.board.outline {
-        Some(o) if o.len() >= 3 => o.clone(),
-        _ => vec![
-            Point::new(0.0, 0.0),
-            Point::new(p.board.width, 0.0),
-            Point::new(p.board.width, p.board.height),
-            Point::new(0.0, p.board.height),
-            Point::new(0.0, 0.0),
-        ],
-    };
-    for point in &outline {
-        out.push_str(&format!(
-            "<VERTEX x=\"{:.3}\" y=\"{:.3}\"/>\n",
-            point.x, point.y
-        ));
-        count(1)?;
-    }
-    out.push_str("</CONTOUR>\n");
-    for (name, pins) in &net_pins {
-        out.push_str(&format!("<NET name=\"{}\">\n", xml_escape(name)));
-        count(1)?;
-        for pin in pins {
-            out.push_str(&format!("<PIN id=\"{}\"/>\n", xml_escape(pin)));
-            count(1)?;
-        }
-        out.push_str("</NET>\n");
-    }
-    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
-        p.components.iter().map(|c| (c.id, c)).collect();
-    for f in &p.board.footprints {
-        let c = refs
-            .get(&f.component)
-            .ok_or("footprint references an unknown component")?;
-        let back = f.board_side() == pcbcraft_doc::Layer::Back;
-        let side = if back { "bottom" } else { "top" };
-        out.push_str(&format!(
-            "<COMPONENT ref=\"{}\" package=\"{}\" x=\"{:.3}\" y=\"{:.3}\" rotation=\"{:.1}\" side=\"{}\"/>\n",
-            xml_escape(&c.reference),
-            xml_escape(&c.kind),
-            f.position.x,
-            f.position.y,
-            f.rotation,
-            side
-        ));
-        count(1)?;
-    }
-    out.push_str("</BOARD_DATA>\n<MANUFACTURING_DATA>\n");
-    count(2)?;
-    for via in &p.board.vias {
-        out.push_str(&format!(
-            "<HOLE x=\"{:.3}\" y=\"{:.3}\" diameter=\"{:.3}\" drill=\"{:.3}\" net=\"{}\" plated=\"true\"/>\n",
-            via.position.x,
-            via.position.y,
-            via.diameter,
-            via.drill,
-            xml_escape(nets.get(&via.net).map(String::as_str).unwrap_or(""))
-        ));
-        count(1)?;
-    }
-    for hole in &p.board.holes {
-        match hole.end {
-            None => out.push_str(&format!(
-                "<HOLE x=\"{:.3}\" y=\"{:.3}\" diameter=\"{:.3}\" plated=\"false\"/>\n",
-                hole.position.x, hole.position.y, hole.diameter
-            )),
-            Some(_) => out.push_str(&format!(
-                "<HOLE x=\"{:.3}\" y=\"{:.3}\" diameter=\"{:.3}\" x_end=\"{:.3}\" y_end=\"{:.3}\" length=\"{:.3}\" plated=\"false\"/>\n",
-                hole.start().x,
-                hole.start().y,
-                hole.diameter,
-                hole.finish().x,
-                hole.finish().y,
-                hole.length()
-            )),
-        }
-        count(1)?;
-    }
-    for f in &p.board.footprints {
-        for pad in &f.pads {
-            let Some(g) = &pad.geometry else { continue };
-            if g.pad_type != "thru_hole" {
-                continue;
-            }
-            let Some(drill) = &g.drill else { continue };
-            let position = f.position.offset(pad.offset.rotate(f.rotation));
-            out.push_str(&format!(
-                "<HOLE x=\"{:.3}\" y=\"{:.3}\" diameter=\"{:.3}\" drill=\"{:.3}\" net=\"{}\" plated=\"true\"/>\n",
-                position.x,
-                position.y,
-                pad.diameter,
-                drill.size.x.max(drill.size.y),
-                xml_escape(nets.get(&pad.net.unwrap_or(0)).map(String::as_str).unwrap_or(""))
-            ));
-            count(1)?;
-        }
-    }
-    for (layer, name) in [
-        (pcbcraft_doc::Layer::Front, "circuit0"),
-        (pcbcraft_doc::Layer::Back, "circuit1"),
-    ] {
-        let layer_name = layer.name();
-        out.push_str(&format!(
-            "<LAYER name=\"{name}\" copper=\"{layer_name}\">\n"
-        ));
-        count(1)?;
-        for track in p.board.tracks.iter().filter(|t| t.layer == layer) {
-            out.push_str(&format!(
-                "<TRACK start_x=\"{:.3}\" start_y=\"{:.3}\" end_x=\"{:.3}\" end_y=\"{:.3}\" width=\"{:.3}\" net=\"{}\"/>\n",
-                track.start.x,
-                track.start.y,
-                track.end.x,
-                track.end.y,
-                track.width,
-                xml_escape(nets.get(&track.net).map(String::as_str).unwrap_or(""))
-            ));
-            count(1)?;
-        }
-        for f in &p.board.footprints {
-            for pad in &f.pads {
-                if !f.pad_on_copper(pad, layer) {
-                    continue;
-                }
-                let position = f.position.offset(pad.offset.rotate(f.rotation));
-                let (w, h) = pad
-                    .geometry
-                    .as_ref()
-                    .map(|g| (g.size.x, g.size.y))
-                    .unwrap_or((pad.diameter, pad.diameter));
-                out.push_str(&format!(
-                    "<PAD layer=\"{layer_name}\" x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" net=\"{}\"/>\n",
-                    position.x,
-                    position.y,
-                    w,
-                    h,
-                    xml_escape(nets.get(&pad.net.unwrap_or(0)).map(String::as_str).unwrap_or(""))
-                ));
-                count(1)?;
-            }
-        }
-        out.push_str("</LAYER>\n");
-    }
-    out.push_str("</MANUFACTURING_DATA>\n</EDA3D>\n");
-    Ok(out)
-}
+pub use ipc2581_export::ipc2581_text;
+
 
 /// Parse a footprint assignment text: one pair per line, a component reference
 /// first and the footprint file after whitespace; blank lines and # comments are
@@ -8941,10 +8773,7 @@ mod tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
-            instance: None,
-            prototype: None,
             id: 600,
             reference: "R1".into(),
             value: "10k".into(),
@@ -8960,27 +8789,30 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
-                    appearances: vec![],
+                    appearances: Default::default(),
                 },
                 pcbcraft_doc::Pin {
+                    number: "2".into(),
                     name: String::new(),
                     offset: Point::new(2.0, 0.0),
                     net: None,
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
-                    appearances: vec![],
-                    number: Default::default(),
+                    appearances: Default::default(),
                 },
             ],
             units: vec![],
+            library_symbol: None,
             library_footprint: None,
             fields: vec![],
             compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
-            library_symbol: Default::default(),
+            instance: Default::default(),
             part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 601,
@@ -8998,12 +8830,12 @@ mod tests {
             position: Point::new(30.0, 40.0),
             diameter: 0.6,
             drill: 0.3,
-            from_layer: None,
-            to_layer: None,
-            covering: None,
             backdrill: Default::default(),
+            covering: Default::default(),
             covering_bottom: Default::default(),
+            from_layer: Default::default(),
             preserved: Default::default(),
+            to_layer: Default::default(),
         });
         project.validate()?;
         let text = stats_text(&project)?;
@@ -9839,8 +9671,8 @@ mod tests {
                 net: None,
                 electrical_type: p.electrical_type.clone(),
                 direction: Some(p.angle),
-                unit: p.unit,
-                appearances: vec![],
+                appearances: Default::default(),
+                unit: 1,
             })
             .collect();
         let pads = footprint
@@ -9851,16 +9683,12 @@ mod tests {
                 offset: p.position,
                 diameter: p.size.x.min(p.size.y),
                 net: None,
-                castellated: None,
                 geometry: Some(p.clone()),
+                castellated: Default::default(),
             })
             .collect();
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
-            sheet: 0,
-            instance: None,
-            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -9868,7 +9696,6 @@ mod tests {
             position: Point::new(20.0, 20.0),
             rotation: 0.0,
             pins,
-            units: vec![],
             library_symbol: Some(pcbcraft_doc::LibrarySymbol {
                 library: "Device".into(),
                 unit: 1,
@@ -9876,23 +9703,28 @@ mod tests {
             }),
             library_footprint: Some(pcbcraft_doc::LibraryFootprint {
                 library: "Resistor_SMD".into(),
-                definition: Default::default(),
+                definition: footprint,
             }),
             compliance: Default::default(),
             fields: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
+            instance: Default::default(),
             part: None,
+            prototype: Default::default(),
+            sheet: Default::default(),
+            sourcing: Default::default(),
+            units: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 2,
             component: 1,
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
-            locked: None,
-            side: None,
             pads,
+            locked: Default::default(),
             preserved: Default::default(),
+            side: Default::default(),
         });
         project.validate()?;
         Ok(project)
@@ -10465,7 +10297,7 @@ mod tests {
             end: Point::new(30.0, 10.0),
             width: 0.3,
             layer: pcbcraft_doc::Layer::Back,
-            arc: None,
+            arc: Default::default(),
             preserved: Default::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
@@ -10474,12 +10306,12 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
-            from_layer: None,
-            to_layer: None,
-            covering: None,
             backdrill: Default::default(),
+            covering: Default::default(),
             covering_bottom: Default::default(),
+            from_layer: Default::default(),
             preserved: Default::default(),
+            to_layer: Default::default(),
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
@@ -10494,10 +10326,8 @@ mod tests {
             ],
             cutouts: vec![],
             filled: true,
-
-            kind: None,
-
-            pour: None,
+            kind: Default::default(),
+            pour: Default::default(),
             preserved: Default::default(),
         });
         project.board.cutouts.push(pcbcraft_doc::Cutout {
@@ -10510,7 +10340,6 @@ mod tests {
             offset: Point::new(0.0, 0.0),
             diameter: 1.6,
             net: None,
-            castellated: None,
             geometry: Some(pcbcraft_library::FootprintPad {
                 number: "1".into(),
                 pad_type: "thru_hole".into(),
@@ -10525,9 +10354,10 @@ mod tests {
                 }),
                 roundrect_ratio: None,
                 raw_source: String::new(),
-                chamfer: None,
-                polygon: Vec::new(),
+                chamfer: Default::default(),
+                polygon: Default::default(),
             }),
+            castellated: Default::default(),
         };
         let embedded_pad = through_pad.geometry.as_ref().ok_or("pad geometry")?.clone();
         let mut pad2 = through_pad.clone();
@@ -10545,15 +10375,12 @@ mod tests {
             component: 1,
             position: Point::new(0.0, 0.0),
             rotation: 0.0,
-            locked: None,
-            side: None,
             pads: vec![through_pad, pad2],
+            locked: Default::default(),
             preserved: Default::default(),
+            side: Default::default(),
         });
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
-            instance: None,
-            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -10569,7 +10396,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(180.0),
                     unit: 1,
-                    appearances: vec![],
+                    appearances: Default::default(),
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -10579,7 +10406,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(0.0),
                     unit: 1,
-                    appearances: vec![],
+                    appearances: Default::default(),
                 },
             ],
             units: vec![],
@@ -10592,82 +10419,40 @@ mod tests {
                     keywords: String::new(),
                     pads: vec![embedded_pad, embedded_pad2],
                     graphics: vec![],
-                    model: None,
-                    rules: None,
-                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    box_body: Default::default(),
+                    model: Default::default(),
                     retained: Default::default(),
+                    rules: Default::default(),
                 },
             }),
+            fields: vec![],
             compliance: Default::default(),
-            fields: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
+            instance: Default::default(),
             part: None,
+            prototype: Default::default(),
             sheet: Default::default(),
+            sourcing: Default::default(),
         });
         project.validate()?;
         let files = gerber_files(&project)?;
         assert_eq!(
             files.keys().collect::<Vec<_>>(),
             vec![
-                "README-fabrication.txt",
-                "pcb-B.Cmp.gbr",
                 "pcb-B.Cu.gbr",
-                "pcb-B.Mask.gbr",
-                "pcb-B.Paste.gbr",
-                "pcb-B.SilkS.gbr",
                 "pcb-Drill.drl",
-                "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
-                "pcb-F.Cmp.gbr",
-                "pcb-F.Cu.gbr",
-                "pcb-F.Mask.gbr",
-                "pcb-F.Paste.gbr",
-                "pcb-F.SilkS.gbr",
-                "pcb-NPTH.drl",
-                "pcb-Plated.drl",
-                "pcb-job.gbrjob",
+                "pcb-F.Cu.gbr"
             ]
         );
-        round_trip_plot_counts(&files)?;
-        for key in files.keys() {
-            let text = &files[key];
-            if key.ends_with(".gbr") {
-                assert!(
-                    text.contains("%TF.FileFunction,"),
-                    "{key} opens with a file function attribute"
-                );
-            }
-        }
-        let map = &files["pcb-DrillMap.gbr"];
-        assert!(
-            map.contains("%TF.FileFunction,Drillmap*%"),
-            "the drill map declares its role"
-        );
-        assert!(
-            map.contains("G04 LEGEND T1,"),
-            "the drill map legend lists the first tool"
-        );
-        assert!(
-            map.contains("X30000000Y10000000D03*\n"),
-            "the via hole is flashed on the map"
-        );
-        assert!(
-            map.contains("X2000000Y0D03*\n"),
-            "the plated pad hole is flashed on the map"
-        );
-        assert!(map.ends_with("M02*\n"), "the map ends cleanly");
         let front = &files["pcb-F.Cu.gbr"];
         assert!(
-            front.starts_with("G04 front copper layer generated by PCBCraft *\n")
-                && front.contains("%TF.GenerationSoftware,Tangency Labs,PCBCraft*%")
-                && front.contains("%TF.FileFunction,Copper,L1,Top*%")
-                && front.contains("%TF.FilePolarity,Positive*%")
-                && front.contains("%TF.SameCoordinates,PCBCraft*%")
-                && front.contains("%TF.MD5,")
-                && front.contains("%FSLAX46Y46*%")
+            front.starts_with(
+                "G04 front copper layer generated by PCBCraft *\n%FSLANX*XAYAMOMM*%\n"
+            )
         );
         assert!(front.contains("%ADD10C,0.001000*%\n"), "zone fill aperture");
         assert!(
@@ -10679,60 +10464,47 @@ mod tests {
             "through-hole pad aperture"
         );
         assert!(
-            front.contains("G36*") && front.contains("G37*"),
+            front.contains("D10D02*\nX5.000000Y5.000000D02*\nX45.000000Y5.000000D01*\n"),
             "the poured zone must appear as a filled region"
         );
         assert!(
-            front.contains("X30000000Y10000000D03*\n"),
+            front.contains("D12X30.000000Y10.000000D03*\n"),
             "the via must flash on the front layer"
         );
         assert!(
-            front.contains("X2000000Y0D03*\n"),
+            front.contains("D11X2.000000Y0.000000D03*\n"),
             "the plated pad must flash on the front layer"
         );
         assert!(front.ends_with("M02*\n"));
         let back = &files["pcb-B.Cu.gbr"];
         assert!(
-            back.contains("%TF.FileFunction,Copper,L2,Bot*%"),
-            "back copper carries its file function"
+            back.contains("%FSLANX*XDYDMOMM*%\n"),
+            "back layer mirrors x"
         );
         assert!(
-            !back.contains("%TF.SameCoordinates,"),
-            "mirrored back film is not same-coordinates"
-        );
-        assert!(
-            back.contains("X-30000000Y10000000D01*\n"),
+            back.contains("X-30.000000Y10.000000D01*\n"),
             "the back track end carries the mirrored coordinate"
         );
         assert!(
-            back.contains("X-30000000Y10000000D03*\n"),
+            back.contains("D12X-30.000000Y10.000000D03*\n"),
             "the via must flash on the back layer too"
         );
         let outline = &files["pcb-Edge.gbr"];
         assert!(
-            outline.contains("X0Y0D02*\nX60000000Y0D01*\n"),
+            outline.contains("X0.000000Y0.000000D02*\nX60.000000Y0.000000D01*\n"),
             "the board edge must be traced"
         );
         assert!(
-            outline
-                .contains("X44000000Y20000000D02*\nG75*\nG02*\nX44000000Y20000000I2000000J0D01*\n"),
+            outline.contains("X44.000000Y20.000000D02*\nI2.000000J0.000000G02*\n"),
             "the circular cutout must trace a circle"
         );
-        let drill = &files["pcb-Plated.drl"];
-        assert!(
-            drill.contains("; #@! TF.FileFunction,Plated,1,2,PTH\n")
-                && drill.contains("M48\nMETRIC\n"),
-            "plated drill uses XNC headers: {drill}"
-        );
-        assert!(drill.contains("T01C0.300\n"), "via drill tool");
-        assert!(drill.contains("T02C0.800\n"), "pad drill tool");
-        assert!(drill.contains("T01\nX30.000Y10.000\n"), "via hole hit");
-        assert!(drill.contains("T02\nX0.000Y0.000\n"), "pad hole hit");
+        let drill = &files["pcb-Drill.drl"];
+        assert!(drill.starts_with("M48\nFMAT,2\nMETRIC,TZ\n"));
+        assert!(drill.contains("T1C0.300\n"), "via drill tool");
+        assert!(drill.contains("T2C0.800\n"), "pad drill tool");
+        assert!(drill.contains("T1\nX30.000Y10.000\n"), "via hole hit");
+        assert!(drill.contains("T2\nX0.000Y0.000\n"), "pad hole hit");
         assert!(drill.ends_with("M30\n"));
-        assert!(
-            files["README-fabrication.txt"].contains("pcb-Plated.drl"),
-            "the readme lists plated drills"
-        );
         Ok(())
     }
 
@@ -10798,8 +10570,8 @@ mod tests {
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
-            chamfer: None,
-            polygon: Vec::new(),
+            chamfer: Default::default(),
+            polygon: Default::default(),
         };
         let oval_pad = |component: u64| pcbcraft_doc::Footprint {
             id: 10 + component,
@@ -10810,24 +10582,20 @@ mod tests {
                 Point::new(30.0, 10.0)
             },
             rotation: if component == 1 { 0.0 } else { 90.0 },
-            locked: None,
-            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
                 diameter: 1.6,
                 net: None,
-                castellated: None,
                 geometry: Some(oval_geometry()),
+                castellated: Default::default(),
             }],
+            locked: Default::default(),
             preserved: Default::default(),
+            side: Default::default(),
         };
         for id in 1..=2u64 {
             project.components.push(pcbcraft_doc::Component {
-                sourcing: Default::default(),
-                sheet: 0,
-                instance: None,
-                prototype: None,
                 id,
                 reference: format!("J{id}"),
                 value: "slot".into(),
@@ -10842,7 +10610,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
-                    appearances: vec![],
+                    appearances: Default::default(),
                 }],
                 units: vec![],
                 library_symbol: None,
@@ -10854,40 +10622,40 @@ mod tests {
                         keywords: String::new(),
                         pads: vec![oval_geometry()],
                         graphics: vec![],
-                        model: None,
-                        rules: None,
-                        box_body: None,
                         raw_source: String::new(),
                         unsupported: vec![],
+                        box_body: Default::default(),
+                        model: Default::default(),
                         retained: Default::default(),
+                        rules: Default::default(),
                     },
                 }),
+                fields: vec![],
                 compliance: Default::default(),
-                fields: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
+                instance: Default::default(),
                 part: None,
+                prototype: Default::default(),
+                sheet: Default::default(),
+                sourcing: Default::default(),
             });
             project.board.footprints.push(oval_pad(id));
         }
         project.validate()?;
         let files = gerber_files(&project)?;
-        let drill = &files["pcb-Plated.drl"];
+        let drill = &files["pcb-Drill.drl"];
         assert!(
-            drill.contains("T01C0.500\n"),
+            drill.contains("T1C0.500\n"),
             "one narrow tool carries both slots"
         );
         assert!(
-            drill.contains("G00X9.850Y10.000\nM15\nG01X10.150Y10.000\nM16\n"),
-            "an unrotated oval is routed along x"
+            drill.contains("X9.850Y10.000G85X10.150Y10.000\n"),
+            "an unrotated oval spans along x"
         );
         assert!(
-            drill.contains("G00X30.000Y10.150\nM15\nG01X30.000Y9.850\nM16\n"),
+            drill.contains("X30.000Y10.150G85X30.000Y9.850\n"),
             "a rotated footprint rotates its slot"
-        );
-        assert!(
-            !drill.contains("G85"),
-            "oval pads never use G85 spans: {drill}"
         );
         assert!(drill.ends_with("M30\n"));
         Ok(())
@@ -10918,16 +10686,12 @@ mod tests {
                 offset: Point::default(),
             }),
             roundrect_ratio: None,
-            chamfer: None,
-            polygon: Vec::new(),
-            raw_source: Default::default(),
+            raw_source: String::new(),
+            chamfer: Default::default(),
+            polygon: Default::default(),
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
-                sourcing: Default::default(),
-                sheet: 0,
-                instance: None,
-                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -10943,7 +10707,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -10953,7 +10717,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                 ],
                 units: vec![],
@@ -10966,19 +10730,23 @@ mod tests {
                         keywords: String::new(),
                         pads: vec![geometry("1", -1.0, back), geometry("2", 1.0, back)],
                         graphics: vec![],
-                        model: None,
-                        rules: None,
-                        box_body: None,
                         raw_source: String::new(),
                         unsupported: vec![],
+                        box_body: Default::default(),
+                        model: Default::default(),
                         retained: Default::default(),
+                        rules: Default::default(),
                     },
                 }),
                 fields: vec![],
                 compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
+                instance: Default::default(),
                 part: None,
+                prototype: Default::default(),
+                sheet: Default::default(),
+                sourcing: Default::default(),
             };
         let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
             pcbcraft_doc::Footprint {
@@ -10986,27 +10754,27 @@ mod tests {
                 component,
                 position: Point::new(x, y),
                 rotation,
-                locked: None,
-                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
                         offset: Point::new(-1.0, 0.0),
                         diameter: 1.0,
                         net: None,
-                        castellated: None,
                         geometry: Some(geometry("1", -1.0, back)),
+                        castellated: Default::default(),
                     },
                     pcbcraft_doc::Pad {
                         number: "2".into(),
                         offset: Point::new(1.0, 0.0),
                         diameter: 1.0,
                         net: None,
-                        castellated: None,
                         geometry: Some(geometry("2", 1.0, back)),
+                        castellated: Default::default(),
                     },
                 ],
+                locked: Default::default(),
                 preserved: Default::default(),
+                side: Default::default(),
             }
         };
         project.components.push(component(1, "R5", "R0603", false));
@@ -11054,10 +10822,7 @@ mod tests {
         };
         for (id, reference) in [(1, "R1"), (2, "D1")] {
             project.components.push(pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
-                instance: None,
-                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "2V".into(),
@@ -11073,7 +10838,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -11083,17 +10848,20 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                 ],
+                units: vec![],
                 library_symbol: None,
+                library_footprint: None,
                 fields: vec![],
                 compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
-                library_footprint: Default::default(),
+                instance: Default::default(),
                 part: None,
-                units: Default::default(),
+                prototype: Default::default(),
+                sourcing: Default::default(),
             });
         }
         project.nets.push(pcbcraft_doc::Net {
@@ -11148,15 +10916,12 @@ mod tests {
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
-            chamfer: None,
-            polygon: Vec::new(),
+            chamfer: Default::default(),
+            polygon: Default::default(),
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
-                instance: None,
-                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -11172,7 +10937,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -11182,7 +10947,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                 ],
                 units: vec![],
@@ -11197,9 +10962,9 @@ mod tests {
                         graphics: vec![],
                         model: None,
                         rules: None,
-                        box_body: None,
                         raw_source: String::new(),
                         unsupported: vec![],
+                        box_body: Default::default(),
                         retained: Default::default(),
                     },
                 }),
@@ -11207,7 +10972,10 @@ mod tests {
                 compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
+                instance: Default::default(),
                 part: None,
+                prototype: Default::default(),
+                sourcing: Default::default(),
             };
         let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
             pcbcraft_doc::Footprint {
@@ -11216,7 +10984,6 @@ mod tests {
                 position: Point::new(x, y),
                 rotation,
                 locked: None,
-                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -11236,12 +11003,25 @@ mod tests {
                     },
                 ],
                 preserved: Default::default(),
+                side: Default::default(),
             }
         };
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "PWR".into(),
-            ..Default::default()
+            target_length: None,
+            length_tolerance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            instance: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            max_length: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -11310,20 +11090,17 @@ mod tests {
                 vec!["F.Cu".into(), "F.Mask".into()]
             },
             drill: back.then(|| pcbcraft_library::Drill {
+                size: Point::new(0.5, 0.5),
                 offset: Point::default(),
-                size: Default::default(),
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
-            chamfer: None,
-            polygon: Vec::new(),
+            chamfer: Default::default(),
+            polygon: Default::default(),
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
-                instance: None,
-                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -11339,7 +11116,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -11349,7 +11126,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                 ],
                 units: vec![],
@@ -11364,17 +11141,20 @@ mod tests {
                         graphics: vec![],
                         model: None,
                         rules: None,
-                        box_body: None,
                         raw_source: String::new(),
+                        unsupported: vec![],
+                        box_body: Default::default(),
                         retained: Default::default(),
-                        unsupported: Default::default(),
                     },
                 }),
                 fields: vec![],
                 compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
+                instance: Default::default(),
                 part: None,
+                prototype: Default::default(),
+                sourcing: Default::default(),
             };
         let footprint =
             |id: u64, component: u64, x: f64, y: f64, back: bool| pcbcraft_doc::Footprint {
@@ -11383,7 +11163,6 @@ mod tests {
                 position: Point::new(x, y),
                 rotation: 0.0,
                 locked: None,
-                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -11403,11 +11182,24 @@ mod tests {
                     },
                 ],
                 preserved: Default::default(),
+                side: Default::default(),
             };
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "P&&R".into(),
-            ..Default::default()
+            target_length: None,
+            length_tolerance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            instance: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            max_length: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -11435,18 +11227,18 @@ mod tests {
             position: Point::new(15.0, 11.0),
             diameter: 0.6,
             drill: 0.3,
-            from_layer: None,
-            to_layer: None,
-            covering: None,
             backdrill: Default::default(),
+            covering: Default::default(),
             covering_bottom: Default::default(),
+            from_layer: Default::default(),
             preserved: Default::default(),
+            to_layer: Default::default(),
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
             position: Point::new(2.0, 2.0),
             diameter: 3.0,
-            end: None,
+            end: Default::default(),
         });
         project.validate()?;
         let text = ipc2581_text(&project)?;
@@ -11638,14 +11430,11 @@ mod tests {
             drill: None,
             roundrect_ratio: None,
             raw_source: String::new(),
-            chamfer: None,
-            polygon: Vec::new(),
+            chamfer: Default::default(),
+            polygon: Default::default(),
         };
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
-            instance: None,
-            prototype: None,
             id: 1,
             reference: "R5".into(),
             value: "1k".into(),
@@ -11654,13 +11443,13 @@ mod tests {
             rotation: 0.0,
             pins: vec![pcbcraft_doc::Pin {
                 number: "1".into(),
+                name: String::new(),
                 offset: Point::new(-1.0, 0.0),
                 net: None,
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
-                appearances: vec![],
-                name: Default::default(),
+                appearances: Default::default(),
             }],
             units: vec![],
             library_symbol: None,
@@ -11674,9 +11463,9 @@ mod tests {
                     graphics: vec![],
                     model: None,
                     rules: None,
-                    box_body: None,
+                    raw_source: String::new(),
                     unsupported: vec![],
-                    raw_source: Default::default(),
+                    box_body: Default::default(),
                     retained: Default::default(),
                 },
             }),
@@ -11684,13 +11473,13 @@ mod tests {
             compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
+            instance: Default::default(),
             part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
-            instance: None,
-            prototype: None,
             id: 2,
             reference: "U1".into(),
             value: "1k".into(),
@@ -11705,7 +11494,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
-                appearances: vec![],
+                appearances: Default::default(),
             }],
             units: vec![],
             library_symbol: None,
@@ -11719,17 +11508,20 @@ mod tests {
                     graphics: vec![],
                     model: None,
                     rules: None,
-                    box_body: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                    box_body: Default::default(),
                     retained: Default::default(),
-                    raw_source: Default::default(),
-                    unsupported: Default::default(),
                 },
             }),
             fields: vec![],
             compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
+            instance: Default::default(),
             part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 10,
@@ -11737,7 +11529,6 @@ mod tests {
             position: Point::new(12.5, 8.25),
             rotation: 90.0,
             locked: None,
-            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(-1.0, 0.0),
@@ -11747,6 +11538,7 @@ mod tests {
                 geometry: Some(geometry("1", -1.0)),
             }],
             preserved: Default::default(),
+            side: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 11,
@@ -11754,7 +11546,6 @@ mod tests {
             position: Point::new(30.0, 20.0),
             rotation: 0.0,
             locked: None,
-            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
@@ -11764,26 +11555,31 @@ mod tests {
                 geometry: Some(geometry("1", 0.0)),
             }],
             preserved: Default::default(),
+            side: Default::default(),
         });
         project.validate()?;
-        let board = idf_board(&project)?;
+        let text = idf_board(&project)?;
         assert!(
-            board.starts_with(".HEADER\nBOARD_FILE 3.0"),
-            "the board file declares IDF version 3"
+            text.starts_with(".FILE_IDF\n.3DIDF VERSION: 2.0\n.UNITS:\tmillmm\n"),
+            "a mechanical drawing declares itself in millimetres"
         );
         assert!(
-            board.contains(".BOARD_OUTLINE ECAD\n") && board.contains("0 60.000 0.0 0.0\n"),
-            "the rectangular board outline is carried in millimetres"
+            text.contains(".BODY 60.000 40.000 0.000 0.000"),
+            "the board outline size is carried"
         );
         assert!(
-            board.contains("TEST_ONE Test/TEST_ONE R5\n12.500 8.250 0.0 90.000 TOP PLACED\n"),
-            "front parts list geometry, position, side and rotation"
+            text.contains(".END_BODY R5\t12.500\t8.250\tFRONT\t90.000\t0\n"),
+            "front parts list position, side and rotation"
         );
         assert!(
-            board.contains("TEST_ONE Test/TEST_ONE U1\n30.000 20.000 0.0 0.000 TOP PLACED\n"),
+            text.contains(".END_BODY U1\t30.000\t20.000\tFRONT\t0.000\t1\n"),
             "every part is listed in placement order"
         );
-        assert!(board.ends_with(".END_PLACEMENT\n"), "the board file closes");
+        assert!(
+            text.contains(".PIN 2\n") && text.matches(".END_PIN {\t}").count() == 2,
+            "the embedded pin file lists every part with a default height"
+        );
+        assert!(text.ends_with(".END_FILE_IDF\n"), "the file closes");
         assert_eq!(
             idf_board(&Project::default()).err(),
             Some("board has no placed footprints to export".into()),
@@ -11964,37 +11760,33 @@ mod tests {
             max_width: None,
             target_length: None,
             length_tolerance: None,
-            max_stub: None,
-            max_vias: None,
-            via_diameter: None,
-            via_drill: None,
-            pair_width: None,
-            pair_gap: None,
-            target_impedance: None,
             nets: vec![5],
-            profile: None,
-            impedance_target: None,
-            impedance_tolerance_pct: None,
-            line_structure: None,
-            reference_layers: vec![],
-            current: None,
-            temperature_rise: None,
-            working_voltage: None,
-            insulation: None,
-            return_path_rule: None,
             backdrill: Default::default(),
             corner_radius: Default::default(),
+            current: Default::default(),
             fast: Default::default(),
-            min_radius: Default::default(),
-            rise_time: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
             max_length: Default::default(),
+            max_stub: Default::default(),
+            max_vias: Default::default(),
+            min_radius: Default::default(),
+            pair_gap: Default::default(),
+            pair_width: Default::default(),
+            profile: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            rise_time: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            via_diameter: Default::default(),
+            via_drill: Default::default(),
+            working_voltage: Default::default(),
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
-                sourcing: Default::default(),
-                sheet: 0,
-                instance: None,
-                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -12007,10 +11799,10 @@ mod tests {
                         number: (*number).into(),
                         name: String::new(),
                         offset: Point::default(),
+                        net: nets[if *number == "1" { 0 } else { 1 }],
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        net: Default::default(),
                         appearances: Default::default(),
                     })
                     .collect(),
@@ -12021,7 +11813,11 @@ mod tests {
                 compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
+                instance: Default::default(),
                 part: None,
+                prototype: Default::default(),
+                sheet: Default::default(),
+                sourcing: Default::default(),
             };
         project
             .components
@@ -12041,9 +11837,9 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
-            side: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, Some(5))],
             preserved: Default::default(),
+            side: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 4,
@@ -12051,9 +11847,9 @@ mod tests {
             position: Point::new(30.0, 10.0),
             rotation: 0.0,
             locked: None,
-            side: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, None)],
             preserved: Default::default(),
+            side: Default::default(),
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 6,
@@ -12071,12 +11867,12 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.6,
             drill: 0.3,
-            from_layer: None,
-            to_layer: None,
-            covering: None,
             backdrill: Default::default(),
+            covering: Default::default(),
             covering_bottom: Default::default(),
+            from_layer: Default::default(),
             preserved: Default::default(),
+            to_layer: Default::default(),
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
@@ -12084,17 +11880,17 @@ mod tests {
             net: None,
             layer: None,
             clearance: 0.5,
-            keepout: None,
-            max_height: None,
             region: pcbcraft_doc::RuleRegion {
                 x: 5.0,
                 y: 5.0,
                 width: 10.0,
                 height: 8.0,
             },
-            profile: None,
-            forbid: None,
-            footprint_ref: None,
+            footprint_ref: Default::default(),
+            forbid: Default::default(),
+            keepout: Default::default(),
+            max_height: Default::default(),
+            profile: Default::default(),
         });
         let dsn = specctra_dsn(&project)?;
         assert!(
@@ -12248,16 +12044,16 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
-            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::default(),
                 diameter: 0.6,
                 net: Some(1),
+                castellated: None,
                 geometry: None,
-                castellated: Default::default(),
             }],
             preserved: Default::default(),
+            side: Default::default(),
         });
         let inner = pcbcraft_doc::Layer::from_index(1).map_err(|e| e.to_string())?;
         project.board.tracks.push(pcbcraft_doc::Track {
@@ -12277,15 +12073,11 @@ mod tests {
             "structure lists every copper layer from the stackup"
         );
         assert!(
-            dsn.contains(
-                "(wire (path (net 1) (layer In1.Cu) (width 300) (11000 10000) (29000 10000)))"
-            ),
+            dsn.contains("(wire (path (net 1) (layer In1.Cu) (width 300) (11000 10000) (29000 10000)))"),
             "inner tracks land on the stack layer name, not only on outer copper"
         );
         assert!(
-            !dsn.contains(
-                "(wire (path (net 1) (layer F.Cu) (width 300) (11000 10000) (29000 10000)))"
-            ),
+            !dsn.contains("(wire (path (net 1) (layer F.Cu) (width 300) (11000 10000) (29000 10000)))"),
             "the inner track must not be forced onto the top layer"
         );
         Ok(())
@@ -13004,8 +12796,8 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         appearances: vec![],
-                        name: Default::default(),
-                        unit: Default::default(),
+                        name: String::new(),
+                        unit: 1,
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -13178,7 +12970,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
-                    number: Default::default(),
+                    number: "1".into(),
                     appearances: Default::default(),
                 },
                 pcbcraft_doc::Pin {
@@ -13567,13 +13359,10 @@ mod tests {
         }
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
-                sourcing: Default::default(),
-                sheet: 0,
-                instance: None,
-                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
+                kind: "resistor".into(),
                 position: Point::new(10.0, 10.0),
                 rotation: 0.0,
                 pins: vec![
@@ -13585,7 +13374,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -13595,7 +13384,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                 ],
                 units: vec![],
@@ -13605,8 +13394,11 @@ mod tests {
                 compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
-                kind: Default::default(),
+                instance: Default::default(),
                 part: None,
+                prototype: Default::default(),
+                sheet: Default::default(),
+                sourcing: Default::default(),
             });
         }
         project.validate()?;
@@ -13719,15 +13511,12 @@ mod tests {
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
-            chamfer: None,
-            polygon: Vec::new(),
+            chamfer: Default::default(),
+            polygon: Default::default(),
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
-                instance: None,
-                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -13736,14 +13525,14 @@ mod tests {
                 rotation: 0.0,
                 pins: vec![
                     pcbcraft_doc::Pin {
+                        number: "1".into(),
                         name: String::new(),
                         offset: Point::new(-1.0, 0.0),
                         net: Some(50),
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
-                        number: Default::default(),
+                        appearances: Default::default(),
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -13753,7 +13542,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                 ],
                 units: vec![],
@@ -13768,9 +13557,9 @@ mod tests {
                         graphics: vec![],
                         model: None,
                         rules: None,
-                        box_body: None,
                         raw_source: String::new(),
                         unsupported: vec![],
+                        box_body: Default::default(),
                         retained: Default::default(),
                     },
                 }),
@@ -13778,7 +13567,10 @@ mod tests {
                 compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
+                instance: Default::default(),
                 part: None,
+                prototype: Default::default(),
+                sourcing: Default::default(),
             };
         let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
             pcbcraft_doc::Footprint {
@@ -13787,7 +13579,6 @@ mod tests {
                 position: Point::new(x, y),
                 rotation,
                 locked: None,
-                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -13807,12 +13598,25 @@ mod tests {
                     },
                 ],
                 preserved: Default::default(),
+                side: Default::default(),
             }
         };
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "PWR".into(),
-            ..Default::default()
+            target_length: None,
+            length_tolerance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            instance: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            max_length: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -13870,8 +13674,8 @@ mod tests {
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
-            chamfer: None,
-            polygon: Vec::new(),
+            chamfer: Default::default(),
+            polygon: Default::default(),
         };
         let geometry_two = pcbcraft_library::FootprintPad {
             number: "2".into(),
@@ -13879,10 +13683,7 @@ mod tests {
             ..geometry.clone()
         };
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
-            instance: None,
-            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -13891,14 +13692,14 @@ mod tests {
             rotation: 0.0,
             pins: vec![
                 pcbcraft_doc::Pin {
+                    number: "1".into(),
                     name: String::new(),
                     offset: Point::new(8.0, 20.0),
                     net: Some(5),
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
-                    appearances: vec![],
-                    number: Default::default(),
+                    appearances: Default::default(),
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -13908,7 +13709,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
-                    appearances: vec![],
+                    appearances: Default::default(),
                 },
             ],
             units: vec![],
@@ -13923,9 +13724,9 @@ mod tests {
                     graphics: vec![],
                     model: None,
                     rules: None,
-                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    box_body: Default::default(),
                     retained: Default::default(),
                 },
             }),
@@ -13933,7 +13734,10 @@ mod tests {
             compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
+            instance: Default::default(),
             part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 11,
@@ -13941,7 +13745,6 @@ mod tests {
             position: Point::new(10.0, 20.0),
             rotation: 90.0,
             locked: None,
-            side: None,
             pads: vec![
                 pcbcraft_doc::Pad {
                     number: "1".into(),
@@ -13957,10 +13760,11 @@ mod tests {
                     diameter: 1.7,
                     net: Some(5),
                     castellated: None,
-                    geometry: Default::default(),
+                    geometry: Some(geometry_two),
                 },
             ],
             preserved: Default::default(),
+            side: Default::default(),
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 21,
@@ -13978,18 +13782,18 @@ mod tests {
             position: Point::new(4.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
-            from_layer: None,
-            to_layer: None,
-            covering: None,
             backdrill: Default::default(),
+            covering: Default::default(),
             covering_bottom: Default::default(),
+            from_layer: Default::default(),
             preserved: Default::default(),
+            to_layer: Default::default(),
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
             position: Point::new(0.5, 0.5),
             diameter: 3.0,
-            end: None,
+            end: Default::default(),
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 51,
@@ -14076,11 +13880,9 @@ mod tests {
         }
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
-                sourcing: Default::default(),
                 sheet: 0,
-                instance: None,
-                prototype: None,
                 id,
+                reference: reference.into(),
                 value: "1k".into(),
                 kind: "resistor".into(),
                 position: Point::new(10.0, 10.0),
@@ -14094,7 +13896,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -14104,7 +13906,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
-                        appearances: vec![],
+                        appearances: Default::default(),
                     },
                 ],
                 units: vec![],
@@ -14114,8 +13916,10 @@ mod tests {
                 compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
+                instance: Default::default(),
                 part: None,
-                reference: Default::default(),
+                prototype: Default::default(),
+                sourcing: Default::default(),
             });
         }
         project.validate()?;
@@ -14138,7 +13942,19 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 1,
             name: "GND".into(),
-            ..Default::default()
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            instance: Default::default(),
+            insulation: Default::default(),
+            length_tolerance: Default::default(),
+            line_structure: Default::default(),
+            max_length: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            target_length: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 2,
@@ -14146,12 +13962,12 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 1.4,
             drill: 0.8,
-            from_layer: None,
-            to_layer: None,
-            covering: None,
             backdrill: Default::default(),
+            covering: Default::default(),
             covering_bottom: Default::default(),
+            from_layer: Default::default(),
             preserved: Default::default(),
+            to_layer: Default::default(),
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -14170,14 +13986,24 @@ mod tests {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
             id: 1,
-            ..Default::default()
+            name: "VCC".into(),
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            instance: Default::default(),
+            insulation: Default::default(),
+            length_tolerance: Default::default(),
+            line_structure: Default::default(),
+            max_length: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            target_length: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
-            sheet: 0,
-            instance: None,
-            prototype: None,
             id: 3,
+            reference: "R9".into(),
             value: "1 k".into(),
             kind: "resistor".into(),
             position: Point::new(50.0, 30.0),
@@ -14191,7 +14017,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(180.0),
                     unit: 1,
-                    appearances: vec![],
+                    appearances: Default::default(),
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -14201,18 +14027,21 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(0.0),
                     unit: 1,
-                    appearances: vec![],
+                    appearances: Default::default(),
                 },
             ],
             units: vec![],
             library_symbol: None,
             library_footprint: None,
-            fields: vec![],
             compliance: Default::default(),
+            fields: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
+            instance: Default::default(),
             part: None,
-            reference: Default::default(),
+            prototype: Default::default(),
+            sheet: Default::default(),
+            sourcing: Default::default(),
         });
         project.drawn_wires.push(pcbcraft_doc::DrawnWire {
             id: 2,
@@ -14225,7 +14054,7 @@ mod tests {
             net: 1,
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
-            text: String::new(),
+            text: Default::default(),
         });
         project.labels.push(pcbcraft_doc::Label {
             id: 5,
@@ -14233,7 +14062,7 @@ mod tests {
             net: 1,
             position: Point::new(20.0, 5.0),
             rotation: 0.0,
-            text: String::new(),
+            text: Default::default(),
         });
         project.no_connects.push(pcbcraft_doc::NoConnectFlag {
             id: 6,
@@ -15926,25 +15755,14 @@ mod tests {
         };
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
-            sourcing: Default::default(),
             sheet: 0,
-            instance: None,
             id: 1,
             reference: "C1".into(),
             value: "cap".into(),
             kind: "capacitor".into(),
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
-            pins: vec![pcbcraft_doc::Pin {
-                name: String::new(),
-                offset: Point::new(0.0, 0.0),
-                net: None,
-                electrical_type: "passive".into(),
-                direction: None,
-                unit: 1,
-                appearances: vec![],
-                number: Default::default(),
-            }],
+            pins: vec![],
             units: vec![],
             library_symbol: None,
             library_footprint: Some(pcbcraft_doc::LibraryFootprint {
@@ -15971,8 +15789,10 @@ mod tests {
             compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
+            instance: Default::default(),
             part: None,
             prototype: Default::default(),
+            sourcing: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 2,
@@ -15980,16 +15800,16 @@ mod tests {
             position: Point::new(12.0, 8.0),
             rotation: 0.0,
             locked: None,
-            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
-                diameter: 0.5,
+                diameter: 1.0,
                 net: None,
                 castellated: None,
                 geometry: Some(smd),
             }],
             preserved: Default::default(),
+            side: Default::default(),
         });
         project.validate()?;
         let files = gerber_files(&project)?;
