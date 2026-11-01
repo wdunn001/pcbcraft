@@ -148,32 +148,28 @@ fn origin(
     let maker = maker_country(project, component);
     let list = &lists.covered.meta;
     let mut parts = Vec::new();
-    if let Some(code) = origin_code {
-        if country_covered(&lists.covered, code) {
+    if let Some(code) = origin_code
+        && country_covered(&lists.covered, code) {
             parts.push(format!(
                 "Country of origin {code} is on list {} retrieved {}.",
                 list.id, list.retrieved
             ));
         }
-    }
-    if let Some(code) = maker.as_deref() {
-        if country_covered(&lists.covered, code) {
+    if let Some(code) = maker.as_deref()
+        && country_covered(&lists.covered, code) {
             parts.push(format!(
                 "Maker country {code} is on list {} retrieved {}.",
                 list.id, list.retrieved
             ));
         }
-    }
-    if interpretation == OriginInterpretation::Silicon {
-        if let Some(code) = component.compliance.silicon_vendor_country.as_deref() {
-            if country_covered(&lists.covered, code) {
+    if interpretation == OriginInterpretation::Silicon
+        && let Some(code) = component.compliance.silicon_vendor_country.as_deref()
+            && country_covered(&lists.covered, code) {
                 parts.push(format!(
                     "Silicon vendor country {code} is on list {} retrieved {}.",
                     list.id, list.retrieved
                 ));
             }
-        }
-    }
     if !parts.is_empty() {
         push(out, rule, component, "hit", &parts.join(" "));
     } else if origin_code.is_none() && maker.is_none() {

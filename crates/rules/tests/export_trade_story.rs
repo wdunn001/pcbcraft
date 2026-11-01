@@ -1,5 +1,5 @@
 //! Story test for issue #697 (runs without the UI crate).
-use pcbcraft_doc::{Component, ComponentField, ExportTradeSettings, Project, TariffExposureRow};
+use pcbcraft_doc::{Component, ComponentField, Project, TariffExposureRow};
 use pcbcraft_rules::export_trade_report;
 
 fn part(id: u64, reference: &str, fields: &[(&str, &str)]) -> Component {

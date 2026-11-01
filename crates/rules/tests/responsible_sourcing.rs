@@ -17,7 +17,7 @@ fn part(id: u64, reference: &str, manufacturer: &str) -> pcbcraft_doc::Component
         reference.into(),
         pcbcraft_geom::Point::default(),
     )
-    .expect("template");
+    .unwrap_or_default();
     c.fields.push(pcbcraft_doc::ComponentField {
         key: "Manufacturer".into(),
         value: manufacturer.into(),

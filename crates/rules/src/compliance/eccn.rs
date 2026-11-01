@@ -17,9 +17,7 @@ pub fn control_rank(eccn: &str) -> Option<u32> {
     let mut chars = upper.chars().peekable();
     while let Some(c) = chars.next() {
         if c.is_ascii_digit() {
-            let Some(d) = c.to_digit(10) else {
-                return None;
-            };
+            let d = c.to_digit(10)?;
             rank = rank.saturating_mul(10).saturating_add(d);
         } else if c.is_ascii_alphabetic() {
             rank = rank.saturating_mul(100).saturating_add(u32::from(c as u8));
@@ -28,9 +26,7 @@ pub fn control_rank(eccn: &str) -> Option<u32> {
                 let Some(ch) = next else {
                     break;
                 };
-                let Some(d) = ch.to_digit(10) else {
-                    return None;
-                };
+                let d = ch.to_digit(10)?;
                 rank = rank.saturating_mul(10).saturating_add(d);
             }
             break;

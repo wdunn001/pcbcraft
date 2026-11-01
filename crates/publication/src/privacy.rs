@@ -242,8 +242,8 @@ fn scan_home_paths(path: &str, line_no: u32, line: &str, out: &mut Vec<ScanOutco
 
 fn scan_private_hosts(path: &str, line_no: u32, line: &str, out: &mut Vec<ScanOutcome>) {
     let lower = line.to_ascii_lowercase();
-    if lower.contains("localhost") || lower.contains(".local") {
-        if let Some(col) = lower.find("localhost").or_else(|| lower.find(".local")) {
+    if (lower.contains("localhost") || lower.contains(".local"))
+        && let Some(col) = lower.find("localhost").or_else(|| lower.find(".local")) {
             out.push(
                 PrivacyFinding {
                     rule: "local_hostname",
@@ -255,7 +255,6 @@ fn scan_private_hosts(path: &str, line_no: u32, line: &str, out: &mut Vec<ScanOu
                 .hard(),
             );
         }
-    }
     for (col, _) in find_private_ipv4(line) {
         out.push(
             PrivacyFinding {
@@ -274,8 +273,8 @@ fn scan_credential_json_keys(path: &str, line_no: u32, line: &str, out: &mut Vec
     let trimmed = line.trim();
     for key in ["api_key", "apikey", "password", "secret", "token"] {
         let pattern = format!("\"{key}\"");
-        if trimmed.contains(&pattern) && trimmed.contains(':') && !trimmed.contains(": \"\"") {
-            if let Some(col) = trimmed.find(&pattern) {
+        if trimmed.contains(&pattern) && trimmed.contains(':') && !trimmed.contains(": \"\"")
+            && let Some(col) = trimmed.find(&pattern) {
                 out.push(
                     PrivacyFinding {
                         rule: "credential_field",
@@ -287,7 +286,6 @@ fn scan_credential_json_keys(path: &str, line_no: u32, line: &str, out: &mut Vec
                     .hard(),
                 );
             }
-        }
     }
 }
 
@@ -355,15 +353,14 @@ fn find_private_ipv4(line: &str) -> Vec<(usize, ())> {
     let bytes = line.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i].is_ascii_digit() {
-            if let Some((start, end, a, b, c, d)) = parse_ipv4(bytes, i) {
+        if bytes[i].is_ascii_digit()
+            && let Some((start, end, a, b, c, d)) = parse_ipv4(bytes, i) {
                 if is_private_ipv4(a, b, c, d) {
                     out.push((start, ()));
                 }
                 i = end;
                 continue;
             }
-        }
         i += 1;
     }
     out

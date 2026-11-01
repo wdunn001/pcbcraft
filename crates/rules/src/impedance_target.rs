@@ -190,7 +190,7 @@ fn copper_thickness(project: &Project, layer: Layer) -> f64 {
         .unwrap_or(DEFAULT_COPPER_MM)
 }
 
-fn pair_for_net<'a>(project: &'a Project, net: Id) -> Option<&'a DiffPair> {
+fn pair_for_net(project: &Project, net: Id) -> Option<&DiffPair> {
     project
         .board
         .diff_pairs
@@ -230,7 +230,7 @@ fn finding_message(
 }
 
 fn segment_impedance(
-    project: &Project,
+    _project: &Project,
     track: &Track,
     pair: Option<&DiffPair>,
     sample: &StackSample,

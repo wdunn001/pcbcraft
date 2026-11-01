@@ -1,6 +1,6 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
 use pcbcraft_doc::{
-    ArtKind, ArtShape, Board, Component, DiffPair, FabRules, Footprint, Id, Layer, NetClass,
+    ArtKind, ArtShape, Board, Component, FabRules, Footprint, Id, Layer,
     PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM,
     PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad, PanelSeparation, Project,
     VALIDATION_CHORD_ERROR, Via, ViaKind, panel_layout, panel_score_lines,
@@ -77,6 +77,8 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("missing_footprint", "warning"),
     ("diffpair_gap", "error"),
     ("diffpair_skew", "error"),
+    ("pair_skew_exceeded", "error"),
+    ("pair_uncoupled_too_long", "error"),
     ("art_off_board", "warning"),
     ("cut_hits_via", "error"),
     ("mask_covers_pad", "warning"),
@@ -107,6 +109,8 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("copper_sliver", "error"),
     ("length_group_skew", "error"),
     ("stub_length", "error"),
+    ("backdrill_must_not_cut", "error"),
+    ("backdrill_stub_too_long", "error"),
     ("via_count", "warning"),
     ("decoupling_distance", "warning"),
     ("keepout", "error"),
@@ -366,8 +370,8 @@ fn copper(project: &Project) -> Vec<Copper> {
         };
         // One pad per copper layer in the via's span; it conducts nowhere else.
         for layer in project.via_span_layers(v) {
-            if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer) {
-                if !pcbcraft_doc::fill::plated_item_connected_on_layer(
+            if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer)
+                && !pcbcraft_doc::fill::plated_item_connected_on_layer(
                     project,
                     v.net,
                     v.position,
@@ -377,7 +381,6 @@ fn copper(project: &Project) -> Vec<Copper> {
                 ) {
                     continue;
                 }
-            }
             let mut pad = item.clone();
             pad.layer = layer;
             result.push(pad);
@@ -1049,7 +1052,7 @@ pub fn is_tvs(component: &Component) -> bool {
     component.fields.iter().any(|f| word_tvs(&f.value))
 }
 
-fn component_footprint<'a>(project: &'a Project, component: Id) -> Option<&'a Footprint> {
+fn component_footprint(project: &Project, component: Id) -> Option<&Footprint> {
     project
         .board
         .footprints
@@ -2018,31 +2021,29 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 });
             }
         }
-        let Some(tolerance) = pair.length_tolerance else {
-            continue;
-        };
-        if !lengths.contains_key(&pair.net_p) && !lengths.contains_key(&pair.net_n) {
-            continue;
+        if let Some(tolerance) = pair.length_tolerance
+            && (lengths.contains_key(&pair.net_p) || lengths.contains_key(&pair.net_n))
+        {
+            let skew = (lengths.get(&pair.net_p).copied().unwrap_or(0.0)
+                - lengths.get(&pair.net_n).copied().unwrap_or(0.0))
+            .abs();
+            if skew > tolerance + 1e-9 {
+                result.push(Finding {
+                    code: "diffpair_skew",
+                    severity: project.rule_severity("diffpair_skew", "error"),
+                    message: format!(
+                        "{}: {} sides differ by {:.3} mm, at most {:.3} mm allowed",
+                        pair.name,
+                        project.net_name(pair.net_p),
+                        skew,
+                        tolerance
+                    ),
+                    objects: vec![pair.net_p, pair.net_n],
+                    hint: None,
+                });
+            }
         }
-        let skew = (lengths.get(&pair.net_p).copied().unwrap_or(0.0)
-            - lengths.get(&pair.net_n).copied().unwrap_or(0.0))
-        .abs();
-        if skew <= tolerance + 1e-9 {
-            continue;
-        }
-        result.push(Finding {
-            code: "diffpair_skew",
-            severity: project.rule_severity("diffpair_skew", "error"),
-            message: format!(
-                "{}: {} sides differ by {:.3} mm, at most {:.3} mm allowed",
-                pair.name,
-                project.net_name(pair.net_p),
-                skew,
-                tolerance
-            ),
-            objects: vec![pair.net_p, pair.net_n],
-            hint: None,
-        });
+        result.extend(pair_properties::pair_property_findings(project, pair));
     }
     result.extend(diffpair_impedance::findings(project));
     for pair in &board.diff_pairs {
@@ -2489,6 +2490,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         });
     }
     result.extend(stub::stub_length_findings(project, &items));
+    result.extend(stub::backdrill_findings(project));
     result.extend(acute::acute_angle_findings(project));
     result.extend(track_radius::track_radius_findings(project));
     result.extend(parallel_crosstalk::parallel_crosstalk_findings(project));
@@ -3099,8 +3101,10 @@ mod tests {
         }
     }
     fn esd_placed_fixture(connector_x: f64, tvs_x: f64, enable: bool) -> Result<Project, String> {
-        let mut p = Project::default();
-        p.esd_max_distance_mm = 10.0;
+        let mut p = Project {
+            esd_max_distance_mm: 10.0,
+            ..Project::default()
+        };
         if enable {
             p.rule_severity
                 .insert("esd_device_far_from_connector".into(), "warning".into());
@@ -5962,7 +5966,7 @@ mod tests {
 mod pour_tests {
     use super::*;
     use pcbcraft_doc::{
-        CopperZone, Footprint, Keepout, Net, Pad, RuleArea, RuleRegion, Track, Via, ZoneIslands,
+        CopperZone, DiffPair, Footprint, Keepout, Net, NetClass, Pad, RuleArea, RuleRegion, Track, Via, ZoneIslands,
         ZonePour, component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};

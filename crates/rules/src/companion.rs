@@ -17,7 +17,7 @@ struct Bridge {
     net_b: Id,
 }
 
-struct SchematicGraph {
+pub struct SchematicGraph {
     bridges: Vec<Bridge>,
     /// Adjacency: net -> (other_net, bridge component).
     adjacency: BTreeMap<Id, Vec<(Id, Id)>>,
@@ -119,6 +119,7 @@ fn bfs_from_anchor(graph: &SchematicGraph, start: Id) -> BTreeMap<Id, (usize, Op
     seen
 }
 
+#[cfg(test)]
 fn bridge_between(graph: &SchematicGraph, a: Id, b: Id) -> Option<Id> {
     graph.bridges.iter().find_map(|br| {
         if (br.net_a == a && br.net_b == b) || (br.net_a == b && br.net_b == a) {
@@ -274,14 +275,13 @@ fn builtin_cc_pulldown(project: &Project, graph: &SchematicGraph) -> Vec<Finding
             if !is_ground_net(project, other) {
                 continue;
             }
-            if let Some(c) = project.component(br.component) {
-                if kind_matches(&c.kind, "resistor")
+            if let Some(c) = project.component(br.component)
+                && kind_matches(&c.kind, "resistor")
                     && value_in_range(&c.value, &c.kind, 5_000.0, 5_600.0)
                 {
                     ok = true;
                     break;
                 }
-            }
         }
         if !ok {
             out.push(finding(
@@ -314,11 +314,10 @@ fn count_pullups_to_power(project: &Project, graph: &SchematicGraph, net: Id) ->
         if !is_power_net(project, other) {
             continue;
         }
-        if let Some(c) = project.component(br.component) {
-            if kind_matches(&c.kind, "resistor") {
+        if let Some(c) = project.component(br.component)
+            && kind_matches(&c.kind, "resistor") {
                 count += 1;
             }
-        }
     }
     count
 }
@@ -392,7 +391,7 @@ fn builtin_can_termination(project: &Project, graph: &SchematicGraph) -> Vec<Fin
     let h_nets: Vec<_> = project
         .nets
         .iter()
-        .filter(|n| net_pattern_matches(&n.name, "CAN_H") || n.name.to_ascii_uppercase() == "CANH")
+        .filter(|n| net_pattern_matches(&n.name, "CAN_H") || n.name.eq_ignore_ascii_case("CANH"))
         .collect();
     for h in h_nets {
         let l_name = h.name.replace("_H", "_L").replace("CANH", "CANL");
@@ -716,11 +715,10 @@ pub fn companion_findings_for_rules(
                     if !kind_matches(&c.kind, &rule.required_kind) {
                         continue;
                     }
-                    if let (Some(lo), Some(hi)) = (min, max) {
-                        if !value_in_range(&c.value, &c.kind, lo, hi) {
+                    if let (Some(lo), Some(hi)) = (min, max)
+                        && !value_in_range(&c.value, &c.kind, lo, hi) {
                             continue;
                         }
-                    }
                     satisfied = true;
                     break;
                 }

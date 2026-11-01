@@ -112,26 +112,23 @@ pub fn firmware_config_compare(
     let ctx = load_firmware_context(project)?;
     let parsed = parse_defines(config_text);
     let mut mismatches = vec![];
-    if let Some(gyro) = ctx.design.gyro.first() {
-        if let Some(cs) = parsed.get("GYRO_1_CS_PIN") {
-            if cs != &gyro.cs {
+    if let Some(gyro) = ctx.design.gyro.first()
+        && let Some(cs) = parsed.get("GYRO_1_CS_PIN")
+            && cs != &gyro.cs {
                 mismatches.push(format!(
                     "GYRO_1_CS_PIN is {cs} in the file but the design uses {}",
                     gyro.cs
                 ));
             }
-        }
-    }
     for assign in &ctx.design.assignment {
         let key = format!("PIN_MAP_{}", assign.function);
-        if let Some(pin) = parsed.get(&key) {
-            if pin != &assign.pin {
+        if let Some(pin) = parsed.get(&key)
+            && pin != &assign.pin {
                 mismatches.push(format!(
                     "{key} is {pin} in the file but the design uses {}",
                     assign.pin
                 ));
             }
-        }
     }
     Ok(mismatches)
 }

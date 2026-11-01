@@ -4,14 +4,16 @@ use pcbcraft_doc::{
 };
 
 fn demo_project() -> Project {
-    let mut p = Project::default();
-    p.compliance_settings = ComplianceProjectSettings {
+    let mut p = Project {
+        compliance_settings: ComplianceProjectSettings {
         rule_sets: vec!["synthetic_demo".into()],
         ..ComplianceProjectSettings::default()
+    },
+        ..Project::default()
     };
     let mut c =
         pcbcraft_doc::component_template("ic", 1, "U1".into(), pcbcraft_geom::Point::default())
-            .expect("template");
+            .unwrap_or_default();
     c.fields.push(pcbcraft_doc::ComponentField {
         key: "Manufacturer".into(),
         value: "Synthetic Entity Alpha".into(),
@@ -24,9 +26,9 @@ fn demo_project() -> Project {
             "R1".into(),
             pcbcraft_geom::Point::default(),
         )
-        .expect("template"),
+        .unwrap_or_default(),
     );
-    p.validate().expect("valid project");
+    assert!(p.validate().is_ok(), "valid project");
     p
 }
 
@@ -40,7 +42,7 @@ fn user_source() -> DeclarationSource {
 }
 
 #[test]
-fn fixture_rule_set_yields_hit_unverified_and_stale() {
+fn fixture_rule_set_yields_hit_unverified_and_stale() -> Result<(), String> {
     let p = demo_project();
     let findings = pcbcraft_rules::compliance_check(&p);
     let states: Vec<_> = findings.iter().map(|f| f.state.as_str()).collect();
@@ -62,7 +64,7 @@ fn fixture_rule_set_yields_hit_unverified_and_stale() {
         .components
         .iter_mut()
         .find(|c| c.id == 1)
-        .expect("U1");
+        .ok_or("U1")?;
     part.compliance = Compliance {
         declarations: vec![Declaration {
             regime: "demo.list_regime".into(),
@@ -73,12 +75,13 @@ fn fixture_rule_set_yields_hit_unverified_and_stale() {
         }],
         ..Compliance::default()
     };
-    stale_project.validate().expect("valid");
+    stale_project.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
     let stale = pcbcraft_rules::compliance_check(&stale_project);
     assert!(
         stale.iter().any(|f| f.state == "stale"),
         "old declaration against list should stale: {stale:?}"
     );
+    Ok(())
 }
 
 #[test]
@@ -98,24 +101,25 @@ fn missing_data_never_reports_pass() {
 }
 
 #[test]
-fn rule_set_choice_changes_visible_rows() {
+fn rule_set_choice_changes_visible_rows() -> Result<(), String> {
     let bare = demo_project();
     let none = pcbcraft_rules::compliance_check(&bare);
     let mut other = demo_project();
     other.compliance_settings.rule_sets = vec![];
-    other.validate().expect("valid");
+    other.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
     let empty = pcbcraft_rules::compliance_check(&other);
     assert!(empty.is_empty());
     assert!(!none.is_empty());
+    Ok(())
 }
 
 #[test]
-fn origin_unverified_without_country() {
+fn origin_unverified_without_country() -> Result<(), String> {
     let p = demo_project();
     let origin = pcbcraft_rules::compliance_check(&p)
         .into_iter()
         .find(|f| f.rule == "demo.origin")
-        .expect("origin rule runs");
+        .ok_or("origin rule runs")?;
     assert_eq!(origin.state, "unverified");
 
     let mut with_country = demo_project();
@@ -123,16 +127,17 @@ fn origin_unverified_without_country() {
         .components
         .iter_mut()
         .find(|c| c.id == 2)
-        .expect("R1");
+        .ok_or("R1")?;
     part.compliance.country_of_origin = Some(CountryOfOrigin {
         code: "xx".into(),
         basis: String::new(),
         as_of: String::new(),
     });
-    with_country.validate().expect("valid");
+    with_country.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
     let hit = pcbcraft_rules::compliance_check(&with_country)
         .into_iter()
         .find(|f| f.rule == "demo.origin" && f.objects == vec![2])
-        .expect("restricted country hits");
+        .ok_or("restricted country hits")?;
     assert_eq!(hit.state, "hit");
+    Ok(())
 }

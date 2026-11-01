@@ -48,11 +48,10 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
 
     let mut ref_layers: BTreeSet<Layer> = BTreeSet::new();
     for track in &project.board.tracks {
-        if fast.contains(&track.net) {
-            if let Some(layer) = reference_layer_for(project, track.layer) {
+        if fast.contains(&track.net)
+            && let Some(layer) = reference_layer_for(project, track.layer) {
                 ref_layers.insert(layer);
             }
-        }
     }
 
     let mut pours: BTreeSet<(Layer, Id)> = BTreeSet::new();

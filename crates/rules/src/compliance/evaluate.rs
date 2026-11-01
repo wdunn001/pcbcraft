@@ -1,5 +1,4 @@
 use super::ComplianceFinding;
-use super::entity_match::match_entity_name;
 use super::list_load::load_bundled_list;
 use super::ruleset::{ComplianceRuleSet, ComplianceRuleSpec};
 use pcbcraft_doc::{Component, DeclarationStatus, PartRole, Project, date_le, valid_date};

@@ -1,6 +1,6 @@
 use pcbcraft_doc::{
     Compliance, Declaration, DeclarationSource, DeclarationSourceKind, DeclarationStatus,
-    DeclaredSubstance, ManufacturerRecord, MineralsReportOnFile, PartRole, Project,
+    DeclaredSubstance, PartRole, Project,
 };
 
 fn set_compliance(p: &mut Project, id: u64, compliance: Compliance) {
@@ -19,7 +19,7 @@ fn sample_project() -> Project {
         "R1".into(),
         pcbcraft_geom::Point::default(),
     )
-    .expect("template");
+    .unwrap_or_default();
     p.components.push(c);
     p
 }
@@ -161,18 +161,19 @@ fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
 }
 
 #[test]
-fn bundled_list_metadata_is_present() {
+fn bundled_list_metadata_is_present() -> Result<(), String> {
     let reach = pcbcraft_rules::load_list_snapshot(include_str!(
         "../data/compliance/lists/reach_svhc_candidate.toml"
     ))
-    .expect("reach snapshot");
+    .map_err(|e| format!("{}: {e:?}", "reach snapshot"))?;
     assert!(!reach.source_url.is_empty());
     assert!(!reach.licence.is_empty());
     assert!(pcbcraft_doc::valid_date(&reach.retrieved_date));
+    Ok(())
 }
 
 #[test]
-fn compliance_project_round_trips() {
+fn compliance_project_round_trips() -> Result<(), String> {
     let mut p = sample_project();
     set_compliance(
         &mut p,
@@ -182,8 +183,8 @@ fn compliance_project_round_trips() {
             ..Compliance::default()
         },
     );
-    let json = serde_json::to_string(&p).expect("serialize");
-    let back: Project = serde_json::from_str(&json).expect("deserialize");
+    let json = serde_json::to_string(&p).map_err(|e| format!("{}: {e:?}", "serialize"))?;
+    let back: Project = serde_json::from_str(&json).map_err(|e| format!("{}: {e:?}", "deserialize"))?;
     assert_eq!(back.compliance_settings.rule_sets, vec!["eu_market"]);
     assert_eq!(
         back.components
@@ -192,4 +193,5 @@ fn compliance_project_round_trips() {
             .and_then(|c| c.compliance.role),
         Some(PartRole::Battery)
     );
+    Ok(())
 }

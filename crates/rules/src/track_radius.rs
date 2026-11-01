@@ -9,7 +9,7 @@
 //!
 //! Dependencies: `NetClass::min_radius`, `Track::curve` in `crates/doc`.
 use super::Finding;
-use pcbcraft_doc::{Id, Project, Track};
+use pcbcraft_doc::{Project, Track};
 
 fn track_radius_finding(
     project: &Project,

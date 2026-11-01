@@ -5,14 +5,16 @@ use pcbcraft_doc::{
 use pcbcraft_rules::compliance_check;
 
 fn sample_project() -> Project {
-    let mut project = Project::default();
-    project.compliance_settings = ComplianceProjectSettings {
+    let mut project = Project {
+        compliance_settings: ComplianceProjectSettings {
         rule_sets: vec!["us_government_ndaa".into()],
         board_assembler_country: Default::default(),
         board_rohs_exemption: Default::default(),
         org_role: Default::default(),
         origin_interpretation: Default::default(),
         target_markets: Default::default(),
+    },
+        ..Project::default()
     };
     project.manufacturers.push(ManufacturerRecord {
         name: "Synthetic Telecom Vendor Orion".into(),
@@ -62,7 +64,7 @@ fn component(
 }
 
 #[test]
-fn a_newcomer_sees_a_listed_maker_flagged_on_the_us_government_rule_set() {
+fn a_newcomer_sees_a_listed_maker_flagged_on_the_us_government_rule_set() -> Result<(), String> {
     let mut project = sample_project();
     project
         .components
@@ -108,7 +110,7 @@ fn a_newcomer_sees_a_listed_maker_flagged_on_the_us_government_rule_set() {
     let hit = findings
         .iter()
         .find(|f| f.objects == vec![1] && f.state == "hit")
-        .expect("listed maker via alias produces a hit");
+        .ok_or("listed maker via alias produces a hit")?;
     assert!(hit.evidence.contains("us-ndaa-synthetic-entities"));
     assert!(hit.evidence.contains("2026-06-01"));
     assert!(hit.evidence.contains("Synthetic Telecom Vendor Orion"));
@@ -116,28 +118,29 @@ fn a_newcomer_sees_a_listed_maker_flagged_on_the_us_government_rule_set() {
     let possible = findings
         .iter()
         .find(|f| f.objects == vec![2] && f.state == "possible")
-        .expect("near name produces a possible match, not a hit");
+        .ok_or("near name produces a possible match, not a hit")?;
     assert!(possible.message.contains("Possible"));
 
     let unverified_mfg = findings
         .iter()
         .find(|f| f.objects == vec![3] && f.state == "unverified")
-        .expect("missing manufacturer stays unverified");
+        .ok_or("missing manufacturer stays unverified")?;
     assert!(!unverified_mfg.message.is_empty());
 
     let unverified_silicon = findings
         .iter()
         .find(|f| f.objects == vec![4] && f.state == "unverified")
-        .expect("processor without silicon vendor stays unverified");
+        .ok_or("processor without silicon vendor stays unverified")?;
     assert!(unverified_silicon.message.contains("silicon vendor"));
 
     let silicon_hit = findings
         .iter()
         .find(|f| f.objects == vec![5] && f.state == "hit")
-        .expect("recorded silicon vendor on memory part can hit the list");
+        .ok_or("recorded silicon vendor on memory part can hit the list")?;
     assert!(
         silicon_hit
             .evidence
             .contains("Synthetic Semiconductor Vendor Delta")
     );
+    Ok(())
 }

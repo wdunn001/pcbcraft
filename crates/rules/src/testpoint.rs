@@ -1,6 +1,6 @@
 //! In-circuit probe coverage: which nets have a pad, via or marked test point
 //! large enough and spaced for the probe minimums.
-use pcbcraft_doc::{Component, Id, Layer, Pad, Project, Via};
+use pcbcraft_doc::{Component, Id, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -255,7 +255,7 @@ pub fn coverage_findings(project: &Project) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Footprint, Net, Project};
+    use pcbcraft_doc::{Footprint, Net, Project, Via};
 
     fn board() -> Project {
         let mut p = Project::default();

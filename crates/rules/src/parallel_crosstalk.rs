@@ -231,7 +231,7 @@ mod tests {
     use crate::drc;
     use pcbcraft_doc::{Net, NetClass, Project, Track};
 
-    fn clock_pair(gap_y: f64) -> Project {
+    fn clock_pair(gap_y: f64) -> Result<Project, String> {
         let mut p = Project::default();
         p.nets.push(Net {
             id: 1,
@@ -298,8 +298,8 @@ mod tests {
             working_voltage: Default::default(),
             max_length: Default::default(),
         });
-        p.validate().expect("valid fixture");
-        p
+        p.validate().map_err(|e| format!("{}: {e:?}", "valid fixture"))?;
+        Ok(p)
     }
 
     fn parallel_findings(p: &Project) -> Vec<Finding> {
@@ -317,35 +317,39 @@ mod tests {
     }
 
     #[test]
-    fn one_width_gap_parallel_run_is_flagged() {
-        let p = clock_pair(0.2);
+    fn one_width_gap_parallel_run_is_flagged() -> Result<(), String> {
+        let p = clock_pair(0.2)?;
         assert_eq!(parallel_findings(&p).len(), 1);
         assert!(parallel_findings(&p)[0].message.contains("estimate"));
+        Ok(())
     }
 
     #[test]
-    fn three_width_gap_parallel_run_passes() {
-        let p = clock_pair(0.6);
+    fn three_width_gap_parallel_run_passes() -> Result<(), String> {
+        let p = clock_pair(0.6)?;
         assert!(parallel_findings(&p).is_empty());
+        Ok(())
     }
 
     #[test]
-    fn electrically_long_net_is_flagged_with_rise_time() {
-        let mut p = clock_pair(2.0);
+    fn electrically_long_net_is_flagged_with_rise_time() -> Result<(), String> {
+        let mut p = clock_pair(2.0)?;
         p.board.tracks[0].end = Point::new(80.0, 0.0);
         p.board.tracks[1].end = Point::new(80.0, p.board.tracks[1].width + 2.0);
-        p.validate().expect("valid");
+        p.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
         assert!(!long_findings(&p).is_empty());
         assert!(long_findings(&p)[0].message.contains("electrically long"));
+        Ok(())
     }
 
     #[test]
-    fn without_rise_time_electrically_long_is_quiet() {
-        let mut p = clock_pair(2.0);
+    fn without_rise_time_electrically_long_is_quiet() -> Result<(), String> {
+        let mut p = clock_pair(2.0)?;
         p.net_classes[0].rise_time = None;
         p.board.tracks[0].end = Point::new(80.0, 0.0);
-        p.validate().expect("valid");
+        p.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
         assert!(long_findings(&p).is_empty());
         assert!(parallel_findings(&p).is_empty());
+        Ok(())
     }
 }

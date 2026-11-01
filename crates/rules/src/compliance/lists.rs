@@ -1,6 +1,8 @@
 //! Parsed compliance list snapshots bundled with the rules crate.
 use serde::Deserialize;
 
+/// List provenance read from the bundled file; the fields are kept for audits.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 pub struct ListMeta {
     pub schema: u32,
@@ -21,6 +23,8 @@ pub struct CoveredCountriesList {
     pub countries: Vec<CoveredCountry>,
 }
 
+/// One covered country row.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 pub struct CoveredCountry {
     pub code: String,
@@ -36,6 +40,8 @@ pub struct FrameworkList {
     pub part_numbers: Vec<FrameworkPart>,
 }
 
+/// One framework part row.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 pub struct FrameworkPart {
     pub mpn: String,
