@@ -376,14 +376,14 @@ mod tests {
     }
     fn track(p: &mut Project, id: Id, a: Point, b: Point) {
         p.board.tracks.push(Track {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id,
             net: 1,
             start: a,
             end: b,
+            width: 0.25,
             layer: Layer::Front,
             arc: None,
-            width: Default::default(),
+            preserved: Default::default(),
         });
     }
     /// A 20 mm run from a pad at x=10 to a pad at x=30 with a junction at x=20.

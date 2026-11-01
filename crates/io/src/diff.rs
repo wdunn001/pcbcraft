@@ -719,23 +719,22 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
-                appearances: vec![],
+                appearances: Default::default(),
             }],
             units: vec![],
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            sheet: 0,
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
-            sheet: 0,
-            sourcing: Default::default(),
-            compliance: Default::default(),
             instance: Default::default(),
             part: None,
             prototype: Default::default(),
+            sourcing: Default::default(),
         });
         p.board.footprints.push(Footprint {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 20,
             component: 10,
             position: Point::new(15.0, 15.0),
@@ -748,8 +747,9 @@ mod tests {
                 diameter: 1.0,
                 net: Some(1),
                 castellated: None,
-                geometry: Default::default(),
+                geometry: None,
             }],
+            preserved: Default::default(),
         });
         p
     }

@@ -57,7 +57,7 @@ impl Writer {
         self.write_content(&assembly)?;
         self.write_logistic_header(&enterprises)?;
         self.write_history_record(p)?;
-        self.push("<Ecad>\n")?;
+        self.push("<Ecad name=\"PCBCraft\">\n")?;
         self.write_cad_header(p)?;
         self.write_cad_data(p, &assembly)?;
         self.push("</Ecad>\n")?;
@@ -186,6 +186,9 @@ impl Writer {
         self.push(&format!(
             "<Stackup name=\"primary\" overallThickness=\"{total:.6}\" tolPlus=\"0\" tolMinus=\"0\" whereMeasured=\"METAL\" stackupStatus=\"PROPOSED\">\n"
         ))?;
+        self.push(&format!(
+            "<StackupGroup name=\"primary_group\" thickness=\"{total:.6}\" tolPlus=\"0\" tolMinus=\"0\">\n"
+        ))?;
         for (seq, row) in rows.iter().enumerate() {
             let spec = spec_id_for_layer(row);
             self.push(&format!(
@@ -195,10 +198,11 @@ impl Writer {
                 seq + 1
             ))?;
             if let Some(id) = spec {
-                self.push(&format!("<SpecRef id=\"{id}\"/>\n"));
+                self.push(&format!("<SpecRef id=\"{id}\"/>\n"))?;
             }
             self.push("</StackupLayer>\n")?;
         }
+        self.push("</StackupGroup>\n")?;
         self.push("</Stackup>\n")?;
         let _ = p;
         Ok(())
@@ -275,7 +279,7 @@ impl Writer {
                 GeomPoint::new(0.0, 0.0),
             ],
         };
-        self.push("<Profile>\n<Contour>\n<Polygon>\n")?;
+        self.push("<Profile>\n<Polygon>\n")?;
         for (i, pt) in outline.iter().enumerate() {
             if i == 0 {
                 self.push(&format!(
@@ -289,7 +293,7 @@ impl Writer {
                 ))?;
             }
         }
-        self.push("</Polygon>\n</Contour>\n</Profile>\n")?;
+        self.push("</Polygon>\n</Profile>\n")?;
         Ok(())
     }
 
@@ -452,7 +456,7 @@ impl Writer {
             };
             let _net = names.get(&via.net).map(String::as_str).unwrap_or("");
             self.push(&format!(
-                "<Hole name=\"V{hole_id}\" diameter=\"{:.6}\" platingStatus=\"VIA\" plusTol=\"0\" minusTol=\"0\" x=\"{:.6}\" y=\"{:.6}\" padstackDefRef=\"{padstack}\"/>\n",
+                "<Hole name=\"V{hole_id}\" diameter=\"{:.6}\" platingStatus=\"VIA\" plusTol=\"0\" minusTol=\"0\" x=\"{:.6}\" y=\"{:.6}\"/>\n",
                 via.drill.max(0.0),
                 via.position.x,
                 via.position.y

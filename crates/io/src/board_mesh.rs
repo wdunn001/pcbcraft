@@ -1926,13 +1926,12 @@ mod tests {
             graphics: vec![],
             model: None,
             rules: None,
-            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
-            retained: vec![],
+            box_body: Default::default(),
+            retained: Default::default(),
         };
         p.components.push(Component {
-            sourcing: Default::default(),
             id: 11,
             reference: "R1".into(),
             value: "10k".into(),
@@ -1949,7 +1948,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
-                    appearances: vec![],
+                    appearances: Default::default(),
                 })
                 .collect(),
             units: vec![],
@@ -1958,14 +1957,15 @@ mod tests {
                 library: "test".into(),
                 definition,
             }),
+            fields: vec![],
+            sheet: 0,
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
-            sheet: 0,
-            instance: None,
-            prototype: None,
-            compliance: Default::default(),
-            fields: Default::default(),
+            instance: Default::default(),
             part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         p.board.footprints.push(footprint(pads));
         p

@@ -2961,12 +2961,12 @@ mod tests {
             fields: vec![],
             sheet: 0,
             compliance: Default::default(),
-            part: None,
-            sourcing: Default::default(),
-            instance: Default::default(),
-            prototype: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         };
         Ok(component)
     }
