@@ -1145,6 +1145,9 @@ fn pdf_project_graphic(page: &mut impl DrawPage, g: &pcbcraft_doc::Graphic) -> R
 
 /// Render one view of the design onto the page.
 pub(crate) fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), String> {
+    if assembly_drawing::view_is_assembly(view) {
+        return assembly_drawing::draw(page, p, view);
+    }
     let front = [0.85, 0.25, 0.15];
     let back = [0.2, 0.45, 0.8];
     let copper_edge = [0.0, 0.0, 0.0];
@@ -1438,10 +1441,14 @@ fn pdf_literal_escape(value: &str) -> String {
 /// Export the design as a one-page vector PDF document, in bytes.
 pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     p.validate()?;
-    if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
+    if view != "pcb" && view != "schematic" && !assembly_drawing::view_is_assembly(view) {
+        return Err("view must be pcb, schematic, assembly-top, or assembly-bottom".into());
     }
-    let content_bounds = preview_bounds(p, view);
+    let content_bounds = if assembly_drawing::view_is_assembly(view) {
+        assembly_drawing::page_bounds(p, view)
+    } else {
+        preview_bounds(p, view)
+    };
     let frame_layout = uses_drawing_frame(p, view)
         .then(|| drawing_frame_layout(p, 0, content_bounds.0, content_bounds.1));
     let (page_w_pt, page_h_pt) = frame_layout.as_ref().map_or((842.0, 595.0), |layout| {

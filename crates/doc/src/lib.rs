@@ -167,7 +167,7 @@ pub struct PinAppearance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direction: Option<f64>,
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pin {
     pub number: String,
     pub name: String,
@@ -182,6 +182,21 @@ pub struct Pin {
     /// Extra schematic copies of this physical pin on other units.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub appearances: Vec<PinAppearance>,
+}
+impl Default for Pin {
+    /// A passive pin numbered 1 on the first unit, a valid starting point.
+    fn default() -> Self {
+        Self {
+            number: "1".into(),
+            name: String::new(),
+            offset: Point::default(),
+            net: None,
+            electrical_type: "passive".into(),
+            direction: None,
+            unit: 1,
+            appearances: Vec::new(),
+        }
+    }
 }
 impl Pin {
     /// Local offset and facing for one schematic unit copy of this pin.
@@ -296,7 +311,7 @@ pub struct LibraryFootprint {
     pub library: String,
     pub definition: pcbcraft_library::FootprintDefinition,
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Component {
     pub id: Id,
     pub reference: String,
@@ -349,6 +364,32 @@ pub struct Component {
     /// The template part this copy was made from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prototype: Option<Id>,
+}
+impl Default for Component {
+    /// An unplaced integrated circuit with one passive pin, a valid starting point.
+    fn default() -> Self {
+        Self {
+            id: 0,
+            reference: String::new(),
+            value: String::new(),
+            kind: "ic".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            pins: vec![Pin::default()],
+            units: Vec::new(),
+            library_symbol: None,
+            library_footprint: None,
+            part: None,
+            fields: Vec::new(),
+            include_in_bom: true,
+            include_in_placement: true,
+            sourcing: Sourcing::default(),
+            compliance: Compliance::default(),
+            sheet: 0,
+            instance: None,
+            prototype: None,
+        }
+    }
 }
 fn default_inclusion_yes() -> bool {
     true
@@ -1302,7 +1343,7 @@ pub struct PadDrill {
     /// True when the hole wall is plated.
     pub plated: bool,
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pad {
     pub number: String,
     pub offset: Point,
@@ -1314,6 +1355,19 @@ pub struct Pad {
     pub castellated: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geometry: Option<pcbcraft_library::FootprintPad>,
+}
+impl Default for Pad {
+    /// A 1 mm pad numbered 1 on no net.
+    fn default() -> Self {
+        Self {
+            number: "1".into(),
+            offset: Point::default(),
+            diameter: 1.0,
+            net: None,
+            castellated: None,
+            geometry: None,
+        }
+    }
 }
 impl Pad {
     pub fn drill_outline_points(&self) -> Vec<Point> {
@@ -6526,7 +6580,7 @@ impl Project {
                 || c.reference.is_empty()
                 || c.reference.len() > 64
                 || c.value.len() > 256
-                || !is_valid_component_kind(&c.kind)
+                || !(is_valid_component_kind(&c.kind) || c.kind == "library")
             {
                 return Err(format!(
                     "invalid component {}; allowed kinds: {}",
