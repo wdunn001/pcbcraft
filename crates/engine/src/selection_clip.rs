@@ -452,6 +452,7 @@ fn resolve_net(
             working_voltage: source.working_voltage,
             insulation: source.insulation.clone(),
             return_path_rule: source.return_path_rule.clone(),
+            instance: Default::default(),
         });
         id
     };

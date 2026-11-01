@@ -492,6 +492,7 @@ fn impedance_cmd(p: &Project, params: &Value) -> Result<Value, Error> {
                 height: h,
                 er: er_v,
                 thickness: t,
+                target: Default::default(),
             })
             .map_err(calc_err)?;
             Ok(json!({

@@ -278,7 +278,6 @@ fn place_command(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value
             side: None,
             pads,
         
-            preserved: pcbcraft_doc::PreservedSource::default(),
 });
         Some(fid)
     } else {
@@ -335,6 +334,7 @@ fn import(
             scale: m.scale,
             rotate: m.rotate,
             cad_part: m.cad_part,
+            body_id: Default::default(),
         })?;
         fp.model = Some(built);
     }

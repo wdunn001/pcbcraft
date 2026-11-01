@@ -6002,7 +6002,6 @@ struct ClassSetParams {
     #[serde(default)]
     impedance_target: Option<Value>,
     #[serde(default)]
-    impedance_tolerance_pct: Option<Value>,
     #[serde(default)]
     line_structure: Option<Value>,
     #[serde(default)]
@@ -7204,9 +7203,7 @@ struct AttachSourceParams {
     #[serde(default)]
     description: String,
     #[serde(default)]
-    lifecycle: String,
     #[serde(default)]
-    product_url: String,
 }
 /// Reads a key that may be absent (leave alone), null (clear) or a value (set).
 fn present<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
@@ -9083,6 +9080,7 @@ fn merge_design_block_template(
         name: sheet_name,
         parent: block.sheet.parent,
         entry: block.sheet.entry,
+        interchange_uuid: Default::default(),
     });
     for symbol in block.library.symbols {
         if !p.library.symbols.iter().any(|s| s.name == symbol.name) {
@@ -9106,6 +9104,15 @@ fn merge_design_block_template(
             target_length: net.target_length,
             length_tolerance: net.length_tolerance,
             instance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
     }
     for component in block.components {
@@ -9129,6 +9136,7 @@ fn merge_design_block_template(
             net: *id_map.get(&port.net).ok_or_else(missing)?,
             sheet: sheet_id,
             position: port.position,
+            interchange_uuid: Default::default(),
         });
     }
     for wire in block.wires {
@@ -9138,10 +9146,12 @@ fn merge_design_block_template(
             from: PinRef {
                 component: *id_map.get(&wire.from.component).ok_or_else(missing)?,
                 pin: wire.from.pin.clone(),
+                unit: Default::default(),
             },
             to: PinRef {
                 component: *id_map.get(&wire.to.component).ok_or_else(missing)?,
                 pin: wire.to.pin.clone(),
+                unit: Default::default(),
             },
         });
     }
@@ -10008,6 +10018,7 @@ fn merge_design_block_template(
         name: sheet_name,
         parent: block.sheet.parent,
         entry: block.sheet.entry,
+        interchange_uuid: Default::default(),
     });
     for symbol in block.library.symbols {
         if !p.library.symbols.iter().any(|s| s.name == symbol.name) {
@@ -10026,6 +10037,15 @@ fn merge_design_block_template(
             target_length: net.target_length,
             length_tolerance: net.length_tolerance,
             instance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
     }
     for component in block.components {
@@ -10049,6 +10069,7 @@ fn merge_design_block_template(
             net: *id_map.get(&port.net).ok_or_else(missing)?,
             sheet: sheet_id,
             position: port.position,
+            interchange_uuid: Default::default(),
         });
     }
     for wire in block.wires {
@@ -10060,10 +10081,12 @@ fn merge_design_block_template(
                     .get(&wire.from.component)
                     .ok_or_else(missing)?,
                 pin: wire.from.pin.clone(),
+                unit: Default::default(),
             },
             to: PinRef {
                 component: *id_map.get(&wire.to.component).ok_or_else(missing)?,
                 pin: wire.to.pin.clone(),
+                unit: Default::default(),
             },
         });
     }
@@ -11823,6 +11846,7 @@ if let Some(v) = a.packaging {
                 country: a.country,
                 parent: a.parent.filter(|p| !p.trim().is_empty()),
                 supplier_responsibility_on_file: a.supplier_responsibility_on_file,
+                minerals_report: Default::default(),
             };
             let replaced = p.upsert_manufacturer(record).map_err(Error::Invalid)?;
             Ok(json!({"replaced": replaced, "count": p.manufacturers.len()}))
@@ -14975,6 +14999,7 @@ if let Some(v) = a.packaging {
                 name: a.name,
                 parent: None,
                 entry: None,
+                interchange_uuid: Default::default(),
             });
             Ok(json!({"id":id}))
         }
@@ -15389,6 +15414,7 @@ if let Some(v) = a.packaging {
                 name: name.clone(),
                 parent: None,
                 entry: None,
+                interchange_uuid: Default::default(),
             });
             let components = file.components.len();
             let ports = file.ports.len();
@@ -15475,6 +15501,7 @@ if let Some(v) = a.packaging {
                     net,
                     sheet,
                     position: item.position,
+                    interchange_uuid: Default::default(),
                 });
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))
@@ -15855,6 +15882,7 @@ if let Some(v) = a.packaging {
                     width,
                     layer,
                     arc: None,
+                    preserved: Default::default(),
                 });
                 ids.push(id);
             }
@@ -17355,6 +17383,9 @@ if let Some(v) = a.packaging {
                         from_layer: None,
                         to_layer: None,
                         covering: None,
+                        backdrill: Default::default(),
+                        covering_bottom: Default::default(),
+                        preserved: Default::default(),
                     });
                     ids.push(id);
                 }
@@ -17378,6 +17409,7 @@ if let Some(v) = a.packaging {
                 filled: true,
                 kind: None,
                 pour: None,
+                preserved: Default::default(),
             });
             Ok(json!({"id":id}))
         }
@@ -17772,6 +17804,7 @@ if let Some(v) = a.packaging {
                     filled: true,
                     kind: Some("teardrop".into()),
                     pour: None,
+                    preserved: Default::default(),
                 });
                 added += 1;
             }
@@ -20259,6 +20292,9 @@ if let Some(v) = a.packaging {
                 profile: None,
                 target_impedance: target_z,
                 impedance_tolerance: z_tol,
+                max_uncoupled_length: Default::default(),
+                skew_limit_mm: Default::default(),
+                skew_limit_ps: Default::default(),
             });
             Ok(json!({"id": id, "name": name}))
         }
@@ -21757,6 +21793,7 @@ if let Some(v) = a.packaging {
                             arc: track
                                 .arc
                                 .map(|mid| mid.offset(layout_shift)),
+                            preserved: Default::default(),
                         });
                         copied_tracks += 1;
                     }
@@ -21775,6 +21812,12 @@ if let Some(v) = a.packaging {
                             position: via.position.offset(layout_shift),
                             diameter: via.diameter,
                             drill: via.drill,
+                            backdrill: Default::default(),
+                            covering: Default::default(),
+                            covering_bottom: Default::default(),
+                            from_layer: Default::default(),
+                            preserved: Default::default(),
+                            to_layer: Default::default(),
                         });
                         copied_vias += 1;
                     }
@@ -21955,6 +21998,7 @@ if let Some(v) = a.packaging {
                             width: track.width,
                             layer: track.layer,
                             arc: track.arc.map(|mid| mid.offset(layout_shift)),
+                            preserved: Default::default(),
                         });
                         copied_tracks += 1;
                     }
@@ -21973,6 +22017,12 @@ if let Some(v) = a.packaging {
                             position: via.position.offset(layout_shift),
                             diameter: via.diameter,
                             drill: via.drill,
+                            backdrill: Default::default(),
+                            covering: Default::default(),
+                            covering_bottom: Default::default(),
+                            from_layer: Default::default(),
+                            preserved: Default::default(),
+                            to_layer: Default::default(),
                         });
                         copied_vias += 1;
                     }
@@ -22000,6 +22050,7 @@ if let Some(v) = a.packaging {
                 width,
                 layer,
                 arc: None,
+                preserved: Default::default(),
             });
             Ok(json!({"id":id, "width": width}))
         }
@@ -22027,6 +22078,7 @@ if let Some(v) = a.packaging {
                 width,
                 layer,
                 arc: Some(a.mid),
+                preserved: Default::default(),
             });
             Ok(json!({
                 "id": id,
@@ -22101,6 +22153,7 @@ if let Some(v) = a.packaging {
                 width,
                 layer,
                 arc: None,
+                preserved: Default::default(),
             });
             Ok(json!({"id":id,"kept":a.id}))
         }
@@ -22198,6 +22251,7 @@ if let Some(v) = a.packaging {
                 width,
                 layer,
                 arc: None,
+                preserved: Default::default(),
             });
             Ok(json!({"id": id, "a": a.a, "b": a.b}))
         }
@@ -22267,6 +22321,7 @@ if let Some(v) = a.packaging {
                             width,
                             layer,
                             arc: None,
+                            preserved: Default::default(),
                         });
                     }
                 }
@@ -22281,6 +22336,9 @@ if let Some(v) = a.packaging {
                     from_layer: None,
                     to_layer: None,
                     covering: None,
+                    backdrill: Default::default(),
+                    covering_bottom: Default::default(),
+                    preserved: Default::default(),
                 });
                 return Ok(json!({"ids":ids,"net":net,"width":width,"via":via_id}));
             }
@@ -22308,6 +22366,7 @@ if let Some(v) = a.packaging {
                         width,
                         layer: start_layer,
                         arc: None,
+                        preserved: Default::default(),
                     });
                 }
             }
@@ -22385,6 +22444,7 @@ if let Some(v) = a.packaging {
                     width,
                     layer: a.layer,
                     arc: None,
+                    preserved: Default::default(),
                 });
             }
             for (from, to) in segs_n {
@@ -22398,6 +22458,7 @@ if let Some(v) = a.packaging {
                     width,
                     layer: a.layer,
                     arc: None,
+                    preserved: Default::default(),
                 });
             }
             let touched: Vec<Id> = ids_p.iter().chain(ids_n.iter()).copied().collect();
@@ -23360,10 +23421,12 @@ mod tests {
         let from = PinRef {
             component: 1,
             pin: "2".into(),
+            unit: Default::default(),
         };
         let to = PinRef {
             component: 2,
             pin: "1".into(),
+            unit: Default::default(),
         };
         let start = s.pin_position(&from).ok_or_else(missing)?;
         let end = s.pin_position(&to).ok_or_else(missing)?;
@@ -23423,10 +23486,12 @@ mod tests {
         let from = PinRef {
             component: 1,
             pin: "2".into(),
+            unit: Default::default(),
         };
         let to = PinRef {
             component: 2,
             pin: "1".into(),
+            unit: Default::default(),
         };
         let start = s.pin_position(&from).ok_or_else(missing)?;
         let end = s.pin_position(&to).ok_or_else(missing)?;
@@ -29873,6 +29938,8 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            box_body: Default::default(),
+            retained: Default::default(),
         };
         s.execute(
             "library.footprint.upsert",
@@ -30055,6 +30122,8 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            box_body: Default::default(),
+            retained: Default::default(),
         };
         s.execute(
             "library.footprint.upsert",

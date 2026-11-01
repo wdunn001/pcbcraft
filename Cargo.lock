@@ -3307,12 +3307,15 @@ name = "pcbcraft-engine"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "pcbcraft-calc",
  "pcbcraft-clock",
  "pcbcraft-doc",
  "pcbcraft-geom",
  "pcbcraft-io",
  "pcbcraft-library",
+ "pcbcraft-plugin",
  "pcbcraft-plugin-firmware-target",
+ "pcbcraft-plugin-sdk",
  "pcbcraft-publication",
  "pcbcraft-rules",
  "pcbcraft-sim",

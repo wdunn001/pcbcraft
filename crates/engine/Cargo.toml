@@ -13,11 +13,14 @@ default = []
 vendor-handoff = []
 plugin-firmware-target = [
     "dep:pcbcraft-plugin-firmware-target",
+    "dep:pcbcraft-plugin-sdk",
     "pcbcraft-io/plugin-firmware-target",
 ]
 
 [dependencies]
 pcbcraft-plugin-firmware-target = { workspace = true, optional = true }
+pcbcraft-plugin-sdk = { workspace = true, optional = true }
+pcbcraft-calc.workspace = true
 pcbcraft-clock.workspace = true
 pcbcraft-geom.workspace = true
 pcbcraft-library.workspace = true
@@ -25,6 +28,7 @@ pcbcraft-doc.workspace = true
 pcbcraft-rules.workspace = true
 pcbcraft-io.workspace = true
 pcbcraft-sim.workspace = true
+pcbcraft-plugin.workspace = true
 pcbcraft-publication.workspace = true
 serde.workspace = true
 serde_json.workspace = true

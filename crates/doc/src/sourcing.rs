@@ -17,7 +17,7 @@
 //! - Add a second place for a part number; suppliers hold one number each.
 
 use crate::{Component, Project};
-use pcbcraft_library::listing::Lifecycle;
+use pcbcraft_library::listing::{Lifecycle, Packaging, PartListing};
 use serde::{Deserialize, Serialize};
 
 /// Longest manufacturer, part number, supplier name or description, in bytes.
@@ -26,6 +26,18 @@ pub const MAX_SOURCING_TEXT: usize = 256;
 pub const MAX_SUPPLIER_URL: usize = 512;
 /// Most suppliers one part lists.
 pub const MAX_SUPPLIERS: usize = 16;
+/// Longest link field, in bytes.
+pub const MAX_SOURCING_URL: usize = 512;
+/// Most alternate parts one component lists.
+pub const MAX_ALTERNATES: usize = 8;
+
+/// One alternate source: another maker and part number pair.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PartAlternate {
+    pub manufacturer: String,
+    pub mpn: String,
+}
 
 /// One supplier's number for a part, with an optional link to its page.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -72,6 +84,18 @@ pub struct Sourcing {
     /// True when the part is halogen free.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub halogen_free: Option<bool>,
+    /// How the part is supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packaging: Option<Packaging>,
+    /// Other makers' parts that can stand in for this one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternates: Vec<PartAlternate>,
+    /// Link to the datasheet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub datasheet_url: Option<String>,
+    /// Link to a 3D model of the part.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model3d_url: Option<String>,
 }
 
 /// Check one bounded text: at most `max` bytes and no control characters.
@@ -82,6 +106,18 @@ fn bounded(name: &str, text: &str, max: usize) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+impl PartAlternate {
+    /// Check the record against the documented bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.manufacturer.trim().is_empty() || self.mpn.trim().is_empty() {
+            return Err("an alternate needs a manufacturer and a part number".into());
+        }
+        bounded("alternate manufacturer", &self.manufacturer, MAX_SOURCING_TEXT)?;
+        bounded("alternate part number", &self.mpn, MAX_SOURCING_TEXT)?;
+        Ok(())
+    }
 }
 
 impl SupplierPart {
@@ -135,10 +171,67 @@ impl Sourcing {
                 return Err(format!("supplier {} is listed twice", s.supplier));
             }
         }
+        if self.alternates.len() > MAX_ALTERNATES {
+            return Err(format!("a component lists at most {MAX_ALTERNATES} alternates"));
+        }
+        for alt in &self.alternates {
+            alt.validate()?;
+        }
+        if let Some(url) = &self.datasheet_url {
+            bounded("datasheet link", url, MAX_SOURCING_URL)?;
+        }
+        if let Some(url) = &self.model3d_url {
+            bounded("3D model link", url, MAX_SOURCING_URL)?;
+        }
         if self.moisture_level.is_some_and(|m| !(1..=6).contains(&m)) {
             return Err("moisture level must be 1 to 6".into());
         }
         Ok(())
+    }
+
+    /// Copy matching fields from a listing. When `overwrite` is false, typed
+    /// values already set on the component are kept.
+    pub fn apply_listing(&mut self, listing: &PartListing, overwrite: bool) {
+        let text = |slot: &mut String, src: &str| {
+            if !overwrite && !slot.is_empty() {
+                return;
+            }
+            let src = src.trim();
+            if src.is_empty() {
+                return;
+            }
+            if bounded("field", src, MAX_SOURCING_TEXT).is_ok() {
+                *slot = src.to_owned();
+            }
+        };
+        text(&mut self.manufacturer, &listing.manufacturer);
+        text(&mut self.mpn, &listing.mpn);
+        fn opt<T>(slot: &mut Option<T>, src: Option<T>, overwrite: bool) {
+            if !overwrite && slot.is_some() {
+                return;
+            }
+            if src.is_some() {
+                *slot = src;
+            }
+        }
+        opt(&mut self.lifecycle, Some(listing.lifecycle), overwrite);
+        opt(&mut self.moisture_level, listing.moisture_level, overwrite);
+        opt(&mut self.rohs, listing.rohs, overwrite);
+        opt(&mut self.reach, listing.reach, overwrite);
+        opt(&mut self.halogen_free, listing.halogen_free, overwrite);
+        opt(&mut self.packaging, listing.packaging, overwrite);
+        if (overwrite || self.datasheet_url.is_none())
+            && let Some(url) = listing.datasheet_url.as_deref()
+            && bounded("datasheet link", url, MAX_SOURCING_URL).is_ok()
+        {
+            self.datasheet_url = Some(url.to_owned());
+        }
+        if (overwrite || self.model3d_url.is_none())
+            && let Some(url) = listing.model3d.as_deref()
+            && bounded("3D model link", url, MAX_SOURCING_URL).is_ok()
+        {
+            self.model3d_url = Some(url.to_owned());
+        }
     }
 
     /// The supplier's number, matching the supplier name ignoring case.
@@ -274,6 +367,22 @@ impl Component {
                 | "mfgpn"
                 | "manufacturerpart" => Some(&mut next.mpn),
                 "description" => Some(&mut next.description),
+                "datasheet" | "datasheeturl" | "datasheetlink" => {
+                    if next.datasheet_url.is_none()
+                        && bounded("datasheet link", value, MAX_SOURCING_URL).is_ok()
+                    {
+                        next.datasheet_url = Some(value.to_owned());
+                    }
+                    continue;
+                }
+                "3dmodel" | "model3d" | "3dmodelurl" => {
+                    if next.model3d_url.is_none()
+                        && bounded("3D model link", value, MAX_SOURCING_URL).is_ok()
+                    {
+                        next.model3d_url = Some(value.to_owned());
+                    }
+                    continue;
+                }
                 _ => None,
             };
             if let Some(slot) = slot {
@@ -362,6 +471,19 @@ impl Component {
             "RoHS" => yes_no(s.rohs),
             "REACH" => yes_no(s.reach),
             "Halogen free" => yes_no(s.halogen_free),
+            "Packaging" => s.packaging.map(packaging_text).unwrap_or_default(),
+            "Datasheet" => s
+                .datasheet_url
+                .clone()
+                .or_else(|| self.field("Datasheet").map(str::to_owned))
+                .unwrap_or_default(),
+            "3D model" => s.model3d_url.clone().unwrap_or_default(),
+            "Alternates" => s
+                .alternates
+                .iter()
+                .map(|a| format!("{}: {}", a.manufacturer, a.mpn))
+                .collect::<Vec<_>>()
+                .join("; "),
             _ => match key.strip_prefix(SUPPLIER_KEY_PREFIX) {
                 Some(name) => s.supplier_number(name).unwrap_or("").to_owned(),
                 None => self.field(key).unwrap_or("").to_owned(),
@@ -388,4 +510,17 @@ impl Project {
             c.adopt_free_form_sourcing();
         }
     }
+}
+
+/// The words a packaging type shows in a column.
+pub fn packaging_text(p: Packaging) -> String {
+    match p {
+        Packaging::Reel => "reel",
+        Packaging::CutTape => "cut tape",
+        Packaging::Tray => "tray",
+        Packaging::Tube => "tube",
+        Packaging::Bulk => "bulk",
+        Packaging::Other => "other",
+    }
+    .to_owned()
 }

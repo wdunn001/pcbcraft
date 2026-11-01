@@ -562,6 +562,7 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
         cad_part,
         body_id,
         raw_source,
+        embedded: Default::default(),
     })
 }
 
@@ -1304,6 +1305,8 @@ pub(super) fn run(
                         offset: None,
                         scale: None,
                         rotate: None,
+                        body_id: Default::default(),
+                        cad_part: Default::default(),
                     })?;
                     def.model = Some(model);
                     def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
@@ -2932,7 +2935,6 @@ pub(super) fn run(
                     side: None,
                     pads,
                 
-                    preserved: pcbcraft_doc::PreservedSource::default(),
 });
                 out["footprint"] = json!(footprint_id);
             }

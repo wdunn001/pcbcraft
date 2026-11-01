@@ -202,6 +202,7 @@ fn apply_fillet(
                 width,
                 layer,
                 arc: Some(fillet.arc_mid),
+                preserved: Default::default(),
             });
         }
         Style::Segments => {
@@ -222,6 +223,7 @@ fn apply_fillet(
                     width,
                     layer,
                     arc: None,
+                    preserved: Default::default(),
                 });
             }
         }

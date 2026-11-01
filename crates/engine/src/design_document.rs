@@ -177,6 +177,16 @@ mod tests {
             name: "GND".into(),
             target_length: None,
             length_tolerance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            instance: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
         assert!(project_has_content(&project));
         assert!(is_dirty(None, 0, "", true));

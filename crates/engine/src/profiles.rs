@@ -511,11 +511,9 @@ fn find_or_create_class<'a>(
         via_drill: None,
         pair_width: None,
         pair_gap: None,
-        target_impedance: None,
         nets: Vec::new(),
         profile: Some(profile_id.to_string()),
         impedance_target: None,
-        impedance_tolerance_pct: None,
         line_structure: None,
         reference_layers: vec![],
         current: None,
@@ -523,6 +521,12 @@ fn find_or_create_class<'a>(
         working_voltage: None,
         insulation: None,
         return_path_rule: None,
+        backdrill: Default::default(),
+        corner_radius: Default::default(),
+        fast: Default::default(),
+        max_vias: Default::default(),
+        min_radius: Default::default(),
+        rise_time: Default::default(),
     });
     p.net_classes
         .last_mut()
@@ -748,8 +752,8 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                     skew_limit_ps: None,
                     max_uncoupled_length: None,
                     profile: Some(profile_id.clone()),
-                    target_impedance: target_z,
                     impedance_tolerance: z_tol,
+                    equal_vias: Default::default(),
                 });
             }
         }

@@ -65,14 +65,10 @@ pub struct Entry {
     /// When the snapshot was written, in seconds since 1970.
     pub saved_at: u64,
     /// The revision the snapshot holds.
-    pub id: String,
     /// The design's file, when it had been saved somewhere.
     #[serde(default)]
-    pub path: Option<String>,
 /// The design name the prompt shows for this snapshot.
-    pub name: String,
     /// When the snapshot was written, in seconds since 1970.
-    pub saved_at: u64,
     /// The revision the snapshot holds.
     pub revision: u64,
     /// How much is in it, for the sentence the prompt shows.
@@ -81,28 +77,18 @@ pub struct Entry {
     /// Placed pads in the snapshot, for the sentence the prompt shows.
     #[serde(default)]
     pub pads: Vec<String>,
-    pub name: String,
     /// When the snapshot was written, in seconds since 1970.
-    pub saved_at: u64,
     /// The revision the snapshot holds.
-    pub revision: u64,
     /// How much is in it, for the sentence the prompt shows.
     #[serde(default)]
-    pub components: usize,
 /// The design name the prompt shows for this snapshot.
-    pub name: String,
     /// When the snapshot was written, in seconds since 1970.
-    pub saved_at: u64,
     /// The revision the snapshot holds.
-    pub revision: u64,
     /// How much is in it, for the sentence the prompt shows.
     #[serde(default)]
-    pub components: usize,
     /// Placed pads in the snapshot, for the sentence the prompt shows.
     #[serde(default)]
-    pub pads: usize,
     #[serde(default)]
-    pub pads: usize,
 }
 
 fn unix_now() -> u64 {

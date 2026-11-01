@@ -85,8 +85,8 @@ pub use panel::{
 };
 pub use placement_machine::*;
 pub use sourcing::{
-    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
-    SupplierPart, lifecycle_text,
+    MAX_ALTERNATES, MAX_SOURCING_TEXT, MAX_SOURCING_URL, MAX_SUPPLIER_URL, MAX_SUPPLIERS,
+    PartAlternate, SUPPLIER_KEY_PREFIX, Sourcing, SupplierPart, lifecycle_text, packaging_text,
 };
 pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
 /// Verbatim interchange subtrees kept for export when the native model has no
