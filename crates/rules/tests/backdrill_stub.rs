@@ -1,4 +1,4 @@
-﻿//! The back-drill checks (issue #801): a stub longer than the limit and a
+//! The back-drill checks (issue #801): a stub longer than the limit and a
 //! drill that cuts a layer it must not.
 
 use pcbcraft_doc::{BackDrill, BackDrillFrom, Id, Layer, LayerRecord, Net, Project, Track, Via};

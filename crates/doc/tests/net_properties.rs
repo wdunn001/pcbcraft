@@ -59,6 +59,10 @@ fn a_net_value_overrides_the_class_value_and_clearing_it_falls_back() -> T {
         working_voltage: None,
         insulation: None,
         return_path_rule: None,
+        backdrill: Default::default(),
+        fast: Default::default(),
+        max_vias: Default::default(),
+        target_impedance: Default::default(),
     });
     let net = p.nets.first().ok_or("net")?;
     assert_eq!(p.net_effective_impedance_target(net), Some(50.0));
@@ -74,11 +78,13 @@ fn a_net_value_overrides_the_class_value_and_clearing_it_falls_back() -> T {
     assert_eq!(p.net_effective_impedance_target(net), Some(50.0));
     assert_eq!(p.net_effective_current(net), Some(2.0));
     p.nets[0].reference_layers = Some(vec!["B.Cu".into()]);
+    let net = &p.nets[0];
     assert_eq!(
         p.net_effective_reference_layers(net),
         &["B.Cu".to_string()][..]
     );
     p.nets[0].reference_layers = None;
+    let net = &p.nets[0];
     assert_eq!(
         p.net_effective_reference_layers(net),
         &["F.Cu".to_string()][..]

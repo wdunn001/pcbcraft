@@ -27,6 +27,7 @@ fn sample_symbol(name: &str) -> pcbcraft_library::SymbolDefinition {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: Default::default(),
     }
 }
 

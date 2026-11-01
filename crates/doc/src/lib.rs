@@ -24,12 +24,14 @@ pub use component_kind::{
     parse_component_kind, validate_component_kinds,
 };
 pub use compliance::{
-    Compliance, ComplianceDeclaration, ComplianceProjectSettings, ComplianceSource,
-    ComplianceSourceKind, ComplianceStatus, CountryOfOrigin, DeclaredSubstance,
-    MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURERS,
-    MAX_SUBSTANCES, ManufacturerRecord, MineralsReportOnFile, PartRole, date_le,
-    normalize_manufacturer_name, part_role_text, valid_compliance_link, valid_compliance_text,
-    valid_date,
+    Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings,
+    CountryOfOrigin, Declaration, DeclarationSource, DeclarationSourceKind, DeclarationStatus,
+    DeclaredSubstance, MAX_ALIASES, MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_MARKETS,
+    MAX_COMPLIANCE_MUTE_REASON, MAX_COMPLIANCE_MUTES, MAX_COMPLIANCE_RULE_SETS,
+    MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURER_NAME, MAX_MANUFACTURERS,
+    MAX_SUBSTANCES, ManufacturerRecord, OriginInterpretation, PartRole, RadioGrant,
+    RadioGrantKind, apply_listing_declarations, date_le, normalize_manufacturer_name,
+    part_role_text, valid_date,
 };
 pub use compliance_list::*;
 pub use drawing_frame::{
@@ -68,6 +70,55 @@ pub use sourcing::{
     SupplierPart, lifecycle_text,
 };
 pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
+/// Verbatim interchange subtrees kept for export when the native model has no
+/// field for them yet. Bounds match epic import research caps.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct PreservedSource {
+    /// The kept subtrees, each the exact source text of one node.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nodes: Vec<String>,
+}
+
+impl PreservedSource {
+    /// Most subtrees one object keeps.
+    pub const MAX_NODES: usize = 256;
+    /// Most bytes of kept text one object holds.
+    pub const MAX_BYTES: usize = 1024 * 1024;
+
+    /// True when nothing is kept.
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    /// Total bytes of kept text.
+    pub fn byte_len(&self) -> usize {
+        self.nodes.iter().map(String::len).sum()
+    }
+
+    /// Keep the source text in `span`; errors when a per-object limit is hit.
+    pub fn push_span(&mut self, source: &str, span: std::ops::Range<usize>) -> Result<(), String> {
+        if self.nodes.len() >= Self::MAX_NODES {
+            return Err("preserved node limit reached for one object".into());
+        }
+        let slice = source
+            .get(span.clone())
+            .ok_or_else(|| "preserved span out of range".to_string())?;
+        if slice.len() + self.byte_len() > Self::MAX_BYTES {
+            return Err("preserved byte limit reached for one object".into());
+        }
+        self.nodes.push(slice.to_owned());
+        Ok(())
+    }
+
+    /// True when both per-object limits hold.
+    pub fn valid(&self) -> bool {
+        self.nodes.len() <= Self::MAX_NODES && self.byte_len() <= Self::MAX_BYTES
+    }
+}
+
+/// Most bytes of kept source text one project holds in total.
+pub const MAX_PRESERVED_PROJECT_BYTES: usize = 8 * 1024 * 1024;
+
 pub mod fill;
 pub mod firmware_design;
 pub use fill::{
@@ -254,8 +305,8 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
-/// Typed sourcing facts: manufacturer, part number, description, supplier numbers
-/// and quick compliance flags. Empty records are not saved. See `sourcing.rs`.
+    /// Typed sourcing facts: manufacturer, part number, description, supplier numbers
+    /// and quick compliance flags. Empty records are not saved. See `sourcing.rs`.
     #[serde(default, skip_serializing_if = "Sourcing::is_empty")]
     pub sourcing: Sourcing,
     /// Typed compliance: country of origin, product role, dated declarations and substances.
@@ -611,6 +662,9 @@ pub struct NetClass {
     /// Default return path rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub return_path_rule: Option<String>,
+    /// When true, return-path checks apply to member nets (fast signals).
+    #[serde(default)]
+    pub fast: bool,
 }
 /// A clearance requirement between two named nets, stricter than either
 /// class or the board default when it is larger.
@@ -666,6 +720,16 @@ pub struct DiffPair {
     /// percent; defaults to zero when a target is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub impedance_tolerance: Option<f64>,
+    /// Largest allowed length skew between the two sides, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skew_limit_mm: Option<f64>,
+    /// Largest allowed propagation-time skew between the two sides, in
+    /// picoseconds, from each segment's layer permittivity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skew_limit_ps: Option<f64>,
+    /// Longest uncoupled run allowed along either side, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_uncoupled_length: Option<f64>,
 }
 impl DiffPair {
     fn valid(&self) -> bool {
@@ -689,6 +753,15 @@ impl DiffPair {
             && self.impedance_tolerance.is_none_or(|t| {
                 self.target_impedance.is_some() && t.is_finite() && (0.0..=1.0).contains(&t)
             })
+            && self
+                .skew_limit_mm
+                .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
+            && self
+                .skew_limit_ps
+                .is_none_or(|t| t.is_finite() && (0.0..=10_000_000.0).contains(&t))
+            && self
+                .max_uncoupled_length
+                .is_none_or(|t| t.is_finite() && (0.0..=1000.0).contains(&t))
     }
 }
 /// Which kinds of copper a keepout keeps out. Every kind is forbidden unless
@@ -2494,10 +2567,6 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
     })
 }
 impl Project {
-    pub fn compliance_for_component(&self, component: Id) -> Option<&Compliance> {
-        self.compliance_by_component.get(&component)
-    }
-
     /// Creates one artifact per entry of each output job when the project has
     /// jobs but no artifacts. Generated fields stay unset so each starts stale.
     ///
@@ -3210,6 +3279,44 @@ impl MachiningNotes {
                 .is_none_or(|t| t.is_finite() && (0.0..=1.0).contains(&t))
     }
 }
+impl Default for Board {
+    fn default() -> Self {
+        Board {
+            width: 60.0,
+            height: 40.0,
+            thickness: 1.6,
+            clearance: 0.2,
+            rules: None,
+            finish: board_finish(),
+            er: board_er(),
+            drill_origin: board_origin(),
+            via_covering_default: ViaCovering::Open,
+            layer_records: vec![],
+            copper_layer_roles: vec![],
+            via_spans: vec![],
+            machining: None,
+            pair_rules: vec![],
+            diff_pairs: vec![],
+            length_groups: vec![],
+            rule_areas: vec![],
+            user_layers: vec![],
+            outline: None,
+            outline_arcs: vec![],
+            footprints: vec![],
+            tracks: vec![],
+            vias: vec![],
+            holes: vec![],
+            datums: vec![],
+            fiducials: vec![],
+            netties: vec![],
+            enclosure: None,
+            zones: vec![],
+            cutouts: vec![],
+            texts: vec![],
+            preserved: PreservedSource::default(),
+        }
+    }
+}
 impl Board {
     /// The outline as a plain polygon with arcs cut into chords that stay
     /// within `max_chord_error` millimetres of the true edge; empty when the
@@ -3793,6 +3900,12 @@ pub struct Project {
     /// Compliance findings the designer muted with a stored reason.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub compliance_mutes: Vec<ComplianceFindingMute>,
+    /// Export-and-trade rule set: ITAR reminder flag and tariff exposure table.
+    #[serde(default, skip_serializing_if = "ExportTradeSettings::is_empty")]
+    pub export_trade: ExportTradeSettings,
+    /// Optional drawing frame and title-block template for plots and PDFs.
+    #[serde(default)]
+    pub drawing_frame: DrawingFrame,
     /// Text files attached to the project, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<EmbeddedFile>,
@@ -3868,13 +3981,6 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
-    #[serde(default)]
-    pub compliance_settings: ComplianceProjectSettings,
-    /// Compliance records keyed by component id.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub compliance_by_component: BTreeMap<Id, Compliance>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub manufacturers: Vec<ManufacturerRecord>,
     /// Named library folders that library commands resolve through: a path
     /// whose first segment matches a nickname is rewritten to the mapped
     /// folder, so the design opens on another machine without retyping it.
@@ -3930,6 +4036,9 @@ pub struct ProjectLibrary {
     pub footprints: Vec<pcbcraft_library::FootprintDefinition>,
     #[serde(default)]
     pub parts: Vec<pcbcraft_library::Part>,
+    /// Second sources and alternates keyed by project-library symbol name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub part_substitutes: BTreeMap<String, pcbcraft_library::PartSubstitutes>,
 }
 impl ProjectLibrary {
     pub fn validate(&self) -> Result<(), String> {
@@ -3941,6 +4050,31 @@ impl ProjectLibrary {
         }
         if self.parts.len() > pcbcraft_library::MAX_PARTS {
             return Err("project library supports at most 256 parts".into());
+        }
+        if self.part_substitutes.len() > 256 {
+            return Err("part substitute records exceed the library symbol limit".into());
+        }
+        for (name, subs) in &self.part_substitutes {
+            if name.is_empty() || name.len() > 128 {
+                return Err("part substitute keys must be 1 to 128 bytes".into());
+            }
+            if !self.symbols.iter().any(|s| s.name == *name) {
+                return Err(format!("no library symbol named {name} for substitute record"));
+            }
+            subs.validate()?;
+            for alt in &subs.alternates {
+                if alt.symbol == *name {
+                    return Err("a part cannot list itself as an alternate".into());
+                }
+                if !self.symbols.iter().any(|s| s.name == alt.symbol) {
+                    return Err(format!("no library symbol named {}", alt.symbol));
+                }
+                if !alt.footprint.is_empty()
+                    && !self.footprints.iter().any(|f| f.name == alt.footprint)
+                {
+                    return Err(format!("no library footprint named {}", alt.footprint));
+                }
+            }
         }
         let mut names = BTreeSet::new();
         for s in &self.symbols {
@@ -4034,6 +4168,7 @@ impl Default for Project {
             manufacturers: vec![],
             compliance_settings: Default::default(),
             compliance_mutes: vec![],
+            drawing_frame: DrawingFrame::default(),
             output_jobs: vec![],
             artifacts: vec![],
             packages: vec![],
@@ -4054,48 +4189,13 @@ impl Default for Project {
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
-            compliance_settings: ComplianceProjectSettings::default(),
-            compliance_by_component: BTreeMap::new(),
-            manufacturers: vec![],
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
             labels: vec![],
             no_connects: vec![],
             export_trade: ExportTradeSettings::default(),
-            board: Board {
-                width: 60.0,
-                height: 40.0,
-                thickness: 1.6,
-                clearance: 0.2,
-                rules: None,
-                finish: board_finish(),
-                er: board_er(),
-                drill_origin: board_origin(),
-                via_covering_default: ViaCovering::Open,
-                layer_records: vec![],
-                via_spans: vec![],
-                machining: None,
-                pair_rules: vec![],
-                diff_pairs: vec![],
-                length_groups: vec![],
-                rule_areas: vec![],
-                user_layers: vec![],
-                outline: None,
-                outline_arcs: vec![],
-                footprints: vec![],
-                tracks: vec![],
-                vias: vec![],
-                holes: vec![],
-                datums: vec![],
-                fiducials: vec![],
-                netties: vec![],
-                enclosure: None,
-                zones: vec![],
-                cutouts: vec![],
-                texts: vec![],
-                preserved: PreservedSource::default(),
-            },
+            board: Board::default(),
             auto_sync: true,
             board_only: false,
         }
@@ -4158,6 +4258,7 @@ pub fn component_template(
         rotation: 0.0,
         library_symbol: None,
         library_footprint: None,
+        part: None,
         fields: vec![],
         sourcing: Default::default(),
         compliance: Default::default(),
@@ -4417,6 +4518,53 @@ impl Project {
             n as u8
         }
     }
+    /// The bottom copper layer of this board: the last stackup copper row, and
+    /// index 1 on a two-layer board.
+    ///
+    /// # Rules
+    /// - Bottom is always the last copper layer. `Layer::Back` is the bottom
+    ///   only on a two-layer board; elsewhere it is the first inner layer.
+    ///
+    /// # Dependencies
+    /// - `Project::copper_layer_count` in this file.
+    ///
+    /// # Do not
+    /// - Compare a track, zone, text or via end against `Layer::Back`; use
+    ///   [`Project::is_bottom`].
+    pub fn bottom_layer(&self) -> Layer {
+        Layer::from_index(self.copper_layer_count().saturating_sub(1)).unwrap_or(Layer::Back)
+    }
+    /// Whether `layer` is this board's bottom copper layer.
+    ///
+    /// Why: part sides and the "Bottom" choice use `Layer::Back` as a name for
+    /// the bottom face, while copper items store the real stackup index.
+    /// This accepts both, so callers need not know which one they hold.
+    pub fn is_bottom(&self, layer: Layer) -> bool {
+        layer == self.bottom_layer() || (layer == Layer::Back && self.copper_layer_count() <= 2)
+    }
+    /// The copper layer of the face a part sits on: top for `Layer::Front`,
+    /// this board's bottom layer for anything else.
+    pub fn face_layer(&self, side: Layer) -> Layer {
+        if side == Layer::Front {
+            Layer::Front
+        } else {
+            self.bottom_layer()
+        }
+    }
+    /// Whether a pad has copper on `layer` of this board: through-hole pads on
+    /// every copper layer, surface pads only on the face their part sits on.
+    ///
+    /// # Rules
+    /// - Use this instead of [`Footprint::pad_on_copper`] whenever `layer` is a
+    ///   stackup index that can be an inner layer or the bottom of a board with
+    ///   more than two layers.
+    pub fn pad_on_copper(&self, footprint: &Footprint, pad: &Pad, layer: Layer) -> bool {
+        match pad.geometry.as_ref() {
+            None => layer == Layer::Front,
+            Some(g) if g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu") => true,
+            Some(_) => self.face_layer(footprint.board_side()) == layer,
+        }
+    }
     /// Whether unused inner pads are stripped from fabrication output.
     pub fn remove_unused_inner_pads_enabled(&self) -> bool {
         self.board
@@ -4635,150 +4783,6 @@ impl Project {
             v.from_layer = v.from_layer.map(to);
             v.to_layer = v.to_layer.map(to);
         }
-    }
-    /// True when `layer` is neither the top nor the bottom copper row.
-    pub fn is_inner_copper_layer(&self, layer: Layer) -> bool {
-        let count = self.copper_layer_count();
-        let i = layer.index();
-        i > 0 && i + 1 < count
-    }
-    /// Recorded plane role for a copper layer, if it is not plain signal routing.
-    pub fn copper_layer_plane_role(&self, layer: Layer) -> Option<&str> {
-        self.board
-            .copper_layer_roles
-            .get(layer.index() as usize)
-            .and_then(|r| r.as_deref())
-            .filter(|r| *r != "signal")
-    }
-    /// True when the layer is marked as a ground or power plane.
-    pub fn copper_layer_is_plane(&self, layer: Layer) -> bool {
-        matches!(
-            self.copper_layer_plane_role(layer),
-            Some("ground") | Some("power")
-        )
-    }
-    /// True when a filled pour sits on a layer marked ground or power.
-    pub fn zone_is_plane_pour(&self, zone: &CopperZone) -> bool {
-        zone.filled && self.copper_layer_is_plane(zone.layer)
-    }
-    fn trim_copper_layer_roles(&mut self) {
-        let count = self.copper_layer_count() as usize;
-        self.board.copper_layer_roles.truncate(count);
-        while self.board.copper_layer_roles.last().is_some_and(|r| r.is_none()) {
-            self.board.copper_layer_roles.pop();
-        }
-    }
-    /// Keep plane roles aligned when copper layer indices move.
-    pub fn remap_copper_layer_roles(&mut self, map: impl Fn(u8) -> u8) {
-        let count = self.copper_layer_count() as usize;
-        let mut next = vec![None; count];
-        for (i, role) in self.board.copper_layer_roles.iter().enumerate() {
-            if let Some(role) = role.clone() {
-                let ni = map(i as u8) as usize;
-                if ni < count {
-                    next[ni] = Some(role);
-                }
-            }
-        }
-        self.board.copper_layer_roles = next;
-        self.trim_copper_layer_roles();
-    }
-    /// Set or clear the design role of one inner copper layer.
-    pub fn set_copper_layer_plane_role(&mut self, layer: Layer, role: &str) -> Result<(), String> {
-        if !COPPER_LAYER_PLANE_ROLES.contains(&role) {
-            return Err("role must be signal, ground or power".into());
-        }
-        if !self.is_inner_copper_layer(layer) {
-            return Err("only inner copper layers carry a plane role".into());
-        }
-        let i = layer.index() as usize;
-        if i >= self.copper_layer_count() as usize {
-            return Err("layer is not on this board".into());
-        }
-        if self.board.copper_layer_roles.len() <= i {
-            self.board
-                .copper_layer_roles
-                .resize(i + 1, None);
-        }
-        self.board.copper_layer_roles[i] = if role == "signal" {
-            None
-        } else {
-            Some(role.into())
-        };
-        self.trim_copper_layer_roles();
-        Ok(())
-    }
-    /// True when `layer` is neither the top nor the bottom copper row.
-    pub fn is_inner_copper_layer(&self, layer: Layer) -> bool {
-        let count = self.copper_layer_count();
-        let i = layer.index();
-        i > 0 && i + 1 < count
-    }
-    /// Recorded plane role for a copper layer, if it is not plain signal routing.
-    pub fn copper_layer_plane_role(&self, layer: Layer) -> Option<&str> {
-        self.board
-            .copper_layer_roles
-            .get(layer.index() as usize)
-            .and_then(|r| r.as_deref())
-            .filter(|r| *r != "signal")
-    }
-    /// True when the layer is marked as a ground or power plane.
-    pub fn copper_layer_is_plane(&self, layer: Layer) -> bool {
-        matches!(
-            self.copper_layer_plane_role(layer),
-            Some("ground") | Some("power")
-        )
-    }
-    /// True when a filled pour sits on a layer marked ground or power.
-    pub fn zone_is_plane_pour(&self, zone: &CopperZone) -> bool {
-        zone.filled && self.copper_layer_is_plane(zone.layer)
-    }
-    fn trim_copper_layer_roles(&mut self) {
-        let count = self.copper_layer_count() as usize;
-        self.board.copper_layer_roles.truncate(count);
-        while self.board.copper_layer_roles.last().is_some_and(|r| r.is_none()) {
-            self.board.copper_layer_roles.pop();
-        }
-    }
-    /// Keep plane roles aligned when copper layer indices move.
-    pub fn remap_copper_layer_roles(&mut self, map: impl Fn(u8) -> u8) {
-        let count = self.copper_layer_count() as usize;
-        let mut next = vec![None; count];
-        for (i, role) in self.board.copper_layer_roles.iter().enumerate() {
-            if let Some(role) = role.clone() {
-                let ni = map(i as u8) as usize;
-                if ni < count {
-                    next[ni] = Some(role);
-                }
-            }
-        }
-        self.board.copper_layer_roles = next;
-        self.trim_copper_layer_roles();
-    }
-    /// Set or clear the design role of one inner copper layer.
-    pub fn set_copper_layer_plane_role(&mut self, layer: Layer, role: &str) -> Result<(), String> {
-        if !COPPER_LAYER_PLANE_ROLES.contains(&role) {
-            return Err("role must be signal, ground or power".into());
-        }
-        if !self.is_inner_copper_layer(layer) {
-            return Err("only inner copper layers carry a plane role".into());
-        }
-        let i = layer.index() as usize;
-        if i >= self.copper_layer_count() as usize {
-            return Err("layer is not on this board".into());
-        }
-        if self.board.copper_layer_roles.len() <= i {
-            self.board
-                .copper_layer_roles
-                .resize(i + 1, None);
-        }
-        self.board.copper_layer_roles[i] = if role == "signal" {
-            None
-        } else {
-            Some(role.into())
-        };
-        self.trim_copper_layer_roles();
-        Ok(())
     }
     /// True when `layer` is neither the top nor the bottom copper row.
     pub fn is_inner_copper_layer(&self, layer: Layer) -> bool {
@@ -5303,10 +5307,9 @@ impl Project {
         self.library.validate()?;
         self.export_trade.validate()?;
         self.validate_parameters()?;
-        validate_compliance_settings(&self.compliance)?;
-        for compliance in self.compliance.parts.values() {
-            validate_component_compliance(compliance)?;
-        }
+        self.validate_manufacturers()?;
+        self.compliance_settings.validate()?;
+        self.validate_compliance_mutes()?;
         if self
             .components
             .iter()
@@ -5758,9 +5761,9 @@ impl Project {
                 return Err("artifact job label must name an existing output job".into());
             }
             if a.kind == "placement_yy1" {
-                let machine_id = a.machine.as_ref().ok_or(
-                    "placement_yy1 artifacts must name a machine profile on the design".into(),
-                )?;
+                let machine_id = a.machine.as_ref().ok_or_else(|| {
+                    "placement_yy1 artifacts must name a machine profile on the design".to_string()
+                })?;
                 let profile = self
                     .machine_profiles
                     .iter()
@@ -6674,6 +6677,7 @@ pub fn library_component(
             definition,
         }),
         library_footprint: None,
+        part: None,
     })
 }
 /// Maximum pads considered by placement support checks; matches
@@ -7184,6 +7188,7 @@ mod drill_tests {
             extends: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         }
     }
 
@@ -7441,7 +7446,10 @@ mod drill_tests {
             units: vec![],
             library_symbol: None,
             library_footprint: None,
+            part: None,
             fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             sheet: 0,
         });
         p.board.rule_areas.push(RuleArea {
@@ -7786,6 +7794,7 @@ mod drill_tests {
             name: "Main".into(),
             parent: None,
             entry: None,
+            interchange_uuid: None,
         });
         assert!(
             p.validate()
@@ -8036,6 +8045,8 @@ mod via_covering_tests {
             from_layer: None,
             to_layer: None,
             covering,
+            covering_bottom: None,
+            backdrill: None,
         });
         p
     }

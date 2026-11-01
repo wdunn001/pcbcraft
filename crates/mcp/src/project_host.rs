@@ -1,4 +1,4 @@
-﻿//! Host bridge for opening uploads and triggering downloads without std::fs in the UI crate.
+//! Host bridge for opening uploads and triggering downloads without std::fs in the UI crate.
 use pcbcraft_io::OpenKind;
 use std::sync::MutexGuard;
 

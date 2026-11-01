@@ -70,7 +70,7 @@ pub fn arc_polyline(arc: &Arc, max_error: f64) -> Vec<Point> {
 /// Largest gap between the arc and a chord approximation at `max_error`.
 pub fn arc_chord_worst_error(arc: &Arc, max_error: f64) -> f64 {
     let n = chord_count(arc, max_error);
-    let mut worst = 0.0;
+    let mut worst = 0.0_f64;
     for k in 0..n {
         let t0 = k as f64 / n as f64;
         let t1 = (k + 1) as f64 / n as f64;

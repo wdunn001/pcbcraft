@@ -48,6 +48,7 @@ fn footprint_drawing_points_include_pad_outlines() -> T {
             castellated: None,
             geometry: None,
         }],
+        preserved: Default::default(),
     };
     let points = fp.drawing_points(&p);
     assert!(!points.is_empty());
@@ -72,6 +73,7 @@ fn footprint_pad_world_position_rotates_offsets() {
         locked: None,
         side: None,
         pads: vec![pad.clone()],
+        preserved: Default::default(),
     };
     let at_zero = fp.pad_world_position(&fp.pads[0]);
     assert!((at_zero.x - 12.0).abs() < 1e-9 && (at_zero.y - 5.0).abs() < 1e-9);
@@ -95,6 +97,7 @@ fn track_curve_and_layer_labels_follow_geometry() -> T {
         width: 0.2,
         layer: Layer::Front,
         arc: None,
+        preserved: Default::default(),
     };
     assert!(straight.curve().is_none());
     let track = Track {
@@ -105,6 +108,7 @@ fn track_curve_and_layer_labels_follow_geometry() -> T {
         width: 0.2,
         layer: Layer::Front,
         arc: Some(Point::new(1.0, 1.0)),
+        preserved: Default::default(),
     };
     let arc = track.curve().ok_or("midpoint defines an arc")?;
     assert!(arc.length() > track.start.distance(track.end));
@@ -169,6 +173,7 @@ fn project_net_and_copper_layer_queries() -> T {
         width: 0.2,
         layer: Layer::Back,
         arc: None,
+        preserved: Default::default(),
     });
     assert_eq!(p.max_copper_layer_index_used(), Some(1));
     let reason = p.stack_shrink_blocked_reason(1).ok_or("blocked")?;
@@ -182,6 +187,7 @@ fn project_net_and_copper_layer_queries() -> T {
         width: 0.2,
         layer: Layer::Front,
         arc: None,
+        preserved: Default::default(),
     });
     assert!(only_front.stack_shrink_blocked_reason(4).is_none());
     Ok(())
@@ -216,6 +222,19 @@ fn net_class_and_rule_overrides() -> T {
         pair_gap: None,
         nets: vec![1],
         profile: None,
+        backdrill: Default::default(),
+        current: Default::default(),
+        fast: Default::default(),
+        impedance_target: Default::default(),
+        impedance_tolerance_pct: Default::default(),
+        insulation: Default::default(),
+        line_structure: Default::default(),
+        max_vias: Default::default(),
+        reference_layers: Default::default(),
+        return_path_rule: Default::default(),
+        target_impedance: Default::default(),
+        temperature_rise: Default::default(),
+        working_voltage: Default::default(),
     });
     assert_eq!(p.net_class_id(1), Some(10));
     let class = p.net_class(1).ok_or("net 1 is in class 10")?;
@@ -246,6 +265,7 @@ fn net_class_and_rule_overrides() -> T {
         width: 0.2,
         layer: Layer::Front,
         arc: None,
+        preserved: Default::default(),
     });
     assert!(p.rule_region_excluded("short", &[7]));
     Ok(())
@@ -283,12 +303,26 @@ fn required_clearance_takes_the_strictest_rule() -> T {
         pair_gap: None,
         nets: vec![1],
         profile: None,
+        backdrill: Default::default(),
+        current: Default::default(),
+        fast: Default::default(),
+        impedance_target: Default::default(),
+        impedance_tolerance_pct: Default::default(),
+        insulation: Default::default(),
+        line_structure: Default::default(),
+        max_vias: Default::default(),
+        reference_layers: Default::default(),
+        return_path_rule: Default::default(),
+        target_impedance: Default::default(),
+        temperature_rise: Default::default(),
+        working_voltage: Default::default(),
     });
     assert!((p.required_clearance(1, 2) - 0.4).abs() < 1e-12);
     p.board.pair_rules.push(NetPairRule {
         a: 1,
         b: 2,
         clearance: 0.6,
+        profile: Default::default(),
     });
     assert!((p.required_clearance(1, 2) - 0.6).abs() < 1e-12);
     p.board.rule_areas.push(RuleArea {
@@ -306,6 +340,8 @@ fn required_clearance_takes_the_strictest_rule() -> T {
             height: 20.0,
         },
         profile: None,
+        footprint_ref: Default::default(),
+        forbid: Default::default(),
     });
     let at = Point::new(5.0, 5.0);
     assert!(
@@ -330,6 +366,9 @@ fn object_position_user_layer_and_ids() -> T {
         sheet: 0,
         pins: vec![],
         units: vec![],
+        compliance: Default::default(),
+        part: None,
+        sourcing: Default::default(),
     });
     assert_eq!(p.object_position(4), Some(Point::new(3.0, 4.0)));
     p.board.user_layers.push(ArtLayer {

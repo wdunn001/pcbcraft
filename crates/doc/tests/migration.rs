@@ -109,6 +109,7 @@ fn two_layer_file_round_trips_byte_equal() -> Result<(), String> {
         end: Point { x: 1.0, y: 0.0 },
         width: 0.2,
         arc: None,
+        preserved: Default::default(),
     });
 
     let first = serde_json::to_string(&p).map_err(|e| e.to_string())?;
@@ -132,6 +133,7 @@ fn inner_layer_track_validates_on_four_layer_board() -> Result<(), String> {
         end: Point { x: 1.0, y: 0.0 },
         width: 0.2,
         arc: None,
+        preserved: Default::default(),
     });
 
     let result = p.validate();
@@ -156,6 +158,7 @@ fn inner_layer_track_fails_on_two_layer_board() -> Result<(), String> {
         end: Point { x: 1.0, y: 0.0 },
         width: 0.2,
         arc: None,
+        preserved: Default::default(),
     });
 
     let result = p.validate();

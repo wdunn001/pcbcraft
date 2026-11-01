@@ -41,8 +41,13 @@ fn compliance_round_trips_and_old_files_load_without_compliance_fields() -> Resu
                 as_of: "2026-01-15".into(),
             }],
             substances: vec![],
+            radio_bands_mhz: Default::default(),
+            radio_grant: Default::default(),
+            radio_max_power_dbm: Default::default(),
+            silicon_vendor_country: Default::default(),
         },
         sheet: 0,
+        part: None,
     });
     p.validate()?;
     let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
@@ -151,6 +156,7 @@ fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -
             }],
             ..Default::default()
         },
+        part: None,
         sheet: 0,
     };
     let effective = c.effective_declarations();
@@ -181,6 +187,8 @@ fn compliance_settings_and_mutes_round_trip() -> Result<(), String> {
         rule_sets: vec!["synthetic_demo".into()],
         org_role: Some(ComplianceOrgRole::Buyer),
         target_markets: vec!["demo-market".into()],
+        board_assembler_country: Default::default(),
+        origin_interpretation: Default::default(),
     };
     p.compliance_mutes.push(ComplianceFindingMute {
         rule: "demo.declaration_required".into(),
@@ -203,6 +211,7 @@ fn compliance_settings_and_mutes_round_trip() -> Result<(), String> {
         sourcing: Default::default(),
         compliance: Default::default(),
         sheet: 0,
+        part: None,
     });
     p.validate()?;
     let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;

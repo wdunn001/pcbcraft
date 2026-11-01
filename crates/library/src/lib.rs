@@ -77,6 +77,10 @@ pub mod part_compare;
 pub mod part_fields;
 pub mod part_params;
 pub mod part_substitutes;
+pub use part_substitutes::{
+    AlternatePart, MAX_SUBSTITUTE_TEXT, MAX_SUBSTITUTES_EACH, PART_SIDECAR_SUFFIX,
+    PartSubstitutes, SecondSource, read_sidecar, sidecar_path_for_symbol, write_sidecar,
+};
 pub mod records;
 pub mod samtec;
 pub mod starter_models;

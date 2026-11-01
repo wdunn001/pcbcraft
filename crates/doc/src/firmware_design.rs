@@ -70,7 +70,7 @@ pub struct FirmwareContext {
     pub mcu_component: Component,
 }
 
-pub fn embedded_file<'a>(project: &Project, name: &str) -> Option<&'a EmbeddedFile> {
+pub fn embedded_file<'a>(project: &'a Project, name: &str) -> Option<&'a EmbeddedFile> {
     project.files.iter().find(|f| f.name == name)
 }
 
@@ -157,7 +157,10 @@ mod tests {
             units: vec![],
             library_symbol: None,
             library_footprint: None,
+            part: None,
             fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             sheet: 0,
         });
         let ctx = load_firmware_context(&project)?;

@@ -195,6 +195,7 @@ mod tests {
             extends: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         }
     }
 
@@ -227,7 +228,10 @@ mod tests {
             units: vec![],
             library_symbol: None,
             library_footprint: None,
+            part: None,
             fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             sheet: 0,
         });
         p.migrate_component_kinds();

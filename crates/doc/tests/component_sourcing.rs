@@ -45,6 +45,8 @@ fn typed_sourcing_round_trips_without_empty_record() {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        part: None,
+        compliance: Default::default(),
         sourcing: Sourcing {
             mpn: "C-100N".into(),
             lifecycle: Some(Lifecycle::Nrnd),
@@ -74,8 +76,10 @@ fn typed_sourcing_round_trips_without_empty_record() {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        part: None,
         sourcing: Sourcing::default(),
         sheet: 0,
+        compliance: Default::default(),
     };
     let empty_json = serde_json::to_string(&empty).expect("serialize empty");
     assert!(
@@ -104,6 +108,8 @@ fn adopt_free_form_copies_mpn_without_removing_the_field() {
         }],
         sourcing: Sourcing::default(),
         sheet: 0,
+        compliance: Default::default(),
+        part: None,
     };
     c.adopt_free_form_sourcing();
     assert_eq!(c.sourcing.mpn, "FREE-1");

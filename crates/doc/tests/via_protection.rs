@@ -41,6 +41,7 @@ fn via(id: Id, from: Option<u8>, to: Option<u8>) -> Result<Via, String> {
         covering: None,
         covering_bottom: None,
         backdrill: None,
+        preserved: Default::default(),
     })
 }
 
