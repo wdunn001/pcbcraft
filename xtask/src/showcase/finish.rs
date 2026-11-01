@@ -428,7 +428,7 @@ pub fn builds(g: &mut Gen) -> Res<()> {
     let c1 = g.comp["C1"];
     g.cmd(
         "variant.set_footprint",
-        json!({"name": "Lean", "component": c1, "footprint": "Chip_0402"}),
+        json!({"name": "Lean", "component": c1, "footprint": "Chip_0402_N"}),
     )?;
     g.cmd(
         "output_job.add",

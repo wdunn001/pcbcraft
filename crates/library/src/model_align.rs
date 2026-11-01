@@ -2,6 +2,7 @@
 //!
 //! Coordinates are footprint-local millimetres, y down, the same frame as pad positions.
 
+use crate::footprint_check::is_courtyard_layer as is_courtyard;
 use crate::{FootprintDefinition, Graphic};
 use pcbcraft_geom::Point;
 
@@ -23,10 +24,6 @@ pub enum SnapTargetKind {
 pub struct SnapTarget {
     pub kind: SnapTargetKind,
     pub position: Point,
-}
-
-fn is_courtyard(layer: &str) -> bool {
-    matches!(layer, "F.CrtYd" | "B.CrtYd" | "pcbcraft.courtyard")
 }
 
 fn is_body_outline(layer: &str) -> bool {
