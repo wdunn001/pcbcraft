@@ -467,12 +467,17 @@ fn open_library_3d_models_fetch_only_when_the_person_asks() -> Result<(), String
         .part_sources
         .open()
         .ok_or("the open library should be on")?;
-    let off = library_online::import_open(&source, "Device/R", false)?;
+    // The recorded resistor symbol names no footprint, so the footprint is found on its own.
+    let sku = format!(
+        "{}Resistor_SMD/R_0603_1608Metric",
+        pcbcraft_library::open_library::FOOTPRINT_SKU_PREFIX
+    );
+    let off = library_online::import_open(&source, &sku, false)?;
     assert!(off.get("model").is_none());
-    assert_eq!(off["notices"].as_array().map(|a| a.len()), Some(2));
-    let on = library_online::import_open(&source, "Device/R", true)?;
+    assert_eq!(off["notices"].as_array().map(|a| a.len()), Some(1));
+    let on = library_online::import_open(&source, &sku, true)?;
     assert!(on.get("model").is_some());
-    assert_eq!(on["notices"].as_array().map(|a| a.len()), Some(3));
+    assert_eq!(on["notices"].as_array().map(|a| a.len()), Some(2));
     assert!(
         on["notices"]
             .as_array()

@@ -269,6 +269,11 @@ fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
         app.message
     );
     let width = app.project.board.width;
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Preview panel", 700.0)?,
+        "the preview button sits in the panel plan: {}",
+        app.message
+    );
     authoring::tests::tap(&ctx, &mut app, "Preview panel")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(

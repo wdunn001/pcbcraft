@@ -3783,7 +3783,12 @@ impl App {
                             pcbcraft_text::lookup(&row.detail_key, &[])
                         }
                     };
-                    if ui.button(format!("{label} ({detail})")).clicked() {
+                    let tip = pcbcraft_text::lookup(&format!("{}.tip", row.detail_key), &[]);
+                    if ui
+                        .button(format!("{label} ({detail})"))
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
                         self.tour.start_from_menu(
                             &mut self.preferences.tour_progress,
                             &row.id,

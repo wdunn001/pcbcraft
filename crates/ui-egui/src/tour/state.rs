@@ -270,19 +270,27 @@ impl Controller {
     }
 
     pub fn sync_triggers(&mut self, view: ShellView<'_>, now: Instant) {
-        if self.session.active_id.is_some() || self.session.pending.is_some() {
+        if self.session.active_id.is_some() {
             return;
         }
-        if !view.offer_tours || !unprompted_allowed(view, now) {
+        if !view.offer_tours {
+            // Turning offers off withdraws the one on screen too.
+            self.session.pending = None;
+            return;
+        }
+        if self.session.pending.is_some() || !unprompted_allowed(view, now) {
             return;
         }
         for meta in self.catalog.clone() {
             if self.session.unprompted_offered.contains(&meta.id) {
                 continue;
             }
-            if version_needs_chip(meta.version, view.progress.get(&meta.id))
-                && !self.session.version_chip_shown.contains(&meta.id)
-            {
+            if version_needs_chip(meta.version, view.progress.get(&meta.id)) {
+                // A changed tour is offered by its version chip, once per session; the
+                // tab chip does not follow it.
+                if self.session.version_chip_shown.contains(&meta.id) {
+                    continue;
+                }
                 self.session.pending = Some(PendingOffer {
                     tour_id: meta.id.clone(),
                     kind: OfferKind::VersionChip,
