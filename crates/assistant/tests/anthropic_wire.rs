@@ -71,9 +71,9 @@ fn a_two_call_tool_loop_runs_over_a_socket_and_sends_tool_use_ids_back() -> Resu
         Reply::anthropic_text("done"),
     ])?;
     let mut b = start(&srv, None, host())?;
-    run_until(&mut b, ended)?;
+    let events = run_until(&mut b, ended)?;
     let posts = srv.posts();
-    assert_eq!(posts.len(), 2);
+    assert_eq!(posts.len(), 2, "events: {events:?}");
     assert_eq!(posts[0].path, "/v1/messages");
     assert!(posts[0].body.get("system").is_some());
     assert!(
@@ -107,7 +107,7 @@ fn the_turn_stops_at_twenty_four_requests_over_a_socket() -> Result<(), String> 
     let srv = FakeServer::start(vec![Reply::anthropic_calls(&name, 1)])?;
     let mut b = start(&srv, None, host())?;
     let events = run_until(&mut b, ended)?;
-    assert_eq!(srv.posts().len(), 24);
+    assert_eq!(srv.posts().len(), 24, "events: {events:?}");
     assert!(
         matches!(events.last(), Some(Event::TurnEnded { reason }) if reason == "max_turn_requests")
     );

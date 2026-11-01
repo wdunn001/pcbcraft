@@ -3132,7 +3132,7 @@ mod tests {
                 "quantity": 1
             }),
         );
-        assert_eq!(parts.get("isError"), Some(&json!(false)));
+        assert_eq!(parts.get("isError"), Some(&json!(false)), "{parts}");
         assert_eq!(
             parts.pointer("/structuredContent/kind"),
             Some(&json!("parts"))

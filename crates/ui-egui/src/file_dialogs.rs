@@ -950,11 +950,13 @@ fn bom_needs_ui(ui: &mut egui::Ui, table: &bom_export::Table, o: &bom_export::Op
     for m in &table.missing {
         let shown: Vec<&str> = m.references.iter().take(12).map(String::as_str).collect();
         let more = m.references.len().saturating_sub(shown.len());
+        let (noun, verb) = match m.references.len() {
+            1 => ("part", "lacks"),
+            _ => ("parts", "lack"),
+        };
         let mut text = format!(
-            "{} part{} lack{} a {}: {}",
+            "{} {noun} {verb} a {}: {}",
             m.references.len(),
-            if m.references.len() == 1 { "" } else { "s" },
-            if m.references.len() == 1 { "s" } else { "" },
             m.what,
             shown.join(", ")
         );

@@ -30950,8 +30950,10 @@ mod tests {
             None,
         )?;
         let long = drc_messages(&s, "net_electrically_long");
-        assert_eq!(long.len(), 1);
-        assert!(long[0].contains("electrically long"));
+        // Both nets run past the limit (about 29 mm): CLK at 90 mm and DATA at 40 mm.
+        assert_eq!(long.len(), 2);
+        assert!(long.iter().all(|m| m.contains("electrically long")));
+        assert!(long.iter().any(|m| m.starts_with("CLK routed 90.000 mm")));
         for params in [
             json!({"class":class,"rise_time":0.0}),
             json!({"class":class,"rise_time":0.002}),
@@ -37032,8 +37034,8 @@ mod tests {
             .collect();
         assert_eq!(xs, vec![20.0, 30.0, 10.0, 20.0, 30.0]);
         let files = pcbcraft_io::gerber_files(&s.project)?;
-        // Slots go to the routing file; the round-hole files hold no slots.
-        let drill = &files["pcb-Rout.drl"];
+        // The combined drill file holds every slot as a G85 span.
+        let drill = &files["pcb-Drill.drl"];
         assert_eq!(
             drill.matches("G85").count(),
             6,

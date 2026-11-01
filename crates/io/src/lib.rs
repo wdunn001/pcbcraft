@@ -15168,7 +15168,11 @@ mod tests {
         let path = dir.path().join("shaped.pcbcraft");
         save(&project, &path)?;
         let loaded = load(&path)?;
-        assert_eq!(loaded, project);
+        // A part saved with the legacy "library" kind loads with the kind its
+        // symbol implies; nothing else changes.
+        let mut expected = project.clone();
+        expected.migrate_component_kinds();
+        assert_eq!(loaded, expected);
         let pads = &loaded.board.footprints[0].pads;
         assert!(pads.iter().any(|p| {
             p.geometry
