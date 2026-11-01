@@ -187,6 +187,7 @@ mod tests {
     struct Server {
         port: u16,
         seen: Arc<Mutex<Vec<String>>>,
+        #[allow(dead_code)]
         connections: Arc<AtomicUsize>,
     }
 

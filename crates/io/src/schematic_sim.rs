@@ -320,15 +320,13 @@ mod tests {
     fn spice_netlist_refuses_without_stamped_parts() {
         let p = Project::default();
         let err = spice_netlist(&p).err().unwrap_or_default();
-        if !err.contains("sim.model") {
-            panic!("unexpected: {err}");
-        }
+        assert!(err.contains("sim.model"), "unexpected: {err}");
     }
 
     #[test]
     fn spice_netlist_writes_a_resistor_divider() -> Result<(), String> {
-        let mut p = Project::default();
-        p.nets = vec![
+        let mut p = Project {
+            nets: vec![
             Net {
                 id: 1,
                 name: "GND".into(),
@@ -380,7 +378,9 @@ mod tests {
                 working_voltage: Default::default(),
                 max_length: Default::default(),
             },
-        ];
+        ],
+            ..Project::default()
+        };
         p.components.push(Component {
             id: 10,
             reference: "R1".into(),

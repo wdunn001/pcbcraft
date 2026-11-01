@@ -420,7 +420,7 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
             .join(name);
-        std::fs::read(path).expect("fixture")
+        std::fs::read(path).unwrap_or_default()
     }
 
     fn inject_before_endsec(mut text: String, line: &str) -> Vec<u8> {

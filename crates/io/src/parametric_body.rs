@@ -1412,7 +1412,6 @@ mod tests {
             mask: false,
             silk: false,
             bodies: true,
-            ..MeshLayers::default()
         };
         let mesh = board_mesh(&project, layers)?;
         let generic: Vec<String> = mesh
@@ -1662,7 +1661,8 @@ mod tests {
 
     #[test]
     fn generated_footprints_satisfy_body_properties() -> Result<(), String> {
-        let families: [(&str, fn() -> LandPatternParams); 7] = [
+        type Family = (&'static str, fn() -> LandPatternParams);
+        let families: [Family; 7] = [
             ("chip_2terminal", || {
                 let mut p = nominal_params();
                 p.name = "R_0805".into();

@@ -1252,8 +1252,10 @@ mod fab_export_tests {
 
     #[test]
     fn fab_readme_lists_every_file_name_given() -> Result<(), String> {
-        let mut p = Project::default();
-        p.name = "oracle board".into();
+        let p = Project {
+            name: "oracle board".into(),
+            ..Project::default()
+        };
         p.validate()?;
         let names = vec![
             "pcb-F.Cu.gbr".into(),

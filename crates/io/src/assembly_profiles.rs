@@ -512,10 +512,11 @@ pub fn gerber_component_layers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::Pin;
+    
     use pcbcraft_geom::Point;
     use pcbcraft_library::FootprintPad;
 
+    #[allow(dead_code)]
     fn smd_pad(layers: &[&str]) -> FootprintPad {
         FootprintPad {
             number: "1".into(),

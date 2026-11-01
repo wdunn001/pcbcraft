@@ -296,8 +296,6 @@ mod tests {
     fn touchstone_refuses_without_attachment() {
         let p = Project::default();
         let err = touchstone_text(&p).err().unwrap_or_default();
-        if !err.contains("touchstone.s2p") {
-            panic!("unexpected: {err}");
-        }
+        assert!(err.contains("touchstone.s2p"), "unexpected: {err}");
     }
 }

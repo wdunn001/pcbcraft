@@ -1935,7 +1935,7 @@ mod tests {
             box_body: Default::default(),
             retained: Default::default(),
         };
-        p.components.push(Component {
+        p.components.push(pcbcraft_doc::Component {
             id: 11,
             reference: "R1".into(),
             value: "10k".into(),
@@ -2059,7 +2059,7 @@ mod tests {
         }
         assert_eq!(notes, vec![(1, ModelStatus::Loaded)]);
         assert!(mesh.parts[0].model.as_ref().is_some_and(|m| m.loaded));
-        assert_eq!(embedded.len() > 20, true);
+        assert!(embedded.len() > 20);
         Ok(())
     }
 
@@ -2152,15 +2152,12 @@ mod tests {
     #[test]
     fn a_footprint_box_body_overrides_pad_defaults() -> Check {
         let mut p = resistor_project();
-        if let Some(c) = p.components.first_mut() {
-            c.library_footprint.as_mut().map(|l| {
-                l.definition.box_body = Some(pcbcraft_library::FootprintBoxBody {
+        if let Some(c) = p.components.first_mut()
+            && let Some(l) = c.library_footprint.as_mut() { l.definition.box_body = Some(pcbcraft_library::FootprintBoxBody {
                     width: 3.0,
                     depth: 2.0,
                     height: 4.0,
-                });
-            });
-        }
+                }); }
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let body = part(&mesh, PartKind::Body)?;
         assert_eq!(body.height_source, Some("footprint"));

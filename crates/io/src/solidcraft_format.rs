@@ -618,6 +618,11 @@ fn entry_name_safe(name: &str) -> bool {
     true
 }
 
+/// Raw ZIP entries for optional display-cache reads (issue #733).
+pub fn read_container_entries(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    read_stored_zip(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -695,7 +700,7 @@ mod tests {
             .ok_or("no mesh blob")?;
         entries.get_mut(&name).ok_or("no mesh blob")?[0] ^= 0x01;
         let zip =
-            crate::zip_entries(&entries.into_iter().map(|(k, v)| (k, v)).collect::<Vec<_>>())?;
+            crate::zip_entries(&entries.into_iter().collect::<Vec<_>>())?;
         assert!(
             read_solidcraft_container(&zip).is_err(),
             "a wrong blob hash is refused"
@@ -747,9 +752,4 @@ mod tests {
         assert_eq!(again, once);
         Ok(())
     }
-}
-
-/// Raw ZIP entries for optional display-cache reads (issue #733).
-pub fn read_container_entries(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
-    read_stored_zip(bytes)
 }

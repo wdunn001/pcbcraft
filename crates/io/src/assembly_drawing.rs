@@ -564,7 +564,6 @@ mod tests {
                 net: None,
                 castellated: None,
                 geometry: Some(src.clone()),
-                ..Default::default()
             })
         };
         let mut project = Project::default();

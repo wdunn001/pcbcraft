@@ -328,7 +328,7 @@ fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Footprint, Id, Net, Pad, Project};
+    use pcbcraft_doc::{Footprint, Net, Pad, Project};
     use pcbcraft_library::{Drill, FootprintPad};
     fn smd_rect_pad(number: &str, size_mm: f64, offset: Point) -> Pad {
         Pad {

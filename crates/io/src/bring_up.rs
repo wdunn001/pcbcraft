@@ -361,8 +361,10 @@ mod tests {
 
     #[test]
     fn markdown_lists_an_uncovered_net_and_rail() -> Result<(), String> {
-        let mut p = Project::default();
-        p.name = "demo".into();
+        let mut p = Project {
+            name: "demo".into(),
+            ..Project::default()
+        };
         p.nets.push(Net {
             id: 1,
             name: "3V3".into(),

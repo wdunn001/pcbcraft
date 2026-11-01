@@ -15,8 +15,10 @@ const BROKEN_IPC2581: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </IPC-2581>"#;
 
 fn sample_odb_project() -> Result<Project, String> {
-    let mut project = Project::default();
-    project.name = "sample_board".into();
+    let mut project = Project {
+        name: "sample_board".into(),
+        ..Project::default()
+    };
     project.nets.push(pcbcraft_doc::Net {
         id: 500,
         name: "GND".into(),
@@ -50,14 +52,15 @@ fn sample_odb_project() -> Result<Project, String> {
 }
 
 #[test]
-fn ipc2581_schema_rejects_a_deliberately_broken_document() {
+fn ipc2581_schema_rejects_a_deliberately_broken_document() -> Result<(), String> {
     let err = ipc2581::validate(BROKEN_IPC2581)
-        .expect_err("invalid mode must fail schema validation")
+        .err().ok_or("invalid mode must fail schema validation")?
         .to_string();
     assert!(
         err.to_ascii_lowercase().contains("schema"),
         "schema errors are reported: {err}"
     );
+    Ok(())
 }
 
 #[test]
@@ -69,13 +72,14 @@ fn sample_board_odb_package_passes_layout_validation() -> Result<(), String> {
 }
 
 #[test]
-fn odb_validation_rejects_an_archive_without_the_job_tree() {
+fn odb_validation_rejects_an_archive_without_the_job_tree() -> Result<(), String> {
     let err = validate_odb_package(b"PK\x03\x04not-a-tree")
-        .expect_err("random bytes are not an ODB++ package");
+        .err().ok_or("random bytes are not an ODB++ package")?;
     assert!(
         err.contains("ZIP") || err.contains("corrupt") || err.contains("directory"),
         "zip problems are reported: {err}"
     );
+    Ok(())
 }
 
 #[test]

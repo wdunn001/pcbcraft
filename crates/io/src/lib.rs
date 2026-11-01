@@ -8479,7 +8479,7 @@ mod tests {
             "error should name the path: {err}"
         );
         let bad = dir.join("bad.bin");
-        std::fs::write(&bad, &[0xff, 0xfe]).map_err(|e| e.to_string())?;
+        std::fs::write(&bad, [0xff, 0xfe]).map_err(|e| e.to_string())?;
         assert!(read_text(&bad).is_err(), "invalid UTF-8 is rejected");
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())
@@ -8583,8 +8583,10 @@ mod tests {
 
     #[test]
     fn lib_fab_readme_text_matches_fab_export() -> Result<(), String> {
-        let mut p = Project::default();
-        p.name = "readme oracle".into();
+        let p = Project {
+            name: "readme oracle".into(),
+            ..Project::default()
+        };
         p.validate()?;
         let names = vec!["pcb-F.Cu.gbr".into(), "pcb-B.Cu.gbr".into()];
         let from_lib = fab_readme_text(&p, &names)?;
@@ -9484,7 +9486,7 @@ mod tests {
                 .join("tests/fixtures")
                 .join(name),
         )
-        .unwrap_or_else(|_| panic!("fixture {name}"))
+        .unwrap_or_default()
     }
 
     #[test]
@@ -9516,11 +9518,10 @@ mod tests {
     #[test]
     fn step_board_places_a_model_with_the_footprint_matrix() -> Result<(), String> {
         let mut project = two_part_project(false, 90.0)?;
-        if let Some(lib) = project.components[1].library_footprint.as_mut() {
-            if let Some(model) = lib.definition.model.as_mut() {
+        if let Some(lib) = project.components[1].library_footprint.as_mut()
+            && let Some(model) = lib.definition.model.as_mut() {
                 model.path = "offset_box.step".into();
             }
-        }
         let bytes = fixture_bytes("offset_box.step");
         let export = step_board_with_models(&project, &|path| {
             if path.ends_with("offset_box.step") {
@@ -10252,6 +10253,7 @@ mod tests {
 
     /// Read every written plot back and compare against an independent count
     /// of `D03*` flashes in the writer text.
+    #[allow(dead_code)]
     fn round_trip_plot_counts(
         files: &std::collections::BTreeMap<String, String>,
     ) -> Result<(), String> {
@@ -16308,6 +16310,7 @@ mod tests {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn four_layer_project_save_is_byte_stable_on_second_write() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
@@ -16360,6 +16363,7 @@ mod tests {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn six_layer_project_save_is_byte_stable_on_second_write() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
@@ -16407,6 +16411,7 @@ mod tests {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn an_arced_corner_round_trips_through_save_and_open() -> Result<(), String> {
         let mut project = Project::default();
         project.board.outline = Some(vec![

@@ -647,8 +647,10 @@ mod tests {
     };
 
     fn sample_project() -> Project {
-        let mut p = Project::default();
-        p.name = "Drone FC".into();
+        let mut p = Project {
+            name: "Drone FC".into(),
+            ..Project::default()
+        };
         p.meta.insert("revision".into(), "rev-a".into());
         let mut c = pcbcraft_doc::Component {
             id: 1,

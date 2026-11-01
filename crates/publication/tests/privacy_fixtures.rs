@@ -4,23 +4,24 @@ use pcbcraft_publication::{
 };
 use std::fs;
 
-fn fixture(name: &str) -> String {
+fn fixture(name: &str) -> Result<String, String> {
     fs::read_to_string(format!(
         "{}/tests/fixtures/{name}",
         env!("CARGO_MANIFEST_DIR")
     ))
-    .unwrap_or_else(|e| panic!("read fixture {name}: {e}"))
+    .map_err(|e| format!("read fixture {name}: {e}"))
 }
 
 #[test]
-fn clean_fixture_has_no_privacy_hits() {
-    let text = fixture("clean/project-notes.txt");
+fn clean_fixture_has_no_privacy_hits() -> Result<(), String> {
+    let text = fixture("clean/project-notes.txt")?;
     let hits = scan_privacy_text("project-notes.txt", &text, &PrivacyOptions::default());
     assert!(hits.is_empty(), "unexpected hits: {hits:?}");
+    Ok(())
 }
 
 #[test]
-fn planted_secrets_are_all_caught() {
+fn planted_secrets_are_all_caught() -> Result<(), String> {
     let rules = [
         "private_key",
         "service_token",
@@ -40,7 +41,7 @@ fn planted_secrets_are_all_caught() {
     input.files.push(BundleFile {
         path: "planted/secrets.txt".into(),
         role: "text".into(),
-        text: Some(fixture("planted/secrets.txt")),
+        text: Some(fixture("planted/secrets.txt")?),
         bytes_base64: None,
     });
     input.files.push(BundleFile {
@@ -69,6 +70,7 @@ fn planted_secrets_are_all_caught() {
             result.hard_fails
         );
     }
+    Ok(())
 }
 
 #[test]

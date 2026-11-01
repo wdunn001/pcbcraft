@@ -10,7 +10,7 @@ use pcbcraft_doc::{
 use pcbcraft_geom::Point;
 use pcbcraft_io::{gerber_files_report, gerber_files_with_budget, parse_gerber_layer};
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const CREATED: &str = "2026-10-29T00:00:00Z";
 
@@ -237,7 +237,7 @@ fn six_layer_pour_stays_under_cap_and_in_time() -> Result<(), String> {
         }
     }
     p.validate()?;
-    let started = Instant::now();
+    let started = pcbcraft_clock::instant_now();
     let (files, warnings) = gerber_files_report(&p, CREATED)?;
     let elapsed = started.elapsed();
     assert!(warnings.is_empty(), "{warnings:?}");

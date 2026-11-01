@@ -45,8 +45,10 @@ fn th_pad(number: &str, x: f64) -> pcbcraft_library::FootprintPad {
 }
 
 fn placed_board() -> Result<Project, String> {
-    let mut p = Project::default();
-    p.name = "demo".into();
+    let mut p = Project {
+        name: "demo".into(),
+        ..Project::default()
+    };
     let fp_def = |name: &str, smd: bool| FootprintDefinition {
         name: name.into(),
         description: String::new(),
