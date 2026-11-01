@@ -32,7 +32,7 @@ fn params_for(
         cat,
         &part.kind,
         &attrs,
-        &aliases().map_err(|e| SourceError::Invalid(e))?,
+        &aliases().map_err(SourceError::Invalid)?,
         part.retrieved_at,
     ))
 }
@@ -151,7 +151,7 @@ fn bare_category_leaves_params_empty() -> Result<(), SourceError> {
         "Mystery parts",
         "",
         &attrs,
-        &aliases().map_err(|e| SourceError::Invalid(e))?,
+        &aliases().map_err(SourceError::Invalid)?,
         0,
     );
     assert!(out.params.is_empty());

@@ -299,9 +299,6 @@ fn from_fetch(err: FetchError, what: &str) -> SourceError {
     }
 }
 
-fn now_secs() -> u64 {
-    pcbcraft_clock::unix_secs()
-}
 /// The official open libraries as a CAD source and a part source.
 ///
 /// # Rules

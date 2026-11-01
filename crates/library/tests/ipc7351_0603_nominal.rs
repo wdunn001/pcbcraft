@@ -7,7 +7,7 @@ const TOL: f64 = 0.01;
 
 #[test]
 fn nominal_0603_pad_geometry_within_one_hundredth_mm() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "R_0603".into(),
         description: String::new(),
         keywords: String::new(),

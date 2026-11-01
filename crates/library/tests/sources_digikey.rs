@@ -92,7 +92,8 @@ fn digikey_details_with_several_matches_asks_the_user_to_pick() -> Result<(), So
         ),
     ]));
     let source = DigiKeySource::new(http, keys().map_err(source_err)?);
-    let err = source.fetch("NE555P").expect_err("ambiguous mpn");
+    let err = source.fetch("NE555P").err()
+        .ok_or_else(|| SourceError::Invalid("ambiguous mpn".into()))?;
     assert!(
         matches!(err, SourceError::Invalid(ref m) if m.contains("several parts match")),
         "unexpected {err:?}"

@@ -7,7 +7,7 @@ const TOL: f64 = 0.01;
 
 #[test]
 fn nominal_soic8_pad_geometry_within_one_hundredth_mm() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "SOIC8".into(),
         description: String::new(),
         keywords: String::new(),
@@ -53,7 +53,7 @@ fn nominal_soic8_pad_geometry_within_one_hundredth_mm() -> Result<(), String> {
 
 #[test]
 fn nominal_qfn16_ep_pad_geometry_within_one_hundredth_mm() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "QFN16_EP".into(),
         description: String::new(),
         keywords: String::new(),

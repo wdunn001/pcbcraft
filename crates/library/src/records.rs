@@ -148,6 +148,7 @@ pub fn pin_to_pad_from_pin_numbers(
 }
 
 /// Build a generic component record from library links on a placed part.
+#[allow(clippy::too_many_arguments)]
 pub fn component_from_links(
     symbol: Option<(String, String)>,
     footprint: Option<(String, String)>,
@@ -314,6 +315,7 @@ pub struct AttachRecords {
 }
 
 /// Build component and orderable records from attach-source fields and links.
+#[allow(clippy::too_many_arguments)]
 pub fn records_from_attach(
     symbol: Option<(String, String)>,
     footprint: Option<(String, String)>,

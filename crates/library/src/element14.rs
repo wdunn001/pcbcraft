@@ -1,5 +1,8 @@
 //! Live part source for the element14 partner Product Search API (REST).
 
+// The vendor wire formats name their fields in camel and Pascal case.
+#![allow(non_snake_case)]
+
 use crate::credentials::{self, KeyStore};
 use crate::http_client::{HttpClient, HttpError, HttpRequest, HttpResponse};
 use crate::rate_limit::{Clock, SystemClock, TokenBucket, rate_limited};
@@ -362,9 +365,10 @@ fn url_encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sources::MAX_QUERY_BYTES;
 
     #[test]
     fn store_id_bound_matches_query_limit_order() {
-        assert!(MAX_STORE_ID_LEN <= MAX_QUERY_BYTES);
+        const _: () = assert!(MAX_STORE_ID_LEN <= MAX_QUERY_BYTES);
     }
 }

@@ -721,7 +721,7 @@ mod tests {
                     FieldKind::Literal { .. } => {}
                     FieldKind::PitchPositions => {
                         let positions = (rng.next() % max_positions) + 1;
-                        let pitch = if rng.next() % 2 == 0 { 1 } else { 2 };
+                        let pitch = if rng.next().is_multiple_of(2) { 1 } else { 2 };
                         map.insert(field.id.clone(), format!("{pitch}{positions:02}"));
                     }
                     FieldKind::Enum { values } => {
@@ -729,7 +729,7 @@ mod tests {
                         map.insert(field.id.clone(), values[idx].code.clone());
                     }
                     FieldKind::OptionalEnum { values } => {
-                        if rng.next() % 3 == 0 {
+                        if rng.next().is_multiple_of(3) {
                             let idx = (rng.next() as usize) % values.len();
                             map.insert(field.id.clone(), values[idx].code.clone());
                         }

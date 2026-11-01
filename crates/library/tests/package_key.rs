@@ -2,7 +2,7 @@ use pcbcraft_library::{LandPatternDensity, LandPatternParams, PackageKey, genera
 
 #[test]
 fn soic8_package_key_from_generated_footprint() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "SOIC8".into(),
         description: String::new(),
         keywords: String::new(),
@@ -26,7 +26,7 @@ fn soic8_package_key_from_generated_footprint() -> Result<(), String> {
 
 #[test]
 fn qfn33_includes_exposed_pad_in_key() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "QFN33".into(),
         description: String::new(),
         keywords: String::new(),

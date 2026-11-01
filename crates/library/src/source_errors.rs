@@ -1,5 +1,8 @@
 //! Plain messages for live part sources when credentials are missing or rejected.
 
+// The vendor wire formats name their fields in camel and Pascal case.
+#![allow(non_snake_case)]
+
 use crate::sources::SourceError;
 
 /// Message shown when the vendor has not approved the user's application or key.

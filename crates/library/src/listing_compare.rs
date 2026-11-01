@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn rows_differ_when_cells_are_not_all_equal() {
+    fn rows_differ_when_cells_are_not_all_equal() -> Result<(), String> {
         let table = compare_table(
             &[
                 sample_part("A", "1206", 0.1, 5),
@@ -344,18 +344,19 @@ mod tests {
             ],
             1,
         )
-        .expect("valid table");
+        .map_err(|e| format!("{}: {e:?}", "valid table"))?;
         assert!(row(&table, "Package").differs);
         assert!(!row(&table, "Pin count").differs);
         assert!(!row(&table, "Price at 1").differs);
         assert!(row(&table, "Stock").differs);
+        Ok(())
     }
 
     #[test]
-    fn missing_value_differs_from_a_value_and_all_missing_is_equal() {
+    fn missing_value_differs_from_a_value_and_all_missing_is_equal() -> Result<(), String> {
         let mut b = sample_part("B", "1206", 0.1, 5);
         b.pins = None;
-        let table = compare_table(&[sample_part("A", "1206", 0.1, 5), b], 1).expect("valid table");
+        let table = compare_table(&[sample_part("A", "1206", 0.1, 5), b], 1).map_err(|e| format!("{}: {e:?}", "valid table"))?;
         let pins = row(&table, "Pin count");
         assert!(pins.differs && pins.values[1].is_none());
         let empty = ComparePartInput {
@@ -364,15 +365,16 @@ mod tests {
             pins: None,
             reach: None,
         };
-        let both = compare_table(&[empty.clone(), empty], 1).expect("valid table");
+        let both = compare_table(&[empty.clone(), empty], 1).map_err(|e| format!("{}: {e:?}", "valid table"))?;
         assert!(
             both.rows.iter().all(|r| !r.differs),
             "two parts that both lack a value do not differ on it"
         );
+        Ok(())
     }
 
     #[test]
-    fn the_price_row_follows_the_asked_quantity() {
+    fn the_price_row_follows_the_asked_quantity() -> Result<(), String> {
         let part = sample_part("A", "1206", 0.1, 5);
         let table = compare_table(std::slice::from_ref(&part), 1000);
         assert!(table.is_err(), "one part is below the minimum");
@@ -383,11 +385,12 @@ mod tests {
             ],
             1000,
         )
-        .expect("valid table");
+        .map_err(|e| format!("{}: {e:?}", "valid table"))?;
         assert_eq!(
             row(&table, "Price at 1000").values[0].as_deref(),
             Some("0.100 USD")
         );
+        Ok(())
     }
 
     #[test]

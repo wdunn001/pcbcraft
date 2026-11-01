@@ -5,7 +5,7 @@ use pcbcraft_library::{
 
 #[test]
 fn soic8_verify_happy_path() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "SOIC8".into(),
         description: String::new(),
         keywords: String::new(),
@@ -21,7 +21,7 @@ fn soic8_verify_happy_path() -> Result<(), String> {
         thermal_size: 0.0,
     };
     let footprint = generate_footprint("soic", LandPatternDensity::Nominal, &p)?;
-    let mut symbol = pcbcraft_library::SymbolDefinition {
+    let symbol = pcbcraft_library::SymbolDefinition {
         name: "U8".into(),
         reference: "U".into(),
         value: "TEST".into(),
@@ -85,7 +85,7 @@ fn soic8_verify_happy_path() -> Result<(), String> {
 
 #[test]
 fn missing_pad_fails_symbol_match() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "SOIC8".into(),
         description: String::new(),
         keywords: String::new(),
@@ -151,7 +151,7 @@ fn missing_pad_fails_symbol_match() -> Result<(), String> {
 
 #[test]
 fn qfn16_ep_parametric_body_fits_courtyard() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "QFN16_EP".into(),
         description: String::new(),
         keywords: String::new(),

@@ -16,6 +16,7 @@ fn assert_bounds(body: &ParamBody, min: [f64; 3], max: [f64; 3]) -> Result<(), S
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn key(
     family: PackageFamily,
     pin_count: u32,

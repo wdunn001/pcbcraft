@@ -9,13 +9,14 @@ pub struct VerifyContext<'a> {
 
 pub fn verify_part(part: &Part, ctx: VerifyContext<'_>) -> (Verification, Vec<String>) {
     let mut messages = Vec::new();
-    let mut checks = VerificationChecks::default();
-    checks.symbol_pads_match = check_symbol_pads(part, ctx.symbol, ctx.footprint, &mut messages);
-    checks.package_key_match = check_package_key(part, ctx.footprint, &mut messages);
-    checks.model_fits = check_model_fits(part, ctx.footprint, &mut messages);
-    checks.datasheet_ok = check_datasheet(part, &mut messages);
-    checks.pin_kinds_present = check_pin_kinds(part, &mut messages);
-    checks.mpn_confirmed = check_mpn(part, &mut messages);
+    let checks = VerificationChecks {
+        symbol_pads_match: check_symbol_pads(part, ctx.symbol, ctx.footprint, &mut messages),
+        package_key_match: check_package_key(part, ctx.footprint, &mut messages),
+        model_fits: check_model_fits(part, ctx.footprint, &mut messages),
+        datasheet_ok: check_datasheet(part, &mut messages),
+        pin_kinds_present: check_pin_kinds(part, &mut messages),
+        mpn_confirmed: check_mpn(part, &mut messages),
+    };
     let verified = checks.symbol_pads_match
         && checks.package_key_match
         && checks.model_fits

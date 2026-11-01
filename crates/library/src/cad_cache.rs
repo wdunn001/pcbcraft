@@ -124,9 +124,6 @@ fn check_hash(hash: &str) -> Result<(), SourceError> {
     Ok(())
 }
 
-fn now_secs() -> u64 {
-    pcbcraft_clock::unix_secs()
-}
 /// Platform cache folder for online library files, or `None` when the
 /// environment names no home. `get` reads one variable.
 ///

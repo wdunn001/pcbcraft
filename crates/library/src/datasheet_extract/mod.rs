@@ -18,7 +18,7 @@ mod sidecar_hayro;
 pub use apply::{PartFieldPatch, apply_patch_to_symbol, build_part_patch};
 pub use parse::{TextTableExtractor, extract_from_text_document};
 pub use provenance::{DatasheetRect, DatasheetSourceRecord, bounded_quote};
-pub use review::{ReviewDecision, ReviewedField, effective_text, set_decision};
+pub use review::{ReviewDecision, ReviewedField, bounded_field_text, effective_text, set_decision};
 pub use text::{TextCell, TextDocument, TextPage, cells_from_char_boxes};
 pub use types::{
     DatasheetExtractBundle, ExtractedOrderingCode, ExtractedPackageDimension, ExtractedPinRow,

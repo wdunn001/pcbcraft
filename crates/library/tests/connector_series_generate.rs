@@ -14,14 +14,12 @@ fn courtyard_half(fp: &pcbcraft_library::FootprintDefinition) -> Option<(f64, f6
         if let Graphic::Rectangle {
             start, end, layer, ..
         } = g
-        {
-            if layer == "pcbcraft.courtyard" {
+            && layer == "pcbcraft.courtyard" {
                 return Some((
                     start.x.abs().max(end.x.abs()),
                     start.y.abs().max(end.y.abs()),
                 ));
             }
-        }
     }
     None
 }
@@ -116,7 +114,7 @@ fn parametric_body_z0_and_json_round_trip() -> Result<(), String> {
 }
 
 #[test]
-fn invalid_lead_code_names_field() {
+fn invalid_lead_code_names_field() -> Result<(), String> {
     let err = generate_connector_part(
         "TSW",
         &ConnectorSeriesOptions {
@@ -127,7 +125,8 @@ fn invalid_lead_code_names_field() {
             alignment_posts: false,
         },
     )
-    .unwrap_err();
+    .err().ok_or("expected an error")?;
     assert_eq!(err[0].field, "lead_code");
     assert!(!err[0].valid_values.is_empty());
+    Ok(())
 }

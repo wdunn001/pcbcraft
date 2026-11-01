@@ -22,7 +22,7 @@ fn pin(number: &str, name: &str, ty: &str) -> SymbolPin {
 }
 
 fn qfn_symbol_and_footprint() -> Result<(SymbolDefinition, FootprintDefinition), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "QFN32_test".into(),
         description: String::new(),
         keywords: String::new(),
@@ -174,7 +174,7 @@ fn pin_unmapped_names_the_pin() -> Result<(), String> {
 
 #[test]
 fn bga_alphanumeric_pad_numbers_map_by_symbol_pin() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "BGA16".into(),
         description: String::new(),
         keywords: String::new(),
