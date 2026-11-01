@@ -92,31 +92,93 @@ const REQUIRED_DENY: [&str; 6] = [
     "unreachable",
 ];
 
-/// Desktop views captured for review: (file stem, extra app arguments).
-const VIEWS: [(&str, &[&str]); 11] = [
-    ("01-schematic-dark", &["--sample", "--tab", "schematic"]),
+/// Window size of every capture. The site crops are cut from this size.
+const CAPTURE_SIZE: &str = "1920x1240";
+
+/// Desktop views captured for review and for the site: (file stem, extra app arguments).
+/// The stems are what `site/scripts/make-screens.mjs` and `site/scripts/make-guide.mjs` read.
+const VIEWS: [(&str, &[&str]); 20] = [
+    ("schematic", &["--sample", "--tab", "schematic"]),
     (
-        "02-schematic-light",
+        "schematic-tree",
+        &["--sample", "--tab", "schematic", "--left", "layers"],
+    ),
+    (
+        "schematic-light",
         &["--sample", "--tab", "schematic", "--light"],
     ),
-    ("03-pcb", &["--sample", "--tab", "pcb"]),
-    ("04-checks", &["--sample", "--tab", "checks"]),
-    ("05-libraries", &["--sample", "--tab", "libraries"]),
-    ("06-symbol-editor", &["--sample", "--tab", "symbol-editor"]),
+    ("layout", &["--sample", "--tab", "pcb"]),
+    ("layout-sheet", &["--sample", "--tab", "pcb", "--sheet"]),
     (
-        "07-footprint-editor",
+        "layout-library",
+        &["--sample", "--tab", "pcb", "--left", "library"],
+    ),
+    (
+        "layout-search",
+        &[
+            "--sample", "--tab", "pcb", "--left", "library", "--search", "resistor",
+        ],
+    ),
+    (
+        "layout-online",
+        &[
+            "--sample", "--tab", "pcb", "--left", "library", "--search", "LQFP-64",
+        ],
+    ),
+    (
+        "layout-silk",
+        &["--sample", "--tab", "pcb", "--target", "silk"],
+    ),
+    (
+        "layout-part-menu",
+        &[
+            "--sample",
+            "--tab",
+            "pcb",
+            "--select",
+            "R1",
+            "--context-menu",
+        ],
+    ),
+    ("files", &["--sample", "--tab", "files"]),
+    ("library", &["--sample", "--tab", "library"]),
+    (
+        "manufacture",
+        &[
+            "--project",
+            "examples/showcase.pcbcraft",
+            "--tab",
+            "plots",
+            "--show",
+            "export-dialog",
+        ],
+    ),
+    (
+        "rules-dialog",
+        &["--sample", "--tab", "pcb", "--show", "settings-rules"],
+    ),
+    ("symbol-editor", &["--sample", "--tab", "symbol-editor"]),
+    (
+        "footprint-editor",
         &["--sample", "--tab", "footprint-editor"],
     ),
     (
-        "09-showcase-layout",
+        "showcase-layout",
         &["--project", "examples/showcase.pcbcraft", "--tab", "pcb"],
     ),
     (
-        "10-showcase-3d",
-        &["--project", "examples/showcase.pcbcraft", "--tab", "3d"],
+        "3d",
+        &[
+            "--project",
+            "examples/showcase.pcbcraft",
+            "--tab",
+            "3d",
+            "--left",
+            "layers",
+        ],
     ),
     (
-        "11-showcase-schematic",
+        "showcase-schematic",
         &[
             "--project",
             "examples/showcase.pcbcraft",
@@ -125,7 +187,7 @@ const VIEWS: [(&str, &[&str]); 11] = [
         ],
     ),
     (
-        "08-dual-amplifier-pcb",
+        "dual-amplifier-layout",
         &[
             "--project",
             "examples/dual-amplifier.pcbcraft",
@@ -635,10 +697,20 @@ fn screenshots(args: &[String]) -> Result<(), String> {
         let _ = std::fs::remove_file(&png);
         let png_arg = png.to_string_lossy().into_owned();
         let mut full: Vec<&str> = view_args.to_vec();
-        full.extend(["--capture", &png_arg]);
+        full.extend(["--size", CAPTURE_SIZE, "--capture", &png_arg]);
+        // A fresh configuration folder per view, so saved preferences (left tab, recents)
+        // never leak from one capture into the next or from the person running this.
+        let scratch = out.join(".config").join(stem);
+        let (config, data) = (scratch.join("config"), scratch.join("data"));
+        let _ = std::fs::remove_dir_all(&scratch);
+        for dir in [&config, &data] {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
         println!("+ {} {}", bin.display(), full.join(" "));
         let mut child = Command::new(&bin)
             .args(&full)
+            .env("XDG_CONFIG_HOME", &config)
+            .env("XDG_DATA_HOME", &data)
             .current_dir(&root)
             .spawn()
             .map_err(|e| format!("{}: {e}", bin.display()))?;
@@ -662,6 +734,7 @@ fn screenshots(args: &[String]) -> Result<(), String> {
             None => failed.push(format!("{stem}: timed out after 90 s")),
         }
     }
+    let _ = std::fs::remove_dir_all(out.join(".config"));
     if failed.is_empty() {
         Ok(())
     } else {
