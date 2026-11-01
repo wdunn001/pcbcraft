@@ -800,6 +800,8 @@ mod tests {
             sourcing: Default::default(),
             instance: Default::default(),
             prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         }
     }
 

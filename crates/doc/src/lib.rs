@@ -4137,6 +4137,13 @@ pub struct Project {
     /// moves everything that depends on it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bindings: Vec<Binding>,
+    /// Maximum board distance from a connector signal pad to a protection
+    /// device pad on the same net.
+    #[serde(
+        default = "default_esd_max_distance_mm",
+        skip_serializing_if = "is_default_esd_max_mm"
+    )]
+    pub esd_max_distance_mm: f64,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -4152,6 +4159,9 @@ pub struct Project {
     /// Companion-part intent rules, from profiles or edited on the project.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub companion_rules: Vec<CompanionRule>,
+    /// Links placed schematic components to generic and orderable library records.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub part_links: BTreeMap<Id, PlacedPartLink>,
     /// Named library folders that library commands resolve through: a path
     /// whose first segment matches a nickname is rewritten to the mapped
     /// folder, so the design opens on another machine without retyping it.
@@ -4198,6 +4208,22 @@ fn is_false(v: &bool) -> bool {
 fn default_auto_sync() -> bool {
     true
 }
+
+fn default_esd_max_distance_mm() -> f64 {
+    10.0
+}
+
+fn is_default_esd_max_mm(v: &f64) -> bool {
+    v.is_finite() && (*v - default_esd_max_distance_mm()).abs() < 1e-9
+}
+/// Which library records a placed component uses.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlacedPartLink {
+    pub component_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orderable_part_id: Option<String>,
+}
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectLibrary {
@@ -4207,6 +4233,12 @@ pub struct ProjectLibrary {
     pub footprints: Vec<pcbcraft_library::FootprintDefinition>,
     #[serde(default)]
     pub parts: Vec<pcbcraft_library::Part>,
+    /// Generic part definitions copied into the project (symbol, footprint, parameters).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub part_components: Vec<pcbcraft_library::records::ComponentRecord>,
+    /// Orderable manufacturer parts bound to a [`part_components`] entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub orderable_parts: Vec<pcbcraft_library::records::OrderablePartRecord>,
     /// Second sources and alternates keyed by project-library symbol name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub part_substitutes: BTreeMap<String, pcbcraft_library::PartSubstitutes>,
@@ -4222,6 +4254,7 @@ impl ProjectLibrary {
         if self.parts.len() > pcbcraft_library::MAX_PARTS {
             return Err("project library supports at most 256 parts".into());
         }
+        pcbcraft_library::records::validate_store(&self.part_components, &self.orderable_parts)?;
         if self.part_substitutes.len() > 256 {
             return Err("part substitute records exceed the library symbol limit".into());
         }
@@ -4358,10 +4391,12 @@ impl Default for Project {
             decoupling: DecouplingRule::default(),
             parameters: Default::default(),
             bindings: vec![],
+            esd_max_distance_mm: default_esd_max_distance_mm(),
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
             companion_rules: vec![],
+            part_links: BTreeMap::new(),
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -4502,6 +4537,12 @@ pub const TEMPLATES: &[Template] = &[
         label: "2-pin connector",
         prefix: "J",
         value: "Power",
+    },
+    Template {
+        kind: "tvs",
+        label: "Protection diode",
+        prefix: "D",
+        value: "TVS",
     },
 ];
 pub fn component_template(
@@ -5577,8 +5618,54 @@ impl Project {
             .chain(self.artifacts.iter().map(|x| x.id))
             .chain(self.library.parts.iter().map(|x| x.id))
     }
+    /// records that exist in the project library.
+    pub fn validate_part_links(&self) -> Result<(), String> {
+        if self.part_links.len() > MAX_ITEMS {
+            return Err("part link limit reached (2048)".into());
+        }
+        let component_ids: BTreeSet<_> = self.components.iter().map(|c| c.id).collect();
+        let record_components: BTreeSet<_> = self
+            .library
+            .part_components
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        let orderables: BTreeSet<_> = self
+            .library
+            .orderable_parts
+            .iter()
+            .map(|o| o.id.as_str())
+            .collect();
+        for (id, link) in &self.part_links {
+            if !component_ids.contains(id) {
+                return Err("part link names a missing component".into());
+            }
+            if !record_components.contains(link.component_id.as_str()) {
+                return Err("part link names a missing component record".into());
+            }
+            if let Some(orderable_id) = &link.orderable_part_id {
+                let Some(orderable) = self
+                    .library
+                    .orderable_parts
+                    .iter()
+                    .find(|o| o.id == *orderable_id)
+                else {
+                    return Err("part link names a missing orderable part record".into());
+                };
+                if orderable.component_id != link.component_id {
+                    return Err("orderable part record does not match the component record".into());
+                }
+                if !orderables.contains(orderable_id.as_str()) {
+                    return Err("part link names a missing orderable part record".into());
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
+        self.validate_part_links()?;
         self.export_trade.validate()?;
         self.validate_parameters()?;
         validate_sheet_instances(self)?;
@@ -5664,6 +5751,12 @@ impl Project {
         }
         if !Self::UNITS.contains(&self.unit.as_str()) {
             return Err("project unit must be mm, mil or inch".into());
+        }
+        if !self.esd_max_distance_mm.is_finite()
+            || self.esd_max_distance_mm < 0.5
+            || self.esd_max_distance_mm > 100.0
+        {
+            return Err("esd distance must be 0.5 to 100 mm".into());
         }
         self.decoupling.validate()?;
         if self.panel.enabled {
@@ -7178,6 +7271,19 @@ fn orthogonal_path(a: Point, b: Point, da: Point, db: Point) -> Vec<Point> {
         end,
         b,
     ]
+}
+
+#[cfg(test)]
+mod esd_settings_tests {
+    use super::*;
+
+    #[test]
+    fn esd_distance_default_is_ten_millimetres() -> Result<(), String> {
+        let p = Project::default();
+        assert!((p.esd_max_distance_mm - 10.0).abs() < 1e-9);
+        p.validate()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

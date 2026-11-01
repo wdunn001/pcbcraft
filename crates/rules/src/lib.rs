@@ -1,6 +1,6 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
 use pcbcraft_doc::{
-    ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
+    ArtKind, ArtShape, Board, Component, DiffPair, FabRules, Footprint, NetClass, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
     PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
     PanelSeparation, Project, VALIDATION_CHORD_ERROR, Via, ViaKind, panel_layout,
     panel_score_lines,
@@ -1021,6 +1021,102 @@ fn airwires_from(items: &[Copper]) -> Vec<Airwire> {
 pub fn airwires(project: &Project) -> Vec<Airwire> {
     airwires_from(&copper(project))
 }
+const ESD_DEVICE_FAR_CODE: &str = "esd_device_far_from_connector";
+
+fn esd_check_enabled(project: &Project) -> bool {
+    matches!(
+        project
+            .rule_severity
+            .get(ESD_DEVICE_FAR_CODE)
+            .map(String::as_str),
+        Some("error") | Some("warning")
+    )
+}
+
+fn word_tvs(text: &str) -> bool {
+    text.to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|w| w == "tvs")
+}
+
+pub fn is_tvs(component: &Component) -> bool {
+    if component.kind == "tvs" {
+        return true;
+    }
+    if word_tvs(&component.value) {
+        return true;
+    }
+    component.fields.iter().any(|f| word_tvs(&f.value))
+}
+
+fn component_footprint<'a>(project: &'a Project, component: Id) -> Option<&'a Footprint> {
+    project
+        .board
+        .footprints
+        .iter()
+        .find(|f| f.component == component)
+}
+
+fn esd_device_far_findings(project: &Project) -> Vec<Finding> {
+    if !esd_check_enabled(project) || project.board.footprints.is_empty() {
+        return vec![];
+    }
+    let limit = project.esd_max_distance_mm;
+    let mut result = vec![];
+    for connector in project
+        .components
+        .iter()
+        .filter(|c| c.kind == "connector")
+    {
+        let Some(conn_fp) = component_footprint(project, connector.id) else {
+            continue;
+        };
+        for pin in &connector.pins {
+            let Some(net) = pin.net else {
+                continue;
+            };
+            if !project.components.iter().any(|c| {
+                is_tvs(c) && c.pins.iter().any(|p| p.net == Some(net))
+            }) {
+                continue;
+            }
+            let Some(conn_pad) = conn_fp.pad_position(&pin.number) else {
+                continue;
+            };
+            for tvs in project.components.iter().filter(|c| is_tvs(c)) {
+                let Some(tvs_fp) = component_footprint(project, tvs.id) else {
+                    continue;
+                };
+                for tvs_pin in tvs.pins.iter().filter(|p| p.net == Some(net)) {
+                    let Some(tvs_pad) = tvs_fp.pad_position(&tvs_pin.number) else {
+                        continue;
+                    };
+                    let distance = conn_pad.distance(tvs_pad);
+                    if distance > limit + 1e-9 {
+                        result.push(Finding {
+                            code: ESD_DEVICE_FAR_CODE,
+                            severity: project.rule_severity(ESD_DEVICE_FAR_CODE, "off"),
+                            message: format!(
+                                "{} is {:.1} mm from {} pin {} on {}; limit is {:.1} mm. \
+                                 Move the protection part next to the connector pad.",
+                                tvs.reference,
+                                distance,
+                                connector.reference,
+                                pin.number,
+                                project.net_name(net),
+                                limit,
+                            ),
+                            objects: vec![connector.id, tvs.id],
+                            hint: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
 
 fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
     project
@@ -1295,6 +1391,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
         }
     }
     result.extend(decoupling::missing_decoupling(project));
+    result.extend(esd_device_far_findings(project));
     for net in &project.nets {
         let undriven = project.components.iter().any(|c| {
             c.pins.iter().any(|p| {
@@ -1859,6 +1956,40 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     for track in &board.tracks {
         *lengths.entry(track.net).or_insert(0.0) += track.length();
     }
+    let mut via_counts: BTreeMap<Id, (u32, Vec<Id>)> = BTreeMap::new();
+    for via in &board.vias {
+        if via.net == 0 {
+            continue;
+        }
+        let entry = via_counts.entry(via.net).or_insert((0, Vec::new()));
+        entry.0 += 1;
+        entry.1.push(via.id);
+    }
+    for class in &project.net_classes {
+        let Some(limit) = class.max_vias else {
+            continue;
+        };
+        for net in &class.nets {
+            let (count, ids) = via_counts
+                .get(net)
+                .map(|(count, ids)| (*count, ids.clone()))
+                .unwrap_or((0, Vec::new()));
+            if count <= limit {
+                continue;
+            }
+            result.push(Finding {
+                code: "via_count",
+                severity: project.rule_severity("via_count", "error"),
+                message: format!(
+                    "{} has {count} vias, {} allows at most {limit}",
+                    project.net_name(*net),
+                    class.name
+                ),
+                objects: ids,
+                hint: None,
+            });
+        }
+    }
     for pair in &board.diff_pairs {
         for a in board
             .tracks
@@ -1921,6 +2052,43 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         });
     }
     result.extend(diffpair_impedance::findings(project));
+    for pair in &board.diff_pairs {
+        if !pair.equal_vias {
+            continue;
+        }
+        let count_p = via_counts
+            .get(&pair.net_p)
+            .map(|(count, _)| *count)
+            .unwrap_or(0);
+        let count_n = via_counts
+            .get(&pair.net_n)
+            .map(|(count, _)| *count)
+            .unwrap_or(0);
+        if count_p == count_n {
+            continue;
+        }
+        let heavier = if count_p > count_n {
+            pair.net_p
+        } else {
+            pair.net_n
+        };
+        let objects = via_counts
+            .get(&heavier)
+            .map(|(_, ids)| ids.clone())
+            .unwrap_or_default();
+        result.push(Finding {
+            code: "diffpair_via_count",
+            severity: project.rule_severity("diffpair_via_count", "error"),
+            message: format!(
+                "{}: {} has {count_p} vias and {} has {count_n}, equal count wanted",
+                pair.name,
+                project.net_name(pair.net_p),
+                project.net_name(pair.net_n)
+            ),
+            objects,
+            hint: None,
+        });
+    }
     for group in &board.length_groups {
         let routed: Vec<(Id, f64)> = group
             .nets
@@ -2801,6 +2969,8 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             sourcing: Default::default(),
             instance: Default::default(),
             prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         };
         Ok(component)
     }
@@ -2933,6 +3103,118 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             hole: None,
             cutouts: vec![],
         }
+    }
+    fn esd_placed_fixture(
+        connector_x: f64,
+        tvs_x: f64,
+        enable: bool,
+    ) -> Result<Project, String> {
+        let mut p = Project::default();
+        p.esd_max_distance_mm = 10.0;
+        if enable {
+            p.rule_severity.insert(
+                "esd_device_far_from_connector".into(),
+                "warning".into(),
+            );
+        }
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut connector = component_template("connector", 2, "J1".into(), Point::new(connector_x, 0.0))
+            .ok_or("connector template missing")?;
+        connector.pins[0].net = Some(1);
+        p.components.push(connector);
+        let mut tvs = component_template("tvs", 3, "D1".into(), Point::new(tvs_x, 0.0))
+            .ok_or("tvs template missing")?;
+        tvs.pins[0].net = Some(1);
+        p.components.push(tvs);
+        for (component, x) in [(2_u64, connector_x), (3, tvs_x)] {
+            p.board.footprints.push(Footprint {
+                id: component + 10,
+                component,
+                position: Point::new(x, 0.0),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![
+                    Pad {
+                        number: "1".into(),
+                        offset: Point::default(),
+                        diameter: 1.0,
+                        net: Some(1),
+                        castellated: None,
+                        geometry: None,
+                    },
+                    Pad {
+                        number: "2".into(),
+                        offset: Point::new(2.0, 0.0),
+                        diameter: 1.0,
+                        net: None,
+                        castellated: None,
+                        geometry: None,
+                    },
+                ],
+                preserved: Default::default(),
+            });
+        }
+        Ok(p)
+    }
+    #[test]
+    fn is_tvs_matches_kind_and_value_word() -> Result<(), String> {
+        let mut by_kind = component_template("tvs", 1, "D1".into(), Point::default())
+            .ok_or("tvs template missing")?;
+        assert!(is_tvs(&by_kind));
+        by_kind.kind = "resistor".into();
+        by_kind.value = "SM712 TVS".into();
+        assert!(is_tvs(&by_kind));
+        by_kind.value = "stvsomething".into();
+        assert!(!is_tvs(&by_kind));
+        by_kind.value = "1k".into();
+        by_kind.fields.push(pcbcraft_doc::ComponentField {
+            key: "Note".into(),
+            value: "Use a TVS here".into(),
+        });
+        assert!(is_tvs(&by_kind));
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_esd_device_far_from_connector_when_placed() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 25.0, true)?;
+        p.validate()?;
+        assert!(erc(&p)
+            .iter()
+            .any(|f| f.code == "esd_device_far_from_connector"));
+        Ok(())
+    }
+    #[test]
+    fn erc_clears_esd_device_when_close() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 3.0, true)?;
+        p.validate()?;
+        assert!(!erc(&p)
+            .iter()
+            .any(|f| f.code == "esd_device_far_from_connector"));
+        Ok(())
+    }
+    #[test]
+    fn erc_esd_off_by_default() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 25.0, false)?;
+        p.validate()?;
+        assert!(!erc(&p)
+            .iter()
+            .any(|f| f.code == "esd_device_far_from_connector"));
+        Ok(())
+    }
+    #[test]
+    fn erc_esd_ignores_schematic_only_designs() -> Result<(), String> {
+        let mut p = esd_placed_fixture(0.0, 25.0, true)?;
+        p.board.footprints.clear();
+        p.validate()?;
+        assert!(!erc(&p)
+            .iter()
+            .any(|f| f.code == "esd_device_far_from_connector"));
+        Ok(())
     }
   
     #[test]
@@ -5999,6 +6281,146 @@ mod pour_tests {
         let f = fill(&p)?;
         assert!(!f.contains(Point::new(20.0, 20.0)));
         assert!(f.contains(Point::new(20.0, 28.0)));
+        Ok(())
+    }
+
+    fn via_on(p: &mut Project, id: Id, net: Id, x: f64, y: f64) {
+        p.board.vias.push(Via {
+            id,
+            net,
+            position: Point::new(x, y),
+            diameter: 1.0,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
+        });
+    }
+
+    fn class_with_limit(p: &mut Project, class_id: Id, net: Id, max_vias: u32) -> Result<(), String> {
+        p.net_classes.push(NetClass {
+            id: class_id,
+            name: "USB".into(),
+            clearance: 0.2,
+            width: 0.25,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_stub: None,
+            max_vias: Some(max_vias),
+            via_diameter: None,
+            via_drill: None,
+            pair_width: None,
+            pair_gap: None,
+            nets: vec![net],
+            profile: None,
+            backdrill: Default::default(),
+            corner_radius: Default::default(),
+            current: Default::default(),
+            fast: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            min_radius: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            rise_time: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+        });
+        p.validate()
+    }
+
+    fn via_count_findings(p: &Project) -> Vec<Finding> {
+        drc(p)
+            .into_iter()
+            .filter(|f| f.code == "via_count")
+            .collect()
+    }
+
+    #[test]
+    fn a_class_with_max_vias_zero_reports_via_count_until_the_via_is_removed() -> Result<(), String>
+    {
+        let mut p = board();
+        via_on(&mut p, 100, 2, 20.0, 20.0);
+        class_with_limit(&mut p, 50, 2, 0)?;
+        assert_eq!(via_count_findings(&p).len(), 1);
+        p.board.vias.clear();
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_class_with_max_vias_four_allows_four_and_reports_five() -> Result<(), String> {
+        let mut p = board();
+        class_with_limit(&mut p, 50, 2, 4)?;
+        for (i, x) in (0..4_u64).map(|i| (i, 10.0 + i as f64 * 2.0)) {
+            via_on(&mut p, 100 + i, 2, x, 20.0);
+        }
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
+        via_on(&mut p, 200, 2, 30.0, 20.0);
+        p.validate()?;
+        assert_eq!(via_count_findings(&p).len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn a_pair_with_equal_vias_reports_diffpair_via_count_until_counts_match() -> Result<(), String>
+    {
+        let mut p = board();
+        p.nets.push(Net {
+            id: 3,
+            name: "USB_N".into(),
+            ..Default::default()
+        });
+        p.board.diff_pairs.push(DiffPair {
+            id: 60,
+            name: "USB".into(),
+            net_p: 2,
+            net_n: 3,
+            gap: 0.2,
+            length_tolerance: None,
+            equal_vias: true,
+            profile: None,
+            impedance_tolerance: Default::default(),
+            max_uncoupled_length: Default::default(),
+            skew_limit_mm: Default::default(),
+            skew_limit_ps: Default::default(),
+            target_impedance: Default::default(),
+        });
+        via_on(&mut p, 101, 2, 12.0, 20.0);
+        via_on(&mut p, 102, 2, 14.0, 20.0);
+        via_on(&mut p, 103, 3, 16.0, 20.0);
+        p.validate()?;
+        let findings: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "diffpair_via_count")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        via_on(&mut p, 104, 3, 18.0, 20.0);
+        p.validate()?;
+        assert!(
+            drc(&p)
+                .iter()
+                .all(|f| f.code != "diffpair_via_count")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn vias_on_a_net_outside_any_class_never_report_via_count() -> Result<(), String> {
+        let mut p = board();
+        via_on(&mut p, 100, 2, 20.0, 20.0);
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
         Ok(())
     }
 

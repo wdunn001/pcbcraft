@@ -415,7 +415,7 @@ fn set_group(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
     if a.reference.is_some_and(|r| r == 0 || !a.nets.contains(&r)) {
         return Err(refuse("the reference net must be a member of the group"));
     }
-    let groups = &mut p.length_groups;
+    let groups = &mut p.board.length_groups;
     let target = match a.id {
         Some(id) => {
             if !groups.iter().any(|g| g.id == id) {
@@ -468,9 +468,9 @@ fn set_group(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
 
 fn remove_group(p: &mut Project, params: &Value) -> Result<Value, Error> {
     let a: IdParams = parse(params)?;
-    let before = p.length_groups.len();
-    p.length_groups.retain(|g| g.id != a.id);
-    if p.length_groups.len() == before {
+    let before = p.board.length_groups.len();
+    p.board.length_groups.retain(|g| g.id != a.id);
+    if p.board.length_groups.len() == before {
         return Err(missing());
     }
     Ok(json!({"id": a.id}))
@@ -479,12 +479,12 @@ fn remove_group(p: &mut Project, params: &Value) -> Result<Value, Error> {
 fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
     let a: GroupQuery = parse(params)?;
     if a.id
-        .is_some_and(|id| !p.length_groups.iter().any(|g| g.id == id))
+        .is_some_and(|id| !p.board.length_groups.iter().any(|g| g.id == id))
     {
         return Err(missing());
     }
     let mut rows = vec![];
-    for group in &p.length_groups {
+    for group in &p.board.length_groups {
         if a.id.is_some_and(|id| id != group.id) {
             continue;
         }
@@ -534,7 +534,7 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
 /// Remove a net from every length group, or swap it for another net, and
 /// drop groups left with fewer than two nets.
 pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
-    for group in p.length_groups.iter_mut() {
+    for group in p.board.length_groups.iter_mut() {
         if !group.nets.contains(&net) {
             continue;
         }
@@ -545,7 +545,7 @@ pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
         group.nets.sort_unstable();
         group.nets.dedup();
     }
-    p.length_groups.retain(|g| g.nets.len() >= 2);
+    p.board.length_groups.retain(|g| g.nets.len() >= 2);
 }
 
 fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Track>, Error> {
@@ -1413,7 +1413,7 @@ mod tests {
         assert_eq!(g, again, "the same name updates the group");
         assert!(!codes(&s).contains(&"length_group_skew"));
         s.execute("board.remove_length_group", json!({"id":g}), None)?;
-        assert!(s.project.length_groups.is_empty());
+        assert!(s.project.board.length_groups.is_empty());
         assert!(
             s.execute("board.remove_length_group", json!({"id":g}), None)
                 .is_err()
@@ -1456,10 +1456,10 @@ mod tests {
             None,
         )?;
         s.execute("net.tie", json!({"source":c,"target":b}), None)?;
-        assert_eq!(s.project.length_groups[0].nets.len(), 2);
+        assert_eq!(s.project.board.length_groups[0].nets.len(), 2);
         s.execute("object.delete", json!({"id":b}), None)?;
         assert!(
-            s.project.length_groups.is_empty(),
+            s.project.board.length_groups.is_empty(),
             "a group of one net is dropped"
         );
         Ok(())

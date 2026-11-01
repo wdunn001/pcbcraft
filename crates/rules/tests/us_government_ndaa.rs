@@ -51,6 +51,8 @@ fn component(id: u64, reference: &str, manufacturer: Option<&str>, compliance: O
         part: None,
         prototype: Default::default(),
         sourcing: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     }
 }
 
