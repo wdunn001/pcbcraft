@@ -580,10 +580,12 @@ fn write_polylines(
 }
 
 fn in_work_area(p: Point, profile: &CncProfile) -> bool {
-    p.x >= profile.work_min.x
-        && p.y >= profile.work_min.y
-        && p.x <= profile.work_max.x
-        && p.y <= profile.work_max.y
+    // A micron of slack absorbs rounding in rotated hatch ends that sit on the edge.
+    const SLACK: f64 = 1e-6;
+    p.x >= profile.work_min.x - SLACK
+        && p.y >= profile.work_min.y - SLACK
+        && p.x <= profile.work_max.x + SLACK
+        && p.y <= profile.work_max.y + SLACK
 }
 
 fn check_bounds(points: &[Point], profile: &CncProfile) -> Result<(), String> {

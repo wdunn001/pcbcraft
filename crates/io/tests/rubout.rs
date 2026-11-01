@@ -1,5 +1,5 @@
 //! Oracle tests for copper rubout hatch paths (issue 202).
-use pcbcraft_doc::{Footprint, Layer, Net, Pad, Project};
+use pcbcraft_doc::{Component, Footprint, Layer, Net, Pad, Pin, Project};
 use pcbcraft_geom::{
     OffsetJoin, Point, Ring, polygon_boundary_distance, polygon_difference, polygon_offset,
     polygon_union, segment_distance,
@@ -41,9 +41,33 @@ fn single_pad_20mm_board() -> Project {
         name: "A".into(),
         ..Net::default()
     });
+    p.components.push(Component {
+        sourcing: Default::default(),
+        id: 3,
+        reference: "U1".into(),
+        value: "A".into(),
+        kind: "connector".into(),
+        position: Point::new(10.0, 10.0),
+        rotation: 0.0,
+        pins: vec![Pin {
+            number: "1".into(),
+            name: "1".into(),
+            offset: Point::default(),
+            net: Some(1),
+            electrical_type: "passive".into(),
+            direction: None,
+            unit: 1,
+            appearances: vec![],
+        }],
+        units: vec![],
+        library_symbol: None,
+        library_footprint: None,
+        fields: vec![],
+        sheet: 0,
+    });
     p.board.footprints.push(Footprint {
-        id: 1,
-        component: 0,
+        id: 2,
+        component: 3,
         position: Point::new(10.0, 10.0),
         rotation: 0.0,
         pads: vec![Pad {
