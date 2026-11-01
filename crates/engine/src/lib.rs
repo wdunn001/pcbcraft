@@ -3067,6 +3067,7 @@ impl Session {
         if commands.iter().all(|c| {
             c.command == "cam.isolation"
                 || snapmaker::handles(&c.command)
+                || layout::handles(&c.command)
                 || publication::handles(&c.command)
                 || firmware_plugin_handles(&c.command)
         }) {
@@ -8417,7 +8418,7 @@ fn command_never_edits(command: &str) -> bool {
     matches!(
         command,
         "library.export" | "selection.copy_text" | "plugins.export" | "plugins.list"
-    )
+    ) || !collab::shareable_room_command(command)
 }
 
 fn missing() -> Error {

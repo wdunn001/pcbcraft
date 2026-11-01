@@ -21,7 +21,9 @@ fn set_properties_rejects_an_impedance_outside_the_bounds() -> T {
     let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
         .as_u64()
         .ok_or_else(|| Error::Invalid("missing net id".into()))?;
-    for bad in [9.9, 200.1, f64::NAN] {
+    // JSON has no NaN (it would serialise as null, which clears the value), so the
+    // not-a-number case is text.
+    for bad in [json!(9.9), json!(200.1), json!("NaN")] {
         assert!(
             s.execute(
                 "net.set_properties",
