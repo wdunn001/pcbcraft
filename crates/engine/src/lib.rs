@@ -4134,18 +4134,39 @@ struct LockParams {
     id: Id,
     locked: bool,
 }
+/// Parameters of `component.set_in_bom`: include or exclude a component from the bill of materials.
+///
+/// # Rules
+/// - The component id must exist on the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentInBomParams {
     id: Id,
     in_bom: bool,
 }
+/// Parameters of `component.set_in_placement`: include or exclude a component from the placement file.
+///
+/// # Rules
+/// - The component id must exist on the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentInPlacementParams {
     id: Id,
     in_placement: bool,
 }
+/// Parameters of `board.set_clearance`: set the default board clearance distance.
+///
+/// # Rules
+/// - Clearance is a positive distance in millimetres.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BoardClearanceParams {
@@ -4266,30 +4287,65 @@ fn translate_object(p: &mut Project, id: Id, dx: f64, dy: f64) -> Result<(), Err
 fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
     project.is_locked(id)
 }
+/// Parameters of `footprint.assign`: assign a footprint library file to a part.
+///
+/// # Rules
+/// - The part id must exist; the path must resolve to a valid footprint file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignFootprint {
     id: Id,
     path: String,
 }
+/// Parameters of `footprint.assign_pattern`: assign a footprint pattern to multiple parts.
+///
+/// # Rules
+/// - The pattern string must match at least one part; the path must resolve to a valid footprint file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignPatternParams {
     pattern: String,
     path: String,
 }
+/// Parameters of `symbol.refresh`: reload a component symbol from its library source.
+///
+/// # Rules
+/// - The component id must exist and reference a library symbol.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RefreshSymbolParams {
     path: String,
     symbol: String,
 }
+/// Parameters of `footprint.refresh`: reload a footprint from its library source.
+///
+/// # Rules
+/// - The footprint id must exist and reference a library footprint.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RefreshFootprintParams {
     library: Option<String>,
     name: Option<String>,
 }
+/// Parameters of `table.assign`: assign a spreadsheet to a part for parameter synchronization.
+///
+/// # Rules
+/// - The part id must exist; the path must resolve to a valid spreadsheet file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignTableParams {
@@ -4302,6 +4358,13 @@ struct AssignTableRow {
     reference: String,
     path: String,
 }
+/// Parameters of `file.assign`: attach a file reference to a part or footprint.
+///
+/// # Rules
+/// - The id must exist; the path must resolve to a valid file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignFileParams {
@@ -4628,6 +4691,14 @@ fn assign_to(
     }
     Some(())
 }
+/// Parameters of `object.move`: move an object to an absolute position.
+///
+/// # Rules
+/// - The id must exist; the position must be in range; locked objects are refused.
+/// - Unit index is 0-based and must be valid for multi-unit components.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Move {
@@ -4635,6 +4706,14 @@ struct Move {
     position: Point,
     unit: Option<u32>,
 }
+/// Parameters of `object.rotate`: rotate an object by a given number of degrees.
+///
+/// # Rules
+/// - The id must exist; degrees is a finite number; locked objects are refused.
+/// - Unit index is 0-based and must be valid for multi-unit components.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Rotate {
@@ -4642,29 +4721,64 @@ struct Rotate {
     degrees: f64,
     unit: Option<u32>,
 }
+/// Parameters of `object.set_value`: set the value field of a component, track, via, or text.
+///
+/// # Rules
+/// - The id must exist; the value is a plain string with no length limit.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ValueParams {
     id: Id,
     value: String,
 }
+/// Parameters of `object.set_kind`: change the kind of a track, via, or wire.
+///
+/// # Rules
+/// - The id must exist; the kind must be valid for the object type.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetKindParams {
     id: Id,
     kind: String,
 }
+/// Parameters of `object.set_name`: set the name field of a component, net, or layer.
+///
+/// # Rules
+/// - The id must exist; the name is a plain string with no length limit.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Name {
     name: String,
 }
+/// Parameters of `object.set_meta`: set a metadata field on a project object.
+///
+/// # Rules
+/// - The id must exist; the key is 1 to 64 bytes; the value is a JSON value.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MetaParams {
     key: String,
     value: String,
 }
+/// Parameters of `parameter.set`: set a design parameter on a component, track, or via.
+///
+/// # Rules
+/// - The id must exist; the key is 1 to 64 bytes; the value is a JSON value.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ParameterSetParams {
@@ -4673,6 +4787,13 @@ struct ParameterSetParams {
     #[serde(default)]
     note: Option<String>,
 }
+/// Parameters of `parameter.remove`: remove a design parameter from a component, track, or via.
+///
+/// # Rules
+/// - The id must exist; the key is 1 to 64 bytes.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ParameterRemoveParams {
@@ -4680,27 +4801,62 @@ struct ParameterRemoveParams {
     #[serde(default)]
     unbind: bool,
 }
+/// Parameters of `project.set_unit`: set the project measurement unit system.
+///
+/// # Rules
+/// - Unit must be `mm` or `inches`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectSetUnitParams {
     unit: String,
 }
+/// Parameters of `project.set_auto_sync`: enable or disable automatic project synchronization.
+///
+/// # Rules
+/// - No validation; the flag is stored directly.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectSetAutoSyncParams {
     auto_sync: bool,
 }
+/// Parameters of `project.archive_path`: set the path for project archive backups.
+///
+/// # Rules
+/// - The path must be writable and resolvable.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArchivePathParams {
     path: String,
 }
+/// Parameters of `project.import`: import a project from a file or URL.
+///
+/// # Rules
+/// - The path or URL must resolve to a valid project file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectImportParams {
     path: String,
     format: String,
 }
+/// Parameters of `export.laser_job`: export the board as a laser cutting job.
+///
+/// # Rules
+/// - The output path must be writable; the board must have a valid outline.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LaserJobExportParams {
@@ -4727,11 +4883,25 @@ fn laser_job_mirror_default() -> String {
 fn laser_job_isolation_default() -> f64 {
     0.05
 }
+/// Parameters of `object.meta_key`: get or list metadata keys on a project object.
+///
+/// # Rules
+/// - The id must exist; the key is optional for listing all keys.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MetaKeyParams {
     key: String,
 }
+/// Parameters of `component.replace`: replace a component with a different part number.
+///
+/// # Rules
+/// - The id must exist; the new part number must resolve to a valid component definition.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReplaceParams {
@@ -4746,12 +4916,26 @@ struct ReplaceParams {
 fn replace_all_scope() -> String {
     "all".into()
 }
+/// Parameters of `wire.connect`: create a wire connection between two endpoints.
+///
+/// # Rules
+/// - Both endpoints must be valid pad or point references; the net must exist or be creatable.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Connect {
     net: Id,
     pins: Vec<PinRef>,
 }
+/// Parameters of `copper.net`: assign a copper pour or plane to a net.
+///
+/// # Rules
+/// - The id must exist; the net name must be valid.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CopperNetParams {
@@ -4787,12 +4971,26 @@ struct DrawnWireParams {
     points: Vec<Point>,
     net: Option<Id>,
 }
+/// Parameters of `wire.place_tee`: place a T-junction on an existing wire.
+///
+/// # Rules
+/// - The wire id must exist; the position must be on the wire segment.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WirePlaceTeeParams {
     wire: Id,
     at: Point,
 }
+/// Parameters of `wire.place`: place a new wire segment between two points.
+///
+/// # Rules
+/// - Both points must be in range; the net must exist or be creatable.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WirePlaceParams {
@@ -4806,6 +5004,13 @@ struct WirePlaceParams {
     #[serde(default)]
     junction: Option<bool>,
 }
+/// Parameters of `barcode.place`: place a barcode on the board.
+///
+/// # Rules
+/// - The position must be in range; the value must be a valid barcode string.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BarcodeParams {
@@ -21230,6 +21435,7 @@ fn run_command_part_20(
             });
             Ok(json!({"id":id}))
         }
+        // Move a circular board cutout to a new position.
         "board.cutout.move" => {
             let a: CutoutMoveParams = parse(params)?;
             if !a.center.valid() {
@@ -21253,6 +21459,7 @@ fn run_command_part_20(
             cutout.center = a.center;
             Ok(json!({"id":a.id,"center":a.center}))
         }
+        // Resize a circular board cutout.
         "board.cutout.resize" => {
             let a: CutoutSizeParams = parse(params)?;
             if !a.radius.is_finite() || a.radius <= 0.0 || a.radius > 1000.0 {
@@ -21278,6 +21485,7 @@ fn run_command_part_20(
             cutout.radius = a.radius;
             Ok(json!({"id":a.id,"radius":a.radius}))
         }
+        // Move a footprint to a new position.
         "footprint.move" => {
             let a: Move = parse(params)?;
             if a.unit.is_some() {
@@ -21298,6 +21506,7 @@ fn run_command_part_20(
                 .position = a.position;
             Ok(json!({"id":a.id}))
         }
+        // Rotate a footprint around its centre.
         "footprint.rotate" => {
             let a: Rotate = parse(params)?;
             if a.unit.is_some() {
@@ -21321,6 +21530,7 @@ fn run_command_part_20(
                 .rotation = a.degrees.rem_euclid(360.0);
             Ok(json!({"id":a.id}))
         }
+        // Change the pad shape or size of a footprint.
         "footprint.set_pad" => {
             let a: PadSetParams = parse(params)?;
             if a.offset.is_none() && a.diameter.is_none() {
@@ -21368,6 +21578,7 @@ fn run_command_part_20(
             }
             Ok(json!({"id": a.id, "pad": a.pad}))
         }
+        // Set castellated edge pads on a footprint.
         "footprint.set_castellated" => {
             let a: PadCastellateParams = parse(params)?;
             if a.pad.is_empty() || a.pad.len() > 32 {
@@ -21383,6 +21594,7 @@ fn run_command_part_20(
             pad.castellated = a.on.then_some(true);
             Ok(json!({"id": a.id, "pad": a.pad, "castellated": a.on}))
         }
+        // Align a footprint to a board edge.
         "footprint.dock_edge" => {
             let a: DockEdgeParams = parse(params)?;
             if footprint_locked(p, a.id) {
@@ -21471,6 +21683,7 @@ fn run_command_part_21(
 ) -> Result<Value, Error> {
     let _ = (&config, &next, &record_revision, &mutating);
     match command {
+        // Lock or unlock a footprint in place.
         "footprint.set_locked" => {
             let a: LockParams = parse(params)?;
             let footprint = p
@@ -21482,6 +21695,7 @@ fn run_command_part_21(
             footprint.locked = a.locked.then_some(true);
             Ok(json!({"id": a.id, "locked": a.locked}))
         }
+        // Create a grid of footprints from one source.
         "footprint.array" => {
             let a: ArrayParams = parse(params)?;
             if a.columns == 0
@@ -21750,6 +21964,7 @@ fn run_command_part_21(
                 "vias": copied_vias,
             }))
         }
+        // Add a straight copper track.
         "track.add" => {
             let a: TrackParams = parse(params)?;
             let layer = command_layer(p, params, a.layer)?;
@@ -21820,6 +22035,7 @@ fn run_command_part_21(
             track.arc = Some(a.mid);
             Ok(json!({"id": a.id, "arc": a.mid, "length": track.length()}))
         }
+        // Straighten a track at a via.
         "track.straighten" => {
             let a: IdParams = parse(params)?;
             let track = p
@@ -21833,6 +22049,7 @@ fn run_command_part_21(
             }
             Ok(json!({"id": a.id, "length": track.length()}))
         }
+        // Split a track at a point.
         "track.split" => {
             let a: SplitParams = parse(params)?;
             if !a.at.valid() {
@@ -21873,6 +22090,7 @@ fn run_command_part_21(
             });
             Ok(json!({"id":id,"kept":a.id}))
         }
+        // Chamfer a track corner.
         "track.chamfer" => {
             let a: ChamferParams = parse(params)?;
             if !a.size.is_finite() || a.size <= 0.0 {
@@ -22000,6 +22218,7 @@ fn run_command_part_22(
     let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "track.round_corners" => track_round::run(p, next, parse(params)?),
+        // Move a track point.
         "track.move" => {
             let a: DeltaParams = parse(params)?;
             let track = p
@@ -22020,6 +22239,7 @@ fn run_command_part_22(
                 .map(|m| Point::new(m.x + a.delta.x, m.y + a.delta.y));
             Ok(json!({"id": a.id}))
         }
+        // Route a track between two points.
         "track.route" => {
             let a: Route = parse(params)?;
             let start_layer = command_layer(p, params, a.layer)?;
@@ -22225,6 +22445,7 @@ fn run_command_part_22(
                 "width": width,
             }))
         }
+        // Mirror a footprint across an axis.
         "footprint.mirror" => {
             let a: MirrorParams = parse(params)?;
             if footprint_locked(p, a.id) {
@@ -22282,6 +22503,7 @@ fn run_command_part_22(
             }
             Ok(json!({"id": a.id, "axis": a.axis}))
         }
+        // Flip a footprint to the other side.
         "footprint.flip" => {
             let a: FlipParams = parse(params)?;
             if footprint_locked(p, a.id) {
@@ -22345,6 +22567,7 @@ fn run_command_part_22(
             }
             Ok(json!({"id": a.id, "side": footprint.board_side().name()}))
         }
+        // Align or distribute objects.
         "align.distribute" => {
             let a: AlignParams = parse(params)?;
             let mode = a.mode.as_str();
@@ -22496,6 +22719,7 @@ fn run_command_part_22(
             }
             Ok(json!({"aligned": seen.len(), "mode": mode}))
         }
+        // Snap objects to a grid.
         "object.snap" => {
             let a: SnapParams = parse(params)?;
             if a.ids.is_empty() || a.ids.len() > 128 {
@@ -22579,6 +22803,7 @@ fn run_command_part_23(
 ) -> Result<Value, Error> {
     let _ = (&config, &next, &record_revision, &mutating);
     match command {
+        // Nudge an object a small distance.
         "object.nudge" => {
             let a: NudgeParams = parse(params)?;
             if !a.dx.is_finite() || !a.dy.is_finite() || a.dx.abs() > 1000.0 || a.dy.abs() > 1000.0
@@ -22591,6 +22816,7 @@ fn run_command_part_23(
             translate_object(p, a.id, a.dx, a.dy)?;
             Ok(json!({"id": a.id}))
         }
+        // Duplicate an object.
         "object.duplicate" => {
             let a: DuplicateParams = parse(params)?;
             if a.ids.is_empty() || a.ids.len() > 64 {
@@ -22654,6 +22880,7 @@ fn run_command_part_23(
             let text = selection_clip::copy_text(p, &a.ids, a.context.as_deref())?;
             Ok(json!({"text": text}))
         }
+        // Paste copied objects.
         "selection.paste" => {
             let a: SelectionPasteParams = parse(params)?;
             if a.text.is_empty() || a.text.len() > 524_288 {
@@ -22667,6 +22894,7 @@ fn run_command_part_23(
                 .collect::<serde_json::Map<String, Value>>();
             Ok(json!({"count": count, "ids": Value::Object(map)}))
         }
+        // Delete an object.
         "object.delete" => {
             let a: Object = parse(params)?;
             if !p.ids().any(|id| id == a.id) {
@@ -22831,6 +23059,7 @@ fn run_command_part_23(
                 "position": *moved,
             }))
         }
+        // Drag a track point.
         "track.drag" => {
             let a: TrackDragParams = parse(params)?;
             route::drag(
@@ -22879,6 +23108,7 @@ fn run_command_part_23(
             via.drill = drill;
             Ok(json!({"id":a.id,"diameter":via.diameter,"drill":via.drill}))
         }
+        // Place a text annotation.
         "text.place" => {
             let a: TextPlaceParams = parse(params)?;
             let layer = command_layer(p, params, a.layer)?;
@@ -22910,6 +23140,7 @@ fn run_command_part_23(
             });
             Ok(json!({"id":id}))
         }
+        // Move a text annotation.
         "text.move" => {
             let a: TextMoveParams = parse(params)?;
             if !a.position.x.is_finite() || !a.position.y.is_finite() {
@@ -22924,6 +23155,7 @@ fn run_command_part_23(
             text.position = a.position;
             Ok(json!({"id":a.id,"position":a.position}))
         }
+        // Set text content or style.
         "text.set" => {
             let a: TextSetParams = parse(params)?;
             if a.text.is_none() && a.size.is_none() && a.layer.is_none() && a.rotation.is_none() {
@@ -22985,6 +23217,7 @@ fn run_command_part_23(
                 json!({"id":text.id,"text":text.text,"size":text.size,"layer":text.layer,"rotation":text.rotation}),
             )
         }
+        // Rotate a text annotation.
         "text.rotate" => {
             let a: TextRotateParams = parse(params)?;
             if !a.degrees.is_finite() || a.degrees.abs() > 360_000.0 {
@@ -22999,6 +23232,7 @@ fn run_command_part_23(
             text.rotation = a.degrees;
             Ok(json!({"id":text.id,"rotation":text.rotation}))
         }
+        // Bind text to an object.
         "text.bind" => {
             let a: TextBindParams = parse(params)?;
             if let Some(bound) = a.component
@@ -23015,6 +23249,7 @@ fn run_command_part_23(
             text.component = a.component;
             Ok(json!({"id":text.id,"component":text.component}))
         }
+        // Expand a text annotation.
         "text.expand" => {
             let a: TextExpandParams = parse(params)?;
             if let Some(id) = a.id
