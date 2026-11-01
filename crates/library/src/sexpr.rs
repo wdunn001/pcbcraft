@@ -412,7 +412,8 @@ mod tests {
             return Err(Error::Invalid("missing field must be empty".into()));
         }
         let prop = parse("(property \"Reference\" \"R\")")?;
-        if prop.field("Reference") != "R" {
+        // A property is positional: its name is atom 1 and its value atom 2.
+        if prop.value(1) != "Reference" || prop.value(2) != "R" {
             return Err(Error::Invalid("Reference property mismatch".into()));
         }
         Ok(())

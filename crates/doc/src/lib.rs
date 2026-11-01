@@ -6297,7 +6297,7 @@ mod drill_tests {
             id: 2,
             reference: "U1".into(),
             value: "GRID100".into(),
-            kind: "library".into(),
+            kind: "connector".into(),
             position: Point::default(),
             rotation: 0.0,
             pins,
@@ -6523,7 +6523,7 @@ mod drill_tests {
         let mut definition = dual_unit_common_supply_definition();
         definition
             .pins
-            .push(symbol_pin("4", "WRONG", 2, 1.0, 1.0, 0.0, "passive"));
+            .push(symbol_pin("4", "WRONG", 3, 1.0, 1.0, 0.0, "passive"));
         assert!(
             library_component(
                 definition,

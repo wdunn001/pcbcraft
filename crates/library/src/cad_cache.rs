@@ -488,8 +488,8 @@ fn stored_files(dir: &Path) -> Vec<StoredFile> {
 
 fn touch(path: &Path) {
     if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
-        let now = UNIX_EPOCH + std::time::Duration::from_secs(pcbcraft_clock::unix_secs());
-        let _ = f.set_modified(now);
+        // Sub-second precision matters: files written in the same second must still order.
+        let _ = f.set_modified(pcbcraft_clock::system_now());
     }
 }
 

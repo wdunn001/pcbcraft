@@ -45,7 +45,7 @@ fn custom_polygon_error_rejects_too_few_vertices_and_bad_anchor() -> Result<(), 
 
 #[test]
 fn custom_polygon_error_rejects_anchor_outside_polygon() -> Result<(), String> {
-    let anchor = Point::new(4.0, 4.0);
+    let anchor = Point::new(5.0, 5.0);
     if custom_polygon_error(anchor, &square_ring())
         != Some("custom pad anchor rectangle must lie inside the polygon")
     {

@@ -22,7 +22,7 @@ fn component_unit_placement_and_schematic_views_split_units() -> T {
     assert!((pos.x - 40.0).abs() < 1e-12 && (rot - 90.0).abs() < 1e-12);
     let views = c.schematic_views();
     assert_eq!(views.len(), 2);
-    assert!(views.iter().any(|v| v.reference == "UB"));
+    assert!(views.iter().any(|v| v.reference == "U1B"));
     let points = c.drawing_points();
     assert!(!points.is_empty());
     Ok(())
@@ -229,7 +229,9 @@ fn net_class_and_rule_overrides() -> T {
     assert!(p.rule_disabled("quiet"));
     p.rule_exclusions.insert("short".into(), vec![7, 8]);
     assert!(p.rule_excluded("short", &[7, 8]));
-    assert!(!p.rule_excluded("short", &[7]));
+    // Every named object must be on the list; one object that is not keeps the finding.
+    assert!(p.rule_excluded("short", &[7]));
+    assert!(!p.rule_excluded("short", &[7, 9]));
     p.rule_regions.insert(
         "short".into(),
         vec![RuleRegion {
