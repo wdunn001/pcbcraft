@@ -25,7 +25,7 @@ Route the nets first if you use the sample instead.
 4. Leave the folder box blank to use a folder named `outputs` next to the design file. Or type another path.
 5. Click **Copper & drill files**.
 
-   ![The Layout tab of the Showcase board. Orange tracks on the top layer and blue tracks on the bottom layer join the parts across a 72 by 60 mm board.](../../../../assets/guide/board-routed.png)
+   ![The Showcase board on the Layout tab. Orange tracks on the top layer and blue tracks on the bottom layer join the parts across a 72 by 60 mm board.](../../../../assets/guide/board-routed.png)
 
 The status strip confirms the write. The files land in the folder you chose.
 
