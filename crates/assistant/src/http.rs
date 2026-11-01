@@ -70,7 +70,14 @@ pub fn plain_request(req: &HttpRequest) -> Result<HttpResponse, String> {
         .map_err(|e| io_text(&e, "send the request"))?;
     let raw = read_all(&mut stream, deadline)?;
     let reply = parse_reply(&raw)?;
-    if let Some(out) = &req.stream_out {
+    // Only an event stream goes out in parts; a plain JSON answer comes back whole.
+    let is_event_stream = reply
+        .headers
+        .iter()
+        .any(|(k, v)| k == "content-type" && v.to_ascii_lowercase().contains("text/event-stream"));
+    if let Some(out) = &req.stream_out
+        && is_event_stream
+    {
         return deliver_streamed_body(out, reply.status, &reply.body);
     }
     Ok(reply)

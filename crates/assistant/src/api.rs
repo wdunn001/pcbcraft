@@ -100,6 +100,8 @@ pub struct ApiBackend {
     cmds: Option<Sender<Cmd>>,
     events: Receiver<Event>,
     cancel: Arc<AtomicBool>,
+    /// A turn end held back so it never shares a poll with the text before it.
+    held_end: Option<Event>,
 }
 
 /// Whether a key may be sent to this address: HTTPS, or this computer.
@@ -166,13 +168,31 @@ impl ApiBackend {
             cmds: Some(cmd_tx),
             events,
             cancel,
+            held_end: None,
         })
     }
 }
 
 impl ChatBackend for ApiBackend {
     fn poll(&mut self) -> Vec<Event> {
-        self.events.try_iter().take(512).collect()
+        // The end of a turn is reported on a poll after the events that led up
+        // to it, so a streamed answer is on screen before the turn is over.
+        let mut out = Vec::new();
+        if let Some(end) = self.held_end.take() {
+            out.push(end);
+            return out;
+        }
+        while out.len() < 512 {
+            match self.events.try_recv() {
+                Ok(e) if matches!(e, Event::TurnEnded { .. }) && !out.is_empty() => {
+                    self.held_end = Some(e);
+                    break;
+                }
+                Ok(e) => out.push(e),
+                Err(_) => break,
+            }
+        }
+        out
     }
     fn prompt(&mut self, parts: &[PromptPart]) {
         self.cancel.store(false, Ordering::Relaxed);

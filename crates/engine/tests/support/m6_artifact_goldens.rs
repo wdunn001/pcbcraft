@@ -180,7 +180,11 @@ fn seed_spec(kind: &str) -> (String, Vec<String>, Value) {
         "assembly_drawing" => ("assembly/", vec![], json!({})),
         "fab_drawing" => ("board.pdf", vec![], json!({"view":"pcb"})),
         "raster_image" => ("board.svg", vec![], json!({"view":"pcb"})),
-        "isolation_gcode" => ("isolation.nc", vec![], json!({"side": "top", "tool": {"diameter_mm": 0.2, "feed_mm_min": 300.0, "plunge_mm_min": 60.0, "depth_mm": 0.05, "passes": 1, "spindle_rpm": 10000}})),
+        "isolation_gcode" => (
+            "isolation.nc",
+            vec![],
+            json!({"side": "top", "tool": {"diameter_mm": 0.2, "feed_mm_min": 300.0, "plunge_mm_min": 60.0, "depth_mm": 0.05, "passes": 1, "spindle_rpm": 10000}}),
+        ),
         "drill_gcode" => ("drill.nc", vec![], json!({})),
         "outline_gcode" => ("outline.nc", vec![], json!({})),
         "laser_path" => ("laser.job", vec![], json!({})),
@@ -299,11 +303,9 @@ fn files_payload_to_golden(body: &Value) -> Result<String, String> {
             .and_then(Value::as_str)
             .ok_or_else(|| format!("file {name} missing payload"))?;
         if entry.get("encoding").and_then(Value::as_str) == Some("base64") {
-            let bytes = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                text.as_bytes(),
-            )
-            .map_err(|e| format!("base64 decode of {name}: {e}"))?;
+            let bytes =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, text.as_bytes())
+                    .map_err(|e| format!("base64 decode of {name}: {e}"))?;
             out.push_str(&format!("=== {name} ===\n{}", binary_summary(&bytes)));
             continue;
         }
