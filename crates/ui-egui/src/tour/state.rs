@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
-use std::time::{Duration, Instant};
+use pcbcraft_clock::Instant;
+use std::time::Duration;
 
 const TAB_QUIET: Duration = Duration::from_secs(3);
 

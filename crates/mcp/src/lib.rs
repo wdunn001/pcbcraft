@@ -6,11 +6,13 @@ mod gated_bridge;
 pub mod http;
 #[cfg(not(target_arch = "wasm32"))]
 pub use gated_bridge::{ToolRequest, start_gated_bridge};
+mod project_host;
 mod prompts;
 mod resources;
 mod tool_files;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
+pub use project_host::{MemHost, NativeHost, ProjectHost, replace_session_from_open};
 use pcbcraft_engine::user_config::UserConfig;
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};

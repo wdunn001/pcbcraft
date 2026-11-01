@@ -19,6 +19,7 @@ mod bom_flavour;
 mod bom_sheet;
 mod bring_up;
 mod companion_cad;
+#[cfg(not(target_arch = "wasm32"))]
 mod datasheet;
 mod drawing_frame;
 mod drill_table;
@@ -154,6 +155,7 @@ pub use compliance_report::{
     compliance_report_bytes, compliance_report_markdown,
 };
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_arch = "wasm32"))]
 pub use datasheet::HttpDatasheetTransport;
 pub use datasheet_cache::{DatasheetCacheResult, fetch_datasheet_cache};
 pub use diff::{DesignChange, DesignDiff, project_diff};
@@ -265,6 +267,7 @@ pub use package::{
 /// - crates/io/src/panel_export.rs
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
 pub use param_body_step::step_param_body;
+#[cfg(not(target_arch = "wasm32"))]
 pub use part_model::gltf_bounds;
 pub use pcbcraft_doc::Layer;
 pub use placement_flavour::{

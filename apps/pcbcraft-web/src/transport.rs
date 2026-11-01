@@ -107,14 +107,19 @@ struct Inner {
     offline: Arc<AtomicBool>,
     queue: Mutex<Vec<String>>,
     done: Mutex<BTreeMap<String, Result<Vec<u8>, FetchError>>>,
-    #[cfg(target_arch = "wasm32")]
-    flight: Mutex<Option<LiveFlight>>,
 }
 
 #[cfg(target_arch = "wasm32")]
 struct LiveFlight {
     url: String,
     future: wasm_bindgen_futures::JsFuture,
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    /// The one in-flight fetch. A browser promise cannot cross threads, so it
+    /// lives beside the single wasm thread instead of inside the shared state.
+    static FLIGHT: std::cell::RefCell<Option<LiveFlight>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Queued browser GETs for the open library hosts.
@@ -137,8 +142,6 @@ impl BrowserTransport {
                 offline: Arc::new(AtomicBool::new(false)),
                 queue: Mutex::new(Vec::new()),
                 done: Mutex::new(BTreeMap::new()),
-                #[cfg(target_arch = "wasm32")]
-                flight: Mutex::new(None),
             }),
         }
     }
@@ -159,7 +162,6 @@ impl BrowserTransport {
                 offline,
                 queue: Mutex::new(Vec::new()),
                 done: Mutex::new(BTreeMap::new()),
-                flight: Mutex::new(None),
             }),
         }
     }
@@ -227,22 +229,22 @@ impl BrowserTransport {
 
     #[cfg(target_arch = "wasm32")]
     fn poll_live(&self) {
-        use std::task::{Context, Poll, Waker};
+        use std::future::Future;
+    use std::task::{Context, Poll, Waker};
         use wasm_bindgen::JsCast;
         use web_sys::{Request, RequestCredentials, RequestInit, RequestMode, Response};
 
-        let mut flight_slot = match self.inner.flight.lock() {
-            Ok(f) => f,
-            Err(_) => return,
-        };
-        if let Some(flight) = flight_slot.as_mut() {
+        let in_flight = FLIGHT.with(|slot| slot.borrow_mut().take());
+        if let Some(mut flight) = in_flight {
             let waker = Waker::noop();
             let mut cx = Context::from_waker(&waker);
-            match flight.future.poll(&mut cx) {
-                Poll::Pending => return,
+            match std::pin::Pin::new(&mut flight.future).poll(&mut cx) {
+                Poll::Pending => {
+                    FLIGHT.with(|slot| *slot.borrow_mut() = Some(flight));
+                    return;
+                }
                 Poll::Ready(Ok(js)) => {
                     let url = flight.url.clone();
-                    flight_slot.take();
                     let answer = match js.dyn_into::<Response>() {
                         Ok(resp) => map_response(resp),
                         Err(_) => Err(FetchError::Failed(
@@ -255,7 +257,6 @@ impl BrowserTransport {
                 }
                 Poll::Ready(Err(_)) => {
                     let url = flight.url.clone();
-                    flight_slot.take();
                     if let Ok(mut done) = self.inner.done.lock() {
                         done.insert(
                             url,
@@ -288,14 +289,7 @@ impl BrowserTransport {
             );
             return;
         };
-        let Ok(init) = RequestInit::new() else {
-            store_done(
-                &self.inner,
-                &url,
-                Err(FetchError::Failed("bad request".into())),
-            );
-            return;
-        };
+        let init = RequestInit::new();
         init.set_method("GET");
         init.set_mode(RequestMode::Cors);
         init.set_credentials(RequestCredentials::Omit);
@@ -307,17 +301,12 @@ impl BrowserTransport {
             );
             return;
         };
-        let Ok(promise) = window.fetch_with_request(&request) else {
-            store_done(
-                &self.inner,
-                &url,
-                Err(FetchError::Failed("fetch refused".into())),
-            );
-            return;
-        };
-        *flight_slot = Some(LiveFlight {
-            url,
-            future: wasm_bindgen_futures::JsFuture::from(promise),
+        let promise = window.fetch_with_request(&request);
+        FLIGHT.with(|slot| {
+            *slot.borrow_mut() = Some(LiveFlight {
+                url,
+                future: wasm_bindgen_futures::JsFuture::from(promise),
+            });
         });
     }
 }
@@ -332,17 +321,22 @@ fn store_done(inner: &Inner, url: &str, answer: Result<Vec<u8>, FetchError>) {
 #[cfg(target_arch = "wasm32")]
 fn map_response(resp: web_sys::Response) -> Result<Vec<u8>, FetchError> {
     use js_sys::Uint8Array;
+    use std::future::Future;
     use std::task::{Context, Poll, Waker};
     use wasm_bindgen_futures::JsFuture;
 
     let status = resp.status();
     match status {
         200..=299 => {
-            let promise = resp.array_buffer();
+            let Ok(promise) = resp.array_buffer() else {
+                return Err(FetchError::Failed(
+                    "The browser could not read the answer.".into(),
+                ));
+            };
             let mut future = JsFuture::from(promise);
             let waker = Waker::noop();
             let mut cx = Context::from_waker(&waker);
-            match future.poll(&mut cx) {
+            match std::pin::Pin::new(&mut future).poll(&mut cx) {
                 Poll::Ready(Ok(buf)) => {
                     let array = Uint8Array::new(&buf);
                     let len = array.length() as usize;
@@ -401,10 +395,7 @@ fn start_cross_origin_probe() {
         return;
     };
     wasm_bindgen_futures::spawn_local(async move {
-        let Ok(init) = RequestInit::new() else {
-            CROSS_ORIGIN.store(REFUSED, Ordering::Release);
-            return;
-        };
+        let init = RequestInit::new();
         init.set_method("GET");
         init.set_mode(RequestMode::Cors);
         init.set_credentials(RequestCredentials::Omit);
@@ -412,10 +403,7 @@ fn start_cross_origin_probe() {
             CROSS_ORIGIN.store(REFUSED, Ordering::Release);
             return;
         };
-        let Ok(promise) = window.fetch_with_request(&request) else {
-            CROSS_ORIGIN.store(REFUSED, Ordering::Release);
-            return;
-        };
+        let promise = window.fetch_with_request(&request);
         let outcome = match JsFuture::from(promise).await {
             Ok(v) => v.dyn_into::<Response>().map(|r| r.ok()).unwrap_or(false),
             Err(_) => false,
