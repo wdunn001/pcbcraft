@@ -44,8 +44,6 @@ const PAD_LIST_LIMIT: usize = 1600;
 ///
 /// # Dependencies
 /// - ../library/src/lib.rs: SymbolDefinition, FootprintDefinition
-
-
 #[derive(Clone)]
 pub(super) enum Draft {
     Symbol(SymbolDefinition),
@@ -64,8 +62,6 @@ pub(super) enum Draft {
 ///
 /// # Dependencies
 /// - ../text/strings/en.txt: tool tooltip string keys
-
-
 pub(super) enum LibraryTool {
     #[default]
     Select,
@@ -102,8 +98,6 @@ enum LibraryPick {
 ///
 /// # Do not
 /// - Access draft without checking for None.
-
-
 pub(super) struct Editor {
     pub mode: u8,
     pub draft: Option<Draft>,
@@ -184,8 +178,6 @@ impl Editor {
 ///
 /// # Do not
 /// - Call with a None project.
-
-
 pub(super) fn initial_editor(tab: Option<&str>, project: &Project) -> Editor {
     match tab {
         Some("project-library") => Editor {
@@ -242,8 +234,6 @@ fn rectangle(layer: &str) -> Graphic {
 ///
 /// # Dependencies
 /// - ../library/src/lib.rs: SymbolDefinition
-
-
 pub(super) fn new_symbol() -> SymbolDefinition {
     SymbolDefinition {
         name: "NewSymbol".into(),
@@ -294,8 +284,6 @@ fn new_pin(number: &str, unit: u32, position: Point, angle: f64) -> SymbolPin {
 ///
 /// # Dependencies
 /// - ../library/src/lib.rs: FootprintPad
-
-
 pub(crate) fn new_pad(number: &str, x: f64) -> FootprintPad {
     FootprintPad {
         number: number.into(),
@@ -327,8 +315,6 @@ pub(crate) fn new_pad(number: &str, x: f64) -> FootprintPad {
 ///
 /// # Dependencies
 /// - ../library/src/lib.rs: FootprintDefinition
-
-
 pub(super) fn new_footprint() -> FootprintDefinition {
     FootprintDefinition {
         name: "NewFootprint".into(),
@@ -1111,7 +1097,6 @@ impl App {
     ///
     /// # Do not
     /// - Change the canvas rect calculation without updating world_to_screen.
-
     pub(super) fn library_editor_canvas(&mut self, ui: &mut egui::Ui, draft: &mut Draft) {
         let symbol = matches!(draft, Draft::Symbol(_));
         ui.horizontal_wrapped(|ui| {
@@ -1534,7 +1519,6 @@ impl App {
     ///
     /// # Do not
     /// - Change the mode values without updating all mode comparisons.
-
     pub(super) fn library_workspaces(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.selectable_value(
@@ -1610,7 +1594,6 @@ impl App {
     ///
     /// # Do not
     /// - Change the order of collection browser vs project library.
-
     pub(super) fn unified_library(&mut self, ui: &mut egui::Ui) {
         self.collection_browser(ui);
         ui.separator();
@@ -1850,7 +1833,6 @@ impl App {
     ///
     /// # Do not
     /// - Change the save flow without updating the tool call names.
-
     pub(super) fn library_editor(&mut self, ui: &mut egui::Ui) {
         self.footprint_wizard(ui);
         let Some(mut draft) = self.library.editor.draft.take() else {
