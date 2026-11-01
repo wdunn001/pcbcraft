@@ -298,7 +298,8 @@ mod tests {
             working_voltage: Default::default(),
             max_length: Default::default(),
         });
-        p.validate().map_err(|e| format!("{}: {e:?}", "valid fixture"))?;
+        p.validate()
+            .map_err(|e| format!("{}: {e:?}", "valid fixture"))?;
         Ok(p)
     }
 

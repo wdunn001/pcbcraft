@@ -91,8 +91,7 @@ impl ProjectHost for MemHost {
         }
     }
     fn save_download(&mut self, filename: &str, bytes: &[u8]) -> Result<(), String> {
-        self.downloads
-            .push((filename.to_string(), bytes.to_vec()));
+        self.downloads.push((filename.to_string(), bytes.to_vec()));
         Ok(())
     }
 }

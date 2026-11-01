@@ -47,14 +47,10 @@ fn document_search_finds_every_page() -> Result<(), String> {
         .find(|f| f.name == "two-pages.pdf")
         .ok_or("fixture")?;
     let doc = Document::open(f.bytes).map_err(|e| format!("open: {e}"))?;
-    let found = doc
-        .search("LM317")
-        .map_err(|e| format!("search: {e}"))?;
+    let found = doc.search("LM317").map_err(|e| format!("search: {e}"))?;
     assert_eq!(found.count(), 1);
     assert_eq!(found.hits[0].page, 0);
-    let ratings = doc
-        .search("Absolute")
-        .map_err(|e| format!("search: {e}"))?;
+    let ratings = doc.search("Absolute").map_err(|e| format!("search: {e}"))?;
     assert_eq!(ratings.count(), 1);
     assert_eq!(ratings.hits[0].page, 1);
     let many = doc.search("Pin").map_err(|e| format!("search: {e}"))?;
@@ -90,8 +86,7 @@ fn ink_only_page_has_no_text_layer() -> Result<(), String> {
         .ok_or("fixture")?;
     let doc = Document::open(f.bytes).map_err(|e| format!("open: {e}"))?;
     assert!(
-        !doc.page_has_text(0)
-            .map_err(|e| format!("layer: {e}"))?,
+        !doc.page_has_text(0).map_err(|e| format!("layer: {e}"))?,
         "vector ink alone is not a text layer"
     );
     Ok(())

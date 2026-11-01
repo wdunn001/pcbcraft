@@ -59,7 +59,14 @@ fn divider_and_convert_return_meta() -> Result<(), Error> {
         json!({"vin": 5.0, "r1": 1000.0, "r2": 1000.0}),
         None,
     )?;
-    assert!((div["result"]["vout_v"].as_f64().ok_or_else(|| Error::Invalid("missing value".into()))? - 2.5).abs() < 0.001);
+    assert!(
+        (div["result"]["vout_v"]
+            .as_f64()
+            .ok_or_else(|| Error::Invalid("missing value".into()))?
+            - 2.5)
+            .abs()
+            < 0.001
+    );
     assert!(div["result"]["meta"]["formula"].is_string());
 
     let mil = s.execute(
@@ -67,7 +74,14 @@ fn divider_and_convert_return_meta() -> Result<(), Error> {
         json!({"value": 30.0, "from": "mil", "to": "mm"}),
         None,
     )?;
-    assert!((mil["result"]["value"].as_f64().ok_or_else(|| Error::Invalid("missing value".into()))? - 0.762).abs() < 0.001);
+    assert!(
+        (mil["result"]["value"]
+            .as_f64()
+            .ok_or_else(|| Error::Invalid("missing value".into()))?
+            - 0.762)
+            .abs()
+            < 0.001
+    );
     Ok(())
 }
 

@@ -117,9 +117,11 @@ pub fn validate_mcu_record(record: &McuRecord) -> Result<(), String> {
             return Err(format!("duplicate mcu pin name {}", pin.name));
         }
         if let Some(level) = &pin.boot_level
-            && level != "low" && level != "high" {
-                return Err(format!("boot level on {} must be low or high", pin.name));
-            }
+            && level != "low"
+            && level != "high"
+        {
+            return Err(format!("boot level on {} must be low or high", pin.name));
+        }
     }
     let mut instance_ids = BTreeSet::new();
     for inst in &record.instances {

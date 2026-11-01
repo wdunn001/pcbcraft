@@ -356,7 +356,8 @@ mod tests {
     fn missing_value_differs_from_a_value_and_all_missing_is_equal() -> Result<(), String> {
         let mut b = sample_part("B", "1206", 0.1, 5);
         b.pins = None;
-        let table = compare_table(&[sample_part("A", "1206", 0.1, 5), b], 1).map_err(|e| format!("{}: {e:?}", "valid table"))?;
+        let table = compare_table(&[sample_part("A", "1206", 0.1, 5), b], 1)
+            .map_err(|e| format!("{}: {e:?}", "valid table"))?;
         let pins = row(&table, "Pin count");
         assert!(pins.differs && pins.values[1].is_none());
         let empty = ComparePartInput {
@@ -365,7 +366,8 @@ mod tests {
             pins: None,
             reach: None,
         };
-        let both = compare_table(&[empty.clone(), empty], 1).map_err(|e| format!("{}: {e:?}", "valid table"))?;
+        let both = compare_table(&[empty.clone(), empty], 1)
+            .map_err(|e| format!("{}: {e:?}", "valid table"))?;
         assert!(
             both.rows.iter().all(|r| !r.differs),
             "two parts that both lack a value do not differ on it"

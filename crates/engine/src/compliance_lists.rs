@@ -71,19 +71,20 @@ fn load_all_installed() -> Result<BTreeMap<String, pcbcraft_doc::ComplianceListS
         out.insert((*id).to_owned(), load_installed(id)?);
     }
     if let Ok(dir) = lists_dir()
-        && dir.is_dir() {
-            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
-                let entry = entry.map_err(|e| e.to_string())?;
-                let path = entry.path();
-                if path.extension().is_some_and(|e| e == "toml")
-                    && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-                {
-                    let text = pcbcraft_io::read_text(&path)?;
-                    let snapshot = compliance_list_from_toml(&text)?;
-                    out.insert(stem.to_owned(), snapshot);
-                }
+        && dir.is_dir()
+    {
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "toml")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                let text = pcbcraft_io::read_text(&path)?;
+                let snapshot = compliance_list_from_toml(&text)?;
+                out.insert(stem.to_owned(), snapshot);
             }
         }
+    }
     Ok(out)
 }
 

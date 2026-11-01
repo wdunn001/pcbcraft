@@ -71,14 +71,14 @@ fn compliance_fields_round_trip_in_project_json() -> Result<(), String> {
 fn compliance_bounds_refuse_oversized_declarations() {
     let compliance = Compliance {
         declarations: (0..65)
-        .map(|i| Declaration {
-            regime: format!("r{i}"),
-            status: DeclarationStatus::Unknown,
-            detail: String::new(),
-            source: user_source(),
-            as_of: String::new(),
-        })
-        .collect(),
+            .map(|i| Declaration {
+                regime: format!("r{i}"),
+                status: DeclarationStatus::Unknown,
+                detail: String::new(),
+                source: user_source(),
+                as_of: String::new(),
+            })
+            .collect(),
         ..Compliance::default()
     };
     assert!(compliance.validate().is_err());

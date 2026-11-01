@@ -193,17 +193,18 @@ pub fn si_net_results_csv(p: &Project) -> Result<String, String> {
     let rows = impedance_rows(p)?;
     let mut dc_by_net: BTreeMap<Id, f64> = BTreeMap::new();
     if let Ok(built) = build_schematic_netlist(p)
-        && let Ok(solution) = solve_dc(&built.net) {
-            for (net_id, node) in &built.node_by_net {
-                if *net_id == built.ground {
-                    continue;
-                }
-                let volts = solution.node_volts[node.index];
-                if volts.is_finite() {
-                    dc_by_net.insert(*net_id, r3(volts));
-                }
+        && let Ok(solution) = solve_dc(&built.net)
+    {
+        for (net_id, node) in &built.node_by_net {
+            if *net_id == built.ground {
+                continue;
+            }
+            let volts = solution.node_volts[node.index];
+            if volts.is_finite() {
+                dc_by_net.insert(*net_id, r3(volts));
             }
         }
+    }
     let mut out = format!(
         "# Signal integrity results for {title}\n# method: {IMPEDANCE_METHOD}\n# uncertainty: {IMPEDANCE_UNCERTAINTY}\nNET,CLASS,ROUTED_LENGTH_MM,IMPEDANCE_OHM,EFFECTIVE_ER,DELAY_PS_PER_MM,DIFF_PAIR,DIFF_Z_OHM,DC_VOLTS,NOTES\n"
     );

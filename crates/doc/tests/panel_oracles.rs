@@ -14,11 +14,11 @@ fn board_copy_size_uses_outline_extents_when_present() -> T {
         width: 50.0,
         height: 40.0,
         outline: Some(vec![
-        Point::new(5.0, 0.0),
-        Point::new(15.0, 0.0),
-        Point::new(15.0, 8.0),
-        Point::new(5.0, 8.0),
-    ]),
+            Point::new(5.0, 0.0),
+            Point::new(15.0, 0.0),
+            Point::new(15.0, 8.0),
+            Point::new(5.0, 8.0),
+        ]),
         ..Board::default()
     };
     let (w, h) = board_copy_size(&board)?;

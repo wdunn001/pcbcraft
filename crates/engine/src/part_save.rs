@@ -344,7 +344,6 @@ mod tests {
     use crate::user_config::UserConfig;
     use pcbcraft_library::{SymbolDefinition, SymbolPin};
     use serde_json::json;
-    
 
     struct TestDirectory {
         path: std::path::PathBuf,

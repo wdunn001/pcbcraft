@@ -115,13 +115,14 @@ pub fn start_gated_bridge(tx: Sender<ToolRequest>, token: String) -> Result<u16,
 mod tests {
     use super::*;
     use std::sync::mpsc::channel;
-    
 
     #[test]
-    fn a_prompt_round_trips_through_the_bridge_with_the_token_and_without_it_is_refused() -> Result<(), String> {
+    fn a_prompt_round_trips_through_the_bridge_with_the_token_and_without_it_is_refused()
+    -> Result<(), String> {
         let (tx, rx) = channel::<ToolRequest>();
         let token = "abc123";
-        let port = start_gated_bridge(tx, token.into()).map_err(|e| format!("{}: {e:?}", "bind"))?;
+        let port =
+            start_gated_bridge(tx, token.into()).map_err(|e| format!("{}: {e:?}", "bind"))?;
         let address = format!("127.0.0.1:{port}");
         let call = json!({
             "jsonrpc":"2.0",
@@ -130,7 +131,8 @@ mod tests {
             "params":{"name":"design.summary","arguments":{}},
             "token":"wrong"
         });
-        let bad = crate::forward(&address, &call, None).map_err(|e| format!("{}: {e:?}", "connect"))?;
+        let bad =
+            crate::forward(&address, &call, None).map_err(|e| format!("{}: {e:?}", "connect"))?;
         assert_eq!(bad["error"]["code"], UNAUTHORIZED);
 
         let call = json!({
@@ -149,7 +151,8 @@ mod tests {
                 .reply
                 .send(json!({"content":[{"type":"text","text":"ok"}],"isError":false}));
         });
-        let good = crate::forward(&address, &call, Some(token)).map_err(|e| format!("{}: {e:?}", "connect"))?;
+        let good = crate::forward(&address, &call, Some(token))
+            .map_err(|e| format!("{}: {e:?}", "connect"))?;
         assert_eq!(good["result"]["content"][0]["text"], "ok");
         Ok(())
     }
@@ -158,10 +161,12 @@ mod tests {
     fn tools_list_works_with_the_token() -> Result<(), String> {
         let (tx, _rx) = channel::<ToolRequest>();
         let token = "list-token";
-        let port = start_gated_bridge(tx, token.into()).map_err(|e| format!("{}: {e:?}", "bind"))?;
+        let port =
+            start_gated_bridge(tx, token.into()).map_err(|e| format!("{}: {e:?}", "bind"))?;
         let address = format!("127.0.0.1:{port}");
         let list = json!({"jsonrpc":"2.0","id":1,"method":"tools/list","token":token});
-        let reply = crate::forward(&address, &list, Some(token)).map_err(|e| format!("{}: {e:?}", "connect"))?;
+        let reply = crate::forward(&address, &list, Some(token))
+            .map_err(|e| format!("{}: {e:?}", "connect"))?;
         assert!(reply["result"]["tools"].is_array());
         Ok(())
     }
@@ -170,7 +175,8 @@ mod tests {
     fn bridge_refuses_a_call_when_nobody_is_listening() -> Result<(), String> {
         let (tx, rx) = channel::<ToolRequest>();
         let token = "lonely";
-        let port = start_gated_bridge(tx, token.into()).map_err(|e| format!("{}: {e:?}", "bind"))?;
+        let port =
+            start_gated_bridge(tx, token.into()).map_err(|e| format!("{}: {e:?}", "bind"))?;
         drop(rx);
         let address = format!("127.0.0.1:{port}");
         let call = json!({
@@ -180,7 +186,8 @@ mod tests {
             "params":{"name":"design.summary","arguments":{}},
             "token":token
         });
-        let reply = crate::forward(&address, &call, Some(token)).map_err(|e| format!("{}: {e:?}", "connect"))?;
+        let reply = crate::forward(&address, &call, Some(token))
+            .map_err(|e| format!("{}: {e:?}", "connect"))?;
         assert_eq!(reply["error"]["code"], -32603);
         Ok(())
     }
@@ -195,7 +202,8 @@ mod tests {
     fn gated_bridge_starts_on_loopback() -> Result<(), String> {
         let (tx, _rx) = channel::<ToolRequest>();
         let start = pcbcraft_clock::instant_now();
-        let port = start_gated_bridge(tx, "t".repeat(64)).map_err(|e| format!("{}: {e:?}", "bind"))?;
+        let port =
+            start_gated_bridge(tx, "t".repeat(64)).map_err(|e| format!("{}: {e:?}", "bind"))?;
         assert!(port > 0);
         assert!(start.elapsed() < Duration::from_secs(2));
         Ok(())

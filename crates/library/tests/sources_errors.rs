@@ -60,7 +60,9 @@ fn an_unapproved_key_gives_a_plain_message() -> Result<(), SourceError> {
         },
     )]));
     let source = Element14Source::new(http, store);
-    let err = source.search("RC0603FR-0710KL").err()
+    let err = source
+        .search("RC0603FR-0710KL")
+        .err()
         .ok_or_else(|| SourceError::Invalid("forbidden key".into()))?;
     assert!(
         matches!(err, SourceError::Unavailable(ref m) if m == UNAPPROVED_KEY_MESSAGE),

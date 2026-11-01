@@ -9,7 +9,6 @@
 
 use crate::api::{MAX_TOOL_TEXT, key_safe_for};
 use crate::backend::{HttpFn, HttpRequest, HttpResponse, SourceLink};
-use crate::tool_names::to_wire;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Mutex;
@@ -330,7 +329,7 @@ fn parse_hit_object(v: &Value) -> Option<Hit> {
 }
 
 fn render_hits(hits: &[Hit]) -> String {
-    let mut lines: Vec<String> = hits
+    let lines: Vec<String> = hits
         .iter()
         .map(|h| {
             let mut line = format!("title: {}\nexcerpt: {}", h.title, h.excerpt);
@@ -461,12 +460,11 @@ fn parse_sse_json(raw: &[u8]) -> Result<Value, String> {
                 data.push_str(rest.trim());
             }
         }
-        if event == "message" || event.is_empty() {
-            if !data.is_empty() {
+        if (event == "message" || event.is_empty())
+            && !data.is_empty() {
                 return serde_json::from_str(&data)
                     .map_err(|_| "The event data was not valid JSON.".into());
             }
-        }
     }
     Err("The retrieval service sent no JSON message.".into())
 }
@@ -515,11 +513,10 @@ fn session_from_response(response: &HttpResponse) -> Option<String> {
 }
 
 pub(crate) fn merge_session(reply: &mut Value, response: &HttpResponse) {
-    if let Some(sid) = session_from_response(response) {
-        if let Some(obj) = reply.as_object_mut() {
+    if let Some(sid) = session_from_response(response)
+        && let Some(obj) = reply.as_object_mut() {
             obj.insert("_session".into(), json!(sid));
         }
-    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -533,6 +530,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 mod tests {
     use super::*;
     use crate::backend::HttpRequest;
+    use crate::tool_names::to_wire;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
@@ -553,7 +551,7 @@ mod tests {
             if guard.len() > 1 {
                 guard.remove(0);
             }
-            if let Some(sid) = session_from_response(&step) {
+            if session_from_response(&step).is_some() {
                 let mut v: Value = serde_json::from_slice(&step.body).unwrap_or(json!({}));
                 merge_session(&mut v, &step);
                 return Ok(HttpResponse {
@@ -562,7 +560,7 @@ mod tests {
                     body: v.to_string().into_bytes(),
                 });
             }
-            let mut reply = step;
+            let reply = step;
             if req.headers.iter().any(|(k, _)| k == "Mcp-Session-Id") {
                 let body: Value = serde_json::from_slice(&reply.body).unwrap_or(json!({}));
                 if body.get("method").and_then(Value::as_str) == Some("tools/list") {
@@ -672,10 +670,11 @@ mod tests {
     use crate::CountingHttp;
 
     #[test]
-    fn register_tool_name_maps_search_knowledge_to_itself() {
+    fn register_tool_name_maps_search_knowledge_to_itself() -> Result<(), String> {
         let list = pcbcraft_mcp::tool_list();
-        let mut names = crate::tool_names::ToolNames::from_list(&list).expect("tool names");
+        let mut names = crate::tool_names::ToolNames::from_list(&list).map_err(|e| format!("{}: {e:?}", "tool names"))?;
         register_tool_name(&mut names);
         assert_eq!(names.mcp_name(MODEL_TOOL_NAME), Some(MODEL_TOOL_NAME));
+        Ok(())
     }
 }

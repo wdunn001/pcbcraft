@@ -14,11 +14,7 @@ type LibraryRef = Option<(String, String)>;
 pub fn link_inputs(
     project: &Project,
     component: &Component,
-) -> (
-    LibraryRef,
-    LibraryRef,
-    BTreeMap<String, String>,
-) {
+) -> (LibraryRef, LibraryRef, BTreeMap<String, String>) {
     let symbol = component
         .library_symbol
         .as_ref()

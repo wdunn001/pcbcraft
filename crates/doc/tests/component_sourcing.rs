@@ -13,7 +13,8 @@ fn an_old_component_with_free_form_fields_loads_unchanged() -> Result<(), String
         "pins": [],
         "fields": [{"key": "MPN", "value": "OLD-MPN"}]
     }"#;
-    let c: Component = serde_json::from_str(json).map_err(|e| format!("{}: {e:?}", "load old component"))?;
+    let c: Component =
+        serde_json::from_str(json).map_err(|e| format!("{}: {e:?}", "load old component"))?;
     assert_eq!(c.field("MPN"), Some("OLD-MPN"));
     assert!(c.sourcing.is_empty());
     assert_eq!(c.mpn(), "OLD-MPN");
@@ -59,13 +60,16 @@ fn typed_sourcing_round_trips_without_empty_record() -> Result<(), String> {
         include_in_bom: true,
         include_in_placement: true,
     };
-    c.sourcing.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
+    c.sourcing
+        .validate()
+        .map_err(|e| format!("{}: {e:?}", "valid"))?;
     let text = serde_json::to_string(&c).map_err(|e| format!("{}: {e:?}", "serialize"))?;
     assert!(
         !text.contains("\"sourcing\":{}"),
         "non-empty sourcing is written"
     );
-    let back: Component = serde_json::from_str(&text).map_err(|e| format!("{}: {e:?}", "deserialize"))?;
+    let back: Component =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e:?}", "deserialize"))?;
     assert_eq!(back.sourcing.mpn, "C-100N");
     assert_eq!(back.sourcing.moisture_level, Some(2));
     let empty = Component {
@@ -89,7 +93,8 @@ fn typed_sourcing_round_trips_without_empty_record() -> Result<(), String> {
         include_in_bom: true,
         include_in_placement: true,
     };
-    let empty_json = serde_json::to_string(&empty).map_err(|e| format!("{}: {e:?}", "serialize empty"))?;
+    let empty_json =
+        serde_json::to_string(&empty).map_err(|e| format!("{}: {e:?}", "serialize empty"))?;
     assert!(
         !empty_json.contains("sourcing"),
         "empty sourcing is omitted"

@@ -9,7 +9,7 @@ use pcbcraft_assistant::{
 };
 use serde_json::json;
 use std::sync::mpsc::channel;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use support::{FakeServer, Reply, assert_request_shape, execute_wire_name, first_tool_name};
 
 fn cfg(url: &str, key: Option<&str>) -> ApiConfig {
@@ -345,7 +345,7 @@ fn after_apply_the_design_state_is_read_back_through_shared() -> Result<(), Stri
         .iter()
         .filter_map(|c| c["reference"].as_str())
         .collect();
-    assert!(refs.iter().any(|r| *r == "R1"), "{refs:?}");
+    assert!(refs.contains(&"R1"), "{refs:?}");
     let first_post = srv.posts();
     let sent_name = first_post[0].body["tools"]
         .as_array()

@@ -121,11 +121,10 @@ pub fn normalize_name(name: &str) -> String {
                 out.push(lower);
             }
             last_space = false;
-        } else if ch.is_whitespace()
-            && !last_space && !out.is_empty() {
-                out.push(' ');
-                last_space = true;
-            }
+        } else if ch.is_whitespace() && !last_space && !out.is_empty() {
+            out.push(' ');
+            last_space = true;
+        }
     }
     out.trim().to_string()
 }

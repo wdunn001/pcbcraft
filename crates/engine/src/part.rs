@@ -520,9 +520,10 @@ fn upsert_symbol_footprint(
     notice: Option<&str>,
 ) {
     if let Some(n) = notice
-        && !p.library.notices.contains(&n.to_string()) {
-            p.library.notices.push(n.to_string());
-        }
+        && !p.library.notices.contains(&n.to_string())
+    {
+        p.library.notices.push(n.to_string());
+    }
     if let Some(def) = p.library.symbols.iter_mut().find(|s| s.name == symbol.name) {
         *def = symbol.clone();
     } else {

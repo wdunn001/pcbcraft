@@ -3896,9 +3896,10 @@ fn check_finding_json(
         "objects": objects,
     });
     if let Some(text) = hint
-        && let Some(obj) = row.as_object_mut() {
-            obj.insert("hint".into(), json!(text));
-        }
+        && let Some(obj) = row.as_object_mut()
+    {
+        obj.insert("hint".into(), json!(text));
+    }
     row
 }
 
@@ -8686,13 +8687,15 @@ fn apply_component_updates(
             return Err(Error::Invalid(format!("no component has id {}", entry.id)));
         }
         if let Some(reference) = entry.reference.as_ref()
-            && (reference.is_empty() || reference.len() > 64) {
-                return Err(Error::Invalid("reference must be 1 to 64 bytes".into()));
-            }
+            && (reference.is_empty() || reference.len() > 64)
+        {
+            return Err(Error::Invalid("reference must be 1 to 64 bytes".into()));
+        }
         if let Some(value) = entry.value.as_ref()
-            && value.len() > 256 {
-                return Err(Error::Invalid("value must be at most 256 bytes".into()));
-            }
+            && value.len() > 256
+        {
+            return Err(Error::Invalid("value must be at most 256 bytes".into()));
+        }
         if let Some(field) = entry.field.as_ref() {
             if field.key.is_empty() || field.key.len() > 64 {
                 return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
@@ -11531,8 +11534,9 @@ fn run_command(
             let csv = match mode {
                 "grouped" => pcbcraft_io::parts_table_csv(p, &a.fields, variant, true)
                     .map_err(Error::Invalid)?,
-                "layout" => pcbcraft_io::parts_table_csv_layout(p, variant)
-                    .map_err(Error::Invalid)?,
+                "layout" => {
+                    pcbcraft_io::parts_table_csv_layout(p, variant).map_err(Error::Invalid)?
+                }
                 _ => pcbcraft_io::parts_table_csv(p, &a.fields, variant, false)
                     .map_err(Error::Invalid)?,
             };
@@ -12490,9 +12494,10 @@ fn run_command(
                 "nets": class.nets.len()
             });
             if let Some(props) = out.as_object_mut()
-                && let Some(extra) = net_properties::class_properties_json(class).as_object() {
-                    props.extend(extra.clone());
-                }
+                && let Some(extra) = net_properties::class_properties_json(class).as_object()
+            {
+                props.extend(extra.clone());
+            }
             Ok(out)
         }
         "netclass.remove" => {
@@ -13166,11 +13171,12 @@ fn run_command(
                 ));
             }
             if let Some(mesh) = &a.mesh_path
-                && (mesh.is_empty() || mesh.len() > 1024 || !mesh_path_allowed(mesh)) {
-                    return Err(Error::Invalid(
-                        "the mesh path must end with .gltf, .glb or .obj".into(),
-                    ));
-                }
+                && (mesh.is_empty() || mesh.len() > 1024 || !mesh_path_allowed(mesh))
+            {
+                return Err(Error::Invalid(
+                    "the mesh path must end with .gltf, .glb or .obj".into(),
+                ));
+            }
             let transform = parse_enclosure_transform(a.transform)?;
             let bytes = std::fs::read(&a.path).map_err(|e| Error::Invalid(e.to_string()))?;
             let scan = pcbcraft_io::read_enclosure_step(&bytes).map_err(Error::Invalid)?;
@@ -13670,9 +13676,10 @@ fn run_command(
                 points: a.points.clone(),
             });
             if let Some(net) = net
-                && !a.pins.is_empty() {
-                    assign(p, net, &a.pins)?;
-                }
+                && !a.pins.is_empty()
+            {
+                assign(p, net, &a.pins)?;
+            }
             let place_junction = a.junction.unwrap_or(a.tee.is_some());
             let mut junction_id = None;
             if place_junction {

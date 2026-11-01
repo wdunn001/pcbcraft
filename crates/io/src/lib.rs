@@ -482,15 +482,19 @@ pub fn open_document(bytes: &[u8], filename_hint: &str) -> Result<OpenKind, Stri
             return Ok(OpenKind::Library(file.library));
         }
         if let Ok(mut project) = serde_json::from_str::<Project>(text)
-            && migrate_loaded_project(&mut project).is_ok() && project.validate().is_ok() {
-                return Ok(OpenKind::Project(Box::new(project)));
-            }
+            && migrate_loaded_project(&mut project).is_ok()
+            && project.validate().is_ok()
+        {
+            return Ok(OpenKind::Project(Box::new(project)));
+        }
     }
     if bytes.starts_with(b"PK\x03\x04")
         && let Ok(mut project) = archive_project(bytes)
-            && migrate_loaded_project(&mut project).is_ok() && project.validate().is_ok() {
-                return Ok(OpenKind::Project(Box::new(project)));
-            }
+        && migrate_loaded_project(&mut project).is_ok()
+        && project.validate().is_ok()
+    {
+        return Ok(OpenKind::Project(Box::new(project)));
+    }
     Err("unrecognized or invalid design file".into())
 }
 
@@ -2402,68 +2406,67 @@ pub fn step_board_with_models(
         if let Some(fp) = p.board.footprints.iter().find(|f| {
             refs.get(&f.component)
                 .is_some_and(|c| c.reference == body.name)
-        })
-            && let Some(model) = refs
-                .get(&fp.component)
-                .and_then(|c| c.library_footprint.as_ref())
-                .and_then(|l| l.definition.model.as_ref())
-                .filter(|m| step_path_is_exchange(&m.path))
-            {
-                if let Some(bytes) = loader(&model.path) {
-                    if bytes.len() > step_merge::MAX_EXCHANGE_BYTES {
-                        notes.push(format!(
-                            "{}: the model file is over the size limit for a board export",
-                            body.name
-                        ));
-                    } else {
-                        let text = String::from_utf8_lossy(&bytes).into_owned();
-                        match step_merge::parse_exchange(&text) {
-                            Ok(exchange) => {
-                                let mut model = model.clone();
-                                model.offset = [0.0; 3];
-                                let matrix = model_matrix(
-                                    &model,
-                                    fp.position,
-                                    fp.rotation,
-                                    part_bodies::is_bottom_side(fp),
-                                    depth,
-                                );
-                                match step_merge::append_body(&mut doc, exchange, &body.name) {
-                                    Ok(links) => {
-                                        if step_merge::write_occurrence(
-                                            &mut doc,
-                                            board_product_definition,
-                                            &links,
-                                            &matrix,
-                                            &body.name,
-                                            axis,
-                                            reference,
-                                        )
-                                        .is_ok()
-                                        {
-                                            placed_vendor = true;
-                                        } else {
-                                            notes.push(format!(
-                                                "{}: the model could not be placed on the board",
-                                                body.name
-                                            ));
-                                        }
-                                    }
-                                    Err(reason) => {
-                                        notes.push(format!("{}: {reason}", body.name));
+        }) && let Some(model) = refs
+            .get(&fp.component)
+            .and_then(|c| c.library_footprint.as_ref())
+            .and_then(|l| l.definition.model.as_ref())
+            .filter(|m| step_path_is_exchange(&m.path))
+        {
+            if let Some(bytes) = loader(&model.path) {
+                if bytes.len() > step_merge::MAX_EXCHANGE_BYTES {
+                    notes.push(format!(
+                        "{}: the model file is over the size limit for a board export",
+                        body.name
+                    ));
+                } else {
+                    let text = String::from_utf8_lossy(&bytes).into_owned();
+                    match step_merge::parse_exchange(&text) {
+                        Ok(exchange) => {
+                            let mut model = model.clone();
+                            model.offset = [0.0; 3];
+                            let matrix = model_matrix(
+                                &model,
+                                fp.position,
+                                fp.rotation,
+                                part_bodies::is_bottom_side(fp),
+                                depth,
+                            );
+                            match step_merge::append_body(&mut doc, exchange, &body.name) {
+                                Ok(links) => {
+                                    if step_merge::write_occurrence(
+                                        &mut doc,
+                                        board_product_definition,
+                                        &links,
+                                        &matrix,
+                                        &body.name,
+                                        axis,
+                                        reference,
+                                    )
+                                    .is_ok()
+                                    {
+                                        placed_vendor = true;
+                                    } else {
+                                        notes.push(format!(
+                                            "{}: the model could not be placed on the board",
+                                            body.name
+                                        ));
                                     }
                                 }
+                                Err(reason) => {
+                                    notes.push(format!("{}: {reason}", body.name));
+                                }
                             }
-                            Err(reason) => notes.push(format!("{}: {reason}", body.name)),
                         }
+                        Err(reason) => notes.push(format!("{}: {reason}", body.name)),
                     }
-                } else {
-                    notes.push(format!(
-                        "{}: no model file was found at {}",
-                        body.name, model.path
-                    ));
                 }
+            } else {
+                notes.push(format!(
+                    "{}: no model file was found at {}",
+                    body.name, model.path
+                ));
             }
+        }
         if placed_vendor {
             continue;
         }
@@ -4034,7 +4037,6 @@ fn xml_escape(value: &str) -> String {
 }
 
 pub use ipc2581_export::ipc2581_text;
-
 
 /// Parse a footprint assignment text: one pair per line, a component reference
 /// first and the footprint file after whitespace; blank lines and # comments are
@@ -9519,9 +9521,10 @@ mod tests {
     fn step_board_places_a_model_with_the_footprint_matrix() -> Result<(), String> {
         let mut project = two_part_project(false, 90.0)?;
         if let Some(lib) = project.components[1].library_footprint.as_mut()
-            && let Some(model) = lib.definition.model.as_mut() {
-                model.path = "offset_box.step".into();
-            }
+            && let Some(model) = lib.definition.model.as_mut()
+        {
+            model.path = "offset_box.step".into();
+        }
         let bytes = fixture_bytes("offset_box.step");
         let export = step_board_with_models(&project, &|path| {
             if path.ends_with("offset_box.step") {
@@ -12079,11 +12082,15 @@ mod tests {
             "structure lists every copper layer from the stackup"
         );
         assert!(
-            dsn.contains("(wire (path (net 1) (layer In1.Cu) (width 300) (11000 10000) (29000 10000)))"),
+            dsn.contains(
+                "(wire (path (net 1) (layer In1.Cu) (width 300) (11000 10000) (29000 10000)))"
+            ),
             "inner tracks land on the stack layer name, not only on outer copper"
         );
         assert!(
-            !dsn.contains("(wire (path (net 1) (layer F.Cu) (width 300) (11000 10000) (29000 10000)))"),
+            !dsn.contains(
+                "(wire (path (net 1) (layer F.Cu) (width 300) (11000 10000) (29000 10000)))"
+            ),
             "the inner track must not be forced onto the top layer"
         );
         Ok(())

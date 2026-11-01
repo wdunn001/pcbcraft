@@ -12,9 +12,9 @@ mod resources;
 mod tool_files;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
-pub use project_host::{MemHost, NativeHost, ProjectHost, replace_session_from_open};
 use pcbcraft_engine::user_config::UserConfig;
 use pcbcraft_engine::{Command, Session};
+pub use project_host::{MemHost, NativeHost, ProjectHost, replace_session_from_open};
 use serde_json::{Value, json};
 #[cfg(any(not(target_arch = "wasm32"), test))]
 use std::io::BufReader;
@@ -1160,10 +1160,11 @@ pub fn forward(
 ) -> Result<Value, String> {
     let mut payload = request.clone();
     if let Some(token) = bridge_token
-        && let Some(obj) = payload.as_object_mut() {
-            obj.entry("token".to_string())
-                .or_insert_with(|| Value::String(token.to_string()));
-        }
+        && let Some(obj) = payload.as_object_mut()
+    {
+        obj.entry("token".to_string())
+            .or_insert_with(|| Value::String(token.to_string()));
+    }
     let mut stream = std::net::TcpStream::connect_timeout(
         &loopback(address)?,
         std::time::Duration::from_secs(3),

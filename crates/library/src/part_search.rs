@@ -652,12 +652,15 @@ mod tests {
                 Category::IcRegulator,
             ),
         ];
-        let index = PartSearchIndex::build(&listings, &BTreeMap::new()).map_err(|e| format!("{}: {e:?}", "index builds"))?;
+        let index = PartSearchIndex::build(&listings, &BTreeMap::new())
+            .map_err(|e| format!("{}: {e:?}", "index builds"))?;
         let query = PartSearchQuery {
             need: "low noise 3.3 V regulator small package".into(),
             ..Default::default()
         };
-        let hits = index.search(&query, 5).map_err(|e| format!("{}: {e:?}", "search"))?;
+        let hits = index
+            .search(&query, 5)
+            .map_err(|e| format!("{}: {e:?}", "search"))?;
         assert_eq!(
             hits.first().map(|h| h.listing.mpn.as_str()),
             Some("LDO-3V3")
@@ -672,13 +675,16 @@ mod tests {
             sample_listing("R-1", "resistor", Category::Resistor),
             sample_listing("C-1", "capacitor", Category::Capacitor),
         ];
-        let index = PartSearchIndex::build(&listings, &BTreeMap::new()).map_err(|e| format!("{}: {e:?}", "index"))?;
+        let index = PartSearchIndex::build(&listings, &BTreeMap::new())
+            .map_err(|e| format!("{}: {e:?}", "index"))?;
         let query = PartSearchQuery {
             need: String::new(),
             tags: vec!["function:capacitor".into()],
             ..Default::default()
         };
-        let hits = index.search(&query, 10).map_err(|e| format!("{}: {e:?}", "search"))?;
+        let hits = index
+            .search(&query, 10)
+            .map_err(|e| format!("{}: {e:?}", "search"))?;
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].listing.mpn, "C-1");
         Ok(())
@@ -687,7 +693,8 @@ mod tests {
     #[test]
     fn index_round_trips_through_json() -> Result<(), String> {
         let listings = vec![sample_listing("X", "part", Category::Other)];
-        let index = PartSearchIndex::build(&listings, &BTreeMap::new()).map_err(|e| format!("{}: {e:?}", "index"))?;
+        let index = PartSearchIndex::build(&listings, &BTreeMap::new())
+            .map_err(|e| format!("{}: {e:?}", "index"))?;
         let json = index.to_json().map_err(|e| format!("{}: {e:?}", "json"))?;
         let back = PartSearchIndex::from_json(&json).map_err(|e| format!("{}: {e:?}", "parse"))?;
         assert_eq!(back.len(), 1);
@@ -722,7 +729,8 @@ mod tests {
             .zip(listings.iter())
             .map(|(need, listing)| (need.as_str(), listing.mpn.as_str()))
             .collect();
-        let index = PartSearchIndex::build(&listings, &BTreeMap::new()).map_err(|e| format!("{}: {e:?}", "index"))?;
+        let index = PartSearchIndex::build(&listings, &BTreeMap::new())
+            .map_err(|e| format!("{}: {e:?}", "index"))?;
         let recall = recall_at_k(&index, &case_refs, 3);
         assert!(
             recall >= 0.85,

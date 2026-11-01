@@ -594,12 +594,13 @@ fn read_stored_zip(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
             return Err(format!("archive entry CRC mismatch: {name}"));
         }
         if name.starts_with("blobs/")
-            && let Some((_, ext)) = name.rsplit_once('.') {
-                verify_blob_path(&name, ext)?;
-                if digest(payload) != blob_hash_from_path(&name, ext)? {
-                    return Err(format!("blob hash mismatch: {name}"));
-                }
+            && let Some((_, ext)) = name.rsplit_once('.')
+        {
+            verify_blob_path(&name, ext)?;
+            if digest(payload) != blob_hash_from_path(&name, ext)? {
+                return Err(format!("blob hash mismatch: {name}"));
             }
+        }
         out.insert(name, payload.to_vec());
     }
     Ok(out)
@@ -699,8 +700,7 @@ mod tests {
             .cloned()
             .ok_or("no mesh blob")?;
         entries.get_mut(&name).ok_or("no mesh blob")?[0] ^= 0x01;
-        let zip =
-            crate::zip_entries(&entries.into_iter().collect::<Vec<_>>())?;
+        let zip = crate::zip_entries(&entries.into_iter().collect::<Vec<_>>())?;
         assert!(
             read_solidcraft_container(&zip).is_err(),
             "a wrong blob hash is refused"

@@ -32,8 +32,10 @@ fn two_peers_applying_the_same_ordered_ops_reach_identical_projects() -> Result<
     let mut order = OrderedRoomApply::new(0);
     for op in ops {
         for ready in order.ingest(op) {
-            apply_room_command(&mut a, &ready.command, ready.params.clone()).map_err(|e| format!("{}: {e:?}", "peer a"))?;
-            apply_room_command(&mut b, &ready.command, ready.params.clone()).map_err(|e| format!("{}: {e:?}", "peer b"))?;
+            apply_room_command(&mut a, &ready.command, ready.params.clone())
+                .map_err(|e| format!("{}: {e:?}", "peer a"))?;
+            apply_room_command(&mut b, &ready.command, ready.params.clone())
+                .map_err(|e| format!("{}: {e:?}", "peer b"))?;
         }
     }
     assert_eq!(
@@ -47,8 +49,10 @@ fn two_peers_applying_the_same_ordered_ops_reach_identical_projects() -> Result<
 fn a_rejected_command_advances_nothing_on_every_peer() -> Result<(), String> {
     let mut a = Session::sample().map_err(|e| format!("{}: {e:?}", "sample a"))?;
     let mut b = Session::sample().map_err(|e| format!("{}: {e:?}", "sample b"))?;
-    let before_a = CollabSnapshot::from_session(&a).map_err(|e| format!("{}: {e:?}", "before a"))?;
-    let before_b = CollabSnapshot::from_session(&b).map_err(|e| format!("{}: {e:?}", "before b"))?;
+    let before_a =
+        CollabSnapshot::from_session(&a).map_err(|e| format!("{}: {e:?}", "before a"))?;
+    let before_b =
+        CollabSnapshot::from_session(&b).map_err(|e| format!("{}: {e:?}", "before b"))?;
 
     let mut order = OrderedRoomApply::new(0);
     for ready in order.ingest(RoomOp {
@@ -60,8 +64,14 @@ fn a_rejected_command_advances_nothing_on_every_peer() -> Result<(), String> {
         assert!(apply_room_command(&mut a, &ready.command, ready.params.clone()).is_err());
         assert!(apply_room_command(&mut b, &ready.command, ready.params.clone()).is_err());
     }
-    assert_eq!(CollabSnapshot::from_session(&a).map_err(|e| format!("{}: {e:?}", "after a"))?, before_a);
-    assert_eq!(CollabSnapshot::from_session(&b).map_err(|e| format!("{}: {e:?}", "after b"))?, before_b);
+    assert_eq!(
+        CollabSnapshot::from_session(&a).map_err(|e| format!("{}: {e:?}", "after a"))?,
+        before_a
+    );
+    assert_eq!(
+        CollabSnapshot::from_session(&b).map_err(|e| format!("{}: {e:?}", "after b"))?,
+        before_b
+    );
     Ok(())
 }
 

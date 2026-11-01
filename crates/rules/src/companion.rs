@@ -277,11 +277,11 @@ fn builtin_cc_pulldown(project: &Project, graph: &SchematicGraph) -> Vec<Finding
             }
             if let Some(c) = project.component(br.component)
                 && kind_matches(&c.kind, "resistor")
-                    && value_in_range(&c.value, &c.kind, 5_000.0, 5_600.0)
-                {
-                    ok = true;
-                    break;
-                }
+                && value_in_range(&c.value, &c.kind, 5_000.0, 5_600.0)
+            {
+                ok = true;
+                break;
+            }
         }
         if !ok {
             out.push(finding(
@@ -315,9 +315,10 @@ fn count_pullups_to_power(project: &Project, graph: &SchematicGraph, net: Id) ->
             continue;
         }
         if let Some(c) = project.component(br.component)
-            && kind_matches(&c.kind, "resistor") {
-                count += 1;
-            }
+            && kind_matches(&c.kind, "resistor")
+        {
+            count += 1;
+        }
     }
     count
 }
@@ -716,9 +717,10 @@ pub fn companion_findings_for_rules(
                         continue;
                     }
                     if let (Some(lo), Some(hi)) = (min, max)
-                        && !value_in_range(&c.value, &c.kind, lo, hi) {
-                            continue;
-                        }
+                        && !value_in_range(&c.value, &c.kind, lo, hi)
+                    {
+                        continue;
+                    }
                     satisfied = true;
                     break;
                 }

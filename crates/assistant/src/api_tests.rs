@@ -7,7 +7,6 @@ use crate::backend::{
 };
 use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
-use pcbcraft_clock::Instant;
 use serde_json::{Value, json};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
@@ -720,10 +719,10 @@ fn an_openai_stream_shows_text_before_the_turn_ends() -> Result<(), String> {
     let (ctx, _) = host("ok");
     let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
     say(&mut b, "hi");
-    let end = Instant::now() + Duration::from_secs(10);
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(10);
     let mut saw_early = false;
     let mut saw_end = false;
-    while Instant::now() < end {
+    while pcbcraft_clock::instant_now() < end {
         for e in b.poll() {
             if matches!(&e, Event::Text { text, .. } if text == "early") {
                 saw_early = true;
@@ -772,10 +771,10 @@ fn stop_cancels_an_openai_stream_within_a_second() -> Result<(), String> {
     let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
     say(&mut b, "wait");
     std::thread::sleep(Duration::from_millis(50));
-    let t = Instant::now();
+    let t = pcbcraft_clock::instant_now();
     b.cancel();
     let end = t + Duration::from_secs(1);
-    while Instant::now() < end {
+    while pcbcraft_clock::instant_now() < end {
         for e in b.poll() {
             if matches!(e, Event::TurnEnded { reason } if reason == "cancelled") {
                 assert!(t.elapsed() < Duration::from_secs(1));

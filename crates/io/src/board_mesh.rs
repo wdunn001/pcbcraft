@@ -18,10 +18,10 @@
 //! Limits are explicit: [`BoardMesh::warnings`] says what was skipped and why.
 #[path = "board_mesh_bench.rs"]
 mod board_mesh_bench;
-pub use board_mesh_bench::bench_project_600_parts;
 use crate::mesh_material::{MaterialClass, parametric_body_material};
 use crate::model_load::LoadedModel;
 use crate::parametric_body::ParametricBody;
+pub use board_mesh_bench::bench_project_600_parts;
 use pcbcraft_doc::{ArtKind, ArtShape, Footprint, Id, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::Model3D;
@@ -973,11 +973,11 @@ fn build_parametric_prototype(
         if bottom { (-hi, -lo) } else { (lo, hi) }
     };
     let extrude = |b: &mut Builder<'_>,
-                       ring: &[Point],
-                       z0: f64,
-                       z1: f64,
-                       mat: MaterialClass,
-                       warnings: &mut Warnings|
+                   ring: &[Point],
+                   z0: f64,
+                   z1: f64,
+                   mat: MaterialClass,
+                   warnings: &mut Warnings|
      -> Result<(), String> {
         b.cap_mat = mat;
         b.wall_mat = mat;
@@ -2153,11 +2153,14 @@ mod tests {
     fn a_footprint_box_body_overrides_pad_defaults() -> Check {
         let mut p = resistor_project();
         if let Some(c) = p.components.first_mut()
-            && let Some(l) = c.library_footprint.as_mut() { l.definition.box_body = Some(pcbcraft_library::FootprintBoxBody {
-                    width: 3.0,
-                    depth: 2.0,
-                    height: 4.0,
-                }); }
+            && let Some(l) = c.library_footprint.as_mut()
+        {
+            l.definition.box_body = Some(pcbcraft_library::FootprintBoxBody {
+                width: 3.0,
+                depth: 2.0,
+                height: 4.0,
+            });
+        }
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let body = part(&mesh, PartKind::Body)?;
         assert_eq!(body.height_source, Some("footprint"));

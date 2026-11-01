@@ -184,7 +184,8 @@ fn compliance_project_round_trips() -> Result<(), String> {
         },
     );
     let json = serde_json::to_string(&p).map_err(|e| format!("{}: {e:?}", "serialize"))?;
-    let back: Project = serde_json::from_str(&json).map_err(|e| format!("{}: {e:?}", "deserialize"))?;
+    let back: Project =
+        serde_json::from_str(&json).map_err(|e| format!("{}: {e:?}", "deserialize"))?;
     assert_eq!(back.compliance_settings.rule_sets, vec!["eu_market"]);
     assert_eq!(
         back.components

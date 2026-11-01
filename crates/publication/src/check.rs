@@ -295,9 +295,10 @@ fn check_tags_and_roles(m: &PublicationManifest) -> CheckResult {
 fn check_urls(m: &PublicationManifest) -> CheckResult {
     let mut reasons = Vec::new();
     if let Some(url) = &m.identity.homepage
-        && !url.starts_with("https://") {
-            reasons.push("identity.homepage must use https".into());
-        }
+        && !url.starts_with("https://")
+    {
+        reasons.push("identity.homepage must use https".into());
+    }
     if let Some(bom) = &m.bom_summary {
         for line in &bom.lines {
             if let Some(url) = &line.datasheet_url

@@ -6,9 +6,9 @@ use pcbcraft_doc::{
 fn demo_project() -> Project {
     let mut p = Project {
         compliance_settings: ComplianceProjectSettings {
-        rule_sets: vec!["synthetic_demo".into()],
-        ..ComplianceProjectSettings::default()
-    },
+            rule_sets: vec!["synthetic_demo".into()],
+            ..ComplianceProjectSettings::default()
+        },
         ..Project::default()
     };
     let mut c =
@@ -75,7 +75,9 @@ fn fixture_rule_set_yields_hit_unverified_and_stale() -> Result<(), String> {
         }],
         ..Compliance::default()
     };
-    stale_project.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
+    stale_project
+        .validate()
+        .map_err(|e| format!("{}: {e:?}", "valid"))?;
     let stale = pcbcraft_rules::compliance_check(&stale_project);
     assert!(
         stale.iter().any(|f| f.state == "stale"),
@@ -106,7 +108,9 @@ fn rule_set_choice_changes_visible_rows() -> Result<(), String> {
     let none = pcbcraft_rules::compliance_check(&bare);
     let mut other = demo_project();
     other.compliance_settings.rule_sets = vec![];
-    other.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
+    other
+        .validate()
+        .map_err(|e| format!("{}: {e:?}", "valid"))?;
     let empty = pcbcraft_rules::compliance_check(&other);
     assert!(empty.is_empty());
     assert!(!none.is_empty());
@@ -133,7 +137,9 @@ fn origin_unverified_without_country() -> Result<(), String> {
         basis: String::new(),
         as_of: String::new(),
     });
-    with_country.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
+    with_country
+        .validate()
+        .map_err(|e| format!("{}: {e:?}", "valid"))?;
     let hit = pcbcraft_rules::compliance_check(&with_country)
         .into_iter()
         .find(|f| f.rule == "demo.origin" && f.objects == vec![2])

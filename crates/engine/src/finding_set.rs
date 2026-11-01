@@ -102,7 +102,7 @@ pub(crate) fn assert_finding_counts_agree(session: &Session, set: &FindingSet, w
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use pcbcraft_rules::Loudness;
     use serde_json::json;
     use std::path::PathBuf;

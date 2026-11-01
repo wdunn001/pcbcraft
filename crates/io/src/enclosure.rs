@@ -159,9 +159,11 @@ fn scan_exchange(exchange: &Exchange, scale: f64) -> Result<EnclosureScan, Strin
         if surface.starts_with("PLANE(") {
             if planar_faces.len() < MAX_PLANAR_FACES
                 && let Some(polygon) = face_polygon(body, &exchange.entities, &point_coords)
-                    && polygon.len() >= 3 && polygon.len() <= MAX_FACE_VERTICES {
-                        planar_faces.push(PlanarFace { polygon });
-                    }
+                && polygon.len() >= 3
+                && polygon.len() <= MAX_FACE_VERTICES
+            {
+                planar_faces.push(PlanarFace { polygon });
+            }
         } else {
             hidden_face_count += 1;
         }
@@ -233,11 +235,12 @@ fn parse_step_string(raw: &str) -> Option<String> {
 
 fn split_step_args(inside: &str) -> (String, String) {
     if inside.starts_with('\'')
-        && let Some(end) = inside[1..].find('\'') {
-            let name = inside[..2 + end].to_string();
-            let rest = inside[2 + end..].trim_start_matches(',').trim();
-            return (name, rest.to_string());
-        }
+        && let Some(end) = inside[1..].find('\'')
+    {
+        let name = inside[..2 + end].to_string();
+        let rest = inside[2 + end..].trim_start_matches(',').trim();
+        return (name, rest.to_string());
+    }
     (String::new(), inside.to_string())
 }
 
@@ -295,10 +298,11 @@ fn face_polygon(
     for _ in 0..8 {
         let body = entities.get(&current)?;
         if body.starts_with("FACE_OUTER_BOUND")
-            && let Some(loop_id) = ref_id(body, "#") {
-                current = loop_id;
-                continue;
-            }
+            && let Some(loop_id) = ref_id(body, "#")
+        {
+            current = loop_id;
+            continue;
+        }
         if body.starts_with("EDGE_LOOP") {
             return walk_edge_loop(body, entities, points);
         }
@@ -381,14 +385,16 @@ fn edge_start_point(
     for _ in 0..6 {
         let body = entities.get(&current)?;
         if body.starts_with("ORIENTED_EDGE")
-            && let Some(next) = ref_id(body, "#") {
-                current = next;
-                continue;
-            }
+            && let Some(next) = ref_id(body, "#")
+        {
+            current = next;
+            continue;
+        }
         if body.starts_with("EDGE_CURVE")
-            && let Some(vertex_id) = ref_id(body, "#") {
-                return vertex_point(vertex_id, entities, points);
-            }
+            && let Some(vertex_id) = ref_id(body, "#")
+        {
+            return vertex_point(vertex_id, entities, points);
+        }
         if let Some(next) = ref_id(body, "#") {
             current = next;
         } else {
@@ -405,9 +411,10 @@ fn vertex_point(
 ) -> Option<[f64; 3]> {
     let body = entities.get(&vertex_id)?;
     if body.starts_with("VERTEX_POINT")
-        && let Some(point_id) = ref_id(body, "#") {
-            return points.get(&point_id).copied();
-        }
+        && let Some(point_id) = ref_id(body, "#")
+    {
+        return points.get(&point_id).copied();
+    }
     None
 }
 

@@ -53,11 +53,12 @@ fn power_nets(project: &Project) -> BTreeMap<Id, PowerKind> {
     }
     for pin in project.components.iter().flat_map(|c| c.pins.iter()) {
         if (pin.electrical_type == "power_in" || pin.electrical_type == "power_out")
-            && let Some(net) = pin.net.filter(|n| *n != 0) {
-                found.entry(net).or_insert_with(|| {
-                    power_kind(project.net_name(net)).unwrap_or(PowerKind::Rail)
-                });
-            }
+            && let Some(net) = pin.net.filter(|n| *n != 0)
+        {
+            found
+                .entry(net)
+                .or_insert_with(|| power_kind(project.net_name(net)).unwrap_or(PowerKind::Rail));
+        }
     }
     found
 }

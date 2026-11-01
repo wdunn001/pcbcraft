@@ -7,13 +7,13 @@ use pcbcraft_rules::compliance_check;
 fn sample_project() -> Project {
     let mut project = Project {
         compliance_settings: ComplianceProjectSettings {
-        rule_sets: vec!["us_government_ndaa".into()],
-        board_assembler_country: Default::default(),
-        board_rohs_exemption: Default::default(),
-        org_role: Default::default(),
-        origin_interpretation: Default::default(),
-        target_markets: Default::default(),
-    },
+            rule_sets: vec!["us_government_ndaa".into()],
+            board_assembler_country: Default::default(),
+            board_rohs_exemption: Default::default(),
+            org_role: Default::default(),
+            origin_interpretation: Default::default(),
+            target_markets: Default::default(),
+        },
         ..Project::default()
     };
     project.manufacturers.push(ManufacturerRecord {

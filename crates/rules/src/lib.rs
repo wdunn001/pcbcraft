@@ -1,9 +1,9 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
 use pcbcraft_doc::{
-    ArtKind, ArtShape, Board, Component, FabRules, Footprint, Id, Layer,
-    PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM,
-    PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad, PanelSeparation, Project,
-    VALIDATION_CHORD_ERROR, Via, ViaKind, panel_layout, panel_score_lines,
+    ArtKind, ArtShape, Board, Component, FabRules, Footprint, Id, Layer, PANEL_ASSEMBLER_MAX_MM,
+    PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM,
+    PANEL_TAB_CHANNEL_MIN_MM, Pad, PanelSeparation, Project, VALIDATION_CHORD_ERROR, Via, ViaKind,
+    panel_layout, panel_score_lines,
 };
 use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use serde::Serialize;
@@ -370,7 +370,8 @@ fn copper(project: &Project) -> Vec<Copper> {
         };
         // One pad per copper layer in the via's span; it conducts nowhere else.
         for layer in project.via_span_layers(v) {
-            if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer)
+            if project.remove_unused_inner_pads_enabled()
+                && !project.copper_layer_is_end(layer)
                 && !pcbcraft_doc::fill::plated_item_connected_on_layer(
                     project,
                     v.net,
@@ -378,9 +379,10 @@ fn copper(project: &Project) -> Vec<Copper> {
                     v.diameter / 2.0,
                     layer,
                     pcbcraft_doc::fill::PlatedConnectKind::Via,
-                ) {
-                    continue;
-                }
+                )
+            {
+                continue;
+            }
             let mut pad = item.clone();
             pad.layer = layer;
             result.push(pad);
@@ -5966,8 +5968,8 @@ mod tests {
 mod pour_tests {
     use super::*;
     use pcbcraft_doc::{
-        CopperZone, DiffPair, Footprint, Keepout, Net, NetClass, Pad, RuleArea, RuleRegion, Track, Via, ZoneIslands,
-        ZonePour, component_template,
+        CopperZone, DiffPair, Footprint, Keepout, Net, NetClass, Pad, RuleArea, RuleRegion, Track,
+        Via, ZoneIslands, ZonePour, component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
 

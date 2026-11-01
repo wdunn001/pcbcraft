@@ -96,10 +96,11 @@ fn sidecar_candidates(project_path: &Path, stub: &CompanionStub) -> Vec<PathBuf>
         }
     }
     if let Some(stem) = project_path.file_stem().and_then(|s| s.to_str())
-        && let Some(dir) = project_path.parent() {
-            out.push(dir.join(format!("{stem}.step")));
-            out.push(dir.join(format!("{stem}.solidcraft.step")));
-        }
+        && let Some(dir) = project_path.parent()
+    {
+        out.push(dir.join(format!("{stem}.step")));
+        out.push(dir.join(format!("{stem}.solidcraft.step")));
+    }
     out
 }
 
@@ -141,9 +142,10 @@ pub fn resolve_step_bytes(
     let path = Path::new(project_path);
     for candidate in sidecar_candidates(path, &stub) {
         if let Ok(bytes) = std::fs::read(&candidate)
-            && !bytes.is_empty() {
-                return Ok(bytes);
-            }
+            && !bytes.is_empty()
+        {
+            return Ok(bytes);
+        }
     }
     if let Some(cached) = cache_step_path(cache_root, &hash)
         && let Ok(bytes) = std::fs::read(&cached)

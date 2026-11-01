@@ -230,7 +230,7 @@ impl BrowserTransport {
     #[cfg(target_arch = "wasm32")]
     fn poll_live(&self) {
         use std::future::Future;
-    use std::task::{Context, Poll, Waker};
+        use std::task::{Context, Poll, Waker};
         use wasm_bindgen::JsCast;
         use web_sys::{Request, RequestCredentials, RequestInit, RequestMode, Response};
 

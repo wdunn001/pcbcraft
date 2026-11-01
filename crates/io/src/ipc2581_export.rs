@@ -650,12 +650,13 @@ fn spec_for_layer(row: &LayerRecord) -> Option<String> {
         }
     }
     if row.kind == "copper"
-        && let Some(oz) = row.copper_weight_oz {
-            let _ = writeln!(
-                block,
-                "<Conductor type=\"WEIGHT\"><Property value=\"{oz:.6}\"/></Conductor>"
-            );
-        }
+        && let Some(oz) = row.copper_weight_oz
+    {
+        let _ = writeln!(
+            block,
+            "<Conductor type=\"WEIGHT\"><Property value=\"{oz:.6}\"/></Conductor>"
+        );
+    }
     block.push_str("</Spec>\n");
     Some(block)
 }

@@ -14,7 +14,6 @@ fn add_resistor(s: &mut Session) -> Result<u64, Error> {
 }
 
 fn sample_listing() -> PartListing {
-    
     PartListing {
         source: ListingSource::Fixture,
         source_id: "Sample".into(),

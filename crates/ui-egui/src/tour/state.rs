@@ -1,8 +1,8 @@
 //! Tour progress, triggers and the in-session state machine (#773).
 
+use pcbcraft_clock::Instant;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
-use pcbcraft_clock::Instant;
 use std::time::Duration;
 
 const TAB_QUIET: Duration = Duration::from_secs(3);

@@ -14,12 +14,13 @@ fn courtyard_half(fp: &pcbcraft_library::FootprintDefinition) -> Option<(f64, f6
         if let Graphic::Rectangle {
             start, end, layer, ..
         } = g
-            && layer == "pcbcraft.courtyard" {
-                return Some((
-                    start.x.abs().max(end.x.abs()),
-                    start.y.abs().max(end.y.abs()),
-                ));
-            }
+            && layer == "pcbcraft.courtyard"
+        {
+            return Some((
+                start.x.abs().max(end.x.abs()),
+                start.y.abs().max(end.y.abs()),
+            ));
+        }
     }
     None
 }
@@ -125,7 +126,8 @@ fn invalid_lead_code_names_field() -> Result<(), String> {
             alignment_posts: false,
         },
     )
-    .err().ok_or("expected an error")?;
+    .err()
+    .ok_or("expected an error")?;
     assert_eq!(err[0].field, "lead_code");
     assert!(!err[0].valid_values.is_empty());
     Ok(())

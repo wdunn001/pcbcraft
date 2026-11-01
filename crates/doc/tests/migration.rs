@@ -47,8 +47,7 @@ fn project_with_net(copper: u8) -> Project {
 #[test]
 fn all_example_files_load_and_validate() -> Result<(), String> {
     let examples_dir = root().join("examples");
-    let entries =
-        std::fs::read_dir(&examples_dir).map_err(|e| format!("examples dir: {e}"))?;
+    let entries = std::fs::read_dir(&examples_dir).map_err(|e| format!("examples dir: {e}"))?;
 
     let mut loaded = 0;
     for entry in entries {
@@ -58,8 +57,8 @@ fn all_example_files_load_and_validate() -> Result<(), String> {
             continue;
         }
 
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        let content =
+            std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
         let project: Project = serde_json::from_str(&content)
             .map_err(|e| format!("deserialize {}: {e}", path.display()))?;
 

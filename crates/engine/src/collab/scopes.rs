@@ -196,12 +196,13 @@ fn candidate_kinds(project: &Project, command: &str, params: &Value) -> Vec<Enco
     if let Some(nets) = params.get("nets").and_then(Value::as_array) {
         for net in nets {
             if let Some(name) = net.get("name").and_then(Value::as_str)
-                && let Some(id) = project.net_id_by_name(name) {
-                    out.push(EncodedScope {
-                        kind: ScopeKind::Net,
-                        id,
-                    });
-                }
+                && let Some(id) = project.net_id_by_name(name)
+            {
+                out.push(EncodedScope {
+                    kind: ScopeKind::Net,
+                    id,
+                });
+            }
             if let Some(members) = net.get("pins").and_then(Value::as_array) {
                 for pin in members {
                     out.extend(endpoint_scopes(project, pin));
@@ -403,12 +404,13 @@ fn endpoint_scopes(project: &Project, value: &Value) -> Vec<EncodedScope> {
         out.push(footprint_scope(project, footprint));
     }
     if let Some(reference) = value.get("reference").and_then(Value::as_str)
-        && let Some(c) = project.components.iter().find(|c| c.reference == reference) {
-            out.push(EncodedScope {
-                kind: ScopeKind::Component,
-                id: c.id,
-            });
-        }
+        && let Some(c) = project.components.iter().find(|c| c.reference == reference)
+    {
+        out.push(EncodedScope {
+            kind: ScopeKind::Component,
+            id: c.id,
+        });
+    }
     out
 }
 

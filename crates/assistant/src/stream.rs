@@ -105,22 +105,20 @@ impl StreamParser {
 
     fn openai_data(&mut self, v: &Value) -> Option<Vec<StreamText>> {
         let choice = v.get("choices")?.as_array()?.first()?;
-        if let Some(r) = choice.get("finish_reason").and_then(Value::as_str) {
-            if !r.is_empty() {
+        if let Some(r) = choice.get("finish_reason").and_then(Value::as_str)
+            && !r.is_empty() {
                 self.openai.finish_reason = Some(r.to_string());
             }
-        }
         let delta = choice.get("delta")?;
         let mut out = Vec::new();
-        if let Some(t) = delta.get("content").and_then(Value::as_str) {
-            if !t.is_empty() {
+        if let Some(t) = delta.get("content").and_then(Value::as_str)
+            && !t.is_empty() {
                 self.openai.content.push_str(t);
                 out.push(StreamText {
                     thought: false,
                     text: t.to_string(),
                 });
             }
-        }
         if let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) {
             for c in calls.iter().take(32) {
                 let idx = c.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
@@ -264,7 +262,7 @@ impl StreamParser {
             }
             Protocol::Anthropic => {
                 let mut content = Vec::new();
-                for (_i, block) in self.anthropic.blocks.iter() {
+                for block in self.anthropic.blocks.values() {
                     match block {
                         AnthropicBlockAcc::Text(t) if !t.is_empty() => {
                             content.push(json!({"type": "text", "text": t}));

@@ -23,7 +23,10 @@ fn sample_result(mpn: &str) -> PartResult {
 }
 
 fn load_fixture(name: &str) -> Result<Value, String> {
-    let path = format!("{}/tests/fixtures/sources/{name}", env!("CARGO_MANIFEST_DIR"));
+    let path = format!(
+        "{}/tests/fixtures/sources/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    );
     let text = fs::read_to_string(path).map_err(|e| format!("read {name}: {e}"))?;
     serde_json::from_str(&text).map_err(|e| format!("parse {name}: {e}"))
 }

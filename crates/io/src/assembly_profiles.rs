@@ -512,7 +512,7 @@ pub fn gerber_component_layers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use pcbcraft_geom::Point;
     use pcbcraft_library::FootprintPad;
 

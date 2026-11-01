@@ -171,7 +171,7 @@ fn answer(mut c: TcpStream, r: Reply, stream: bool) {
     } else {
         ("application/json", r.body.clone())
     };
-    let length = r.declared_len.unwrap_or_else(|| body.len());
+    let length = r.declared_len.unwrap_or(body.len());
     let head = format!(
         "HTTP/1.1 {} X\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         r.status, ctype, length
@@ -186,12 +186,10 @@ fn openai_completion_to_sse(json_body: &str) -> String {
     if let Some(t) = v
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
-    {
-        if !t.is_empty() {
+        && !t.is_empty() {
             let line = json!({"choices": [{"delta": {"content": t}}]});
             out.push_str(&format!("data: {line}\n\n"));
         }
-    }
     if let Some(calls) = v
         .pointer("/choices/0/message/tool_calls")
         .and_then(Value::as_array)

@@ -287,9 +287,10 @@ pub fn set_source_role(
             found = true;
             source.role = role.map(str::to_owned);
         } else if let Some(role) = role
-            && source.role.as_deref() == Some(role) {
-                source.role = None;
-            }
+            && source.role.as_deref() == Some(role)
+        {
+            source.role = None;
+        }
     }
     if !found {
         return Err("register that folder as a library source before marking its role".into());

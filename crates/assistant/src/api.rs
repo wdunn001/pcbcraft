@@ -572,19 +572,14 @@ impl Worker {
             if let Some(text) = self.drain_stream(&stream_rx, &mut parser, &mut streamed) {
                 return text;
             }
-            if http_result.is_none() {
-                if let Ok(r) = rx.try_recv() {
+            if http_result.is_none()
+                && let Ok(r) = rx.try_recv() {
                     http_result = Some(r);
                 }
-            }
             if let Some(Ok(resp)) = &http_result {
                 let (status, bytes) = (&resp.status, &resp.body);
-                if streamed && bytes.is_empty() {
-                    // Wait for [`HttpStreamPart::End`] on the stream channel.
-                } else if !streamed {
-                    let v = serde_json::from_slice(bytes).unwrap_or(Value::Null);
-                    return Ok((*status, v, false));
-                } else {
+                // A streamed reply with an empty body waits for [`HttpStreamPart::End`].
+                if !(streamed && bytes.is_empty()) {
                     let v = serde_json::from_slice(bytes).unwrap_or(Value::Null);
                     return Ok((*status, v, false));
                 }

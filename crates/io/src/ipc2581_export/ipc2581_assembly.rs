@@ -474,9 +474,10 @@ fn export_rotation(p: &Project, f: &Footprint) -> f64 {
     let mut rotation = f.rotation;
     if back
         && let Some(profile) = p.machine_profiles.iter().find(|m| m.kind == "pick_place")
-            && profile.output.mirror_bottom {
-                rotation = -rotation;
-            }
+        && profile.output.mirror_bottom
+    {
+        rotation = -rotation;
+    }
     rotation.rem_euclid(360.0)
 }
 

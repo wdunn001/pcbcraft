@@ -35,9 +35,10 @@ fn path_is_absolute(path: &str) -> bool {
 fn strip_legacy_3dmodel_prefix(path: &str) -> &str {
     if path.starts_with("${KICAD")
         && let Some(rest) = path.strip_prefix("${KICAD")
-            && let Some(tail) = rest.split_once("}/") {
-                return tail.1;
-            }
+        && let Some(tail) = rest.split_once("}/")
+    {
+        return tail.1;
+    }
     path
 }
 
@@ -54,9 +55,10 @@ fn candidates_for_library_root(root: &Path, relative: &str) -> Vec<PathBuf> {
         out.push(parent.join(relative));
     }
     if root.extension().is_some_and(|e| e == "pretty")
-        && let Some(parent) = root.parent() {
-            out.push(parent.join(relative));
-        }
+        && let Some(parent) = root.parent()
+    {
+        out.push(parent.join(relative));
+    }
     out
 }
 

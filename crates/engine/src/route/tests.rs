@@ -618,7 +618,8 @@ fn path_ok_rejects_hull_crossings_and_points_outside_the_keep_in_box() {
 fn walkaround_detours_around_a_hull_while_fixing_both_ends() -> Result<(), String> {
     let space = open_space((0.0, 0.0), (20.0, 20.0), vec![pad_hull(10.0, 10.0, 1.0, 7)]);
     let line = vec![Point::new(2.0, 10.0), Point::new(18.0, 10.0)];
-    let detoured = walkaround(&line, &space, Turn::Shortest).ok_or("detour within iteration cap")?;
+    let detoured =
+        walkaround(&line, &space, Turn::Shortest).ok_or("detour within iteration cap")?;
     assert_eq!(detoured.first(), line.first());
     assert_eq!(detoured.last(), line.last());
     assert!(path_ok(&detoured, &space));
@@ -651,7 +652,9 @@ fn find_path_picks_a_legal_route_or_reports_a_specific_failure() -> Result<(), S
     assert!(path_ok(&path, &open));
 
     assert!(matches!(
-        find_path(Point::new(-1.0, 2.0), Point::new(18.0, 2.0), &open).err().ok_or("expected an error")?,
+        find_path(Point::new(-1.0, 2.0), Point::new(18.0, 2.0), &open)
+            .err()
+            .ok_or("expected an error")?,
         Failure::OutsideBoard
     ));
 
@@ -660,7 +663,10 @@ fn find_path_picks_a_legal_route_or_reports_a_specific_failure() -> Result<(), S
         (20.0, 20.0),
         vec![pad_hull(10.0, 10.0, 1.0, 42)],
     );
-    match find_path(Point::new(10.0, 10.0), Point::new(18.0, 2.0), &blocked).err().ok_or("expected an error")? {
+    match find_path(Point::new(10.0, 10.0), Point::new(18.0, 2.0), &blocked)
+        .err()
+        .ok_or("expected an error")?
+    {
         Failure::TooClose(id) => assert_eq!(id, 42),
         Failure::OutsideBoard | Failure::NoPath => return Err("expected TooClose".into()),
     }

@@ -1,6 +1,7 @@
 use super::*;
 use pcbcraft_library::{
-    FootprintDefinition, FootprintPad, Graphic, LandPatternDensity, LandPatternParams, SymbolDefinition, SymbolPin, UnitGraphic, generate_footprint,
+    FootprintDefinition, FootprintPad, Graphic, LandPatternDensity, LandPatternParams,
+    SymbolDefinition, SymbolPin, UnitGraphic, generate_footprint,
 };
 
 pub(super) fn commands() -> Vec<CommandSpec> {
@@ -795,18 +796,15 @@ pub(super) fn run(
                 if path.len() > 1024 {
                     return Err(Error::Invalid("model path must be 1 to 1024 bytes".into()));
                 }
-                let bytes = std::fs::read(path).map_err(|_| {
-                    Error::Invalid(format!("the model file {path} was not found"))
-                })?;
+                let bytes = std::fs::read(path)
+                    .map_err(|_| Error::Invalid(format!("the model file {path} was not found")))?;
                 let (load_path, source) = if path
                     .rsplit('.')
                     .next()
                     .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
                 {
-                    let (step_name, step_bytes) =
-                        pcbcraft_io::first_step_from_vendor_zip(&bytes).map_err(|e| {
-                            Error::Invalid(e.0)
-                        })?;
+                    let (step_name, step_bytes) = pcbcraft_io::first_step_from_vendor_zip(&bytes)
+                        .map_err(|e| Error::Invalid(e.0))?;
                     (step_name, step_bytes)
                 } else {
                     (path.to_owned(), bytes)
@@ -2664,10 +2662,8 @@ pub(super) fn run(
                     a.name
                 )));
             }
-            let symbol_exists =
-                |sym: &str| p.library.symbols.iter().any(|s| s.name == sym);
-            let footprint_exists =
-                |foot: &str| p.library.footprints.iter().any(|f| f.name == foot);
+            let symbol_exists = |sym: &str| p.library.symbols.iter().any(|s| s.name == sym);
+            let footprint_exists = |foot: &str| p.library.footprints.iter().any(|f| f.name == foot);
             let record = p
                 .library
                 .part_substitutes
@@ -2675,9 +2671,10 @@ pub(super) fn run(
                 .or_default();
             match a.kind.as_str() {
                 "second_source" => {
-                    let manufacturer = a.manufacturer.filter(|s| !s.is_empty()).ok_or_else(|| {
-                        Error::Invalid("second_source needs a manufacturer".into())
-                    })?;
+                    let manufacturer =
+                        a.manufacturer.filter(|s| !s.is_empty()).ok_or_else(|| {
+                            Error::Invalid("second_source needs a manufacturer".into())
+                        })?;
                     let mpn_text: Option<String> = match a.mpn {
                         None => {
                             return Err(Error::Invalid(
@@ -2752,9 +2749,7 @@ pub(super) fn run(
                 }
                 p.library.symbols[found].name = a.new_name.clone();
                 if let Some(subs) = p.library.part_substitutes.remove(&a.name) {
-                    p.library
-                        .part_substitutes
-                        .insert(a.new_name.clone(), subs);
+                    p.library.part_substitutes.insert(a.new_name.clone(), subs);
                 }
                 for subs in p.library.part_substitutes.values_mut() {
                     for alt in &mut subs.alternates {
