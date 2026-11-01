@@ -17,7 +17,8 @@ fn add_resistors(app: &mut App, y: f64) -> Result<(), String> {
 }
 
 fn pin_pos(app: &App, index: usize, pin: &str) -> Result<Point, String> {
-    let mut parts: Vec<_> = app.project.components.iter().rev().collect();
+    // The two parts `add_resistors` just placed, left to right.
+    let mut parts: Vec<_> = app.project.components.iter().rev().take(2).collect();
     parts.sort_by(|a, b| a.position.x.total_cmp(&b.position.x));
     let comp = parts.get(index).ok_or("missing part")?;
     comp.pin_position(pin).ok_or("missing pin position".into())
@@ -86,7 +87,8 @@ fn a_newcomer_tees_into_a_wire_and_gets_a_junction() -> Result<(), String> {
         .last()
         .and_then(|c| c.pin_position("1"))
         .ok_or("branch part needs a pin")?;
-    let tee = Point::new((left.x + lift.x) / 2.0, left.y);
+    // The middle of the trunk's first leg, which runs from the left pin up to the lift.
+    let tee = Point::new((left.x + lift.x) / 2.0, (left.y + lift.y) / 2.0);
     let at = screen_of(&app, branch_pin);
     click(&ctx, &mut app, at, Modifiers::NONE);
     let at = screen_of(&app, tee);

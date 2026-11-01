@@ -266,20 +266,16 @@ impl App {
         }
     }
     /// Switch the open source on over `fetcher`, keeping files in `cache_dir`
-    /// (the default folder when `None`, memory when there is none).
+    /// (the default folder when `None` and the session has a settings folder, memory otherwise).
     pub(super) fn use_open_source(
         &mut self,
         fetcher: Box<dyn Fetcher>,
         cache_dir: Option<std::path::PathBuf>,
     ) {
-        // The test suite keeps its cache in memory so it never writes the
-        // user's cache folder.
-        let fallback = if cfg!(test) {
-            None
-        } else {
-            default_cache_dir()
-        };
-        let cache = match cache_dir.or(fallback) {
+        // The user cache folder is only for a window whose session has a settings folder;
+        // a session without one (a test, an embedded host) keeps its answers in memory.
+        let has_folder = self.user_config().folder().is_some();
+        let cache = match cache_dir.or_else(|| default_cache_dir().filter(|_| has_folder)) {
             Some(dir) => CadCache::open(&dir),
             None => CadCache::in_memory(),
         };

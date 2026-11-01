@@ -68,8 +68,9 @@ fn a_newcomer_sees_a_finding_when_the_usb_pair_impedance_misses_the_target() -> 
         .find(|f| f.code == "impedance_target")
         .ok_or("impedance finding exists")?
         .message;
+    // The sheet is short and lists the louder findings first: scroll it to the row.
     assert!(
-        paints_text(&ctx, &mut app, &sample)?,
+        scrolled_to_at(&ctx, &mut app, &sample, 700.0)?,
         "the checks sheet shows the impedance finding: {sample}"
     );
     Ok(())

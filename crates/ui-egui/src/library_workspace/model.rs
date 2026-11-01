@@ -191,7 +191,7 @@ impl App {
             self.libws.model_part = def.name.clone();
             self.libws.model_view.keep_camera = same_part;
             if !same_part {
-                self.libws.model_view = board3d::View3d::default();
+                self.libws.model_view = board3d::View3d::for_config(&self.user_config());
             }
         }
         let mut model = def.model.clone();

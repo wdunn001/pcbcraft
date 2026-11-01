@@ -424,6 +424,8 @@ fn a_newcomer_sees_a_decoupling_finding_when_the_capacitor_is_removed() -> Resul
             .iter_mut()
             .find(|c| c.reference == "R1")
             .ok_or("the sample has R1")?;
+        // The check is about integrated circuits, so the stand-in part becomes one.
+        r1.kind = "ic".into();
         for pin in r1.pins.iter_mut().filter(|p| p.number == "1") {
             pin.electrical_type = "power_in".into();
             pin.name = "VDD".into();

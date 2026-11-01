@@ -1471,7 +1471,7 @@ impl App {
         });
         ui.separator();
         ui.heading(t!("library.project_library.symbols"));
-        ui.horizontal(|ui| {
+        ui.vertical(|ui| {
             ui.label(t!("library.project_library.symbol_export_path"));
             ui.add(crate::targets::text_field(
                 &mut self.library.editor.export_symbol_path,
@@ -1565,7 +1565,7 @@ impl App {
         }
         ui.separator();
         ui.heading(t!("library.project_library.footprints"));
-        ui.horizontal(|ui| {
+        ui.vertical(|ui| {
             ui.label(t!("library.project_library.footprint_export_folder"));
             ui.add(crate::targets::text_field(
                 &mut self.library.editor.export_footprint_dir,

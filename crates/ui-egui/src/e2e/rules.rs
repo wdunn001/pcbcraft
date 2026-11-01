@@ -324,7 +324,7 @@ fn a_newcomer_picks_a_fab_preset_and_sees_the_numbers_change() -> Result<(), Str
     assert_eq!(rules.preset.as_deref(), Some("JLCPCB 1-2L"));
     assert!(rules.min_track.is_some(), "the minimums fill in");
     assert!(
-        paints_text(&ctx, &mut app, "preset JLCPCB 1-2L")?,
+        scrolled_to_at(&ctx, &mut app, "preset JLCPCB 1-2L", 700.0)?,
         "each number names the preset it came from"
     );
     for field in [
