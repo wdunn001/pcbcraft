@@ -447,6 +447,7 @@ impl PollingFetcher {
     }
 }
 
+/// Contract: crates/library/src/open_library.rs
 impl Fetcher for PollingFetcher {
     fn get(&self, url: &str) -> Result<Vec<u8>, FetchError> {
         const MAX_ROUNDS: u32 = 20_000;

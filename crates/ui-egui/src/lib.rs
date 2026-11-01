@@ -3470,11 +3470,11 @@ impl App {
                                 .add_sized(
                                     home_btn,
                                     egui::Button::new(
-                                        egui::RichText::new("Design setup wizard").size(14.0),
+                                        egui::RichText::new(t!("setup.wizard.heading")).size(14.0),
                                     ),
                                 )
                                 .on_hover_text(
-                                    "Reopen the guided board setup for size, layers, and rules.",
+                                    t!("setup.wizard.reopen.tip"),
                                 )
                                 .clicked()
                             {
@@ -4919,9 +4919,9 @@ impl App {
         ui.heading(t!("settings.settings_tab.settings"));
         self.stackup_section(ui);
         if ui
-            .button("Open design setup wizard")
+            .button(t!("setup.wizard.open"))
             .on_hover_text(
-                "Walk through board size, layers, fabrication preset, and starter net classes.",
+                t!("setup.wizard.open.tip"),
             )
             .clicked()
         {
@@ -5742,25 +5742,25 @@ impl App {
         );
         if let Some(rules) = self.project.board.rules.as_ref() {
             ui.label(
-                egui::RichText::new("Fabrication minimums")
+                egui::RichText::new(t!("rules.fab.minimums.heading"))
                     .size(10.0)
                     .color(self.muted()),
             );
             if let Some(name) = rules.preset.as_deref() {
                 ui.label(format!("Preset: {name}"))
-                    .on_hover_text("Named fabrication preset applied to this board.");
+                    .on_hover_text(t!("rules.fab.minimums.preset.tip"));
             }
             if let Some(v) = rules.min_track {
                 ui.label(format!("Min track {v:.3} mm"))
-                    .on_hover_text("Smallest routed width the fab accepts.");
+                    .on_hover_text(t!("rules.fab.minimums.track.tip"));
             }
             if let Some(v) = rules.min_space {
                 ui.label(format!("Min space {v:.3} mm"))
-                    .on_hover_text("Smallest copper gap the fab accepts.");
+                    .on_hover_text(t!("rules.fab.minimums.space.tip"));
             }
             if let Some(v) = rules.min_drill {
                 ui.label(format!("Min drill {v:.3} mm"))
-                    .on_hover_text("Smallest drilled hole the fab accepts.");
+                    .on_hover_text(t!("rules.fab.minimums.drill.tip"));
             }
             ui.add_space(8.0);
         }

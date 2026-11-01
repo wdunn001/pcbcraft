@@ -553,7 +553,7 @@ pub struct FootprintDefinition {
 /// - The outline is centred on the footprint origin in the board plane.
 ///
 /// # Dependencies
-/// - `library.footprint.set_box_body` stores this on a project-library footprint.
+/// - crates/engine/src/authoring.rs stores this on a project-library footprint.
 /// - `crates/io` reads it when building meshes and STEP bodies.
 ///
 /// # Do not

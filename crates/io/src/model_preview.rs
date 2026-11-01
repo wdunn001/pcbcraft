@@ -44,7 +44,7 @@ const FILL: [u8; 3] = [131, 170, 161];
 /// - Uses flat shading with one directional light tied to the camera.
 ///
 /// # Dependencies
-/// - [`LoadedModel::bounds`]
+/// - crates/io/src/model_load.rs
 ///
 /// # Do not
 /// - Apply a footprint placement matrix; the mesh is shown in model space.

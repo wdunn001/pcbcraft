@@ -4977,7 +4977,7 @@ impl Project {
     ///   only on a two-layer board; elsewhere it is the first inner layer.
     ///
     /// # Dependencies
-    /// - `Project::copper_layer_count` in this file.
+    /// - crates/doc/src/lib.rs, where the layer count is counted.
     ///
     /// # Do not
     /// - Compare a track, zone, text or via end against `Layer::Back`; use

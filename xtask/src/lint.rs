@@ -23,7 +23,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
-use std::time::Instant;
 
 /// Keys a workflow file may have at its top level.
 const TOP_KEYS: [&str; 8] = [
@@ -91,9 +90,7 @@ pub fn to_json(results: &[StepResult]) -> String {
 /// Runs one named step, timing it and printing its failure message.
 pub fn timed(name: &str, step: impl FnOnce() -> Result<(), String>) -> StepResult {
     println!("== lint: {name}");
-    // A native build tool; the browser clock rule does not apply.
-    #[allow(clippy::disallowed_methods)]
-    let started = Instant::now();
+    let started = pcbcraft_clock::instant_now();
     let outcome = step();
     if let Err(message) = &outcome {
         eprintln!("lint: {name} failed:\n{message}");

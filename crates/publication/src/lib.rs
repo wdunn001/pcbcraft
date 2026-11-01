@@ -9,7 +9,7 @@
 //! - Datasheets are link, title and hash only; copied PDF bytes are refused.
 //!
 //! # Dependencies
-//! - crates/publication/data/*.toml
+//! - crates/publication/data
 //! - crates/engine/src/publication.rs
 //!
 //! # Do not

@@ -26,6 +26,9 @@ pub use types::{
 };
 
 /// Extracts pin, rating, ordering and dimension tables from one datasheet file.
+///
+/// # Implementations
+/// - crates/library/src/datasheet_extract/mod.rs
 pub trait DatasheetTableExtractor {
     fn extract(&self, pdf_bytes: &[u8]) -> Result<DatasheetExtractBundle, String>;
 }

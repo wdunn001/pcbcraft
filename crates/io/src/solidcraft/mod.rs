@@ -16,8 +16,8 @@
 //! - SolidCraft UI state outside the documented JSON fields
 //!
 //! # Dependencies
-//! - [`super::board_mesh`] for board export meshes
-//! - [`super::solidcraft_format`] for JSON and container I/O
+//! - crates/io/src/board_mesh.rs for board export meshes
+//! - crates/io/src/solidcraft_format.rs for JSON and container I/O
 //!
 //! # Do not
 //! - Do not link SolidCraft crates from this crate; fixtures and optional SolidCraft-side scripts

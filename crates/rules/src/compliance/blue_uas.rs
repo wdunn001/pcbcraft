@@ -4,7 +4,7 @@
 //! evidence, never a listing or certification.
 //!
 //! # Dependencies
-//! - `lists.rs` parses the three bundled lists.
+//! - crates/rules/src/compliance/lists.rs parses the three bundled lists.
 //! - `crates/doc/src/compliance.rs` supplies the part data and settings.
 use super::lists::{
     CoveredCountriesList, FrameworkList, RadioBandsList, band_allowed, country_covered,

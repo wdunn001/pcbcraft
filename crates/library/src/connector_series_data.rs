@@ -5,7 +5,7 @@
 //! - Only TSW, SSW, and BTH are embedded in this slice.
 //!
 //! # Dependencies
-//! - crates/library/data/connectors/*.toml
+//! - crates/library/data/connectors
 use serde::Deserialize;
 
 const TSW_TOML: &str = include_str!("../data/connectors/tsw.toml");

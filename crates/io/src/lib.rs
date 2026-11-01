@@ -2074,6 +2074,7 @@ struct StepDoc {
     next: u32,
 }
 
+/// Contract: crates/io/src/step_merge.rs
 impl step_merge::StepWriter for StepDoc {
     fn next_id(&self) -> u32 {
         self.next

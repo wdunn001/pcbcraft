@@ -3,6 +3,10 @@ use pcbcraft_io::OpenKind;
 use std::sync::MutexGuard;
 
 /// Browser or desktop hooks for byte-oriented project I/O.
+///
+/// # Implementations
+/// - crates/mcp/src/project_host.rs
+/// - apps/pcbcraft-web/src/wasm_host.rs
 pub trait ProjectHost {
     /// Return the next user-picked file, if one is ready.
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)>;

@@ -6,7 +6,7 @@
 //!
 //! # Dependencies
 //! - crates/io/src/schematic_sim.rs for optional DC volts in the results CSV
-//! - pcbcraft_geom::impedance for microstrip estimates
+//! - crates/geom/src/lib.rs for microstrip estimates
 //!
 //! # Do not
 //! - Name other design tools in user-facing strings.

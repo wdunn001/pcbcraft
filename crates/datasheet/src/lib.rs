@@ -7,7 +7,7 @@
 //! Rules: no unwrap on input-derived values; failures are `String` messages.
 //!
 //! # Dependencies
-//! - `hayro` for page rasterisation
+//! - crates/datasheet/src/render.rs for page rasterisation
 //!
 //! # Do not
 //! - Pull in egui or the engine; UI lives in `pcbcraft-ui-egui`.

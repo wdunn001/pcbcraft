@@ -107,7 +107,7 @@ fn options(a: &Params) -> Result<GerberOptions, Error> {
 /// - `mutating` is false for a read-only call; a directory then refuses.
 ///
 /// # Dependencies
-/// - `pcbcraft_io::atomic_write` for the files.
+/// - crates/io/src/lib.rs for the file writes.
 ///
 /// # Do not
 /// - Return file contents; the names and sizes are the preview.

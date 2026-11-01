@@ -19,6 +19,9 @@ use crate::schema::{
 ///
 /// # Do not
 /// - Delete published objects except through a takedown workflow.
+///
+/// # Implementations
+/// - none yet
 pub trait BlobStore: Send + Sync {
     fn put(&self, content_hash: &str, data: &[u8]) -> Result<(), PortalError>;
     fn get(&self, content_hash: &str) -> Result<Vec<u8>, PortalError>;
@@ -30,6 +33,9 @@ pub trait BlobStore: Send + Sync {
 /// # Rules
 /// - Publication versions are immutable once published.
 /// - Yank sets a timestamp on the publication row; bytes stay addressable by hash.
+///
+/// # Implementations
+/// - none yet
 pub trait PortalStore: Send + Sync {
     fn insert_publisher(&self, row: &PublisherRow) -> Result<(), PortalError>;
     fn get_publisher(&self, id: &str) -> Result<PublisherRow, PortalError>;

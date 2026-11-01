@@ -12,7 +12,7 @@
 //!   callers keep identity placement on the footprint.
 //!
 //! # Dependencies
-//! - `crate::solidcraft_format`, `crate::model_load`, `crate::step_read`
+//! - crates/io/src/solidcraft_format.rs, crates/io/src/model_load.rs, crates/io/src/step_read.rs
 //!
 //! # Do not
 //! - Do not link SolidCraft crates; only the documented subset is read.

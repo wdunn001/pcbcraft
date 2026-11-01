@@ -78,6 +78,7 @@ pub enum FetchError {
 /// - `crates/library/src/web_transport.rs`
 /// - `crates/ui-egui/src/e2e/support.rs`
 /// - `crates/ui-egui/src/sources.rs`
+/// - `apps/pcbcraft-web/src/transport.rs`
 pub trait Fetcher: Send + Sync {
     /// Read the whole answer for a URL.
     fn get(&self, url: &str) -> Result<Vec<u8>, FetchError>;

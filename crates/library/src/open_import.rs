@@ -35,7 +35,7 @@ fn invalid(text: &str) -> SourceError {
 ///   model, then the symbol alone; when false, the model is never fetched.
 ///
 /// # Dependencies
-/// - [`import_part`] and [`import_footprint_only`]
+/// - crates/library/src/online_import.rs
 ///
 /// # Do not
 /// - Write to the project; the caller runs `library.place_online` with the result.

@@ -10,7 +10,7 @@
 //! - Meshes are merged into [`BoardMesh`] as `PartKind::Body` with family `enclosure`.
 //!
 //! # Dependencies
-//! - `crate::solidcraft_format`, `crate::board_mesh`, `pcbcraft_doc`
+//! - crates/io/src/solidcraft_format.rs, crates/io/src/board_mesh.rs, crates/doc/src/lib.rs
 //!
 //! # Do not
 //! - Do not link SolidCraft crates.

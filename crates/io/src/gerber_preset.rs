@@ -333,7 +333,7 @@ pub fn file_stem(p: &Project) -> String {
 ///   between are `.G2L`, `.G3L` and on, numbered from the top layer as 1.
 ///
 /// # Dependencies
-/// - `NamingPreset`, `FileRole` in this file.
+/// - crates/io/src/gerber_preset.rs
 ///
 /// # Do not
 /// - Return a path; the name has no directory.
@@ -416,7 +416,7 @@ pub fn file_name(preset: NamingPreset, stem: &str, role: FileRole, copper: u8) -
 /// - `merged` lists one drill file instead of a plated and a non-plated one.
 ///
 /// # Dependencies
-/// - `file_name` in this file.
+/// - crates/io/src/gerber_preset.rs
 ///
 /// # Do not
 /// - Open a project; the list depends only on the preset and the layer count.
@@ -458,7 +458,7 @@ pub fn preview_names(preset: NamingPreset, stem: &str, copper: u8, merged: bool)
 /// - Refuses a bundle in which two files would share a name.
 ///
 /// # Dependencies
-/// - `crate::gerber_files_at`, `gerber::gerber_copper`, `gerber_job::gerber_job_at`.
+/// - crates/io/src/gerber.rs, crates/io/src/gerber_job.rs
 ///
 /// # Do not
 /// - Change the content of a Gerber file; only names and drill encoding change.
@@ -634,7 +634,7 @@ fn rename_job_paths(job: &str, renames: &BTreeMap<String, String>) -> Result<Str
 /// - A coordinate that does not fit the digits is an error, not a clipped value.
 ///
 /// # Dependencies
-/// - `ProjectDrillHit` in crates/io/src/lib.rs.
+/// - crates/io/src/lib.rs
 ///
 /// # Do not
 /// - Add attributes the plotter did not write for the default style.
@@ -753,7 +753,7 @@ pub struct DrillHole {
 /// - Bounded: at most 50 000 holes.
 ///
 /// # Dependencies
-/// - The header lines `write_drill_file` writes (`; FORMAT={..}`, `METRIC,TZ`).
+/// - crates/io/src/drill_table.rs for the header lines the drill file writes.
 ///
 /// # Do not
 /// - Use it for files from other sources without checking the digit counts.
@@ -860,7 +860,7 @@ fn decode_coordinate(s: &str, leading_omitted: bool, digits: (u8, u8)) -> Result
 /// - Counts a copper file once, by its role.
 ///
 /// # Dependencies
-/// - `FileRole::from_project_name` in this file.
+/// - crates/io/src/gerber_preset.rs
 ///
 /// # Do not
 /// - Parse the contents; the role comes from the project name.

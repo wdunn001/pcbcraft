@@ -97,6 +97,9 @@ pub enum FetchAnswer {
 ///
 /// # Do not
 /// - Store bytes; return them to the caller only.
+///
+/// # Implementations
+/// - crates/io/src/datasheet.rs
 pub trait DatasheetTransport: Send + Sync {
     fn fetch(
         &self,

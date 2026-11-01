@@ -9,7 +9,7 @@
 //! - Cache keys use the SHA-256 of the project file bytes, not its mtime.
 //!
 //! # Dependencies
-//! - `./step_read.rs`, `./model_load.rs`
+//! - crates/io/src/step_read.rs, crates/io/src/model_load.rs
 //!
 //! # Do not
 //! - Do not link the CAD app's crates; exchange is documented data only.

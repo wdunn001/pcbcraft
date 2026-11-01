@@ -20,6 +20,9 @@ pub struct PluginExportKind {
 }
 
 /// Read-only export from the open project.
+///
+/// # Implementations
+/// - crates/plugin-firmware-target/src/lib.rs
 pub trait ExportPlugin: Send + Sync {
     fn manifest(&self) -> &PluginManifest;
     fn export_kinds(&self) -> &[PluginExportKind];
