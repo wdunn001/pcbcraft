@@ -1,6 +1,9 @@
 //! Tour anchors (#772), Help > Tours listing (#769).
 
+use super::super::*;
 use super::super::authoring;
+use super::super::bottom_sheet::SheetTab;
+use super::super::tour::{self, anchor, data};
 use super::support::*;
 
 #[test]
@@ -11,7 +14,8 @@ fn a_newcomer_opens_Help_Tours_and_sees_every_tour_listed() -> Result<(), String
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Help")?;
     authoring::tests::tap(&ctx, &mut app, "Tours")?;
-    for tour in &app.tours.tour {
+    let tours = app.tours.tour.clone();
+    for tour in &tours {
         let title = pcbcraft_text::lookup(&tour.list_key(), &[]);
         assert!(
             paints_text(&ctx, &mut app, &title)?,

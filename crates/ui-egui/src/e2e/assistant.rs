@@ -110,7 +110,7 @@ fn has_r1(app: &App) -> bool {
 
 #[test]
 fn a_newcomer_opens_the_assistant_and_is_told_how_to_connect_a_model() -> Result<(), String> {
-    let http = pcbcraft_assistant::CountingHttp::new(Ok((200, b"{}".to_vec())));
+    let http = pcbcraft_assistant::CountingHttp::new(Ok(pcbcraft_assistant::HttpResponse::ok(b"{}".to_vec())));
     let mut app = app_with_http(&http, false);
     app.preferences.aside_lower_tab = 0;
     let ctx = egui::Context::default();
@@ -564,7 +564,7 @@ fn wait_for(ctx: &egui::Context, app: &mut App, text: &str) -> Result<bool, Stri
 
 #[test]
 fn a_newcomer_opens_the_assistant_and_learns_how_to_connect_it() -> Result<(), String> {
-    let http = pcbcraft_assistant::CountingHttp::new(Ok((200, b"{}".to_vec())));
+    let http = pcbcraft_assistant::CountingHttp::new(Ok(pcbcraft_assistant::HttpResponse::ok(b"{}".to_vec())));
     let mut app = app_with_http(&http, false);
     let ctx = egui::Context::default();
     assert!(paints_text(&ctx, &mut app, "Nothing leaves this computer")?);
@@ -584,7 +584,7 @@ fn a_newcomer_opens_the_assistant_and_learns_how_to_connect_it() -> Result<(), S
 #[test]
 fn a_newcomer_works_offline_with_a_local_model_and_nothing_complains() -> Result<(), String> {
     let reply = br#"{"choices":[{"message":{"role":"assistant","content":"Hello from the local model"},"finish_reason":"stop"}]}"#;
-    let http = pcbcraft_assistant::CountingHttp::new(Ok((200, reply.to_vec())));
+    let http = pcbcraft_assistant::CountingHttp::new(Ok(pcbcraft_assistant::HttpResponse::ok(reply.to_vec())));
     let mut app = app_with_http(&http, true);
     let ctx = egui::Context::default();
     settle(&ctx, &mut app);
@@ -697,7 +697,7 @@ fn a_newcomer_in_the_browser_build_is_told_the_assistant_needs_the_desktop_app()
 
 #[test]
 fn a_newcomer_turns_the_assistant_off_and_every_trace_of_it_goes() -> Result<(), String> {
-    let http = pcbcraft_assistant::CountingHttp::new(Ok((200, b"{}".to_vec())));
+    let http = pcbcraft_assistant::CountingHttp::new(Ok(pcbcraft_assistant::HttpResponse::ok(b"{}".to_vec())));
     let mut app = app_with_http(&http, true);
     app.preferences.aside_lower_tab = 0;
     app.preferences.assistant_enabled = false;

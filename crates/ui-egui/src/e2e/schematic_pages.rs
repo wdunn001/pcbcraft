@@ -437,7 +437,7 @@ fn a_newcomer_opens_a_child_page_from_its_box() -> Result<(), String> {
         labels.iter().any(|t| t.contains("Page 1")),
         "the child box shows the page name on Main: {labels:?}"
     );
-    app.schematic_double_click(inside, app.schematic.zoom);
+    app.schematic_double_click(inside, app.schematic.zoom, crate::tool_modifiers::Held::default());
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.schematic_page(),

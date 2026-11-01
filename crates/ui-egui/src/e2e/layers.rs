@@ -3,7 +3,7 @@ use super::super::*;
 use super::board::right_click;
 use super::support::*;
 
-fn pcb_app() -> (egui::Context, App) {
+pub(crate) fn pcb_app() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();

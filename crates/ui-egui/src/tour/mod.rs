@@ -4,7 +4,7 @@
 pub mod anchor;
 mod app;
 pub mod data;
-mod layout;
+pub(crate) mod layout;
 mod offer;
 pub mod playback;
 pub mod replay;

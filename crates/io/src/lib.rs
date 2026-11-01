@@ -43,6 +43,8 @@ pub mod export_package;
 pub mod plugins;
 mod bitmap_trace;
 mod board_mesh;
+mod board_mesh_bench;
+pub use board_mesh_bench::bench_project_600_parts;
 mod datasheet_cache;
 mod distributor_credentials;
 mod param_body_step;

@@ -4,6 +4,7 @@ use super::super::tour::data::{self, Step, Tour};
 use super::super::tour::{anchor, layout, replay, playback::TourState};
 use super::super::Tab;
 use super::support::*;
+use super::super::*;
 use super::super::authoring;
 use egui::{Color32, Rect, Stroke, StrokeKind, Vec2};
 use pcbcraft_text::lookup;
@@ -53,7 +54,8 @@ fn a_newcomer_opens_Help_Tours_and_sees_every_tour_listed() -> Result<(), String
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Help")?;
     authoring::tests::tap(&ctx, &mut app, "Tours")?;
-    for tour in &app.tours.tour {
+    let tours = app.tours.tour.clone();
+    for tour in &tours {
         let title = lookup(&tour.list_key(), &[]);
         assert!(
             paints_text(&ctx, &mut app, &title)?,
@@ -297,7 +299,7 @@ fn esc_mid_tour_stores_progress_and_resume_returns_to_the_same_step() -> Result<
     open_workspace(&mut app, &tour.workspace)?;
     app.tour_start(tour.id.clone(), tour.version);
     app.tour_next();
-    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.tour_escape();
     let saved = app
         .preferences

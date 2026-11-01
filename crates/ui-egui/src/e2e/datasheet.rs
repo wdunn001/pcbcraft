@@ -1,7 +1,10 @@
 //! Stories for the in-app datasheet text layer.
 
+use super::super::*;
 use super::support::*;
+use super::workbench::{centre_of, fresh, settled};
 use pcbcraft_datasheet::fixtures;
+use serde_json::json;
 
 #[test]
 fn a_newcomer_searches_a_datasheet_and_copies_text_in_order() -> Result<(), String> {

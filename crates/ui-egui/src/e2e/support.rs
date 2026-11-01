@@ -229,6 +229,7 @@ pub(crate) fn replay_frame(
     height: f32,
     paint: impl FnOnce(&mut egui::Ui),
 ) -> egui::FullOutput {
+    let mut paint = Some(paint);
     REPLAY_SCREEN.with(|cell| cell.set(Some((width, height))));
     ctx.enable_accesskit();
     let mut output = ctx.run_ui(
@@ -241,7 +242,9 @@ pub(crate) fn replay_frame(
         },
         |ui| {
             app.show(ui);
-            paint(ui);
+            if let Some(paint) = paint.take() {
+                paint(ui);
+            }
         },
     );
     REPLAY_SCREEN.with(|cell| cell.set(None));

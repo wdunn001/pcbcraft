@@ -176,12 +176,12 @@ fn a_newcomer_tents_a_via_on_top_and_leaves_it_open_underneath_for_a_test_probe(
         "tented on one side is type Ia: {}",
         app.message
     );
-    assert!(!pcbcraft_io::via_mask_opening_on(
+    assert!(!pcbcraft_io::via_mask_opening_on_face(
         &v,
         &app.project.board,
         false
     ));
-    assert!(pcbcraft_io::via_mask_opening_on(
+    assert!(pcbcraft_io::via_mask_opening_on_face(
         &v,
         &app.project.board,
         true

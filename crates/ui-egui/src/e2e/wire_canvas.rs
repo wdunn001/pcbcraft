@@ -1,7 +1,8 @@
 //! Schematic wire drafting stories for issue #291.
 
 use super::super::*;
-use super::modifiers::{click, screen_of, sample};
+use super::modifiers::{click, sample, screen_of};
+use super::support::*;
 use egui::Modifiers;
 
 fn add_resistors(app: &mut App, y: f64) -> Result<(), String> {
@@ -31,10 +32,14 @@ fn a_newcomer_draws_a_wire_with_two_bends() -> Result<(), String> {
     let mid_x = (a.x + b.x) / 2.0;
     let bend1 = Point::new(mid_x - 4.0, a.y + 6.0);
     let bend2 = Point::new(mid_x + 4.0, a.y + 6.0);
-    click(&ctx, &mut app, screen_of(&app, a), Modifiers::NONE);
-    click(&ctx, &mut app, screen_of(&app, bend1), Modifiers::NONE);
-    click(&ctx, &mut app, screen_of(&app, bend2), Modifiers::NONE);
-    click(&ctx, &mut app, screen_of(&app, b), Modifiers::NONE);
+    let at = screen_of(&app, a);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    let at = screen_of(&app, bend1);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    let at = screen_of(&app, bend2);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    let at = screen_of(&app, b);
+    click(&ctx, &mut app, at, Modifiers::NONE);
     let wire = app
         .project
         .drawn_wires
@@ -61,9 +66,12 @@ fn a_newcomer_tees_into_a_wire_and_gets_a_junction() -> Result<(), String> {
     let right = pin_pos(&app, 1, "1")?;
     let mid = Point::new((left.x + right.x) / 2.0, left.y);
     let lift = Point::new(mid.x, left.y - 6.0);
-    click(&ctx, &mut app, screen_of(&app, left), Modifiers::NONE);
-    click(&ctx, &mut app, screen_of(&app, lift), Modifiers::NONE);
-    click(&ctx, &mut app, screen_of(&app, right), Modifiers::NONE);
+    let at = screen_of(&app, left);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    let at = screen_of(&app, lift);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    let at = screen_of(&app, right);
+    click(&ctx, &mut app, at, Modifiers::NONE);
     assert!(
         !app.project.drawn_wires.is_empty(),
         "the trunk is a drawn wire"
@@ -79,8 +87,10 @@ fn a_newcomer_tees_into_a_wire_and_gets_a_junction() -> Result<(), String> {
         .and_then(|c| c.pin_position("1"))
         .ok_or("branch part needs a pin")?;
     let tee = Point::new((left.x + lift.x) / 2.0, left.y);
-    click(&ctx, &mut app, screen_of(&app, branch_pin), Modifiers::NONE);
-    click(&ctx, &mut app, screen_of(&app, tee), Modifiers::NONE);
+    let at = screen_of(&app, branch_pin);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    let at = screen_of(&app, tee);
+    click(&ctx, &mut app, at, Modifiers::NONE);
     assert!(
         app.project.labels.iter().any(|l| l.kind == "junction" && l.position.distance(tee) < 0.05),
         "a junction dot marks the tee: {}",
@@ -101,8 +111,10 @@ fn a_newcomer_names_a_bus_and_breaks_out_one_member() -> Result<(), String> {
     let c = app.schematic.center;
     let a = Point::new(c.x - 8.0, c.y + 20.0);
     let b = Point::new(c.x + 8.0, c.y + 20.0);
-    click(&ctx, &mut app, screen_of(&app, a), Modifiers::NONE);
-    click(&ctx, &mut app, screen_of(&app, b), Modifiers::NONE);
+    let at = screen_of(&app, a);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    let at = screen_of(&app, b);
+    click(&ctx, &mut app, at, Modifiers::NONE);
     frame(&ctx, &mut app, vec![], Modifiers::NONE);
     if let Some(prompt) = app.bus_name_prompt.as_mut() {
         prompt.text = "ADDR*4".into();
@@ -117,7 +129,8 @@ fn a_newcomer_names_a_bus_and_breaks_out_one_member() -> Result<(), String> {
     );
     super::support::tap_strip(&ctx, &mut app, "icon:tool-label")?;
     let mid = Point::new(c.x, c.y + 20.0);
-    click(&ctx, &mut app, screen_of(&app, mid), Modifiers::NONE);
+    let at = screen_of(&app, mid);
+    click(&ctx, &mut app, at, Modifiers::NONE);
     assert!(
         app.project.labels.iter().any(|l| {
             l.kind == "label" && app.project.net_name(l.net).starts_with("ADDR")
