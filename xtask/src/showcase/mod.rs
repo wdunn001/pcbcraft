@@ -634,21 +634,48 @@ mod tests {
         std::fs::read(&path).map_err(|e| e.to_string())
     }
 
+    /// Every finding the app counts for this project: the engine's checks
+    /// (wiring, board, peripheral and compliance) plus the library footprint
+    /// checks over the project library, the same set the status strip reads.
     fn severity_counts(project: &Project) -> (usize, usize, usize) {
         let mut errors = 0;
         let mut warnings = 0;
         let mut other = 0;
-        let all = pcbcraft_rules::erc(project)
-            .into_iter()
-            .chain(pcbcraft_rules::drc(project));
-        for f in all {
-            match f.severity.as_str() {
-                "error" => errors += 1,
-                "warning" => warnings += 1,
-                _ => other += 1,
+        let mut count = |severity: &str| match severity {
+            "error" => errors += 1,
+            "warning" => warnings += 1,
+            _ => other += 1,
+        };
+        let mut session = Session::default();
+        session
+            .replace(project.clone())
+            .expect("the project loads into a session");
+        let checks = session.checks();
+        for key in ["erc", "drc", "peripheral", "compliance"] {
+            for f in checks[key].as_array().into_iter().flatten() {
+                count(f["severity"].as_str().unwrap_or("note"));
+            }
+        }
+        for def in &project.library.footprints {
+            for f in pcbcraft_library::check_footprint(def) {
+                count(match f.severity {
+                    pcbcraft_library::FindingSeverity::Error => "error",
+                    pcbcraft_library::FindingSeverity::Warning => "warning",
+                });
             }
         }
         (errors, warnings, other)
+    }
+
+    /// The library findings alone, as `code: footprint` lines, for messages.
+    fn library_findings(project: &Project) -> Vec<String> {
+        let mut out = Vec::new();
+        for def in &project.library.footprints {
+            for f in pcbcraft_library::check_footprint(def) {
+                out.push(format!("{} {}", def.name, f.code));
+            }
+        }
+        out
     }
 
     /// The netlist as text: one line per net, pins sorted, nets sorted by name.
@@ -796,7 +823,16 @@ mod tests {
     #[test]
     fn showcase_ships_clean() -> Result<(), String> {
         let p = shared()?;
-        assert_eq!(severity_counts(p), (0, 0, 0), "no finding of any severity");
+        assert_eq!(
+            library_findings(p),
+            Vec::<String>::new(),
+            "every library footprint passes its quality checks"
+        );
+        assert_eq!(
+            severity_counts(p),
+            (0, 0, 0),
+            "no finding of any severity, as the app counts them"
+        );
         assert!(
             pcbcraft_rules::airwires(p).is_empty(),
             "every connection is made"
