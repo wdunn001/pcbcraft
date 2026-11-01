@@ -1,2 +1,7 @@
 [alias]
 xtask = "run -p xtask --"
+
+[env]
+# The command dispatcher is one very large function; unoptimised test builds need more
+# than the default 2 MiB test-thread stack.
+RUST_MIN_STACK = "16777216"

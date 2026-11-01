@@ -199,22 +199,6 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "project.import",
-            "Replace the open design from an interchange file on disk; schematic text is supported today",
-            schema(
-                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"format":{"type":"string","enum":["schematic"]}}),
-                &["path", "format"],
-            ),
-        ),
-        (
-            "project.import",
-            "Replace the open design from an interchange board file in one undo step",
-            schema(
-                json!({"format":{"type":"string","enum":["board"]},"path":{"type":"string","minLength":1,"maxLength":4096}}),
-                &["format", "path"],
-            ),
-        ),
-        (
-            "project.import",
             "Replace the open design from an interchange board or schematic file on disk in one undo step",
             schema(
                 json!({"format":{"type":"string","enum":["board","schematic"]},"path":{"type":"string","minLength":1,"maxLength":4096}}),
@@ -437,27 +421,6 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "component.set_sourcing",
-            "Set or clear typed sourcing fields on a component; keys left out stay unchanged and null clears a field",
-            schema(
-                json!({
-                    "id": id_schema(),
-                    "manufacturer": {"type": ["string", "null"]},
-                    "mpn": {"type": ["string", "null"]},
-                    "lifecycle": {"type": ["string", "null"]},
-                    "moisture_level": {"type": ["integer", "null"], "minimum": 1, "maximum": 6},
-                    "rohs": {"type": ["boolean", "null"]},
-                    "reach": {"type": ["boolean", "null"]},
-                    "halogen_free": {"type": ["boolean", "null"]},
-                    "packaging": {"type": ["string", "null"]},
-                    "alternates": {"type": ["array", "null"], "maxItems": 8},
-                    "datasheet_url": {"type": ["string", "null"]},
-                    "model3d_url": {"type": ["string", "null"]}
-                }),
-                &["id"],
-            ),
-        ),
-        (
             "component.apply_listing",
             "Copy matching fields from a part listing into typed sourcing; skips values already set unless overwrite is true",
             schema(
@@ -499,14 +462,6 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"name":{"type":"string","maxLength":128},"aliases":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":128}},"country":{"type":"string","maxLength":2},"parent":{"type":["string","null"],"maxLength":128},"supplier_responsibility_on_file":{"type":"boolean"}}),
                 &["name"],
-            ),
-        ),
-        (
-            "component.set_sourcing",
-            "Set the typed sourcing facts of one part: manufacturer, manufacturer part number, description, lifecycle (active, nrnd, last_time_buy, obsolete, unknown), moisture sensitivity level 1 to 6, and RoHS, REACH and halogen-free flags. A key left out stays as it is; null (or an empty string) clears it. One undo step; the old free-form properties are not touched",
-            schema(
-                json!({"id":id_schema(),"manufacturer":{"type":["string","null"],"maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"description":{"type":["string","null"],"maxLength":256},"lifecycle":{"type":["string","null"],"enum":["active","nrnd","last_time_buy","obsolete","unknown",null]},"moisture_level":{"type":["integer","null"],"minimum":1,"maximum":6},"rohs":{"type":["boolean","null"]},"reach":{"type":["boolean","null"]},"halogen_free":{"type":["boolean","null"]}}),
-                &["id"],
             ),
         ),
         (
@@ -3389,6 +3344,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
+        drc.extend(height_findings(&self.project));
         let compliance = pcbcraft_rules::compliance_check(&self.project);
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
@@ -3991,7 +3947,6 @@ fn custom_findings(p: &Project) -> Vec<Value> {
     out
 }
 /// Rule-area height violations using the same body boxes as mechanical export.
-#[allow(dead_code)]
 fn height_findings(p: &Project) -> Vec<Value> {
     const CODE: &str = "part_too_tall";
     // A part taller than the cover allows is a hard mechanical failure by default.
@@ -4064,7 +4019,6 @@ fn height_findings(p: &Project) -> Vec<Value> {
     out
 }
 
-#[allow(dead_code)]
 fn component_uses_default_body_height(p: &Project, component_id: Id) -> bool {
     let Some(component) = p.component(component_id) else {
         return true;
@@ -10581,19 +10535,41 @@ fn run_command(
         }
         "project.import" => {
             let a: ProjectImportParams = parse(params)?;
-            if a.format != "schematic" {
-                return Err(Error::Invalid(
-                    "only schematic interchange import is supported".into(),
-                ));
-            }
             let path = std::path::Path::new(&a.path);
             let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
-            let imported = pcbcraft_io::read_schematic_interchange_path(path, &text)
-                .map_err(Error::Invalid)?;
-            let preserved_bytes = 0usize;
-            let summary = pcbcraft_io::import_summary(&imported, preserved_bytes);
-            *p = imported;
-            Ok(summary)
+            match a.format.as_str() {
+                "schematic" => {
+                    let imported = pcbcraft_io::read_schematic_interchange_path(path, &text)
+                        .map_err(Error::Invalid)?;
+                    let preserved_bytes = 0usize;
+                    let summary = pcbcraft_io::import_summary(&imported, preserved_bytes);
+                    *p = imported;
+                    Ok(summary)
+                }
+                "board" => {
+                    let rules = pcbcraft_io::read_text(&path.with_extension("kicad_pro")).ok();
+                    let (imported, report) =
+                        pcbcraft_io::read_board_interchange_with_rules(&text, rules.as_deref())
+                            .map_err(Error::Invalid)?;
+                    let preserved_nodes = count_preserved_nodes(&imported);
+                    let summary = json!({
+                        "format": "board",
+                        "components": imported.components.len(),
+                        "nets": imported.nets.len(),
+                        "footprints": imported.board.footprints.len(),
+                        "tracks": imported.board.tracks.len(),
+                        "vias": imported.board.vias.len(),
+                        "zones": imported.board.zones.len(),
+                        "preserved_nodes": preserved_nodes,
+                        "notices": report.notices,
+                    });
+                    *p = imported;
+                    // New objects must not reuse an id the import already took.
+                    *next = (*next).max(p.ids().max().unwrap_or(0).saturating_add(1));
+                    Ok(summary)
+                }
+                _ => Err(Error::Invalid("unsupported import format".into())),
+            }
         }
         "component.add" => {
             let a: Add = parse(params)?;
