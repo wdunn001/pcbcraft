@@ -82,6 +82,7 @@ impl Session {
         let mut results = vec![];
         for command in commands {
             results.push(run(
+                &self.config,
                 &mut candidate,
                 &mut next,
                 &command.command,
@@ -285,7 +286,8 @@ mod tests {
         assert_eq!(dry.summary.added_counts.get("track"), Some(&1));
         assert!((dry.summary.track_mm_added - 50.0).abs() < 1e-6);
         assert_eq!(dry.summary.untouched, 3, "R1 and its pads are unchanged");
-        assert_eq!(dry.summary.total, 4);
+        // `total` counts the objects before the batch: R1, its footprint and the net.
+        assert_eq!(dry.summary.total, 3);
         assert!(dry.summary.bytes_after > dry.summary.bytes_before);
         let via = s.dry_run(
             &[Command {

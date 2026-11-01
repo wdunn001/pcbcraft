@@ -19,9 +19,7 @@ pub fn build_part_patch(bundle: &DatasheetExtractBundle) -> Result<PartFieldPatc
     }
     for row in &bundle.ordering_codes {
         if let Some(code) = effective_ordering(row) {
-            patch
-                .properties
-                .insert("Ordering code".into(), code);
+            patch.properties.insert("Ordering code".into(), code);
         }
     }
     Ok(patch)
@@ -43,9 +41,7 @@ fn effective_pin_name(row: &ReviewedField<ExtractedPinRow>) -> Option<String> {
     }
 }
 
-fn effective_ordering(
-    row: &ReviewedField<super::types::ExtractedOrderingCode>,
-) -> Option<String> {
+fn effective_ordering(row: &ReviewedField<super::types::ExtractedOrderingCode>) -> Option<String> {
     match row.decision {
         ReviewDecision::Rejected | ReviewDecision::Pending => None,
         ReviewDecision::Accepted => Some(row.value.code.clone()),
@@ -56,10 +52,10 @@ fn effective_ordering(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SymbolPin;
     use crate::datasheet_extract::provenance::{DatasheetRect, DatasheetSourceRecord};
     use crate::datasheet_extract::review::ReviewedField;
     use crate::datasheet_extract::types::{DatasheetExtractBundle, ExtractedPinRow};
-    use crate::SymbolPin;
     use pcbcraft_geom::Point;
 
     fn sample_row(
@@ -116,7 +112,7 @@ mod tests {
             pins: vec![SymbolPin {
                 number: "1".into(),
                 name: "~".into(),
-                position: Point::ZERO,
+                position: Point::new(0.0, 0.0),
                 angle: 0.0,
                 length: 2.54,
                 electrical_type: "passive".into(),
@@ -129,6 +125,7 @@ mod tests {
             extends: None,
             raw_source: String::new(),
             unsupported: Vec::new(),
+            retained: vec![],
         };
         apply_patch_to_symbol(&mut symbol, &patch);
         assert_eq!(symbol.pins[0].name, "VOUT");

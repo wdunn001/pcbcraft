@@ -1,6 +1,6 @@
 //! Optional electrical properties on nets and net classes, with class defaults
 //! and per-net overrides.
-use crate::{Net, Project};
+use crate::{Id, Net, Project};
 
 pub const IMPEDANCE_TARGET_MIN_OHM: f64 = 10.0;
 pub const IMPEDANCE_TARGET_MAX_OHM: f64 = 200.0;
@@ -49,7 +49,10 @@ pub fn validate_line_structure(value: &str) -> Result<(), String> {
     if in_set(value, LINE_STRUCTURES) {
         Ok(())
     } else {
-        Err("line structure must be stripline, microstrip, microstrip_mask, coplanar or broadside".into())
+        Err(
+            "line structure must be stripline, microstrip, microstrip_mask, coplanar or broadside"
+                .into(),
+        )
     }
 }
 
@@ -131,6 +134,28 @@ impl Project {
         }
     }
 
+    /// Impedance goal and tolerance percent for the net with id `net`, merging
+    /// class defaults with net values. A class `target_impedance` set by an
+    /// interface profile counts as the goal when nothing else is recorded.
+    /// None when no target is recorded or the values are out of range.
+    pub fn impedance_target_for_net(&self, net: Id) -> Option<(f64, f64)> {
+        let n = self.nets.iter().find(|x| x.id == net)?;
+        let class = self.net_class(net);
+        let target = self
+            .net_effective_impedance_target(n)
+            .or_else(|| class.and_then(|c| c.target_impedance))?;
+        if !(10.0..=200.0).contains(&target) {
+            return None;
+        }
+        let tolerance_pct = self
+            .net_effective_impedance_tolerance_pct(n)
+            .unwrap_or(10.0);
+        if !(0.0..=50.0).contains(&tolerance_pct) {
+            return None;
+        }
+        Some((target, tolerance_pct))
+    }
+
     pub fn net_effective_line_structure<'a>(&'a self, net: &'a Net) -> Option<&'a str> {
         if let Some(structure) = net.line_structure.as_deref() {
             Some(structure)
@@ -161,6 +186,21 @@ impl Project {
             .or_else(|| self.net_class(net.id).and_then(|c| c.temperature_rise))
     }
 
+    /// Current for the net with id `net`: the net value when set, otherwise the
+    /// class default.
+    pub fn effective_current(&self, net: Id) -> Option<f64> {
+        let n = self.nets.iter().find(|n| n.id == net)?;
+        self.net_effective_current(n)
+    }
+
+    /// Temperature rise for the net with id `net`: the net value, else the
+    /// class default, else 10 K when a current is known.
+    pub fn effective_temperature_rise(&self, net: Id) -> Option<f64> {
+        self.effective_current(net)?;
+        let n = self.nets.iter().find(|n| n.id == net)?;
+        Some(self.net_effective_temperature_rise(n).unwrap_or(10.0))
+    }
+
     pub fn net_effective_working_voltage(&self, net: &Net) -> Option<f64> {
         net.working_voltage
             .or_else(|| self.net_class(net.id).and_then(|c| c.working_voltage))
@@ -170,8 +210,7 @@ impl Project {
         if let Some(insulation) = net.insulation.as_deref() {
             Some(insulation)
         } else {
-            self.net_class(net.id)
-                .and_then(|c| c.insulation.as_deref())
+            self.net_class(net.id).and_then(|c| c.insulation.as_deref())
         }
     }
 

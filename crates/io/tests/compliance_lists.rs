@@ -1,6 +1,6 @@
 use pcbcraft_io::{
-    EntityMatchConfidence, builtin_compliance_list, compliance_list_from_toml,
-    match_entity_name, snapshot_staleness_note,
+    EntityMatchConfidence, builtin_compliance_list, compliance_list_from_toml, match_entity_name,
+    snapshot_staleness_note,
 };
 
 #[test]
@@ -27,7 +27,9 @@ fn staleness_note_appears_after_cadence() -> Result<(), String> {
 #[test]
 fn malformed_and_oversized_imports_are_refused() -> Result<(), String> {
     assert!(compliance_list_from_toml("not valid toml {{{").is_err());
-    let mut huge = String::from("schema = 1\nid = \"x\"\ntitle = \"t\"\nretrieved = \"2026-01-01\"\nlicence = \"CC0-1.0\"\n");
+    let mut huge = String::from(
+        "schema = 1\nid = \"x\"\ntitle = \"t\"\nretrieved = \"2026-01-01\"\nlicence = \"CC0-1.0\"\n",
+    );
     huge.push_str(&"a".repeat(2 * 1024 * 1024 + 1));
     assert!(compliance_list_from_toml(&huge).is_err());
     let dup = include_str!("fixtures/compliance-lists/duplicate-entity.toml");

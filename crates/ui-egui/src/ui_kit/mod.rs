@@ -56,4 +56,4 @@ pub mod select;
 pub mod status_item;
 pub mod tab_bar;
 #[cfg(test)]
-mod testing;
+pub(crate) mod testing;

@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
+# A patched copy of a third-party crate is built as a dependency only.
+exclude = ["vendor/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -20,7 +22,10 @@ pcbcraft-mcp = { path = "crates/mcp" }
 pcbcraft-assistant = { path = "crates/assistant" }
 pcbcraft-ui-egui = { path = "crates/ui-egui" }
 pcbcraft-library = { path = "crates/library" }
+pcbcraft-plugin = { path = "crates/plugin" }
 pcbcraft-plugin-sdk = { path = "crates/plugin-sdk" }
+pcbcraft-portal = { path = "crates/portal" }
+pcbcraft-publication = { path = "crates/publication" }
 pcbcraft-plugin-firmware-target = { path = "crates/plugin-firmware-target" }
 pcbcraft-text = { path = "crates/text" }
 pcbcraft-datasheet = { path = "crates/datasheet" }
@@ -49,6 +54,7 @@ truck-stepio = "0.3"
 truck-meshalgo = { version = "0.4", default-features = false, features = ["tessellation"] }
 gltf = { version = "1", default-features = false, features = ["utils"] }
 tempfile = "3"
+gerber_parser = "0.5.0"
 web-time = "1.1"
 ipc2581 = "0.3.3"
 rayon = "1.10"
@@ -68,6 +74,31 @@ unreachable = "deny"
 debug = 0
 incremental = false
 
+# Unoptimised, a pour fill plus the checks of the showcase board take about half a
+# minute, and the stories that edit that board run them after every command. The
+# geometry crates are built with optimisation so the whole suite stays short.
+[profile.dev.package.pcbcraft-geom]
+opt-level = 3
+[profile.dev.package.pcbcraft-rules]
+opt-level = 2
+[profile.dev.package.i_overlay]
+opt-level = 3
+[profile.dev.package.i_float]
+opt-level = 3
+[profile.dev.package.i_shape]
+opt-level = 3
+[profile.dev.package.i_tree]
+opt-level = 3
+[profile.dev.package.i_key_sort]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 strip = true
+
+# ipc2581 0.3.3 pins quick-xml 0.39, which RUSTSEC-2026-0194 and RUSTSEC-2026-0195
+# flag. The crate uses quick-xml in one place (`escape::escape` in types/avl.rs), so
+# this copy of 0.3.3 only raises that requirement to 0.41. Drop it when ipc2581
+# publishes a release that does.
+[patch.crates-io]
+ipc2581 = { path = "vendor/ipc2581" }

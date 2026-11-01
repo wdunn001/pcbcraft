@@ -114,7 +114,7 @@ fn display_label(item: &Segment<'_>, selected: bool, icons_only: bool, panel_wid
     text
 }
 
-fn segment_tip(item: &Segment<'_>) -> &str {
+fn segment_tip<'a>(item: &Segment<'a>) -> &'a str {
     item.disabled.unwrap_or(item.tip)
 }
 
@@ -131,16 +131,13 @@ fn next_enabled(current: usize, items: &[Segment<'_>], step: i32) -> usize {
     if enabled.is_empty() {
         return current.min(items.len().saturating_sub(1));
     }
-    let pos = enabled
-        .iter()
-        .position(|&i| i == current)
-        .unwrap_or(0);
-    let next = if step >= 0 {
+    let pos = enabled.iter().position(|&i| i == current).unwrap_or(0);
+
+    if step >= 0 {
         enabled[(pos + 1).min(enabled.len() - 1)]
     } else {
         enabled[pos.saturating_sub(1)]
-    };
-    next
+    }
 }
 
 /// Item widths for the labels (or icon-only slots) in `items`.
@@ -153,7 +150,9 @@ fn widths(
     total: f32,
 ) -> Vec<f32> {
     if icons_only {
-        return vec![ICON_ONLY_WIDTH; items.len()];
+        // A full-width track shares its length between the icons; a compact one hugs them.
+        let share = (total - 2.0 * TRACK_PADDING) / items.len() as f32;
+        return vec![share.max(ICON_ONLY_WIDTH); items.len()];
     }
     let mut w: Vec<f32> = items
         .iter()
@@ -217,14 +216,13 @@ pub fn segmented_styled(
         return ui.allocate_response(Vec2::ZERO, Sense::hover());
     }
     *selected = (*selected).min(count - 1);
-    if items[*selected].disabled.is_some() {
-        if let Some(&first) = enabled_indices(items).first() {
-            *selected = first;
-        }
+    if items[*selected].disabled.is_some()
+        && let Some(&first) = enabled_indices(items).first()
+    {
+        *selected = first;
     }
     let panel_width = ui.max_rect().width();
-    let icons_only = panel_width < ICON_ONLY_BREAK
-        && items.iter().all(|s| s.icon.is_some());
+    let icons_only = panel_width < ICON_ONLY_BREAK && items.iter().all(|s| s.icon.is_some());
     let total = if style.full_width {
         ui.available_width()
     } else {
@@ -232,10 +230,8 @@ pub fn segmented_styled(
         w.iter().sum::<f32>() + 2.0 * TRACK_PADDING
     };
     let id = group_id(ui, &salt);
-    let (track, _track_slot) = ui.allocate_exact_size(
-        Vec2::new(total.max(0.0), TRACK_HEIGHT),
-        Sense::hover(),
-    );
+    let (track, _track_slot) =
+        ui.allocate_exact_size(Vec2::new(total.max(0.0), TRACK_HEIGHT), Sense::hover());
     let w = widths(ui, items, *selected, icons_only, panel_width, track.width());
     let mut rects = Vec::with_capacity(count);
     let mut x = track.min.x + TRACK_PADDING;
@@ -246,7 +242,11 @@ pub fn segmented_styled(
         ));
         x += width;
     }
-    let mut outer = ui.interact(track, id, Sense::click().union(Sense::focus()));
+    let mut outer = ui.interact(
+        track,
+        id,
+        Sense::click().union(Sense::focusable_noninteractive()),
+    );
     let group_label = style
         .group_name
         .map(str::to_owned)
@@ -303,17 +303,14 @@ pub fn segmented_styled(
             }
         }
     }
-    if outer.clicked() {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            for (i, rect) in rects.iter().enumerate() {
-                if rect.contains(pos)
-                    && items[i].disabled.is_none()
-                    && i != *selected
-                {
-                    *selected = i;
-                    outer.mark_changed();
-                    break;
-                }
+    if outer.clicked()
+        && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+    {
+        for (i, rect) in rects.iter().enumerate() {
+            if rect.contains(pos) && items[i].disabled.is_none() && i != *selected {
+                *selected = i;
+                outer.mark_changed();
+                break;
             }
         }
     }
@@ -332,17 +329,30 @@ pub fn segmented_styled(
     if outer.has_focus() {
         focus::paint_ring(ui.painter(), track, theme::RADIUS_CONTROL, &t);
     }
+    let mut over: Option<(Response, &str)> = None;
     for (i, (rect, item)) in rects.iter().zip(items).enumerate() {
-        let tip = segment_tip(item);
-        let hover = ui.interact(*rect, id.with(i), Sense::hover());
+        let hover = ui.interact(*rect, id.with(("segment", i)), Sense::hover());
         if hover.hovered() {
-            hover.on_hover_text(tip);
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            over = Some((hover, segment_tip(item)));
         }
+    }
+    // The group itself carries the tip, so a reader that hovers the whole track
+    // (the middle of it, or one segment) gets the words of the segment under the
+    // pointer, or of the one shown when the pointer is between them.
+    if outer.hovered() {
+        let tip = over
+            .as_ref()
+            .map_or_else(|| segment_tip(&items[*selected]), |(_, tip)| tip);
+        return outer.on_hover_text(tip);
+    }
+    if let Some((hover, tip)) = over {
+        hover.on_hover_text(tip);
     }
     outer
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint(
     ui: &mut Ui,
     track: Rect,
@@ -354,7 +364,7 @@ fn paint(
     panel_width: f32,
     t: &Tokens,
 ) {
-    let painter = ui.painter();
+    let painter = ui.painter().clone();
     painter.rect_filled(track, CornerRadius::same(theme::RADIUS_CONTROL), t.raised);
     painter.rect_stroke(
         track,
@@ -386,7 +396,7 @@ fn paint(
         let label = display_label(item, is_selected, icons_only, panel_width);
         let mut x = rect.center().x;
         let mut parts_w = 0.0f32;
-        if let Some(name) = item.icon {
+        if let Some(_name) = item.icon {
             parts_w += ICON_SIZE;
             if !label.is_empty() {
                 parts_w += 4.0;
@@ -471,11 +481,9 @@ mod tests {
             track = draw(ui, &mut selected, &mut changed)
         });
         let target = pos2(track.max.x - 20.0, track.center().y);
-        frame(
-            &ctx,
-            crate::ui_kit::testing::click(target),
-            |ui| draw(ui, &mut selected, &mut changed),
-        );
+        frame(&ctx, crate::ui_kit::testing::click(target), |ui| {
+            draw(ui, &mut selected, &mut changed);
+        });
         assert_eq!(selected, 2);
         assert!(changed);
         Ok(())

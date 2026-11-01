@@ -242,19 +242,19 @@ fn scan_home_paths(path: &str, line_no: u32, line: &str, out: &mut Vec<ScanOutco
 
 fn scan_private_hosts(path: &str, line_no: u32, line: &str, out: &mut Vec<ScanOutcome>) {
     let lower = line.to_ascii_lowercase();
-    if lower.contains("localhost") || lower.contains(".local") {
-        if let Some(col) = lower.find("localhost").or_else(|| lower.find(".local")) {
-            out.push(
-                PrivacyFinding {
-                    rule: "local_hostname",
-                    path: path.into(),
-                    line: line_no,
-                    column: (col + 1) as u32,
-                    detail: "local host name".into(),
-                }
-                .hard(),
-            );
-        }
+    if (lower.contains("localhost") || lower.contains(".local"))
+        && let Some(col) = lower.find("localhost").or_else(|| lower.find(".local"))
+    {
+        out.push(
+            PrivacyFinding {
+                rule: "local_hostname",
+                path: path.into(),
+                line: line_no,
+                column: (col + 1) as u32,
+                detail: "local host name".into(),
+            }
+            .hard(),
+        );
     }
     for (col, _) in find_private_ipv4(line) {
         out.push(
@@ -274,19 +274,21 @@ fn scan_credential_json_keys(path: &str, line_no: u32, line: &str, out: &mut Vec
     let trimmed = line.trim();
     for key in ["api_key", "apikey", "password", "secret", "token"] {
         let pattern = format!("\"{key}\"");
-        if trimmed.contains(&pattern) && trimmed.contains(':') && !trimmed.contains(": \"\"") {
-            if let Some(col) = trimmed.find(&pattern) {
-                out.push(
-                    PrivacyFinding {
-                        rule: "credential_field",
-                        path: path.into(),
-                        line: line_no,
-                        column: (col + 1) as u32,
-                        detail: format!("project credential field `{key}` with a value"),
-                    }
-                    .hard(),
-                );
-            }
+        if trimmed.contains(&pattern)
+            && trimmed.contains(':')
+            && !trimmed.contains(": \"\"")
+            && let Some(col) = trimmed.find(&pattern)
+        {
+            out.push(
+                PrivacyFinding {
+                    rule: "credential_field",
+                    path: path.into(),
+                    line: line_no,
+                    column: (col + 1) as u32,
+                    detail: format!("project credential field `{key}` with a value"),
+                }
+                .hard(),
+            );
         }
     }
 }
@@ -355,14 +357,14 @@ fn find_private_ipv4(line: &str) -> Vec<(usize, ())> {
     let bytes = line.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i].is_ascii_digit() {
-            if let Some((start, end, a, b, c, d)) = parse_ipv4(bytes, i) {
-                if is_private_ipv4(a, b, c, d) {
-                    out.push((start, ()));
-                }
-                i = end;
-                continue;
+        if bytes[i].is_ascii_digit()
+            && let Some((start, end, a, b, c, d)) = parse_ipv4(bytes, i)
+        {
+            if is_private_ipv4(a, b, c, d) {
+                out.push((start, ()));
             }
+            i = end;
+            continue;
         }
         i += 1;
     }
@@ -379,7 +381,10 @@ fn parse_ipv4(bytes: &[u8], start: usize) -> Option<(usize, usize, u8, u8, u8, u
             if i == part_start || idx == 4 {
                 return None;
             }
-            let n: u16 = std::str::from_utf8(&bytes[part_start..i]).ok()?.parse().ok()?;
+            let n: u16 = std::str::from_utf8(&bytes[part_start..i])
+                .ok()?
+                .parse()
+                .ok()?;
             if n > 255 {
                 return None;
             }
@@ -398,10 +403,7 @@ fn parse_ipv4(bytes: &[u8], start: usize) -> Option<(usize, usize, u8, u8, u8, u
 }
 
 fn is_private_ipv4(a: u8, b: u8, _c: u8, _d: u8) -> bool {
-    a == 10
-        || a == 127
-        || (a == 192 && b == 168)
-        || (a == 172 && (16..=31).contains(&b))
+    a == 10 || a == 127 || (a == 192 && b == 168) || (a == 172 && (16..=31).contains(&b))
 }
 
 fn contains_subsequence(hay: &[u8], needle: &[u8]) -> bool {
@@ -410,6 +412,5 @@ fn contains_subsequence(hay: &[u8], needle: &[u8]) -> bool {
 
 fn find_ascii(hay: &[u8], needle: &str) -> Option<usize> {
     let needle = needle.as_bytes();
-    hay.windows(needle.len())
-        .position(|w| w == needle)
+    hay.windows(needle.len()).position(|w| w == needle)
 }

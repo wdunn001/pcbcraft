@@ -9,13 +9,13 @@
 //! - Cache keys use the SHA-256 of the project file bytes, not its mtime.
 //!
 //! # Dependencies
-//! - `./step_read.rs`, `./model_load.rs`
+//! - crates/io/src/step_read.rs, crates/io/src/model_load.rs
 //!
 //! # Do not
 //! - Do not link the CAD app's crates; exchange is documented data only.
 
 use pcbcraft_library::{FootprintDefinition, Model3D};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -95,11 +95,11 @@ fn sidecar_candidates(project_path: &Path, stub: &CompanionStub) -> Vec<PathBuf>
             out.push(dir.join(name));
         }
     }
-    if let Some(stem) = project_path.file_stem().and_then(|s| s.to_str()) {
-        if let Some(dir) = project_path.parent() {
-            out.push(dir.join(format!("{stem}.step")));
-            out.push(dir.join(format!("{stem}.solidcraft.step")));
-        }
+    if let Some(stem) = project_path.file_stem().and_then(|s| s.to_str())
+        && let Some(dir) = project_path.parent()
+    {
+        out.push(dir.join(format!("{stem}.step")));
+        out.push(dir.join(format!("{stem}.solidcraft.step")));
     }
     out
 }
@@ -141,10 +141,10 @@ pub fn resolve_step_bytes(
     let _part = cad_part.or(stub.cad_part.as_deref());
     let path = Path::new(project_path);
     for candidate in sidecar_candidates(path, &stub) {
-        if let Ok(bytes) = std::fs::read(&candidate) {
-            if !bytes.is_empty() {
-                return Ok(bytes);
-            }
+        if let Ok(bytes) = std::fs::read(&candidate)
+            && !bytes.is_empty()
+        {
+            return Ok(bytes);
         }
     }
     if let Some(cached) = cache_step_path(cache_root, &hash)
@@ -254,7 +254,73 @@ pub fn model_reference(project_path: &str, body_id: &str, cad_part: Option<&str>
         raw_source,
         cad_part: cad_part.filter(|p| !p.is_empty()).map(str::to_owned),
         body_id: Some(body_id.to_string()),
+        embedded: Default::default(),
     }
+}
+
+/// Write a board-level STEP export and a companion stub that points at it.
+pub fn write_board_sink(
+    project: &pcbcraft_doc::Project,
+    directory: &Path,
+    base_name: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    if base_name.is_empty() || base_name.len() > 128 {
+        return Err("The export name must be 1 to 128 characters.".into());
+    }
+    std::fs::create_dir_all(directory)
+        .map_err(|_| "The export folder could not be created.".to_string())?;
+    let step_name = format!("{base_name}.step");
+    let project_name = format!("{base_name}.solidcraft");
+    let step_path = directory.join(&step_name);
+    let project_path = directory.join(&project_name);
+    let step_text = crate::step_board(project)?;
+    std::fs::write(&step_path, step_text.as_bytes())
+        .map_err(|_| "The board STEP file could not be written.".to_string())?;
+    let mut bodies: Map<String, Value> = Map::new();
+    bodies.insert("Board".into(), json!({"kind": "board", "body_id": "board"}));
+    for fp in &project.board.footprints {
+        let reference = project
+            .component(fp.component)
+            .map(|c| c.reference.clone())
+            .unwrap_or_else(|| format!("footprint {}", fp.id));
+        bodies.insert(
+            reference.clone(),
+            json!({"kind": "component", "body_id": reference}),
+        );
+    }
+    let doc = json!({
+        "format": COMPANION_FORMAT,
+        "units": "mm",
+        "metadata": {
+            COMPANION_METADATA_KEY: {
+                "schema": COMPANION_SCHEMA,
+                "kind": "board_assembly",
+                "step_sidecar": step_name,
+                "bodies": bodies,
+            },
+        },
+    });
+    let project_bytes = serde_json::to_vec_pretty(&doc)
+        .map_err(|_| "The companion project stub could not be encoded.".to_string())?;
+    let hash = content_sha256_hex(&project_bytes);
+    let doc = json!({
+        "format": COMPANION_FORMAT,
+        "units": "mm",
+        "metadata": {
+            COMPANION_METADATA_KEY: {
+                "schema": COMPANION_SCHEMA,
+                "kind": "board_assembly",
+                "step_sidecar": step_name,
+                "content_sha256": hash,
+                "bodies": bodies,
+            },
+        },
+    });
+    let project_bytes = serde_json::to_vec_pretty(&doc)
+        .map_err(|_| "The companion project stub could not be encoded.".to_string())?;
+    std::fs::write(&project_path, &project_bytes)
+        .map_err(|_| "The companion project file could not be written.".to_string())?;
+    Ok((project_path, step_path))
 }
 
 #[cfg(test)]

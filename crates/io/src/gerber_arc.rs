@@ -1,5 +1,5 @@
 //! Gerber arc export policy: true arcs or chord flattening with a report.
-use pcbcraft_doc::{FabRules, Project};
+use pcbcraft_doc::Project;
 use pcbcraft_geom::{Arc, Point};
 use serde_json::Value;
 
@@ -21,7 +21,7 @@ impl GerberArcOptions {
         let arcs = settings
             .get("arcs")
             .and_then(Value::as_bool)
-            .or_else(|| fab.and_then(FabRules::arcs))
+            .or_else(|| fab.and_then(|rules| rules.arcs))
             .unwrap_or(true);
         let max_deviation = settings
             .get("max_deviation")

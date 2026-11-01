@@ -45,7 +45,7 @@ pub fn stencil_aperture_rings(
                 continue;
             };
             let ring = scaled_pad_ring(pad, fp, position, scale)?;
-            if polygon_is_simple(&ring) {
+            if ring_is_simple(&ring) {
                 rings.push(ring);
             }
         }
@@ -180,16 +180,28 @@ pub fn laser_board_cut_dxf(p: &Project, options: &LaserBoardCutOptions) -> Resul
     Ok(w.finish())
 }
 
+/// Whether a ring is simple. The rings here repeat their first point as the
+/// closing vertex; the simplicity test wants the open ring.
+fn ring_is_simple(ring: &[Point]) -> bool {
+    let open = match ring.split_last() {
+        Some((last, rest)) if rest.first() == Some(last) => rest,
+        _ => ring,
+    };
+    polygon_is_simple(open)
+}
+
 fn board_cut_rings(p: &Project, kerf_offset_mm: f64) -> Result<Vec<Vec<Point>>, String> {
     let outline = board_outline_ring(p);
     let offset = crate::cam_drill::offset_ring(&outline, kerf_offset_mm);
-    if !polygon_is_simple(&offset) {
+    // The offset ring repeats its first point as the closing vertex; the
+    // simplicity test wants the open ring.
+    if !ring_is_simple(&offset) {
         return Err("board outline with kerf offset is not a simple ring".into());
     }
     let mut rings = vec![offset];
     for cutout in &p.board.cutouts {
         let hole = circle_ring(cutout.center, cutout.radius + kerf_offset_mm);
-        if polygon_is_simple(&hole) {
+        if ring_is_simple(&hole) {
             rings.push(hole);
         }
     }
@@ -219,7 +231,7 @@ fn board_outline_ring(p: &Project) -> Vec<Point> {
 
 fn scaled_pad_ring(
     pad: &Pad,
-    fp: &Footprint,
+    _fp: &Footprint,
     position: Point,
     scale: f64,
 ) -> Result<Vec<Point>, String> {
@@ -228,7 +240,7 @@ fn scaled_pad_ring(
         .into_iter()
         .map(|pt| Point::new(pt.x * scale, pt.y * scale))
         .collect();
-    let mut ring: Vec<Point> = local.iter().map(|pt| position.offset(*pt)).collect();
+    let ring: Vec<Point> = local.iter().map(|pt| position.offset(*pt)).collect();
     close_ring(ring)
 }
 
@@ -328,7 +340,7 @@ fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Footprint, Id, Net, Pad, Project};
+    use pcbcraft_doc::{Footprint, Net, Pad, Project};
     use pcbcraft_library::{Drill, FootprintPad};
     fn smd_rect_pad(number: &str, size_mm: f64, offset: Point) -> Pad {
         Pad {
@@ -341,7 +353,7 @@ mod tests {
                 number: number.into(),
                 pad_type: "smd".into(),
                 shape: "rect".into(),
-                position: Point::default(),
+                position: offset,
                 rotation: 0.0,
                 size: Point::new(size_mm, size_mm),
                 layers: vec!["F.Cu".into(), "F.Paste".into()],
@@ -365,7 +377,7 @@ mod tests {
                 number: number.into(),
                 pad_type: "thru_hole".into(),
                 shape: "circle".into(),
-                position: Point::default(),
+                position: offset,
                 rotation: 0.0,
                 size: Point::new(1.0, 1.0),
                 layers: vec!["F.Cu".into(), "B.Cu".into()],
@@ -389,7 +401,7 @@ mod tests {
         project.board.width = 20.0;
         project.board.height = 15.0;
         project.board.footprints = vec![Footprint {
-            id: 1,
+            id: 3,
             component: 2,
             position: Point::new(5.0, 7.5),
             rotation: 0.0,
@@ -400,25 +412,38 @@ mod tests {
                 smd_rect_pad("2", 1.0, Point::new(2.0, 0.0)),
                 thru_pad("3", Point::new(0.0, 3.0)),
             ],
+            preserved: Default::default(),
         }];
         project.components = vec![pcbcraft_doc::Component {
             id: 2,
             reference: "U1".into(),
             value: "part".into(),
-            footprint: Some(1),
             pins: vec![],
             units: vec![],
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            ..Default::default()
         }];
         project.nets = vec![Net {
             id: 1,
             name: "N".into(),
             target_length: None,
             length_tolerance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            instance: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
         }];
+        crate::test_support::embed_pad_geometry(&mut project);
         project
     }
 

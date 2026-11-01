@@ -66,6 +66,7 @@ fn fab_bundle_project() -> Result<Project, String> {
         width: 0.3,
         layer: pcbcraft_doc::Layer::Back,
         arc: None,
+        preserved: Default::default(),
     });
     project.board.vias.push(pcbcraft_doc::Via {
         id: 4,
@@ -76,6 +77,9 @@ fn fab_bundle_project() -> Result<Project, String> {
         from_layer: None,
         to_layer: None,
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     project.board.zones.push(pcbcraft_doc::CopperZone {
         id: 5,
@@ -92,6 +96,7 @@ fn fab_bundle_project() -> Result<Project, String> {
         filled: true,
         kind: None,
         pour: None,
+        preserved: Default::default(),
     });
     project.board.cutouts.push(pcbcraft_doc::Cutout {
         id: 6,
@@ -134,13 +139,14 @@ fn fab_bundle_project() -> Result<Project, String> {
     embedded2.number = "2".into();
     embedded2.position = Point::new(2.0, 0.0);
     project.board.footprints.push(pcbcraft_doc::Footprint {
-        id: 1,
+        id: 9,
         component: 1,
         position: Point::new(0.0, 0.0),
         rotation: 0.0,
         locked: None,
         side: None,
         pads: vec![through_pad.clone(), pad2],
+        preserved: Default::default(),
     });
     project.components.push(pcbcraft_doc::Component {
         id: 1,
@@ -149,18 +155,21 @@ fn fab_bundle_project() -> Result<Project, String> {
         kind: "connector".into(),
         position: Point::new(0.0, 0.0),
         rotation: 0.0,
-        pins: vec![pcbcraft_doc::Pin {
-            number: "1".into(),
-            name: String::new(),
-            offset: Point::default(),
-            net: None,
-            electrical_type: "passive".into(),
-            direction: None,
-            unit: 1,
-        }],
+        pins: ["1", "2"]
+            .map(|number| pcbcraft_doc::Pin {
+                number: number.into(),
+                name: String::new(),
+                offset: Point::default(),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+                appearances: Default::default(),
+            })
+            .to_vec(),
         units: vec![],
         library_symbol: None,
-        library_footprint: Some(pcbcraft_library::LibraryFootprint {
+        library_footprint: Some(pcbcraft_doc::LibraryFootprint {
             library: "ThroughHole".into(),
             definition: pcbcraft_library::FootprintDefinition {
                 name: "PAD-1.6".into(),
@@ -172,10 +181,19 @@ fn fab_bundle_project() -> Result<Project, String> {
                 rules: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                box_body: Default::default(),
+                retained: Default::default(),
             },
         }),
         sheet: 0,
         fields: vec![],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     });
     project.validate()?;
     Ok(project)

@@ -1,8 +1,8 @@
 //! Small, bounded planar geometry. Units are millimetres.
 pub mod impedance;
 pub mod meander;
-pub mod track_corner;
 mod overlay;
+pub mod track_corner;
 use serde::{Deserialize, Serialize};
 
 pub use overlay::{OffsetJoin, Ring, polygon_difference, polygon_offset, polygon_union};
@@ -316,20 +316,64 @@ fn ring_open_points(ring: &Ring) -> Vec<Point> {
     pts
 }
 
-/// Parallel hatch segments clipped to each simple ring. Caps output at 8192 segments per ring.
+/// Parallel hatch segments over the area the rings enclose under the even-odd rule, so a ring
+/// inside another ring is a hole. Scan lines are `spacing_mm` apart and one line can give several
+/// segments. Caps output at 8192 segments.
 pub fn hatch(rings: &[Ring], spacing_mm: f64, angle_deg: f64) -> Vec<(Point, Point)> {
     if !spacing_mm.is_finite() || spacing_mm <= 0.0 || !angle_deg.is_finite() {
         return vec![];
     }
+    let open: Vec<Vec<Point>> = rings
+        .iter()
+        .map(ring_open_points)
+        .filter(|r| r.len() >= 3)
+        .collect();
+    if open.is_empty() {
+        return vec![];
+    }
+    let (sin, cos) = angle_deg.to_radians().sin_cos();
+    let (mut min_s, mut max_s) = (f64::INFINITY, f64::NEG_INFINITY);
+    for p in open.iter().flatten() {
+        let s = p.x * cos + p.y * sin;
+        min_s = min_s.min(s);
+        max_s = max_s.max(s);
+    }
+    if !min_s.is_finite() || max_s - min_s < 1e-9 {
+        return vec![];
+    }
     let mut out = Vec::new();
-    for ring in rings {
-        let open = ring_open_points(ring);
-        if open.len() < 3 {
-            continue;
+    let mut offset = min_s;
+    while offset <= max_s + 1e-9 {
+        let mut hits: Vec<f64> = Vec::new();
+        for ring in &open {
+            for (a, b) in polygon_edges(ring) {
+                let sa = a.x * cos + a.y * sin - offset;
+                let sb = b.x * cos + b.y * sin - offset;
+                // A vertex exactly on the line counts as on the upper side, so it is
+                // crossed once or not at all.
+                if (sa >= 0.0) != (sb >= 0.0) {
+                    let t = sa / (sa - sb);
+                    let px = a.x + (b.x - a.x) * t;
+                    let py = a.y + (b.y - a.y) * t;
+                    hits.push(-px * sin + py * cos);
+                }
+            }
         }
-        out.extend(hatch_fill_polygon(&open, spacing_mm, angle_deg, 0.0));
+        hits.sort_by(f64::total_cmp);
+        for pair in hits.windows(2).step_by(2) {
+            let (t0, t1) = (pair[0], pair[1]);
+            if t1 - t0 < 1e-9 {
+                continue;
+            }
+            out.push((
+                Point::new(offset * cos - t0 * sin, offset * sin + t0 * cos),
+                Point::new(offset * cos - t1 * sin, offset * sin + t1 * cos),
+            ));
+        }
+        offset += spacing_mm;
         if out.len() >= 8192 {
-            return out.into_iter().take(8192).collect();
+            out.truncate(8192);
+            break;
         }
     }
     out

@@ -1,13 +1,16 @@
 //! Live part source for the element14 partner Product Search API (REST).
 
+// The vendor wire formats name their fields in camel and Pascal case.
+#![allow(non_snake_case)]
+
 use crate::credentials::{self, KeyStore};
 use crate::http_client::{HttpClient, HttpError, HttpRequest, HttpResponse};
 use crate::rate_limit::{Clock, SystemClock, TokenBucket, rate_limited};
 use crate::source_errors::{map_auth_or_permission, map_element14_errors};
 use crate::source_hosts;
 use crate::sources::{
-    Attribution, PartResult, PartSource, PriceBreak, SetupCard, SourceError, check_query,
-    DEFAULT_CACHE_SECS, MAX_QUERY_BYTES,
+    Attribution, DEFAULT_CACHE_SECS, PartResult, PartSource, PriceBreak, SetupCard, SourceError,
+    check_query,
 };
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
@@ -103,7 +106,10 @@ impl Element14Source {
         let api_key = self.api_key()?;
         let store_id = self.store_id()?;
         self.take_token()?;
-        let term = if query.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        let term = if query
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
             format!("manuPartNum:{query}")
         } else {
             format!("any:{query}")
@@ -141,9 +147,7 @@ impl Element14Source {
             return Err(SourceError::NotFound(query.to_owned()));
         }
         if response.status != 200 {
-            return Err(SourceError::Unavailable(
-                "the catalog search failed".into(),
-            ));
+            return Err(SourceError::Unavailable("the catalog search failed".into()));
         }
         let parsed: KeywordSearchReturn = serde_json::from_slice(&response.body).map_err(|e| {
             SourceError::Unavailable(format!("the search answer was not valid: {e}"))
@@ -280,13 +284,7 @@ fn part_from_product(p: ProductJson, retrieved_at: u64) -> Option<PartResult> {
     let datasheet_url = p
         .datasheets
         .into_iter()
-        .find_map(|d| {
-            if d.url.is_empty() {
-                None
-            } else {
-                Some(d.url)
-            }
-        })
+        .find_map(|d| if d.url.is_empty() { None } else { Some(d.url) })
         .unwrap_or_default();
     let price_breaks = p
         .prices
@@ -367,9 +365,10 @@ fn url_encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sources::MAX_QUERY_BYTES;
 
     #[test]
     fn store_id_bound_matches_query_limit_order() {
-        assert!(MAX_STORE_ID_LEN <= MAX_QUERY_BYTES);
+        const _: () = assert!(MAX_STORE_ID_LEN <= MAX_QUERY_BYTES);
     }
 }

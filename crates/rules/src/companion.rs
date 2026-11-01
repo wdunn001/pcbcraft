@@ -4,7 +4,7 @@
 //! the same intent when the project has no persisted rules from a profile.
 
 use crate::Finding;
-use pcbcraft_doc::{parse_companion_value, CompanionRule, Component, Id, Project};
+use pcbcraft_doc::{CompanionRule, Component, Id, Project, parse_companion_value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 const MAX_BFS_DEPTH: usize = 32;
@@ -17,7 +17,7 @@ struct Bridge {
     net_b: Id,
 }
 
-struct SchematicGraph {
+pub struct SchematicGraph {
     bridges: Vec<Bridge>,
     /// Adjacency: net -> (other_net, bridge component).
     adjacency: BTreeMap<Id, Vec<(Id, Id)>>,
@@ -119,6 +119,7 @@ fn bfs_from_anchor(graph: &SchematicGraph, start: Id) -> BTreeMap<Id, (usize, Op
     seen
 }
 
+#[cfg(test)]
 fn bridge_between(graph: &SchematicGraph, a: Id, b: Id) -> Option<Id> {
     graph.bridges.iter().find_map(|br| {
         if (br.net_a == a && br.net_b == b) || (br.net_a == b && br.net_b == a) {
@@ -182,6 +183,7 @@ fn finding(project: &Project, code: &'static str, message: String, objects: Vec<
         severity: project.rule_severity(code, "warning"),
         message,
         objects,
+        hint: None,
     }
 }
 
@@ -228,9 +230,20 @@ fn builtin_usb_series(project: &Project, graph: &SchematicGraph) -> Vec<Finding>
             .flat_map(|c| c.pins.iter().filter_map(|p| p.net))
             .collect();
         let reached = bfs_from_anchor(graph, net.id);
+        // A transceiver pin counts when the connector net reaches it, or when
+        // it sits on a separate net that is itself a USB data net (the far
+        // side of a series resistor that is not drawn yet).
+        let by_id: BTreeMap<Id, &str> = project
+            .nets
+            .iter()
+            .map(|n| (n.id, n.name.as_str()))
+            .collect();
         let targets: Vec<Id> = mcu_nets
             .into_iter()
-            .filter(|n| reached.contains_key(n))
+            .filter(|n| {
+                reached.contains_key(n)
+                    || by_id.get(n).is_some_and(|name| net_matches_usb_data(name))
+            })
             .collect();
         if targets.is_empty() {
             continue;
@@ -273,13 +286,12 @@ fn builtin_cc_pulldown(project: &Project, graph: &SchematicGraph) -> Vec<Finding
             if !is_ground_net(project, other) {
                 continue;
             }
-            if let Some(c) = project.component(br.component) {
-                if kind_matches(&c.kind, "resistor")
-                    && value_in_range(&c.value, &c.kind, 5_000.0, 5_600.0)
-                {
-                    ok = true;
-                    break;
-                }
+            if let Some(c) = project.component(br.component)
+                && kind_matches(&c.kind, "resistor")
+                && value_in_range(&c.value, &c.kind, 5_000.0, 5_600.0)
+            {
+                ok = true;
+                break;
             }
         }
         if !ok {
@@ -313,10 +325,10 @@ fn count_pullups_to_power(project: &Project, graph: &SchematicGraph, net: Id) ->
         if !is_power_net(project, other) {
             continue;
         }
-        if let Some(c) = project.component(br.component) {
-            if kind_matches(&c.kind, "resistor") {
-                count += 1;
-            }
+        if let Some(c) = project.component(br.component)
+            && kind_matches(&c.kind, "resistor")
+        {
+            count += 1;
         }
     }
     count
@@ -391,7 +403,7 @@ fn builtin_can_termination(project: &Project, graph: &SchematicGraph) -> Vec<Fin
     let h_nets: Vec<_> = project
         .nets
         .iter()
-        .filter(|n| net_pattern_matches(&n.name, "CAN_H") || n.name.to_ascii_uppercase() == "CANH")
+        .filter(|n| net_pattern_matches(&n.name, "CAN_H") || n.name.eq_ignore_ascii_case("CANH"))
         .collect();
     for h in h_nets {
         let l_name = h.name.replace("_H", "_L").replace("CANH", "CANL");
@@ -715,10 +727,10 @@ pub fn companion_findings_for_rules(
                     if !kind_matches(&c.kind, &rule.required_kind) {
                         continue;
                     }
-                    if let (Some(lo), Some(hi)) = (min, max) {
-                        if !value_in_range(&c.value, &c.kind, lo, hi) {
-                            continue;
-                        }
+                    if let (Some(lo), Some(hi)) = (min, max)
+                        && !value_in_range(&c.value, &c.kind, lo, hi)
+                    {
+                        continue;
                     }
                     satisfied = true;
                     break;
@@ -764,7 +776,8 @@ pub fn companion_findings(project: &Project) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Net, Pin, Point};
+    use pcbcraft_doc::{Net, Pin};
+    use pcbcraft_geom::Point;
 
     fn pin(num: &str, net: Option<Id>, electrical_type: &str) -> Pin {
         Pin {
@@ -775,6 +788,7 @@ mod tests {
             electrical_type: electrical_type.into(),
             direction: None,
             unit: 1,
+            appearances: Default::default(),
         }
     }
 
@@ -792,6 +806,13 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
+            instance: Default::default(),
+            prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         }
     }
 
@@ -840,9 +861,11 @@ mod tests {
             vec![pin("1", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_series_resistor"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_series_resistor")
+        );
         p.components.push(part(
             12,
             "R1",
@@ -851,9 +874,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_series_resistor"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_series_resistor")
+        );
         Ok(())
     }
 
@@ -877,9 +902,11 @@ mod tests {
             vec![pin("1", Some(1), "passive")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_cc_pulldown"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_cc_pulldown")
+        );
         p.components.push(part(
             11,
             "R1",
@@ -888,9 +915,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_cc_pulldown"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_cc_pulldown")
+        );
         Ok(())
     }
 
@@ -906,9 +935,11 @@ mod tests {
             vec![pin("1", Some(1), "open_collector")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_pullup"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_pullup")
+        );
         p.components.push(part(
             11,
             "R1",
@@ -917,9 +948,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_pullup"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_pullup")
+        );
         Ok(())
     }
 
@@ -935,9 +968,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_bus_termination"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_bus_termination")
+        );
         p.components.push(part(
             11,
             "R1",
@@ -946,9 +981,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_bus_termination"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_bus_termination")
+        );
         Ok(())
     }
 
@@ -964,9 +1001,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_flyback_diode"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_flyback_diode")
+        );
         p.components.push(part(
             11,
             "D1",
@@ -975,9 +1014,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_flyback_diode"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_flyback_diode")
+        );
         Ok(())
     }
 
@@ -1007,9 +1048,11 @@ mod tests {
             vec![pin("1", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_tvs"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_tvs")
+        );
         p.components.insert(
             1,
             part(
@@ -1022,9 +1065,11 @@ mod tests {
         );
         p.components.retain(|c| c.id != 11);
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_tvs"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_tvs")
+        );
         Ok(())
     }
 
@@ -1047,9 +1092,11 @@ mod tests {
             vec![pin("1", Some(2), "power_in")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_fuse"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_fuse")
+        );
         p.components.push(part(
             13,
             "F1",
@@ -1058,9 +1105,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_fuse"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_fuse")
+        );
         Ok(())
     }
 
@@ -1084,9 +1133,11 @@ mod tests {
             vec![pin("1", Some(1), "power_in")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_decoupling"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_decoupling")
+        );
         p.components.push(part(
             11,
             "C1",
@@ -1095,9 +1146,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_decoupling"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_decoupling")
+        );
         Ok(())
     }
 
@@ -1138,9 +1191,11 @@ mod tests {
             finding_code: Some("missing_series_resistor".into()),
         });
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_series_resistor"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_series_resistor")
+        );
         p.nets.push(net(2, "CUSTOM_GND"));
         p.components.push(part(
             10,
@@ -1150,9 +1205,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_series_resistor"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_series_resistor")
+        );
         Ok(())
     }
 }

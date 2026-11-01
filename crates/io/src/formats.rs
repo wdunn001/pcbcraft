@@ -34,17 +34,6 @@ pub enum Scope {
     Parts,
 }
 
-/// What a format is of: the whole design, something made from it, or pieces brought in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scope {
-    /// The whole design. Save and Save as write it; Open reads it.
-    Project,
-    /// Something made from the design: a bill of materials, fabrication files, a drawing.
-    Output,
-    /// Pieces brought into the open design (a drawing, a library part, a machine profile).
-    Parts,
-}
-
 /// Which way a format can go.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
@@ -118,7 +107,7 @@ pub enum OptionKind {
     Variant,
     /// The columns of a bill of materials.
     Columns,
-/// The vendor flavours of a bill of materials ([`crate::bom_profiles()`]).
+    /// The vendor flavours of a bill of materials ([`crate::bom_profiles()`]).
     Flavour,
 }
 
@@ -583,7 +572,7 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Exchange,
         Run::Kind("dsn"),
     ),
-output(
+    output(
         "spice",
         "Circuit netlist (SPICE)",
         "A passive circuit netlist from sim.model fields for an outside solver.",
@@ -623,7 +612,6 @@ output(
         &["h", "json"],
         Group::Exchange,
         Run::Engine("firmware.target.export"),
-    ),
     ),
     FormatSpec {
         id: "board_interchange",
@@ -688,77 +676,209 @@ output(
     ),
 ];
 
-&[],
-    )),
-    part(
-        "machine",
-        "Machine profile",
-        "A shop machine's settings, added to the design.",
-        &["toml"],
-        "machine.import",
-        &[],
-    ),
-];
+/// One column of a bill of materials flavour.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BomColumn {
+    /// What fills the column: a [`BOM_TOKENS`] entry.
+    pub token: String,
+    /// The header text the file carries.
+    pub header: String,
+}
+
+/// What a recipient says it will not take.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BomLimits {
+    /// Most rows (lines) in one upload.
+    #[serde(default)]
+    pub max_rows: Option<usize>,
+    /// Largest file in bytes.
+    #[serde(default)]
+    pub max_bytes: Option<usize>,
+}
+
+fn yes() -> bool {
+    true
+}
+
 /// One vendor flavour of the bill of materials, as pure data: which columns, what the
-/// headers say, whether identical parts share a row, how references are joined and which
-/// file type it is.
+/// headers say, whether identical parts share a row, how references are joined, which
+/// file types it takes and which part fields it needs.
 ///
-/// Why: a distributor or assembler upload format is a table row, not code; adding one
-/// is adding a row to [`BOM_FLAVOURS`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Why: a distributor or assembler upload format is a record in
+/// `crates/io/data/bom_flavours.json`, not code; adding one is adding a record.
+///
+/// # Rules
+/// - `requires` and `requires_any` hold keys of [`PART_FIELDS`]; a test pins that.
+/// - A flavour with `verified` false says so in its `tip`.
+///
+/// # Dependencies
+/// - crates/io/data/bom_flavours.json
+///
+/// # Do not
+/// - Name a company in the data file; describe the role instead.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BomFlavour {
     /// Stable id.
-    pub id: &'static str,
+    pub id: String,
     /// English label shown under the BOM format.
-    pub label: &'static str,
+    pub label: String,
     /// Tooltip: who asks for this file.
-    pub tip: &'static str,
-    /// `csv`, `tsv` or `json`.
-    pub file_type: &'static str,
-    /// (column token, header text), in file order. Tokens: reference, value, footprint,
-/// mpn, manufacturer, quantity, description, suppliers (every supplier as `Name: number`).
-    pub columns: &'static [(&'static str, &'static str)],
+    pub tip: String,
+    /// False when no primary page gave the column list.
+    #[serde(default = "yes")]
+    pub verified: bool,
+    /// The file type a fresh export starts with.
+    pub file_type: String,
+    /// The file types this flavour can be written as: `csv`, `tsv`, `json`.
+    pub file_types: Vec<String>,
+    /// False writes no header row.
+    #[serde(default = "yes")]
+    pub header: bool,
+    /// Columns in file order.
+    pub columns: Vec<BomColumn>,
     /// True gives one row per kind of part.
     pub group: bool,
     /// Joins the references of a grouped row.
-    pub reference_separator: &'static str,
+    pub reference_separator: String,
+    /// Part fields every listed part must carry.
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// Part fields of which every listed part must carry at least one.
+    #[serde(default)]
+    pub requires_any: Vec<String>,
+    /// Size limits of the receiving site.
+    #[serde(default)]
+    pub limits: BomLimits,
 }
 
-/// Every bill of materials flavour. The first is the default.
-pub static BOM_FLAVOURS: &[BomFlavour] = &[BomFlavour {
-    id: "generic_csv",
-    label: "Generic CSV",
-    tip: "A plain spreadsheet file with the usual columns. Opens anywhere.",
-    file_type: "csv",
-    columns: &[
-        ("reference", "Reference"),
-        ("value", "Value"),
-        ("footprint", "Footprint"),
-        ("mpn", "MPN"),
-        ("manufacturer", "Manufacturer"),
-        ("quantity", "Quantity"),
-        ("description", "Description"),
-        ("suppliers", "Supplier part numbers"),
-    ],
-    group: true,
-    reference_separator: ", ",
-}];
+/// One standard part field: the key a part carries it under and the column token that
+/// prints it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PartField {
+    /// The key in a part's fields.
+    pub key: &'static str,
+    /// The column token.
+    pub token: &'static str,
+    /// Older spelling of the key that is read when the key itself is empty.
+    pub alias: Option<&'static str>,
+    /// Plain words for messages.
+    pub label: &'static str,
+}
+
+/// The part fields a flavour can ask for. A flavour's `requires` names these keys.
+pub const PART_FIELDS: &[PartField] = &[
+    PartField {
+        key: "Manufacturer",
+        token: "manufacturer",
+        alias: None,
+        label: "manufacturer",
+    },
+    PartField {
+        key: "MPN",
+        token: "mpn",
+        alias: None,
+        label: "manufacturer part number",
+    },
+    PartField {
+        key: "Description",
+        token: "description",
+        alias: Some("description"),
+        label: "description",
+    },
+    PartField {
+        key: "Supplier",
+        token: "supplier",
+        alias: None,
+        label: "supplier",
+    },
+    PartField {
+        key: "SPN",
+        token: "spn",
+        alias: None,
+        label: "supplier part number",
+    },
+    PartField {
+        key: "Suppliers",
+        token: "suppliers",
+        alias: None,
+        label: "supplier part numbers",
+    },
+];
+
+/// Column tokens worked out from the design rather than typed in:
+/// `reference`, `quantity`, `value`, `footprint`, `line` (row number), `mount`
+/// (Surface mount, Thru-hole or Hybrid, from the pads) and `part_key` (the
+/// manufacturer part number, else the supplier part number).
+pub const DERIVED_TOKENS: &[&str] = &[
+    "reference",
+    "quantity",
+    "value",
+    "footprint",
+    "line",
+    "mount",
+    "part_key",
+];
+
+/// The bundled flavour file.
+const BOM_FLAVOURS_JSON: &str = include_str!("../data/bom_flavours.json");
+
+/// Parse a flavour file: a JSON array of [`BomFlavour`].
+pub fn parse_bom_flavours(text: &str) -> Result<Vec<BomFlavour>, String> {
+    serde_json::from_str(text).map_err(|e| format!("bom_flavours.json: {e}"))
+}
+
+/// The plain list used if the bundled file ever fails to parse (a test pins that it
+/// does not).
+fn fallback_flavour() -> BomFlavour {
+    let column = |token: &str, header: &str| BomColumn {
+        token: token.into(),
+        header: header.into(),
+    };
+    BomFlavour {
+        id: "generic_csv".into(),
+        label: "Generic CSV".into(),
+        tip: "A plain spreadsheet file with the usual columns.".into(),
+        verified: true,
+        file_type: "csv".into(),
+        file_types: vec!["csv".into(), "tsv".into(), "json".into()],
+        header: true,
+        columns: vec![
+            column("reference", "Reference"),
+            column("value", "Value"),
+            column("footprint", "Footprint"),
+            column("mpn", "MPN"),
+            column("manufacturer", "Manufacturer"),
+            column("quantity", "Quantity"),
+        ],
+        group: true,
+        reference_separator: ", ".into(),
+        requires: vec![],
+        requires_any: vec![],
+        limits: BomLimits::default(),
+    }
+}
+
+/// Every bill of materials flavour, in file order. The first is the default; the list is
+/// never empty.
+pub fn bom_flavours() -> &'static [BomFlavour] {
+    static ALL: std::sync::OnceLock<Vec<BomFlavour>> = std::sync::OnceLock::new();
+    ALL.get_or_init(|| match parse_bom_flavours(BOM_FLAVOURS_JSON) {
+        Ok(list) if !list.is_empty() => list,
+        _ => vec![fallback_flavour()],
+    })
+}
+
+/// The default flavour: the first one.
+pub fn default_bom_flavour() -> &'static BomFlavour {
+    &bom_flavours()[0]
+}
 
 /// A bill of materials flavour by id.
 pub fn bom_flavour(id: &str) -> Option<&'static BomFlavour> {
-    BOM_FLAVOURS.iter().find(|f| f.id == id)
-}
-
-/// The first format that can go `direction` and whose extension matches `path`.
-pub fn for_path(path: &str, direction: Direction) -> Option<&'static FormatSpec> {
-    FORMATS
-        .iter()
-        .find(|f| f.directions().contains(&direction) && f.matches(path))
-}
-
-/// The formats that can go `direction` in `scope`, in table order.
-pub fn listed(direction: Direction, scope: Scope) -> Vec<&'static FormatSpec> {
-    FORMATS
+    bom_flavours().iter().find(|f| f.id == id)
 }
 
 /// The first format that can go `direction` and whose extension matches `path`.
@@ -895,18 +1015,6 @@ mod tests {
     fn the_bill_of_materials_offers_columns_grouping_and_builds() {
         let bom = FORMATS.iter().find(|f| f.id == "bom").map(|f| f.options);
         let labels: Vec<&str> = bom.unwrap_or(&[]).iter().map(|o| o.label).collect();
-        assert_eq!(
-            labels,
-            [
-                "Flavour",
-                "File type",
-                "Build",
-                "Columns",
-                "Group identical parts"
-            ]
-        );
-    }
-let labels: Vec<&str> = bom.unwrap_or(&[]).iter().map(|o| o.label).collect();
         assert_eq!(
             labels,
             [

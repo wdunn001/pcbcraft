@@ -62,6 +62,7 @@ pub(crate) fn flat_ring(p: &Project, max_chord_error: f64) -> Vec<Point> {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn flat_tuples(p: &Project, max_chord_error: f64) -> Vec<(f64, f64)> {
     flat_ring(p, max_chord_error)
         .iter()
@@ -74,40 +75,34 @@ pub(crate) fn gerber_body(scale: f64, p: &Project) -> Result<(String, usize), St
     if segs.is_empty() {
         return Ok((String::new(), 0));
     }
+    // The layer files declare format 4.6, so coordinates are whole millionths.
+    let n = |v: f64| (v * scale * 1_000_000.0).round() as i64;
     let mut out = String::new();
     let mut ops = 0usize;
     for (i, seg) in segs.iter().enumerate() {
         match seg {
             EdgeSegment::Line { from, to } => {
                 if i == 0 {
-                    out.push_str(&format!(
-                        "X{:.6}Y{:.6}D02*\n",
-                        from.x * scale,
-                        from.y * scale
-                    ));
+                    out.push_str(&format!("X{}Y{}D02*\n", n(from.x), n(from.y)));
                 }
-                out.push_str(&format!("X{:.6}Y{:.6}D01*\n", to.x * scale, to.y * scale));
+                out.push_str(&format!("X{}Y{}D01*\n", n(to.x), n(to.y)));
                 ops += 1;
             }
             EdgeSegment::Arc { from, to, arc } => {
                 if i == 0 {
-                    out.push_str(&format!(
-                        "X{:.6}Y{:.6}D02*\n",
-                        from.x * scale,
-                        from.y * scale
-                    ));
+                    out.push_str(&format!("X{}Y{}D02*\n", n(from.x), n(from.y)));
                 }
                 out.push_str("G75*\n");
                 let clockwise = arc.sweep < 0.0;
                 out.push_str(&format!(
-                    "X{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\nG01*\n",
-                    from.x * scale,
-                    from.y * scale,
-                    to.x * scale,
-                    to.y * scale,
-                    (arc.center.x - from.x) * scale,
-                    (arc.center.y - from.y) * scale,
-                    if clockwise { 2 } else { 3 }
+                    "X{}Y{}D02*\nG0{}*\nX{}Y{}I{}J{}D01*\nG01*\n",
+                    n(from.x),
+                    n(from.y),
+                    if clockwise { 2 } else { 3 },
+                    n(to.x),
+                    n(to.y),
+                    n(arc.center.x - from.x),
+                    n(arc.center.y - from.y),
                 ));
                 ops += 1;
             }
@@ -116,6 +111,7 @@ pub(crate) fn gerber_body(scale: f64, p: &Project) -> Result<(String, usize), St
     Ok((out, ops))
 }
 
+#[allow(dead_code)]
 pub(crate) fn svg_path_d(p: &Project) -> String {
     let segs = segments(p);
     let mut d = String::new();
@@ -147,6 +143,7 @@ pub(crate) fn svg_path_d(p: &Project) -> String {
     d
 }
 
+#[allow(dead_code)]
 pub(crate) fn write_dxf_edge(w: &mut super::DxfWriter, p: &Project) -> Result<(), String> {
     let segs = segments(p);
     if segs.is_empty() {

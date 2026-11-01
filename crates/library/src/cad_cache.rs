@@ -18,8 +18,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Largest single file the cache stores: 8 MiB.
@@ -124,21 +124,6 @@ fn check_hash(hash: &str) -> Result<(), SourceError> {
     Ok(())
 }
 
-fn check_hash(hash: &str) -> Result<(), SourceError> {
-    if hash.len() < 8
-        || hash.len() > 64
-        || !hash
-            .chars()
-            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
-    {
-        return Err(bad("the cache hash must be 8 to 64 lowercase hex digits"));
-    }
-    Ok(())
-}
-
-fn now_secs() -> u64 {
-    pcbcraft_clock::unix_secs()
-}
 /// Platform cache folder for online library files, or `None` when the
 /// environment names no home. `get` reads one variable.
 ///
@@ -575,8 +560,7 @@ fn stored_files(dir: &Path) -> Vec<StoredFile> {
 
 fn touch(path: &Path) {
     if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
-let now = UNIX_EPOCH + std::time::Duration::from_secs(pcbcraft_clock::unix_secs());
-        let _ = f.set_modified(now);
+        let _ = f.set_modified(crate::wall_clock::system_time_now());
     }
 }
 

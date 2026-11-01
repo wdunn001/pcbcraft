@@ -11,8 +11,8 @@
 //! # Dependencies
 //! - crates/library/src/datasheet.rs
 use pcbcraft_library::datasheet::{
-    accept_datasheet_url, DatasheetError, DatasheetTransport, FetchAnswer, MAX_PDF_BYTES,
-    MAX_REDIRECTS,
+    DatasheetError, DatasheetTransport, FetchAnswer, MAX_PDF_BYTES, MAX_REDIRECTS,
+    accept_datasheet_url,
 };
 use std::io::Read;
 use std::time::Duration;
@@ -66,7 +66,9 @@ impl HttpDatasheetTransport {
             .into_reader()
             .take(MAX_PDF_BYTES as u64 + 1)
             .read_to_end(&mut body)
-            .map_err(|_| DatasheetError::Unavailable("the connection broke before the answer arrived".into()))?;
+            .map_err(|_| {
+                DatasheetError::Unavailable("the connection broke before the answer arrived".into())
+            })?;
         if body.len() > MAX_PDF_BYTES {
             return Err(too_big());
         }
@@ -80,6 +82,7 @@ impl Default for HttpDatasheetTransport {
     }
 }
 
+/// Contract: crates/library/src/datasheet.rs
 impl DatasheetTransport for HttpDatasheetTransport {
     fn fetch(
         &self,
@@ -141,9 +144,9 @@ impl DatasheetTransport for HttpDatasheetTransport {
 fn transport_error(e: &ureq::Error) -> DatasheetError {
     match e {
         ureq::Error::Transport(t) => match t.kind() {
-            ureq::ErrorKind::Io => DatasheetError::Unavailable(
-                "the host took too long to answer".into(),
-            ),
+            ureq::ErrorKind::Io => {
+                DatasheetError::Unavailable("the host took too long to answer".into())
+            }
             ureq::ErrorKind::Dns | ureq::ErrorKind::ConnectionFailed => {
                 DatasheetError::Offline("no connection to the host".into())
             }
@@ -184,6 +187,7 @@ mod tests {
     struct Server {
         port: u16,
         seen: Arc<Mutex<Vec<String>>>,
+        #[allow(dead_code)]
         connections: Arc<AtomicUsize>,
     }
 
@@ -263,10 +267,7 @@ mod tests {
         let err = cache
             .fetch_url(&transport, &url(&server, "/big.pdf"), false)
             .err();
-        assert!(
-            matches!(err, Some(DatasheetError::Invalid(_))),
-            "{err:?}"
-        );
+        assert!(matches!(err, Some(DatasheetError::Invalid(_))), "{err:?}");
         Ok(())
     }
 
@@ -279,7 +280,7 @@ mod tests {
             .fetch_url(&transport, &url(&server, "/x.pdf"), false)
             .err();
         assert!(
-            matches!(err, Some(DatasheetError::Invalid(m)) if m.contains("not a PDF")),
+            matches!(&err, Some(DatasheetError::Invalid(m)) if m.contains("not a PDF")),
             "{err:?}"
         );
         Ok(())
@@ -287,14 +288,17 @@ mod tests {
 
     #[test]
     fn fetch_stops_a_redirect_loop() -> TestResult {
-        let server = serve(vec![status("302 Found", "Location: /loop.pdf\r\n"); MAX_REDIRECTS + 2])?;
+        let server = serve(vec![
+            status("302 Found", "Location: /loop.pdf\r\n");
+            MAX_REDIRECTS + 2
+        ])?;
         let cache = DatasheetCache::in_memory();
         let transport = HttpDatasheetTransport::new();
         let err = cache
             .fetch_url(&transport, &url(&server, "/loop.pdf"), false)
             .err();
         assert!(
-            matches!(err, Some(DatasheetError::Invalid(m)) if m.contains("redirect")),
+            matches!(&err, Some(DatasheetError::Invalid(m)) if m.contains("redirect")),
             "{err:?}"
         );
         Ok(())
@@ -330,7 +334,10 @@ mod tests {
         assert_eq!(bytes, again);
         let seen = server.seen.lock().map_err(|_| "poisoned")?;
         assert_eq!(seen.len(), 2);
-        let second_req = seen.get(1).ok_or("missing second request")?.to_ascii_lowercase();
+        let second_req = seen
+            .get(1)
+            .ok_or("missing second request")?
+            .to_ascii_lowercase();
         assert!(second_req.contains("if-none-match"));
         Ok(())
     }
@@ -353,7 +360,7 @@ mod tests {
     fn eviction_keeps_disk_use_under_the_cap() -> TestResult {
         let tmp = cache_dir()?;
         let cap = PDF.len() as u64 * 2 + 64;
-        let cache = DatasheetCache::open(tmp.path().join("cache")).with_cap(cap);
+        let cache = DatasheetCache::open(&tmp.path().join("cache")).with_cap(cap);
         for i in 0..4u8 {
             let mut body = PDF.to_vec();
             body.push(i);
@@ -377,7 +384,7 @@ mod tests {
         let pdf_path = tmp.path().join("local.pdf");
         std::fs::write(&pdf_path, PDF)?;
         let absolute = std::fs::canonicalize(&pdf_path)?;
-        let cache = DatasheetCache::open(tmp.path().join("cache"));
+        let cache = DatasheetCache::open(&tmp.path().join("cache"));
         let (_reference, bytes) = cache.import_local_file(&absolute)?;
         assert_eq!(bytes, PDF);
         Ok(())

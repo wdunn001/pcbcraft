@@ -163,3 +163,10 @@ pub fn part_boxes(project: &Project) -> Vec<PartBox> {
     }
     boxes
 }
+
+fn library_definition<'a>(project: &'a Project, fp: &Footprint) -> Option<&'a FootprintDefinition> {
+    project
+        .component(fp.component)
+        .and_then(|c| c.library_footprint.as_ref())
+        .map(|l| &l.definition)
+}

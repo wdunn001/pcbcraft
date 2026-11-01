@@ -1,29 +1,90 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod component_kind;
+pub mod connector_partnumber;
+pub mod datasheet_extract;
+pub use connector_partnumber::{
+    BuildOptions, Constraint, FieldError, FieldKind, FieldSpec, FieldValue, ParsedPart, PartNumber,
+    SeriesLimits, SeriesSpec, first_slice_specs, load_embedded_series,
+};
+pub mod cc0_component;
 mod connector_parametric;
 mod connector_series_data;
 mod connector_series_generate;
+pub mod credentials;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod element14;
 mod footprint_check;
 mod footprint_generate;
-pub mod model_transform;
 mod footprint_pad_outline;
+pub mod http_client;
+pub mod ipc7351;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
 pub mod listing;
-pub mod listing_compare;
 pub mod listing_adapters;
-pub mod part_search;
+pub mod listing_compare;
+pub mod model_transform;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
 pub mod online_import;
-pub mod cc0_component;
 pub mod open_library;
 pub mod open_pool;
+pub mod package_key;
+pub mod param_body;
+pub mod part_import;
+mod part_record_validation;
+pub mod part_search;
+pub mod part_sidecar;
+pub mod part_types;
+pub mod part_validation;
+pub mod part_verify;
 mod paths;
+pub mod pin_kind;
+pub mod pin_pad_map;
+pub mod rate_limit;
 mod reader;
 mod sexpr;
+pub mod source_errors;
+pub mod source_hosts;
+pub mod source_log;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
 pub mod sources;
 pub mod static_registry;
 mod symbol_check;
 mod validation;
-pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub mod wall_clock;
+pub use component_kind::infer_component_kind;
+pub use drop_in_check::{DropInFinding, DropInPart, DropInPin, DropInReport, drop_in_check};
+pub mod connector_catalog;
+pub mod datasheet;
+pub mod datasheet_annotations;
+pub mod drop_in_check;
+pub mod listing_search;
+pub mod mcu;
+pub mod mcu_record;
+pub mod model_align;
+pub mod open_import;
+pub mod part_compare;
+pub mod part_fields;
+pub mod part_params;
+pub mod part_substitutes;
+pub mod web_transport;
+pub mod wrl;
+pub use part_substitutes::{
+    AlternatePart, MAX_SUBSTITUTE_TEXT, MAX_SUBSTITUTES_EACH, PART_SIDECAR_SUFFIX, PartSubstitutes,
+    SecondSource, read_sidecar, sidecar_path_for_symbol, write_sidecar,
+};
+pub mod records;
+pub mod samtec;
+pub mod starter_models;
+pub mod vendor_fields;
 pub use connector_parametric::{
     ConnectorParametricSpec, PARAMETRIC_MODEL_PATH, body_fits_courtyard, housing_length_mm,
 };
@@ -32,21 +93,64 @@ pub use connector_series_generate::{
     ConnectorFieldError, ConnectorSeriesOptions, GeneratedConnectorPart, generate_connector_part,
     pin1_position,
 };
+pub use datasheet::{
+    DEFAULT_CACHE_CAP_BYTES, DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer,
+    MAX_PDF_BYTES, MAX_REDIRECTS, MAX_URL_BYTES, ProjectDatasheetRef, accept_datasheet_url,
+    content_sha256, is_pdf,
+};
+pub use footprint_check::{
+    FindingSeverity, FootprintFinding, check_footprint, courtyard_half_extents,
+};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+pub use ipc7351::generate_footprint_from_key;
 pub use model_align::{
     SNAP_RADIUS_MM, SnapTarget, SnapTargetKind, footprint_snap_targets, pad_centres, pad_centroid,
     snap_point,
 };
-use pcbcraft_geom::Point;
-pub use reader::{read_footprint, read_specctra_session, read_symbols};
-use serde::{Deserialize, Serialize};
-pub use sexpr::{Error, Limits};
-pub use symbol_check::check_symbol;
 pub use model_transform::{
     model_mirror_y, model_pin1_cycle, model_rotate_z_90, normalize_degrees,
     refresh_model_raw_source,
 };
+pub use package_key::{PITCH_TOLERANCE_MM, PackageFamily, PackageKey, SPAN_TOLERANCE_MM};
+pub use param_body::ParamBody;
+pub use part_compare::{
+    FootprintPadCompare, MAX_PART_COMPARE_OTHERS, PartCompareEntry, PartFieldRow, PartPinCompare,
+    compare_one_part, compare_symbol_fields, effective_footprint_name,
+};
+pub use part_fields::{
+    DESCRIPTION, MANUFACTURER, MPN, PARTS_TABLE_SUGGESTED_KEYS, STANDARD_SOURCING_KEYS,
+    SUPPLIER_KEY_PREFIX, SUPPLIERS, is_standard_sourcing_key,
+};
+pub use part_import::{
+    PartJson, load_symbol_footprint_files, part_from_library_bundle, read_part_json,
+};
+pub use part_sidecar::{
+    PART_SIDECAR_EXTENSION, PART_SIDECAR_FORMAT, PART_SIDECAR_VERSION, PartAlternate,
+    PartProvenance, PartSidecar, PartSidecarField, read_part_sidecar, sidecar_path_in_folder,
+    write_part_sidecar,
+};
+pub use part_types::{
+    DatasheetRef, FootprintSource, MAX_PARTS, Model3dRef, MpnSource, Orderable, Part, PartFamily,
+    PinSpec, Requirement, TriangleMesh, Verification, VerificationChecks,
+};
+pub use part_validation::{
+    PartCatalogFields, PartValidationFinding, PartValidationResult, ReplacementCheckResult,
+    replacement_check, validate_catalog_fields, validate_part,
+};
+pub use part_verify::{VerifyContext, verify_part};
+use pcbcraft_geom::Point;
+pub use pin_kind::{PinKind, pin_kind_from_library_string};
+pub use pin_pad_map::{
+    PadRole, PinPadFinding, PinPadMap, PinPadRow, auto_fill, footprint_pad_labels, pad_label,
+    validate_pin_pad_map,
+};
+pub use reader::{read_footprint, read_specctra_session, read_symbols};
+use serde::{Deserialize, Serialize};
+pub use sexpr::{Error, Limits, Node, line_number_at_offset, parse, parse_limits};
+pub use sexpr::{parse as parse_sexpr, parse_limits as parse_sexpr_limits};
+pub use symbol_check::check_symbol;
 pub use validation::custom_polygon_error;
+pub use wrl::{read_wrl_file, read_wrl_mesh};
 
 /// A schematic symbol definition parsed from the interchange format.
 ///
@@ -79,6 +183,9 @@ pub struct SymbolDefinition {
     pub extends: Option<String>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+    /// Unknown S-expression snippets from the source file, re-emitted on export.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
 }
 /// A single pin of a schematic symbol.
 ///
@@ -410,7 +517,7 @@ pub struct SessionNet {
 ///
 /// # Do not
 /// - Add render-specific fields; this crate is a bounded reader.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FootprintDefinition {
     pub name: String,
@@ -428,8 +535,48 @@ pub struct FootprintDefinition {
     /// clearance tightens checks; the margins are recorded and exported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<FootprintRules>,
+    /// Explicit 3D box body size in footprint-local millimetres, centred on the
+    /// footprint origin. When set, the 3D view and mechanical exports use this
+    /// width, depth and height instead of pad-derived defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub box_body: Option<FootprintBoxBody>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+    /// Unknown S-expression snippets from the source file, re-emitted on export.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
+}
+/// Width, depth and height of a simple box body for 3D preview and export.
+///
+/// # Rules
+/// - All sizes are in millimetres and must be between 0.05 and 100.
+/// - The outline is centred on the footprint origin in the board plane.
+///
+/// # Dependencies
+/// - crates/engine/src/authoring.rs stores this on a project-library footprint.
+/// - `crates/io` reads it when building meshes and STEP bodies.
+///
+/// # Do not
+/// - Use this for 2D courtyard or fab outlines; those stay in footprint graphics.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FootprintBoxBody {
+    pub width: f64,
+    pub depth: f64,
+    pub height: f64,
+}
+impl FootprintBoxBody {
+    /// Counter-clockwise rectangle centred on the footprint origin.
+    pub fn outline(&self) -> Vec<Point> {
+        let hx = self.width / 2.0;
+        let hy = self.depth / 2.0;
+        vec![
+            Point::new(-hx, -hy),
+            Point::new(hx, -hy),
+            Point::new(hx, hy),
+            Point::new(-hx, hy),
+        ]
+    }
 }
 /// Per-footprint design rule overrides. Each value is a millimetre amount;
 /// a negative margin shrinks the paste or mask opening.
@@ -478,6 +625,9 @@ pub struct Model3D {
     pub scale: [f64; 3],
     #[serde(default)]
     pub rotate: [f64; 3],
+    /// Base64 compact model travelling with the project when the source file is absent.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub embedded: String,
     /// Component name inside a companion CAD project, when the file holds more than one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cad_part: Option<String>,
@@ -503,7 +653,7 @@ fn unit_scale() -> [f64; 3] {
 ///
 /// # Do not
 /// - Use `position` for rendering; convert to screen coordinates first.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FootprintPad {
     pub number: String,

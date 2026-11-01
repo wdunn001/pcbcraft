@@ -255,7 +255,6 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
                 geometry: Some(g),
             })
             .collect(),
-        preserved: pcbcraft_doc::PreservedSource::default(),
     });
     p.board.tracks.push(Track {
         preserved: pcbcraft_doc::PreservedSource::default(),
@@ -266,7 +265,6 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
         width: 0.2,
         layer: Layer::Front,
         arc: None,
-        preserved: pcbcraft_doc::PreservedSource::default(),
     });
     p.validate()?;
     Ok(p)
@@ -529,7 +527,8 @@ fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<()
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Checks);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    for needle in ["SquashedPair: Two pads share the same copper area"] {
+    {
+        let needle = "SquashedPair: Two pads share the same copper area";
         assert!(
             scrolled_to_at(&ctx, &mut app, needle, 720.0)?,
             "the findings sheet should show \"{needle}\""
@@ -1019,12 +1018,7 @@ fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
     let (shared, mut app, ctx) = authoring::tests::editor("symbol-editor")?;
     authoring::tests::clear_symbol_draft(&mut app);
     type_into(&ctx, &mut app, "textinput:Name", "EditedExportSymbol")?;
-    type_into(
-        &ctx,
-        &mut app,
-        "textinput:Default value",
-        "CustomValue",
-    )?;
+    type_into(&ctx, &mut app, "textinput:Default value", "CustomValue")?;
     authoring::tests::tap(&ctx, &mut app, "Save symbol to project library")?;
     {
         let session = shared.lock().map_err(|_| "session unavailable")?;
@@ -1044,12 +1038,7 @@ fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
         std::process::id()
     ));
     let export_path = export_file.to_string_lossy().into_owned();
-    type_into(
-        &ctx,
-        &mut app,
-        "textinput:Symbol export file",
-        &export_path,
-    )?;
+    type_into(&ctx, &mut app, "textinput:Symbol export file", &export_path)?;
     authoring::tests::tap(&ctx, &mut app, "Export")?;
     assert!(
         export_file.exists(),
@@ -1075,5 +1064,208 @@ fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
         "import brings back the same default value"
     );
     let _ = std::fs::remove_file(&export_file);
+    Ok(())
+}
+
+/// Draw frames until the collection browser has read its folders.
+fn waits_for_collections(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
+    for _ in 0..200 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+        if app.library.catalog.is_some() && app.library.pending.is_none() {
+            frame(ctx, app, vec![], egui::Modifiers::NONE);
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Err("the collection browser never finished reading".into())
+}
+
+/// Keeps the folder list of a story away from the real user configuration:
+/// the session reads and writes its settings in a folder of its own.
+struct OwnSources {
+    config: pcbcraft_engine::user_config::UserConfig,
+    folder: std::path::PathBuf,
+}
+
+impl OwnSources {
+    fn take(name: &str) -> Result<Self, String> {
+        let (config, folder) = private_config(name)?;
+        Ok(Self { config, folder })
+    }
+}
+
+impl Drop for OwnSources {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.folder);
+    }
+}
+
+fn libraries_page(
+    name: &str,
+) -> Result<(OwnSources, pcbcraft_mcp::SharedSession, App, egui::Context), String> {
+    let own = OwnSources::take(name)?;
+    let shared = session_with(&own.config);
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Libraries);
+    waits_for_collections(&ctx, &mut app)?;
+    Ok((own, shared, app, ctx))
+}
+
+#[test]
+fn a_newcomer_adds_a_folder_picks_its_library_and_searches_it() -> Result<(), String> {
+    let (_own, _shared, mut app, ctx) = libraries_page("browser")?;
+    let shelf = std::fs::canonicalize(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../library/tests/fixtures"),
+    )
+    .map_err(|e| format!("fixture shelf missing: {e}"))?
+    .to_string_lossy()
+    .into_owned();
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Folder to add as a library source",
+        &shelf,
+    )?;
+    // Enter in the box adds the folder; pressing the button afterwards with
+    // an empty box changes nothing.
+    tap_id(&ctx, &mut app, "button:Add folder")?;
+    let mut added = false;
+    for _ in 0..200 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        if app.library.notice.contains("Added") {
+            added = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert!(
+        added,
+        "adding the folder reports back: {}",
+        app.library.notice
+    );
+    waits_for_collections(&ctx, &mut app)?;
+    let added_path = app
+        .library
+        .catalog
+        .as_ref()
+        .and_then(|catalog| catalog.get("symbol_libraries"))
+        .and_then(Value::as_array)
+        .and_then(|libs| {
+            libs.iter().find_map(|lib| {
+                lib.get("path")
+                    .and_then(Value::as_str)
+                    .filter(|path| path.starts_with(&shelf))
+                    .map(str::to_owned)
+            })
+        })
+        .ok_or("the added collection is missing from the list")?;
+    // Opening the source list shows the collections to choose from.
+    tap_id(&ctx, &mut app, "combobox:Library source")?;
+    tap_id(&ctx, &mut app, "combobox:Library source")?;
+    type_into(&ctx, &mut app, "textinput:Library path", &added_path)?;
+    assert_eq!(app.library.path, added_path, "the path is the one typed");
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Search names, descriptions, keywords",
+        "a",
+    )?;
+    tap_id(&ctx, &mut app, "button:Search")?;
+    waits_for_collections(&ctx, &mut app)?;
+    assert!(
+        app.library.results.is_some() || !app.library.error.is_empty(),
+        "the search answers in the list or in words"
+    );
+    tap_id(&ctx, &mut app, "button:Refresh folders")?;
+    assert!(
+        app.library.path.is_empty() && app.library.results.is_none(),
+        "Refresh folders forgets the chosen collection"
+    );
+    waits_for_collections(&ctx, &mut app)?;
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_narrows_the_shown_library_entries_and_clears_the_filter() -> Result<(), String> {
+    let (_own, _shared, mut app, ctx) = libraries_page("filter")?;
+    type_into(&ctx, &mut app, "textinput:Filter shown results", "resistor")?;
+    assert_eq!(
+        app.library.filter, "resistor",
+        "the filter keeps what was typed"
+    );
+    tap_id(&ctx, &mut app, "button:Clear filter")?;
+    assert!(
+        app.library.filter.is_empty(),
+        "Clear filter empties the box"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_saves_a_collection_file_and_loads_it_back() -> Result<(), String> {
+    let file = std::env::temp_dir().join(format!(
+        "pcbcraft-newcomer-collection-{}.pcbcraft-lib",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&file);
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences::default(),
+        None,
+        Some("symbol-editor"),
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "Save symbol to project library")?;
+    tap_id(&ctx, &mut app, "button:Library")?;
+    waits_for_collections(&ctx, &mut app)?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Collection file",
+        &file.to_string_lossy(),
+    )?;
+    assert_eq!(
+        app.library.editor.path,
+        file.to_string_lossy(),
+        "the path is the one typed"
+    );
+    tap_id(&ctx, &mut app, "button:Save library")?;
+    assert!(
+        file.is_file(),
+        "the collection file lands on disk: {}",
+        app.message
+    );
+    app.run("library.symbol.remove", json!({"name": "NewSymbol"}));
+    tap_id(&ctx, &mut app, "button:Load library")?;
+    let session = shared.lock().map_err(|_| "session unavailable")?;
+    assert_eq!(
+        session.project.library.symbols.len(),
+        1,
+        "Load library brings the saved collection back: {}",
+        app.message
+    );
+    drop(session);
+    let _ = std::fs::remove_file(&file);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_switches_the_collection_between_symbols_and_footprints_and_names_an_export_folder()
+-> Result<(), String> {
+    let (_own, _shared, mut app, ctx) = libraries_page("kinds")?;
+    tap_id(&ctx, &mut app, "button:Footprints")?;
+    tap_id(&ctx, &mut app, "button:Symbols")?;
+    let folder = std::env::temp_dir().join(format!("pcbcraft-fp-export-{}", std::process::id()));
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Footprint export folder",
+        &folder.to_string_lossy(),
+    )?;
+    let _ = std::fs::remove_dir_all(&folder);
     Ok(())
 }

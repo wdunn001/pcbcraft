@@ -3,19 +3,18 @@ use pcbcraft_library::listing::{Lifecycle, ListingSource, PartListing};
 use serde_json::json;
 
 fn add_resistor(s: &mut Session) -> Result<u64, Error> {
-    let id = s
-        .execute(
-            "component.add",
-            json!({"kind":"resistor","position":{"x":10,"y":10}}),
-            None,
-        )?["result"]["id"]
+    let id = s.execute(
+        "component.add",
+        json!({"kind":"resistor","position":{"x":10,"y":10}}),
+        None,
+    )?["result"]["id"]
         .as_u64()
         .ok_or_else(|| Error::Invalid("missing id".into()))?;
     Ok(id)
 }
 
 fn sample_listing() -> PartListing {
-    let mut l = PartListing {
+    PartListing {
         source: ListingSource::Fixture,
         source_id: "Sample".into(),
         source_ref: "X".into(),
@@ -50,8 +49,7 @@ fn sample_listing() -> PartListing {
         footprint: None,
         model3d: Some("https://example.invalid/model.step".into()),
         attribution: None,
-    };
-    l
+    }
 }
 
 #[test]

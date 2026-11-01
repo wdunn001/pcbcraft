@@ -1,16 +1,18 @@
 //! Tour playback hooks on [`crate::App`] (headless replay and future overlay).
 
-use super::state::{Playback, TourRecord, TourState};
+use super::playback::{Playback, TourRecord, TourState};
 
 impl crate::App {
+    #[allow(dead_code)]
     pub(crate) fn tour_playback(&self) -> Option<&Playback> {
         self.tour_playback.as_ref()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn tour_start(&mut self, tour_id: String, version: u32) {
         let step = self
             .preferences
-            .tour_progress
+            .tour_replay
             .get(&tour_id)
             .filter(|r| r.version == version && r.state == TourState::InProgress)
             .map(|r| r.step)
@@ -22,6 +24,7 @@ impl crate::App {
         });
     }
 
+    #[allow(dead_code)]
     pub(crate) fn tour_next(&mut self) {
         let Some(pb) = self.tour_playback.as_mut() else {
             return;
@@ -29,11 +32,12 @@ impl crate::App {
         pb.step += 1;
     }
 
+    #[allow(dead_code)]
     pub(crate) fn tour_complete(&mut self) {
         let Some(pb) = self.tour_playback.take() else {
             return;
         };
-        self.preferences.tour_progress.record(TourRecord {
+        self.preferences.tour_replay.record(TourRecord {
             id: pb.tour_id,
             version: pb.version,
             state: TourState::Done,
@@ -41,11 +45,12 @@ impl crate::App {
         });
     }
 
+    #[allow(dead_code)]
     pub(crate) fn tour_escape(&mut self) {
         let Some(pb) = self.tour_playback.take() else {
             return;
         };
-        self.preferences.tour_progress.record(TourRecord {
+        self.preferences.tour_replay.record(TourRecord {
             id: pb.tour_id,
             version: pb.version,
             state: TourState::InProgress,
@@ -53,6 +58,7 @@ impl crate::App {
         });
     }
 
+    #[allow(dead_code)]
     pub(crate) fn tour_open_panel(&mut self, panel: &str) -> Result<(), String> {
         use crate::bottom_sheet::SheetTab;
         let tab = match panel {

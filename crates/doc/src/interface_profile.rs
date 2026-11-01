@@ -8,6 +8,48 @@
 //! # Dependencies
 //! - crates/doc/src/lib.rs
 //! - crates/engine/profiles/SCHEMA.md
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// Library record kind for a shipped or imported profile file.
+pub const INTERFACE_PROFILE_RECORD_KIND: &str = "interface_profile";
+
+pub const MAX_PROFILE_ID: usize = 64;
+pub const MAX_PROFILE_NAME: usize = 128;
+pub const MAX_CATEGORY: usize = 64;
+pub const MAX_SUMMARY: usize = 512;
+pub const MAX_BUS_NAME: usize = 128;
+pub const MAX_SCHEMATIC_TYPE: usize = 128;
+pub const MAX_SIGNALS: usize = 64;
+pub const MAX_COMPANIONS: usize = 64;
+pub const MAX_CHECKS: usize = 64;
+pub const MAX_NET_CLASSES: usize = 64;
+pub const MAX_PAIRS: usize = 64;
+pub const MAX_RULE_AREAS: usize = 64;
+pub const MAX_VALUE_SOURCES: usize = 128;
+pub const MAX_SOURCE_NOTE: usize = 512;
+pub const MAX_ROLE: usize = 64;
+pub const MAX_CHECK_NAME: usize = 64;
+pub const MAX_CHECK_PARAMS: usize = 32;
+pub const MAX_CHECK_PARAM_KEY: usize = 64;
+pub const MAX_EMBEDDED_TOML: usize = 256 * 1024;
+pub const MAX_LICENSE: usize = 128;
+
+const MIN_CLEARANCE: f64 = 0.02;
+const MAX_CLEARANCE: f64 = 100.0;
+const MIN_WIDTH: f64 = 0.02;
+const MAX_WIDTH: f64 = 100.0;
+const MIN_GAP: f64 = 0.02;
+const MAX_GAP: f64 = 10.0;
+const MIN_IMPEDANCE: f64 = 20.0;
+const MAX_IMPEDANCE: f64 = 200.0;
+const MIN_PERCENT: f64 = 0.0;
+const MAX_PERCENT: f64 = 100.0;
+const MIN_LENGTH_MM: f64 = 0.0;
+const MAX_LENGTH_MM: f64 = 10_000.0;
+const MIN_SKEW_PS: f64 = 0.0;
+const MAX_SKEW_PS: f64 = 1_000_000.0;
+
 fn valid_slug(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= MAX_PROFILE_ID
@@ -165,6 +207,9 @@ pub struct NetClassSpec {
     /// Maximum routed length.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_length: Option<f64>,
+    /// Target single-ended or pair impedance in ohms.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_impedance: Option<f64>,
     /// Net name globs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub patterns: Vec<String>,
@@ -194,6 +239,20 @@ pub struct PairSpec {
     /// Require equal via counts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub equal_vias: Option<bool>,
+    /// Differential impedance target and tolerance for the pair.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impedance: Option<PairImpedanceSpec>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+/// Differential impedance target of one pair.
+pub struct PairImpedanceSpec {
+    /// Target in ohms.
+    pub target: f64,
+    /// Allowed fractional deviation, 0 to 1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tolerance: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -222,6 +281,13 @@ pub struct RuleAreaSpec {
     /// Layer name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<String>,
+    /// What the area forbids, such as `tracks` or `components`; plain
+    /// clearance areas leave it unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forbid: Option<String>,
+    /// Footprint reference the area is anchored to, when it follows a part.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub footprint_ref: Option<String>,
     /// Clearance in millimetres.
     pub clearance: f64,
     /// Left edge in millimetres.
@@ -318,6 +384,12 @@ pub struct InterfaceProfileDocument {
     /// Rule areas.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_area: Vec<RuleAreaSpec>,
+    /// Keepout rows: areas that forbid a kind of object.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keepout: Vec<RuleAreaSpec>,
+    /// Placement keepout rows for components.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placement: Vec<RuleAreaSpec>,
     /// Value provenance rows.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub value_source: Vec<ValueSourceSpec>,
@@ -391,10 +463,10 @@ impl InterfaceProfileDocument {
             if !bounded(&record.source, MAX_SOURCE_NOTE) {
                 return Err("record source must be 1 to 512 bytes".into());
             }
-            if let Some(hash) = &record.content_hash {
-                if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
-                    return Err("record content_hash must be 64 hex digits".into());
-                }
+            if let Some(hash) = &record.content_hash
+                && (hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()))
+            {
+                return Err("record content_hash must be 64 hex digits".into());
             }
         }
         if self.schema == 2 {
@@ -466,7 +538,22 @@ impl InterfaceProfileDocument {
                 "a profile defines at most {MAX_RULE_AREAS} rule areas"
             ));
         }
-        for area in &self.rule_area {
+        if self.keepout.len() + self.placement.len() > MAX_RULE_AREAS {
+            return Err(format!(
+                "a profile defines at most {MAX_RULE_AREAS} keepout and placement rows together"
+            ));
+        }
+        for row in self.keepout.iter().chain(self.placement.iter()) {
+            if row.forbid.is_none() {
+                return Err("keepout and placement rows need a forbid kind".into());
+            }
+        }
+        for area in self
+            .rule_area
+            .iter()
+            .chain(self.keepout.iter())
+            .chain(self.placement.iter())
+        {
             if area.name.as_ref().is_some_and(|n| !bounded(n, 128)) {
                 return Err("rule area name out of range".into());
             }
@@ -697,10 +784,10 @@ fn validate_companion(companion: &CompanionSpec, idx: usize) -> Result<(), Strin
     {
         return Err(format!("companion[{idx}] value_max out of range"));
     }
-    if let (Some(min), Some(max)) = (companion.value_min, companion.value_max) {
-        if min > max {
-            return Err(format!("companion[{idx}] value_min exceeds value_max"));
-        }
+    if let (Some(min), Some(max)) = (companion.value_min, companion.value_max)
+        && min > max
+    {
+        return Err(format!("companion[{idx}] value_min exceeds value_max"));
     }
     if companion
         .placement_distance_max_mm
@@ -737,8 +824,10 @@ pub fn known_value_source_fields() -> &'static [&'static str] {
         "net_class.max_width",
         "net_class.target_length",
         "net_class.length_tolerance",
+        "net_class.target_impedance",
         "pair.gap",
         "pair.length_tolerance",
+        "pair.impedance",
         "pair_rule.clearance",
         "rule_area.clearance",
         "bus.limits.impedance_ohm",
@@ -792,29 +881,32 @@ pub fn collect_unsupported(doc: &InterfaceProfileDocument) -> Vec<String> {
             out.push(format!("pair.{}.equal_vias", pair.name));
         }
     }
-    if let Some(bus) = &doc.bus {
-        if let Some(limits) = &bus.limits {
-            if limits.edge_rate_band.is_some() {
-                out.push("bus.limits.edge_rate_band".into());
-            }
-            if limits.impedance_ohm.is_some() {
-                out.push("bus.limits.impedance_ohm".into());
-            }
-            if limits.impedance_tolerance_percent.is_some() {
-                out.push("bus.limits.impedance_tolerance_percent".into());
-            }
-            if limits.max_routed_length_mm.is_some() {
-                out.push("bus.limits.max_routed_length_mm".into());
-            }
-            if limits.max_stub_mm.is_some() {
-                out.push("bus.limits.max_stub_mm".into());
-            }
-            if limits.skew_budget_ps.is_some() {
-                out.push("bus.limits.skew_budget_ps".into());
-            }
-            if limits.reference_plane.is_some() {
-                out.push("bus.limits.reference_plane".into());
-            }
+    if let Some(bus) = &doc.bus
+        && let Some(limits) = &bus.limits
+    {
+        if limits.edge_rate_band.is_some() {
+            out.push("bus.limits.edge_rate_band".into());
+        }
+        // A pair that records its own impedance applies it to the pair, which
+        // is how a bus-wide impedance limit is enforced.
+        let pair_applies_impedance = doc.pair.iter().any(|p| p.impedance.is_some());
+        if limits.impedance_ohm.is_some() && !pair_applies_impedance {
+            out.push("bus.limits.impedance_ohm".into());
+        }
+        if limits.impedance_tolerance_percent.is_some() && !pair_applies_impedance {
+            out.push("bus.limits.impedance_tolerance_percent".into());
+        }
+        if limits.max_routed_length_mm.is_some() {
+            out.push("bus.limits.max_routed_length_mm".into());
+        }
+        if limits.max_stub_mm.is_some() {
+            out.push("bus.limits.max_stub_mm".into());
+        }
+        if limits.skew_budget_ps.is_some() {
+            out.push("bus.limits.skew_budget_ps".into());
+        }
+        if limits.reference_plane.is_some() {
+            out.push("bus.limits.reference_plane".into());
         }
     }
     out.sort();

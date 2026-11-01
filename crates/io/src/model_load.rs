@@ -10,6 +10,7 @@
 //! (`vrml_read.rs`), STEP solids (`step_read.rs`, millimetres) and SolidCraft
 //! projects (`solidcraft_model.rs`, millimetres, Z up).
 //! Units: glTF is metres and Y up, so it is scaled by 1000 and turned to Z up.
+use crate::mesh_material::{MaterialClass, classify_model_color};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -17,7 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 /// Bumped whenever the reader changes what a file produces, so a cache of
 /// older results is never served.
-pub const LOADER_VERSION: u32 = 2;
+pub const LOADER_VERSION: u32 = 3;
 /// Largest model file read, in bytes.
 pub const MAX_MODEL_BYTES: usize = 32 * 1024 * 1024;
 /// Most vertices one model may produce.
@@ -38,6 +39,12 @@ pub struct LoadedModel {
     pub color: Option<[f32; 3]>,
     /// When several bodies were merged, one diffuse colour per body in merge order.
     pub body_colors: Option<Vec<[f32; 3]>>,
+    /// One material class per triangle.
+    #[serde(default)]
+    pub triangle_materials: Vec<MaterialClass>,
+    /// Authored sRGB colours for triangles with [`MaterialClass::Authored`].
+    #[serde(default)]
+    pub authored_colors: Vec<[f32; 3]>,
 }
 impl LoadedModel {
     pub(crate) fn push_triangles(
@@ -167,6 +174,7 @@ fn extension(path: &str) -> String {
         .to_ascii_lowercase()
 }
 
+#[allow(dead_code)]
 fn default_import_cache() -> &'static crate::ImportCache {
     static CACHE: OnceLock<crate::ImportCache> = OnceLock::new();
     CACHE.get_or_init(crate::ImportCache::default)
@@ -206,13 +214,19 @@ pub fn load_model_with_part(
 }
 
 /// Cache key for SolidCraft models from file content, not modification time.
-pub fn model_cache_key_solidcraft(path: &str, bytes: &[u8], cad_part: Option<&str>) -> ModelCacheKey {
+#[allow(dead_code)]
+pub fn model_cache_key_solidcraft(
+    path: &str,
+    bytes: &[u8],
+    cad_part: Option<&str>,
+) -> ModelCacheKey {
     let token = crate::solidcraft_model::solidcraft_cache_token(bytes, cad_part);
     ModelCacheKey {
         path: format!("{path}#{token}"),
         len: bytes.len() as u64,
         mtime_nanos: None,
         loader_version: LOADER_VERSION,
+        content_digest: Default::default(),
     }
 }
 
@@ -380,6 +394,8 @@ fn load_gltf(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
             indices: vec![],
             color: None,
             body_colors: None,
+            triangle_materials: vec![],
+            authored_colors: vec![],
         },
         visited: 0,
     };
@@ -462,6 +478,8 @@ mod tests {
             rotate: [0.0, 0.0, 90.0],
             cad_part: None,
             raw_source: String::new(),
+            body_id: Default::default(),
+            embedded: Default::default(),
         };
         let mat = model_matrix(&model, pcbcraft_geom::Point::new(0.0, 0.0), 0.0, false, 0.0);
         let at = |i: usize| apply_matrix(&mat, m.positions[i]);

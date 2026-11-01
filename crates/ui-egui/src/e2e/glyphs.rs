@@ -86,8 +86,8 @@ fn every_non_ascii_character_the_interface_draws_is_in_a_loaded_font() -> Result
                 .or_insert_with(|| "crates/text/strings/en.txt".to_string());
         }
     }
-    let proportional = egui::FontId::proportional(13.0);
-    let mono = egui::FontId::monospace(12.0);
+    let proportional = crate::fonts::Role::Body.font();
+    let mono = crate::fonts::Role::Mono.font();
     let missing: Vec<String> = found
         .iter()
         .filter(|(c, _)| !ALLOWED_GAPS.contains(c))
@@ -116,7 +116,7 @@ fn the_scan_can_tell_a_missing_glyph_from_a_present_one() -> Result<(), String> 
         None,
     );
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let font = egui::FontId::proportional(13.0);
+    let font = crate::fonts::Role::Body.font();
     let (a, dot) = ctx.fonts_mut(|f| (f.has_glyph(&font, 'a'), f.has_glyph(&font, '\u{25CF}')));
     assert!(a, "a plain letter is drawable");
     assert!(

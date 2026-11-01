@@ -10,15 +10,17 @@
 //! - Meshes are merged into [`BoardMesh`] as `PartKind::Body` with family `enclosure`.
 //!
 //! # Dependencies
-//! - `crate::solidcraft_format`, `crate::board_mesh`, `pcbcraft_doc`
+//! - crates/io/src/solidcraft_format.rs, crates/io/src/board_mesh.rs, crates/doc/src/lib.rs
 //!
 //! # Do not
 //! - Do not link SolidCraft crates.
 
-use crate::board_mesh::{apply_matrix, mul, MeshPart, PartKind, rot_x, rot_y, rot_z, translate, diag};
-use crate::solidcraft_format::{read_solidcraft, SolidcraftDesign};
-use crate::solidcraft_write::{SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA};
-use pcbcraft_doc::{BoardEnclosure, EmbeddedFile, Project, ENCLOSURE_ATTACHMENT_NAME};
+use crate::board_mesh::{
+    MeshPart, PartKind, apply_matrix, diag, mul, rot_x, rot_y, rot_z, translate,
+};
+use crate::solidcraft::{SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA};
+use crate::solidcraft_format::{SolidcraftDesign, read_solidcraft};
+use pcbcraft_doc::{BoardEnclosure, ENCLOSURE_ATTACHMENT_NAME, EmbeddedFile, Project};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -42,9 +44,7 @@ pub fn solidcraft_has_board_export_frame(design: &SolidcraftDesign) -> bool {
         .get(SOLIDCRAFT_METADATA_KEY)
         .and_then(Value::as_object)
         .is_some_and(|m| {
-            m.get("schema")
-                .and_then(Value::as_str)
-                == Some(SOLIDCRAFT_SCHEMA)
+            m.get("schema").and_then(Value::as_str) == Some(SOLIDCRAFT_SCHEMA)
                 && m.get("frame").is_some()
         })
 }
@@ -70,6 +70,14 @@ fn scene_from_design(
 ) -> Result<Vec<EnclosureBody>, String> {
     let worlds = occurrence_worlds(design)?;
     let mut out = vec![];
+    // Bodies that belong to no component (a board export's board) sit in the
+    // file frame, moved only by the user placement.
+    let root_placed = design.occurrences.iter().any(|occ| occ.component == 0);
+    for feature in &design.features {
+        if !root_placed && feature_matches_component(feature, 0) {
+            push_feature(feature, placement, &design.appearances, &mut out)?;
+        }
+    }
     for occ in &design.occurrences {
         let Some(world) = worlds.get(&occ.id) else {
             continue;
@@ -143,17 +151,19 @@ pub fn attach_enclosure_file(project: &mut Project, bytes: &[u8]) -> Result<(), 
     if !file.valid() {
         return Err("The enclosure attachment is too large.".into());
     }
-    if let Some(slot) = project.files.iter_mut().find(|f| f.name == ENCLOSURE_ATTACHMENT_NAME) {
+    if let Some(slot) = project
+        .files
+        .iter_mut()
+        .find(|f| f.name == ENCLOSURE_ATTACHMENT_NAME)
+    {
         *slot = file;
     } else {
-        if project
-            .files
-            .iter()
-            .filter(|f| f.is_binary())
-            .count()
+        if project.files.iter().filter(|f| f.is_binary()).count()
             >= pcbcraft_doc::MAX_BINARY_ATTACHMENTS
         {
-            return Err("The project already holds the maximum number of binary attachments.".into());
+            return Err(
+                "The project already holds the maximum number of binary attachments.".into(),
+            );
         }
         project.files.push(file);
     }
@@ -267,10 +277,8 @@ fn push_feature(
         if positions.is_empty() || indices.is_empty() {
             continue;
         }
-        let transformed: Vec<[f64; 3]> = positions
-            .iter()
-            .map(|p| apply_matrix(world, *p))
-            .collect();
+        let transformed: Vec<[f64; 3]> =
+            positions.iter().map(|p| apply_matrix(world, *p)).collect();
         out.push(EnclosureBody {
             name,
             positions: transformed,
@@ -287,10 +295,11 @@ fn appearance_for(
     mesh: &Value,
     appearances: &crate::solidcraft_format::SolidcraftAppearances,
 ) -> (Option<[f32; 3]>, f64) {
-    let look = appearances
-        .bodies
-        .get(name)
-        .or_else(|| mesh.get("name").and_then(|n| n.as_str()).and_then(|n| appearances.bodies.get(n)));
+    let look = appearances.bodies.get(name).or_else(|| {
+        mesh.get("name")
+            .and_then(|n| n.as_str())
+            .and_then(|n| appearances.bodies.get(n))
+    });
     if let Some(look) = look {
         let color = look.get("color").and_then(parse_color);
         let opacity = look
@@ -335,9 +344,15 @@ fn read_mesh(mesh: &Value) -> Result<(Vec<[f64; 3]>, Vec<u32>), String> {
     let mut out_pos = Vec::with_capacity(positions.len() / 3);
     for chunk in positions.as_chunks::<3>().0 {
         let p = [
-            chunk[0].as_f64().ok_or_else(|| "A mesh position is not a number.".to_string())?,
-            chunk[1].as_f64().ok_or_else(|| "A mesh position is not a number.".to_string())?,
-            chunk[2].as_f64().ok_or_else(|| "A mesh position is not a number.".to_string())?,
+            chunk[0]
+                .as_f64()
+                .ok_or_else(|| "A mesh position is not a number.".to_string())?,
+            chunk[1]
+                .as_f64()
+                .ok_or_else(|| "A mesh position is not a number.".to_string())?,
+            chunk[2]
+                .as_f64()
+                .ok_or_else(|| "A mesh position is not a number.".to_string())?,
         ];
         if !p.iter().all(|v| v.is_finite()) {
             return Err("A mesh position is not finite.".into());
@@ -361,7 +376,7 @@ fn read_mesh(mesh: &Value) -> Result<(Vec<[f64; 3]>, Vec<u32>), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{board_mesh, solidcraft_board, MeshLayers, SolidcraftLayers};
+    use crate::{MeshLayers, SolidcraftLayers, board_mesh, solidcraft_board};
     use pcbcraft_doc::Project;
 
     type Check = Result<(), String>;
@@ -436,6 +451,14 @@ mod tests {
             rotate: [0.0; 3],
             visible: true,
             opacity: DEFAULT_ENCLOSURE_OPACITY,
+            transform: [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+            source_format: None,
+            bounds: None,
+            mesh_path: None,
+            linked_datums: Vec::new(),
+            notice: None,
         });
         let step = crate::step_board(&project)?;
         assert!(

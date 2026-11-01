@@ -1,7 +1,7 @@
 use super::*;
 use pcbcraft_library::{
-    load_symbol_footprint_files, part_from_library_bundle, verify_part, FootprintSource,
-    Model3dRef, MpnSource, PackageKey, Part, VerifyContext,
+    FootprintSource, Model3dRef, MpnSource, PackageKey, Part, VerifyContext,
+    load_symbol_footprint_files, part_from_library_bundle, verify_part,
 };
 use serde::Deserialize;
 
@@ -169,6 +169,7 @@ struct UserImportParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 struct FetchDatasheetParams {
     id: Id,
     url: String,
@@ -198,7 +199,7 @@ pub(super) fn run(
     if !commands().iter().any(|c| c.id == command) {
         return None;
     }
-    Some((|| match command {
+    Some(match command {
         "part.add" => part_add(p, next, params),
         "part.set" => part_set(p, params),
         "part.remove" => part_remove(p, params),
@@ -211,19 +212,23 @@ pub(super) fn run(
         "part.set_distributor_credential" => part_set_distributor_credential(params),
         "part.clear_distributor_credential" => part_clear_distributor_credential(params),
         _ => Err(Error::Invalid("unknown part command".into())),
-    })())
+    })
 }
 
 fn part_add(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> {
     let mut a: PartPayload = parse(params)?;
     if a.part.id != 0 {
-        return Err(Error::Invalid("part.add assigns the id; leave id at zero".into()));
+        return Err(Error::Invalid(
+            "part.add assigns the id; leave id at zero".into(),
+        ));
     }
     if p.library.parts.len() >= pcbcraft_library::MAX_PARTS {
         return Err(Error::Invalid("project library part limit reached".into()));
     }
     a.part.id = allocate(next)?;
-    a.part.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+    a.part
+        .validate()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
     if p.library.parts.iter().any(|x| x.mpn == a.part.mpn) {
         return Err(Error::Invalid("duplicate part MPN".into()));
     }
@@ -238,7 +243,9 @@ fn part_set(p: &mut Project, params: &Value) -> Result<Value, Error> {
     if a.part.id == 0 {
         return Err(Error::Invalid("part.set requires a non-zero id".into()));
     }
-    a.part.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+    a.part
+        .validate()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
     let slot = p
         .library
         .parts
@@ -330,14 +337,15 @@ fn part_import(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, 
     if a.symbol_path.len() > 4096 || a.footprint_path.len() > 4096 {
         return Err(Error::Invalid("path too long".into()));
     }
-    let (symbol, footprint) = load_symbol_footprint_files(
-        &a.symbol_path,
-        &a.symbol_name,
-        &a.footprint_path,
-    )
-    .map_err(|e| Error::Invalid(e))?;
-    symbol.validate().map_err(|e| Error::Invalid(e.to_string()))?;
-    footprint.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+    let (symbol, footprint) =
+        load_symbol_footprint_files(&a.symbol_path, &a.symbol_name, &a.footprint_path)
+            .map_err(Error::Invalid)?;
+    symbol
+        .validate()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+    footprint
+        .validate()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
     upsert_symbol_footprint(p, &symbol, &footprint, a.notice.as_deref());
     let id = allocate(next)?;
     let mut attribution = vec![];
@@ -353,7 +361,7 @@ fn part_import(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, 
         &a.datasheet_url,
         attribution,
     )
-    .map_err(|e| Error::Invalid(e))?;
+    .map_err(Error::Invalid)?;
     if p.library.parts.iter().any(|x| x.mpn == part.mpn) {
         return Err(Error::Invalid("duplicate part MPN".into()));
     }
@@ -436,17 +444,16 @@ fn part_fetch_datasheet(p: &mut Project, params: &Value) -> Result<Value, Error>
     #[cfg(target_arch = "wasm32")]
     {
         let _ = (p, a);
-        return Err(Error::Invalid(
+        Err(Error::Invalid(
             "datasheet download is not available on wasm builds".into(),
-        ));
+        ))
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         bounded("distributor", &a.distributor, 48)?;
-        let headers = pcbcraft_io::auth_headers_for_distributor(&a.distributor)
-            .map_err(Error::Invalid)?;
-        let hash = pcbcraft_io::fetch_datasheet_cache(&a.url, &headers)
-            .map_err(Error::Invalid)?;
+        let headers =
+            pcbcraft_io::auth_headers_for_distributor(&a.distributor).map_err(Error::Invalid)?;
+        let hash = pcbcraft_io::fetch_datasheet_cache(&a.url, &headers).map_err(Error::Invalid)?;
         let part = p
             .library
             .parts
@@ -463,9 +470,9 @@ fn part_fetch_datasheet(p: &mut Project, params: &Value) -> Result<Value, Error>
                 local_path: None,
             });
         ds.url = a.url;
-        ds.sha256 = hash.sha256;
-        ds.local_path = Some(hash.path);
-        ds.retrieved_at = hash.retrieved_at;
+        ds.sha256 = hash.sha256.clone();
+        ds.local_path = Some(hash.path.clone());
+        ds.retrieved_at = hash.retrieved_at.clone();
         ds.checked_at = hash.retrieved_at;
         Ok(json!({"sha256": hash.sha256, "path": hash.path}))
     }
@@ -478,9 +485,9 @@ fn part_set_distributor_credential(params: &Value) -> Result<Value, Error> {
     #[cfg(target_arch = "wasm32")]
     {
         let _ = a;
-        return Err(Error::Invalid(
+        Err(Error::Invalid(
             "distributor credentials are not available on wasm builds".into(),
-        ));
+        ))
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -496,14 +503,13 @@ fn part_clear_distributor_credential(params: &Value) -> Result<Value, Error> {
     #[cfg(target_arch = "wasm32")]
     {
         let _ = a;
-        return Err(Error::Invalid(
+        Err(Error::Invalid(
             "distributor credentials are not available on wasm builds".into(),
-        ));
+        ))
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        pcbcraft_io::clear_distributor_credential(&a.distributor)
-            .map_err(Error::Invalid)?;
+        pcbcraft_io::clear_distributor_credential(&a.distributor).map_err(Error::Invalid)?;
         Ok(json!({}))
     }
 }
@@ -514,10 +520,10 @@ fn upsert_symbol_footprint(
     footprint: &pcbcraft_library::FootprintDefinition,
     notice: Option<&str>,
 ) {
-    if let Some(n) = notice {
-        if !p.library.notices.contains(&n.to_string()) {
-            p.library.notices.push(n.to_string());
-        }
+    if let Some(n) = notice
+        && !p.library.notices.contains(&n.to_string())
+    {
+        p.library.notices.push(n.to_string());
     }
     if let Some(def) = p.library.symbols.iter_mut().find(|s| s.name == symbol.name) {
         *def = symbol.clone();

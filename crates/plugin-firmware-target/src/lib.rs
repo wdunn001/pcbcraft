@@ -33,6 +33,7 @@ static EXPORT_KINDS: [PluginExportKind; 1] = [PluginExportKind {
 /// Default export plugin instance for registration in the engine.
 pub struct FirmwareTargetPlugin;
 
+/// Contract: crates/plugin-sdk/src/lib.rs
 impl ExportPlugin for FirmwareTargetPlugin {
     fn manifest(&self) -> &PluginManifest {
         &MANIFEST

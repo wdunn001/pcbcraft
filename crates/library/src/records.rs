@@ -5,9 +5,7 @@
 //! Dependencies: `listing.rs` and `sources.rs` for distributor answers;
 //! `cad_cache::content_hash` for stable ids.
 use crate::cad_cache::content_hash;
-use crate::listing::{
-    Category, Lifecycle, ListingSource, PartListing, Unit, listing_from_result,
-};
+use crate::listing::{Category, Lifecycle, ListingSource, PartListing, Unit, listing_from_result};
 use crate::sources::{PartResult, PriceBreak};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -150,6 +148,7 @@ pub fn pin_to_pad_from_pin_numbers(
 }
 
 /// Build a generic component record from library links on a placed part.
+#[allow(clippy::too_many_arguments)]
 pub fn component_from_links(
     symbol: Option<(String, String)>,
     footprint: Option<(String, String)>,
@@ -180,7 +179,9 @@ pub fn component_from_links(
     if value.trim().is_empty() {
         record.parameters.remove("value");
     } else {
-        record.parameters.insert("value".into(), value.trim().to_string());
+        record
+            .parameters
+            .insert("value".into(), value.trim().to_string());
     }
     let hash = component_content_hash(&record);
     record.content_hash = hash.clone();
@@ -245,7 +246,8 @@ pub fn listing_from_orderable(
     let (value, value_unit) = component
         .parameters
         .get("value")
-        .and_then(|v| crate::listing::parse_value(v, category_hint(&component.kind)));
+        .and_then(|v| crate::listing::parse_value(v, category_hint(&component.kind)))
+        .unzip();
     let package_key = component
         .footprints
         .first()
@@ -272,16 +274,18 @@ pub fn listing_from_orderable(
         power_w: None,
         stock: latest.and_then(|s| s.stock),
         stock_at: latest.map(|s| s.at),
-        price_breaks: latest
-            .map(|s| s.price_breaks.clone())
-            .unwrap_or_default(),
+        price_breaks: latest.map(|s| s.price_breaks.clone()).unwrap_or_default(),
         min_order_qty: None,
         order_multiple: None,
         packaging: None,
         lifecycle: orderable.lifecycle,
         lifecycle_raw: orderable.lifecycle_raw.clone(),
         rohs: orderable.rohs,
-        datasheet_url: (!orderable.datasheet_url.is_empty()).then(|| orderable.datasheet_url.clone()),
+        reach: None,
+        halogen_free: None,
+        moisture_level: None,
+        datasheet_url: (!orderable.datasheet_url.is_empty())
+            .then(|| orderable.datasheet_url.clone()),
         symbol: component.symbol.clone(),
         footprint: component.footprints.first().cloned(),
         model3d: component.model.clone(),
@@ -311,6 +315,7 @@ pub struct AttachRecords {
 }
 
 /// Build component and orderable records from attach-source fields and links.
+#[allow(clippy::too_many_arguments)]
 pub fn records_from_attach(
     symbol: Option<(String, String)>,
     footprint: Option<(String, String)>,
@@ -391,7 +396,8 @@ pub fn upsert_component(
     record: ComponentRecord,
 ) -> Result<(), String> {
     validate_component(&record)?;
-    if part_components.len() >= MAX_PART_RECORDS && !part_components.iter().any(|c| c.id == record.id)
+    if part_components.len() >= MAX_PART_RECORDS
+        && !part_components.iter().any(|c| c.id == record.id)
     {
         return Err("project library part component limit reached".into());
     }
@@ -536,6 +542,9 @@ mod tests {
             footprint: Some("Resistor_SMD:R_0603".into()),
             model3d: None,
             attribution: None,
+            reach: None,
+            halogen_free: None,
+            moisture_level: None,
         };
         let component = component_from_links(
             Some(("Device".into(), "R".into())),

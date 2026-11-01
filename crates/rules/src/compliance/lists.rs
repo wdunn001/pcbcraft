@@ -1,6 +1,8 @@
 //! Parsed compliance list snapshots bundled with the rules crate.
 use serde::Deserialize;
 
+/// List provenance read from the bundled file; the fields are kept for audits.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 pub struct ListMeta {
     pub schema: u32,
@@ -21,6 +23,8 @@ pub struct CoveredCountriesList {
     pub countries: Vec<CoveredCountry>,
 }
 
+/// One covered country row.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 pub struct CoveredCountry {
     pub code: String,
@@ -36,6 +40,8 @@ pub struct FrameworkList {
     pub part_numbers: Vec<FrameworkPart>,
 }
 
+/// One framework part row.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 pub struct FrameworkPart {
     pub mpn: String,
@@ -78,7 +84,7 @@ pub fn country_covered(list: &CoveredCountriesList, code: &str) -> bool {
         .any(|c| c.code.eq_ignore_ascii_case(code))
 }
 
-pub fn framework_entry(list: &FrameworkList, mpn: &str) -> Option<&FrameworkPart> {
+pub fn framework_entry<'a>(list: &'a FrameworkList, mpn: &str) -> Option<&'a FrameworkPart> {
     list.part_numbers
         .iter()
         .find(|p| p.mpn.eq_ignore_ascii_case(mpn))

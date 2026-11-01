@@ -9,7 +9,7 @@
 //!
 //! Dependencies: `NetClass::min_radius`, `Track::curve` in `crates/doc`.
 use super::Finding;
-use pcbcraft_doc::{Id, Project, Track};
+use pcbcraft_doc::{Project, Track};
 
 fn track_radius_finding(
     project: &Project,
@@ -30,6 +30,7 @@ fn track_radius_finding(
             limit,
         ),
         objects: vec![track.id],
+        hint: None,
     }
 }
 
@@ -77,6 +78,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: Some(mid),
+            preserved: Default::default(),
         });
     }
 
@@ -112,6 +114,22 @@ mod tests {
             pair_gap: None,
             nets: vec![1],
             profile: None,
+            backdrill: Default::default(),
+            corner_radius: Default::default(),
+            current: Default::default(),
+            fast: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            max_vias: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            rise_time: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         arc_track(
             &mut p,
@@ -153,6 +171,22 @@ mod tests {
             pair_gap: None,
             nets: vec![1],
             profile: None,
+            backdrill: Default::default(),
+            corner_radius: Default::default(),
+            current: Default::default(),
+            fast: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            max_vias: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            rise_time: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 11,
@@ -162,6 +196,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         assert!(radius(&p).is_empty());

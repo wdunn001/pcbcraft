@@ -43,7 +43,9 @@ struct CornerPair {
 
 #[derive(Clone, Copy, Debug)]
 struct LegSnapshot {
+    #[allow(dead_code)]
     start: Point,
+    #[allow(dead_code)]
     end: Point,
     length: f64,
 }
@@ -67,7 +69,7 @@ fn drc_clearance_keys(p: &Project) -> BTreeSet<(String, Vec<Id>)> {
         .map(|f| {
             let mut objects = f.objects;
             objects.sort_unstable();
-            (f.code, objects)
+            (f.code.to_string(), objects)
         })
         .collect()
 }
@@ -100,9 +102,7 @@ fn skip_reason_at_joint(p: &Project, corner: Point, net: Id, layer: Layer) -> Op
         .tracks
         .iter()
         .filter(|t| {
-            t.net == net
-                && t.layer == layer
-                && (near(t.start, corner) || near(t.end, corner))
+            t.net == net && t.layer == layer && (near(t.start, corner) || near(t.end, corner))
         })
         .count();
     if count != 2 {
@@ -119,9 +119,11 @@ fn skip_reason_at_joint(p: &Project, corner: Point, net: Id, layer: Layer) -> Op
     }) {
         return Some("a curved track touches this corner");
     }
-    if p.board.vias.iter().any(|v| {
-        v.net == net && corner.distance(v.position) <= v.diameter / 2.0 + 1e-6
-    }) {
+    if p.board
+        .vias
+        .iter()
+        .any(|v| v.net == net && corner.distance(v.position) <= v.diameter / 2.0 + 1e-6)
+    {
         return Some("a via sits on this corner");
     }
     for f in &p.board.footprints {
@@ -164,6 +166,7 @@ fn shorten_at(track: &mut Track, corner: Point, target: Point) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_fillet(
     p: &mut Project,
     pair: CornerPair,
@@ -202,6 +205,7 @@ fn apply_fillet(
                 width,
                 layer,
                 arc: Some(fillet.arc_mid),
+                preserved: Default::default(),
             });
         }
         Style::Segments => {
@@ -222,6 +226,7 @@ fn apply_fillet(
                     width,
                     layer,
                     arc: None,
+                    preserved: Default::default(),
                 });
             }
         }
@@ -252,7 +257,10 @@ fn collect_corners(p: &Project, params: &RoundCornersParams) -> Vec<CornerPair> 
             let Some((a, b)) = joint_at(p, corner, t.net, t.layer) else {
                 continue;
             };
-            if selected.as_ref().is_some_and(|s| !s.contains(&a) || !s.contains(&b)) {
+            if selected
+                .as_ref()
+                .is_some_and(|s| !s.contains(&a) || !s.contains(&b))
+            {
                 continue;
             }
             let key = if a < b { (a, b) } else { (b, a) };
@@ -269,12 +277,11 @@ fn collect_corners(p: &Project, params: &RoundCornersParams) -> Vec<CornerPair> 
     corners
 }
 
-pub fn run(
-    p: &mut Project,
-    next: &mut Id,
-    params: RoundCornersParams,
-) -> Result<Value, Error> {
-    if params.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
+pub fn run(p: &mut Project, next: &mut Id, params: RoundCornersParams) -> Result<Value, Error> {
+    if params
+        .net
+        .is_some_and(|id| !p.nets.iter().any(|n| n.id == id))
+    {
         return Err(missing());
     }
     let style = style_from(params.style.as_deref())?;
@@ -327,7 +334,9 @@ pub fn run(
             .cloned()
             .ok_or_else(missing)?;
         if track_a.arc.is_some() || track_b.arc.is_some() {
-            skipped.push(json!({"a": pair.a, "b": pair.b, "reason": "a curved track touches this corner"}));
+            skipped.push(
+                json!({"a": pair.a, "b": pair.b, "reason": "a curved track touches this corner"}),
+            );
             continue;
         }
         if let Some(reason) = skip_reason_at_joint(p, pair.corner, track_a.net, track_a.layer) {
@@ -346,19 +355,15 @@ pub fn run(
         } else {
             params.radius
         };
-        let Some(fillet) = track_fillet(
-            pair.corner,
-            away_a,
-            away_b,
-            leg_a,
-            leg_b,
-            radius,
-        ) else {
-            skipped.push(json!({"a": pair.a, "b": pair.b, "reason": "corner is too shallow to round"}));
+        let Some(fillet) = track_fillet(pair.corner, away_a, away_b, leg_a, leg_b, radius) else {
+            skipped.push(
+                json!({"a": pair.a, "b": pair.b, "reason": "corner is too shallow to round"}),
+            );
             continue;
         };
         if !fillet.tangent_a.valid() || !fillet.tangent_b.valid() {
-            skipped.push(json!({"a": pair.a, "b": pair.b, "reason": "tangent point is out of range"}));
+            skipped
+                .push(json!({"a": pair.a, "b": pair.b, "reason": "tangent point is out of range"}));
             continue;
         }
         let before = drc_clearance_keys(p);

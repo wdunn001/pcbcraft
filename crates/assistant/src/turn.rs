@@ -2,7 +2,6 @@
 // crates/ui-egui/src/agent_chat/mod.rs (turn accounting)
 
 use pcbcraft_engine::Session;
-use serde_json::Value;
 
 /// Changes the agent may make in one turn; the seeded default when the user turns the limit on.
 pub const DEFAULT_TURN_LIMIT: u32 = 24;

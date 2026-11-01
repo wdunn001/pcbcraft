@@ -36,7 +36,7 @@ pub(crate) struct ParametricBody {
 }
 
 impl ParametricBody {
-    fn plain(family: &'static str, ring: Vec<Point>, height: f64) -> Self {
+    pub(crate) fn plain(family: &'static str, ring: Vec<Point>, height: f64) -> Self {
         Self {
             family,
             ring,
@@ -64,9 +64,7 @@ pub(crate) fn resolve(fp: &Footprint, component: Option<&Component>) -> Option<P
     if let Some(over) = stored {
         if let Some(f) = over.family {
             body.family = f;
-            body.height = over
-                .height
-                .unwrap_or_else(|| default_height(f, &body.ring));
+            body.height = over.height.unwrap_or_else(|| default_height(f, &body.ring));
         } else {
             let height_override = over.height;
             if let Some(h) = height_override {
@@ -274,9 +272,7 @@ fn finish_body(
             | "bga"
             | "lga"
     );
-    if chamfer_family
-        && let Some(pin1) = pin1_location(fp, &pads)
-    {
+    if chamfer_family && let Some(pin1) = pin1_location(fp, &pads) {
         body.pin1_chamfer = pin1_chamfer_solid(&body.ring, pin1, body.height);
         body.ring = chamfer_ring_corner(&body.ring, pin1);
     }
@@ -318,7 +314,7 @@ fn chamfer_ring_corner(ring: &[Point], pin1: Point) -> Vec<Point> {
     let prev = ring[(best + n - 1) % n];
     let corner = ring[best];
     let next = ring[(best + 1) % n];
-    let cut = 0.35;
+    let cut = 0.35_f64;
     let p1 = Point::new(
         corner.x + (prev.x - corner.x).signum() * cut.min(prev.distance(corner)),
         corner.y + (prev.y - corner.y).signum() * cut.min(prev.distance(corner)),
@@ -352,15 +348,14 @@ fn pin1_chamfer_solid(ring: &[Point], pin1: Point, height: f64) -> Option<Solid>
     })
 }
 
-fn polarity_mark(
-    pads: &[PadBox],
-    component: Option<&Component>,
-    height: f64,
-) -> Option<Solid> {
-    let kind = component.map(|c| c.kind.to_ascii_lowercase()).unwrap_or_default();
+fn polarity_mark(pads: &[PadBox], component: Option<&Component>, height: f64) -> Option<Solid> {
+    let kind = component
+        .map(|c| c.kind.to_ascii_lowercase())
+        .unwrap_or_default();
     let mark_second = kind.contains("diode") || kind.contains("led");
     let pad = if mark_second && pads.len() >= 2 {
-        pads.iter().max_by(|a, b| a.centre.x.total_cmp(&b.centre.x))?
+        pads.iter()
+            .max_by(|a, b| a.centre.x.total_cmp(&b.centre.x))?
     } else {
         pads.first()?
     };
@@ -394,8 +389,7 @@ fn leads_for_family(family: &str, pads: &[PadBox], body_height: f64) -> Vec<Soli
             })
             .collect();
     }
-    pads
-        .iter()
+    pads.iter()
         .filter(|p| !thermal_pad(p, pads))
         .map(|p| {
             let w = p.width().max(0.12);
@@ -415,7 +409,8 @@ fn thermal_pad(p: &PadBox, all: &[PadBox]) -> bool {
         && all
             .iter()
             .filter(|q| q.centre.distance(p.centre) < 0.2)
-            .count() == 1
+            .count()
+            == 1
 }
 
 fn median_pad_area(pads: &[PadBox]) -> f64 {
@@ -432,6 +427,7 @@ struct PadBox {
     hi: Point,
     through: bool,
     round: bool,
+    #[allow(dead_code)]
     number: String,
 }
 
@@ -511,7 +507,9 @@ fn smallest_gap(values: &[f64]) -> Option<f64> {
         .windows(2)
         .map(|w| w[1] - w[0])
         .filter(|g| *g > 0.05)
-        .fold(None, |best: Option<f64>, g| Some(best.map_or(g, |b| b.min(g))))
+        .fold(None, |best: Option<f64>, g| {
+            Some(best.map_or(g, |b| b.min(g)))
+        })
 }
 
 fn chip_height(length: f64) -> f64 {
@@ -602,15 +600,12 @@ fn connector_receptacle_body(lo: Point, hi: Point) -> ParametricBody {
     let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
     let w = (hi.x - lo.x).max(4.0);
     let h = (hi.y - lo.y).max(3.0);
-    let mut body = ParametricBody::plain(
-        "connector",
-        rect_ring(cx, cy, w * 0.88, h * 0.75),
-        3.0,
-    );
+    let mut body = ParametricBody::plain("connector", rect_ring(cx, cy, w * 0.88, h * 0.75), 3.0);
+    let rise = body.height * 0.55;
     push_extra(
         &mut body,
         rect_ring(cx + w * 0.32, cy - h * 0.28, w * 0.12, h * 0.22),
-        body.height * 0.55,
+        rise,
     );
     body
 }
@@ -658,11 +653,8 @@ fn to92_body(pads: &[PadBox], lo: Point, hi: Point) -> ParametricBody {
     let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
     let w = (hi.x - lo.x + 1.6).max(3.5);
     let h = (hi.y - lo.y + 2.0).max(4.0);
-    let mut body = ParametricBody::plain(
-        "to92",
-        circle_ring(Point::new(cx, cy - 0.4), w / 2.2),
-        4.0,
-    );
+    let mut body =
+        ParametricBody::plain("to92", circle_ring(Point::new(cx, cy - 0.4), w / 2.2), 4.0);
     push_extra(
         &mut body,
         rect_ring(cx, cy + h * 0.15, w * 0.55, h * 0.35),
@@ -676,10 +668,10 @@ fn to220_body(pads: &[PadBox], lo: Point, hi: Point) -> ParametricBody {
     let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
     let w = (hi.x - lo.x + 2.0).max(8.0);
     let mut body = ParametricBody::plain("to220", rect_ring(cx, cy, w, 10.0), 4.5);
-    if let Some(p) = pads.iter().max_by(|a, b| {
-        (a.width() * a.height())
-            .total_cmp(&(b.width() * b.height()))
-    }) {
+    if let Some(p) = pads
+        .iter()
+        .max_by(|a, b| (a.width() * a.height()).total_cmp(&(b.width() * b.height())))
+    {
         push_extra(
             &mut body,
             rect_ring(p.centre.x, p.centre.y, p.width() * 1.1, p.height() * 1.4),
@@ -882,12 +874,21 @@ fn infer_from_pads(fp: &Footprint, component: Option<&Component>) -> Option<Para
     if through {
         return through_body(component, &pads, &xc, &yc)
             .or_else(|| body_from_pattern(&pads, &xc, &yc, n, lo, hi, true))
-            .or_else(generic);
+            .or_else(|| Some(generic()));
     }
     if n == 2 {
         let (a, b) = (&pads[0], &pads[1]);
         let c = a.centre.distance(b.centre);
-        if c < 0.2 {
+        // Two pads on an integrated circuit is not a chip passive; without a
+        // recognised footprint name the body stays a plain box.
+        if c < 0.2
+            || component.is_some_and(|comp| {
+                matches!(
+                    comp.kind.as_str(),
+                    "ic" | "mcu" | "ldo" | "buck" | "opamp" | "sensor" | "motor_driver"
+                )
+            })
+        {
             return Some(generic());
         }
         let along_x = (b.centre.x - a.centre.x).abs() >= (b.centre.y - a.centre.y).abs();
@@ -1160,6 +1161,7 @@ fn through_body(
 }
 
 /// Axis-aligned bounds of all solids in footprint-local space.
+#[allow(dead_code)]
 pub(crate) fn local_bounds(body: &ParametricBody) -> (Point, Point, f64, f64) {
     let mut lo = Point::new(f64::MAX, f64::MAX);
     let mut hi = Point::new(f64::MIN, f64::MIN);
@@ -1188,7 +1190,8 @@ pub(crate) fn local_bounds(body: &ParametricBody) -> (Point, Point, f64, f64) {
     (lo, hi, z_lo, z_hi)
 }
 
-pub(crate) fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -> bool {
+#[allow(dead_code)]
+fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -> bool {
     if thermal_pad(pad, all) {
         let (blo, bhi) = ring_bounds(&body.ring);
         return pad.lo.x >= blo.x - EPS
@@ -1209,13 +1212,13 @@ pub(crate) fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board_mesh::{board_mesh, MeshLayers, PartKind};
-    use std::path::Path;
+    use crate::board_mesh::{MeshLayers, PartKind, board_mesh};
     use pcbcraft_doc::{Component, Footprint, Pad, Project};
     use pcbcraft_library::{
         FootprintDefinition, FootprintPad, LandPatternDensity, LandPatternParams,
         generate_footprint,
     };
+    use std::path::Path;
 
     fn pad_at(number: &str, x: f64, y: f64, w: f64, h: f64, shape: &str) -> Pad {
         Pad {
@@ -1263,6 +1266,7 @@ mod tests {
             locked: None,
             side: None,
             pads,
+            preserved: Default::default(),
         }
     }
 
@@ -1302,6 +1306,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 })
                 .collect(),
             units: vec![],
@@ -1312,6 +1317,13 @@ mod tests {
             }),
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         p.board.footprints.push(footprint(pads));
         p
@@ -1409,7 +1421,6 @@ mod tests {
             mask: false,
             silk: false,
             bodies: true,
-            ..MeshLayers::default()
         };
         let mesh = board_mesh(&project, layers)?;
         let generic: Vec<String> = mesh
@@ -1493,10 +1504,10 @@ mod tests {
 
     #[test]
     fn footprint_name_overrides_generic_family() -> Result<(), String> {
-        let mut gen = nominal_params();
-        gen.name = "SOIC-8_3.9x4.9mm_P1.27mm".into();
-        gen.body_width = 3.9;
-        let def = generate_footprint("soic", LandPatternDensity::Nominal, &gen)?;
+        let mut gp = nominal_params();
+        gp.name = "SOIC-8_3.9x4.9mm_P1.27mm".into();
+        gp.body_width = 3.9;
+        let def = generate_footprint("soic", LandPatternDensity::Nominal, &gp)?;
         let pads = pads_from_def(&def);
         let mut comp = Component {
             id: 1,
@@ -1514,6 +1525,13 @@ mod tests {
             }),
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
         assert_eq!(body.family, "soic");
@@ -1537,10 +1555,10 @@ mod tests {
 
     #[test]
     fn stored_body_family_beats_footprint_name() -> Result<(), String> {
-        let mut gen = nominal_params();
-        gen.name = "SOIC-8_3.9x4.9mm_P1.27mm".into();
-        gen.body_width = 3.9;
-        let def = generate_footprint("soic", LandPatternDensity::Nominal, &gen)?;
+        let mut gp = nominal_params();
+        gp.name = "SOIC-8_3.9x4.9mm_P1.27mm".into();
+        gp.body_width = 3.9;
+        let def = generate_footprint("soic", LandPatternDensity::Nominal, &gp)?;
         let pads = pads_from_def(&def);
         let comp = Component {
             id: 1,
@@ -1561,6 +1579,13 @@ mod tests {
                 value: r#"{"family":"chip","height":0.5}"#.into(),
             }],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
         assert_eq!(body.family, "chip");
@@ -1570,12 +1595,12 @@ mod tests {
 
     #[test]
     fn led_footprint_name_is_chip_with_polarity_mark() -> Result<(), String> {
-        let mut gen = nominal_params();
-        gen.name = "LED_0805_2012Metric".into();
-        gen.body_length = 2.0;
-        gen.body_width = 1.25;
-        gen.pin_count = 2;
-        let def = generate_footprint("chip_2terminal", LandPatternDensity::Nominal, &gen)?;
+        let mut gp = nominal_params();
+        gp.name = "LED_0805_2012Metric".into();
+        gp.body_length = 2.0;
+        gp.body_width = 1.25;
+        gp.pin_count = 2;
+        let def = generate_footprint("chip_2terminal", LandPatternDensity::Nominal, &gp)?;
         let pads = pads_from_def(&def);
         let comp = Component {
             id: 1,
@@ -1593,6 +1618,13 @@ mod tests {
             }),
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
         assert_eq!(body.family, "chip");
@@ -1622,6 +1654,13 @@ mod tests {
                 value: r#"{"family":"chip","height":0.9}"#.into(),
             }],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         };
         let body = resolve(&footprint(pads), Some(&comp)).ok_or("missing")?;
         assert_eq!(body.family, "chip");
@@ -1631,7 +1670,8 @@ mod tests {
 
     #[test]
     fn generated_footprints_satisfy_body_properties() -> Result<(), String> {
-        let families: [(&str, fn() -> LandPatternParams); 7] = [
+        type Family = (&'static str, fn() -> LandPatternParams);
+        let families: [Family; 7] = [
             ("chip_2terminal", || {
                 let mut p = nominal_params();
                 p.name = "R_0805".into();
@@ -1690,20 +1730,17 @@ mod tests {
         ];
         for (family, params) in families {
             let def = generate_footprint(family, LandPatternDensity::Nominal, &params())?;
-            let pads: Vec<PadBox> = pads_from_def(&def)
-                .iter()
-                .filter_map(pad_box)
-                .collect();
+            let pads: Vec<PadBox> = pads_from_def(&def).iter().filter_map(pad_box).collect();
             let body = resolve(&footprint(pads_from_def(&def)), None).ok_or("no body")?;
             let (blo, bhi, z0, z1) = local_bounds(&body);
-            assert!(
-                z0 >= -EPS,
-                "{family}: bottom below seating plane {z0}"
-            );
+            assert!(z0 >= -EPS, "{family}: bottom below seating plane {z0}");
             assert!(z0 <= body.standoff + EPS, "{family}: unexpected standoff");
             if let Some((hx, hy)) = courtyard_half(&def) {
                 assert!(
-                    blo.x >= -hx - 0.01 && bhi.x <= hx + 0.01 && blo.y >= -hy - 0.01 && bhi.y <= hy + 0.01,
+                    blo.x >= -hx - 0.01
+                        && bhi.x <= hx + 0.01
+                        && blo.y >= -hy - 0.01
+                        && bhi.y <= hy + 0.01,
                     "{family}: body {blo:?} {bhi:?} outside courtyard {hx} {hy}"
                 );
             }

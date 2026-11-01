@@ -1,4 +1,4 @@
-use pcbcraft_calc::{meta, term_by_id, TERMS};
+use pcbcraft_calc::{TERMS, meta, term_by_id};
 
 #[test]
 fn every_term_has_required_fields() {

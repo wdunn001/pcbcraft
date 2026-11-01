@@ -1,7 +1,7 @@
 //! Culls and level-of-detail choices before rasterisation.
 
+use super::{Basis, NEAR, V, dot, flip, sub};
 use pcbcraft_io::{BoardMesh, MeshPart, PartKind};
-use super::super::{dot, flip, sub, Basis, V, NEAR};
 
 /// Screen-space size below which a body draws as its bounding box.
 const LOD_BOX_PX: f64 = 6.0;
@@ -42,6 +42,7 @@ pub(super) struct Scene<'a> {
     pub drawables: Vec<Drawable<'a>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn prepare<'a>(
     mesh: &'a BoardMesh,
     basis: &Basis,
@@ -76,6 +77,7 @@ pub(super) fn prepare<'a>(
     Scene { drawables }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn body_drawable<'a>(
     part: &'a MeshPart,
     basis: &Basis,
@@ -131,15 +133,7 @@ fn body_drawable<'a>(
     })
 }
 
-fn body_lod(
-    min: V,
-    max: V,
-    basis: &Basis,
-    focal: f64,
-    cx: f64,
-    cy: f64,
-    ss: usize,
-) -> Lod {
+fn body_lod(min: V, max: V, basis: &Basis, focal: f64, cx: f64, cy: f64, ss: usize) -> Lod {
     let size = projected_size(min, max, basis, focal, cx, cy) * ss as f64;
     if size < LOD_BOX_PX {
         Lod::Box
@@ -156,8 +150,8 @@ fn projected_size(min: V, max: V, basis: &Basis, focal: f64, cx: f64, cy: f64) -
     let mut max_sx = f64::NEG_INFINITY;
     let mut max_sy = f64::NEG_INFINITY;
     for z in [min[2], max[2]] {
-        for &x in [min[0], max[0]] {
-            for &y in [min[1], max[1]] {
+        for x in [min[0], max[0]] {
+            for y in [min[1], max[1]] {
                 let p = flip([x, y, z]);
                 let rel = sub(p, basis.eye);
                 let depth = dot(rel, basis.fwd);
@@ -191,6 +185,7 @@ fn frustum_skip_part(
     frustum_skip_bounds(min, max, basis, sw, sh, focal, cx, cy)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn frustum_skip_bounds(
     min: V,
     max: V,
@@ -207,8 +202,8 @@ fn frustum_skip_bounds(
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
     for z in [min[2], max[2]] {
-        for &x in [min[0], max[0]] {
-            for &y in [min[1], max[1]] {
+        for x in [min[0], max[0]] {
+            for y in [min[1], max[1]] {
                 let p = flip([x, y, z]);
                 let rel = sub(p, basis.eye);
                 let depth = dot(rel, basis.fwd);

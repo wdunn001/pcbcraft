@@ -22,6 +22,7 @@ struct TeardropRemoveParams {
     #[serde(default)]
     net: Option<Id>,
     #[serde(default)]
+    #[allow(dead_code)]
     layer: Option<Layer>,
 }
 
@@ -173,6 +174,7 @@ fn add(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> {
             filled: true,
             kind: Some("teardrop".into()),
             pour: None,
+            preserved: Default::default(),
         });
         added += 1;
     }

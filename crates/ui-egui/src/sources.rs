@@ -21,7 +21,7 @@
 //! - crates/library/src/web_transport.rs
 use super::*;
 use pcbcraft_library::cad::CadSource;
-use pcbcraft_library::cad_cache::{CacheStats, CadCache, default_cache_dir, now_secs};
+use pcbcraft_library::cad_cache::{CacheStats, CadCache, default_cache_dir};
 use pcbcraft_library::open_library::{CardScope, FetchError, Fetcher, OpenLibrarySource};
 use pcbcraft_library::sources::{PartResult, PartSource};
 use pcbcraft_library::web_transport::WebTransport;
@@ -237,7 +237,7 @@ impl App {
                 .offline
                 .as_ref()
                 .is_some_and(|f| f.load(Ordering::SeqCst));
-            let line = self.cache_line(&source.cache().stats(), now_secs());
+            let line = self.cache_line(&source.cache().stats(), pcbcraft_clock::unix_secs());
             let line = if offline {
                 t!("library.dock.offline_note", line = line)
             } else {
@@ -266,13 +266,16 @@ impl App {
         }
     }
     /// Switch the open source on over `fetcher`, keeping files in `cache_dir`
-    /// (the default folder when `None`, memory when there is none).
+    /// (the default folder when `None` and the session has a settings folder, memory otherwise).
     pub(super) fn use_open_source(
         &mut self,
         fetcher: Box<dyn Fetcher>,
         cache_dir: Option<std::path::PathBuf>,
     ) {
-        let cache = match cache_dir.or_else(default_cache_dir) {
+        // The user cache folder is only for a window whose session has a settings folder;
+        // a session without one (a test, an embedded host) keeps its answers in memory.
+        let has_folder = self.user_config().folder().is_some();
+        let cache = match cache_dir.or_else(|| default_cache_dir().filter(|_| has_folder)) {
             Some(dir) => CadCache::open(&dir),
             None => CadCache::in_memory(),
         };

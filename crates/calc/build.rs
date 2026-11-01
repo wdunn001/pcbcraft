@@ -38,10 +38,10 @@ fn load_glossary_parts(
     let mut merged: Vec<toml::Value> = Vec::new();
     for path in &paths {
         println!("cargo:rerun-if-changed={}", path.display());
-        let raw =
-            fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-        let doc: toml::Value =
-            raw.parse().map_err(|e| format!("parse {}: {e}", path.display()))?;
+        let raw = fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+        let doc: toml::Value = raw
+            .parse()
+            .map_err(|e| format!("parse {}: {e}", path.display()))?;
         let terms = doc
             .get("term")
             .and_then(toml::Value::as_array)
@@ -59,14 +59,7 @@ fn load_glossary_parts(
         if !ids.insert(id.to_string()) {
             return Err(format!("duplicate glossary id {id}"));
         }
-        for key in [
-            "term",
-            "category",
-            "short",
-            "long",
-            "search",
-            "source",
-        ] {
+        for key in ["term", "category", "short", "long", "search", "source"] {
             if entry
                 .get(key)
                 .and_then(toml::Value::as_str)
@@ -75,10 +68,11 @@ fn load_glossary_parts(
                 return Err(format!("{id}: missing {key}"));
             }
         }
-        if let Some(calc) = entry.get("calculator").and_then(toml::Value::as_str) {
-            if !calc.is_empty() && !calc_ids.contains(calc) {
-                return Err(format!("{id}: unknown calculator {calc}"));
-            }
+        if let Some(calc) = entry.get("calculator").and_then(toml::Value::as_str)
+            && !calc.is_empty()
+            && !calc_ids.contains(calc)
+        {
+            return Err(format!("{id}: unknown calculator {calc}"));
         }
     }
     for entry in &merged {
@@ -184,7 +178,9 @@ fn calculator_ids(manifest_dir: &Path) -> Result<HashSet<String>, String> {
     println!("cargo:rerun-if-changed={}", data_path.display());
     let raw =
         fs::read_to_string(&data_path).map_err(|e| format!("read {}: {e}", data_path.display()))?;
-    let doc: toml::Value = raw.parse().map_err(|e| format!("parse calculators.toml: {e}"))?;
+    let doc: toml::Value = raw
+        .parse()
+        .map_err(|e| format!("parse calculators.toml: {e}"))?;
     let calcs = doc
         .get("calculator")
         .and_then(toml::Value::as_array)

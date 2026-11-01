@@ -22,10 +22,8 @@ fn fixture_registry_catalogue_and_manifest_match_disk() -> Result<(), String> {
 #[test]
 fn fixture_install_copies_verified_files() -> Result<(), String> {
     let root = fixture_root();
-    let dest = std::env::temp_dir().join(format!(
-        "pcbcraft-registry-install-{}",
-        std::process::id()
-    ));
+    let dest =
+        std::env::temp_dir().join(format!("pcbcraft-registry-install-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dest);
     let files = install_publication(&root, "fixture-r", "1.0.0", &dest)?;
     assert_eq!(files, vec!["FixtureR.kicad_sym".to_string()]);
@@ -51,7 +49,10 @@ fn fixture_instance_feed_items_carry_origin() -> Result<(), String> {
     );
     let merged = merge_catalogues(local, remote);
     assert_eq!(merged.len(), 2);
-    assert!(merged.iter().any(|i| i.id == "peer-led" && i.origin.is_some()));
+    assert!(
+        merged
+            .iter()
+            .any(|i| i.id == "peer-led" && i.origin.is_some())
+    );
     Ok(())
 }
-

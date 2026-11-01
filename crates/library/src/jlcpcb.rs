@@ -7,8 +7,8 @@ use crate::source_errors::map_auth_or_permission;
 use crate::source_hosts;
 use crate::source_sign::jlcpcb_authorization;
 use crate::sources::{
-    Attribution, PartResult, PartSource, PriceBreak, SetupCard, SourceError, check_query,
-    DEFAULT_CACHE_SECS,
+    Attribution, DEFAULT_CACHE_SECS, PartResult, PartSource, PriceBreak, SetupCard, SourceError,
+    check_query,
 };
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
@@ -374,10 +374,7 @@ fn part_from_component(p: ComponentJson, retrieved_at: u64) -> Option<PartResult
 }
 
 fn random_nonce() -> String {
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+    let seed = pcbcraft_clock::unix_nanos();
     format!("{:032x}", (seed as u128) ^ (seed >> 32) as u128)
 }
 

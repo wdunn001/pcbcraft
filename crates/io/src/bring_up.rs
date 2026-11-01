@@ -52,12 +52,12 @@ fn power_nets(project: &Project) -> BTreeMap<Id, PowerKind> {
             .or_insert_with(|| power_kind(project.net_name(label.net)).unwrap_or(PowerKind::Rail));
     }
     for pin in project.components.iter().flat_map(|c| c.pins.iter()) {
-        if pin.electrical_type == "power_in" || pin.electrical_type == "power_out" {
-            if let Some(net) = pin.net.filter(|n| *n != 0) {
-                found
-                    .entry(net)
-                    .or_insert_with(|| power_kind(project.net_name(net)).unwrap_or(PowerKind::Rail));
-            }
+        if (pin.electrical_type == "power_in" || pin.electrical_type == "power_out")
+            && let Some(net) = pin.net.filter(|n| *n != 0)
+        {
+            found
+                .entry(net)
+                .or_insert_with(|| power_kind(project.net_name(net)).unwrap_or(PowerKind::Rail));
         }
     }
     found
@@ -70,7 +70,10 @@ fn expected_voltage_v(name: &str, kind: PowerKind) -> String {
     let n = name.trim().to_ascii_uppercase();
     let n = n.trim_start_matches('+');
     if let Some(stripped) = n.strip_suffix('V') {
-        let digits: String = stripped.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
+        let digits: String = stripped
+            .chars()
+            .filter(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
         if digits.contains('.') {
             return digits;
         }
@@ -105,14 +108,15 @@ fn is_header_component(c: &Component) -> bool {
         text.push_str(&fp.definition.name);
     }
     let upper = text.to_ascii_uppercase();
-    ["HEADER", "CONN", "SWD", "TAG-CONNECT", "DEBUG", "JTAG"].iter().any(|k| upper.contains(k))
+    ["HEADER", "CONN", "SWD", "TAG-CONNECT", "DEBUG", "JTAG"]
+        .iter()
+        .any(|k| upper.contains(k))
 }
 
 fn sensor_note(c: &Component) -> Option<String> {
     let blob = format!("{} {}", c.value, c.reference).to_ascii_uppercase();
     const KEYS: &[&str] = &[
-        "IMU", "MPU", "BMI", "ICM", "BMP", "MS5611", "LIS3", "LSM", "QMC", "MAG", "BARO",
-        "SENSOR",
+        "IMU", "MPU", "BMI", "ICM", "BMP", "MS5611", "LIS3", "LSM", "QMC", "MAG", "BARO", "SENSOR",
     ];
     if KEYS.iter().any(|k| blob.contains(k)) {
         Some(format!(
@@ -139,7 +143,7 @@ fn header_pins(project: &Project) -> Vec<HeaderPin> {
         for pin in &c.pins {
             let net = pin
                 .net
-                .map(|id| project.net_name(id))
+                .map(|id| project.net_name(id).to_string())
                 .unwrap_or_else(|| "unassigned".into());
             rows.push(HeaderPin {
                 reference: c.reference.clone(),
@@ -164,7 +168,10 @@ fn header_pins(project: &Project) -> Vec<HeaderPin> {
 fn continuity_pairs(project: &Project) -> Vec<(String, String)> {
     let mut pairs = Vec::new();
     for NetTie { net_a, net_b, .. } in &project.board.netties {
-        pairs.push((project.net_name(*net_a), project.net_name(*net_b)));
+        pairs.push((
+            project.net_name(*net_a).to_string(),
+            project.net_name(*net_b).to_string(),
+        ));
     }
     pairs.sort();
     pairs
@@ -184,7 +191,7 @@ fn write_rails(out: &mut String, project: &Project, rails: &BTreeMap<Id, PowerKi
     out.push_str("| --- | --- | --- |\n");
     for (id, kind) in rails {
         let name = project.net_name(*id);
-        let expected = expected_voltage_v(&name, *kind);
+        let expected = expected_voltage_v(name, *kind);
         let note = if *kind == PowerKind::Ground {
             "common return"
         } else {
@@ -274,11 +281,7 @@ pub fn bring_up_plan_markdown(project: &Project) -> Result<String, String> {
     let rails = power_nets(project);
     let pins = header_pins(project);
     let pairs = continuity_pairs(project);
-    let sensors: Vec<String> = project
-        .components
-        .iter()
-        .filter_map(sensor_note)
-        .collect();
+    let sensors: Vec<String> = project.components.iter().filter_map(sensor_note).collect();
     let mut out = format!("# Bring-up plan for {}\n\n", plan_title(project));
     write_rails(&mut out, project, &rails);
     write_headers(&mut out, &pins);
@@ -303,10 +306,10 @@ pub fn bring_up_plan_csv(project: &Project) -> Result<String, String> {
     ));
     for (id, kind) in &rails {
         let name = project.net_name(*id);
-        let expected = expected_voltage_v(&name, *kind);
+        let expected = expected_voltage_v(name, *kind);
         out.push_str(&format!(
             "rail,{},{},,\n",
-            csv_cell(&name),
+            csv_cell(name),
             csv_cell(&expected)
         ));
     }
@@ -319,21 +322,21 @@ pub fn bring_up_plan_csv(project: &Project) -> Result<String, String> {
         ));
     }
     for (a, b) in &pairs {
-        out.push_str(&format!(
-            "continuity,{},{},,\n",
-            csv_cell(a),
-            csv_cell(b)
-        ));
+        out.push_str(&format!("continuity,{},{},,\n", csv_cell(a), csv_cell(b)));
     }
     for c in &project.components {
         if let Some(note) = sensor_note(c) {
-            out.push_str(&format!("sensor,{},{},,\n", csv_cell(&c.reference), csv_cell(&note)));
+            out.push_str(&format!(
+                "sensor,{},{},,\n",
+                csv_cell(&c.reference),
+                csv_cell(&note)
+            ));
         }
     }
     for net in &report.uncovered {
         out.push_str(&format!(
             "missing_testpoint,{},{},,\n",
-            csv_cell(&project.net_name(*net)),
+            csv_cell(project.net_name(*net)),
             csv_cell(&format!(
                 "min pad {:.3} mm, spacing {:.3} mm",
                 settings.min_pad_mm, settings.min_spacing_mm
@@ -346,10 +349,7 @@ pub fn bring_up_plan_csv(project: &Project) -> Result<String, String> {
 /// Both bring-up files for a fabrication export job.
 pub fn bring_up_export_files(project: &Project) -> Result<BTreeMap<String, String>, String> {
     let mut files = BTreeMap::new();
-    files.insert(
-        "bring-up-plan.md".into(),
-        bring_up_plan_markdown(project)?,
-    );
+    files.insert("bring-up-plan.md".into(), bring_up_plan_markdown(project)?);
     files.insert("bring-up-plan.csv".into(), bring_up_plan_csv(project)?);
     Ok(files)
 }
@@ -362,8 +362,10 @@ mod tests {
 
     #[test]
     fn markdown_lists_an_uncovered_net_and_rail() -> Result<(), String> {
-        let mut p = Project::default();
-        p.name = "demo".into();
+        let mut p = Project {
+            name: "demo".into(),
+            ..Project::default()
+        };
         p.nets.push(Net {
             id: 1,
             name: "3V3".into(),
@@ -381,20 +383,40 @@ mod tests {
             kind: "library".into(),
             position: Point::default(),
             rotation: 0.0,
-            pins: vec![Pin {
-                number: "1".into(),
-                name: "SWDIO".into(),
-                offset: pcbcraft_geom::Point::default(),
-                net: Some(2),
-                electrical_type: "bidirectional".into(),
-                direction: None,
-                unit: 1,
-            }],
+            pins: vec![
+                Pin {
+                    number: "1".into(),
+                    name: "SWDIO".into(),
+                    offset: pcbcraft_geom::Point::default(),
+                    net: Some(2),
+                    electrical_type: "bidirectional".into(),
+                    direction: None,
+                    unit: 1,
+                    appearances: Default::default(),
+                },
+                Pin {
+                    number: "2".into(),
+                    name: "GND".into(),
+                    offset: pcbcraft_geom::Point::default(),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                    appearances: Default::default(),
+                },
+            ],
             units: vec![],
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: 20,
@@ -403,7 +425,15 @@ mod tests {
             rotation: 0.0,
             locked: None,
             side: None,
-            pads: vec![],
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.0,
+                net: Some(2),
+                castellated: Default::default(),
+                geometry: None,
+            }],
+            preserved: Default::default(),
         });
         p.validate()?;
         let md = bring_up_plan_markdown(&p)?;

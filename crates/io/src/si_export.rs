@@ -6,7 +6,7 @@
 //!
 //! # Dependencies
 //! - crates/io/src/schematic_sim.rs for optional DC volts in the results CSV
-//! - pcbcraft_geom::impedance for microstrip estimates
+//! - crates/geom/src/lib.rs for microstrip estimates
 //!
 //! # Do not
 //! - Name other design tools in user-facing strings.
@@ -192,16 +192,16 @@ pub fn si_net_results_csv(p: &Project) -> Result<String, String> {
     };
     let rows = impedance_rows(p)?;
     let mut dc_by_net: BTreeMap<Id, f64> = BTreeMap::new();
-    if let Ok(built) = build_schematic_netlist(p) {
-        if let Ok(solution) = solve_dc(&built.net) {
-            for (net_id, node) in &built.node_by_net {
-                if *net_id == built.ground {
-                    continue;
-                }
-                let volts = solution.node_volts[node.index];
-                if volts.is_finite() {
-                    dc_by_net.insert(*net_id, r3(volts));
-                }
+    if let Ok(built) = build_schematic_netlist(p)
+        && let Ok(solution) = solve_dc(&built.net)
+    {
+        for (net_id, node) in &built.node_by_net {
+            if *net_id == built.ground {
+                continue;
+            }
+            let volts = solution.node_volts[node.index];
+            if volts.is_finite() {
+                dc_by_net.insert(*net_id, r3(volts));
             }
         }
     }
@@ -297,8 +297,6 @@ mod tests {
     fn touchstone_refuses_without_attachment() {
         let p = Project::default();
         let err = touchstone_text(&p).err().unwrap_or_default();
-        if !err.contains("touchstone.s2p") {
-            panic!("unexpected: {err}");
-        }
+        assert!(err.contains("touchstone.s2p"), "unexpected: {err}");
     }
 }

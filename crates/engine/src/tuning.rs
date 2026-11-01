@@ -415,7 +415,7 @@ fn set_group(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
     if a.reference.is_some_and(|r| r == 0 || !a.nets.contains(&r)) {
         return Err(refuse("the reference net must be a member of the group"));
     }
-    let groups = &mut p.length_groups;
+    let groups = &mut p.board.length_groups;
     let target = match a.id {
         Some(id) => {
             if !groups.iter().any(|g| g.id == id) {
@@ -468,9 +468,9 @@ fn set_group(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
 
 fn remove_group(p: &mut Project, params: &Value) -> Result<Value, Error> {
     let a: IdParams = parse(params)?;
-    let before = p.length_groups.len();
-    p.length_groups.retain(|g| g.id != a.id);
-    if p.length_groups.len() == before {
+    let before = p.board.length_groups.len();
+    p.board.length_groups.retain(|g| g.id != a.id);
+    if p.board.length_groups.len() == before {
         return Err(missing());
     }
     Ok(json!({"id": a.id}))
@@ -479,12 +479,12 @@ fn remove_group(p: &mut Project, params: &Value) -> Result<Value, Error> {
 fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
     let a: GroupQuery = parse(params)?;
     if a.id
-        .is_some_and(|id| !p.length_groups.iter().any(|g| g.id == id))
+        .is_some_and(|id| !p.board.length_groups.iter().any(|g| g.id == id))
     {
         return Err(missing());
     }
     let mut rows = vec![];
-    for group in &p.length_groups {
+    for group in &p.board.length_groups {
         if a.id.is_some_and(|id| id != group.id) {
             continue;
         }
@@ -534,7 +534,7 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
 /// Remove a net from every length group, or swap it for another net, and
 /// drop groups left with fewer than two nets.
 pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
-    for group in p.length_groups.iter_mut() {
+    for group in p.board.length_groups.iter_mut() {
         if !group.nets.contains(&net) {
             continue;
         }
@@ -545,7 +545,7 @@ pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
         group.nets.sort_unstable();
         group.nets.dedup();
     }
-    p.length_groups.retain(|g| g.nets.len() >= 2);
+    p.board.length_groups.retain(|g| g.nets.len() >= 2);
 }
 
 fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Track>, Error> {
@@ -567,9 +567,7 @@ fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Tr
             width: original.width,
             layer: original.layer,
             arc,
-        
-            preserved: pcbcraft_doc::PreservedSource::default(),
-});
+        });
     }
     Ok(out)
 }
@@ -592,7 +590,11 @@ fn new_conflicts(
         .collect()
 }
 
-fn diff_pair_by_ref(p: &Project, id: Option<Id>, name: Option<&str>) -> Result<&DiffPair, Error> {
+fn diff_pair_by_ref<'a>(
+    p: &'a Project,
+    id: Option<Id>,
+    name: Option<&str>,
+) -> Result<&'a DiffPair, Error> {
     match (id, name.map(str::trim).filter(|s| !s.is_empty())) {
         (Some(id), None) => p
             .board
@@ -608,11 +610,7 @@ fn diff_pair_by_ref(p: &Project, id: Option<Id>, name: Option<&str>) -> Result<&
             .ok_or_else(missing),
         (Some(id), Some(name)) => {
             let by_id = p.board.diff_pairs.iter().find(|pair| pair.id == id);
-            let by_name = p
-                .board
-                .diff_pairs
-                .iter()
-                .find(|pair| pair.name == name);
+            let by_name = p.board.diff_pairs.iter().find(|pair| pair.name == name);
             match (by_id, by_name) {
                 (Some(a), Some(b)) if a.id == b.id => Ok(a),
                 _ => Err(Error::Invalid(
@@ -636,10 +634,7 @@ fn partner_center_on_layer(p: &Project, net: Id, layer: Layer) -> Option<Point> 
         .iter()
         .filter(|t| t.net == net && t.layer == layer)
     {
-        let mid = Point::new(
-            (t.start.x + t.end.x) / 2.0,
-            (t.start.y + t.end.y) / 2.0,
-        );
+        let mid = Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0);
         sum_x += mid.x;
         sum_y += mid.y;
         count += 1;
@@ -834,7 +829,8 @@ fn meander_one_track(p: &mut Project, next: &mut Id, opts: MeanderOpts) -> Resul
             (low > extra && low - extra <= tolerance).then_some(meander::MIN_AMPLITUDE)
         })
     };
-    let sides: &[i8] = match opts.fixed_side {
+    let fixed_side = opts.fixed_side;
+    let sides: &[i8] = match &fixed_side {
         Some(s) => std::slice::from_ref(s),
         None => &[1, -1],
     };
@@ -888,7 +884,7 @@ fn meander_one_track(p: &mut Project, next: &mut Id, opts: MeanderOpts) -> Resul
     let mut tries = vec![1, (nmax / 2).max(1), nmax];
     tries.dedup();
     for n in tries {
-        for side in sides {
+        for &side in sides {
             let run = Run { side, ..base };
             let clean = |amplitude: f64| -> Result<Option<f64>, Error> {
                 let Some(path) = meander::shape(&run, n, amplitude) else {
@@ -966,9 +962,7 @@ fn tune_skew(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
     if partner_center_on_layer(p, net_p, layer).is_none()
         && partner_center_on_layer(p, net_n, layer).is_none()
     {
-        return Err(refuse(
-            "both nets need routed copper on the chosen layer",
-        ));
+        return Err(refuse("both nets need routed copper on the chosen layer"));
     }
     let fit_tolerance = tolerance.clamp(0.01, 0.1);
     let mut bump_ids: Vec<Id> = vec![];
@@ -976,9 +970,7 @@ fn tune_skew(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
     let mut passes = 0usize;
     while (net_length(p, net_p) - net_length(p, net_n)).abs() > tolerance + 1e-9 {
         if passes >= MAX_SKEW_MEANDERS {
-            return Err(refuse(
-                "skew tuning stopped after too many meander passes",
-            ));
+            return Err(refuse("skew tuning stopped after too many meander passes"));
         }
         let len_p_now = net_length(p, net_p);
         let len_n_now = net_length(p, net_n);
@@ -988,9 +980,8 @@ fn tune_skew(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
             (net_n, net_p)
         };
         let target = len_p_now.max(len_n_now) - tolerance;
-        let (_, track) = pick_longest_straight_track(p, short_net, layer).ok_or_else(|| {
-            refuse("the shorter net needs a straight track on the chosen layer")
-        })?;
+        let (_, track) = pick_longest_straight_track(p, short_net, layer)
+            .ok_or_else(|| refuse("the shorter net needs a straight track on the chosen layer"))?;
         let partner_center = partner_center_on_layer(p, partner_net, layer)
             .ok_or_else(|| refuse("the partner net needs routed copper on the chosen layer"))?;
         let side = side_away_from_partner(&track, partner_center)?;
@@ -1414,7 +1405,7 @@ mod tests {
         assert_eq!(g, again, "the same name updates the group");
         assert!(!codes(&s).contains(&"length_group_skew"));
         s.execute("board.remove_length_group", json!({"id":g}), None)?;
-        assert!(s.project.length_groups.is_empty());
+        assert!(s.project.board.length_groups.is_empty());
         assert!(
             s.execute("board.remove_length_group", json!({"id":g}), None)
                 .is_err()
@@ -1457,10 +1448,10 @@ mod tests {
             None,
         )?;
         s.execute("net.tie", json!({"source":c,"target":b}), None)?;
-        assert_eq!(s.project.length_groups[0].nets.len(), 2);
+        assert_eq!(s.project.board.length_groups[0].nets.len(), 2);
         s.execute("object.delete", json!({"id":b}), None)?;
         assert!(
-            s.project.length_groups.is_empty(),
+            s.project.board.length_groups.is_empty(),
             "a group of one net is dropped"
         );
         Ok(())

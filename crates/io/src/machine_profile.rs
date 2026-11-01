@@ -143,8 +143,7 @@ mod tests {
 
     #[test]
     fn each_shipped_preset_toml_on_disk_matches_its_builtin() -> Result<(), String> {
-        let root =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../machine-profiles");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../machine-profiles");
         for id in builtin_machine_profile_ids() {
             let path = root.join(format!("{id}.toml"));
             let text = std::fs::read_to_string(&path)

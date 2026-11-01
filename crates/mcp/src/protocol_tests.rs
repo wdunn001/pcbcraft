@@ -77,7 +77,7 @@ fn cancelled_notification_for_an_unknown_request_is_ignored() -> Result<(), Stri
         "method":"notifications/cancelled",
         "params":{"requestId":424242}
     });
-    assert!(handle_rpc(&hub, cancel.clone(), None).is_none());
+    assert!(handle_rpc(&hub, cancel.clone(), None, None).is_none());
     let initialize = initialize("2025-11-25");
     let ping = json!({"jsonrpc":"2.0","id":2,"method":"ping"});
     let input = format!("{initialize}\n{cancel}\n{ping}\n");

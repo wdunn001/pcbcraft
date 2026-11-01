@@ -80,6 +80,7 @@ pub(crate) fn part_project(def: &FootprintDefinition) -> (Project, Point) {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             })
             .collect(),
         units: Vec::new(),
@@ -91,6 +92,12 @@ pub(crate) fn part_project(def: &FootprintDefinition) -> (Project, Point) {
         fields: Vec::new(),
         sourcing: Default::default(),
         sheet: 0,
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
     });
     p.board.footprints.push(Footprint {
         id: PLACED,
@@ -111,6 +118,7 @@ pub(crate) fn part_project(def: &FootprintDefinition) -> (Project, Point) {
                 geometry: Some(g.clone()),
             })
             .collect(),
+        preserved: Default::default(),
     });
     (p, centre)
 }
@@ -183,7 +191,7 @@ impl App {
             self.libws.model_part = def.name.clone();
             self.libws.model_view.keep_camera = same_part;
             if !same_part {
-                self.libws.model_view = board3d::View3d::default();
+                self.libws.model_view = board3d::View3d::for_config(&self.user_config());
             }
         }
         let mut model = def.model.clone();
@@ -248,19 +256,20 @@ impl App {
                         self.libws.model_view.fit();
                     }
                 });
-                let env = board3d::Env {
+                let mut env = board3d::Env {
                     project: &self.libws.model_project,
                     revision: self.libws.model_rev,
                     selected: None,
-                    dark: self.preferences.dark,
                     bg: self.surface(),
                     muted: t.muted,
+                    design_dir: None,
+                    message: None,
                 };
                 if let Some(why) = self.libws.model_view.build_error() {
                     ui.label(fonts::text(fonts::Role::Body, why).color(t.red));
                 }
                 let size = egui::vec2(ui.available_width(), 440.0);
-                board3d::viewport(&mut self.libws.model_view, ui, &env, size);
+                board3d::viewport(&mut self.libws.model_view, ui, &mut env, size);
                 ui.label(fonts::caption(t!("libws.model.hint")).color(t.muted));
             },
         );
@@ -315,6 +324,9 @@ impl App {
                             scale: model.as_ref().map_or([1.0; 3], |m| m.scale),
                             rotate: model.as_ref().map_or([0.0; 3], |m| m.rotate),
                             raw_source: String::new(),
+                            body_id: Default::default(),
+                            cad_part: Default::default(),
+                            embedded: Default::default(),
                         };
                         self.library_set_model(&def.name, &next);
                     }
@@ -533,6 +545,8 @@ impl App {
                         .min((rect.height() - 32.0) / extent.y as f32)
                         .clamp(0.01, 60.0),
                     mirror: false,
+                    turns: Default::default(),
+                    up: Default::default(),
                 };
                 let painter = ui.painter_at(rect);
                 library::paint_library_paths(&painter, rect, camera, &paths, t.copper);
@@ -571,16 +585,17 @@ mod tests {
     }
 
     #[test]
-    fn the_one_part_project_builds_a_mesh_with_a_body() {
+    fn the_one_part_project_builds_a_mesh_with_a_body() -> Result<(), String> {
         let (p, _) = part_project(&two_pads());
         let mesh = pcbcraft_io::board_mesh(&p, pcbcraft_io::MeshLayers::default());
-        let mesh = mesh.unwrap_or_else(|e| panic!("mesh error: {e}"));
+        let mesh = mesh.map_err(|e| format!("mesh error: {e}"))?;
         assert!(
             mesh.parts
                 .iter()
                 .any(|m| m.kind == pcbcraft_io::PartKind::Body && m.component == Some(PART)),
             "the renderer makes a body for the part"
         );
+        Ok(())
     }
 
     #[test]

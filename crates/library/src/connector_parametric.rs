@@ -44,6 +44,9 @@ impl ConnectorParametricSpec {
             offset: [0.0; 3],
             scale: [1.0; 3],
             rotate: [0.0; 3],
+            cad_part: None,
+            body_id: None,
+            embedded: String::new(),
             raw_source: raw,
         })
     }
@@ -130,15 +133,14 @@ fn courtyard_rect(fp: &FootprintDefinition) -> Option<(f64, f64, f64, f64)> {
         if let Graphic::Rectangle {
             start, end, layer, ..
         } = g
+            && layer == "pcbcraft.courtyard"
         {
-            if layer == "pcbcraft.courtyard" {
-                return Some((
-                    start.x.min(end.x),
-                    start.y.min(end.y),
-                    start.x.max(end.x),
-                    start.y.max(end.y),
-                ));
-            }
+            return Some((
+                start.x.min(end.x),
+                start.y.min(end.y),
+                start.x.max(end.x),
+                start.y.max(end.y),
+            ));
         }
     }
     None

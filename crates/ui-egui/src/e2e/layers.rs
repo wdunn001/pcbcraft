@@ -3,7 +3,7 @@ use super::super::*;
 use super::board::right_click;
 use super::support::*;
 
-fn pcb_app() -> (egui::Context, App) {
+pub(crate) fn pcb_app() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
@@ -24,7 +24,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Copper")?,
+        paints_text(&ctx, &mut app, "Tracks")?,
         "the copper sublayer is a row of the tree: {}",
         app.message
     );
@@ -100,7 +100,6 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
         width: 0.25,
         layer: pcbcraft_doc::Layer::Front,
         arc: None,
-        preserved: pcbcraft_doc::PreservedSource::default(),
     });
     let spot = Point::new(15.0, 10.0);
     assert_eq!(app.pick_object(spot, 10.0), Some(9_999));
@@ -120,7 +119,6 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
 fn a_newcomer_locks_a_layer_row_and_clicks_pass_through_it() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
     app.project.board.tracks.push(pcbcraft_doc::Track {
-        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 9_998,
         net: app.project.nets[0].id,
         start: Point::new(10.0, 10.0),
@@ -516,17 +514,59 @@ fn a_silkscreen_line_drawn_on_the_layout_is_kept_for_the_capture() -> Result<(),
     Ok(())
 }
 
-tap_strip(&ctx, &mut app, "icon:tool-line")?;
-    app.canvas_click(Point::new(8.0, 4.0), 10.0);
-    app.canvas_click(Point::new(30.0, 4.0), 10.0);
-    assert!(
-        app.project.graphics.iter().any(|g| g.sublayer == "F.SilkS"),
-        "{}",
+#[test]
+fn a_newcomer_draws_on_bottom_copper_of_a_four_layer_board() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.run("board.stackup_add_pair", json!({"after":"F.Cu"}));
+    app.refresh();
+    assert_eq!(
+        app.project.copper_layer_count(),
+        4,
+        "the board now has four copper layers: {}",
         app.message
     );
-    keep_sample(&mut app, "silk-line");
+    // Settings > Route on > Bottom.
+    app.route_layer = pcbcraft_doc::Layer::Back;
+    let net = app.project.nets[0].id;
+    app.run(
+        "track.add",
+        json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":app.route_layer}),
+    );
+    app.refresh();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let track = app
+        .project
+        .board
+        .tracks
+        .last()
+        .cloned()
+        .ok_or("the track should exist")?;
+    assert_eq!(
+        track.layer,
+        app.project.bottom_layer(),
+        "a track drawn on Bottom lands on the last copper layer: {}",
+        app.message
+    );
+    let rows = object_detail_rows(&app.project, track.id);
+    let shown = rows
+        .iter()
+        .find(|(name, _)| name == &t!("schematic.object_detail_rows.layer"))
+        .map(|(_, value)| value.clone())
+        .ok_or("Properties lists the track's layer")?;
+    assert_eq!(shown, "B.Cu", "Properties names the bottom layer");
+    let gerber = pcbcraft_io::gerber_copper(&app.project, app.project.bottom_layer())?;
+    assert!(
+        gerber.contains("Copper,L4,Bot") && gerber.contains("D01*"),
+        "the track is in the bottom Gerber file"
+    );
+    let inner = pcbcraft_io::gerber_copper(&app.project, pcbcraft_doc::Layer::Back)?;
+    assert!(
+        !inner.contains("D01*"),
+        "no inner Gerber file carries the bottom track"
+    );
     Ok(())
 }
+
 /// Type `text` over what the focused field holds.
 fn type_over(ctx: &egui::Context, app: &mut App, text: &str) {
     frame(
@@ -547,5 +587,87 @@ fn type_over(ctx: &egui::Context, app: &mut App, text: &str) {
         vec![egui::Event::Text(text.to_owned())],
         egui::Modifiers::NONE,
     );
+}
+
+#[test]
+fn a_newcomer_presses_f2_to_rename_a_net_and_a_layer() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    // A net: F2 on its row, type, Enter.
+    let net = app.project.nets[0].id;
+    app.tree.expanded.insert("nets".to_owned());
+    press_on(&ctx, &mut app, &format!("nets/net:{net}"), egui::Key::F2);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(app.tree.rename.is_some(), "F2 starts a rename on a net row");
+    type_over(&ctx, &mut app, "SIGNAL_A");
+    key(&ctx, &mut app, egui::Key::Enter);
+    assert_eq!(
+        app.project.net_name(net),
+        "SIGNAL_A",
+        "Enter renames the net: {}",
+        app.message
+    );
+    // Escape on the same row keeps the name.
+    press_on(&ctx, &mut app, &format!("nets/net:{net}"), egui::Key::F2);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    type_over(&ctx, &mut app, "OTHER");
+    key(&ctx, &mut app, egui::Key::Escape);
+    assert_eq!(app.project.net_name(net), "SIGNAL_A", "Escape cancels");
+    // A stackup layer.
+    app.tool_call("board.stackup_add_pair", json!({"after": "F.Cu"}));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    press_on(&ctx, &mut app, "inner:1", egui::Key::F2);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    type_over(&ctx, &mut app, "PWR");
+    key(&ctx, &mut app, egui::Key::Enter);
+    assert!(
+        app.project
+            .board
+            .layer_records
+            .iter()
+            .any(|r| r.name == "PWR"),
+        "F2 renames a PCB layer: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_saves_a_four_layer_board_and_the_file_names_the_bottom_layer() -> Result<(), String> {
+    let (_ctx, mut app) = pcb_app();
+    app.run("board.stackup_add_pair", json!({"after":"F.Cu"}));
+    app.refresh();
+    assert_eq!(app.project.copper_layer_count(), 4, "{}", app.message);
+    let net = app.project.nets[0].id;
+    let bottom = app.project.bottom_layer();
+    app.run(
+        "track.add",
+        json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":bottom}),
+    );
+    app.refresh();
+    let dir = std::env::temp_dir().join(format!("pcbcraft-story-stackup-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let (one, two) = (dir.join("a.pcbcraft"), dir.join("b.pcbcraft"));
+    pcbcraft_io::save(&app.project, &one)?;
+    let text = std::fs::read_to_string(&one).map_err(|e| e.to_string())?;
+    assert!(
+        text.contains("\"layer\": \"B.Cu\""),
+        "the file names the bottom copper B.Cu"
+    );
+    assert!(
+        !text.contains("In3.Cu"),
+        "the file never calls the bottom In3.Cu"
+    );
+    let reopened = pcbcraft_io::load(&one)?;
+    let track = reopened.board.tracks.last().ok_or("the track is saved")?;
+    assert_eq!(
+        track.layer,
+        reopened.bottom_layer(),
+        "it reopens on the bottom"
+    );
+    pcbcraft_io::save(&reopened, &two)?;
+    let first = std::fs::read(&one).map_err(|e| e.to_string())?;
+    let second = std::fs::read(&two).map_err(|e| e.to_string())?;
+    std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    assert_eq!(first, second, "saving again changes nothing");
     Ok(())
 }

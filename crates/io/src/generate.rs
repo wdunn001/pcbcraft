@@ -24,13 +24,13 @@ use crate::cam::{CncProfile, isolation_gcode, isolation_options_from_value};
 use crate::machine_profile::builtin_machine_profile;
 use crate::snapmaker::{snapmaker_cnc_profile, snapmaker_files, snapmaker_settings};
 use crate::{
-PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, compliance_report_markdown, drill_chart_csv, dxf_board,
-    gencad_text, gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text,
+    ComplianceReportOptions, GerberArcOptions, PACKAGE_CREATION_DATE, PlacementOptions, bom_csv,
+    bundled_placement_flavours, cmp_text, compliance_report_markdown, drill_chart_csv, dxf_board,
+    fab_drawing_pdf, gencad_text, gerber_files, gerber_files_with_options, hpgl_plot,
+    hyperlynx_csv, idf_board, idf_library, impedance_table_csv, ipc356_netlist, ipc2581_text,
     netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
-    postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, testpoints_csv,
-    vrml_board, impedance_table_csv, fab_drawing_pdf, si_net_results_csv, spice_netlist, touchstone_text,
-    bundled_placement_flavours, placement_flavoured, ComplianceReportOptions, gerber_files_with_options,
-    GerberArcOptions, PACKAGE_CREATION_DATE
+    postscript, report_text, si_net_results_csv, specctra_dsn, spice_netlist, stackup_text,
+    stats_text, step_board, svg, testpoints_csv, touchstone_text, vrml_board,
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -53,6 +53,8 @@ pub enum GeneratedOutput {
     Bytes(Vec<u8>),
     /// Several text files keyed by relative file name.
     Files(BTreeMap<String, String>),
+    /// Several binary files keyed by relative file name.
+    BinaryFiles(BTreeMap<String, Vec<u8>>),
 }
 
 /// Gives a project saved before artifacts existed one artifact per legacy
@@ -75,6 +77,9 @@ pub fn migrate_loaded_project(project: &mut Project) -> Result<(), String> {
         project.migrate_output_jobs_to_artifacts(&mut next)?;
     }
     project.adopt_free_form_sourcing();
+    // Files from before component kinds were stored carry "library"; give
+    // each part the kind its symbol and footprint imply.
+    project.migrate_component_kinds();
     Ok(())
 }
 
@@ -98,6 +103,12 @@ pub fn output_hash(output: &GeneratedOutput) -> String {
             for (name, body) in map {
                 hasher.update(name.as_bytes());
                 hasher.update(body.as_bytes());
+            }
+        }
+        GeneratedOutput::BinaryFiles(map) => {
+            for (name, body) in map {
+                hasher.update(name.as_bytes());
+                hasher.update(body.as_slice());
             }
         }
     }
@@ -154,6 +165,28 @@ fn placement_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutpu
     Ok(GeneratedOutput::Files(files.into_iter().collect()))
 }
 
+/// The pick and place files for the machine profile the artifact names.
+fn placement_yy1_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let machine_id = artifact
+        .machine
+        .as_deref()
+        .ok_or("placement_yy1 artifacts must name a machine profile on the design")?;
+    let profile = p
+        .machine_profiles
+        .iter()
+        .find(|m| m.id == machine_id)
+        .ok_or_else(|| format!("no machine profile named {machine_id} in the design"))?;
+    let (side, options) = crate::neoden_yy1_from_artifact_settings(&artifact.settings)?;
+    let out = crate::placement_neoden_yy1(p, side, profile, &options)?;
+    // The files are CSV text.
+    Ok(GeneratedOutput::Files(
+        out.files
+            .into_iter()
+            .map(|(name, bytes)| (name, String::from_utf8_lossy(&bytes).into_owned()))
+            .collect(),
+    ))
+}
+
 fn settings_view(settings: &serde_json::Value) -> &str {
     settings
         .get("view")
@@ -201,8 +234,7 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
     let path = artifact.path.as_str();
     if path == "gerber/" || path.starts_with("gerber/") {
         let opts = GerberArcOptions::default_for(p, &artifact.settings);
-        let (files, _report) =
-            gerber_files_with_options(p, PACKAGE_CREATION_DATE, opts)?;
+        let (files, _report) = gerber_files_with_options(p, PACKAGE_CREATION_DATE, opts)?;
         if path == "gerber/" {
             return Ok(GeneratedOutput::Files(files));
         }
@@ -251,21 +283,10 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
         "board-stackup.txt" => text_output(stackup_text(p)?),
         "board-stats.csv" => text_output(stats_text(p)?),
-"board.step" => text_output(step_board(p)?),
-        "pcb.dsn" => text_output(specctra_dsn(p)?),
-        "test.brd" => text_output(ipc356_netlist(p)?),
-        "testpoints.csv" => text_output(testpoints_csv(p)?),
-        "board.gencad" => text_output(gencad_text(p)?),
-        "netlist.csv" => text_output(hyperlynx_csv(p)?),
-        "plot-report.csv" => text_output(plot_csv(p)?),
-        "board-report.txt" => text_output(report_text(p)?),
-        "pcb.ps" => text_output(postscript(p, "pcb")?),
-        "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
-        "board-stackup.txt" => text_output(stackup_text(p)?),
-        "board-stats.csv" => text_output(stats_text(p)?),
-        "compliance-report.md" => {
-            text_output(compliance_report_markdown(p, &ComplianceReportOptions::default())?)
-        }
+        "compliance-report.md" => text_output(compliance_report_markdown(
+            p,
+            &ComplianceReportOptions::default(),
+        )?),
         "schematic.cir" => text_output(spice_netlist(p)?),
         "si-net-results.csv" => text_output(si_net_results_csv(p)?),
         "impedance-table.csv" => text_output(impedance_table_csv(p)?),
@@ -297,7 +318,17 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
         "placement" => placement_artifact(p, artifact),
         "drill_map" => Ok(GeneratedOutput::Text(drill_chart_csv(p)?)),
         "fab_drawing" => Ok(GeneratedOutput::Bytes(fab_drawing_pdf(p)?)),
-        "assembly_drawing" => Ok(GeneratedOutput::Bytes(pdf_document(p, "schematic")?)),
+        "assembly_drawing" => {
+            if !artifact.path.ends_with('/') {
+                return Err(
+                    "assembly_drawing path must be a folder ending in /, for example assembly/"
+                        .into(),
+                );
+            }
+            Ok(GeneratedOutput::BinaryFiles(
+                crate::assembly_drawing::assembly_drawing_pdfs(p)?,
+            ))
+        }
         "raster_image" => Ok(GeneratedOutput::Text(svg(
             p,
             settings_view(&artifact.settings),
@@ -330,6 +361,18 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
         "outline_gcode" => Err("outline gcode is not available yet; see issue #331".into()),
         "stencil" => Err("stencil output is not available yet; see issue #325".into()),
         "laser_path" => Err("laser path output is not available yet; see issue #358".into()),
+        "placement_yy1" => placement_yy1_artifact(p, artifact),
+        "conformal_coat_plot" => {
+            if p.board.conformal_coat_keepout.is_none() {
+                return Err(
+                    "conformal coat plot is not available yet: the board has no keep-out configured"
+                        .into(),
+                );
+            }
+            Ok(GeneratedOutput::Text(crate::conformal_coat_keepout_gerber(
+                p,
+            )?))
+        }
         other => Err(format!("unknown artifact kind {other}")),
     }
 }
@@ -399,6 +442,38 @@ pub fn write_generated(
             written.sort();
             Ok(written)
         }
+        GeneratedOutput::BinaryFiles(map) => {
+            let base = if artifact.path.ends_with('/') {
+                directory.join(&artifact.path)
+            } else if artifact.path.is_empty() {
+                directory.to_path_buf()
+            } else {
+                directory.join(&artifact.path)
+            };
+            let mut written = Vec::new();
+            for (name, body) in map {
+                if name.contains("..")
+                    || Path::new(name)
+                        .components()
+                        .any(|c| c == Component::ParentDir)
+                {
+                    return Err("generated file name escapes the output folder".into());
+                }
+                let path = base.join(name);
+                write_parent(&path)?;
+                crate::atomic_write(&path, body)?;
+                let rel = if artifact.path.ends_with('/') {
+                    format!("{}{name}", artifact.path)
+                } else if artifact.path.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", artifact.path, name)
+                };
+                written.push(rel);
+            }
+            written.sort();
+            Ok(written)
+        }
     }
 }
 
@@ -443,13 +518,14 @@ mod generate_tests {
             ..pcbcraft_doc::Net::default()
         });
         project.board.tracks.push(pcbcraft_doc::Track {
-            id: 1,
+            id: 3,
             net: 1,
             start: pcbcraft_geom::Point::new(5.0, 10.0),
             end: pcbcraft_geom::Point::new(15.0, 10.0),
             width: 0.4,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         let artifact = Artifact {
             id: 2,
@@ -476,6 +552,31 @@ mod generate_tests {
     }
 
     #[test]
+    fn generate_assembly_drawing_writes_top_and_bottom_pdfs() -> Result<(), String> {
+        let project = Project::default();
+        let artifact = Artifact {
+            id: 1,
+            name: "assembly".into(),
+            kind: "assembly_drawing".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "assembly/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::BinaryFiles(map) = out else {
+            return Err("expected binary file map".into());
+        };
+        assert_eq!(map.len(), 2);
+        assert!(map["assembly-top.pdf"].starts_with(b"%PDF-1.4"));
+        assert!(map["assembly-bottom.pdf"].starts_with(b"%PDF-1.4"));
+        Ok(())
+    }
+
+    #[test]
     fn generate_package_gerbers_matches_gerber_files() -> Result<(), String> {
         let project = Project::default();
         let artifact = Artifact {
@@ -494,7 +595,11 @@ mod generate_tests {
         let GeneratedOutput::Files(map) = out else {
             return Err("expected a file map".into());
         };
-        assert_eq!(map, gerber_files(&project)?);
+        // A package is dated with the fixed package date so its hash is stable.
+        assert_eq!(
+            map,
+            crate::gerber_files_at(&project, PACKAGE_CREATION_DATE)?
+        );
         Ok(())
     }
 

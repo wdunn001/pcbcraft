@@ -36,8 +36,9 @@ fn a_package_record_names_its_default_step_path() -> Result<(), Boxed> {
 #[test]
 fn a_matching_part_and_package_yield_the_cached_step_path() -> Result<(), Boxed> {
     let part = read_open_pool_part(&std::fs::read_to_string(fixtures().join("base-0603.json"))?)?;
-    let package =
-        read_open_pool_package(&std::fs::read_to_string(fixtures().join("R0603-package.json"))?)?;
+    let package = read_open_pool_package(&std::fs::read_to_string(
+        fixtures().join("R0603-package.json"),
+    )?)?;
     let path = open_pool_step_path(&part, &package).ok_or("expected a STEP path")?;
     assert!(path.ends_with("R_0603_1608Metric.step"));
     Ok(())
@@ -45,8 +46,9 @@ fn a_matching_part_and_package_yield_the_cached_step_path() -> Result<(), Boxed>
 
 #[test]
 fn a_cached_path_and_package_default_yield_a_model_reference() -> Result<(), Boxed> {
-    let package =
-        read_open_pool_package(&std::fs::read_to_string(fixtures().join("R0603-package.json"))?)?;
+    let package = read_open_pool_package(&std::fs::read_to_string(
+        fixtures().join("R0603-package.json"),
+    )?)?;
     let model = open_pool_model3d("/cache/R_0603.step", &package).ok_or("expected model")?;
     assert_eq!(model.path, "/cache/R_0603.step");
     assert_eq!(model.rotate, [0.0, 0.0, 0.0]);

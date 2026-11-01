@@ -1,4 +1,4 @@
-﻿//! Browser file picker and blob download bridge for the web app shell.
+//! Browser file picker and blob download bridge for the web app shell.
 use pcbcraft_mcp::ProjectHost;
 use std::cell::{RefCell, RefMut};
 use std::rc::Rc;
@@ -80,6 +80,7 @@ impl WasmHost {
     }
 }
 
+/// Contract: crates/mcp/src/project_host.rs
 impl ProjectHost for WasmHost {
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)> {
         PENDING_OPEN.with(|slot| slot.borrow_mut().take())

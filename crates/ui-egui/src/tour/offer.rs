@@ -21,7 +21,9 @@ pub(crate) fn paint_offers(
         return;
     };
     match offer.kind {
-        OfferKind::FirstLaunchCard => paint_first_launch_card(ui, ctrl, progress, &meta, muted, accent),
+        OfferKind::FirstLaunchCard => {
+            paint_first_launch_card(ui, ctrl, progress, &meta, muted, accent)
+        }
         OfferKind::TabChip | OfferKind::VersionChip => {
             paint_tab_chip(ui, ctrl, progress, &meta, muted, accent)
         }
@@ -80,7 +82,7 @@ fn paint_active_runner(
                             ctrl.advance(progress);
                         }
                     });
-                    ui.label(RichText::new(t!("tour.runner.hint")).small().color(muted));
+                    ui.label(crate::fonts::caption(t!("tour.runner.hint")).color(muted));
                 });
         });
 }
@@ -91,7 +93,7 @@ fn paint_first_launch_card(
     progress: &mut std::collections::BTreeMap<String, super::state::TourRecord>,
     meta: &TourMeta,
     muted: Color32,
-    accent: Color32,
+    _accent: Color32,
 ) {
     let ctx = ui.ctx().clone();
     let mut open = true;
@@ -119,7 +121,7 @@ fn paint_first_launch_card(
                     ctrl.dismiss_first_launch_card();
                 }
             });
-            ui.label(RichText::new(t!("tour.card.first_launch.footer")).small().color(muted));
+            ui.label(crate::fonts::caption(t!("tour.card.first_launch.footer")).color(muted));
         });
     if !open {
         ctrl.dismiss_first_launch_card();
@@ -165,7 +167,7 @@ fn paint_tab_chip(
                             ctrl.dismiss_chip(&meta.id);
                         }
                     });
-                    ui.label(RichText::new(t!("tour.chip.hint")).small().color(muted));
+                    ui.label(crate::fonts::caption(t!("tour.chip.hint")).color(muted));
                 });
         });
 }

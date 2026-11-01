@@ -1,26 +1,26 @@
 //! CI: generated fixtures render, search, and document-wide lookup.
 
+use hayro::RenderCache;
+use hayro::hayro_interpret::InterpreterCache;
 use pcbcraft_datasheet::{
     Document, Selection, find, fixtures, open, page_size, render_page, search_document,
     selected_text, text_layer,
 };
-use hayro::RenderCache;
-use hayro::hayro_interpret::InterpreterCache;
 
 #[test]
-fn fixtures_render_and_search() {
+fn fixtures_render_and_search() -> Result<(), String> {
     for f in fixtures::all() {
-        let pdf = open(f.bytes.clone()).unwrap_or_else(|e| panic!("{}: {e}", f.name));
+        let pdf = open(f.bytes.clone()).map_err(|e| format!("{}: {e}", f.name))?;
         let rc = RenderCache::new();
         let ic = InterpreterCache::new();
-        let bmp = render_page(&pdf, 0, 100.0, &rc).unwrap_or_else(|e| panic!("{}: {e}", f.name));
+        let bmp = render_page(&pdf, 0, 100.0, &rc).map_err(|e| format!("{}: {e}", f.name))?;
         let inked = bmp
             .rgba
             .chunks(4)
             .any(|p| p[0] < 200 || p[1] < 200 || p[2] < 200);
         assert_eq!(inked, f.has_ink, "{} ink", f.name);
         for (page, needle) in &f.expect {
-            let layer = text_layer(&pdf, *page, &ic).unwrap_or_else(|e| panic!("{}: {e}", f.name));
+            let layer = text_layer(&pdf, *page, &ic).map_err(|e| format!("{}: {e}", f.name))?;
             let hits = find(&layer, needle);
             assert!(
                 !hits.is_empty(),
@@ -37,37 +37,35 @@ fn fixtures_render_and_search() {
             );
         }
     }
+    Ok(())
 }
 
 #[test]
-fn document_search_finds_every_page() {
+fn document_search_finds_every_page() -> Result<(), String> {
     let f = fixtures::all()
         .into_iter()
         .find(|f| f.name == "two-pages.pdf")
-        .unwrap_or_else(|| panic!("fixture"));
-    let doc = Document::open(f.bytes).unwrap_or_else(|e| panic!("open: {e}"));
-    let found = doc
-        .search("LM317")
-        .unwrap_or_else(|e| panic!("search: {e}"));
+        .ok_or("fixture")?;
+    let doc = Document::open(f.bytes).map_err(|e| format!("open: {e}"))?;
+    let found = doc.search("LM317").map_err(|e| format!("search: {e}"))?;
     assert_eq!(found.count(), 1);
     assert_eq!(found.hits[0].page, 0);
-    let ratings = doc
-        .search("Absolute")
-        .unwrap_or_else(|e| panic!("search: {e}"));
+    let ratings = doc.search("Absolute").map_err(|e| format!("search: {e}"))?;
     assert_eq!(ratings.count(), 1);
     assert_eq!(ratings.hits[0].page, 1);
-    let many = doc.search("Pin").unwrap_or_else(|e| panic!("search: {e}"));
+    let many = doc.search("Pin").map_err(|e| format!("search: {e}"))?;
     assert!(many.count() >= 1);
+    Ok(())
 }
 
 #[test]
-fn copy_returns_reading_order() {
+fn copy_returns_reading_order() -> Result<(), String> {
     let f = fixtures::all()
         .into_iter()
         .find(|f| f.name == "text-one-page.pdf")
-        .unwrap_or_else(|| panic!("fixture"));
-    let doc = Document::open(f.bytes).unwrap_or_else(|e| panic!("open: {e}"));
-    let layer = doc.text_layer(0).unwrap_or_else(|e| panic!("layer: {e}"));
+        .ok_or("fixture")?;
+    let doc = Document::open(f.bytes).map_err(|e| format!("open: {e}"))?;
+    let layer = doc.text_layer(0).map_err(|e| format!("layer: {e}"))?;
     let sel = Selection {
         anchor: 0,
         focus: layer.len().saturating_sub(1),
@@ -77,40 +75,43 @@ fn copy_returns_reading_order() {
         copied.contains("LM317") && copied.contains("TO-220"),
         "copy should span the title and body: {copied}"
     );
+    Ok(())
 }
 
 #[test]
-fn ink_only_page_has_no_text_layer() {
+fn ink_only_page_has_no_text_layer() -> Result<(), String> {
     let f = fixtures::all()
         .into_iter()
         .find(|f| f.name == "ink-only.pdf")
-        .unwrap_or_else(|| panic!("fixture"));
-    let doc = Document::open(f.bytes).unwrap_or_else(|e| panic!("open: {e}"));
+        .ok_or("fixture")?;
+    let doc = Document::open(f.bytes).map_err(|e| format!("open: {e}"))?;
     assert!(
-        !doc.page_has_text(0)
-            .unwrap_or_else(|e| panic!("layer: {e}")),
+        !doc.page_has_text(0).map_err(|e| format!("layer: {e}"))?,
         "vector ink alone is not a text layer"
     );
+    Ok(())
 }
 
 #[test]
-fn rotated_page_swaps_size() {
+fn rotated_page_swaps_size() -> Result<(), String> {
     let f = fixtures::all()
         .into_iter()
         .find(|f| f.name == "rotated-90.pdf")
-        .unwrap_or_else(|| panic!("fixture"));
-    let pdf = open(f.bytes).unwrap_or_else(|e| panic!("open: {e}"));
+        .ok_or("fixture")?;
+    let pdf = open(f.bytes).map_err(|e| format!("open: {e}"))?;
     let (w, h) = page_size(&pdf, 0).unwrap_or((0.0, 0.0));
     assert!(w > h, "rotated page should be landscape, got {w}x{h}");
+    Ok(())
 }
 
 #[test]
-fn search_document_matches_page_helper() {
+fn search_document_matches_page_helper() -> Result<(), String> {
     let f = fixtures::all()
         .into_iter()
         .find(|f| f.name == "text-one-page.pdf")
-        .unwrap_or_else(|| panic!("fixture"));
-    let pdf = open(f.bytes).unwrap_or_else(|e| panic!("open: {e}"));
-    let doc = search_document(&pdf, "1.5").unwrap_or_else(|e| panic!("search: {e}"));
+        .ok_or("fixture")?;
+    let pdf = open(f.bytes).map_err(|e| format!("open: {e}"))?;
+    let doc = search_document(&pdf, "1.5").map_err(|e| format!("search: {e}"))?;
     assert_eq!(doc.count(), 1);
+    Ok(())
 }

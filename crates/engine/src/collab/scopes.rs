@@ -9,6 +9,11 @@ pub fn command_lock_scope(project: &Project, command: &str, params: &Value) -> S
 
 /// Commands that only read the design and never join a room batch.
 pub(super) fn room_read_only(id: &str) -> bool {
+    reads_the_design(id) || host_file_command(id)
+}
+
+/// Commands that read the design and change nothing in it.
+pub(crate) fn reads_the_design(id: &str) -> bool {
     matches!(
         id,
         "design.summary"
@@ -77,21 +82,25 @@ pub(super) fn room_read_only(id: &str) -> bool {
         || id.ends_with(".generate")
         || id.starts_with("file.")
         || id.starts_with("view.")
-        || matches!(
-            id,
-            "project.export_archive"
-                | "project.import_archive"
-                | "output_job.package"
-                | "output_job.run"
-                | "artifact.export"
-                | "library.import_footprint_file"
-                | "library.import_symbol_file"
-                | "library.import_footprint_dir"
-                | "library.import_symbol_dir"
-                | "library.load"
-                | "library.import_online"
-                | "library.place_online"
-        )
+}
+
+/// Commands that read or write host files, so a shared room cannot replay them.
+fn host_file_command(id: &str) -> bool {
+    matches!(
+        id,
+        "project.export_archive"
+            | "project.import_archive"
+            | "output_job.package"
+            | "output_job.run"
+            | "artifact.export"
+            | "library.import_footprint_file"
+            | "library.import_symbol_file"
+            | "library.import_footprint_dir"
+            | "library.import_symbol_dir"
+            | "library.load"
+            | "library.import_online"
+            | "library.place_online"
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -159,6 +168,16 @@ fn candidate_kinds(project: &Project, command: &str, params: &Value) -> Vec<Enco
         return vec![EncodedScope::board()];
     }
 
+    // A wire joins its endpoints onto one net, so the net is the only thing to lock.
+    if command == "wire.connect"
+        && let Some(net) = params.get("net").and_then(Value::as_u64)
+    {
+        return vec![EncodedScope {
+            kind: ScopeKind::Net,
+            id: net,
+        }];
+    }
+
     let mut out = Vec::new();
 
     if let Some(net) = params.get("net").and_then(Value::as_u64) {
@@ -195,13 +214,13 @@ fn candidate_kinds(project: &Project, command: &str, params: &Value) -> Vec<Enco
     }
     if let Some(nets) = params.get("nets").and_then(Value::as_array) {
         for net in nets {
-            if let Some(name) = net.get("name").and_then(Value::as_str) {
-                if let Some(id) = project.net_id_by_name(name) {
-                    out.push(EncodedScope {
-                        kind: ScopeKind::Net,
-                        id: id,
-                    });
-                }
+            if let Some(name) = net.get("name").and_then(Value::as_str)
+                && let Some(id) = project.net_id_by_name(name)
+            {
+                out.push(EncodedScope {
+                    kind: ScopeKind::Net,
+                    id,
+                });
             }
             if let Some(members) = net.get("pins").and_then(Value::as_array) {
                 for pin in members {
@@ -403,13 +422,13 @@ fn endpoint_scopes(project: &Project, value: &Value) -> Vec<EncodedScope> {
     ) {
         out.push(footprint_scope(project, footprint));
     }
-    if let Some(reference) = value.get("reference").and_then(Value::as_str) {
-        if let Some(c) = project.components.iter().find(|c| c.reference == reference) {
-            out.push(EncodedScope {
-                kind: ScopeKind::Component,
-                id: c.id,
-            });
-        }
+    if let Some(reference) = value.get("reference").and_then(Value::as_str)
+        && let Some(c) = project.components.iter().find(|c| c.reference == reference)
+    {
+        out.push(EncodedScope {
+            kind: ScopeKind::Component,
+            id: c.id,
+        });
     }
     out
 }

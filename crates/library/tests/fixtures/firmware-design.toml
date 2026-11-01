@@ -1,3 +1,5 @@
+unmapped = ["UNKNOWN_PART"]
+
 [board]
 name = "TESTFC"
 manufacturer_id = "TST"
@@ -58,6 +60,3 @@ port = 0
 tx = "PA9"
 rx = "PA10"
 function = "USART1"
-
-unmapped = ["UNKNOWN_PART"]
-

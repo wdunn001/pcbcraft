@@ -32,11 +32,7 @@ fn check_text(field: &str, text: &str) -> Result<(), SourceError> {
 
 fn check_uuid(field: &str, text: &str) -> Result<(), SourceError> {
     check_text(field, text)?;
-    if text.len() != 36
-        || !text
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() || c == '-')
-    {
+    if text.len() != 36 || !text.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
         return Err(invalid(format!("the {field} is not a UUID")));
     }
     Ok(())
@@ -58,14 +54,20 @@ fn parse_json(text: &str) -> Result<Value, SourceError> {
 }
 
 fn string_field(obj: &Value, key: &str) -> Result<String, SourceError> {
-    let v = obj.get(key).ok_or_else(|| invalid(format!("{key} is missing")))?;
-    let s = v.as_str().ok_or_else(|| invalid(format!("{key} must be text")))?;
+    let v = obj
+        .get(key)
+        .ok_or_else(|| invalid(format!("{key} is missing")))?;
+    let s = v
+        .as_str()
+        .ok_or_else(|| invalid(format!("{key} must be text")))?;
     Ok(s.to_owned())
 }
 
 /// A `[override, text]` pair used for MPN, value and manufacturer fields.
 fn labeled_pair(obj: &Value, key: &str) -> Result<String, SourceError> {
-    let v = obj.get(key).ok_or_else(|| invalid(format!("{key} is missing")))?;
+    let v = obj
+        .get(key)
+        .ok_or_else(|| invalid(format!("{key} is missing")))?;
     let pair = v
         .as_array()
         .ok_or_else(|| invalid(format!("{key} must be a pair")))?;
@@ -75,7 +77,10 @@ fn labeled_pair(obj: &Value, key: &str) -> Result<String, SourceError> {
     let text = pair[1]
         .as_str()
         .ok_or_else(|| invalid(format!("{key} text must be a string")))?;
-    check_text(key, text)?;
+    // A base part leaves its manufacturer or value blank; only bad text is refused.
+    if !text.is_empty() {
+        check_text(key, text)?;
+    }
     Ok(text.to_owned())
 }
 
@@ -109,9 +114,7 @@ fn tag_list(obj: &Value) -> Result<Vec<String>, SourceError> {
         return Err(invalid("too many tags"));
     }
     for v in list {
-        let s = v
-            .as_str()
-            .ok_or_else(|| invalid("each tag must be text"))?;
+        let s = v.as_str().ok_or_else(|| invalid("each tag must be text"))?;
         check_text("tag", s)?;
         out.push(s.to_owned());
     }

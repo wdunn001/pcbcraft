@@ -8,7 +8,7 @@ use pcbcraft_assistant::{
 };
 use serde_json::json;
 use std::sync::mpsc::channel;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use support::{FakeServer, Reply, assert_request_shape, first_tool_name};
 
 fn cfg(url: &str, key: Option<&str>) -> ApiConfig {
@@ -18,6 +18,7 @@ fn cfg(url: &str, key: Option<&str>) -> ApiConfig {
         model: "m".into(),
         key: key.map(str::to_string),
         system_note: String::new(),
+        retrieval: None,
     }
 }
 
@@ -37,9 +38,9 @@ fn host() -> StartContext {
 }
 
 fn run_until(b: &mut ApiBackend, done: impl Fn(&Event) -> bool) -> Result<Vec<Event>, String> {
-    let end = Instant::now() + Duration::from_secs(15);
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(15);
     let mut all = Vec::new();
-    while Instant::now() < end {
+    while pcbcraft_clock::instant_now() < end {
         for e in b.poll() {
             let stop = done(&e);
             all.push(e);
@@ -70,9 +71,9 @@ fn a_two_call_tool_loop_runs_over_a_socket_and_sends_tool_use_ids_back() -> Resu
         Reply::anthropic_text("done"),
     ])?;
     let mut b = start(&srv, None, host())?;
-    run_until(&mut b, ended)?;
+    let events = run_until(&mut b, ended)?;
     let posts = srv.posts();
-    assert_eq!(posts.len(), 2);
+    assert_eq!(posts.len(), 2, "events: {events:?}");
     assert_eq!(posts[0].path, "/v1/messages");
     assert!(posts[0].body.get("system").is_some());
     assert!(
@@ -89,7 +90,12 @@ fn a_two_call_tool_loop_runs_over_a_socket_and_sends_tool_use_ids_back() -> Resu
     let msgs = posts[1].body["messages"].as_array().ok_or("no messages")?;
     let tool_user = msgs
         .iter()
-        .find(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+        .find(|m| {
+            m.get("role").and_then(|r| r.as_str()) == Some("user")
+                && m["content"]
+                    .as_array()
+                    .is_some_and(|b| b.iter().any(|x| x["type"] == "tool_result"))
+        })
         .ok_or("no user message with tool results")?;
     let blocks = tool_user["content"].as_array().ok_or("no content blocks")?;
     assert_eq!(blocks[0]["type"], "tool_result");
@@ -106,7 +112,7 @@ fn the_turn_stops_at_twenty_four_requests_over_a_socket() -> Result<(), String> 
     let srv = FakeServer::start(vec![Reply::anthropic_calls(&name, 1)])?;
     let mut b = start(&srv, None, host())?;
     let events = run_until(&mut b, ended)?;
-    assert_eq!(srv.posts().len(), 24);
+    assert_eq!(srv.posts().len(), 24, "events: {events:?}");
     assert!(
         matches!(events.last(), Some(Event::TurnEnded { reason }) if reason == "max_turn_requests")
     );
@@ -117,11 +123,11 @@ fn the_turn_stops_at_twenty_four_requests_over_a_socket() -> Result<(), String> 
 fn cancel_while_the_server_is_slow_ends_the_turn_as_cancelled() -> Result<(), String> {
     let srv = FakeServer::start(vec![Reply::anthropic_text("late").after(3000)])?;
     let mut b = start(&srv, None, host())?;
-    let end = Instant::now() + Duration::from_secs(10);
-    while srv.posts().is_empty() && Instant::now() < end {
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(10);
+    while srv.posts().is_empty() && pcbcraft_clock::instant_now() < end {
         std::thread::sleep(Duration::from_millis(5));
     }
-    let t = Instant::now();
+    let t = pcbcraft_clock::instant_now();
     b.cancel();
     let events = run_until(&mut b, ended)?;
     assert!(t.elapsed() < Duration::from_secs(2));
@@ -184,8 +190,9 @@ fn a_slow_server_hits_the_request_timeout() -> Result<(), String> {
         headers: vec![],
         body: Some(b"{}".to_vec()),
         timeout_s: 1,
+        stream_out: None,
     };
-    let t = Instant::now();
+    let t = pcbcraft_clock::instant_now();
     let err = plain_request(&req).err().ok_or("expected a timeout")?;
     assert!(err.contains("timed out"), "{err}");
     assert!(t.elapsed() < Duration::from_secs(3));

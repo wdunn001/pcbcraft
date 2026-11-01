@@ -1,6 +1,6 @@
 //! In-circuit probe coverage: which nets have a pad, via or marked test point
 //! large enough and spaced for the probe minimums.
-use pcbcraft_doc::{Component, Id, Layer, Pad, Project, Via};
+use pcbcraft_doc::{Component, Id, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -69,7 +69,11 @@ pub struct CoverageReport {
 
 pub fn component_is_test_point(c: &Component) -> bool {
     if let Some(sym) = &c.library_symbol {
-        if sym.definition.description.eq_ignore_ascii_case("test point") {
+        if sym
+            .definition
+            .description
+            .eq_ignore_ascii_case("test point")
+        {
             return true;
         }
         if sym.definition.reference == "TP" {
@@ -243,6 +247,7 @@ pub fn coverage_findings(project: &Project) -> Vec<Finding> {
                 min_space
             ),
             objects: vec![net],
+            hint: None,
         })
         .collect()
 }
@@ -250,7 +255,7 @@ pub fn coverage_findings(project: &Project) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Footprint, Net, Project};
+    use pcbcraft_doc::{Footprint, Net, Project, Via};
 
     fn board() -> Project {
         let mut p = Project::default();
@@ -294,6 +299,31 @@ mod tests {
         }
     }
 
+    /// Give component `id` the one pin and the embedded footprint definition a
+    /// placed pad with stored geometry needs to validate.
+    fn embed_footprint(
+        p: &mut Project,
+        id: Id,
+        net: Id,
+        geometry: &pcbcraft_library::FootprintPad,
+    ) {
+        if let Some(c) = p.components.iter_mut().find(|c| c.id == id) {
+            c.pins = vec![pcbcraft_doc::Pin {
+                number: geometry.number.clone(),
+                net: Some(net),
+                ..Default::default()
+            }];
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "TP".into(),
+                    pads: vec![geometry.clone()],
+                    ..Default::default()
+                },
+            });
+        }
+    }
+
     #[test]
     fn net_with_large_tht_pad_is_covered() -> Result<(), String> {
         let mut p = board();
@@ -311,6 +341,13 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
+            instance: Default::default(),
+            prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         p.board.footprints.push(Footprint {
             id: 20,
@@ -320,7 +357,11 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![tht_pad(1, 0.0, 0.0, 1.2)],
+            preserved: Default::default(),
         });
+        if let Some(g) = p.board.footprints[0].pads[0].geometry.clone() {
+            embed_footprint(&mut p, 10, 1, &g);
+        }
         p.validate()?;
         let report = coverage_report(&p)?;
         assert!(report.covered.contains(&1));
@@ -345,6 +386,13 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
+            instance: Default::default(),
+            prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         p.board.footprints.push(Footprint {
             id: 21,
@@ -374,8 +422,11 @@ mod tests {
                     raw_source: String::new(),
                 }),
             }],
-            ..Default::default()
+            preserved: Default::default(),
         });
+        if let Some(g) = p.board.footprints[0].pads[0].geometry.clone() {
+            embed_footprint(&mut p, 11, 2, &g);
+        }
         p.validate()?;
         let report = coverage_report(&p)?;
         assert_eq!(report.uncovered, vec![2]);
@@ -403,6 +454,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         p.validate()?;
         let report = coverage_report(&p)?;

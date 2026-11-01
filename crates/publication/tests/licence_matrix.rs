@@ -1,22 +1,20 @@
-use pcbcraft_publication::{design_licence, licence_table, LicenceVerdict};
+use pcbcraft_publication::{LicenceVerdict, design_licence, licence_table};
 
 #[test]
-fn licence_pair_table_has_every_cell() {
+fn licence_pair_table_has_every_cell() -> Result<(), String> {
     let table = licence_table();
     assert!(!table.licences.is_empty());
     for design in &table.licences {
         let row = table
             .compat
             .get(design)
-            .unwrap_or_else(|| panic!("missing design row {design}"));
+            .ok_or_else(|| format!("missing design row {design}"))?;
         for part in &table.licences {
-            assert!(
-                row.contains_key(part),
-                "missing cell {design} x {part}"
-            );
+            assert!(row.contains_key(part), "missing cell {design} x {part}");
             let _ = design_licence(&table, design, part);
         }
     }
+    Ok(())
 }
 
 #[test]

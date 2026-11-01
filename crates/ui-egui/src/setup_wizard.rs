@@ -32,6 +32,7 @@ enum Step {
 }
 
 /// Draft values for the setup wizard; lives on the app shell, not in the design file.
+#[derive(Clone)]
 pub(super) struct State {
     pub open: bool,
     step: Step,
@@ -68,11 +69,12 @@ impl Default for State {
 
 impl State {
     pub fn open_for_project(project: &Project) -> Self {
-        let mut s = Self::default();
-        s.width = project.board.width;
-        s.height = project.board.height;
-        s.open = true;
-        s
+        Self {
+            width: project.board.width,
+            height: project.board.height,
+            open: true,
+            ..Self::default()
+        }
     }
 
     fn preset_name(&self) -> Option<&'static str> {
@@ -246,6 +248,7 @@ impl App {
             return;
         }
         let mut open = true;
+        let mut w = self.setup_wizard.clone();
         egui::Window::new("Design setup")
             .open(&mut open)
             .collapsible(false)
@@ -255,10 +258,9 @@ impl App {
                     "Walk through the first board choices in one place. You can reopen this from Settings.",
                 );
                 ui.add_space(6.0);
-                let w = &mut self.setup_wizard;
                 match w.step {
                     Step::BoardSize => {
-                        ui.heading("Board size");
+                        ui.label(crate::fonts::title("Board size"));
                         size_field(
                             ui,
                             "Width",
@@ -273,7 +275,7 @@ impl App {
                         );
                     }
                     Step::Layers => {
-                        ui.heading("Copper layers");
+                        ui.label(crate::fonts::title("Copper layers"));
                         ui.label("Pick a starter stack. You can tune layers later in Settings.");
                         ui.horizontal(|ui| {
                             if ui
@@ -297,7 +299,7 @@ impl App {
                         });
                     }
                     Step::FabPreset => {
-                        ui.heading("Fabrication preset");
+                        ui.label(crate::fonts::title("Fabrication preset"));
                         ui.label("Apply minimum track, space, and drill rules from a named preset.");
                         let selected = w
                             .preset_name()
@@ -325,7 +327,7 @@ impl App {
                             );
                     }
                     Step::Defaults => {
-                        ui.heading("Default spacing");
+                        ui.label(crate::fonts::title("Default spacing"));
                         mm_field(
                             ui,
                             "Clearance",
@@ -340,7 +342,7 @@ impl App {
                         );
                     }
                     Step::NetClasses => {
-                        ui.heading("Starter net classes");
+                        ui.label(crate::fonts::title("Starter net classes"));
                         ui.label("Power and Signal classes you can assign nets to later.");
                         ui.label("Power");
                         mm_field(
@@ -370,7 +372,7 @@ impl App {
                         );
                     }
                     Step::Summary => {
-                        ui.heading("Summary");
+                        ui.label(crate::fonts::title("Summary"));
                         let layers = if w.four_layers {
                             "Four copper layers"
                         } else {
@@ -400,14 +402,15 @@ impl App {
                     ui.colored_label(egui::Color32::LIGHT_RED, msg);
                 }
                 ui.add_space(8.0);
+                let mut wizard_seen = false;
                 ui.horizontal(|ui| {
                     if ui
                         .button("Skip")
                         .on_hover_text("Close the wizard without changing the design.")
                         .clicked()
                     {
-                        self.preferences.setup_wizard_seen = true;
-                        self.setup_wizard.open = false;
+                        w.open = false;
+                        wizard_seen = true;
                     }
                     if w.step != Step::BoardSize
                         && ui
@@ -427,8 +430,8 @@ impl App {
                                 match w.finish_commands() {
                                     Ok(commands) => {
                                         self.run_batch(commands);
-                                        self.preferences.setup_wizard_seen = true;
-                                        self.setup_wizard.open = false;
+                                        wizard_seen = true;
+                                        w.open = false;
                                         self.width = w.width;
                                         self.height = w.height;
                                     }
@@ -439,15 +442,18 @@ impl App {
                             .button("Next")
                             .on_hover_text("Continue to the next step.")
                             .clicked()
-                        {
-                            if let Err(e) = w.advance() {
+                            && let Err(e) = w.advance() {
                                 self.message = e;
                             }
-                        }
                     });
                 });
+                if wizard_seen {
+                    self.preferences.setup_wizard_seen = true;
+                }
             });
-        self.setup_wizard.open = open;
+        let still_open = w.open;
+        self.setup_wizard = w;
+        self.setup_wizard.open = open && still_open;
     }
 
     pub(super) fn open_setup_wizard(&mut self) {

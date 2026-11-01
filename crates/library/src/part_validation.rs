@@ -96,11 +96,7 @@ fn param_key_allowed(category: Category, key: &str) -> bool {
         ),
         Category::Crystal => matches!(
             key,
-            "frequency"
-                | "tolerance_range"
-                | "temperature_range"
-                | "package_key"
-                | "mount_type"
+            "frequency" | "tolerance_range" | "temperature_range" | "package_key" | "mount_type"
         ),
         Category::Mosfet => matches!(
             key,
@@ -401,19 +397,18 @@ pub fn validate_part(
     let pin_pad_ok = pin_findings.is_empty();
     let (catalog_ok, mut catalog_findings) = validate_catalog_fields(fields, Some(footprint));
 
-    let mut findings: Vec<PartValidationFinding> = pin_findings.into_iter().map(Into::into).collect();
+    let mut findings: Vec<PartValidationFinding> =
+        pin_findings.into_iter().map(Into::into).collect();
     findings.append(&mut catalog_findings);
 
-    let package_key_ok = !findings.iter().any(|f| {
-        f.code.starts_with("package_key") || f.code == "footprint_package_mismatch"
-    });
+    let package_key_ok = !findings
+        .iter()
+        .any(|f| f.code.starts_with("package_key") || f.code == "footprint_package_mismatch");
     let datasheet_ok = !findings.iter().any(|f| f.code == "datasheet_missing");
     let identity_ok = !findings
         .iter()
         .any(|f| f.code == "manufacturer_missing" || f.code == "mpn_missing");
-    let parameters_ok = !findings
-        .iter()
-        .any(|f| f.code == "parameter_key_invalid");
+    let parameters_ok = !findings.iter().any(|f| f.code == "parameter_key_invalid");
     let body_fits_ok = !findings.iter().any(|f| {
         f.code == "body_outside_courtyard"
             || f.code == "body_missing"

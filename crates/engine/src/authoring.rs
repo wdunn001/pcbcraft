@@ -11,6 +11,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.remove","Remove a project-library symbol; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.remove","Remove a project-library footprint; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.load","Load and validate a .pcbcraft-lib collection into the project as one undoable transaction",schema(json!({"path":{"type":"string"}}),&["path"])),
+        ("library.export","Write project-library symbols to one symbol library file or footprints to a folder or single footprint file on disk without changing the design",schema(json!({"kind":{"type":"string","enum":["symbol","footprint"]},"path":{"type":"string","minLength":1,"maxLength":1024},"names":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}}}),&["kind","path","names"])),
         ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_manufacturer_file","Import one symbol, footprint or STEP file the user downloaded from a manufacturer page into the project library with a not-redistributed notice; only Samtec is supported today and STEP files need the footprint name to attach the model path",schema(json!({"manufacturer":{"type":"string","enum":["samtec"]},"mpn":{"type":"string","minLength":1,"maxLength":64},"path":{"type":"string","minLength":1,"maxLength":1024},"footprint":{"type":"string","description":"project-library footprint name when path is a STEP file"}}),&["manufacturer","mpn","path"])),
@@ -21,8 +22,11 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
+        ("library.footprint.attach_starter_model","Attach a bundled starter 3D model to a project-library footprint when one matches its name or an explicit starter id, materializing the file into the user cache and recording the licence notice",schema(json!({"name":{"type":"string"},"id":{"type":"string","description":"starter model id; omit to match by footprint name"}}),&["name"])),
         ("library.footprint.set_model_transform","Change the offset, scale or rotation on an existing project-library 3D model without replacing its file path; use preset rotate_90, mirror or pin1_cycle for quick alignment, or give offset, scale and rotate arrays in millimetres and degrees; placed instances keep their embedded copy until footprint.refresh",schema(json!({"name":{"type":"string"},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"preset":{"type":"string","enum":["rotate_90","mirror","pin1_cycle"]}}),&["name"])),
+        ("library.footprint.embed_model","Store the converted compact model on a project-library footprint so the project renders without the original file; reads from the footprint path or an override on the desktop",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024}}),&["name"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
+        ("library.footprint.model_auto_align","Fit a footprint's 3D model to its pads from a triangle list in model space: tries quarter turns and an optional mirror, reports the residual in millimetres, and when apply is true writes the new offset, rotation and scale as one undoable step",schema(json!({"name":{"type":"string"},"positions":{"type":"array","items":{"type":"number"},"description":"model vertex positions as x,y,z triples in millimetres"},"indices":{"type":"array","items":{"type":"integer"},"description":"triangle corner indices, three per face"},"allow_flip":{"type":"boolean","description":"when true, also try mirroring the model about Y"},"apply":{"type":"boolean","description":"when false, preview only; default true"}}),&["name","positions"])),
         ("library.footprint.export_companion_cad","Write a footprint package body as a companion CAD project with a STEP sidecar in a folder on disk, then attach the project as the footprint 3D model",schema(json!({"name":{"type":"string"},"directory":{"type":"string","maxLength":1024},"base_name":{"type":"string","maxLength":128},"height_mm":{"type":"number","minimum":0.05,"maximum":100}}),&["name","directory","base_name"])),
         ("library.footprint.link_companion_cad","Attach a companion CAD project as the footprint 3D model, keeping an optional part name and stable body id for reimport alignment",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"cad_part":{"type":"string","maxLength":128},"body_id":{"type":"string","maxLength":128}}),&["name","path"])),
         ("library.footprint.reimport_companion_cad","Mark a footprint companion CAD model for reload on the next 3D view refresh; alignment offset, scale and rotation stay as they are",schema(json!({"name":{"type":"string"}}),&["name"])),
@@ -65,6 +69,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.graphic_scale","Resize one graphic on a project-library footprint about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the package",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the footprint origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.graphic_scale","Resize one graphic on a project-library symbol about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the symbol origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords, linked footprint or set name one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"},"set":{"type":"string","description":"name of the collection this part belongs to; empty clears it, and the parts list groups parts by set"}}),&["name"])),
+        ("library.part.set_substitute","Add, replace or remove one second source (maker and part number) or one alternate (another project-library symbol) on a project-library part as one undoable step; pass null for mpn to remove a second source, or set clear true with symbol naming the alternate to remove",schema(json!({"name":{"type":"string","description":"project-library symbol name of the primary part"},"kind":{"type":"string","enum":["second_source","alternate"]},"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"symbol":{"type":"string","maxLength":256,"description":"project-library symbol name of the alternate part"},"footprint":{"type":"string","maxLength":256},"note":{"type":"string","maxLength":256},"clear":{"type":"boolean","description":"when true with kind alternate, remove the alternate named by symbol"}}),&["name","kind"])),
+        ("library.part.compare","Read-only comparison of one baseline project-library part against up to two others: typed symbol fields with same flags, pin number diffs, and footprint pad diffs when both footprints exist",schema(json!({"baseline":{"type":"string","maxLength":128,"description":"project-library symbol name used as the reference row"},"others":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"string","maxLength":128}},"footprint_overrides":{"type":"object","additionalProperties":{"type":"string","maxLength":256},"description":"optional footprint name per other symbol, e.g. from an alternate record"}}),&["baseline","others"])),
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
         ("library.symbol.rename","Rename a project-library symbol in place as one undoable step, keeping every pin and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
         ("library.footprint.rename","Rename a project-library footprint in place as one undoable step, keeping every pad and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
@@ -108,6 +114,39 @@ struct PlacePartParams {
 struct SymbolParams {
     definition: SymbolDefinition,
     notice: Option<String>,
+}
+/// Reads a field that may be absent (None) or present, with null kept as `Some(Null)`.
+fn present_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PartCompareParams {
+    baseline: String,
+    others: Vec<String>,
+    #[serde(default)]
+    footprint_overrides: std::collections::BTreeMap<String, String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetPartSubstituteParams {
+    name: String,
+    kind: String,
+    #[serde(default)]
+    manufacturer: Option<String>,
+    #[serde(default, deserialize_with = "present_value")]
+    mpn: Option<Value>,
+    #[serde(default)]
+    symbol: Option<String>,
+    #[serde(default)]
+    footprint: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    clear: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -422,6 +461,24 @@ pub(super) struct ModelParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct AttachStarterModel {
+    name: String,
+    id: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModelAutoAlignParams {
+    name: String,
+    positions: Vec<f64>,
+    #[serde(default)]
+    indices: Vec<u32>,
+    #[serde(default)]
+    allow_flip: Option<bool>,
+    #[serde(default)]
+    apply: Option<bool>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CompanionExportParams {
     name: String,
     directory: String,
@@ -449,6 +506,7 @@ struct ModelTransformParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 struct EmbedModelParams {
     name: String,
     #[serde(default)]
@@ -522,19 +580,6 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
     let offset = a.offset.unwrap_or([0.0; 3]);
     let scale = a.scale.unwrap_or([1.0; 3]);
     let rotate = a.rotate.unwrap_or([0.0; 3]);
-    let raw_source = format!(
-        "(model \"{}\" (offset (xyz {} {} {})) (scale (xyz {} {} {})) (rotate (xyz {} {} {})))",
-        a.path,
-        offset[0],
-        offset[1],
-        offset[2],
-        scale[0],
-        scale[1],
-        scale[2],
-        rotate[0],
-        rotate[1],
-        rotate[2]
-    );
     let cad_part = a
         .cad_part
         .as_ref()
@@ -547,6 +592,24 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(str::to_owned);
+    let part_suffix = cad_part
+        .as_ref()
+        .map(|part| format!(" (cad_part \"{part}\")"))
+        .unwrap_or_default();
+    let raw_source = format!(
+        "(model \"{}\" (offset (xyz {} {} {})) (scale (xyz {} {} {})) (rotate (xyz {} {} {})){})",
+        a.path,
+        offset[0],
+        offset[1],
+        offset[2],
+        scale[0],
+        scale[1],
+        scale[2],
+        rotate[0],
+        rotate[1],
+        rotate[2],
+        part_suffix
+    );
     if cad_part.as_ref().is_some_and(|s| s.len() > 128)
         || body_id.as_ref().is_some_and(|s| s.len() > 128)
     {
@@ -562,6 +625,7 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
         cad_part,
         body_id,
         raw_source,
+        embedded: Default::default(),
     })
 }
 
@@ -581,7 +645,9 @@ fn apply_model_transform(
     }
     if let Some(preset) = &a.preset {
         if a.offset.is_some() || a.scale.is_some() || a.rotate.is_some() {
-            return Err(Error::Invalid("preset cannot mix with explicit transforms".into()));
+            return Err(Error::Invalid(
+                "preset cannot mix with explicit transforms".into(),
+            ));
         }
         match preset.as_str() {
             "rotate_90" => pcbcraft_library::model_rotate_z_90(model),
@@ -623,6 +689,13 @@ fn apply_model_transform(
     Ok(())
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LibraryExportParams {
+    kind: String,
+    path: String,
+    names: Vec<String>,
+}
 pub(super) fn run(
     p: &mut Project,
     next: &mut Id,
@@ -679,11 +752,25 @@ pub(super) fn run(
                 if before == p.library.symbols.len() {
                     return Err(missing());
                 }
+                p.library.part_substitutes.remove(&a.name);
+                for subs in p.library.part_substitutes.values_mut() {
+                    subs.alternates.retain(|alt| alt.symbol != a.name);
+                }
+                p.library
+                    .part_substitutes
+                    .retain(|_, subs| !subs.is_empty());
             } else {
                 let before = p.library.footprints.len();
                 p.library.footprints.retain(|s| s.name != a.name);
                 if before == p.library.footprints.len() {
                     return Err(missing());
+                }
+                for subs in p.library.part_substitutes.values_mut() {
+                    for alt in &mut subs.alternates {
+                        if alt.footprint == a.name {
+                            alt.footprint.clear();
+                        }
+                    }
                 }
             }
             Ok(json!({"name":a.name}))
@@ -701,6 +788,109 @@ pub(super) fn run(
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name, "path": def.model.as_ref().map(|m| m.path.clone())}))
         }
+        "library.footprint.attach_starter_model" => {
+            let a: AttachStarterModel = parse(params)?;
+            let starter = match a.id.as_deref() {
+                Some(id) => pcbcraft_library::starter_models::by_id(id)
+                    .ok_or_else(|| Error::Invalid("unknown starter model id".into()))?,
+                None => {
+                    pcbcraft_library::starter_models::for_footprint(&a.name).ok_or_else(|| {
+                        Error::Invalid(
+                            "no bundled starter model matches this footprint name".into(),
+                        )
+                    })?
+                }
+            };
+            let cache = pcbcraft_library::cad_cache::default_cache_dir().ok_or_else(|| {
+                Error::Invalid("a user cache directory is required to store starter models".into())
+            })?;
+            let path = pcbcraft_io::materialize(starter, &cache).map_err(Error::Invalid)?;
+            let path_text = path.to_string_lossy().into_owned();
+            let model = build_model(&ModelParams {
+                name: a.name.clone(),
+                path: path_text.clone(),
+                offset: None,
+                scale: None,
+                rotate: None,
+                cad_part: None,
+                body_id: None,
+            })?;
+            let notice = starter.notice.to_string();
+            if !notice.is_empty() && !p.library.notices.contains(&notice) {
+                p.library.notices.push(notice);
+            }
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            def.model = Some(model);
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({"name": a.name, "starter": starter.id, "path": path_text}))
+        }
+        "library.footprint.model_auto_align" => {
+            let a: ModelAutoAlignParams = parse(params)?;
+            if !a.positions.len().is_multiple_of(3) || a.positions.is_empty() {
+                return Err(Error::Invalid(
+                    "positions must be a non-empty list of x,y,z triples".into(),
+                ));
+            }
+            if a.positions.len() / 3 > pcbcraft_io::MAX_MODEL_VERTICES {
+                return Err(Error::Invalid("the model has too many vertices".into()));
+            }
+            if !a.indices.is_empty() && !a.indices.len().is_multiple_of(3) {
+                return Err(Error::Invalid(
+                    "indices must come in groups of three".into(),
+                ));
+            }
+            let positions: Vec<[f64; 3]> =
+                a.positions.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
+            if positions.iter().any(|p| p.iter().any(|v| !v.is_finite())) {
+                return Err(Error::Invalid("positions must be finite numbers".into()));
+            }
+            let mesh = pcbcraft_io::LoadedModel {
+                positions,
+                indices: a.indices,
+                color: None,
+                body_colors: None,
+                triangle_materials: Vec::new(),
+                authored_colors: Vec::new(),
+            };
+            let def = p
+                .library
+                .footprints
+                .iter()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            let current = def
+                .model
+                .clone()
+                .ok_or_else(|| Error::Invalid("the footprint has no model reference yet".into()))?;
+            let allow_flip = a.allow_flip.unwrap_or(true);
+            let out = pcbcraft_io::auto_align_model(&mesh, def, &current, allow_flip);
+            let apply = a.apply.unwrap_or(true);
+            if apply {
+                let def = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|s| s.name == a.name)
+                    .ok_or_else(missing)?;
+                def.model = Some(out.model.clone());
+                def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            }
+            Ok(json!({
+                "name": a.name,
+                "applied": apply,
+                "residual_mm": out.residual_mm,
+                "coarse": out.coarse,
+                "bbox_fallback": out.bbox_fallback,
+                "offset": out.model.offset,
+                "scale": out.model.scale,
+                "rotate": out.model.rotate,
+            }))
+        }
         "library.footprint.set_model_transform" => {
             let a: ModelTransformParams = parse(params)?;
             let def = p
@@ -709,10 +899,12 @@ pub(super) fn run(
                 .iter_mut()
                 .find(|s| s.name == a.name)
                 .ok_or_else(missing)?;
-            let model = def.model.as_mut().ok_or_else(|| {
-                Error::Invalid("footprint has no 3D model to transform".into())
-            })?;
+            let model = def
+                .model
+                .as_mut()
+                .ok_or_else(|| Error::Invalid("footprint has no 3D model to transform".into()))?;
             apply_model_transform(model, &a)?;
+            let model = model.clone();
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({
                 "name": a.name,
@@ -720,6 +912,93 @@ pub(super) fn run(
                 "scale": model.scale,
                 "rotate": model.rotate,
             }))
+        }
+        "library.footprint.embed_model" => {
+            #[cfg(target_arch = "wasm32")]
+            {
+                Err(Error::Invalid(
+                    "embedding a model needs the desktop app".into(),
+                ))
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let a: EmbedModelParams = parse(params)?;
+                let def = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|s| s.name == a.name)
+                    .ok_or_else(missing)?;
+                let path_owned: String = a
+                    .path
+                    .clone()
+                    .or_else(|| def.model.as_ref().map(|m| m.path.clone()))
+                    .filter(|p| !p.is_empty())
+                    .ok_or_else(|| {
+                        Error::Invalid("set a model path on the footprint first".into())
+                    })?;
+                let path = path_owned.as_str();
+                if path.len() > 1024 {
+                    return Err(Error::Invalid("model path must be 1 to 1024 bytes".into()));
+                }
+                let bytes = std::fs::read(path)
+                    .map_err(|_| Error::Invalid(format!("the model file {path} was not found")))?;
+                let (load_path, source) = if path
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+                {
+                    let (step_name, step_bytes) = pcbcraft_io::first_step_from_vendor_zip(&bytes)
+                        .map_err(|e| Error::Invalid(e.0))?;
+                    (step_name, step_bytes)
+                } else {
+                    (path.to_owned(), bytes)
+                };
+                let cache = pcbcraft_io::ImportCache::default();
+                let loaded = cache
+                    .load_or_convert(&load_path, &source)
+                    .map_err(|e| Error::Invalid(e.0))?;
+                let digest = pcbcraft_io::source_digest(&source);
+                let tol = if load_path
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "step" | "stp"))
+                {
+                    pcbcraft_io::STEP_TOLERANCE_MM
+                } else {
+                    0.0
+                };
+                let embedded = pcbcraft_io::encode_compact_base64(
+                    &loaded,
+                    pcbcraft_io::LOADER_VERSION,
+                    tol,
+                    &digest,
+                )
+                .map_err(|e| Error::Invalid(e.0))?;
+                match &mut def.model {
+                    Some(m) => {
+                        if a.path.is_some() {
+                            m.path = path.to_owned();
+                        }
+                        m.embedded = embedded;
+                    }
+                    None => {
+                        let mut m = build_model(&ModelParams {
+                            name: a.name.clone(),
+                            path: path.to_owned(),
+                            offset: None,
+                            scale: None,
+                            rotate: None,
+                            body_id: Default::default(),
+                            cad_part: Default::default(),
+                        })?;
+                        m.embedded = embedded;
+                        def.model = Some(m);
+                    }
+                }
+                def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                Ok(json!({"name": a.name, "embedded": true}))
+            }
         }
         "library.footprint.clear_model" => {
             let a: Name = parse(params)?;
@@ -739,7 +1018,9 @@ pub(super) fn run(
         "library.footprint.export_companion_cad" => {
             let a: CompanionExportParams = parse(params)?;
             if a.directory.is_empty() || a.directory.len() > 1024 {
-                return Err(Error::Invalid("export directory must be 1 to 1024 bytes".into()));
+                return Err(Error::Invalid(
+                    "export directory must be 1 to 1024 bytes".into(),
+                ));
             }
             let def = p
                 .library
@@ -748,7 +1029,9 @@ pub(super) fn run(
                 .find(|s| s.name == a.name)
                 .ok_or_else(missing)?
                 .clone();
-            let height = a.height_mm.unwrap_or(pcbcraft_io::part_bodies::DEFAULT_BODY_HEIGHT_MM);
+            let height = a
+                .height_mm
+                .unwrap_or(pcbcraft_io::part_bodies::DEFAULT_BODY_HEIGHT_MM);
             let body_id = def
                 .model
                 .as_ref()
@@ -761,7 +1044,7 @@ pub(super) fn run(
                 &body_id,
                 height,
             )
-            .map_err(|e| Error::Invalid(e))?;
+            .map_err(Error::Invalid)?;
             let path = project
                 .to_str()
                 .ok_or_else(|| Error::Invalid("the export path is not valid text".into()))?
@@ -784,13 +1067,9 @@ pub(super) fn run(
                     "the model path must name a companion CAD project file".into(),
                 ));
             }
-            let body_id = a
-                .body_id
-                .clone()
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    Error::Invalid("a stable body id is required for companion CAD models".into())
-                })?;
+            let body_id = a.body_id.clone().filter(|s| !s.is_empty()).ok_or_else(|| {
+                Error::Invalid("a stable body id is required for companion CAD models".into())
+            })?;
             let cad_part = a.cad_part.clone().filter(|s| !s.is_empty());
             let path = a.path.clone();
             let model = pcbcraft_io::model_reference(&path, &body_id, cad_part.as_deref());
@@ -815,9 +1094,7 @@ pub(super) fn run(
                 .model
                 .as_ref()
                 .filter(|m| pcbcraft_io::is_companion_project_path(&m.path))
-                .ok_or_else(|| {
-                    Error::Invalid("this footprint has no companion CAD model".into())
-                })?
+                .ok_or_else(|| Error::Invalid("this footprint has no companion CAD model".into()))?
                 .path
                 .clone();
             Ok(json!({"name": a.name, "path": path, "reload": true}))
@@ -839,10 +1116,11 @@ pub(super) fn run(
             #[cfg(target_arch = "wasm32")]
             {
                 let _ = a;
-                return Err(Error::Invalid(
+                Err(Error::Invalid(
                     "Opening a companion CAD project needs the desktop app.".into(),
-                ));
+                ))
             }
+            #[cfg(not(target_arch = "wasm32"))]
             Ok(json!({"path": a.path}))
         }
         "library.footprint.set_rules" => {
@@ -1187,6 +1465,19 @@ pub(super) fn run(
                 "components": affected.len()
             }))
         }
+        "library.export" => {
+            let a: LibraryExportParams = parse(params)?;
+            p.library
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            pcbcraft_io::export_library_definitions(
+                &p.library,
+                &a.kind,
+                std::path::Path::new(&a.path),
+                &a.names,
+            )
+            .map_err(Error::Invalid)
+        }
         "library.load" => {
             let a: PathParams = parse(params)?;
             let text = pcbcraft_io::read_text(std::path::Path::new(&a.path))?;
@@ -1288,9 +1579,7 @@ pub(super) fn run(
                         )
                     })?;
                     if footprint.is_empty() || footprint.len() > 128 {
-                        return Err(Error::Invalid(
-                            "footprint must be 1 to 128 bytes".into(),
-                        ));
+                        return Err(Error::Invalid("footprint must be 1 to 128 bytes".into()));
                     }
                     let def = p
                         .library
@@ -1304,6 +1593,8 @@ pub(super) fn run(
                         offset: None,
                         scale: None,
                         rotate: None,
+                        body_id: Default::default(),
+                        cad_part: Default::default(),
                     })?;
                     def.model = Some(model);
                     def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
@@ -2504,6 +2795,139 @@ pub(super) fn run(
             p.library.validate()?;
             Ok(json!({"name": item}))
         }
+        "library.part.compare" => {
+            let a: PartCompareParams = parse(params)?;
+            if a.baseline.is_empty() || a.baseline.len() > 128 {
+                return Err(Error::Invalid("baseline must be 1 to 128 bytes".into()));
+            }
+            if a.others.is_empty() || a.others.len() > pcbcraft_library::MAX_PART_COMPARE_OTHERS {
+                return Err(Error::Invalid(format!(
+                    "others must list 1 to {} symbol names",
+                    pcbcraft_library::MAX_PART_COMPARE_OTHERS
+                )));
+            }
+            for name in &a.others {
+                if name.is_empty() || name.len() > 128 {
+                    return Err(Error::Invalid(
+                        "each other name must be 1 to 128 bytes".into(),
+                    ));
+                }
+                if name == &a.baseline {
+                    return Err(Error::Invalid(
+                        "baseline and an other part must differ".into(),
+                    ));
+                }
+            }
+            let find = |name: &str| {
+                p.library
+                    .symbols
+                    .iter()
+                    .find(|s| s.name == name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        Error::Invalid(format!("no project-library symbol named {name}"))
+                    })
+            };
+            let baseline_sym = find(&a.baseline)?;
+            let resolve_footprint = |name: &str| {
+                p.library
+                    .footprints
+                    .iter()
+                    .find(|f| f.name == name)
+                    .cloned()
+            };
+            let mut compared = Vec::with_capacity(a.others.len());
+            for other_name in &a.others {
+                let other_sym = find(other_name)?;
+                let other_fp = a.footprint_overrides.get(other_name).map(String::as_str);
+                compared.push(pcbcraft_library::compare_one_part(
+                    &baseline_sym,
+                    &other_sym,
+                    None,
+                    other_fp,
+                    &resolve_footprint,
+                ));
+            }
+            Ok(json!({"baseline": a.baseline, "compared": compared}))
+        }
+        "library.part.set_substitute" => {
+            let a: SetPartSubstituteParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            if !p.library.symbols.iter().any(|s| s.name == a.name) {
+                return Err(Error::Invalid(format!(
+                    "no project-library symbol named {}",
+                    a.name
+                )));
+            }
+            let symbol_exists = |sym: &str| p.library.symbols.iter().any(|s| s.name == sym);
+            let footprint_exists = |foot: &str| p.library.footprints.iter().any(|f| f.name == foot);
+            let record = p
+                .library
+                .part_substitutes
+                .entry(a.name.clone())
+                .or_default();
+            match a.kind.as_str() {
+                "second_source" => {
+                    let manufacturer =
+                        a.manufacturer.filter(|s| !s.is_empty()).ok_or_else(|| {
+                            Error::Invalid("second_source needs a manufacturer".into())
+                        })?;
+                    let mpn_text: Option<String> = match a.mpn {
+                        None => {
+                            return Err(Error::Invalid(
+                                "second_source needs mpn or null to remove".into(),
+                            ));
+                        }
+                        Some(Value::Null) => None,
+                        Some(Value::String(text)) => Some(text),
+                        Some(_) => {
+                            return Err(Error::Invalid("mpn must be a string or null".into()));
+                        }
+                    };
+                    let mpn = mpn_text.as_deref();
+                    record
+                        .set_second_source(&manufacturer, mpn, a.note.as_deref())
+                        .map_err(Error::Invalid)?;
+                }
+                "alternate" => {
+                    let symbol = a.symbol.filter(|s| !s.is_empty()).ok_or_else(|| {
+                        Error::Invalid("alternate needs the substitute symbol name".into())
+                    })?;
+                    if a.clear {
+                        record.remove_alternate(&symbol).map_err(Error::Invalid)?;
+                    } else {
+                        if symbol == a.name {
+                            return Err(Error::Invalid(
+                                "a part cannot list itself as an alternate".into(),
+                            ));
+                        }
+                        record
+                            .set_alternate(
+                                &symbol,
+                                a.footprint.as_deref(),
+                                a.note.as_deref(),
+                                symbol_exists,
+                                footprint_exists,
+                            )
+                            .map_err(Error::Invalid)?;
+                    }
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "kind must be second_source or alternate".into(),
+                    ));
+                }
+            }
+            if record.is_empty() {
+                p.library.part_substitutes.remove(&a.name);
+            }
+            p.library.validate()?;
+            Ok(json!({"name": a.name, "kind": a.kind}))
+        }
         "library.symbol.rename" | "library.footprint.rename" => {
             let a: RenameParams = parse(params)?;
             if a.name.is_empty() || a.name.len() > 128 {
@@ -2525,6 +2949,16 @@ pub(super) fn run(
                     )));
                 }
                 p.library.symbols[found].name = a.new_name.clone();
+                if let Some(subs) = p.library.part_substitutes.remove(&a.name) {
+                    p.library.part_substitutes.insert(a.new_name.clone(), subs);
+                }
+                for subs in p.library.part_substitutes.values_mut() {
+                    for alt in &mut subs.alternates {
+                        if alt.symbol == a.name {
+                            alt.symbol = a.new_name.clone();
+                        }
+                    }
+                }
             } else {
                 let Some(found) = p.library.footprints.iter().position(|i| i.name == a.name) else {
                     return Err(missing());
@@ -2536,6 +2970,13 @@ pub(super) fn run(
                     )));
                 }
                 p.library.footprints[found].name = a.new_name.clone();
+                for subs in p.library.part_substitutes.values_mut() {
+                    for alt in &mut subs.alternates {
+                        if alt.footprint == a.name {
+                            alt.footprint = a.new_name.clone();
+                        }
+                    }
+                }
             }
             p.library.validate()?;
             p.validate()?;
@@ -2931,9 +3372,7 @@ pub(super) fn run(
                     locked: None,
                     side: None,
                     pads,
-                
-                    preserved: pcbcraft_doc::PreservedSource::default(),
-});
+                });
                 out["footprint"] = json!(footprint_id);
             }
             Ok(out)
@@ -3322,8 +3761,7 @@ fn mirror_footprint(footprint: &mut FootprintDefinition) -> Result<(usize, usize
 #[cfg(not(target_arch = "wasm32"))]
 fn open_companion_project(path: &str) -> Result<(), String> {
     use std::process::Command;
-    let program = std::env::var("PCBCRAFT_COMPANION_CAD")
-        .unwrap_or_else(|_| "solidcraft".into());
+    let program = std::env::var("PCBCRAFT_COMPANION_CAD").unwrap_or_else(|_| "solidcraft".into());
     Command::new(&program)
         .arg(path)
         .spawn()

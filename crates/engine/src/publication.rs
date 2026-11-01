@@ -11,8 +11,8 @@
 //! - Upload bundles from here; callers act on the scan result.
 
 use crate::CommandSpec;
-use pcbcraft_publication::{ScanRequest, scan};
 use pcbcraft_doc::Project;
+pub use pcbcraft_publication::*;
 use serde_json::{Value, json};
 
 pub(super) fn commands() -> Vec<CommandSpec> {
@@ -52,12 +52,12 @@ pub(super) fn run(_p: &Project, params: &Value) -> Result<Value, String> {
                 column,
                 detail,
                 action,
-            } => json!({"kind":"hard_fail","rule":rule,"path":path,"line":line,"column":column,"detail":detail,"action":action}),
-            pcbcraft_publication::ScanOutcome::HumanQueue {
-                rule,
-                path,
-                detail,
-            } => json!({"kind":"human_queue","rule":rule,"path":path,"detail":detail}),
+            } => {
+                json!({"kind":"hard_fail","rule":rule,"path":path,"line":line,"column":column,"detail":detail,"action":action})
+            }
+            pcbcraft_publication::ScanOutcome::HumanQueue { rule, path, detail } => {
+                json!({"kind":"human_queue","rule":rule,"path":path,"detail":detail})
+            }
             pcbcraft_publication::ScanOutcome::Note { rule, detail } => {
                 json!({"kind":"note","rule":rule,"detail":detail})
             }

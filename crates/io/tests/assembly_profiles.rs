@@ -2,10 +2,10 @@
 
 use pcbcraft_doc::{Component, Footprint, Layer, Pin, Project};
 use pcbcraft_geom::Point;
+use pcbcraft_io::assembly_profiles::{PlacementColumn, PlacementUnits};
 use pcbcraft_io::{
-    AssemblyPlacementProfile, BottomRotationPolicy, PlacementColumn, PlacementField,
-    PlacementUnits, export_rotation, gerber_component_layers, placement_text,
-    placement_text_with_profile,
+    AssemblyPlacementProfile, BottomRotationPolicy, PlacementField, export_rotation,
+    gerber_component_layers, placement_text, placement_text_with_profile,
 };
 use pcbcraft_library::FootprintPad;
 
@@ -58,6 +58,7 @@ fn add_part(
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: Default::default(),
         }],
         units: vec![],
         library_symbol: None,
@@ -73,6 +74,8 @@ fn add_part(
                 rules: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                box_body: Default::default(),
+                retained: Default::default(),
             },
         }),
         fields: vec![
@@ -85,6 +88,13 @@ fn add_part(
                 value: "Acme".into(),
             },
         ],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     });
     p.board.footprints.push(Footprint {
         id: id + 100,
@@ -101,6 +111,7 @@ fn add_part(
             castellated: None,
             geometry: Some(pad(pad_kind.0, pad_kind.1)),
         }],
+        preserved: Default::default(),
     });
 }
 
@@ -123,7 +134,7 @@ fn two_side_board() -> Result<Project, String> {
         "R2",
         "0603",
         (20.0, 8.0, 45.0),
-        ("smd", &["B.Cu"]),
+        ("smd", &["F.Cu"]),
         Some(Layer::Back),
     );
     p.validate()?;

@@ -1,7 +1,7 @@
 //! Loopback MCP bridge for the assistant gate: `tools/call` waits on the host.
-use crate::{MAX_MESSAGE, read_message, rpc_error, tool_list};
+use crate::{read_message, rpc_error, tool_list};
 use serde_json::{Value, json};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufReader, Write};
 use std::net::TcpListener;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
@@ -47,10 +47,7 @@ fn handle_gated(request: Value, expected: &str, tx: &Sender<ToolRequest>) -> Opt
         return Some(rpc_error(id, UNAUTHORIZED, "unauthorized"));
     }
     let method = request.get("method").and_then(Value::as_str);
-    let id = match request.get("id").cloned() {
-        Some(id) => id,
-        None => return None,
-    };
+    let id = request.get("id").cloned()?;
     match method {
         Some("tools/list") => Some(json!({"jsonrpc":"2.0","id":id,"result": tool_list()})),
         Some("tools/call") => {
@@ -118,13 +115,14 @@ pub fn start_gated_bridge(tx: Sender<ToolRequest>, token: String) -> Result<u16,
 mod tests {
     use super::*;
     use std::sync::mpsc::channel;
-    use std::time::Instant;
 
     #[test]
-    fn a_prompt_round_trips_through_the_bridge_with_the_token_and_without_it_is_refused() {
+    fn a_prompt_round_trips_through_the_bridge_with_the_token_and_without_it_is_refused()
+    -> Result<(), String> {
         let (tx, rx) = channel::<ToolRequest>();
         let token = "abc123";
-        let port = start_gated_bridge(tx, token.into()).expect("bind");
+        let port =
+            start_gated_bridge(tx, token.into()).map_err(|e| format!("{}: {e:?}", "bind"))?;
         let address = format!("127.0.0.1:{port}");
         let call = json!({
             "jsonrpc":"2.0",
@@ -133,7 +131,8 @@ mod tests {
             "params":{"name":"design.summary","arguments":{}},
             "token":"wrong"
         });
-        let bad = crate::forward(&address, &call, None).expect("connect");
+        let bad =
+            crate::forward(&address, &call, None).map_err(|e| format!("{}: {e:?}", "connect"))?;
         assert_eq!(bad["error"]["code"], UNAUTHORIZED);
 
         let call = json!({
@@ -144,32 +143,40 @@ mod tests {
             "token":token
         });
         std::thread::spawn(move || {
-            let req = rx.recv_timeout(Duration::from_secs(5)).expect("tool");
+            let Ok(req) = rx.recv_timeout(Duration::from_secs(5)) else {
+                return;
+            };
             assert_eq!(req.name, "design.summary");
             let _ = req
                 .reply
                 .send(json!({"content":[{"type":"text","text":"ok"}],"isError":false}));
         });
-        let good = crate::forward(&address, &call, Some(token)).expect("connect");
+        let good = crate::forward(&address, &call, Some(token))
+            .map_err(|e| format!("{}: {e:?}", "connect"))?;
         assert_eq!(good["result"]["content"][0]["text"], "ok");
+        Ok(())
     }
 
     #[test]
-    fn tools_list_works_with_the_token() {
+    fn tools_list_works_with_the_token() -> Result<(), String> {
         let (tx, _rx) = channel::<ToolRequest>();
         let token = "list-token";
-        let port = start_gated_bridge(tx, token.into()).expect("bind");
+        let port =
+            start_gated_bridge(tx, token.into()).map_err(|e| format!("{}: {e:?}", "bind"))?;
         let address = format!("127.0.0.1:{port}");
         let list = json!({"jsonrpc":"2.0","id":1,"method":"tools/list","token":token});
-        let reply = crate::forward(&address, &list, Some(token)).expect("connect");
+        let reply = crate::forward(&address, &list, Some(token))
+            .map_err(|e| format!("{}: {e:?}", "connect"))?;
         assert!(reply["result"]["tools"].is_array());
+        Ok(())
     }
 
     #[test]
-    fn bridge_refuses_a_call_when_nobody_is_listening() {
+    fn bridge_refuses_a_call_when_nobody_is_listening() -> Result<(), String> {
         let (tx, rx) = channel::<ToolRequest>();
         let token = "lonely";
-        let port = start_gated_bridge(tx, token.into()).expect("bind");
+        let port =
+            start_gated_bridge(tx, token.into()).map_err(|e| format!("{}: {e:?}", "bind"))?;
         drop(rx);
         let address = format!("127.0.0.1:{port}");
         let call = json!({
@@ -179,8 +186,10 @@ mod tests {
             "params":{"name":"design.summary","arguments":{}},
             "token":token
         });
-        let reply = crate::forward(&address, &call, Some(token)).expect("connect");
+        let reply = crate::forward(&address, &call, Some(token))
+            .map_err(|e| format!("{}: {e:?}", "connect"))?;
         assert_eq!(reply["error"]["code"], -32603);
+        Ok(())
     }
 
     #[test]
@@ -190,11 +199,13 @@ mod tests {
     }
 
     #[test]
-    fn gated_bridge_starts_on_loopback() {
+    fn gated_bridge_starts_on_loopback() -> Result<(), String> {
         let (tx, _rx) = channel::<ToolRequest>();
-        let start = Instant::now();
-        let port = start_gated_bridge(tx, "t".repeat(64)).expect("bind");
+        let start = pcbcraft_clock::instant_now();
+        let port =
+            start_gated_bridge(tx, "t".repeat(64)).map_err(|e| format!("{}: {e:?}", "bind"))?;
         assert!(port > 0);
         assert!(start.elapsed() < Duration::from_secs(2));
+        Ok(())
     }
 }

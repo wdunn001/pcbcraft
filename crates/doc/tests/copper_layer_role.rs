@@ -15,12 +15,12 @@ fn copper_layer_roles_round_trip_and_validate() -> Result<(), String> {
     let layer = Layer::from_index(1)?;
     p.set_copper_layer_plane_role(layer, "ground")?;
     p.validate()?;
-    let json = serde_json::to_string(&p)?;
+    let json = serde_json::to_string(&p).map_err(|e| e.to_string())?;
     assert!(
         json.contains("\"copper_layer_roles\"") && json.contains("ground"),
         "roles persist in the saved design"
     );
-    let back: Project = serde_json::from_str(&json)?;
+    let back: Project = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     assert_eq!(back.copper_layer_plane_role(layer), Some("ground"));
     back.validate()?;
     Ok(())

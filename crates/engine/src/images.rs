@@ -351,7 +351,6 @@ fn trace(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error>
                     cutouts: vec![],
                     filled: true,
                     kind: None,
-                    preserved: pcbcraft_doc::PreservedSource::default(),
                     pour: None,
                 });
                 ids.push(id);

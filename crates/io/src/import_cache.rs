@@ -1,10 +1,6 @@
 //! On-disk cache of converted 3D models under the user cache directory.
-use crate::model_compact::{
-    cache_entry_name, decode_compact, encode_compact, source_digest,
-};
-use crate::model_load::{
-    load_model, LoadedModel, LOADER_VERSION, ModelError, MAX_MODEL_BYTES,
-};
+use crate::model_compact::{cache_entry_name, decode_compact, encode_compact, source_digest};
+use crate::model_load::{LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, ModelError, load_model};
 use crate::step_read::STEP_TOLERANCE_MM;
 use std::fs;
 use std::io::Write;
@@ -27,7 +23,10 @@ fn step_tolerance_for_path(path: &str) -> f64 {
 }
 
 /// User cache folder for converted models: `pcbcraft/models`.
-pub fn default_import_cache_dir_with(get: &dyn Fn(&str) -> Option<String>, os: &str) -> Option<PathBuf> {
+pub fn default_import_cache_dir_with(
+    get: &dyn Fn(&str) -> Option<String>,
+    os: &str,
+) -> Option<PathBuf> {
     let absolute = |name: &str| {
         get(name)
             .filter(|v| !v.is_empty())
@@ -136,21 +135,14 @@ mod tests {
         let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
         let cache = ImportCache::open(dir.path().to_path_buf());
         let source = include_bytes!("../tests/fixtures/box.step");
-        let first = cache
-            .load_or_convert("box.step", source)
-            .map_err(|e| e.0)?;
+        let first = cache.load_or_convert("box.step", source).map_err(|e| e.0)?;
         let digest = source_digest(source);
         let name = cache_entry_name(&digest, LOADER_VERSION, STEP_TOLERANCE_MM);
-        let path = dir
-            .path()
-            .join(&digest[..2])
-            .join(name);
+        let path = dir.path().join(&digest[..2]).join(name);
         assert!(path.is_file(), "the cache file should exist");
         let mtime = path.metadata().map_err(|e| e.to_string())?.modified().ok();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        let second = cache
-            .load_or_convert("box.step", source)
-            .map_err(|e| e.0)?;
+        let second = cache.load_or_convert("box.step", source).map_err(|e| e.0)?;
         assert_eq!(first, second);
         let mtime2 = path.metadata().map_err(|e| e.to_string())?.modified().ok();
         assert_eq!(mtime, mtime2, "a cache hit must not rewrite the file");
@@ -162,9 +154,7 @@ mod tests {
         let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
         let cache = ImportCache::open(dir.path().to_path_buf());
         let source = include_bytes!("../tests/fixtures/box.step");
-        cache
-            .load_or_convert("box.step", source)
-            .map_err(|e| e.0)?;
+        cache.load_or_convert("box.step", source).map_err(|e| e.0)?;
         let mut changed = source.to_vec();
         changed.push(b'\n');
         let again = cache

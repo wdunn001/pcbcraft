@@ -14,6 +14,7 @@ pub fn lcsc_signature(key: &str, secret: &str, nonce: &str, timestamp: &str) -> 
 }
 
 /// JLCPCB Open Platform `JOP` authorization header value.
+#[allow(clippy::too_many_arguments)]
 pub fn jlcpcb_authorization(
     app_id: &str,
     access_key: &str,
@@ -37,7 +38,7 @@ pub fn jlcpcb_authorization(
         return String::new();
     };
     mac.update(string_to_sign.as_bytes());
-    let signature = base64_encode(mac.finalize().into_bytes());
+    let signature = base64_encode(mac.finalize().into_bytes().to_vec());
     format!(
         "JOP appid=\"{app_id}\",accesskey=\"{access_key}\",timestamp=\"{timestamp}\",nonce=\"{nonce}\",signature=\"{signature}\""
     )

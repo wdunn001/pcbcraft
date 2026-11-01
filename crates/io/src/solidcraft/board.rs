@@ -124,10 +124,13 @@ pub fn solidcraft_board(
     }
 
     let mut part_names: BTreeSet<String> = BTreeSet::new();
-    for part in mesh.parts.iter().filter(|p| p.kind == PartKind::Body) {
-        let Some(component_id) = part.component else {
+    for body_part in mesh.parts.iter().filter(|p| p.kind == PartKind::Body) {
+        let Some(component_id) = body_part.component else {
             continue;
         };
+        // Bodies are instanced on a shared prototype; the file stores plain triangles.
+        let flat = body_part.flattened();
+        let part = &flat;
         if part.indices.is_empty() {
             continue;
         }
@@ -152,6 +155,9 @@ pub fn solidcraft_board(
                     scale: [1.0; 3],
                     rotate: [0.0; 3],
                     raw_source: String::new(),
+                    body_id: Default::default(),
+                    cad_part: Default::default(),
+                    embedded: Default::default(),
                 },
                 fp.position,
                 fp.rotation,
@@ -383,6 +389,10 @@ fn merge<'a>(parts: impl Iterator<Item = &'a MeshPart>) -> MeshPart {
         color: None,
         positions: vec![],
         indices: vec![],
+        instance: Default::default(),
+        prototype: Default::default(),
+        authored_colors: Default::default(),
+        materials: Default::default(),
     };
     for p in parts {
         let base = out.positions.len() as u32;
@@ -523,6 +533,7 @@ mod tests {
                 electrical_type: p.electrical_type.clone(),
                 direction: Some(p.angle),
                 unit: p.unit,
+                appearances: Default::default(),
             })
             .collect();
         let mut project = Project::default();
@@ -551,6 +562,13 @@ mod tests {
                     definition: footprint.clone(),
                 }),
                 fields: vec![],
+                compliance: Default::default(),
+                include_in_bom: true,
+                include_in_placement: true,
+                instance: Default::default(),
+                part: None,
+                prototype: Default::default(),
+                sourcing: Default::default(),
             });
             project.board.footprints.push(pcbcraft_doc::Footprint {
                 id: id + 1,
@@ -560,6 +578,7 @@ mod tests {
                 locked: None,
                 side: None,
                 pads: pads.clone(),
+                preserved: Default::default(),
             });
         }
         project.name = "demo".into();
@@ -650,8 +669,9 @@ mod tests {
             let source = board
                 .parts
                 .iter()
-                .find(|p| p.component == Some(component))
-                .ok_or("part missing")?;
+                .find(|p| p.component == Some(component) && p.kind == PartKind::Body)
+                .ok_or("part missing")?
+                .flattened();
             let occurrence = list(&doc, "occurrences")?
                 .iter()
                 .find(|o| o.get("name").and_then(Value::as_str) == Some(reference))
@@ -740,6 +760,9 @@ mod tests {
             scale: [1.0; 3],
             rotate: [0.0; 3],
             raw_source: String::new(),
+            body_id: Default::default(),
+            cad_part: Default::default(),
+            embedded: Default::default(),
         };
         for bottom in [false, true] {
             let m = model_matrix(&model, Point::new(12.5, -3.0), 37.0, bottom, 1.6);

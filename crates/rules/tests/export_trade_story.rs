@@ -1,5 +1,5 @@
 //! Story test for issue #697 (runs without the UI crate).
-use pcbcraft_doc::{Component, ComponentField, ExportTradeSettings, Project, TariffExposureRow};
+use pcbcraft_doc::{Component, ComponentField, Project, TariffExposureRow};
 use pcbcraft_rules::export_trade_report;
 
 fn part(id: u64, reference: &str, fields: &[(&str, &str)]) -> Component {
@@ -22,6 +22,13 @@ fn part(id: u64, reference: &str, fields: &[(&str, &str)]) -> Component {
             })
             .collect(),
         sheet: 0,
+        compliance: Default::default(),
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     }
 }
 

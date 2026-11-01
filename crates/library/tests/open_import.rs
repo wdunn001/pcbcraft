@@ -37,11 +37,7 @@ fn footprint_sku_skips_model_when_not_asked() -> Result<(), Boxed> {
     let tmp = tempfile::tempdir()?;
     let rec = Recorded::new()?;
     let s = source(&rec, CadCache::open(tmp.path()));
-    let off = import_open(
-        &s,
-        "footprint:Resistor_SMD/R_0603_1608Metric",
-        false,
-    )?;
+    let off = import_open(&s, "footprint:Resistor_SMD/R_0603_1608Metric", false)?;
     assert!(off.get("model").is_none());
     assert_eq!(off["notices"].as_array().map(|a| a.len()), Some(1));
     Ok(())

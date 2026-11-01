@@ -1,8 +1,8 @@
 //! Oracle tests for copper rubout hatch paths (issue 202).
-use pcbcraft_doc::{Footprint, Layer, Net, Pad, Project};
+use pcbcraft_doc::{Component, Footprint, Layer, Net, Pad, Pin, Project};
 use pcbcraft_geom::{
-    Point, Ring, polygon_boundary_distance, polygon_difference, polygon_offset, polygon_union,
-    segment_distance, OffsetJoin,
+    OffsetJoin, Point, Ring, polygon_boundary_distance, polygon_difference, polygon_offset,
+    polygon_union, segment_distance,
 };
 use pcbcraft_io::{
     CamMirrorAxis, CncProfile, IsolationOptions, RubRegion, Side, Spindle, Tool,
@@ -41,9 +41,39 @@ fn single_pad_20mm_board() -> Project {
         name: "A".into(),
         ..Net::default()
     });
+    p.components.push(Component {
+        sourcing: Default::default(),
+        id: 3,
+        reference: "U1".into(),
+        value: "A".into(),
+        kind: "connector".into(),
+        position: Point::new(10.0, 10.0),
+        rotation: 0.0,
+        pins: vec![Pin {
+            number: "1".into(),
+            name: "1".into(),
+            offset: Point::default(),
+            net: Some(1),
+            electrical_type: "passive".into(),
+            direction: None,
+            unit: 1,
+            appearances: vec![],
+        }],
+        units: vec![],
+        library_symbol: None,
+        library_footprint: None,
+        fields: vec![],
+        sheet: 0,
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+    });
     p.board.footprints.push(Footprint {
-        id: 1,
-        component: 0,
+        id: 2,
+        component: 3,
         position: Point::new(10.0, 10.0),
         rotation: 0.0,
         pads: vec![Pad {
@@ -56,6 +86,7 @@ fn single_pad_20mm_board() -> Project {
         }],
         locked: None,
         side: None,
+        preserved: Default::default(),
     });
     p
 }
@@ -87,13 +118,7 @@ fn rubout_hatch_stays_clear_of_pad_and_covers_the_region() -> Result<(), String>
             alignment_holes: false,
         },
     )?;
-    let paths = rubout_paths(
-        &p,
-        Side::Top,
-        &region,
-        &keep,
-        isolation_tool().diameter_mm,
-    )?;
+    let paths = rubout_paths(&p, Side::Top, &region, &keep, isolation_tool().diameter_mm)?;
     assert!(!paths.is_empty());
     let pad = pad_ring(&p);
     let half = region.tool.diameter_mm / 2.0;
@@ -108,7 +133,7 @@ fn rubout_hatch_stays_clear_of_pad_and_covers_the_region() -> Result<(), String>
             );
         }
     }
-    let copper = vec![pad];
+    let copper = vec![pad.clone()];
     let grown = polygon_offset(&polygon_union(&copper), half, OffsetJoin::Round);
     let rect = vec![
         Point::new(0.0, 0.0),
@@ -199,14 +224,8 @@ fn rubout_tool_smaller_than_isolation_is_refused() {
         stepover_pct: 50,
         angle_deg: 0.0,
     };
-    let err = rubout_paths(
-        &p,
-        Side::Top,
-        &region,
-        &[],
-        rubout_tool().diameter_mm,
-    )
-    .err()
-    .unwrap_or_default();
+    let err = rubout_paths(&p, Side::Top, &region, &[], rubout_tool().diameter_mm)
+        .err()
+        .unwrap_or_default();
     assert!(err.contains("smaller than the isolation tool"));
 }

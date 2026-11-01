@@ -2,10 +2,10 @@
 
 use crate::canvas::snap;
 use crate::{App, Tab, Tool};
-use egui;
-use pcbcraft_doc::{Id, PinRef, Point};
+use pcbcraft_doc::{Id, PinRef};
+use pcbcraft_geom::Point;
 use pcbcraft_geom::point_segment;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Which schematic label tool is armed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,14 +49,15 @@ impl App {
     /// Snap a schematic click for wire/bus drafting, honouring live angle locks.
     pub(super) fn wire_click_point(&self, pos: Point) -> Point {
         let at = snap(pos);
-        if let Tool::Wire(Some(_)) = &self.tool {
-            if let Some(anchor) = self.wire_route.last().copied() {
-                if self.edit.live.contains(crate::tool_modifiers::ModAction::ConstrainAngle) {
-                    let (x, y) =
-                        crate::tool_modifiers::constrain_angle((anchor.x, anchor.y), (at.x, at.y));
-                    return Point::new(x, y);
-                }
-            }
+        if let Tool::Wire(Some(_)) = &self.tool
+            && let Some(anchor) = self.wire_route.last().copied()
+            && self
+                .edit
+                .live
+                .contains(crate::tool_modifiers::ModAction::ConstrainAngle)
+        {
+            let (x, y) = crate::tool_modifiers::constrain_angle((anchor.x, anchor.y), (at.x, at.y));
+            return Point::new(x, y);
         }
         at
     }
@@ -124,19 +125,16 @@ impl App {
             return;
         };
         let mut points = self.wire_route.clone();
-        if points.is_empty() {
-            if let Some(at) = self.project.pin_position(&start) {
-                points.push(at);
-            }
+        if points.is_empty()
+            && let Some(at) = self.project.pin_position(&start)
+        {
+            points.push(at);
         }
         if points.last().copied() != Some(end_pos) {
             points.push(end_pos);
         }
         if points.len() == 2 && start != end {
-            self.run(
-                "wire.connect",
-                json!({"from": start, "to": end}),
-            );
+            self.run("wire.connect", json!({"from": start, "to": end}));
             self.clear_wire_draft();
             self.tool = Tool::Select;
             return;
@@ -238,9 +236,7 @@ impl App {
 
     fn schematic_label_click(&mut self, pos: Point, zoom: f32, kind: SchematicLabelKind) {
         let at = snap(pos);
-        let mut net = self
-            .net_at_schematic_point(at, zoom)
-            .or_else(|| self.highlight_net);
+        let mut net = self.net_at_schematic_point(at, zoom).or(self.highlight_net);
         if net.is_none() {
             net = self.bus_member_at(at, zoom);
         }
@@ -265,24 +261,34 @@ impl App {
             if w.net.is_some() {
                 continue;
             }
-            let on = w.points.windows(2).any(|pair| point_segment(pos, pair[0], pair[1]) <= reach);
+            let on = w
+                .points
+                .windows(2)
+                .any(|pair| point_segment(pos, pair[0], pair[1]) <= reach);
             if !on {
                 continue;
             }
             let head = w.points.first().copied()?;
-            let bus_label = self.project.labels.iter().find(|l| {
-                l.kind == "bus" && l.position.distance(head) < 0.05
-            })?;
+            let bus_label = self
+                .project
+                .labels
+                .iter()
+                .find(|l| l.kind == "bus" && l.position.distance(head) < 0.05)?;
             let (stem, _count) = parse_bus_notation(&bus_label.text)?;
             let name = format!("{stem}0");
-            return self.project.nets.iter().find(|n| n.name == name).map(|n| n.id);
+            return self
+                .project
+                .nets
+                .iter()
+                .find(|n| n.name == name)
+                .map(|n| n.id);
         }
         None
     }
 
     fn net_at_schematic_point(&self, pos: Point, zoom: f32) -> Option<Id> {
         if let Some(pin) = self.pick_pin(pos, zoom) {
-            return self.project.pin(&pin).ok()?.net;
+            return self.project.pin(&pin)?.net;
         }
         let reach = 5.0 / zoom as f64;
         for w in &self.project.drawn_wires {
@@ -357,7 +363,11 @@ impl App {
                     {
                         apply_new = true;
                     }
-                    if ui.button("Cancel").on_hover_text("Drop the wire.").clicked() {
+                    if ui
+                        .button("Cancel")
+                        .on_hover_text("Drop the wire.")
+                        .clicked()
+                    {
                         keep = false;
                     }
                 });
@@ -445,12 +455,12 @@ impl App {
 
     pub(super) fn wire_draft_preview(&self, cursor: Point) -> Vec<Point> {
         let mut out = self.wire_route.clone();
-        if let Tool::Wire(Some(_)) = &self.tool {
-            if let Some(from) = out.last().copied() {
-                let tail = self.wire_preview_points(from, cursor);
-                if tail.len() >= 2 {
-                    out.extend_from_slice(&tail[1..]);
-                }
+        if let Tool::Wire(Some(_)) = &self.tool
+            && let Some(from) = out.last().copied()
+        {
+            let tail = self.wire_preview_points(from, cursor);
+            if tail.len() >= 2 {
+                out.extend_from_slice(&tail[1..]);
             }
         }
         out

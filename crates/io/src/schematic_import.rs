@@ -612,6 +612,17 @@ impl ImportCtx {
                 name,
                 target_length: None,
                 length_tolerance: None,
+                current: Default::default(),
+                impedance_target: Default::default(),
+                impedance_tolerance_pct: Default::default(),
+                instance: Default::default(),
+                insulation: Default::default(),
+                line_structure: Default::default(),
+                reference_layers: Default::default(),
+                return_path_rule: Default::default(),
+                temperature_rise: Default::default(),
+                working_voltage: Default::default(),
+                max_length: Default::default(),
             });
         }
 
@@ -641,6 +652,17 @@ impl ImportCtx {
                 name: format!("Net{orphan}"),
                 target_length: None,
                 length_tolerance: None,
+                current: Default::default(),
+                impedance_target: Default::default(),
+                impedance_tolerance_pct: Default::default(),
+                instance: Default::default(),
+                insulation: Default::default(),
+                line_structure: Default::default(),
+                reference_layers: Default::default(),
+                return_path_rule: Default::default(),
+                temperature_rise: Default::default(),
+                working_voltage: Default::default(),
+                max_length: Default::default(),
             });
             orphan += 1;
         }
@@ -737,6 +759,7 @@ impl ImportCtx {
                         pin: pcbcraft_doc::PinRef {
                             component: component_id,
                             pin: pin_number,
+                            unit: None,
                         },
                     });
                 }

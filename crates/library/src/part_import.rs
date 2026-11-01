@@ -1,6 +1,4 @@
-use crate::part_types::{
-    FootprintSource, Model3dRef, MpnSource, Part, PinSpec,
-};
+use crate::part_types::{FootprintSource, Model3dRef, MpnSource, Part, PinSpec};
 use crate::{FootprintDefinition, ParamBody, SymbolDefinition, pin_kind_from_library_string};
 use crate::{PackageKey, read_footprint, read_symbols};
 
@@ -33,16 +31,20 @@ pub fn part_from_library_bundle(
             unit: None,
         });
     }
-    let model3d = footprint.model.as_ref().map(|m| Model3dRef::Wrl {
-        path: m.path.clone(),
-        offset: m.offset,
-        scale: m.scale,
-        rotate: m.rotate,
-    }).or_else(|| {
-        Some(Model3dRef::Parametric {
-            body: ParamBody::from_key(&package_key, &symbol.description),
+    let model3d = footprint
+        .model
+        .as_ref()
+        .map(|m| Model3dRef::Wrl {
+            path: m.path.clone(),
+            offset: m.offset,
+            scale: m.scale,
+            rotate: m.rotate,
         })
-    });
+        .or_else(|| {
+            Some(Model3dRef::Parametric {
+                body: ParamBody::from_key(&package_key, &symbol.description),
+            })
+        });
     let part = Part {
         id,
         manufacturer: manufacturer.to_owned(),
@@ -112,15 +114,15 @@ pub fn load_symbol_footprint_files(
     symbol_name: &str,
     footprint_path: &str,
 ) -> Result<(SymbolDefinition, FootprintDefinition), String> {
-    let sym_text = std::fs::read_to_string(symbol_path)
-        .map_err(|e| format!("{symbol_path}: {e}"))?;
+    let sym_text =
+        std::fs::read_to_string(symbol_path).map_err(|e| format!("{symbol_path}: {e}"))?;
     let symbols = read_symbols(&sym_text).map_err(|e| e.to_string())?;
     let symbol = symbols
         .into_iter()
         .find(|s| s.name == symbol_name)
         .ok_or_else(|| format!("symbol {symbol_name} not found"))?;
-    let fp_text = std::fs::read_to_string(footprint_path)
-        .map_err(|e| format!("{footprint_path}: {e}"))?;
+    let fp_text =
+        std::fs::read_to_string(footprint_path).map_err(|e| format!("{footprint_path}: {e}"))?;
     let footprint = read_footprint(&fp_text).map_err(|e| e.to_string())?;
     Ok((symbol, footprint))
 }

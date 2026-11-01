@@ -157,21 +157,19 @@ fn scan_exchange(exchange: &Exchange, scale: f64) -> Result<EnclosureScan, Strin
             continue;
         };
         if surface.starts_with("PLANE(") {
-            if planar_faces.len() < MAX_PLANAR_FACES {
-                if let Some(polygon) = face_polygon(body, &exchange.entities, &point_coords) {
-                    if polygon.len() >= 3 && polygon.len() <= MAX_FACE_VERTICES {
-                        planar_faces.push(PlanarFace { polygon });
-                    }
-                }
+            if planar_faces.len() < MAX_PLANAR_FACES
+                && let Some(polygon) = face_polygon(body, &exchange.entities, &point_coords)
+                && polygon.len() >= 3
+                && polygon.len() <= MAX_FACE_VERTICES
+            {
+                planar_faces.push(PlanarFace { polygon });
             }
         } else {
             hidden_face_count += 1;
         }
     }
     let notice = (hidden_face_count > 0).then(|| {
-        format!(
-            "{hidden_face_count} faces not shown; add a glTF or OBJ export for the picture"
-        )
+        format!("{hidden_face_count} faces not shown; add a glTF or OBJ export for the picture")
     });
     Ok(EnclosureScan {
         bounds: ScanBounds { min, max },
@@ -215,9 +213,9 @@ fn parse_coord_tuple(text: &str) -> Option<[f64; 3]> {
     let close = find_matching_paren(text, open)?;
     let inner = &text[open + 1..close];
     let mut parts = inner.split(',');
-    let x = parts.next()?.trim().parse().ok()?;
-    let y = parts.next()?.trim().parse().ok()?;
-    let z = parts.next()?.trim().parse().ok()?;
+    let x: f64 = parts.next()?.trim().parse().ok()?;
+    let y: f64 = parts.next()?.trim().parse().ok()?;
+    let z: f64 = parts.next()?.trim().parse().ok()?;
     if x.is_finite() && y.is_finite() && z.is_finite() {
         Some([x, y, z])
     } else {
@@ -227,21 +225,21 @@ fn parse_coord_tuple(text: &str) -> Option<[f64; 3]> {
 
 fn parse_step_string(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
-    if trimmed.starts_with('\'') {
-        let end = trimmed[1..].find('\'')?;
-        Some(trimmed[1..1 + end].to_string())
+    if let Some(rest) = trimmed.strip_prefix('\'') {
+        let end = rest.find('\'')?;
+        Some(rest[..end].to_string())
     } else {
         Some(String::new())
     }
 }
 
 fn split_step_args(inside: &str) -> (String, String) {
-    if inside.starts_with('\'') {
-        if let Some(end) = inside[1..].find('\'') {
-            let name = inside[..2 + end].to_string();
-            let rest = inside[2 + end..].trim_start_matches(',').trim();
-            return (name, rest.to_string());
-        }
+    if inside.starts_with('\'')
+        && let Some(end) = inside[1..].find('\'')
+    {
+        let name = inside[..2 + end].to_string();
+        let rest = inside[2 + end..].trim_start_matches(',').trim();
+        return (name, rest.to_string());
     }
     (String::new(), inside.to_string())
 }
@@ -299,11 +297,11 @@ fn face_polygon(
     let mut current = bound_id;
     for _ in 0..8 {
         let body = entities.get(&current)?;
-        if body.starts_with("FACE_OUTER_BOUND") {
-            if let Some(loop_id) = ref_id(body, "#") {
-                current = loop_id;
-                continue;
-            }
+        if body.starts_with("FACE_OUTER_BOUND")
+            && let Some(loop_id) = ref_id(body, "#")
+        {
+            current = loop_id;
+            continue;
         }
         if body.starts_with("EDGE_LOOP") {
             return walk_edge_loop(body, entities, points);
@@ -358,17 +356,17 @@ fn walk_edge_loop(
     let inner = &body[open + 1..close];
     let mut ring = Vec::new();
     for token in inner.split(',') {
-        let token = token.trim().trim_start_matches('#');
-        let edge_id: u32 = token.parse().ok()?;
+        // The loop name comes first and the edge list is parenthesised.
+        let token = token.trim().trim_start_matches('(').trim_end_matches(')');
+        let Some(token) = token.strip_prefix('#') else {
+            continue;
+        };
+        let edge_id: u32 = token.trim().parse().ok()?;
         if let Some(point) = edge_start_point(edge_id, entities, points) {
             push_vertex(&mut ring, point);
         }
     }
-    if ring.len() >= 3 {
-        Some(ring)
-    } else {
-        None
-    }
+    if ring.len() >= 3 { Some(ring) } else { None }
 }
 
 fn push_vertex(ring: &mut Vec<[f64; 3]>, point: [f64; 3]) {
@@ -390,16 +388,16 @@ fn edge_start_point(
     let mut current = edge_id;
     for _ in 0..6 {
         let body = entities.get(&current)?;
-        if body.starts_with("ORIENTED_EDGE") {
-            if let Some(next) = ref_id(body, "#") {
-                current = next;
-                continue;
-            }
+        if body.starts_with("ORIENTED_EDGE")
+            && let Some(next) = ref_id(body, "#")
+        {
+            current = next;
+            continue;
         }
-        if body.starts_with("EDGE_CURVE") {
-            if let Some(vertex_id) = ref_id(body, "#") {
-                return vertex_point(vertex_id, entities, points);
-            }
+        if body.starts_with("EDGE_CURVE")
+            && let Some(vertex_id) = ref_id(body, "#")
+        {
+            return vertex_point(vertex_id, entities, points);
         }
         if let Some(next) = ref_id(body, "#") {
             current = next;
@@ -416,10 +414,10 @@ fn vertex_point(
     points: &BTreeMap<u32, [f64; 3]>,
 ) -> Option<[f64; 3]> {
     let body = entities.get(&vertex_id)?;
-    if body.starts_with("VERTEX_POINT") {
-        if let Some(point_id) = ref_id(body, "#") {
-            return points.get(&point_id).copied();
-        }
+    if body.starts_with("VERTEX_POINT")
+        && let Some(point_id) = ref_id(body, "#")
+    {
+        return points.get(&point_id).copied();
     }
     None
 }
@@ -433,11 +431,11 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
             .join(name);
-        std::fs::read(path).expect("fixture")
+        std::fs::read(path).unwrap_or_default()
     }
 
     fn inject_before_endsec(mut text: String, line: &str) -> Vec<u8> {
-        if let Some(index) = text.find("ENDSEC;") {
+        if let Some(index) = text.rfind("ENDSEC;") {
             text.insert_str(index, line);
         } else {
             text.push_str(line);
@@ -448,10 +446,7 @@ mod tests {
     #[test]
     fn enclosure_scan_reads_bounds_and_named_datums() -> Result<(), String> {
         let text = String::from_utf8_lossy(&read_fixture("box.step")).into_owned();
-        let bytes = inject_before_endsec(
-            text,
-            "#200=CARTESIAN_POINT('Mount_A',(5.0,5.0,0.0));\n",
-        );
+        let bytes = inject_before_endsec(text, "#200=CARTESIAN_POINT('Mount_A',(5.0,5.0,0.0));\n");
         let scan = read_enclosure_step(&bytes)?;
         assert!((scan.bounds.min[0] - 0.0).abs() < 1e-6);
         assert!((scan.bounds.max[0] - 10.0).abs() < 1e-6);
@@ -481,8 +476,11 @@ mod tests {
 
     #[test]
     fn enclosure_scan_refuses_oversized_input() {
-        let huge = b"ISO-10303-21;\nDATA;\n".to_vec()
-            + &(b"#1=CARTESIAN_POINT('',(0,0,0));\n".repeat(500_000));
+        let huge = [
+            b"ISO-10303-21;\nDATA;\n".to_vec(),
+            b"#1=CARTESIAN_POINT('',(0,0,0));\n".repeat(500_000),
+        ]
+        .concat();
         assert!(read_enclosure_step(&huge).is_err());
     }
 }

@@ -159,7 +159,7 @@ fn run() -> Result<(), String> {
                 pcbcraft_mcp::http::serve_server(std::sync::Arc::new(server), &listener);
                 return Ok(());
             }
-let bridge_token = option(&args, "--token")
+            let bridge_token = option(&args, "--token")
                 .map(str::to_string)
                 .or_else(|| std::env::var("PCBCRAFT_CONTROL_TOKEN").ok())
                 .filter(|t| !t.is_empty());

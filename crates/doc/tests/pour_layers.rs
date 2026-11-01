@@ -43,8 +43,6 @@ fn via(id: Id, net: Id, x: f64, from: Option<u8>, to: Option<u8>) -> Result<Via,
         from_layer: from.map(layer).transpose()?,
         to_layer: to.map(layer).transpose()?,
         covering: None,
-covering: None,
-        covering_scope: None,
         covering_bottom: None,
         backdrill: None,
     })
@@ -129,6 +127,12 @@ fn board() -> Result<Project, String> {
             ..Default::default()
         });
     }
+    // This fixture is about which copper reaches which layer, so inner pads stay:
+    // a six-layer board strips unconnected inner pads unless told otherwise.
+    p.board.rules = Some(pcbcraft_doc::FabRules {
+        remove_unused_inner_pads: Some(false),
+        ..Default::default()
+    });
     p.board.layer_records = ["F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "In4.Cu", "B.Cu"]
         .iter()
         .map(|name| copper(name))

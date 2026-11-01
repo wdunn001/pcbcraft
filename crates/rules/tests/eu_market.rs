@@ -1,9 +1,14 @@
 use pcbcraft_doc::{
-    Compliance, ComplianceDeclaration, ComplianceSource, ComplianceSourceKind, ComplianceStatus,
-    DeclaredSubstance, Project,
+    Compliance, Declaration, DeclarationSource, DeclarationSourceKind, DeclarationStatus,
+    DeclaredSubstance, PartRole, Project,
 };
+
+fn set_compliance(p: &mut Project, id: u64, compliance: Compliance) {
+    if let Some(c) = p.components.iter_mut().find(|c| c.id == id) {
+        c.compliance = compliance;
+    }
+}
 use pcbcraft_rules::compliance_check;
-use std::collections::BTreeMap;
 
 fn sample_project() -> Project {
     let mut p = Project::default();
@@ -14,14 +19,14 @@ fn sample_project() -> Project {
         "R1".into(),
         pcbcraft_geom::Point::default(),
     )
-    .expect("template");
+    .unwrap_or_default();
     p.components.push(c);
     p
 }
 
-fn user_source() -> ComplianceSource {
-    ComplianceSource {
-        kind: ComplianceSourceKind::User,
+fn user_source() -> DeclarationSource {
+    DeclarationSource {
+        kind: DeclarationSourceKind::User,
         label: "designer".into(),
         url: None,
         document_ref: None,
@@ -32,10 +37,7 @@ fn user_source() -> ComplianceSource {
 fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
     let p = sample_project();
     let bare = compliance_check(&p);
-    let unverified: Vec<_> = bare
-        .iter()
-        .filter(|f| f.state == "unverified")
-        .collect();
+    let unverified: Vec<_> = bare.iter().filter(|f| f.state == "unverified").collect();
     assert!(
         unverified.len() >= 3,
         "missing declarations should surface grouped unverified rows: {:?}",
@@ -47,30 +49,31 @@ fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
     );
 
     let mut declared = sample_project();
-    declared.compliance_by_component.insert(
+    set_compliance(
+        &mut declared,
         1,
         Compliance {
             declarations: vec![
-                ComplianceDeclaration {
+                Declaration {
                     regime: "eu.rohs".into(),
-                    status: ComplianceStatus::DeclaredCompliant,
+                    status: DeclarationStatus::DeclaredCompliant,
                     detail: String::new(),
                     source: user_source(),
-                    as_of: Some("2026-03-01".into()),
+                    as_of: "2026-03-01".into(),
                 },
-                ComplianceDeclaration {
+                Declaration {
                     regime: "eu.reach.svhc".into(),
-                    status: ComplianceStatus::DeclaredCompliant,
+                    status: DeclarationStatus::DeclaredCompliant,
                     detail: "2026-03".into(),
                     source: user_source(),
-                    as_of: Some("2026-03-01".into()),
+                    as_of: "2026-03-01".into(),
                 },
-                ComplianceDeclaration {
+                Declaration {
                     regime: "eu.halogen_free".into(),
-                    status: ComplianceStatus::DeclaredCompliant,
+                    status: DeclarationStatus::DeclaredCompliant,
                     detail: String::new(),
                     source: user_source(),
-                    as_of: Some("2026-03-01".into()),
+                    as_of: "2026-03-01".into(),
                 },
             ],
             ..Compliance::default()
@@ -84,15 +87,16 @@ fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
     );
 
     let mut stale = sample_project();
-    stale.compliance_by_component.insert(
+    set_compliance(
+        &mut stale,
         1,
         Compliance {
-            declarations: vec![ComplianceDeclaration {
+            declarations: vec![Declaration {
                 regime: "eu.rohs".into(),
-                status: ComplianceStatus::DeclaredExempt,
+                status: DeclarationStatus::DeclaredExempt,
                 detail: "6(a)".into(),
                 source: user_source(),
-                as_of: Some("2026-03-01".into()),
+                as_of: "2026-03-01".into(),
             }],
             ..Compliance::default()
         },
@@ -126,58 +130,69 @@ fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
     );
 
     let mut reach_hit = sample_project();
-    reach_hit.compliance_by_component.insert(
+    set_compliance(
+        &mut reach_hit,
         1,
         Compliance {
-            declarations: vec![ComplianceDeclaration {
+            declarations: vec![Declaration {
                 regime: "eu.reach.svhc".into(),
-                status: ComplianceStatus::DeclaredCompliant,
+                status: DeclarationStatus::DeclaredCompliant,
                 detail: "2026-03".into(),
                 source: user_source(),
-                as_of: Some("2026-03-01".into()),
+                as_of: "2026-03-01".into(),
             }],
             substances: vec![DeclaredSubstance {
                 name: "Synthetic SVHC Alpha".into(),
-                cas: Some("999-00-1".into()),
+                cas: "999-00-1".into(),
                 weight_percent: 0.2,
+                note: Default::default(),
             }],
             ..Compliance::default()
         },
     );
     let reach = compliance_check(&reach_hit);
     assert!(
-        reach.iter().any(|f| f.code == "reach_article_33" && f.state == "hit"),
+        reach
+            .iter()
+            .any(|f| f.code == "reach_article_33" && f.state == "hit"),
         "SVHC above 0.1% should Article 33 finding: {:?}",
         reach
     );
 }
 
 #[test]
-fn bundled_list_metadata_is_present() {
+fn bundled_list_metadata_is_present() -> Result<(), String> {
     let reach = pcbcraft_rules::load_list_snapshot(include_str!(
         "../data/compliance/lists/reach_svhc_candidate.toml"
     ))
-    .expect("reach snapshot");
+    .map_err(|e| format!("{}: {e:?}", "reach snapshot"))?;
     assert!(!reach.source_url.is_empty());
     assert!(!reach.licence.is_empty());
-    assert!(pcbcraft_doc::valid_date(&reach.retrieved));
+    assert!(pcbcraft_doc::valid_date(&reach.retrieved_date));
+    Ok(())
 }
 
 #[test]
-fn compliance_project_round_trips() {
+fn compliance_project_round_trips() -> Result<(), String> {
     let mut p = sample_project();
-    p.compliance_by_component = BTreeMap::from([(
+    set_compliance(
+        &mut p,
         1,
         Compliance {
-            role: Some("battery".into()),
+            role: Some(PartRole::Battery),
             ..Compliance::default()
         },
-    )]);
-    let json = serde_json::to_string(&p).expect("serialize");
-    let back: Project = serde_json::from_str(&json).expect("deserialize");
+    );
+    let json = serde_json::to_string(&p).map_err(|e| format!("{}: {e:?}", "serialize"))?;
+    let back: Project =
+        serde_json::from_str(&json).map_err(|e| format!("{}: {e:?}", "deserialize"))?;
     assert_eq!(back.compliance_settings.rule_sets, vec!["eu_market"]);
     assert_eq!(
-        back.compliance_by_component.get(&1).and_then(|c| c.role.as_deref()),
-        Some("battery")
+        back.components
+            .iter()
+            .find(|c| c.id == 1)
+            .and_then(|c| c.compliance.role),
+        Some(PartRole::Battery)
     );
+    Ok(())
 }

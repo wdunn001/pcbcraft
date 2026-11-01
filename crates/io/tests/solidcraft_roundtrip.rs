@@ -1,17 +1,21 @@
 //! SolidCraft interchange fixtures and export round trips (#736).
+use pcbcraft_doc::{Layer, Project};
+use pcbcraft_geom::Point;
 use pcbcraft_io::{
     MeshLayers, SolidcraftDesign, SolidcraftLayers, board_mesh, bounds_close, design_as_value,
     designs_equal, part_snapshots, read_solidcraft, solidcraft_board, solidcraft_counts,
     transforms_close, write_solidcraft_container, write_solidcraft_json,
 };
-use pcbcraft_doc::{Layer, Project};
-use pcbcraft_geom::Point;
 use serde_json::Value;
 
 type Check = Result<(), String>;
 
 fn read_fixture(name: &str) -> Result<SolidcraftDesign, String> {
-    read_solidcraft(include_bytes!(concat!("fixtures/solidcraft/", name)).as_slice())
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/solidcraft")
+        .join(name);
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    read_solidcraft(&bytes)
 }
 
 fn body_names(doc: &Value) -> Result<Vec<String>, String> {
@@ -45,11 +49,19 @@ fn solidcraft_fixture_part_reads() -> Check {
         .and_then(Value::as_object)
         .ok_or("appearances.bodies missing")?;
     assert_eq!(
-        looks.get("Red").and_then(|v| v.get("color")).and_then(Value::as_array).map(|a| a.len()),
+        looks
+            .get("Red")
+            .and_then(|v| v.get("color"))
+            .and_then(Value::as_array)
+            .map(|a| a.len()),
         Some(3)
     );
     assert_eq!(
-        looks.get("Blue").and_then(|v| v.get("color")).and_then(Value::as_array).map(|a| a.len()),
+        looks
+            .get("Blue")
+            .and_then(|v| v.get("color"))
+            .and_then(Value::as_array)
+            .map(|a| a.len()),
         Some(3)
     );
     Ok(())
@@ -89,7 +101,11 @@ fn solidcraft_fixture_container_reads() -> Check {
         .and_then(|m| m.get("positions"))
         .and_then(Value::as_array)
         .ok_or("hydrated positions missing")?;
-    assert_eq!(positions.len(), 9, "container mesh should hydrate to nine coordinates");
+    assert_eq!(
+        positions.len(),
+        9,
+        "container mesh should hydrate to nine coordinates"
+    );
     Ok(())
 }
 
@@ -111,7 +127,25 @@ fn export_then_read_back_preserves_parts() -> Check {
         let text = solidcraft_board(&project, &mesh, SolidcraftLayers::default())?;
         let exported = read_solidcraft(text.as_bytes())?;
         let round = read_solidcraft(write_solidcraft_json(&exported)?.as_bytes())?;
-        assert!(designs_equal(&exported, &round));
+        if !designs_equal(&exported, &round) {
+            let a = design_as_value(&exported)?;
+            let b = design_as_value(&round)?;
+            let keys: Vec<&String> = a
+                .as_object()
+                .map(|m| {
+                    m.keys()
+                        .filter(|k| a.get(k.as_str()) != b.get(k.as_str()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let first =
+                |v: &Value, key: &str| v.get(key).map(|x| x.to_string()).unwrap_or_default();
+            return Err(format!(
+                "seed {seed}: designs differ in {keys:?}: {} against {}",
+                first(&a, "occurrences"),
+                first(&b, "occurrences")
+            ));
+        }
         let before = part_snapshots(&exported)?;
         let after = part_snapshots(&round)?;
         assert_eq!(before.len(), after.len());
@@ -164,6 +198,7 @@ fn random_board(seed: u64) -> Result<Project, String> {
             electrical_type: p.electrical_type.clone(),
             direction: Some(p.angle),
             unit: p.unit,
+            appearances: Default::default(),
         })
         .collect();
     let mut project = Project::default();
@@ -197,6 +232,13 @@ fn random_board(seed: u64) -> Result<Project, String> {
                 definition: footprint.clone(),
             }),
             fields: vec![],
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: id + 1,
@@ -206,6 +248,7 @@ fn random_board(seed: u64) -> Result<Project, String> {
             locked: None,
             side: if n % 2 == 0 { None } else { Some(Layer::Back) },
             pads: pads.clone(),
+            preserved: Default::default(),
         });
     }
     project.validate()?;

@@ -9,22 +9,12 @@
 //! Wire-format checklist (tools, tool results, stop reasons, headers): `docs/assistant-backends.md`.
 
 use crate::backend::{
-    ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PromptPart, StartContext, ToolStatus,
-};
-use crate::prompt::SYSTEM_NOTE;
-use crate::backend::{
-    ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PromptPart, StartContext, ToolStatus,
+    ChatBackend, Event, HttpFn, HttpRequest, HttpResponse, ModelInfo, PromptPart, StartContext,
+    ToolStatus,
 };
 use crate::prompt::SYSTEM_NOTE;
 use crate::retrieval::{self, MODEL_TOOL_NAME};
 use crate::stream::StreamParser;
-use crate::tool_names::{ToolNames, to_wire};
-use crate::turn::ToolRequest;
-use serde_json::{Value, json};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::Duration;
 use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
 use serde_json::{Value, json};
@@ -110,6 +100,8 @@ pub struct ApiBackend {
     cmds: Option<Sender<Cmd>>,
     events: Receiver<Event>,
     cancel: Arc<AtomicBool>,
+    /// A turn end held back so it never shares a poll with the text before it.
+    held_end: Option<Event>,
 }
 
 /// Whether a key may be sent to this address: HTTPS, or this computer.
@@ -176,13 +168,31 @@ impl ApiBackend {
             cmds: Some(cmd_tx),
             events,
             cancel,
+            held_end: None,
         })
     }
 }
 
 impl ChatBackend for ApiBackend {
     fn poll(&mut self) -> Vec<Event> {
-        self.events.try_iter().take(512).collect()
+        // The end of a turn is reported on a poll after the events that led up
+        // to it, so a streamed answer is on screen before the turn is over.
+        let mut out = Vec::new();
+        if let Some(end) = self.held_end.take() {
+            out.push(end);
+            return out;
+        }
+        while out.len() < 512 {
+            match self.events.try_recv() {
+                Ok(e) if matches!(e, Event::TurnEnded { .. }) && !out.is_empty() => {
+                    self.held_end = Some(e);
+                    break;
+                }
+                Ok(e) => out.push(e),
+                Err(_) => break,
+            }
+        }
+        out
     }
     fn prompt(&mut self, parts: &[PromptPart]) {
         self.cancel.store(false, Ordering::Relaxed);
@@ -572,31 +582,9 @@ impl Worker {
         std::thread::spawn(move || {
             let _ = tx.send(http(&req));
         });
-// streaming: follow-up
         let mut parser = StreamParser::new(self.cfg.protocol);
         let mut streamed = false;
-        let mut http_result: Option<Result<(u16, Vec<u8>), String>> = None;
-        let response = loop {
-            if self.cancelled() {
-                return Err("cancelled by the user".into());
-            }
-            if let Some(text) = self.drain_stream(&stream_rx, &mut parser, &mut streamed) {
-                return text;
-            }
-        };
-        Ok((
-            response.status,
-            serde_json::from_slice(&response.body).unwrap_or(Value::Null),
-        ))
-            if self.cancelled() {
-                return Err("cancelled by the user".into());
-            }
-            if let Some(text) = self.drain_stream(&stream_rx, &mut parser, &mut streamed) {
-                return text;
-            }
-let mut parser = StreamParser::new(self.cfg.protocol);
-        let mut streamed = false;
-        let mut http_result: Option<Result<(u16, Vec<u8>), String>> = None;
+        let mut http_result: Option<Result<HttpResponse, String>> = None;
         loop {
             if self.cancelled() {
                 return Err("cancelled by the user".into());
@@ -604,18 +592,15 @@ let mut parser = StreamParser::new(self.cfg.protocol);
             if let Some(text) = self.drain_stream(&stream_rx, &mut parser, &mut streamed) {
                 return text;
             }
-            if http_result.is_none() {
-                if let Ok(r) = rx.try_recv() {
-                    http_result = Some(r);
-                }
+            if http_result.is_none()
+                && let Ok(r) = rx.try_recv()
+            {
+                http_result = Some(r);
             }
-            if let Some(Ok((status, bytes))) = &http_result {
-                if streamed && bytes.is_empty() {
-                    // Wait for [`HttpStreamPart::End`] on the stream channel.
-                } else if !streamed {
-                    let v = serde_json::from_slice(bytes).unwrap_or(Value::Null);
-                    return Ok((*status, v, false));
-                } else {
+            if let Some(Ok(resp)) = &http_result {
+                let (status, bytes) = (&resp.status, &resp.body);
+                // A streamed reply with an empty body waits for [`HttpStreamPart::End`].
+                if !(streamed && bytes.is_empty()) {
                     let v = serde_json::from_slice(bytes).unwrap_or(Value::Null);
                     return Ok((*status, v, false));
                 }
@@ -646,10 +631,6 @@ let mut parser = StreamParser::new(self.cfg.protocol);
                 }
             }
         }
-        Ok((
-            response.status,
-            serde_json::from_slice(&response.body).unwrap_or(Value::Null),
-        ))
     }
 
     fn drain_stream(
@@ -689,7 +670,6 @@ let mut parser = StreamParser::new(self.cfg.protocol);
             Ok(crate::backend::HttpStreamPart::Chunk(_)) => None,
             Err(e) => Some(Err(e)),
         }
-    }
     }
 }
 

@@ -31,7 +31,7 @@ pub enum ListingSource {
 }
 
 /// The closed list of 16 part categories.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
     /// Resistors.
@@ -65,6 +65,7 @@ pub enum Category {
     /// Mechanical parts.
     Mechanical,
     /// Anything the table does not map.
+    #[default]
     Other,
 }
 
@@ -232,7 +233,7 @@ fn unit_word(word: &str) -> Option<Unit> {
         "f" | "farad" | "farads" => Unit::Farad,
         "h" | "henry" | "henries" => Unit::Henry,
         "hz" | "hertz" => Unit::Hertz,
-        "v" | "volt" | "volts" => Unit::Volt,
+        "v" | "volt" | "volts" | "vac" | "vdc" => Unit::Volt,
         "a" | "amp" | "amps" | "ampere" | "amperes" => Unit::Ampere,
         "w" | "watt" | "watts" => Unit::Watt,
         _ => return None,
@@ -744,12 +745,13 @@ pub fn rohs_from(text: &str) -> Option<bool> {
 /// Read a REACH answer from distributor text.
 pub fn reach_from(text: &str) -> Option<bool> {
     let t = text.trim().to_lowercase();
-    if t.contains("svhc") && (t.contains("no") || t.contains("none") || t.contains("free")) {
+    if (t.contains("svhc") && (t.contains("no") || t.contains("none") || t.contains("free")))
+        || t.contains("unaffected")
+        || (t.contains("compliant") && !t.contains("non"))
+    {
         Some(true)
     } else if t.contains("affected") || t.contains("contains") {
         Some(false)
-    } else if t.contains("unaffected") || t.contains("compliant") {
-        Some(true)
     } else {
         None
     }

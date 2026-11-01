@@ -1,13 +1,15 @@
 //! Differential-pair skew and uncoupled-length checks beyond legacy length tolerance.
 use pcbcraft_doc::{DiffPair, Id, Layer, Project, Track};
 use pcbcraft_geom::impedance as imp;
-use pcbcraft_geom::segment_distance;
+use pcbcraft_geom::{Point, segment_distance};
 
 use crate::Finding;
 
 const DEFAULT_COPPER_MM: f64 = 0.035;
 /// Edge spacing at or below this multiple of the pair gap counts as coupled.
 const COUPLING_GAP_FACTOR: f64 = 3.0;
+/// Step used when walking a track to find where it stops being coupled.
+const UNCOUPLED_STEP_MM: f64 = 0.05;
 
 fn dielectric_for(project: &Project, layer: Layer) -> (f64, f64) {
     project
@@ -51,21 +53,47 @@ fn net_routed_length(tracks: &[Track], net: Id) -> f64 {
         .sum()
 }
 
-fn segment_coupled(pair: &DiffPair, a: &Track, b: &Track) -> bool {
-    if a.layer != b.layer {
-        return false;
+/// Longest stretch of `track` that has no mate copper within coupling range.
+/// The track is walked in small steps so a leg that only touches the mate at
+/// one end still counts as uncoupled along the rest of its length.
+fn track_uncoupled_run(project: &Project, pair: &DiffPair, track: &Track, mate: Id) -> f64 {
+    let length = track.length();
+    if !length.is_finite() || length <= 0.0 {
+        return 0.0;
     }
-    let separation =
-        segment_distance(a.start, a.end, b.start, b.end) - a.width / 2.0 - b.width / 2.0;
-    separation.is_finite() && separation + 1e-6 <= pair.gap * COUPLING_GAP_FACTOR
-}
-
-fn track_coupled(project: &Project, pair: &DiffPair, track: &Track, mate: Id) -> bool {
-    project
+    let steps = ((length / UNCOUPLED_STEP_MM).ceil() as usize).clamp(1, 4000);
+    let step = length / steps as f64;
+    let at = |i: usize| {
+        let t = i as f64 / steps as f64;
+        Point::new(
+            track.start.x + (track.end.x - track.start.x) * t,
+            track.start.y + (track.end.y - track.start.y) * t,
+        )
+    };
+    let mates: Vec<&Track> = project
         .board
         .tracks
         .iter()
-        .any(|other| other.net == mate && segment_coupled(pair, track, other))
+        .filter(|o| o.net == mate && o.layer == track.layer)
+        .collect();
+    let coupled_at = |p: Point| {
+        mates.iter().any(|o| {
+            let separation =
+                segment_distance(p, p, o.start, o.end) - track.width / 2.0 - o.width / 2.0;
+            separation.is_finite() && separation + 1e-6 <= pair.gap * COUPLING_GAP_FACTOR
+        })
+    };
+    let (mut longest, mut run) = (0.0_f64, 0.0_f64);
+    for i in 0..steps {
+        let mid = Point::new((at(i).x + at(i + 1).x) / 2.0, (at(i).y + at(i + 1).y) / 2.0);
+        if coupled_at(mid) {
+            run = 0.0;
+        } else {
+            run += step;
+            longest = longest.max(run);
+        }
+    }
+    longest
 }
 
 fn max_uncoupled_run(project: &Project, pair: &DiffPair) -> f64 {
@@ -79,9 +107,7 @@ fn max_uncoupled_run(project: &Project, pair: &DiffPair) -> f64 {
         } else {
             pair.net_p
         };
-        if !track_coupled(project, pair, track, mate) {
-            longest = longest.max(track.length());
-        }
+        longest = longest.max(track_uncoupled_run(project, pair, track, mate));
     }
     longest
 }
@@ -90,8 +116,8 @@ pub(crate) fn pair_property_findings(project: &Project, pair: &DiffPair) -> Vec<
     let mut out = Vec::new();
     let tracks = &project.board.tracks;
     if let Some(limit) = pair.skew_limit_mm {
-        let skew = (net_routed_length(tracks, pair.net_p) - net_routed_length(tracks, pair.net_n))
-            .abs();
+        let skew =
+            (net_routed_length(tracks, pair.net_p) - net_routed_length(tracks, pair.net_n)).abs();
         if skew > limit + 1e-9 {
             out.push(Finding {
                 code: "pair_skew_exceeded",
@@ -101,6 +127,7 @@ pub(crate) fn pair_property_findings(project: &Project, pair: &DiffPair) -> Vec<
                     pair.name, skew, limit
                 ),
                 objects: vec![pair.net_p, pair.net_n],
+                hint: None,
             });
         }
     }
@@ -115,6 +142,7 @@ pub(crate) fn pair_property_findings(project: &Project, pair: &DiffPair) -> Vec<
                     pair.name, skew, limit
                 ),
                 objects: vec![pair.net_p, pair.net_n],
+                hint: None,
             });
         }
     }
@@ -129,6 +157,7 @@ pub(crate) fn pair_property_findings(project: &Project, pair: &DiffPair) -> Vec<
                     pair.name, run, limit
                 ),
                 objects: vec![pair.net_p, pair.net_n],
+                hint: None,
             });
         }
     }

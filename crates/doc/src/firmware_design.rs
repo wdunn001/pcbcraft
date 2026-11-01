@@ -1,8 +1,8 @@
 //! Firmware target mapping stored beside the schematic: MCU link, pin roles, sensors.
-use pcbcraft_doc::{Component, EmbeddedFile, Project};
+use crate::{Component, EmbeddedFile, Project};
 use serde::Deserialize;
 
-use crate::mcu::{McuRecord, parse_mcu_record};
+use pcbcraft_library::mcu_record::{McuRecord, parse_mcu_record};
 
 pub const DEFAULT_DESIGN_FILE: &str = "firmware-design.toml";
 
@@ -70,7 +70,7 @@ pub struct FirmwareContext {
     pub mcu_component: Component,
 }
 
-pub fn embedded_file<'a>(project: &Project, name: &str) -> Option<&'a EmbeddedFile> {
+pub fn embedded_file<'a>(project: &'a Project, name: &str) -> Option<&'a EmbeddedFile> {
     project.files.iter().find(|f| f.name == name)
 }
 
@@ -129,12 +129,12 @@ pub fn load_firmware_context(project: &Project) -> Result<FirmwareContext, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::Project;
+    use crate::Project;
 
     #[test]
     fn design_and_mcu_load_from_embedded_files() -> Result<(), String> {
-        let design_text = include_str!("../tests/fixtures/firmware-design.toml");
-        let mcu_text = include_str!("../tests/fixtures/stm32f405-fixture.mcu.toml");
+        let design_text = include_str!("../../library/tests/fixtures/firmware-design.toml");
+        let mcu_text = include_str!("../../library/tests/fixtures/stm32f405-fixture.mcu.toml");
         let mut project = Project::default();
         project.files.push(EmbeddedFile {
             name: DEFAULT_DESIGN_FILE.into(),
@@ -157,8 +157,15 @@ mod tests {
             units: vec![],
             library_symbol: None,
             library_footprint: None,
+            part: None,
             fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             sheet: 0,
+            instance: Default::default(),
+            prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         let ctx = load_firmware_context(&project)?;
         assert_eq!(ctx.design.board.name, "TESTFC");

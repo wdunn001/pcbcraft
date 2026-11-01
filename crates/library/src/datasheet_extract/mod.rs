@@ -18,7 +18,7 @@ mod sidecar_hayro;
 pub use apply::{PartFieldPatch, apply_patch_to_symbol, build_part_patch};
 pub use parse::{TextTableExtractor, extract_from_text_document};
 pub use provenance::{DatasheetRect, DatasheetSourceRecord, bounded_quote};
-pub use review::{ReviewDecision, ReviewedField, effective_text, set_decision};
+pub use review::{ReviewDecision, ReviewedField, bounded_field_text, effective_text, set_decision};
 pub use text::{TextCell, TextDocument, TextPage, cells_from_char_boxes};
 pub use types::{
     DatasheetExtractBundle, ExtractedOrderingCode, ExtractedPackageDimension, ExtractedPinRow,
@@ -26,6 +26,9 @@ pub use types::{
 };
 
 /// Extracts pin, rating, ordering and dimension tables from one datasheet file.
+///
+/// # Implementations
+/// - crates/library/src/datasheet_extract/mod.rs
 pub trait DatasheetTableExtractor {
     fn extract(&self, pdf_bytes: &[u8]) -> Result<DatasheetExtractBundle, String>;
 }
@@ -34,6 +37,7 @@ pub trait DatasheetTableExtractor {
 /// otherwise returns an error directing callers to supply a [`TextDocument`].
 pub struct DefaultDatasheetTableExtractor;
 
+/// Contract: crates/library/src/datasheet_extract/mod.rs
 impl DatasheetTableExtractor for DefaultDatasheetTableExtractor {
     fn extract(&self, pdf_bytes: &[u8]) -> Result<DatasheetExtractBundle, String> {
         #[cfg(feature = "datasheet-sidecar")]
@@ -43,14 +47,12 @@ impl DatasheetTableExtractor for DefaultDatasheetTableExtractor {
         #[cfg(not(feature = "datasheet-sidecar"))]
         {
             let _ = pdf_bytes;
-            Err(
-                "PDF table extraction needs the datasheet-sidecar feature or a TextDocument"
-                    .into(),
-            )
+            Err("PDF table extraction needs the datasheet-sidecar feature or a TextDocument".into())
         }
     }
 }
 
+/// Contract: crates/library/src/datasheet_extract/mod.rs
 impl DatasheetTableExtractor for TextTableExtractor {
     fn extract(&self, pdf_bytes: &[u8]) -> Result<DatasheetExtractBundle, String> {
         let _ = pdf_bytes;

@@ -22,15 +22,18 @@ fn sample_result(mpn: &str) -> PartResult {
     }
 }
 
-fn load_fixture(name: &str) -> Value {
-    let path = format!("{}/fixtures/sources/{name}", env!("CARGO_MANIFEST_DIR"));
-    let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("read {name}: {e}"));
-    serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {name}: {e}"))
+fn load_fixture(name: &str) -> Result<Value, String> {
+    let path = format!(
+        "{}/tests/fixtures/sources/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let text = fs::read_to_string(path).map_err(|e| format!("read {name}: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("parse {name}: {e}"))
 }
 
 #[test]
-fn mouser_sample_maps_to_the_typed_fields() {
-    let record = load_fixture("mouser-sample.json");
+fn mouser_sample_maps_to_the_typed_fields() -> Result<(), String> {
+    let record = load_fixture("mouser-sample.json")?;
     let listing = listing_from_mouser(&sample_result("MOUS-1"), &record);
     assert_eq!(listing.lifecycle, Lifecycle::Active);
     assert_eq!(listing.rohs, Some(true));
@@ -41,11 +44,12 @@ fn mouser_sample_maps_to_the_typed_fields() {
         listing.datasheet_url.as_deref(),
         Some("https://example.invalid/mouser-datasheet.pdf")
     );
+    Ok(())
 }
 
 #[test]
-fn digikey_sample_maps_to_the_typed_fields() {
-    let record = load_fixture("digikey-sample.json");
+fn digikey_sample_maps_to_the_typed_fields() -> Result<(), String> {
+    let record = load_fixture("digikey-sample.json")?;
     let listing = listing_from_digikey(&sample_result("DK-1"), &record);
     assert_eq!(listing.rohs, Some(true));
     assert_eq!(listing.reach, Some(true));
@@ -54,15 +58,17 @@ fn digikey_sample_maps_to_the_typed_fields() {
         listing.datasheet_url.as_deref(),
         Some("https://example.invalid/digikey-datasheet.pdf")
     );
+    Ok(())
 }
 
 #[test]
-fn a_last_time_buy_date_sets_the_lifecycle() {
-    let record = load_fixture("digikey-sample.json");
+fn a_last_time_buy_date_sets_the_lifecycle() -> Result<(), String> {
+    let record = load_fixture("digikey-sample.json")?;
     let listing = listing_from_digikey(&sample_result("DK-LTB"), &record);
     assert_eq!(listing.lifecycle, Lifecycle::LastTimeBuy);
     assert!(
         listing.lifecycle_raw.contains("2027-06-15"),
         "raw text keeps the date"
     );
+    Ok(())
 }

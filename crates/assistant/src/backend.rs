@@ -151,7 +151,7 @@ pub enum HttpStreamPart {
 
 /// One HTTP request of the API backend (the desktop host sends it; nothing else in the chat
 /// reaches the network).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct HttpRequest {
     pub method: &'static str,
     pub url: String,
@@ -198,7 +198,7 @@ pub fn deliver_streamed_body(
     out: &std::sync::mpsc::Sender<Result<HttpStreamPart, String>>,
     status: u16,
     body: &[u8],
-) -> Result<(u16, Vec<u8>), String> {
+) -> Result<HttpResponse, String> {
     for chunk in body.chunks(4096) {
         if !chunk.is_empty() {
             out.send(Ok(HttpStreamPart::Chunk(chunk.to_vec())))
@@ -207,7 +207,7 @@ pub fn deliver_streamed_body(
     }
     out.send(Ok(HttpStreamPart::End { status }))
         .map_err(|_| "The stream ended early.".to_string())?;
-    Ok((status, Vec::new()))
+    Ok(HttpResponse::with_status(status, Vec::new()))
 }
 
 /// The system keychain (the desktop host's), for API keys: never in the preferences.

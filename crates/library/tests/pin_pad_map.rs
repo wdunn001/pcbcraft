@@ -22,7 +22,7 @@ fn pin(number: &str, name: &str, ty: &str) -> SymbolPin {
 }
 
 fn qfn_symbol_and_footprint() -> Result<(SymbolDefinition, FootprintDefinition), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "QFN32_test".into(),
         description: String::new(),
         keywords: String::new(),
@@ -65,6 +65,7 @@ fn qfn_symbol_and_footprint() -> Result<(SymbolDefinition, FootprintDefinition),
         extends: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        retained: vec![],
     };
     let mut fp = fp;
     let gnd = fp.pads[0].clone();
@@ -173,7 +174,7 @@ fn pin_unmapped_names_the_pin() -> Result<(), String> {
 
 #[test]
 fn bga_alphanumeric_pad_numbers_map_by_symbol_pin() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "BGA16".into(),
         description: String::new(),
         keywords: String::new(),
@@ -210,6 +211,7 @@ fn bga_alphanumeric_pad_numbers_map_by_symbol_pin() -> Result<(), String> {
         extends: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        retained: vec![],
     };
     let map = auto_fill(&symbol, &fp);
     assert_eq!(map.rows.len(), 16);
@@ -252,8 +254,14 @@ fn remapping_by_pick_moves_pad_between_pins() -> Result<(), String> {
     let (symbol, footprint) = qfn_symbol_and_footprint()?;
     let mut map = auto_fill(&symbol, &footprint);
     map.assign_pad_to_pin("1", "2");
-    assert!(map.pads_for_pin("1").is_some_and(|p| p.contains(&"2".to_string())));
-    assert!(map.pads_for_pin("2").is_none_or(|p| !p.contains(&"2".to_string())));
+    assert!(
+        map.pads_for_pin("1")
+            .is_some_and(|p| p.contains(&"2".to_string()))
+    );
+    assert!(
+        map.pads_for_pin("2")
+            .is_none_or(|p| !p.contains(&"2".to_string()))
+    );
     Ok(())
 }
 
@@ -311,9 +319,13 @@ fn validate_part_names_pin_and_pad_in_findings() -> Result<(), String> {
     for row in &mut bad_map.rows {
         row.pads.retain(|p| p != &ep_label);
     }
+    // The exposed pad is a plain electrical pad here, so leaving it unmapped is a finding.
+    bad_map.set_pad_role(&ep_label, PadRole::Electrical);
     let bad = validate_part(&symbol, &footprint, &bad_map, &fields);
     assert!(
-        bad.findings.iter().any(|f| f.pin.is_some() || f.pad.is_some()),
+        bad.findings
+            .iter()
+            .any(|f| f.pin.is_some() || f.pad.is_some()),
         "{:?}",
         bad.findings
     );

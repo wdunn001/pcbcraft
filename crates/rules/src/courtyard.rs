@@ -338,9 +338,7 @@ mod tests {
                 castellated: None,
                 geometry: None,
             }],
-        
-            preserved: pcbcraft_doc::PreservedSource::default(),
-});
+        });
     }
     fn found(p: &Project) -> Vec<Finding> {
         drc(p)

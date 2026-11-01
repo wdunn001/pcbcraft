@@ -1,8 +1,12 @@
-﻿//! Host bridge for opening uploads and triggering downloads without std::fs in the UI crate.
+//! Host bridge for opening uploads and triggering downloads without std::fs in the UI crate.
 use pcbcraft_io::OpenKind;
 use std::sync::MutexGuard;
 
 /// Browser or desktop hooks for byte-oriented project I/O.
+///
+/// # Implementations
+/// - crates/mcp/src/project_host.rs
+/// - apps/pcbcraft-web/src/wasm_host.rs
 pub trait ProjectHost {
     /// Return the next user-picked file, if one is ready.
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)>;
@@ -21,6 +25,7 @@ pub trait ProjectHost {
 /// Desktop default: filesystem and MCP paths stay in the existing menu handlers.
 pub struct NativeHost;
 
+/// Contract: crates/mcp/src/project_host.rs
 impl ProjectHost for NativeHost {
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)> {
         None
@@ -76,6 +81,7 @@ pub fn replace_session_from_open(
     }
 }
 
+/// Contract: crates/mcp/src/project_host.rs
 impl ProjectHost for MemHost {
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)> {
         if self.open_queue.is_empty() {
@@ -85,8 +91,7 @@ impl ProjectHost for MemHost {
         }
     }
     fn save_download(&mut self, filename: &str, bytes: &[u8]) -> Result<(), String> {
-        self.downloads
-            .push((filename.to_string(), bytes.to_vec()));
+        self.downloads.push((filename.to_string(), bytes.to_vec()));
         Ok(())
     }
 }

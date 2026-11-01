@@ -379,14 +379,22 @@ fn a_newcomer_adds_a_second_page_and_carries_a_net_across() -> Result<(), String
         "component.add",
         json!({"kind":"resistor","reference":"R_CHILD","position":{"x":40.0,"y":40.0}}),
     );
+    // component.add always lands on the Main page; move the part to the new page.
+    let part = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "R_CHILD")
+        .ok_or("the child part was not added")?
+        .id;
+    app.tool_call(
+        "schematic.move_component",
+        json!({"id": part, "sheet": child}),
+    );
     super::support::tap_strip(&ctx, &mut app, "icon:tool-port")?;
     app.canvas_click(Point::new(45.0, 45.0), app.schematic.zoom);
     assert_eq!(
-        app.project
-            .nets
-            .iter()
-            .filter(|n| n.name == "SDA")
-            .count(),
+        app.project.nets.iter().filter(|n| n.name == "SDA").count(),
         1,
         "both ports share one connection"
     );
@@ -407,7 +415,21 @@ fn a_newcomer_adds_a_second_page_and_carries_a_net_across() -> Result<(), String
         labels.iter().any(|t| t.contains("[SDA]")),
         "Main shows the port placed here: {labels:?}"
     );
-    authoring::tests::tap(&ctx, &mut app, "Page 1")?;
+    // "Page 1" is also the label of the child page's box on Main: press the tab, the
+    // copy of the label nearest the top of the window.
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let tab = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == "Page 1" => {
+                Some(text.pos + text.galley.size() / 2.0)
+            }
+            _ => None,
+        })
+        .min_by(|a, b| a.y.total_cmp(&b.y))
+        .ok_or("the Page 1 tab is not on screen")?;
+    tap_at(&ctx, &mut app, tab)?;
     let labels = canvas_labels(&app);
     assert!(
         labels.iter().any(|t| t.contains("R_CHILD")),
@@ -437,7 +459,11 @@ fn a_newcomer_opens_a_child_page_from_its_box() -> Result<(), String> {
         labels.iter().any(|t| t.contains("Page 1")),
         "the child box shows the page name on Main: {labels:?}"
     );
-    app.schematic_double_click(inside, app.schematic.zoom);
+    app.schematic_double_click(
+        inside,
+        app.schematic.zoom,
+        crate::tool_modifiers::Held::default(),
+    );
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.schematic_page(),

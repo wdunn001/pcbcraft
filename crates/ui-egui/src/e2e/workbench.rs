@@ -35,7 +35,11 @@ fn texts(output: &egui::FullOutput) -> Vec<(String, f32, f32, f32)> {
         .collect()
 }
 
-fn centre_of(output: &egui::FullOutput, label: &str, left_of: f32) -> Option<egui::Pos2> {
+pub(crate) fn centre_of(
+    output: &egui::FullOutput,
+    label: &str,
+    left_of: f32,
+) -> Option<egui::Pos2> {
     output.shapes.iter().find_map(|shape| match &shape.shape {
         egui::Shape::Text(t) if t.galley.text() == label && t.pos.x < left_of => {
             Some(t.pos + t.galley.size() / 2.0)
@@ -44,7 +48,7 @@ fn centre_of(output: &egui::FullOutput, label: &str, left_of: f32) -> Option<egu
     })
 }
 
-fn fresh() -> App {
+pub(crate) fn fresh() -> App {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
@@ -65,7 +69,7 @@ fn fresh_with_datasheet_fixture() -> App {
     app
 }
 
-fn settled(ctx: &egui::Context, app: &mut App) -> egui::FullOutput {
+pub(crate) fn settled(ctx: &egui::Context, app: &mut App) -> egui::FullOutput {
     for _ in 0..4 {
         frame_plain(ctx, app, vec![]);
     }
@@ -261,11 +265,11 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
         "with a web link in the Datasheet field the reader opens"
     );
     for _ in 0..24 {
-        let out = frame(ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         if out
             .shapes
             .iter()
-            .any(|s| matches!(s, egui::Shape::Text(t) if t.galley.text().contains("of 1")))
+            .any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("of 1")))
         {
             return Ok(());
         }
@@ -306,7 +310,7 @@ fn a_newcomer_opens_a_part_and_reads_its_datasheet() -> Result<(), String> {
         if out
             .shapes
             .iter()
-            .any(|s| matches!(s, egui::Shape::Text(t) if t.galley.text().contains("of 1")))
+            .any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("of 1")))
         {
             return Ok(());
         }

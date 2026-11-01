@@ -1,8 +1,8 @@
 use pcbcraft_doc::{
-    Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings, CountryOfOrigin,
-    Declaration, DeclarationSource, DeclarationSourceKind, DeclarationStatus, ManufacturerRecord,
-    PartRole, Project, Sourcing, apply_listing_declarations, normalize_manufacturer_name,
-    MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS,
+    Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings,
+    CountryOfOrigin, Declaration, DeclarationSource, DeclarationSourceKind, DeclarationStatus,
+    MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, ManufacturerRecord, PartRole, Project, Sourcing,
+    apply_listing_declarations, normalize_manufacturer_name,
 };
 
 #[test]
@@ -41,14 +41,27 @@ fn compliance_round_trips_and_old_files_load_without_compliance_fields() -> Resu
                 as_of: "2026-01-15".into(),
             }],
             substances: vec![],
+            radio_bands_mhz: Default::default(),
+            radio_grant: Default::default(),
+            radio_max_power_dbm: Default::default(),
+            silicon_vendor_country: Default::default(),
+            silicon_vendor: Default::default(),
         },
         sheet: 0,
+        part: None,
+        instance: Default::default(),
+        prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     });
     p.validate()?;
     let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
     assert!(text.contains("\"flight_controller\"") && text.contains("\"declared_compliant\""));
     let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    assert_eq!(back.components[0].compliance.role, Some(PartRole::FlightController));
+    assert_eq!(
+        back.components[0].compliance.role,
+        Some(PartRole::FlightController)
+    );
     let mut value: serde_json::Value = serde_json::to_value(&p).map_err(|e| e.to_string())?;
     let comp = value["components"][0]
         .as_object_mut()
@@ -110,6 +123,7 @@ fn manufacturer_alias_normalisation_resolves_names() -> Result<(), String> {
         country: "US".into(),
         parent: None,
         supplier_responsibility_on_file: true,
+        minerals_report: Default::default(),
     })?;
     assert!(p.resolve_manufacturer("acme corp.").is_some());
     assert!(p.resolve_manufacturer("ACME International").is_some());
@@ -118,8 +132,9 @@ fn manufacturer_alias_normalisation_resolves_names() -> Result<(), String> {
 }
 
 #[test]
-fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -> Result<(), String> {
-    let mut c = pcbcraft_doc::Component {
+fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -> Result<(), String>
+{
+    let c = pcbcraft_doc::Component {
         id: 1,
         reference: "R1".into(),
         value: "10k".into(),
@@ -151,7 +166,12 @@ fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -
             }],
             ..Default::default()
         },
+        part: None,
         sheet: 0,
+        instance: Default::default(),
+        prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     };
     let effective = c.effective_declarations();
     assert_eq!(effective.len(), 2);
@@ -176,11 +196,16 @@ fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -
 
 #[test]
 fn compliance_settings_and_mutes_round_trip() -> Result<(), String> {
-    let mut p = Project::default();
-    p.compliance_settings = ComplianceProjectSettings {
-        rule_sets: vec!["synthetic_demo".into()],
-        org_role: Some(ComplianceOrgRole::Buyer),
-        target_markets: vec!["demo-market".into()],
+    let mut p = Project {
+        compliance_settings: ComplianceProjectSettings {
+            rule_sets: vec!["synthetic_demo".into()],
+            org_role: Some(ComplianceOrgRole::Buyer),
+            target_markets: vec!["demo-market".into()],
+            board_assembler_country: Default::default(),
+            origin_interpretation: Default::default(),
+            board_rohs_exemption: Default::default(),
+        },
+        ..Project::default()
     };
     p.compliance_mutes.push(ComplianceFindingMute {
         rule: "demo.declaration_required".into(),
@@ -203,11 +228,19 @@ fn compliance_settings_and_mutes_round_trip() -> Result<(), String> {
         sourcing: Default::default(),
         compliance: Default::default(),
         sheet: 0,
+        part: None,
+        instance: Default::default(),
+        prototype: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
     });
     p.validate()?;
     let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
     let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    assert_eq!(back.compliance_settings.org_role, Some(ComplianceOrgRole::Buyer));
+    assert_eq!(
+        back.compliance_settings.org_role,
+        Some(ComplianceOrgRole::Buyer)
+    );
     assert_eq!(back.compliance_mutes[0].reason, "prototype waiver");
     Ok(())
 }

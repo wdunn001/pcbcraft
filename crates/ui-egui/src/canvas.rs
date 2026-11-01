@@ -10,7 +10,7 @@ mod layout_art;
 /// Side of the ruler strips at the canvas top and left, shared with the floating
 /// view controls so they sit inside the margin the rulers leave.
 pub(crate) const RULER_SIZE: f32 = 22.0;
-mod sheet;
+pub(crate) mod sheet;
 mod underlay;
 
 /// A `#rrggbb` stroke colour, or None for empty or malformed text.
@@ -745,10 +745,7 @@ impl App {
                         .collect();
                     line.push(camera.screen(snapped, rect));
                     if line.len() >= 2 {
-                        painter.add(egui::Shape::line(
-                            line,
-                            Stroke::new(2.0, self.accent()),
-                        ));
+                        painter.add(egui::Shape::line(line, Stroke::new(2.0, self.accent())));
                     }
                 }
                 Tool::Route(Some((id, pad))) => {
@@ -1294,7 +1291,7 @@ impl App {
             }
         }
     }
-    fn pick_pin(&self, pos: Point, zoom: f32) -> Option<PinRef> {
+    pub(crate) fn pick_pin(&self, pos: Point, zoom: f32) -> Option<PinRef> {
         let page = self.schematic_page();
         for c in self.project.components.iter().filter(|c| c.sheet == page) {
             for pin in &c.pins {
@@ -1670,7 +1667,7 @@ impl App {
         let row_shown = |row: &str| self.page_row_shown(page, row);
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
         let mut sheet_frame = sheet::sheet_for(p, page);
-// The title block names the page being drawn, not always the first.
+        // The title block names the page being drawn, not always the first.
         sheet_frame.page = 1 + p
             .sheets
             .iter()
@@ -1732,7 +1729,7 @@ impl App {
             );
         }
         if row_shown("power") {
-sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
+            sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
         }
         for w in p
             .drawn_wires
@@ -2270,12 +2267,7 @@ sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
                 ),
             );
         }
-        for v in p
-            .board
-            .vias
-            .iter()
-            .filter(|_| self.layer_shown("Vias"))
-        {
+        for v in p.board.vias.iter().filter(|_| self.layer_shown("Vias")) {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
             let through = (0..copper_count)
@@ -2373,12 +2365,7 @@ sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
                     .definition
                     .graphics
                     .iter()
-                    .filter(|_| {
-                        sub_on(
-                            f.board_side(),
-                            crate::layer_visibility::SubLayer::Silk,
-                        )
-                    })
+                    .filter(|_| sub_on(f.board_side(), crate::layer_visibility::SubLayer::Silk))
                 {
                     if matches!(g,pcbcraft_library::Graphic::Text {text,..} if text=="REF**" || text=="%R" || text=="${REFERENCE}" || text=="${VALUE}" || text==&library.definition.name)
                     {
@@ -2686,8 +2673,10 @@ mod library_render_tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
-        sourcing: Default::default(),
-        compliance: Default::default(),
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             preserved: pcbcraft_doc::PreservedSource::default(),
@@ -2705,7 +2694,6 @@ mod library_render_tests {
                 castellated: None,
                 geometry: None,
             }],
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);

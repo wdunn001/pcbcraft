@@ -31,6 +31,7 @@ fn sample_project() -> Result<Project, String> {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             },
             Pin {
                 number: "2".into(),
@@ -40,12 +41,20 @@ fn sample_project() -> Result<Project, String> {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             },
         ],
         units: vec![],
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     });
     p.components.push(Component {
         sheet: 0,
@@ -63,11 +72,19 @@ fn sample_project() -> Result<Project, String> {
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: Default::default(),
         }],
         units: vec![],
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     });
     p.validate().map_err(|e| e.to_string())?;
     Ok(p)

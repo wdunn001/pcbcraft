@@ -159,7 +159,19 @@ impl Node {
     /// # Do not
     /// - Return Option; empty string is the sentinel for missing fields.
     pub fn field(&self, name: &str) -> &str {
-        self.child(name).map(|x| x.value(1)).unwrap_or("")
+        if let Some(child) = self.child(name) {
+            return child.value(1);
+        }
+        // A `(property "Name" "value")` row answers to its name too, whether it is
+        // this node or one of its children.
+        if self.name() == "property" && self.value(1) == name {
+            return self.value(2);
+        }
+        self.children
+            .iter()
+            .find(|x| x.name() == "property" && x.value(1) == name)
+            .map(|x| x.value(2))
+            .unwrap_or("")
     }
 }
 

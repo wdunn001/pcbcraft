@@ -199,6 +199,8 @@ fn open_3d_with_model(model_path: &str) -> Result<(egui::Context, App, Id), Stri
                     rotate: [0.0; 3],
                     cad_part: None,
                     raw_source: String::new(),
+                    body_id: Default::default(),
+                    embedded: Default::default(),
                 }),
                 rules: None,
                 box_body: None,

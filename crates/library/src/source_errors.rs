@@ -1,5 +1,8 @@
 //! Plain messages for live part sources when credentials are missing or rejected.
 
+// The vendor wire formats name their fields in camel and Pascal case.
+#![allow(non_snake_case)]
+
 use crate::sources::SourceError;
 
 /// Message shown when the vendor has not approved the user's application or key.
@@ -22,7 +25,9 @@ pub fn map_auth_or_permission(status: u16, vendor_code: Option<i64>) -> Option<S
 /// element14 partner API error codes for invalid credentials.
 pub fn map_element14_errors(body: &[u8]) -> Option<SourceError> {
     let parsed: Element14Errors = serde_json::from_slice(body).ok()?;
-    let code = parsed.errorCode.or(parsed.errors?.first().map(|e| e.code))?;
+    let code = parsed
+        .errorCode
+        .or(parsed.errors?.first().map(|e| e.code))?;
     if matches!(code, 100003 | 100004 | 100005 | 100007) {
         return Some(SourceError::Unavailable(UNAPPROVED_KEY_MESSAGE.into()));
     }

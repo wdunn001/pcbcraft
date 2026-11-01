@@ -188,6 +188,7 @@ pub(crate) fn drill_spacing_findings(project: &Project) -> Vec<Finding> {
                     a.label, b.label, gap.max(0.0), min
                 ),
                 objects,
+                hint: None,
             });
         }
     }
@@ -254,7 +255,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         }

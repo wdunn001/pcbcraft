@@ -68,10 +68,7 @@ pub(crate) enum Visibility {
     /// A physical layer group (`side:top`, `side:bottom`, `inner:n`); path is in the string.
     LayerGroup(String),
     /// One sub-layer row inside a group (tracks, pads, zones, silk, text).
-    SubLayer {
-        side: String,
-        sub: SubLayer,
-    },
+    SubLayer { side: String, sub: SubLayer },
     /// A machine layer the designer drew; the document stores its flag.
     Art(Id),
     /// A fixed row of one schematic page (`symbols`, `power`, `drawing` or
@@ -195,18 +192,6 @@ pub(crate) enum Action {
     ExportBom { selection: bool },
     /// Leave a part off the bill of materials, or put it back.
     ToggleBomExclude(Id),
-/// Move an inner copper layer up or down.
-    StackMove { name: String, up: bool },
-    /// Delete a document object (same as the Delete key on the drawing).
-    Delete(Id),
-    /// Remove a machine layer and everything drawn on it.
-    RemoveArtLayer(Id),
-    /// Add a machine layer.
-    NewArtLayer,
-    /// Open Export on the bill of materials: all parts, or only the selected ones.
-    ExportBom { selection: bool },
-    /// Leave a part off the bill of materials, or put it back.
-    ToggleBomExclude(Id),
     /// Show or hide one fixed row of a page (`symbols`, `power`, `drawing`, `title`).
     SetPageRowShown {
         page: Id,
@@ -221,7 +206,6 @@ pub(crate) enum Action {
     TitleShown { page: Id, on: bool },
     /// Place a power port on a page, tied to the first power net.
     AddPowerPort(Id),
-}
 }
 
 /// The read-only inputs of one frame.
@@ -239,21 +223,8 @@ pub(crate) struct Env<'a> {
     pub revision: u64,
     /// How many parts are selected, for the Export BOM for selection entry.
     pub parts_selected: usize,
-pub tab: TreeTab,
-    pub colours: ThemeColours,
-    /// The app's `hidden_layers` list.
-    pub hidden: &'a [String],
-    pub focus: Option<&'a str>,
-    pub selected: Option<Id>,
-    /// What the drawing tools draw on; its row carries the Active badge.
-    pub target: Target,
-    /// Bumps on every document change; part of the row cache key.
-    pub revision: u64,
-    /// How many parts are selected, for the Export BOM for selection entry.
-    pub parts_selected: usize,
     /// Show the fixed rows of a page even when they hold nothing.
     pub show_empty: bool,
-}
 }
 
 /// The canvas toggles each tab's layer rows may switch.
@@ -912,24 +883,23 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 .filter(|f| on_side(f, front))
                 .count();
             let gfx = silk_graphics(env, front).count();
-            out.push(sub_row(
-                key,
-                "zones",
-                if front {
-                    "zones:front"
-                } else {
-                    "zones:back"
-                },
-                SubLayer::Zones.label().into(),
-                sw,
-                Visibility::SubLayer {
-                    side: side_path.clone(),
-                    sub: SubLayer::Zones,
-                },
-                false,
-                zones,
-                zones > 0,
-            ));
+            // A side with no copper pour leaves the Zones row out, like the other empty rows.
+            if zones > 0 || env.show_empty {
+                out.push(sub_row(
+                    key,
+                    "zones",
+                    if front { "zones:front" } else { "zones:back" },
+                    SubLayer::Zones.label().into(),
+                    sw,
+                    Visibility::SubLayer {
+                        side: side_path.clone(),
+                        sub: SubLayer::Zones,
+                    },
+                    false,
+                    zones,
+                    zones > 0,
+                ));
+            }
             out.push(sub_row(
                 key,
                 "silk",
@@ -2024,9 +1994,7 @@ fn stored_visible(env: &Env, ctl: &LayerControls) -> bool {
     match &ctl.visibility {
         Visibility::Canvas(name) => !layer_visibility::hidden_contains_legacy(env.hidden, name),
         Visibility::LayerGroup(side) => layer_visibility::group_stored(env.hidden, side),
-        Visibility::SubLayer { side, sub } => {
-            layer_visibility::sub_stored(env.hidden, side, *sub)
-        }
+        Visibility::SubLayer { side, sub } => layer_visibility::sub_stored(env.hidden, side, *sub),
         Visibility::Art(id) => env
             .project
             .board
@@ -2457,10 +2425,7 @@ fn paint_row(
         || view.selected_key.as_deref() == Some(r.key.as_str());
     let searching = !view.query.trim().is_empty();
     let expanded = view.expanded.contains(&r.key) || searching;
-    let stored_off = r
-        .controls
-        .as_ref()
-        .is_some_and(|c| !stored_visible(env, c));
+    let stored_off = r.controls.as_ref().is_some_and(|c| !stored_visible(env, c));
     let drawn_off = r
         .controls
         .as_ref()
@@ -2594,9 +2559,10 @@ fn paint_row(
         );
         if eye.clicked() && can_hide {
             match &ctl.visibility {
-                Visibility::Canvas(name) => {
-                    actions.push(Action::SetShown { name, on: stored_off })
-                }
+                Visibility::Canvas(name) => actions.push(Action::SetShown {
+                    name,
+                    on: stored_off,
+                }),
                 Visibility::LayerGroup(side) => actions.push(Action::SetLayerGroup {
                     side: side.clone(),
                     on: stored_off,
@@ -2901,18 +2867,6 @@ enum RowAct {
     ExportBom,
     ExportBomSelection,
     ToggleBomExclude,
-NetClass(Option<Id>),
-    Properties,
-    Highlight,
-    ToggleExpand,
-    AddPair,
-    StackRename,
-    MoveUp,
-    MoveDown,
-    RemoveLayer,
-    ExportBom,
-    ExportBomSelection,
-    ToggleBomExclude,
     PageAdd,
     PageRemove,
     SelectAll,
@@ -2920,7 +2874,6 @@ NetClass(Option<Id>),
     TitleToggle,
     /// Remove on a fixed row of a page; the menu always shows it disabled.
     Remove,
-}
 }
 
 /// The kind name capture mode uses to open the first menu of this kind.
@@ -3590,6 +3543,7 @@ pub(crate) fn explain(tab: TreeTab, r: &Row) -> String {
         (_, "copper") => t!("tree.explain.copper"),
         (_, "mask") => t!("tree.explain.mask"),
         (_, "silk") => t!("tree.explain.silk"),
+        (_, "zones") => t!("tree.explain.zones"),
         (_, "paste") => t!("tree.explain.paste"),
         (_, "components") if tab == TreeTab::Layout && nested => t!("tree.explain.components"),
         (_, "components") if tab == TreeTab::Schematic => t!("tree.explain.parts_sheet"),
@@ -3712,17 +3666,15 @@ fn keyboard(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], actions: &
             let off = !stored_visible(env, &ctl);
             match ctl.visibility {
                 Visibility::Canvas(name) => actions.push(Action::SetShown { name, on: off }),
-                Visibility::LayerGroup(side) => actions.push(Action::SetLayerGroup { side, on: off }),
+                Visibility::LayerGroup(side) => {
+                    actions.push(Action::SetLayerGroup { side, on: off })
+                }
                 Visibility::SubLayer { side, sub } => {
                     actions.push(Action::SetSubLayer { side, sub, on: off });
                 }
                 Visibility::Art(layer) => actions.push(Action::SetArtShown { layer, on: off }),
                 Visibility::Page(page, row) => {
-                    actions.push(Action::SetPageRowShown {
-                        page,
-                        row,
-                        on: off,
-                    });
+                    actions.push(Action::SetPageRowShown { page, row, on: off });
                 }
                 Visibility::None => {}
             }
@@ -3791,25 +3743,7 @@ impl crate::App {
                 target: self.current_target(),
                 revision: self.revision,
                 parts_selected: self.selected_part_components().len(),
-};
-        let actions = {
-            let env = Env {
-                project: &self.project,
-                tab,
-                colours,
-                hidden: &self.preferences.hidden_layers,
-                focus: self.focus_layer.as_deref(),
-                selected: self.selected,
-                target: self.current_target(),
-                revision: self.revision,
-                parts_selected: self.selected_part_components().len(),
                 show_empty: self.tree.show_empty,
-            };
-            show(ui, &env, &mut self.tree)
-        };
-            };
-            show(ui, &env, &mut self.tree)
-        };
             };
             show(ui, &env, &mut self.tree)
         };
@@ -3823,7 +3757,11 @@ impl crate::App {
                 }
                 Action::SelectKey(_) => self.select(None),
                 Action::SetShown { name, on } => {
-                    layer_visibility::set_legacy_canvas(&mut self.preferences.hidden_layers, name, on);
+                    layer_visibility::set_legacy_canvas(
+                        &mut self.preferences.hidden_layers,
+                        name,
+                        on,
+                    );
                 }
                 Action::SetLayerGroup { side, on } => {
                     layer_visibility::set_group_stored(
@@ -3851,8 +3789,8 @@ impl crate::App {
                         for side in layer_visibility::layout_layer_groups() {
                             let hide = names.iter().any(|n| {
                                 layer_visibility::legacy_group_for_name(n)
-                                    .is_some_and(|s| s == side)
-                                    || *n == side
+                                    .is_some_and(|s| s == *side)
+                                    || &**n == *side
                             });
                             layer_visibility::set_group_stored(hidden, side, !hide);
                         }
@@ -4181,13 +4119,7 @@ mod tests {
             target: Target::Copper(Layer::Front),
             revision: 1,
             parts_selected: 0,
-show_empty: false,
-            hidden,
-            focus: None,
-            selected: None,
-            target: Target::Copper(Layer::Front),
-            revision: 1,
-            parts_selected: 0,
+            show_empty: false,
         }
     }
 

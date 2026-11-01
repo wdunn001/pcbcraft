@@ -1,12 +1,12 @@
 //! Stage 0 rule checks for publication bundles.
 
 use crate::hash::{bundle_root_hash, sha256_hex};
-use crate::licence::{lineage_compatible, spdx_allowed};
 use crate::manifest::{PublicationManifest, SCHEMA_VERSION};
-use crate::zip_read::{entries_map, read_stored_zip, ZipEntry};
+use crate::spdx::{lineage_compatible, spdx_allowed};
+use crate::zip_read::{ZipEntry, entries_map, read_stored_zip};
 use pcbcraft_doc::Project;
 use pcbcraft_library::{
-    check_footprint, check_symbol, read_footprint, read_symbols, FindingSeverity,
+    FindingSeverity, check_footprint, check_symbol, read_footprint, read_symbols,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -31,7 +31,7 @@ impl CheckVerdict {
         }
     }
 
-    fn flag(reason: impl Into<String>) -> Self {
+    pub fn flag(reason: impl Into<String>) -> Self {
         Self::Flag(vec![reason.into()])
     }
 }
@@ -234,7 +234,9 @@ fn check_licences(m: &PublicationManifest) -> CheckResult {
         if value.trim().is_empty() {
             reasons.push(format!("licence for {layer} is required"));
         } else if !spdx_allowed(value) {
-            reasons.push(format!("licence for {layer} is not on the allowlist: {value}"));
+            reasons.push(format!(
+                "licence for {layer} is not on the allowlist: {value}"
+            ));
         }
     }
     CheckResult {
@@ -292,10 +294,10 @@ fn check_tags_and_roles(m: &PublicationManifest) -> CheckResult {
 
 fn check_urls(m: &PublicationManifest) -> CheckResult {
     let mut reasons = Vec::new();
-    if let Some(url) = &m.identity.homepage {
-        if !url.starts_with("https://") {
-            reasons.push("identity.homepage must use https".into());
-        }
+    if let Some(url) = &m.identity.homepage
+        && !url.starts_with("https://")
+    {
+        reasons.push("identity.homepage must use https".into());
     }
     if let Some(bom) = &m.bom_summary {
         for line in &bom.lines {
@@ -313,10 +315,7 @@ fn check_urls(m: &PublicationManifest) -> CheckResult {
         if let Some(url) = &claim.evidence_url
             && !url.starts_with("https://")
         {
-            reasons.push(format!(
-                "evidence_url for {} must use https",
-                claim.scheme
-            ));
+            reasons.push(format!("evidence_url for {} must use https", claim.scheme));
         }
     }
     CheckResult {
@@ -355,7 +354,7 @@ fn normalize_confusable(text: &str) -> String {
             '\u{0441}' | '\u{0421}' => 'c',
             '\u{0445}' | '\u{0425}' => 'x',
             other if other.is_ascii_alphanumeric() => other.to_ascii_lowercase(),
-            _ => other,
+            other => other,
         })
         .collect()
 }
@@ -364,7 +363,10 @@ fn check_files_listed(m: &PublicationManifest, map: &BTreeMap<String, Vec<u8>>) 
     let mut reasons = Vec::new();
     for file in &m.files {
         match map.get(&file.path) {
-            None => reasons.push(format!("{} is listed but missing from the bundle", file.path)),
+            None => reasons.push(format!(
+                "{} is listed but missing from the bundle",
+                file.path
+            )),
             Some(bytes) => {
                 if bytes.len() as u64 != file.size {
                     reasons.push(format!(
@@ -376,7 +378,10 @@ fn check_files_listed(m: &PublicationManifest, map: &BTreeMap<String, Vec<u8>>) 
                 }
                 let hash = sha256_hex(bytes);
                 if !file.sha256.eq_ignore_ascii_case(&hash) {
-                    reasons.push(format!("{} sha256 does not match the bundle bytes", file.path));
+                    reasons.push(format!(
+                        "{} sha256 does not match the bundle bytes",
+                        file.path
+                    ));
                 }
             }
         }
@@ -429,7 +434,10 @@ fn sniff_media_type(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"{") || bytes.starts_with(b"[") {
         return Some("application/json");
     }
-    if bytes.starts_with(b"(kicad_") || bytes.starts_with(b"(footprint") || bytes.starts_with(b"(symbol") {
+    if bytes.starts_with(b"(kicad_")
+        || bytes.starts_with(b"(footprint")
+        || bytes.starts_with(b"(symbol")
+    {
         return Some("text/x-kicad");
     }
     if bytes.starts_with(b"PK\x03\x04") {
@@ -492,7 +500,10 @@ fn check_duplicates(m: &PublicationManifest, map: &BTreeMap<String, Vec<u8>>) ->
 fn check_near_duplicates(map: &BTreeMap<String, Vec<u8>>) -> CheckResult {
     let mut sizes: HashMap<u64, Vec<String>> = HashMap::new();
     for (path, bytes) in map {
-        sizes.entry(bytes.len() as u64).or_default().push(path.clone());
+        sizes
+            .entry(bytes.len() as u64)
+            .or_default()
+            .push(path.clone());
     }
     let mut flags = Vec::new();
     for (size, paths) in sizes {
@@ -674,7 +685,9 @@ fn check_orphan_files(m: &PublicationManifest, map: &BTreeMap<String, Vec<u8>>) 
             continue;
         }
         if !listed.contains(path.as_str()) {
-            reasons.push(format!("{path} is in the bundle but not listed in the manifest"));
+            reasons.push(format!(
+                "{path} is in the bundle but not listed in the manifest"
+            ));
         }
     }
     CheckResult {

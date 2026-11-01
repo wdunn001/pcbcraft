@@ -177,7 +177,11 @@ mod tests {
     fn every_preset_has_a_note_or_an_empty_note_on_purpose() {
         for p in PRESETS {
             if p.name.starts_with("Custom") {
-                assert!(p.note.is_empty(), "{} should not carry a preset note", p.name);
+                assert!(
+                    p.note.is_empty(),
+                    "{} should not carry a preset note",
+                    p.name
+                );
             } else if p.base_url.contains("localhost") {
                 assert!(!p.note.is_empty(), "{} should explain a local trap", p.name);
             }

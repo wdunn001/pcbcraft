@@ -48,6 +48,9 @@ fn project_library_store_validates_cross_references() {
         footprint: None,
         model3d: None,
         attribution: None,
+        reach: None,
+        halogen_free: None,
+        moisture_level: None,
     };
     let orderable = orderable_from_listing(
         &listing,

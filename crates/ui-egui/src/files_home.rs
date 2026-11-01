@@ -36,6 +36,9 @@ use pcbcraft_io::formats::{self, Direction, Scope};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+/// The name a design has before it is saved anywhere.
+pub(crate) const DEFAULT_PROJECT_PATH: &str = "design.pcbcraft";
+
 /// Pictures are this many points across at their largest.
 const THUMB: [usize; 2] = [168, 112];
 /// Pinned projects kept.
@@ -167,17 +170,7 @@ impl State {
 
 /// Seconds since 1970, or 0 where the platform has no clock.
 fn now_secs() -> u64 {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        0
-    }
+    pcbcraft_clock::unix_secs()
 }
 
 /// A picture of the board in a file: top copper over the board colour.
@@ -307,9 +300,13 @@ impl App {
         !self.project.components.is_empty() && self.saved_revision != Some(self.revision)
     }
 
-    /// True when the project was never written to the path it would save to.
+    /// True when the project has no file of its own yet: it was never saved
+    /// and its path is still the placeholder name, so Save has to ask where.
+    /// A path the person chose (a command-line file, a typed name) is written to directly.
     fn project_never_saved(&self) -> bool {
-        self.saved_revision.is_none() && !Path::new(&self.path).exists()
+        self.saved_revision.is_none()
+            && self.path == DEFAULT_PROJECT_PATH
+            && !Path::new(&self.path).exists()
     }
 
     /// Remember that a project was opened or saved now.
@@ -406,7 +403,7 @@ impl App {
     fn files_close_now(&mut self) {
         self.tool_call("new_design", json!({}));
         self.select(None);
-        self.path = "design.pcbcraft".into();
+        self.path = DEFAULT_PROJECT_PATH.into();
         self.saved_revision = None;
         self.files_home.page = Page::Recent;
         self.message = t!("files.close.done");
@@ -1142,8 +1139,9 @@ impl App {
 
     /// Take a project off the list; the file stays where it is.
     fn files_remove(&mut self, path: &str) {
-        pcbcraft_engine::recents::forget_recent_path(path);
-        self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
+        let config = self.user_config();
+        pcbcraft_engine::recents::forget_recent_path(&config, path);
+        self.recent_designs = pcbcraft_engine::recents::load_recent_paths(&config);
         self.preferences.pinned_projects.retain(|p| p != path);
         self.preferences.project_opened.remove(path);
         if self.files_home.selected.as_deref() == Some(path) {
@@ -1176,6 +1174,7 @@ impl App {
             &mut index,
             &items,
             ui_kit::tab_bar::TabSize::Aside,
+            None,
         );
         let shown = if self.files_home.page == Page::Recent {
             self.files_home

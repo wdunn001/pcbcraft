@@ -18,7 +18,7 @@ use crate::fonts::{self, Role};
 use crate::theme::{self, Tokens};
 use crate::ui_kit::button::{self, Kind, Size};
 use crate::ui_kit::icons as kit_icons;
-use crate::ui_kit::segmented::{Segment, segmented};
+use crate::ui_kit::segmented::{Segment, SegmentedStyle, segmented_styled};
 use egui::{CornerRadius, Rect, Sense, Stroke, StrokeKind, Vec2, pos2};
 
 /// What clicking a tool bar item does.
@@ -211,7 +211,7 @@ impl App {
             push(
                 "tool-label",
                 "label",
-                "Label",
+                "Label".to_string(),
                 "Place a local net label on a wire or pin.".to_string(),
                 matches!(
                     self.tool,
@@ -223,7 +223,7 @@ impl App {
             push(
                 "tool-power",
                 "power",
-                "Power",
+                "Power".to_string(),
                 "Place a power port label on a wire or pin.".to_string(),
                 matches!(
                     self.tool,
@@ -235,7 +235,7 @@ impl App {
             push(
                 "tool-bus",
                 "bus",
-                "Bus",
+                "Bus".to_string(),
                 "Draw a named bus across two or more points.".to_string(),
                 matches!(self.tool, Tool::Bus),
                 Act::Bus,
@@ -572,7 +572,8 @@ impl App {
                 let square = t!("toolbar.corners_90");
                 let (chamfer_tip, square_tip) =
                     (t!("toolbar.corners_45.tip"), t!("toolbar.corners_90.tip"));
-                segmented(
+                let group = t!("toolbar.corners");
+                segmented_styled(
                     ui,
                     "toolbar-corners",
                     &mut idx,
@@ -580,12 +581,22 @@ impl App {
                         Segment {
                             label: &chamfer,
                             tip: &chamfer_tip,
+                            count: Default::default(),
+                            disabled: Default::default(),
+                            icon: Default::default(),
                         },
                         Segment {
                             label: &square,
                             tip: &square_tip,
+                            count: Default::default(),
+                            disabled: Default::default(),
+                            icon: Default::default(),
                         },
                     ],
+                    SegmentedStyle {
+                        group_name: Some(&group),
+                        ..Default::default()
+                    },
                 );
                 ui.label(fonts::caption(t!("toolbar.corners")).color(t.muted))
                     .on_hover_text(t!("toolbar.corners.tip"));

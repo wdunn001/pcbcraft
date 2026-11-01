@@ -6,23 +6,18 @@
 use super::super::*;
 use super::support::*;
 
-/// Recents pointed at a temp folder for the length of a story; restored on drop.
+/// Recents kept in a settings folder of their own for the length of a story.
 struct IsolatedRecents {
-    _turn: std::sync::MutexGuard<'static, ()>,
+    config: pcbcraft_engine::user_config::UserConfig,
     dir: tempfile::TempDir,
 }
 
 impl IsolatedRecents {
     fn new() -> Result<Self, String> {
-        let turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "recents path lock")? = Some(dir.path().join("recent-designs.json"));
-        pcbcraft_engine::recents::clear_recent_paths();
-        Ok(Self { _turn: turn, dir })
+        let config = pcbcraft_engine::user_config::UserConfig::in_folder(dir.path().join("config"));
+        pcbcraft_engine::recents::clear_recent_paths(&config);
+        Ok(Self { config, dir })
     }
 
     fn file(&self, name: &str) -> String {
@@ -30,18 +25,9 @@ impl IsolatedRecents {
     }
 }
 
-impl Drop for IsolatedRecents {
-    fn drop(&mut self) {
-        pcbcraft_engine::recents::clear_recent_paths();
-        if let Ok(mut path) = pcbcraft_engine::recents::RECENTS_PATH_TEST.lock() {
-            *path = None;
-        }
-    }
-}
-
 /// The sample board saved as two projects, then a new app showing the Files tab.
 fn files_tab(recents: &IsolatedRecents) -> Result<(egui::Context, App, [String; 2]), String> {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let shared = session_with(&recents.config);
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     app.tool_call("sample_design", json!({}));
@@ -101,16 +87,30 @@ fn a_newcomer_opens_files_and_sees_recent_projects() -> Result<(), String> {
 fn a_newcomer_never_sees_the_library_on_the_files_tab() -> Result<(), String> {
     let recents = IsolatedRecents::new()?;
     let (ctx, mut app, _) = files_tab(&recents)?;
-    for words in ["Library", "Layers", "Search parts"] {
+    // The Library is one of the five main tabs, so its name is always on the tab row; what
+    // the Files tab must not have is a Library tab (or Layers) in its left aside.
+    for words in ["Layers", "Search parts"] {
         assert!(
             !paints_text(&ctx, &mut app, words)?,
             "the Files tab does not show {words}"
         );
     }
+    let aside_tabs = |app: &App| -> Vec<&'static str> {
+        app.workspace().left_tabs().iter().map(|t| t.id).collect()
+    };
+    assert_eq!(
+        aside_tabs(&app),
+        ["files"],
+        "the Files left aside lists no Library tab"
+    );
     app.change_tab(Tab::Schematic);
     assert!(
         paints_text(&ctx, &mut app, "Library")?,
         "the drawing tabs still have it"
+    );
+    assert!(
+        aside_tabs(&app).contains(&"library"),
+        "the drawing tabs keep a Library tab in the left aside"
     );
     Ok(())
 }
@@ -214,5 +214,50 @@ fn a_newcomer_opens_a_project_from_the_open_page() -> Result<(), String> {
     app.files_home.set_typed_for_test(&files[1]);
     authoring::tests::tap(&ctx, &mut app, "Open")?;
     assert_eq!(app.path, files[1], "the typed project opens");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_walks_the_files_tab_from_recent_to_close() -> Result<(), String> {
+    let recents = IsolatedRecents::new()?;
+    let (ctx, mut app, _) = files_tab(&recents)?;
+    for (control, page) in [
+        ("button:Import", files_home::Page::Import),
+        ("button:Open…", files_home::Page::Open),
+        ("button:Recent", files_home::Page::Recent),
+    ] {
+        tap_id(&ctx, &mut app, control)?;
+        assert_eq!(app.files_home.page, page, "{control} opens its page");
+    }
+    tap_id(&ctx, &mut app, "tab:Details")?;
+    tap_id(&ctx, &mut app, "tab:Project")?;
+    tap_id(&ctx, &mut app, "button:Preferences…")?;
+    assert_eq!(app.tab, Tab::Settings, "Preferences opens the Settings tab");
+    app.change_tab(Tab::Files);
+    tap_id(&ctx, &mut app, "button:New project")?;
+    app.change_tab(Tab::Files);
+    tap_id(&ctx, &mut app, "button:Close project")?;
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_with_no_recent_projects_is_offered_to_open_one() -> Result<(), String> {
+    let recents = IsolatedRecents::new()?;
+    let mut app = App::create(
+        session_with(&recents.config),
+        Preferences::default(),
+        None,
+        None,
+    );
+    app.refresh();
+    app.change_tab(Tab::Files);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "button:Open a project")?;
+    assert_eq!(
+        app.files_home.page,
+        files_home::Page::Open,
+        "the empty list sends the person to the folder browser"
+    );
     Ok(())
 }

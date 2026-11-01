@@ -1,6 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use pcbcraft_library::credentials::{self, MemoryKeyStore};
+use pcbcraft_library::credentials::{self, KeyStore, MemoryKeyStore};
 use pcbcraft_library::element14::Element14Source;
 
 const API_KEY: &str = "test-partner-key-123456789012";
@@ -60,7 +60,10 @@ fn an_unapproved_key_gives_a_plain_message() -> Result<(), SourceError> {
         },
     )]));
     let source = Element14Source::new(http, store);
-    let err = source.search("RC0603FR-0710KL").expect_err("forbidden key");
+    let err = source
+        .search("RC0603FR-0710KL")
+        .err()
+        .ok_or_else(|| SourceError::Invalid("forbidden key".into()))?;
     assert!(
         matches!(err, SourceError::Unavailable(ref m) if m == UNAPPROVED_KEY_MESSAGE),
         "unexpected {err:?}"

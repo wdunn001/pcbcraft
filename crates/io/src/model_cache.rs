@@ -4,7 +4,7 @@
 use crate::board_mesh::ModelLookup;
 use crate::import_cache::ImportCache;
 use crate::model_load::{ModelCacheKey, load_model, model_cache_key, model_extension_supported};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -20,6 +20,10 @@ enum Entry {
 struct Shared {
     entries: Mutex<HashMap<ModelCacheKey, Entry>>,
     generation: AtomicU64,
+    /// Paths already copied to the app status line.
+    reported_failures: Mutex<HashSet<String>>,
+    /// Failures waiting for the UI to read.
+    pending_failures: Mutex<Vec<String>>,
 }
 
 /// Handle to the shared cache. Cloning shares the same results.
@@ -53,6 +57,20 @@ impl std::fmt::Debug for ModelCache {
 }
 
 impl ModelCache {
+    /// A cache that keeps parsed models in memory only and never touches the disk.
+    ///
+    /// Used where no user folder is known, such as a test or a window whose
+    /// session carries no settings folder.
+    pub fn memory_only() -> Self {
+        Self {
+            shared: Arc::new(Shared::default()),
+            #[cfg(not(target_arch = "wasm32"))]
+            jobs: Arc::new(Mutex::new(None)),
+            #[cfg(not(target_arch = "wasm32"))]
+            import_cache: ImportCache::in_memory(),
+        }
+    }
+
     /// Optional override for the on-disk import cache folder.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_disk_dir(dir: Option<std::path::PathBuf>) -> Self {
@@ -77,6 +95,32 @@ impl ModelCache {
         })
     }
 
+    /// Status-line sentences for model files that failed since the last drain.
+    pub fn drain_failure_messages(&self) -> Vec<String> {
+        let Ok(mut pending) = self.shared.pending_failures.lock() else {
+            return vec![];
+        };
+        std::mem::take(&mut *pending)
+    }
+
+    fn note_failure(&self, path: &str, reason: &str) {
+        let Ok(mut reported) = self.shared.reported_failures.lock() else {
+            return;
+        };
+        if !reported.insert(path.to_string()) {
+            return;
+        }
+        drop(reported);
+        let name = std::path::Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(path);
+        let line = format!("Model load failed. {name}: {reason}");
+        if let Ok(mut pending) = self.shared.pending_failures.lock() {
+            pending.push(line);
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn lookup(&self, path: &str) -> ModelLookup {
         let name = std::path::Path::new(path)
@@ -86,10 +130,13 @@ impl ModelCache {
         if !model_extension_supported(path)
             && let Err(e) = load_model(path, &[])
         {
+            self.note_failure(path, &e.0);
             return ModelLookup::Failed(e.0);
         }
         let Ok(meta) = std::fs::metadata(path) else {
-            return ModelLookup::Failed(format!("The model file {name} was not found."));
+            let reason = format!("The model file {name} was not found.");
+            self.note_failure(path, &reason);
+            return ModelLookup::Failed(reason);
         };
         let key = model_cache_key(path, meta.len(), meta.modified().ok());
         let Ok(mut entries) = self.shared.entries.lock() else {
@@ -97,7 +144,12 @@ impl ModelCache {
         };
         match entries.get(&key) {
             Some(Entry::Ready(m)) => return ModelLookup::Ready(m.clone()),
-            Some(Entry::Failed(r)) => return ModelLookup::Failed(r.clone()),
+            Some(Entry::Failed(r)) => {
+                let reason = r.clone();
+                drop(entries);
+                self.note_failure(path, &reason);
+                return ModelLookup::Failed(reason);
+            }
             Some(Entry::Loading) => return ModelLookup::Loading,
             None => {}
         }
@@ -109,6 +161,7 @@ impl ModelCache {
         } else {
             let reason = "Model loading could not start.";
             self.finish(&key, Entry::Failed(reason.into()));
+            self.note_failure(path, reason);
             ModelLookup::Failed(reason.into())
         }
     }

@@ -435,19 +435,8 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
         if !project.via_conducting_layers(via).contains(&layer) {
             continue;
         }
-        if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer) {
-            let at = via.position;
-            if !plated_item_connected_on_layer(
-                project,
-                via.net,
-                at,
-                via.diameter / 2.0,
-                layer,
-                PlatedConnectKind::Via,
-            ) {
-                continue;
-            }
-        }
+        // An inner pad left off the plot still has its barrel through the
+        // layer, so the pour keeps its clearance around the via.
         items.push(Item {
             id: via.id,
             net: via.net,
@@ -601,6 +590,10 @@ pub fn plated_item_connected_on_layer(
         if !project.via_span_layers(via).contains(&layer) {
             continue;
         }
+        // A via is not tied to the layer by its own barrel.
+        if kind == PlatedConnectKind::Via && at.distance(via.position) < 1e-9 {
+            continue;
+        }
         if at.distance(via.position) <= reach + via.diameter / 2.0 {
             return true;
         }
@@ -621,9 +614,10 @@ pub fn pad_exports_on_layer(
     if !project.remove_unused_inner_pads_enabled() || project.copper_layer_is_end(layer) {
         return true;
     }
-    let through = pad.geometry.as_ref().is_some_and(|g| {
-        g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu")
-    });
+    let through = pad
+        .geometry
+        .as_ref()
+        .is_some_and(|g| g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu"));
     if !through {
         return true;
     }
@@ -749,9 +743,7 @@ fn rectangle(region: crate::RuleRegion) -> Piece {
 }
 
 fn rule_area_keepout_piece(project: &Project, area: &RuleArea) -> Option<Piece> {
-    if area.active_keepout().is_none() {
-        return None;
-    }
+    area.active_keepout()?;
     let region = area.keepout_rect();
     let corners = region.axis_corners();
     let ring: Ring = if let Some(reference) = area.footprint_ref.as_deref() {
@@ -777,10 +769,10 @@ fn rule_area_keepout_piece(project: &Project, area: &RuleArea) -> Option<Piece> 
     }
     Some(vec![{
         let mut closed = ring;
-        if closed.first() != closed.last() {
-            if let Some(first) = closed.first().copied() {
-                closed.push(first);
-            }
+        if closed.first() != closed.last()
+            && let Some(first) = closed.first().copied()
+        {
+            closed.push(first);
         }
         closed
     }])
@@ -833,7 +825,24 @@ pub fn keepout_hits(project: &Project) -> Result<Vec<KeepoutHit>, String> {
             let Some(rect) = rule_area_keepout_piece(project, area) else {
                 continue;
             };
+            // An area bound to a part keeps other copper away from that part; the
+            // part's own pads are what it surrounds.
+            let own_footprint = area
+                .footprint_ref
+                .as_deref()
+                .and_then(|reference| project.component_by_reference(reference))
+                .and_then(|component| {
+                    project
+                        .board
+                        .footprints
+                        .iter()
+                        .find(|f| f.component == component.id)
+                })
+                .map(|f| f.id);
             for item in &items {
+                if item.kind == Kind::Pad && Some(item.id) == own_footprint {
+                    continue;
+                }
                 let kind = match item.kind {
                     Kind::Pad => KeepoutKind::Pads,
                     Kind::Via => KeepoutKind::Vias,

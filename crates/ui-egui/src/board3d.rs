@@ -11,12 +11,12 @@
 
 use super::*;
 use egui::{Pos2, Sense};
-#[cfg(test)]
-use pcbcraft_io::PartKind;
-use pcbcraft_io::{BoardMesh, MeshLayers, ModelStatus};
+use pcbcraft_io::{BoardMesh, MeshLayers, ModelStatus, PartKind, board_mesh_with_dir};
+use std::path::Path;
 
 mod model_cache;
 mod raster;
+mod scene;
 use model_cache::ModelCache;
 
 type V = [f64; 3];
@@ -72,24 +72,12 @@ pub(crate) struct View3d {
     pub(crate) notes_open: bool,
     /// Where the viewport was painted last frame, so tests and picking agree.
     pub rect: Rect,
-pub dist: f64,
-    pub target: V,
-    mesh: Option<(u64, BoardMesh)>,
-    /// Model files read off the UI thread; see `board3d/model_cache.rs`.
-    models: ModelCache,
-    /// How many finished loads the current mesh already includes.
-    model_gen: u64,
-    /// Per part: did its model file load, or why did the box stay.
-    notes: std::collections::BTreeMap<Id, ModelStatus>,
-    error: Option<String>,
-    /// Where the viewport was painted last frame, so tests and picking agree.
-    pub rect: Rect,
-    /// Keep the camera when the mesh is rebuilt after an edit, instead of fitting it again.
-    pub keep_camera: bool,
     /// The last rendered picture and what it was made from.
     frame: Option<Held>,
     /// An angle a capture asked for; applied once the first fit has run.
     pub(crate) start_angle: Option<(f64, f64)>,
+    /// Keep the camera when the mesh is rebuilt after an edit, instead of fitting it again.
+    pub keep_camera: bool,
 }
 
 /// A rendered picture with its key; `TextureHandle` has no `Debug`.
@@ -114,7 +102,26 @@ struct FrameKey {
     mask: [u8; 3],
     silk: [u8; 3],
 }
+impl View3d {
+    /// A view whose converted models are cached below the session's settings
+    /// folder; with no folder the cache stays in memory.
+    pub(crate) fn for_config(config: &pcbcraft_engine::user_config::UserConfig) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut view = Self::default();
+            if let Some(folder) = config.folder() {
+                view.models = ModelCache::with_disk_dir(Some(folder.join("models")));
+            }
+            view
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = config;
+            Self::default()
+        }
+    }
 }
+
 impl Default for View3d {
     fn default() -> Self {
         Self {
@@ -123,15 +130,15 @@ impl Default for View3d {
             dist: 100.0,
             target: [0.0; 3],
             mesh: None,
-            models: ModelCache::default(),
+            models: ModelCache::memory_only(),
             model_gen: 0,
             notes: Default::default(),
             error: None,
             notes_open: false,
             rect: Rect::NOTHING,
-keep_camera: false,
             frame: None,
             start_angle: None,
+            keep_camera: false,
         }
     }
 }
@@ -163,12 +170,7 @@ impl BenchBasis {
 }
 
 /// Headless render entry for performance tests.
-pub fn bench_render(
-    mesh: &BoardMesh,
-    basis: &BenchBasis,
-    w: usize,
-    h: usize,
-) -> egui::ColorImage {
+pub fn bench_render(mesh: &BoardMesh, basis: &BenchBasis, w: usize, h: usize) -> egui::ColorImage {
     raster::render(
         mesh,
         basis.inner(),
@@ -178,6 +180,8 @@ pub fn bench_render(
             gold: false,
             selected: None,
             ss: 2,
+            mask: raster::MASK_SRGB,
+            silk: raster::SILK_SRGB,
         },
     )
 }
@@ -344,21 +348,28 @@ impl View3d {
     }
     /// Rebuild the mesh when the design changed or a model file finished
     /// loading. Model files are only asked for here, never waited on.
-    fn refresh(&mut self, project: &Project, revision: u64) {
+    fn refresh(&mut self, env: &mut Env<'_>) {
+        let project = env.project;
+        let revision = env.revision;
         let generation = self.models.generation();
         let same_design = self.mesh.as_ref().is_some_and(|(r, _)| *r == revision);
         if same_design && self.model_gen == generation {
             return;
         }
         let had_mesh = self.mesh.is_some();
-        match pcbcraft_io::board_mesh(project, MeshLayers::default()) {
+        match board_mesh_with_dir(project, MeshLayers::default(), env.design_dir) {
             Ok(mut mesh) => {
                 self.error = None;
                 self.model_gen = generation;
                 let models = self.models.clone();
-                self.notes = pcbcraft_io::with_models(&mut mesh, |p| models.lookup(p))
+                self.notes = pcbcraft_io::with_models(&mut mesh, |p| models.lookup(&p.path))
                     .into_iter()
                     .collect();
+                if let Some(message) = env.message.as_deref_mut() {
+                    for line in self.models.drain_failure_messages() {
+                        *message = line;
+                    }
+                }
                 self.mesh = Some((revision, mesh));
                 if !same_design && !(self.keep_camera && had_mesh) {
                     self.fit();
@@ -428,6 +439,10 @@ pub(crate) struct Env<'a> {
     pub selected: Option<Id>,
     pub bg: Color32,
     pub muted: Color32,
+    /// The folder of the open design file, used to resolve relative model paths.
+    pub design_dir: Option<&'a Path>,
+    /// Where the status line sentence goes when a model file fails to load.
+    pub message: Option<&'a mut String>,
 }
 
 /// A colour the project names in its notes (`mask_colour`, `silk_colour`): a
@@ -543,8 +558,8 @@ fn picture(
 
 /// Draw the tab. Returns a component the person picked, by click in the
 /// viewport or by choosing a row in the parts list.
-pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Option<Id> {
-    view.refresh(env.project, env.revision);
+pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &mut Env<'_>) -> Option<Id> {
+    view.refresh(env);
     let mut picked = None;
     // Parts are listed in the Layers tree; here only a model that did not load
     // needs saying, with the reason, so a kept box is never a mystery.
@@ -643,7 +658,7 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
             Color32::WHITE,
         );
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(
             egui::RichText::new(if loading {
                 t!("board.board3d.loading_models_note")
@@ -711,12 +726,12 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
 /// - Model files load on the shared worker; the viewport never waits for them.
 ///
 /// # Dependencies
-/// - crates/ui-egui/src/board3d.rs (`show` shares `refresh`, `paint_mesh` and the camera with it)
+/// - crates/ui-egui/src/board3d.rs (`show` shares `refresh`, `picture` and the camera with it)
 ///
 /// # Do not
 /// - Pick or select here; a one-part view has nothing to pick.
-pub(crate) fn viewport(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>, size: egui::Vec2) {
-    view.refresh(env.project, env.revision);
+pub(crate) fn viewport(view: &mut View3d, ui: &mut egui::Ui, env: &mut Env<'_>, size: egui::Vec2) {
+    view.refresh(env);
     if view.models.pending() > 0 {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(100));
@@ -746,7 +761,18 @@ pub(crate) fn viewport(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>, size
     }
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, env.bg);
-    paint_mesh(view, &painter, rect, env);
+    let moving = response.dragged() || (response.hovered() && scroll != 0.0);
+    if moving {
+        ui.ctx().request_repaint();
+    }
+    if let Some(texture) = picture(view, ui.ctx(), rect, env, moving) {
+        painter.image(
+            texture,
+            rect,
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+            Color32::WHITE,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -797,7 +823,7 @@ mod tests {
             };
             let mut best = f64::MAX;
             for _ in 0..12 {
-                let t = std::time::Instant::now();
+                let t = pcbcraft_clock::instant_now();
                 std::hint::black_box(raster::render(mesh, &basis, w, h, &look));
                 best = best.min(t.elapsed().as_secs_f64() * 1000.0);
             }

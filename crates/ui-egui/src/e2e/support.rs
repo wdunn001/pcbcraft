@@ -229,6 +229,7 @@ pub(crate) fn replay_frame(
     height: f32,
     paint: impl FnOnce(&mut egui::Ui),
 ) -> egui::FullOutput {
+    let mut paint = Some(paint);
     REPLAY_SCREEN.with(|cell| cell.set(Some((width, height))));
     ctx.enable_accesskit();
     let mut output = ctx.run_ui(
@@ -241,7 +242,9 @@ pub(crate) fn replay_frame(
         },
         |ui| {
             app.show(ui);
-            paint(ui);
+            if let Some(paint) = paint.take() {
+                paint(ui);
+            }
         },
     );
     REPLAY_SCREEN.with(|cell| cell.set(None));
@@ -408,6 +411,54 @@ pub(crate) fn tap_properties(ctx: &egui::Context, app: &mut App, id: &str) -> Re
     let _tall = TallScope::enter();
     let pos = control_center_within(ctx, app, id, PROPERTIES_LEFT, f32::INFINITY)?;
     tap_at(ctx, app, pos)
+}
+
+/// Press choice `slot` (counting from 0) of the `count`-choice segmented
+/// control named `group`.
+/// A segmented control is one radio group on the accessibility tree, so the
+/// choice is picked by its place in the strip, like the hand does.
+pub(crate) fn tap_segment(
+    ctx: &egui::Context,
+    app: &mut App,
+    group: &str,
+    min_x: f32,
+    max_y: f32,
+    slot: usize,
+    count: usize,
+) -> Result<(), String> {
+    let prefix = format!("radiobutton:{group}");
+    let all = super::audit::controls(ctx, app);
+    let strip = all
+        .iter()
+        .rfind(|c| {
+            c.enabled
+                && c.rect.center().x >= min_x
+                && c.rect.center().y < max_y
+                && c.id.as_deref().is_some_and(|id| id.starts_with(&prefix))
+        })
+        .ok_or_else(|| {
+            let radios: Vec<_> = all
+                .iter()
+                .filter(|c| c.rect.center().y < max_y)
+                .map(|c| (c.id.clone(), c.rect))
+                .collect();
+            format!("the {group} switch is not on screen; radio groups: {radios:?}")
+        })?;
+    let part = strip.rect.width() / count as f32;
+    let x = strip.rect.min.x + part * (slot as f32 + 0.5);
+    tap_at(ctx, app, egui::pos2(x, strip.rect.center().y))
+}
+
+/// Press choice `slot` of the segmented control `group` in Properties.
+pub(crate) fn tap_properties_segment(
+    ctx: &egui::Context,
+    app: &mut App,
+    group: &str,
+    slot: usize,
+    count: usize,
+) -> Result<(), String> {
+    let _tall = TallScope::enter();
+    tap_segment(ctx, app, group, PROPERTIES_LEFT, f32::INFINITY, slot, count)
 }
 
 /// True when the control the gate calls `id` is on screen and switched on.

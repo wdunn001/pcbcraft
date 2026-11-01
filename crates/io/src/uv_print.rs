@@ -666,8 +666,10 @@ mod tests {
                 }]),
             }),
             fields: vec![],
-        sourcing: Default::default(),
-        compliance: Default::default(),
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
         });
         p.board.footprints.push(Footprint {
             preserved: pcbcraft_doc::PreservedSource::default(),
@@ -685,9 +687,7 @@ mod tests {
                 castellated: None,
                 geometry: Some(small_pad()),
             }],
-        
-            preserved: pcbcraft_doc::PreservedSource::default(),
-});
+        });
         p.validate()?;
         let profile = eufymake_e1_profile();
         let loose = base_options(UvPrintSide::Top);
@@ -745,9 +745,7 @@ mod tests {
                 castellated: None,
                 geometry: Some(pad.clone()),
             }],
-        
-            preserved: pcbcraft_doc::PreservedSource::default(),
-});
+        });
         p.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
             sheet: 0,
@@ -785,8 +783,10 @@ mod tests {
                 },
             }),
             fields: vec![],
-        sourcing: Default::default(),
-        compliance: Default::default(),
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
         });
         p.validate()?;
         let profile = eufymake_e1_profile();
@@ -902,8 +902,10 @@ mod tests {
                 }]),
             }),
             fields: vec![],
-        sourcing: Default::default(),
-        compliance: Default::default(),
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
         });
         p.board.footprints.push(Footprint {
             preserved: pcbcraft_doc::PreservedSource::default(),
@@ -921,9 +923,7 @@ mod tests {
                 castellated: None,
                 geometry: Some(small_pad()),
             }],
-        
-            preserved: pcbcraft_doc::PreservedSource::default(),
-});
+        });
         p.validate()?;
         let profile = eufymake_e1_profile();
         let mut opts = base_options(UvPrintSide::Bottom);

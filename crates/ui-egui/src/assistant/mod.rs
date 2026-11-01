@@ -527,7 +527,7 @@ impl App {
         } else {
             None
         };
-        let started = std::time::Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let result = pcbcraft_mcp::call_tool(&self.session, &request.name, &request.args);
         let took = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         self.refresh();
@@ -764,7 +764,7 @@ impl App {
     /// design has no path yet) and say where it went.
     pub(crate) fn assistant_export(&mut self) {
         let name = self.project.name.clone();
-let now = pcbcraft_clock::unix_secs();
+        let now = pcbcraft_clock::unix_secs();
         let markdown =
             pcbcraft_assistant::export_markdown(&self.assistant.transcript.items, &name, now);
         let folder = std::path::Path::new(&self.path)

@@ -77,11 +77,7 @@ fn parse_settings(v: Option<Value>) -> Result<VendorHandoffModuleSettings, Error
     serde_json::from_value(raw).map_err(|e| Error::Invalid(format!("invalid settings: {e}")))
 }
 
-pub fn run(
-    _p: &mut Project,
-    command: &str,
-    params: &Value,
-) -> Option<Result<Value, Error>> {
+pub fn run(_p: &mut Project, command: &str, params: &Value) -> Option<Result<Value, Error>> {
     match command {
         "vendor_handoff.capabilities" => Some((|| {
             let a: SettingsParams = parse(params)?;
@@ -90,8 +86,8 @@ pub fn run(
         })()),
         "vendor_handoff.settings.validate" => Some((|| {
             let a: ValidateSettingsParams = parse(params)?;
-            let settings: VendorHandoffModuleSettings = serde_json::from_value(a.settings)
-                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let settings: VendorHandoffModuleSettings =
+                serde_json::from_value(a.settings).map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(if settings.valid() {
                 json!({"valid": true})
             } else {
@@ -100,8 +96,8 @@ pub fn run(
         })()),
         "vendor_handoff.quote.validate" => Some((|| {
             let a: ValidateManifestParams = parse(params)?;
-            let manifest: VendorQuoteHandoffManifest = serde_json::from_value(a.manifest)
-                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let manifest: VendorQuoteHandoffManifest =
+                serde_json::from_value(a.manifest).map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(if manifest.valid() {
                 json!({"valid": true, "files": manifest.files.len()})
             } else {
@@ -135,15 +131,9 @@ mod tests {
     #[test]
     fn off_settings_yield_empty_adapters() -> Result<(), String> {
         let mut project = Project::default();
-        let result = run(
-            &mut project,
-            "vendor_handoff.adapters.list",
-            &json!({}),
-        )
-        .ok_or("handler missing")??;
-        let list = result["adapters"]
-            .as_array()
-            .ok_or("adapters array")?;
+        let result = run(&mut project, "vendor_handoff.adapters.list", &json!({}))
+            .ok_or("handler missing")??;
+        let list = result["adapters"].as_array().ok_or("adapters array")?;
         assert!(list.is_empty());
         Ok(())
     }
@@ -161,9 +151,7 @@ mod tests {
             &json!({"settings": settings}),
         )
         .ok_or("handler missing")??;
-        let list = result["adapters"]
-            .as_array()
-            .ok_or("adapters array")?;
+        let list = result["adapters"].as_array().ok_or("adapters array")?;
         assert_eq!(list.len(), 1);
         assert_eq!(list[0]["id"], "fixture-upload");
         Ok(())
@@ -188,12 +176,8 @@ mod tests {
     #[test]
     fn capabilities_hide_flags_when_off() -> Result<(), String> {
         let mut project = Project::default();
-        let result = run(
-            &mut project,
-            "vendor_handoff.capabilities",
-            &json!({}),
-        )
-        .ok_or("handler missing")??;
+        let result = run(&mut project, "vendor_handoff.capabilities", &json!({}))
+            .ok_or("handler missing")??;
         assert_eq!(result["compiled"], true);
         assert!(result.get("vendor_quotes").is_none());
         let settings = VendorHandoffModuleSettings {

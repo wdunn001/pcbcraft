@@ -20,7 +20,8 @@ pub fn read_stackup_copper_names(project: &mut Project, root: &Value) -> Result<
     let board = root
         .get("board")
         .ok_or_else(|| "project file missing board".to_string())?;
-    read_board_copper_names(&mut project.board, project, board)
+    let snapshot = project.clone();
+    read_board_copper_names(&mut project.board, &snapshot, board)
 }
 
 fn rewrite_copper_strings(value: &mut Value, project: &Project) {
@@ -28,10 +29,10 @@ fn rewrite_copper_strings(value: &mut Value, project: &Project) {
         Value::Object(map) => {
             for (key, child) in map.iter_mut() {
                 if COPPER_LAYER_KEYS.contains(&key.as_str()) {
-                    if let Value::String(name) = child {
-                        if let Ok(layer) = project.resolve_copper_layer(name) {
-                            *name = project.layer_name(layer);
-                        }
+                    if let Value::String(name) = child
+                        && let Ok(layer) = project.resolve_copper_layer(name)
+                    {
+                        *name = project.layer_name(layer);
                     }
                 } else {
                     rewrite_copper_strings(child, project);
@@ -47,7 +48,11 @@ fn rewrite_copper_strings(value: &mut Value, project: &Project) {
     }
 }
 
-fn read_board_copper_names(board: &mut Board, project: &Project, value: &Value) -> Result<(), String> {
+fn read_board_copper_names(
+    board: &mut Board,
+    project: &Project,
+    value: &Value,
+) -> Result<(), String> {
     if let Some(items) = value.get("tracks").and_then(Value::as_array) {
         for (track, raw) in board.tracks.iter_mut().zip(items.iter()) {
             track.layer = required_layer(project, raw.get("layer"))?;
@@ -108,7 +113,8 @@ fn optional_layer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Layer, LayerRecord, Net, Point, Project, Track};
+    use pcbcraft_doc::{Layer, LayerRecord, Net, Project, Track};
+    use pcbcraft_geom::Point;
     fn four_layer() -> Result<Project, String> {
         let mut p = Project::default();
         p.nets.push(Net {
@@ -150,6 +156,7 @@ mod tests {
             width: 0.2,
             layer: Layer::from_index(3)?,
             arc: None,
+            preserved: Default::default(),
         });
         Ok(p)
     }
@@ -157,7 +164,11 @@ mod tests {
     #[test]
     fn save_rewrites_bottom_copper_to_stackup_name() -> Result<(), String> {
         let project = four_layer()?;
-        let mut value = serde_json::to_value(&project).map_err(|e| e.to_string())?;
+        // A board serialized on its own has no stackup context, so it keeps
+        // the index-derived names; a whole project writes stackup names itself.
+        let mut value = serde_json::json!({
+            "board": serde_json::to_value(&project.board).map_err(|e| e.to_string())?
+        });
         assert!(
             value["board"]["tracks"][0]["layer"] == "In3.Cu",
             "serde still writes index-derived inner names"
@@ -170,9 +181,11 @@ mod tests {
     #[test]
     fn load_keeps_legacy_index_derived_bottom_name() -> Result<(), String> {
         let project = four_layer()?;
-        let root: Value = serde_json::to_value(&project).map_err(|e| e.to_string())?;
-        let mut loaded: Project =
-            serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
+        let root: Value = serde_json::json!({
+            "board": serde_json::to_value(&project.board).map_err(|e| e.to_string())?
+        });
+        let mut loaded = project.clone();
+        loaded.board = serde_json::from_value(root["board"].clone()).map_err(|e| e.to_string())?;
         assert_eq!(loaded.board.tracks[0].layer.index(), 3);
         read_stackup_copper_names(&mut loaded, &root)?;
         assert_eq!(loaded.board.tracks[0].layer.index(), 3);
@@ -182,11 +195,12 @@ mod tests {
     #[test]
     fn load_maps_bottom_name_on_multilayer_board() -> Result<(), String> {
         let project = four_layer()?;
-        let text = serde_json::to_string(&project).map_err(|e| e.to_string())?;
-        let text = text.replace("\"In3.Cu\"", "\"B.Cu\"");
-        let root: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        let mut loaded: Project =
-            serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
+        let board_json = serde_json::to_string(&project.board).map_err(|e| e.to_string())?;
+        let board_json = board_json.replace("\"In3.Cu\"", "\"B.Cu\"");
+        let board: Value = serde_json::from_str(&board_json).map_err(|e| e.to_string())?;
+        let root = serde_json::json!({ "board": board });
+        let mut loaded = project.clone();
+        loaded.board = serde_json::from_value(root["board"].clone()).map_err(|e| e.to_string())?;
         assert_eq!(
             loaded.board.tracks[0].layer.index(),
             1,

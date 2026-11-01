@@ -289,11 +289,7 @@ impl App {
                 "Front",
                 "Move this wire to the front copper layer.",
             ),
-            (
-                bottom,
-                "Back",
-                "Move this wire to the back copper layer.",
-            ),
+            (bottom, "Back", "Move this wire to the back copper layer."),
         ]
         .into_iter()
         .filter(|(layer, ..)| *layer != current)
@@ -386,6 +382,7 @@ impl App {
                 if let Some(at) = self.project.pin_position(&PinRef {
                     component: pin.component,
                     pin: pin.pin.clone(),
+                    unit: None,
                 }) {
                     self.wire_route = vec![at];
                 }

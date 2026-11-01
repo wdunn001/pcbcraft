@@ -40,6 +40,7 @@
       "to_object": 11
     }
   ],
+  "compliance": [],
   "drc": [
     {
       "code": "unrouted",
@@ -70,5 +71,6 @@
     }
   ],
   "erc": [],
+  "peripheral": [],
   "revision": 1
 }

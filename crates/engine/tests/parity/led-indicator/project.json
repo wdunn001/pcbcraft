@@ -120,24 +120,43 @@
   "nets": [
     {
       "id": 4,
-      "name": "VCC",
-      "target_length": null,
-      "length_tolerance": null
+      "name": "VCC"
     },
     {
       "id": 5,
-      "name": "LED",
-      "target_length": null,
-      "length_tolerance": null
+      "name": "LED"
     },
     {
       "id": 6,
-      "name": "GND",
-      "target_length": null,
-      "length_tolerance": null
+      "name": "GND"
     }
   ],
   "net_classes": [],
+  "drawing_frame": {
+    "show_zones": true,
+    "fields": [
+      {
+        "label": "Title",
+        "template": "${title}"
+      },
+      {
+        "label": "Revision",
+        "template": "${revision}"
+      },
+      {
+        "label": "Company",
+        "template": "${company}"
+      },
+      {
+        "label": "Date",
+        "template": "${date}"
+      },
+      {
+        "label": "Design",
+        "template": "${name}"
+      }
+    ]
+  },
   "panel": {
     "enabled": false,
     "columns": 1,
@@ -429,7 +448,8 @@
   "library": {
     "notices": [],
     "symbols": [],
-    "footprints": []
+    "footprints": [],
+    "parts": []
   },
   "auto_sync": true
 }

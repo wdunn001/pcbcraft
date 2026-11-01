@@ -176,6 +176,7 @@ pub(crate) fn parallel_crosstalk_findings(project: &Project) -> Vec<Finding> {
                     severity: project.rule_severity("parallel_crosstalk", "warning"),
                     message,
                     objects: vec![a.id, b.id],
+                    hint: None,
                 });
             }
         }
@@ -218,6 +219,7 @@ pub(crate) fn parallel_crosstalk_findings(project: &Project) -> Vec<Finding> {
                 limit
             ),
             objects: vec![net],
+            hint: None,
         });
     }
     result
@@ -229,7 +231,9 @@ mod tests {
     use crate::drc;
     use pcbcraft_doc::{Net, NetClass, Project, Track};
 
-    fn clock_pair(gap_y: f64) -> Project {
+    /// Two 40 mm runs: a 1 ns edge is about 170 mm long on this stackup, so a
+    /// parallel run must exceed about 29 mm (a sixth of that) to be reported.
+    fn clock_pair(gap_y: f64) -> Result<Project, String> {
         let mut p = Project::default();
         p.nets.push(Net {
             id: 1,
@@ -246,19 +250,21 @@ mod tests {
             id: 10,
             net: 1,
             start: Point::new(0.0, 0.0),
-            end: Point::new(10.0, 0.0),
+            end: Point::new(40.0, 0.0),
             width,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 11,
             net: 2,
             start: Point::new(0.0, width + gap_y),
-            end: Point::new(10.0, width + gap_y),
+            end: Point::new(40.0, width + gap_y),
             width,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.net_classes.push(NetClass {
             id: 50,
@@ -277,9 +283,26 @@ mod tests {
             rise_time: Some(1e-9),
             nets: vec![1, 2],
             profile: None,
+            backdrill: Default::default(),
+            corner_radius: Default::default(),
+            current: Default::default(),
+            fast: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            max_vias: Default::default(),
+            min_radius: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
         });
-        p.validate().expect("valid fixture");
-        p
+        p.validate()
+            .map_err(|e| format!("{}: {e:?}", "valid fixture"))?;
+        Ok(p)
     }
 
     fn parallel_findings(p: &Project) -> Vec<Finding> {
@@ -297,35 +320,39 @@ mod tests {
     }
 
     #[test]
-    fn one_width_gap_parallel_run_is_flagged() {
-        let p = clock_pair(0.2);
+    fn one_width_gap_parallel_run_is_flagged() -> Result<(), String> {
+        let p = clock_pair(0.2)?;
         assert_eq!(parallel_findings(&p).len(), 1);
         assert!(parallel_findings(&p)[0].message.contains("estimate"));
+        Ok(())
     }
 
     #[test]
-    fn three_width_gap_parallel_run_passes() {
-        let p = clock_pair(0.6);
+    fn three_width_gap_parallel_run_passes() -> Result<(), String> {
+        let p = clock_pair(0.6)?;
         assert!(parallel_findings(&p).is_empty());
+        Ok(())
     }
 
     #[test]
-    fn electrically_long_net_is_flagged_with_rise_time() {
-        let mut p = clock_pair(2.0);
+    fn electrically_long_net_is_flagged_with_rise_time() -> Result<(), String> {
+        let mut p = clock_pair(2.0)?;
         p.board.tracks[0].end = Point::new(80.0, 0.0);
         p.board.tracks[1].end = Point::new(80.0, p.board.tracks[1].width + 2.0);
-        p.validate().expect("valid");
+        p.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
         assert!(!long_findings(&p).is_empty());
         assert!(long_findings(&p)[0].message.contains("electrically long"));
+        Ok(())
     }
 
     #[test]
-    fn without_rise_time_electrically_long_is_quiet() {
-        let mut p = clock_pair(2.0);
+    fn without_rise_time_electrically_long_is_quiet() -> Result<(), String> {
+        let mut p = clock_pair(2.0)?;
         p.net_classes[0].rise_time = None;
         p.board.tracks[0].end = Point::new(80.0, 0.0);
-        p.validate().expect("valid");
+        p.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
         assert!(long_findings(&p).is_empty());
         assert!(parallel_findings(&p).is_empty());
+        Ok(())
     }
 }

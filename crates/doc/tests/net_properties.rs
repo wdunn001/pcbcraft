@@ -1,13 +1,15 @@
 //! Net electrical property storage and class override resolution.
-use pcbcraft_doc::{Id, Net, NetClass, Project};
+use pcbcraft_doc::{Net, NetClass, Project};
 use serde_json::Value;
 
 type T = Result<(), String>;
 
 #[test]
 fn an_old_net_loads_without_the_new_properties() -> T {
-    let raw = r#"{"nets":[{"id":1,"name":"SIG"}],"net_classes":[]}"#;
-    let p: Project = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+    // An old file: the usual project document whose net carries only an id and a name.
+    let mut doc = serde_json::to_value(Project::default()).map_err(|e| e.to_string())?;
+    doc["nets"] = serde_json::json!([{"id":1,"name":"SIG"}]);
+    let p: Project = serde_json::from_value(doc).map_err(|e| e.to_string())?;
     assert_eq!(p.nets.len(), 1);
     let net = &p.nets[0];
     assert!(net.impedance_target.is_none());
@@ -19,8 +21,7 @@ fn an_old_net_loads_without_the_new_properties() -> T {
         .keys()
         .collect();
     assert!(
-        keys.iter()
-            .all(|k| matches!(k.as_str(), "id" | "name")),
+        keys.iter().all(|k| matches!(k.as_str(), "id" | "name")),
         "new fields leaked into an old-shape net: {keys:?}"
     );
     Ok(())
@@ -59,6 +60,14 @@ fn a_net_value_overrides_the_class_value_and_clearing_it_falls_back() -> T {
         working_voltage: None,
         insulation: None,
         return_path_rule: None,
+        backdrill: Default::default(),
+        fast: Default::default(),
+        max_vias: Default::default(),
+        target_impedance: Default::default(),
+        corner_radius: Default::default(),
+        min_radius: Default::default(),
+        rise_time: Default::default(),
+        max_length: Default::default(),
     });
     let net = p.nets.first().ok_or("net")?;
     assert_eq!(p.net_effective_impedance_target(net), Some(50.0));
@@ -74,11 +83,13 @@ fn a_net_value_overrides_the_class_value_and_clearing_it_falls_back() -> T {
     assert_eq!(p.net_effective_impedance_target(net), Some(50.0));
     assert_eq!(p.net_effective_current(net), Some(2.0));
     p.nets[0].reference_layers = Some(vec!["B.Cu".into()]);
+    let net = &p.nets[0];
     assert_eq!(
         p.net_effective_reference_layers(net),
         &["B.Cu".to_string()][..]
     );
     p.nets[0].reference_layers = None;
+    let net = &p.nets[0];
     assert_eq!(
         p.net_effective_reference_layers(net),
         &["F.Cu".to_string()][..]

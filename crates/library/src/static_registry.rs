@@ -62,7 +62,14 @@ pub fn bundle_root_hash(files: &[PublicationFile]) -> String {
         hasher.update(file.path.as_bytes());
         hasher.update(file.sha256.as_bytes());
     }
-    sha256_hex(&hasher.finalize())
+    // The digest itself, once: the hash of "path" followed by the file's hex digest,
+    // for every file in path order, as the shipped registry fixtures record it.
+    let mut hex = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        hex.push(nibble(byte >> 4));
+        hex.push(nibble(byte & 0x0f));
+    }
+    hex
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,7 +201,9 @@ fn check_piece(piece: &str, label: &str) -> Result<(), String> {
         || piece.len() > 256
         || piece == "."
         || piece.contains("..")
-        || piece.chars().any(|c| c.is_control() || matches!(c, '/' | '\\'))
+        || piece
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '/' | '\\'))
     {
         return Err(format!("{label} has an unusable path piece"));
     }
@@ -284,10 +293,10 @@ fn parse_manifest(text: &str) -> Result<PublicationManifest, String> {
         if seen.insert(rel, ()).is_some() {
             return Err(format!("duplicate file path {}", file.path));
         }
-        if let Some(url) = &file.url {
-            if !url.starts_with("https://") || url.len() > 2048 {
-                return Err(format!("{} has an invalid file url", file.path));
-            }
+        if let Some(url) = &file.url
+            && (!url.starts_with("https://") || url.len() > 2048)
+        {
+            return Err(format!("{} has an invalid file url", file.path));
         }
     }
     let expected = bundle_root_hash(&manifest.files);
@@ -471,8 +480,7 @@ pub fn rebuild_site(registry_root: &Path) -> Result<CatalogueDocument, String> {
         catalogue_sha256: catalogue_hash,
         ..registry
     };
-    let registry_text =
-        serde_json::to_string_pretty(&updated).map_err(|e| e.to_string())?;
+    let registry_text = serde_json::to_string_pretty(&updated).map_err(|e| e.to_string())?;
     atomic_write(manifest_path.as_path(), registry_text.as_bytes())?;
     Ok(catalogue)
 }
@@ -492,10 +500,10 @@ pub fn verify_registry_manifest(registry_root: &Path) -> Result<(), String> {
     if manifest.catalogue_sha256 != hash {
         return Err("registry manifest catalogue hash does not match catalogue.json".into());
     }
-    if let Some(sig) = &manifest.signature {
-        if sig.algorithm.is_empty() || sig.key_id.is_empty() || sig.value.is_empty() {
-            return Err("registry signature is incomplete".into());
-        }
+    if let Some(sig) = &manifest.signature
+        && (sig.algorithm.is_empty() || sig.key_id.is_empty() || sig.value.is_empty())
+    {
+        return Err("registry signature is incomplete".into());
     }
     Ok(())
 }
@@ -656,7 +664,12 @@ pub fn merge_catalogues(
     out.sort_by(|a, b| {
         a.id.cmp(&b.id)
             .then_with(|| a.version.cmp(&b.version))
-            .then_with(|| a.origin.as_ref().map(|o| &o.instance_id).cmp(&b.origin.as_ref().map(|o| &o.instance_id)))
+            .then_with(|| {
+                a.origin
+                    .as_ref()
+                    .map(|o| &o.instance_id)
+                    .cmp(&b.origin.as_ref().map(|o| &o.instance_id))
+            })
     });
     out
 }
@@ -669,10 +682,11 @@ mod tests {
     struct TempDir(PathBuf);
     impl TempDir {
         fn new() -> Result<Self, String> {
-            let path = std::env::temp_dir().join(format!(
-                "pcbcraft-registry-test-{}",
-                std::process::id()
-            ));
+            // Tests run in parallel inside one process, so each folder needs its own name.
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = std::env::temp_dir()
+                .join(format!("pcbcraft-registry-test-{}-{n}", std::process::id()));
             let _ = fs::remove_dir_all(&path);
             fs::create_dir_all(&path).map_err(|e| e.to_string())?;
             Ok(Self(path))
@@ -734,13 +748,10 @@ mod tests {
             .open(&file)
             .map_err(|e| e.to_string())?;
         handle.write_all(b"x").map_err(|e| e.to_string())?;
-        assert!(verify_publication_dir(
-            &registry
-                .join(PUBLICATIONS_DIR)
-                .join("demo-r")
-                .join("1.0.0")
-        )
-        .is_err());
+        assert!(
+            verify_publication_dir(&registry.join(PUBLICATIONS_DIR).join("demo-r").join("1.0.0"))
+                .is_err()
+        );
         Ok(())
     }
 }

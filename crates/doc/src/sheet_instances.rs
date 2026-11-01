@@ -115,10 +115,11 @@ pub fn expand_instance(
     let mut local_nets: BTreeSet<Id> = BTreeSet::new();
     for c in &template_parts {
         for pin in &c.pins {
-            if let Some(net) = pin.net {
-                if !port_nets.contains(&net) && net_used_on_sheet(project, template, net) {
-                    local_nets.insert(net);
-                }
+            if let Some(net) = pin.net
+                && !port_nets.contains(&net)
+                && net_used_on_sheet(project, template, net)
+            {
+                local_nets.insert(net);
             }
         }
     }
@@ -150,6 +151,16 @@ pub fn expand_instance(
             target_length: old.target_length,
             length_tolerance: old.length_tolerance,
             instance: Some(inst.id),
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         net_map.insert(net, new_id);
     }
@@ -159,7 +170,11 @@ pub fn expand_instance(
         let new_id = allocate_id(project, next)?;
         component_map.insert(old.id, new_id);
         let reference = reference_with_offset(&old.reference, inst.reference_offset)?;
-        if project.components.iter().any(|c| c.reference == reference) {
+        if project
+            .components
+            .iter()
+            .any(|c| c.reference == reference && !(c.sheet == template && c.instance.is_none()))
+        {
             return Err(format!("reference {reference} is already in use"));
         }
         let mut pins: Vec<Pin> = Vec::with_capacity(old.pins.len());
@@ -199,6 +214,11 @@ pub fn expand_instance(
             sheet: inst.parent,
             instance: Some(inst.id),
             prototype: Some(old.id),
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         new_components += 1;
     }
@@ -232,10 +252,12 @@ pub fn expand_instance(
             from: PinRef {
                 component: *from,
                 pin: wire.from.pin.clone(),
+                unit: wire.from.unit,
             },
             to: PinRef {
                 component: *to,
                 pin: wire.to.pin.clone(),
+                unit: wire.to.unit,
             },
         });
     }
@@ -419,6 +441,7 @@ mod sheet_instance_tests {
             name: "channel".into(),
             parent: Some(0),
             entry: None,
+            interchange_uuid: Default::default(),
         });
         let r1 = allocate_id(&p, &mut next)?;
         let r2 = allocate_id(&p, &mut next)?;
@@ -429,6 +452,16 @@ mod sheet_instance_tests {
             target_length: None,
             length_tolerance: None,
             instance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         p.components.push(Component {
             id: r1,
@@ -445,6 +478,7 @@ mod sheet_instance_tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             }],
             units: vec![],
             library_symbol: None,
@@ -453,6 +487,11 @@ mod sheet_instance_tests {
             sheet,
             instance: None,
             prototype: None,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         p.components.push(Component {
             id: r2,
@@ -469,6 +508,7 @@ mod sheet_instance_tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: Default::default(),
             }],
             units: vec![],
             library_symbol: None,
@@ -477,6 +517,11 @@ mod sheet_instance_tests {
             sheet,
             instance: None,
             prototype: None,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         Ok((p, sheet, r1, r2))
     }

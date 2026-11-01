@@ -120,8 +120,7 @@ fn stack_sample(project: &Project, layer: Layer) -> Option<StackSample> {
             }
             let reference = format!(
                 "{} and {}",
-                project.board.layer_records[a].name,
-                project.board.layer_records[b].name
+                project.board.layer_records[a].name, project.board.layer_records[b].name
             );
             Some(StackSample {
                 height,
@@ -191,7 +190,7 @@ fn copper_thickness(project: &Project, layer: Layer) -> f64 {
         .unwrap_or(DEFAULT_COPPER_MM)
 }
 
-fn pair_for_net<'a>(project: &'a Project, net: Id) -> Option<&'a DiffPair> {
+fn pair_for_net(project: &Project, net: Id) -> Option<&DiffPair> {
     project
         .board
         .diff_pairs
@@ -231,7 +230,7 @@ fn finding_message(
 }
 
 fn segment_impedance(
-    project: &Project,
+    _project: &Project,
     track: &Track,
     pair: Option<&DiffPair>,
     sample: &StackSample,
@@ -247,13 +246,10 @@ fn segment_impedance(
             Some((coupled.z_diff(), sample))
         }
         (_, Some(_)) => None,
-        (Geometry::Stripline { .. }, None) => imp::stripline(
-            track.width,
-            sample.height,
-            sample.copper,
-            sample.er,
-        )
-        .map(|z| (z, sample.clone())),
+        (Geometry::Stripline { .. }, None) => {
+            imp::stripline(track.width, sample.height, sample.copper, sample.er)
+                .map(|z| (z, sample.clone()))
+        }
         (_, None) => imp::microstrip(track.width, sample.height, sample.copper, sample.er)
             .map(|m| (m.ohms, sample.clone())),
     }
@@ -284,6 +280,7 @@ pub(crate) fn impedance_target_findings(project: &Project) -> Vec<Finding> {
             severity: project.rule_severity("impedance_target", "error"),
             message: finding_message(project, track.net, track, computed, target, &sample),
             objects: vec![track.id],
+            hint: None,
         });
     }
     out
@@ -292,7 +289,8 @@ pub(crate) fn impedance_target_findings(project: &Project) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{DiffPair, Net, Point};
+    use pcbcraft_doc::{DiffPair, Net};
+    use pcbcraft_geom::Point;
 
     fn codes(p: &Project) -> Vec<&'static str> {
         impedance_target_findings(p)
@@ -359,7 +357,7 @@ mod tests {
         p.nets.push(Net {
             id: 1,
             name: "SIG".into(),
-            target_impedance: Some(50.0),
+            impedance_target: Some(50.0),
             impedance_tolerance_pct: Some(10.0),
             ..Default::default()
         });
@@ -375,6 +373,7 @@ mod tests {
             width,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
     }
 
@@ -397,9 +396,12 @@ mod tests {
     }
 
     #[test]
+    // On 0.2 mm of prepreg a 0.3 mm pair is about 94 ohm at 0.15 mm gap, about 98 at
+    // 0.3 mm and about 112 at 0.85 mm, so a 100 ohm target (10 percent) is
+    // missed by a wide gap and met by a moderate one.
     fn differential_pair_wrong_gap_flags() -> Result<(), String> {
         let mut p = four_layer_stack();
-        p.nets[0].target_impedance = Some(100.0);
+        p.nets[0].impedance_target = Some(100.0);
         p.nets.push(Net {
             id: 2,
             name: "SIGN".into(),
@@ -410,12 +412,18 @@ mod tests {
             name: "USB".into(),
             net_p: 1,
             net_n: 2,
-            gap: 0.15,
+            gap: 1.2,
             length_tolerance: None,
             profile: None,
+            equal_vias: Default::default(),
+            impedance_tolerance: Default::default(),
+            max_uncoupled_length: Default::default(),
+            skew_limit_mm: Default::default(),
+            skew_limit_ps: Default::default(),
+            target_impedance: Default::default(),
         });
         let width = 0.3;
-        for (id, y) in [(10, 10.0), (11, 10.0 + width + 0.15)] {
+        for (id, y) in [(10, 10.0), (11, 10.0 + width + 1.2)] {
             p.board.tracks.push(Track {
                 id,
                 net: if id == 10 { 1 } else { 2 },
@@ -424,11 +432,19 @@ mod tests {
                 width,
                 layer: Layer::Front,
                 arc: None,
+                preserved: Default::default(),
             });
         }
         p.validate()?;
-        assert!(codes(&p).contains(&"impedance_target"));
-        p.board.diff_pairs[0].gap = 0.85;
+        assert!(
+            codes(&p).contains(&"impedance_target"),
+            "{:?}",
+            impedance_target_findings(&p)
+                .iter()
+                .map(|f| f.message.clone())
+                .collect::<Vec<_>>()
+        );
+        p.board.diff_pairs[0].gap = 0.3;
         assert!(!codes(&p).contains(&"impedance_target"));
         Ok(())
     }
@@ -436,7 +452,7 @@ mod tests {
     #[test]
     fn no_target_means_no_report() -> Result<(), String> {
         let mut p = four_layer_stack();
-        p.nets[0].target_impedance = None;
+        p.nets[0].impedance_target = None;
         add_track(&mut p, 10, 0.15);
         p.validate()?;
         assert!(codes(&p).is_empty());

@@ -140,7 +140,11 @@ fn every_built_in_profile_toml_parses() {
             parsed.err()
         );
         let doc = parsed.unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
-        assert_eq!(doc["schema"].as_integer(), Some(1));
+        assert!(
+            matches!(doc["schema"].as_integer(), Some(1 | 2)),
+            "{} must be schema 1 or 2",
+            builtin.id
+        );
         assert_eq!(doc["profile"]["id"].as_str(), Some(builtin.id));
     }
 }
@@ -224,22 +228,21 @@ fn manifest_slugs_match_built_ins_and_manifest_jsonl() {
         assert_eq!(*slug, builtin.id);
     }
     let manifest = include_str!("../profiles/manifest.jsonl");
-    let manifest_slugs: std::collections::BTreeSet<&str> = manifest
+    let manifest_slugs: std::collections::BTreeSet<String> = manifest
         .lines()
         .filter(|l| !l.trim().is_empty())
         .filter_map(|line| {
-            serde_json::from_str::<serde_json::Value>(line)
-                .ok()
-                .and_then(|v| {
-                    (v["topic"].as_str() == Some("netrules"))
-                        .then_some(v["slug"].as_str())
-                        .flatten()
-                })
+            let v = serde_json::from_str::<serde_json::Value>(line).ok()?;
+            if v["topic"].as_str() == Some("netrules") {
+                v["slug"].as_str().map(str::to_owned)
+            } else {
+                None
+            }
         })
         .collect();
     for slug in slugs {
         assert!(
-            manifest_slugs.contains(slug),
+            manifest_slugs.contains(*slug),
             "manifest.jsonl missing {slug}"
         );
     }
@@ -271,14 +274,18 @@ fn class_pattern_matches_glob_oracle() {
 }
 
 #[test]
-fn parse_builtin_returns_embedded_toml_or_unknown_error() {
+fn parse_builtin_returns_embedded_toml_or_unknown_error() -> Result<(), String> {
     use pcbcraft_engine::profiles::parse_builtin;
-    let usb = parse_builtin("usb2").expect("usb2 is built in");
-    let doc: toml::Value = toml::from_str(usb).expect("embedded TOML parses");
-    assert_eq!(doc["schema"].as_integer(), Some(1));
+    let usb = parse_builtin("usb2").map_err(|e| format!("{}: {e:?}", "usb2 is built in"))?;
+    let doc: toml::Value =
+        toml::from_str(usb).map_err(|e| format!("{}: {e:?}", "embedded TOML parses"))?;
+    assert!(matches!(doc["schema"].as_integer(), Some(1 | 2)));
     assert_eq!(doc["profile"]["id"].as_str(), Some("usb2"));
-    let err = parse_builtin("not-a-profile").unwrap_err();
+    let err = parse_builtin("not-a-profile")
+        .err()
+        .ok_or("expected an error")?;
     assert!(err.contains("unknown profile"));
+    Ok(())
 }
 
 #[test]

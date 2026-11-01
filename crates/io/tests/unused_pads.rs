@@ -6,9 +6,7 @@ use pcbcraft_library::{Drill, FootprintPad};
 use std::collections::BTreeMap;
 
 fn flashes(text: &str) -> usize {
-    text.lines()
-        .filter(|line| line.contains("D03*"))
-        .count()
+    text.lines().filter(|line| line.contains("D03*")).count()
 }
 
 fn flashes_per_aperture(text: &str) -> BTreeMap<u32, usize> {
@@ -65,6 +63,7 @@ fn tht_pad(number: &str, net: u64, x: f64, y: f64) -> Pad {
         offset: Point::new(x, y),
         diameter: 1.6,
         geometry: Some(FootprintPad {
+            number: number.into(),
             pad_type: "thru_hole".into(),
             shape: "circle".into(),
             size: Point::new(1.6, 1.6),
@@ -87,6 +86,7 @@ fn place_tht(p: &mut Project, id: u64, net: u64, x: f64, y: f64) {
             ..Default::default()
         });
     }
+    let pad = tht_pad("1", net, 0.0, 0.0);
     p.components.push(Component {
         id,
         reference: format!("U{id}"),
@@ -96,10 +96,18 @@ fn place_tht(p: &mut Project, id: u64, net: u64, x: f64, y: f64) {
             net: Some(net),
             ..Default::default()
         }],
+        library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+            library: "Test".into(),
+            definition: pcbcraft_library::FootprintDefinition {
+                name: "THT".into(),
+                pads: pad.geometry.iter().cloned().collect(),
+                ..Default::default()
+            },
+        }),
         ..Default::default()
     });
     p.board.footprints.push(Footprint {
-        id,
+        id: id + 1000,
         component: id,
         position: Point::new(x, y),
         pads: vec![tht_pad("1", net, 0.0, 0.0)],
@@ -165,6 +173,7 @@ fn a_connected_inner_pad_is_never_removed() -> Result<(), String> {
         width: 0.25,
         layer: Layer::from_index(2)?,
         arc: None,
+        preserved: Default::default(),
     });
     project.validate()?;
     let inner = Layer::from_index(2)?;
@@ -227,6 +236,9 @@ fn an_unconnected_inner_via_pad_is_omitted_from_the_plot() -> Result<(), String>
         from_layer: None,
         to_layer: None,
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     project.validate()?;
     let inner = Layer::from_index(2)?;

@@ -37,6 +37,10 @@
    {
     "token": "quantity",
     "header": "Quantity"
+   },
+   {
+    "token": "suppliers",
+    "header": "Supplier part numbers"
    }
   ]
  },

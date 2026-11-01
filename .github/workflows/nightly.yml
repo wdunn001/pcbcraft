@@ -1,6 +1,8 @@
 # Nightly: platform packages from main, a published GitHub pre-release with
 # checksums when main changed (schedule only), workflow artifacts for 14 days,
-# plus an advisory scan that catches new security advisories without a code change.
+# plus an advisory scan that catches new security advisories without a code change,
+# plus the checks kept off the pull request path: coverage, accessibility,
+# localization, test standards, minimum Rust version and UI screenshots.
 name: Nightly
 
 on:
@@ -123,3 +125,160 @@ jobs:
         with:
           tool: cargo-deny
       - run: cargo deny --workspace --all-features check advisories
+
+  # Checks moved off the per-pull-request path (docs/ci.md). Each runs the
+  # same `cargo xtask` command you can run locally.
+
+  coverage:
+    name: Coverage
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: coverage
+          save-if: false
+      - run: cargo xtask coverage
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: coverage
+          path: target/coverage
+          if-no-files-found: ignore
+          retention-days: 14
+
+  a11y:
+    name: Accessibility
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test
+          save-if: false
+      - run: cargo xtask a11y
+
+  i18n:
+    name: Localization
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test
+          save-if: false
+      - run: cargo xtask i18n
+
+  test-standards:
+    name: Test standards
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: xtask
+          save-if: false
+      - run: cargo xtask test-standards
+
+  msrv:
+    name: Minimum Rust version
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: echo "version=$(sed -n 's/^rust-version *= *"\(.*\)"/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: msrv
+          save-if: false
+      - run: cargo xtask msrv
+
+  screenshots:
+    name: UI screenshots
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: screenshots
+          save-if: false
+      - name: Build the desktop app
+        run: cargo build --locked -p pcbcraft
+      - name: Capture views under Xvfb with Mesa software Vulkan
+        env:
+          WGPU_BACKEND: vulkan
+          WGPU_DEBUG: "0"
+          WGPU_VALIDATION: "0"
+        run: |
+          xvfb-run -a -s '-screen 0 1600x1100x24' \
+            env -u WAYLAND_DISPLAY \
+            cargo xtask screenshots --bin target/debug/pcbcraft --out screenshots
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: screenshots
+          path: screenshots
+          if-no-files-found: warn
+          retention-days: 30

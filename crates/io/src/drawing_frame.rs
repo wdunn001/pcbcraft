@@ -321,6 +321,7 @@ pub struct MappedDrawPage<'a, P: DrawPage + ?Sized> {
     pub scale: f64,
 }
 
+/// Contract: crates/io/src/lib.rs
 impl<P: DrawPage + ?Sized> DrawPage for MappedDrawPage<'_, P> {
     fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String> {
         let mapped: Vec<Point> = points

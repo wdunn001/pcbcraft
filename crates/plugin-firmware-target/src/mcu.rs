@@ -2,7 +2,7 @@
 //!
 //! When the MCU record lands in the library crate (issue #844), this module can thin-wrap it.
 use serde::Deserialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// Provenance for bundled or imported pin-mux data.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -116,10 +116,11 @@ pub fn validate_mcu_record(record: &McuRecord) -> Result<(), String> {
         if !names.insert(&pin.name) {
             return Err(format!("duplicate mcu pin name {}", pin.name));
         }
-        if let Some(level) = &pin.boot_level {
-            if level != "low" && level != "high" {
-                return Err(format!("boot level on {} must be low or high", pin.name));
-            }
+        if let Some(level) = &pin.boot_level
+            && level != "low"
+            && level != "high"
+        {
+            return Err(format!("boot level on {} must be low or high", pin.name));
         }
     }
     let mut instance_ids = BTreeSet::new();
@@ -137,24 +138,6 @@ pub fn validate_mcu_record(record: &McuRecord) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-/// Map a logical function token to the instance id that owns it, when known.
-pub fn function_instance(record: &McuRecord, function: &str) -> Option<String> {
-    for inst in &record.instances {
-        if inst.signals.iter().any(|s| s == function) {
-            return Some(inst.id.clone());
-        }
-        if function.starts_with(&format!("{}_", inst.id)) {
-            return Some(inst.id.clone());
-        }
-    }
-    if let Some((prefix, _)) = function.split_once('_') {
-        if record.instance_by_id(prefix).is_some() {
-            return Some(prefix.to_string());
-        }
-    }
-    None
 }
 
 #[cfg(test)]

@@ -1,10 +1,11 @@
 //! Catalog gates and preferences round-trip for tour progress (#774).
 
 use super::data::Tour;
-use super::state::{TourProgress, TourRecord, TourState};
+use super::playback::{TourProgress, TourRecord, TourState};
 use pcbcraft_text::lookup;
 
 /// Gate: every step title and body key resolves in the English catalog.
+#[allow(dead_code)]
 pub fn gate_catalog_labels(tours: &[Tour]) -> Result<(), String> {
     let keys = catalog_keys();
     for tour in tours {
@@ -18,6 +19,7 @@ pub fn gate_catalog_labels(tours: &[Tour]) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn catalog_keys() -> std::collections::BTreeSet<String> {
     pcbcraft_text::parse(pcbcraft_text::ENGLISH)
         .0
@@ -26,6 +28,7 @@ fn catalog_keys() -> std::collections::BTreeSet<String> {
         .collect()
 }
 
+#[allow(dead_code)]
 fn require_label(
     keys: &std::collections::BTreeSet<String>,
     key: &str,
@@ -42,6 +45,7 @@ fn require_label(
 }
 
 /// Tour progress serializes with preferences (browser storage uses the same JSON).
+#[allow(dead_code)]
 pub fn tour_progress_round_trip() -> Result<(), String> {
     let mut progress = TourProgress::default();
     progress.record(TourRecord {

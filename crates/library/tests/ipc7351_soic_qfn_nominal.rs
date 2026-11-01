@@ -1,13 +1,13 @@
 use pcbcraft_library::{
-    generate_footprint, generate_footprint_from_key, LandPatternDensity, LandPatternParams,
-    PackageFamily, PackageKey,
+    LandPatternDensity, LandPatternParams, PackageFamily, PackageKey, generate_footprint,
+    generate_footprint_from_key,
 };
 
 const TOL: f64 = 0.01;
 
 #[test]
 fn nominal_soic8_pad_geometry_within_one_hundredth_mm() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "SOIC8".into(),
         description: String::new(),
         keywords: String::new(),
@@ -53,7 +53,7 @@ fn nominal_soic8_pad_geometry_within_one_hundredth_mm() -> Result<(), String> {
 
 #[test]
 fn nominal_qfn16_ep_pad_geometry_within_one_hundredth_mm() -> Result<(), String> {
-    let mut p = LandPatternParams {
+    let p = LandPatternParams {
         name: "QFN16_EP".into(),
         description: String::new(),
         keywords: String::new(),
@@ -83,8 +83,16 @@ fn nominal_qfn16_ep_pad_geometry_within_one_hundredth_mm() -> Result<(), String>
     };
     let via_key = generate_footprint_from_key(&key, LandPatternDensity::Nominal, "QFN16_EP")?;
     assert_eq!(direct.pads.len(), via_key.pads.len());
-    let ep_direct = direct.pads.iter().find(|pad| pad.number == "EP").ok_or("EP missing")?;
-    let ep_via = via_key.pads.iter().find(|pad| pad.number == "EP").ok_or("EP missing")?;
+    let ep_direct = direct
+        .pads
+        .iter()
+        .find(|pad| pad.number == "EP")
+        .ok_or("EP missing")?;
+    let ep_via = via_key
+        .pads
+        .iter()
+        .find(|pad| pad.number == "EP")
+        .ok_or("EP missing")?;
     assert!((ep_direct.size.x - ep_via.size.x).abs() <= TOL);
     assert!((ep_direct.size.y - ep_via.size.y).abs() <= TOL);
     for pad in direct.pads.iter().filter(|pad| pad.number != "EP") {

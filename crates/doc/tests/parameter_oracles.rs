@@ -53,6 +53,9 @@ fn project_parameter_helpers_round_trip_bindings() -> T {
         from_layer: None,
         to_layer: None,
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     p.bindings.push(Binding {
         object: 10,

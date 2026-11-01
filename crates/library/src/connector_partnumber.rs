@@ -5,9 +5,9 @@
 //! - Every input is bounded by [`SeriesLimits`]; unknown field tokens and overlong strings are rejected.
 //!
 //! # Dependencies
-//! - crates/library/data/connectors/tsw.toml
-//! - crates/library/data/connectors/ssw.toml
-//! - crates/library/data/connectors/bth.toml
+//! - crates/library/data/connectors/partnumber/tsw.toml
+//! - crates/library/data/connectors/partnumber/ssw.toml
+//! - crates/library/data/connectors/partnumber/bth.toml
 //! - crates/library/src/lib.rs
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -69,7 +69,6 @@ pub enum FieldKind {
 
 /// Ordered segment of a series part number.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct FieldSpec {
     /// Stable key used in [`BuildOptions`] and [`ParsedPart::values`].
     pub id: String,
@@ -177,9 +176,9 @@ pub fn load_embedded_series(text: &str) -> Result<SeriesSpec, toml::de::Error> {
 /// Returns an error when an embedded table fails to deserialize.
 pub fn first_slice_specs() -> Result<Vec<SeriesSpec>, toml::de::Error> {
     Ok(vec![
-        load_embedded_series(include_str!("../data/connectors/tsw.toml"))?,
-        load_embedded_series(include_str!("../data/connectors/ssw.toml"))?,
-        load_embedded_series(include_str!("../data/connectors/bth.toml"))?,
+        load_embedded_series(include_str!("../data/connectors/partnumber/tsw.toml"))?,
+        load_embedded_series(include_str!("../data/connectors/partnumber/ssw.toml"))?,
+        load_embedded_series(include_str!("../data/connectors/partnumber/bth.toml"))?,
     ])
 }
 
@@ -289,6 +288,10 @@ pub fn parse_partial(spec_set: &[SeriesSpec], text: &str) -> (ParsedPart, Vec<Fi
     let mut errors = Vec::new();
     for field in &spec.fields {
         if rest.is_empty() {
+            // Optional trailing segments may simply be absent.
+            if matches!(field.kind, FieldKind::OptionalEnum { .. }) {
+                continue;
+            }
             errors.push(FieldError {
                 field: field.id.clone(),
                 message: format!("expected {}", field.label),
@@ -302,7 +305,7 @@ pub fn parse_partial(spec_set: &[SeriesSpec], text: &str) -> (ParsedPart, Vec<Fi
                     errors.push(FieldError::unknown_field(&field.id, vec![text.clone()]));
                     break;
                 }
-                values.insert(field.id.clone(), text.clone());
+                // A literal segment is fixed by the series, so it is not an option to report.
                 rest = strip_prefix_or_empty(rest, text);
                 rest = strip_sep(rest);
             }
@@ -661,8 +664,8 @@ mod tests {
             let built = build(spec, &options).map_err(|e| format!("random build: {e:?}"))?;
             let parsed = parse(&set, &built.0).map_err(|e| format!("random parse: {e:?}"))?;
             assert_eq!(parsed.values, options.0);
-            let rebuilt = build(spec, &BuildOptions(parsed.values))
-                .map_err(|e| format!("rebuild: {e:?}"))?;
+            let rebuilt =
+                build(spec, &BuildOptions(parsed.values)).map_err(|e| format!("rebuild: {e:?}"))?;
             assert_eq!(rebuilt.0, built.0);
         }
         Ok(())
@@ -693,10 +696,12 @@ mod tests {
         )?;
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].field, "plating");
-        assert!(errors[0]
-            .valid_values
-            .iter()
-            .any(|v| v == "L" || v == "F" || v == "G"));
+        assert!(
+            errors[0]
+                .valid_values
+                .iter()
+                .any(|v| v == "L" || v == "F" || v == "G")
+        );
         Ok(())
     }
 
@@ -719,7 +724,7 @@ mod tests {
                     FieldKind::Literal { .. } => {}
                     FieldKind::PitchPositions => {
                         let positions = (rng.next() % max_positions) + 1;
-                        let pitch = if rng.next() % 2 == 0 { 1 } else { 2 };
+                        let pitch = if rng.next().is_multiple_of(2) { 1 } else { 2 };
                         map.insert(field.id.clone(), format!("{pitch}{positions:02}"));
                     }
                     FieldKind::Enum { values } => {
@@ -727,7 +732,7 @@ mod tests {
                         map.insert(field.id.clone(), values[idx].code.clone());
                     }
                     FieldKind::OptionalEnum { values } => {
-                        if rng.next() % 3 == 0 {
+                        if rng.next().is_multiple_of(3) {
                             let idx = (rng.next() as usize) % values.len();
                             map.insert(field.id.clone(), values[idx].code.clone());
                         }

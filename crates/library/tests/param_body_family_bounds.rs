@@ -16,6 +16,7 @@ fn assert_bounds(body: &ParamBody, min: [f64; 3], max: [f64; 3]) -> Result<(), S
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn key(
     family: PackageFamily,
     pin_count: u32,
@@ -97,7 +98,16 @@ fn dip_bounding_box_golden() -> Result<(), String> {
 #[test]
 fn pin_header_bounding_box_golden() -> Result<(), String> {
     let body = ParamBody::from_key(
-        &key(PackageFamily::PinHeader, 6, 2.54, 15.24, 2.54, 15.24, 0.0, 2.54),
+        &key(
+            PackageFamily::PinHeader,
+            6,
+            2.54,
+            15.24,
+            2.54,
+            15.24,
+            0.0,
+            2.54,
+        ),
         "connector",
     );
     assert_bounds(&body, [-7.62, -1.27, 0.0], [7.62, 1.27, 2.54])

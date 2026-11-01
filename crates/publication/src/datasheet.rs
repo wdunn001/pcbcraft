@@ -34,7 +34,10 @@ pub fn check_datasheet_refs(refs: &[DatasheetRef]) -> Vec<ScanOutcome> {
                 action: "remove_and_retry",
             });
         }
-        if ds.title.is_empty() || ds.sha256.len() != 64 || !ds.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+        if ds.title.is_empty()
+            || ds.sha256.len() != 64
+            || !ds.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+        {
             out.push(ScanOutcome::HardFail {
                 rule: "datasheet_metadata",
                 path: ds.title.clone(),
@@ -56,7 +59,8 @@ pub fn check_embedded_datasheet_bytes(path: &str, bytes: &[u8], role: &str) -> V
             path: path.into(),
             line: None,
             column: None,
-            detail: "copied datasheet files are not allowed; store link, title and hash only".into(),
+            detail: "copied datasheet files are not allowed; store link, title and hash only"
+                .into(),
             action: "remove_and_retry",
         }];
     }

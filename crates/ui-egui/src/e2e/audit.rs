@@ -307,8 +307,28 @@ fn walk(path: &Path) {
         if let Some(tab) = tab {
             app.tab = tab;
         }
+        if matches!(tab, Some(Tab::Schematic | Tab::Pcb)) {
+            // The map is a peek that closes when the pointer leaves it, so
+            // whether its pin and surface were listed depended on where the
+            // pointer happened to rest. Open it the way the Map button does,
+            // which keeps it up for the whole walk of the page.
+            app.minimap.click_open = true;
+        }
         TALL_SCREEN.with(|tall| tall.set(true));
         settle(&ctx, &mut app);
+        if tab == Some(Tab::Libraries) {
+            // The collection browser reads its folders on a worker thread;
+            // list the page only once that answer is in, so every run sees
+            // the same controls.
+            for _ in 0..200 {
+                if app.library.catalog.is_some() && app.library.pending.is_none() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            }
+            settle(&ctx, &mut app);
+        }
         let listed = controls(&ctx, &app);
         TALL_SCREEN.with(|tall| tall.set(false));
         let mut checked = BTreeSet::new();

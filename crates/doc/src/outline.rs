@@ -51,15 +51,6 @@ fn chord_count(arc: &Arc, max_error: f64) -> usize {
     ((arc.sweep.abs() / step).ceil() as usize).clamp(1, MAX_CHORDS)
 }
 
-/// The outline as a plain polygon: every vertex, plus points along each arc so
-/// no chord strays more than `max_error` millimetres from the true edge.
-///
-/// # Rules
-/// - The first vertex is not repeated at the end.
-/// - Arc endpoints are the exact vertices.
-///
-/// # Do not
-/// - Do not read the arcs as chords; use this for any polygon-only reader.
 /// Sample one circular arc into a polyline with the same chord budget as
 /// `flatten_outline` uses on board edges.
 pub fn arc_polyline(arc: &Arc, max_error: f64) -> Vec<Point> {
@@ -70,7 +61,7 @@ pub fn arc_polyline(arc: &Arc, max_error: f64) -> Vec<Point> {
 /// Largest gap between the arc and a chord approximation at `max_error`.
 pub fn arc_chord_worst_error(arc: &Arc, max_error: f64) -> f64 {
     let n = chord_count(arc, max_error);
-    let mut worst = 0.0;
+    let mut worst = 0.0_f64;
     for k in 0..n {
         let t0 = k as f64 / n as f64;
         let t1 = (k + 1) as f64 / n as f64;
@@ -83,6 +74,15 @@ pub fn arc_chord_worst_error(arc: &Arc, max_error: f64) -> f64 {
     worst
 }
 
+/// The outline as a plain polygon: every vertex, plus points along each arc so
+/// no chord strays more than `max_error` millimetres from the true edge.
+///
+/// # Rules
+/// - The first vertex is not repeated at the end.
+/// - Arc endpoints are the exact vertices.
+///
+/// # Do not
+/// - Do not read the arcs as chords; use this for any polygon-only reader.
 pub fn flatten_outline(points: &[Point], arcs: &[Option<Point>], max_error: f64) -> Vec<Point> {
     let mut ring = Vec::with_capacity(points.len());
     for (i, &p) in points.iter().enumerate() {

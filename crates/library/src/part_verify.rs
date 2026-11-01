@@ -9,14 +9,14 @@ pub struct VerifyContext<'a> {
 
 pub fn verify_part(part: &Part, ctx: VerifyContext<'_>) -> (Verification, Vec<String>) {
     let mut messages = Vec::new();
-    let mut checks = VerificationChecks::default();
-    checks.symbol_pads_match = check_symbol_pads(part, ctx.symbol, ctx.footprint, &mut messages);
-    checks.package_key_match =
-        check_package_key(part, ctx.footprint, &mut messages);
-    checks.model_fits = check_model_fits(part, ctx.footprint, &mut messages);
-    checks.datasheet_ok = check_datasheet(part, &mut messages);
-    checks.pin_kinds_present = check_pin_kinds(part, &mut messages);
-    checks.mpn_confirmed = check_mpn(part, &mut messages);
+    let checks = VerificationChecks {
+        symbol_pads_match: check_symbol_pads(part, ctx.symbol, ctx.footprint, &mut messages),
+        package_key_match: check_package_key(part, ctx.footprint, &mut messages),
+        model_fits: check_model_fits(part, ctx.footprint, &mut messages),
+        datasheet_ok: check_datasheet(part, &mut messages),
+        pin_kinds_present: check_pin_kinds(part, &mut messages),
+        mpn_confirmed: check_mpn(part, &mut messages),
+    };
     let verified = checks.symbol_pads_match
         && checks.package_key_match
         && checks.model_fits
@@ -98,9 +98,7 @@ fn check_package_key(
             if part.package_key.matches(&computed) {
                 true
             } else {
-                messages.push(
-                    "footprint package key does not match the part record".into(),
-                );
+                messages.push("footprint package key does not match the part record".into());
                 false
             }
         }
@@ -118,15 +116,13 @@ fn check_model_fits(
 ) -> bool {
     let mesh = match &part.model3d {
         Some(Model3dRef::Parametric { body }) => body.mesh(),
-        Some(Model3dRef::Wrl { path, scale, .. }) => {
-            match crate::read_wrl_file(path, *scale) {
-                Ok(m) => m,
-                Err(e) => {
-                    messages.push(e);
-                    return false;
-                }
+        Some(Model3dRef::Wrl { path, scale, .. }) => match crate::read_wrl_file(path, *scale) {
+            Ok(m) => m,
+            Err(e) => {
+                messages.push(e);
+                return false;
             }
-        }
+        },
         Some(Model3dRef::Gltf { path, .. }) => {
             messages.push(format!(
                 "glTF model {} must be checked through the io loader",
@@ -135,7 +131,9 @@ fn check_model_fits(
             return false;
         }
         Some(Model3dRef::Step { .. }) => {
-            messages.push("STEP bodies are not measured yet; use a mesh model or parametric body".into());
+            messages.push(
+                "STEP bodies are not measured yet; use a mesh model or parametric body".into(),
+            );
             return false;
         }
         None => {
@@ -156,10 +154,7 @@ fn mesh_fits_courtyard(
         messages.push("3D body has no geometry".into());
         return false;
     };
-    let (cx, cy) = (
-        (min[0] + max[0]) / 2.0,
-        (min[1] + max[1]) / 2.0,
-    );
+    let (cx, cy) = ((min[0] + max[0]) / 2.0, (min[1] + max[1]) / 2.0);
     let (hx, hy) = ((max[0] - min[0]) / 2.0, (max[1] - min[1]) / 2.0);
     let (limit_x, limit_y) = if let Some(hx) = part.package_key.courtyard_half_x {
         (hx, part.package_key.courtyard_half_y.unwrap_or(hx))
@@ -169,10 +164,16 @@ fn mesh_fits_courtyard(
                 k.courtyard_half_x.unwrap_or(k.body_length_mm),
                 k.courtyard_half_y.unwrap_or(k.body_width_mm),
             ),
-            Err(_) => (part.package_key.body_length_mm, part.package_key.body_width_mm),
+            Err(_) => (
+                part.package_key.body_length_mm,
+                part.package_key.body_width_mm,
+            ),
         }
     } else {
-        (part.package_key.body_length_mm, part.package_key.body_width_mm)
+        (
+            part.package_key.body_length_mm,
+            part.package_key.body_width_mm,
+        )
     };
     if hx + cx.abs() > limit_x + 0.2 || hy + cy.abs() > limit_y + 0.2 {
         messages.push("3D body extends beyond the footprint courtyard".into());

@@ -66,10 +66,9 @@ pub fn auth_headers_for_distributor(distributor: &str) -> Result<Vec<(String, St
         return Ok(Vec::new());
     }
     match entry(distributor)?.get_password() {
-        Ok(secret) if !secret.is_empty() => Ok(vec![(
-            "Authorization".into(),
-            format!("Bearer {secret}"),
-        )]),
+        Ok(secret) if !secret.is_empty() => {
+            Ok(vec![("Authorization".into(), format!("Bearer {secret}"))])
+        }
         Ok(_) => Ok(Vec::new()),
         Err(keyring::Error::NoEntry) => Ok(Vec::new()),
         Err(e) => Err(e.to_string()),

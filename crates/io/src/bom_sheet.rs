@@ -69,11 +69,8 @@ pub fn bom_sheet_rows(p: &Project, params: &BomSheetParams) -> Result<Vec<BomShe
                     None => "starter pads".into(),
                 },
             };
-        let property_values: Vec<String> = params
-            .fields
-            .iter()
-            .map(|key| c.field(key).unwrap_or("").to_string())
-            .collect();
+        let property_values: Vec<String> =
+            params.fields.iter().map(|key| c.bom_value(key)).collect();
         let apart = if params.group {
             String::new()
         } else {
@@ -177,6 +174,7 @@ pub fn bom_sheet_generic_csv(p: &Project, rows: &[BomSheetRow], keys: &[String])
 }
 
 /// Rows and generic CSV for the usual disk and package export path.
+#[allow(dead_code)]
 pub fn bom_sheet_generic_csv_for_project(
     p: &Project,
     params: &BomSheetParams,

@@ -1,5 +1,6 @@
 //! Differential-pair skew and uncoupled-length rules.
-use pcbcraft_doc::{DiffPair, Id, Layer, LayerRecord, Net, Point, Project, Track};
+use pcbcraft_doc::{DiffPair, Id, Layer, LayerRecord, Net, Project, Track};
+use pcbcraft_geom::Point;
 use pcbcraft_rules::drc;
 
 type T = Result<(), String>;
@@ -21,6 +22,7 @@ fn track(id: Id, net: Id, start: Point, end: Point, layer: Layer) -> Track {
         width: 0.2,
         layer,
         arc: None,
+        preserved: Default::default(),
     }
 }
 
@@ -37,6 +39,8 @@ fn pair(id: Id, net_p: Id, net_n: Id) -> DiffPair {
         skew_limit_ps: None,
         max_uncoupled_length: None,
         profile: None,
+        equal_vias: Default::default(),
+        impedance_tolerance: Default::default(),
     }
 }
 
@@ -112,6 +116,9 @@ fn time_skew_uses_the_dk_of_the_layer_each_segment_runs_on() -> T {
     dp.skew_limit_mm = Some(100.0);
     dp.skew_limit_ps = Some(50.0);
     p.board.diff_pairs.push(dp);
+    // With three copper rows `Layer::Back` is the first inner layer; the
+    // bottom row is the last copper layer.
+    let bottom = p.bottom_layer();
     let len = 20.0;
     p.board.tracks.push(track(
         10,
@@ -125,7 +132,7 @@ fn time_skew_uses_the_dk_of_the_layer_each_segment_runs_on() -> T {
         2,
         Point::new(0.0, 0.0),
         Point::new(len, 0.0),
-        Layer::Back,
+        bottom,
     ));
     p.validate()?;
     let with_time = codes(&p);

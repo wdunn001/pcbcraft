@@ -11,7 +11,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(unix)]
 use nix::sys::signal::{Signal, killpg};
@@ -59,6 +59,7 @@ impl ProcessHandle {
 }
 
 /// Start the agent in a process group of its own (Unix) or without a console window (Windows).
+#[cfg_attr(not(any(unix, windows)), allow(unused_variables))]
 fn detach_group(cmd: &mut Command) {
     #[cfg(unix)]
     {
@@ -108,7 +109,7 @@ fn kill_tree(pid: u32) {
 
 /// Wait up to `limit` for the child to end; whether it did.
 fn wait_for(child: &mut Child, limit: Duration) -> bool {
-    let start = Instant::now();
+    let start = pcbcraft_clock::instant_now();
     loop {
         match child.try_wait() {
             Ok(Some(_)) => return true,
@@ -259,6 +260,7 @@ impl AgentProcess {
         self.child.pid()
     }
 
+    #[allow(dead_code)]
     pub fn handle(&self) -> ProcessHandle {
         self.child.clone()
     }
@@ -300,15 +302,21 @@ mod tests {
     }
 
     /// Start a fake agent that leaves helpers behind, read the helpers' ids from it, end it.
-    fn helpers_after_shutdown(script: &str) -> Vec<u32> {
+    fn helpers_after_shutdown(script: &str) -> Result<Vec<u32>, String> {
         let dir = std::env::temp_dir();
         let argv = vec!["sh".to_string(), "-c".to_string(), script.to_string()];
-        let mut p = AgentProcess::spawn(&argv, &dir, &[], || {}).unwrap();
-        let mut pids = vec![p.pid().unwrap()];
+        let mut p = AgentProcess::spawn(&argv, &dir, &[], || {}).map_err(|e| format!("{e:?}"))?;
+        let mut pids = vec![p.pid().ok_or("missing value")?];
         while pids.len() < 3 {
-            match p.from_agent.recv_timeout(Duration::from_secs(10)).unwrap() {
-                FromAgent::Line(l) => pids.push(l.trim().parse().unwrap()),
-                FromAgent::Exited(tail) => panic!("the fake agent ended early: {tail:?}"),
+            match p
+                .from_agent
+                .recv_timeout(Duration::from_secs(10))
+                .map_err(|e| format!("{e:?}"))?
+            {
+                FromAgent::Line(l) => pids.push(l.trim().parse().map_err(|e| format!("{e:?}"))?),
+                FromAgent::Exited(tail) => {
+                    return Err(format!("the fake agent ended early: {tail:?}"));
+                }
             }
         }
         assert!(
@@ -317,50 +325,56 @@ mod tests {
         );
         p.shutdown(true);
         // Orphaned helpers are reaped by init a moment after they end.
-        let start = Instant::now();
+        let start = pcbcraft_clock::instant_now();
         while pids.iter().any(|&pid| alive(pid)) && start.elapsed() < Duration::from_secs(5) {
             std::thread::sleep(Duration::from_millis(50));
         }
-        pids.into_iter().filter(|&pid| alive(pid)).collect()
+        Ok(pids.into_iter().filter(|&pid| alive(pid)).collect())
     }
 
     /// No orphans: an agent that started helpers (as Node adapters start the CLI they wrap and
     /// its MCP servers) is ended with all of them, whether it ends politely at end of input or
     /// ignores both its input and the request to stop.
     #[test]
-    fn stopping_the_agent_ends_its_helpers() {
+    fn stopping_the_agent_ends_its_helpers() -> Result<(), String> {
         // A polite agent: ends when its input closes; its helpers would live on by themselves.
         let polite = "sleep 300 & echo $!; sleep 300 & echo $!; cat >/dev/null";
         assert_eq!(
-            helpers_after_shutdown(polite),
+            helpers_after_shutdown(polite)?,
             Vec::<u32>::new(),
             "polite agent"
         );
         // A stubborn one: ignores end of input and TERM (so do its helpers).
         let stubborn = "trap '' TERM; (trap '' TERM; sleep 300) & echo $!; (trap '' TERM; sleep 300) & echo $!; while :; do sleep 1; done";
         assert_eq!(
-            helpers_after_shutdown(stubborn),
+            helpers_after_shutdown(stubborn)?,
             Vec::<u32>::new(),
             "stubborn agent"
         );
+        Ok(())
     }
 
     /// Dropping the process (closing the panel's connection any other way) ends it too.
     #[test]
-    fn dropping_the_process_ends_its_group() {
+    fn dropping_the_process_ends_its_group() -> Result<(), String> {
         let argv = vec![
             "sh".to_string(),
             "-c".to_string(),
             "sleep 300 & echo $!; wait".to_string(),
         ];
-        let p = AgentProcess::spawn(&argv, &std::env::temp_dir(), &[], || {}).unwrap();
-        let leader = p.pid().unwrap();
-        let FromAgent::Line(l) = p.from_agent.recv_timeout(Duration::from_secs(10)).unwrap() else {
-            panic!("no helper id")
+        let p = AgentProcess::spawn(&argv, &std::env::temp_dir(), &[], || {})
+            .map_err(|e| format!("{e:?}"))?;
+        let leader = p.pid().ok_or("missing value")?;
+        let FromAgent::Line(l) = p
+            .from_agent
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|e| format!("{e:?}"))?
+        else {
+            return Err("no helper id".to_string());
         };
-        let helper: u32 = l.trim().parse().unwrap();
+        let helper: u32 = l.trim().parse().map_err(|e| format!("{e:?}"))?;
         drop(p);
-        let start = Instant::now();
+        let start = pcbcraft_clock::instant_now();
         while (alive(helper) || alive(leader)) && start.elapsed() < Duration::from_secs(8) {
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -368,5 +382,6 @@ mod tests {
             !alive(helper) && !alive(leader),
             "leader {leader} or helper {helper} still running"
         );
+        Ok(())
     }
 }

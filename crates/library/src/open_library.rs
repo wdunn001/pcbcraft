@@ -17,7 +17,7 @@
 //! - crates/library/src/cad_cache.rs
 //! - crates/library/src/sources.rs
 use crate::cad::{CadFile, CadKind, CadRef, CadSource, LicenseInfo, MAX_FILE_BYTES, Provenance};
-use crate::cad_cache::{CadCache, now_secs};
+use crate::cad_cache::CadCache;
 use crate::sources::{
     Attribution, MAX_RESULTS, PartResult, PartSource, SetupCard, SourceError, check_query,
 };
@@ -78,6 +78,7 @@ pub enum FetchError {
 /// - `crates/library/src/web_transport.rs`
 /// - `crates/ui-egui/src/e2e/support.rs`
 /// - `crates/ui-egui/src/sources.rs`
+/// - `apps/pcbcraft-web/src/transport.rs`
 pub trait Fetcher: Send + Sync {
     /// Read the whole answer for a URL.
     fn get(&self, url: &str) -> Result<Vec<u8>, FetchError>;
@@ -298,9 +299,6 @@ fn from_fetch(err: FetchError, what: &str) -> SourceError {
     }
 }
 
-fn now_secs() -> u64 {
-    pcbcraft_clock::unix_secs()
-}
 /// The official open libraries as a CAD source and a part source.
 ///
 /// # Rules

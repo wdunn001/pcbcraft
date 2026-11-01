@@ -107,6 +107,7 @@ const LIBRARY_TAB: RegionTab = RegionTab {
     tip: || t!("library.browser.tab_library.tip"),
 };
 const DRAWING_TABS: [RegionTab; 2] = [LAYERS_TAB, LIBRARY_TAB];
+const LIBRARY_ONLY: [RegionTab; 1] = [LIBRARY_TAB];
 const FILES_TAB: RegionTab = RegionTab {
     id: "files",
     label: || t!("files.nav.tab"),
@@ -256,25 +257,20 @@ impl Workspace for ManufactureWorkspace {
         &MANUFACTURE_TABS
     }
     fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
-match tab {
+        match tab {
             "outputs" => {
                 ui.label(egui::RichText::new(t!("workspace.outputs_hint")).color(app.muted()));
                 app.bom_outputs_ui(ui);
             }
-            "machines" => {
-                app.machines_left(ui);
-                ui.label(egui::RichText::new(t!("workspace.machines_hint")).color(app.muted()));
-            }
+            "machines" => app.machines_left(ui),
             _ => {}
-        }
-    }
         }
     }
     fn center(&self, app: &mut App, ui: &mut egui::Ui) {
         let machines = app.region().left_tab == "machines";
         egui::ScrollArea::vertical().show(ui, |ui| {
             App::margined(ui, |ui| {
-if machines && app.machine_view(ui) {
+                if machines && app.machine_view(ui) {
                     return;
                 }
                 app.drill_table_section(ui);

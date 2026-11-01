@@ -14,8 +14,8 @@ fn chip_pad(number: &str, x: f64, y: f64) -> Pad {
     Pad {
         number: number.into(),
         offset: Point::new(x, y),
-        diameter: 1.0,
-        net: None,
+        diameter: 1.025,
+        net: (number == "1").then_some(1),
         castellated: None,
         geometry: Some(pcbcraft_library::FootprintPad {
             number: number.into(),
@@ -84,6 +84,8 @@ pub fn bench_project_600_parts() -> Project {
         rules: None,
         raw_source: String::new(),
         unsupported: vec![],
+        box_body: Default::default(),
+        retained: Default::default(),
     };
     for index in 0..PARTS {
         let row = index / COLS;
@@ -107,6 +109,7 @@ pub fn bench_project_600_parts() -> Project {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -116,6 +119,7 @@ pub fn bench_project_600_parts() -> Project {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: Default::default(),
                 },
             ],
             units: vec![],
@@ -127,6 +131,12 @@ pub fn bench_project_600_parts() -> Project {
             fields: vec![],
             sourcing: Default::default(),
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: footprint_id,
@@ -139,6 +149,7 @@ pub fn bench_project_600_parts() -> Project {
             locked: None,
             side: None,
             pads: vec![chip_pad("1", -0.9, 0.0), chip_pad("2", 0.9, 0.0)],
+            preserved: Default::default(),
         });
     }
     p

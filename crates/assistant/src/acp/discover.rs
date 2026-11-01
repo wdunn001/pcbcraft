@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// An agent PCBCraft knows how to start in ACP mode.
 pub struct Known {
@@ -337,7 +337,7 @@ fn version(program: &Path, limit: Duration) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let start = Instant::now();
+    let start = pcbcraft_clock::instant_now();
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
@@ -399,7 +399,7 @@ pub fn detect() -> Detection {
 }
 
 fn detect_in(dirs: &[PathBuf], home: Option<&Path>) -> Detection {
-    let t0 = Instant::now();
+    let t0 = pcbcraft_clock::instant_now();
     let mut d = Detection::default();
     for k in KNOWN {
         let Some(path) = k.programs.iter().find_map(|p| find_in(p, dirs)) else {
@@ -434,6 +434,7 @@ fn detect_in(dirs: &[PathBuf], home: Option<&Path>) -> Detection {
 
 /// Query only the endpoint's origin; OpenAI-compatible paths such as `/v1` are unrelated.
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 fn api_origin(base_url: &str) -> Option<String> {
     let (scheme, rest) = base_url.trim().split_once("://")?;
     if !matches!(scheme, "http" | "https") {
@@ -448,6 +449,7 @@ fn api_origin(base_url: &str) -> Option<String> {
 
 /// Blocking, best-effort Ollama probe. Call only on a background thread, without API keys.
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 pub(super) fn ollama_tools(
     http: &crate::backend::HttpFn,
     base_url: &str,
@@ -457,7 +459,7 @@ pub(super) fn ollama_tools(
     use crate::backend::HttpRequest;
     let origin = api_origin(base_url)?;
     let request = |method, path: &str, body| {
-        let (status, bytes) = http(&HttpRequest {
+        let response = http(&HttpRequest {
             method,
             url: format!("{origin}/api/{path}"),
             headers: if method == "POST" {
@@ -467,12 +469,13 @@ pub(super) fn ollama_tools(
             },
             body,
             timeout_s: 5,
+            stream_out: None,
         })
         .ok()?;
-        if !(200..300).contains(&status) || bytes.len() > 4 * 1024 * 1024 {
+        if !(200..300).contains(&response.status) || response.body.len() > 4 * 1024 * 1024 {
             return None;
         }
-        serde_json::from_slice::<serde_json::Value>(&bytes).ok()
+        serde_json::from_slice::<serde_json::Value>(&response.body).ok()
     };
     if !known_ollama {
         let version = request("GET", "version", None)?;
@@ -484,6 +487,7 @@ pub(super) fn ollama_tools(
 
 /// Tool support is unknown unless Ollama returns a capabilities list of strings.
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 pub(super) fn tools_capability(value: &serde_json::Value) -> Option<bool> {
     let capabilities = value.get("capabilities")?.as_array()?;
     if capabilities
@@ -504,7 +508,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ollama_capabilities_distinguish_tools_chat_and_unknown() {
+    fn ollama_capabilities_distinguish_tools_chat_and_unknown() -> Result<(), String> {
         use serde_json::json;
         assert_eq!(
             tools_capability(&json!({"capabilities": ["completion", "tools"]})),
@@ -527,21 +531,27 @@ mod tests {
             Some("http://[::1]:11434")
         );
         assert_eq!(api_origin("file:///tmp/model"), None);
-        let http: super::crate::backend::HttpFn = std::sync::Arc::new(|request| {
+        let http: crate::backend::HttpFn = std::sync::Arc::new(|request| {
             assert_eq!(request.timeout_s, 5);
             match request.method {
                 "GET" => {
                     assert_eq!(request.url, "http://localhost:11434/api/version");
-                    Ok((200, br#"{"version":"0.0"}"#.to_vec()))
+                    Ok(crate::backend::HttpResponse::ok(
+                        br#"{"version":"0.0"}"#.to_vec(),
+                    ))
                 }
                 "POST" => {
                     assert_eq!(request.url, "http://localhost:11434/api/show");
                     assert_eq!(
-                        serde_json::from_slice::<serde_json::Value>(request.body.as_ref().unwrap())
-                            .unwrap(),
+                        serde_json::from_slice::<serde_json::Value>(
+                            request.body.as_ref().ok_or("missing value")?
+                        )
+                        .map_err(|e| format!("{e:?}"))?,
                         json!({"model":"chat:4b"})
                     );
-                    Ok((200, br#"{"capabilities":["completion"]}"#.to_vec()))
+                    Ok(crate::backend::HttpResponse::ok(
+                        br#"{"capabilities":["completion"]}"#.to_vec(),
+                    ))
                 }
                 _ => Err("unexpected HTTP method".into()),
             }
@@ -554,29 +564,31 @@ mod tests {
             ollama_tools(&http, "http://localhost:11434/v1", "chat:4b", true),
             Some(false)
         );
-        let unavailable: super::crate::backend::HttpFn =
+        let unavailable: crate::backend::HttpFn =
             std::sync::Arc::new(|_| Err("unavailable".into()));
         assert_eq!(
             ollama_tools(&unavailable, "http://localhost:11434/v1", "chat:4b", false),
             None
         );
+        Ok(())
     }
 
     #[test]
-    fn a_program_is_found_in_the_first_folder_that_has_it() {
+    fn a_program_is_found_in_the_first_folder_that_has_it() -> Result<(), String> {
         let root = std::env::temp_dir().join(format!("sc-agent-find-{}", std::process::id()));
         let (a, b) = (root.join("a"), root.join("b"));
-        std::fs::create_dir_all(&a).unwrap();
-        std::fs::create_dir_all(&b).unwrap();
+        std::fs::create_dir_all(&a).map_err(|e| format!("{e:?}"))?;
+        std::fs::create_dir_all(&b).map_err(|e| format!("{e:?}"))?;
         // A name this platform runs: Windows looks only for `.exe`/`.cmd`/`.bat` (#1554).
         let name = names_for("codex-acp", cfg!(windows)).remove(0);
-        std::fs::write(b.join(&name), "").unwrap();
+        std::fs::write(b.join(&name), "").map_err(|e| format!("{e:?}"))?;
         assert_eq!(
             find_in("codex-acp", &[a.clone(), b.clone()]),
             Some(b.join(name))
         );
         assert_eq!(find_in("gemini", &[a, b]), None);
         let _ = std::fs::remove_dir_all(root);
+        Ok(())
     }
 
     #[test]
@@ -590,11 +602,11 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_bare_npm_path_runs_its_cmd_shim() {
+    fn a_saved_bare_npm_path_runs_its_cmd_shim() -> Result<(), String> {
         let root = std::env::temp_dir().join(format!("sc-agent-shim-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("codex-acp"), "#!/bin/sh").unwrap();
-        std::fs::write(root.join("codex-acp.cmd"), "@echo off").unwrap();
+        std::fs::create_dir_all(&root).map_err(|e| format!("{e:?}"))?;
+        std::fs::write(root.join("codex-acp"), "#!/bin/sh").map_err(|e| format!("{e:?}"))?;
+        std::fs::write(root.join("codex-acp.cmd"), "@echo off").map_err(|e| format!("{e:?}"))?;
         assert_eq!(
             runnable_sibling(&root.join("codex-acp")),
             Some(root.join("codex-acp.cmd"))
@@ -602,6 +614,7 @@ mod tests {
         assert_eq!(runnable_sibling(&root.join("codex-acp.cmd")), None);
         assert_eq!(runnable_sibling(&root.join("gemini")), None);
         let _ = std::fs::remove_dir_all(root);
+        Ok(())
     }
 
     #[test]
@@ -614,19 +627,32 @@ mod tests {
     }
 
     #[test]
-    fn signed_in_comes_from_the_agents_own_file_or_a_key_variable() {
+    fn signed_in_comes_from_the_agents_own_file_or_a_key_variable() -> Result<(), String> {
         let home = std::env::temp_dir().join(format!("sc-agent-login-{}", std::process::id()));
-        std::fs::create_dir_all(home.join(".gemini")).unwrap();
-        let gemini = KNOWN.iter().find(|k| k.id == "gemini").unwrap();
-        let qwen = KNOWN.iter().find(|k| k.id == "qwen").unwrap();
-        let goose = KNOWN.iter().find(|k| k.id == "goose").unwrap();
-        let grok = KNOWN.iter().find(|k| k.id == "grok").unwrap();
+        std::fs::create_dir_all(home.join(".gemini")).map_err(|e| format!("{e:?}"))?;
+        let gemini = KNOWN
+            .iter()
+            .find(|k| k.id == "gemini")
+            .ok_or("missing value")?;
+        let qwen = KNOWN
+            .iter()
+            .find(|k| k.id == "qwen")
+            .ok_or("missing value")?;
+        let goose = KNOWN
+            .iter()
+            .find(|k| k.id == "goose")
+            .ok_or("missing value")?;
+        let grok = KNOWN
+            .iter()
+            .find(|k| k.id == "grok")
+            .ok_or("missing value")?;
         if std::env::var_os("GEMINI_API_KEY").is_none()
             && std::env::var_os("GOOGLE_API_KEY").is_none()
         {
             assert_eq!(login_of(gemini, Some(&home)), Login::NotLoggedIn);
         }
-        std::fs::write(home.join(".gemini/oauth_creds.json"), "{}").unwrap();
+        std::fs::write(home.join(".gemini/oauth_creds.json"), "{}")
+            .map_err(|e| format!("{e:?}"))?;
         assert_eq!(login_of(gemini, Some(&home)), Login::LooksLoggedIn);
         if std::env::var_os("DASHSCOPE_API_KEY").is_none() {
             assert_eq!(login_of(qwen, Some(&home)), Login::NotLoggedIn);
@@ -640,7 +666,10 @@ mod tests {
             assert_eq!(login_of(grok, Some(&home)), Login::NotLoggedIn);
         }
         // Antigravity's server keeps its own login, apart from the retired Gemini CLI's.
-        let agy = KNOWN.iter().find(|k| k.id == "antigravity").unwrap();
+        let agy = KNOWN
+            .iter()
+            .find(|k| k.id == "antigravity")
+            .ok_or("missing value")?;
         if std::env::var_os("GEMINI_API_KEY").is_none() {
             assert_eq!(
                 login_of(agy, Some(&home)),
@@ -648,32 +677,36 @@ mod tests {
                 "the Gemini CLI's file is not its login"
             );
         }
-        std::fs::create_dir_all(home.join(".gemini/antigravity-acp")).unwrap();
+        std::fs::create_dir_all(home.join(".gemini/antigravity-acp"))
+            .map_err(|e| format!("{e:?}"))?;
         std::fs::write(
             home.join(".gemini/antigravity-acp/acp_token.json"),
             "not credential data",
         )
-        .unwrap();
+        .map_err(|e| format!("{e:?}"))?;
         assert_eq!(login_of(agy, Some(&home)), Login::LooksLoggedIn);
-        std::fs::create_dir_all(home.join(".grok")).unwrap();
+        std::fs::create_dir_all(home.join(".grok")).map_err(|e| format!("{e:?}"))?;
         // Discovery checks only for the file; it never needs to parse the user's tokens.
-        std::fs::write(home.join(".grok/auth.json"), "not credential data").unwrap();
+        std::fs::write(home.join(".grok/auth.json"), "not credential data")
+            .map_err(|e| format!("{e:?}"))?;
         assert_eq!(login_of(grok, Some(&home)), Login::LooksLoggedIn);
         let _ = std::fs::remove_dir_all(home);
+        Ok(())
     }
 
     /// Google retired the Gemini CLI (#1790): one that is installed is still found, but nobody is
     /// told to install it. Antigravity's ACP server is offered, and found under its file name.
     #[test]
     #[cfg(unix)]
-    fn a_retired_agent_is_found_but_not_offered_and_antigravity_is() {
+    fn a_retired_agent_is_found_but_not_offered_and_antigravity_is() -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
         let root = std::env::temp_dir().join(format!("sc-agent-retired-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        let run = |name: &str, body: &str| {
+        std::fs::create_dir_all(&root).map_err(|e| format!("{e:?}"))?;
+        let run = |name: &str, body: &str| -> Result<(), String> {
             let path = root.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).map_err(|e| format!("{e:?}"))?;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .map_err(|e| format!("{e:?}"))
         };
         let ids = |d: &Detection| {
             (
@@ -700,9 +733,9 @@ mod tests {
             "{hint}"
         );
 
-        run("gemini", "echo gemini 0.64.0");
+        run("gemini", "echo gemini 0.64.0")?;
         // A server that would take seconds to answer `--version`, which Antigravity is never asked.
-        run("agy_acp_server.par", "sleep 30");
+        run("agy_acp_server.par", "sleep 30")?;
         let both = detect_in(std::slice::from_ref(&root), None);
         let (found, missing) = ids(&both);
         assert_eq!(found, ["antigravity", "gemini"]);
@@ -726,6 +759,7 @@ mod tests {
             "Antigravity's server was started to read a version"
         );
         let _ = std::fs::remove_dir_all(root);
+        Ok(())
     }
 
     #[test]
@@ -758,7 +792,7 @@ mod tests {
             let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));
         }
         let dirs = vec![bin.clone()];
-        let start = Instant::now();
+        let start = pcbcraft_clock::instant_now();
         let _ = find_in("pcbcraft-fake-agent", &dirs);
         assert!(
             start.elapsed() < Duration::from_secs(4),

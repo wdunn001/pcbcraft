@@ -131,7 +131,10 @@ pub fn compare_one_part(
     let baseline_fp = effective_footprint_name(baseline, baseline_footprint_override);
     let other_fp = effective_footprint_name(other, other_footprint_override);
     let footprint_fields_same = baseline_fp == other_fp;
-    let footprint_pads = match (resolve_footprint(&baseline_fp), resolve_footprint(&other_fp)) {
+    let footprint_pads = match (
+        resolve_footprint(&baseline_fp),
+        resolve_footprint(&other_fp),
+    ) {
         (Some(a), Some(b)) => Some(compare_footprint_pads(&a, &b)),
         _ => None,
     };
@@ -176,6 +179,7 @@ mod tests {
             extends: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         }
     }
 

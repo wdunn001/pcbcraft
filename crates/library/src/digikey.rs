@@ -1,5 +1,8 @@
 //! Live distributor source for the Product Information API (keyword search and product details).
 
+// The vendor wire formats name their fields in camel and Pascal case.
+#![allow(non_snake_case)]
+
 use crate::credentials::{self, KeyStore};
 use crate::http_client::{HttpClient, HttpError, HttpRequest, HttpResponse};
 use crate::rate_limit::{Clock, SystemClock, TokenBucket, rate_limited};

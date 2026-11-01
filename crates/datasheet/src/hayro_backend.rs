@@ -14,6 +14,7 @@ const MAX_SIDE_PX: f32 = 16_000.0;
 #[derive(Default)]
 pub struct HayroRenderer;
 
+/// Contract: crates/datasheet/src/traits.rs
 impl PageRenderer for HayroRenderer {
     type Document = HayroDocument;
 
@@ -29,15 +30,15 @@ pub struct HayroDocument {
 
 impl HayroDocument {
     pub fn open(bytes: &[u8]) -> Result<Self, OpenError> {
-        let pdf = Pdf::new(Arc::new(bytes.to_vec()))
-            .map_err(|e| OpenError::Message(format!("{e:?}")))?;
+        let pdf =
+            Pdf::new(Arc::new(bytes.to_vec())).map_err(|e| OpenError::Message(format!("{e:?}")))?;
         Ok(Self {
             pdf,
             settings: InterpreterSettings::default(),
         })
     }
 
-    fn page(&self, index: u32) -> Result<hayro::hayro_syntax::page::Page<'_>, RenderError> {
+    fn page(&self, index: u32) -> Result<&hayro::hayro_syntax::page::Page<'_>, RenderError> {
         self.pdf
             .pages()
             .get(index as usize)
@@ -50,7 +51,7 @@ impl HayroDocument {
         if !(w > 0.0 && h > 0.0) {
             return Err(RenderError::Failed("The page has no drawable area.".into()));
         }
-        let mut out = scale.max(0.05).min(8.0);
+        let mut out = scale.clamp(0.05, 8.0);
         let longest = w.max(h) * out;
         if longest > MAX_SIDE_PX {
             out *= MAX_SIDE_PX / longest;
@@ -62,7 +63,9 @@ impl HayroDocument {
         let full_w = image.width();
         let full_h = image.height();
         if tile.x >= full_w || tile.y >= full_h {
-            return Err(RenderError::Failed("The tile lies outside the page.".into()));
+            return Err(RenderError::Failed(
+                "The tile lies outside the page.".into(),
+            ));
         }
         let w = tile.width.min(full_w - tile.x);
         let h = tile.height.min(full_h - tile.y);
@@ -80,6 +83,7 @@ impl HayroDocument {
     }
 }
 
+/// Contract: crates/datasheet/src/traits.rs
 impl PageDocument for HayroDocument {
     fn page_count(&self) -> u32 {
         self.pdf.pages().len().min(u32::MAX as usize) as u32

@@ -1,5 +1,5 @@
-use crate::{generate_footprint, LandPatternDensity, LandPatternParams};
 use crate::{FootprintDefinition, PackageFamily, PackageKey};
+use crate::{LandPatternDensity, LandPatternParams, generate_footprint};
 
 /// Build a land pattern footprint from a package key and IPC density level.
 pub fn generate_footprint_from_key(

@@ -22,8 +22,7 @@ pub fn run(repo: &Path, bless: bool) -> Result<(), String> {
         serde_json::from_str(&on_disk_text).map_err(|e| e.to_string())?;
     if built != on_disk {
         return Err(
-            "catalogue.json does not match publications; run cargo xtask registry bless"
-                .into(),
+            "catalogue.json does not match publications; run cargo xtask registry bless".into(),
         );
     }
     let html_path = root.join("index.html");
@@ -38,9 +37,10 @@ pub fn run(repo: &Path, bless: bool) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn root() -> Result<PathBuf, String> {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .ok_or("xtask has no parent directory")
+        .ok_or_else(|| "xtask has no parent directory".to_string())
         .map(|p| p.to_path_buf())
 }

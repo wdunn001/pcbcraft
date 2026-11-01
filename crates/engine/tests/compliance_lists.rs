@@ -1,7 +1,6 @@
 use pcbcraft_engine::Session;
 use serde_json::json;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 fn with_lists_dir<T>(run: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let _lock = pcbcraft_engine::compliance_lists::LISTS_TEST_LOCK
@@ -32,25 +31,25 @@ fn a_newcomer_imports_a_newer_list_and_sees_what_changed() -> Result<(), String>
             before["result"]["count"].as_u64().unwrap_or(0) >= 1,
             "bundled lists are visible before import"
         );
-        let newer = include_str!("../../io/tests/fixtures/compliance-lists/synthetic-demo-entities-v2.toml");
+        let newer = include_str!(
+            "../../io/tests/fixtures/compliance-lists/synthetic-demo-entities-v2.toml"
+        );
         let updated = session
-            .execute(
-                "compliance.lists_update",
-                json!({"text": newer}),
-                None,
-            )
+            .execute("compliance.lists_update", json!({"text": newer}), None)
             .map_err(|e| e.to_string())?;
         let added = updated["result"]["entities_added"]
             .as_array()
             .ok_or("entities_added array")?;
         assert!(
-            added.iter().any(|v| v.as_str() == Some("Synthetic Entity Delta")),
+            added
+                .iter()
+                .any(|v| v.as_str() == Some("Synthetic Entity Delta")),
             "the update summary lists new entities"
         );
         let stale = session
             .execute(
                 "compliance.list_staleness",
-                json!({"list_id": "synthetic-demo-entities", "today": "2026-10-01"}),
+                json!({"list_id": "synthetic-demo-entities", "today": "2027-01-01"}),
                 None,
             )
             .map_err(|e| e.to_string())?;

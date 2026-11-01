@@ -295,6 +295,7 @@ pub(crate) fn backdrill_findings(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("backdrill_must_not_cut", "error"),
                 message: format!("{at} has a back-drill that does not fit it: {why}"),
                 objects: vec![via.id],
+                hint: None,
             });
             continue;
         }
@@ -321,6 +322,7 @@ pub(crate) fn backdrill_findings(project: &Project) -> Vec<Finding> {
                     "{at} is back-drilled through a layer that a track of its own net connects on"
                 ),
                 objects,
+                hint: None,
             });
         }
         if let Some(stub) = project.backdrill_stub(via, &spec)
@@ -334,6 +336,7 @@ pub(crate) fn backdrill_findings(project: &Project) -> Vec<Finding> {
                     spec.max_stub
                 ),
                 objects: vec![via.id],
+                hint: None,
             });
         }
     }
@@ -366,15 +369,13 @@ mod tests {
                 offset: Point::default(),
                 diameter: 1.0,
                 net: Some(1),
-                castellated: None,
                 geometry: None,
+                castellated: Default::default(),
             }],
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
     }
     fn track(p: &mut Project, id: Id, a: Point, b: Point) {
         p.board.tracks.push(Track {
-            preserved: pcbcraft_doc::PreservedSource::default(),
             id,
             net: 1,
             start: a,
@@ -382,7 +383,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-            preserved: pcbcraft_doc::PreservedSource::default(),
+            preserved: Default::default(),
         });
     }
     /// A 20 mm run from a pad at x=10 to a pad at x=30 with a junction at x=20.
@@ -427,6 +428,12 @@ mod tests {
             working_voltage: None,
             insulation: None,
             return_path_rule: None,
+            backdrill: Default::default(),
+            fast: Default::default(),
+            corner_radius: Default::default(),
+            min_radius: Default::default(),
+            rise_time: Default::default(),
+            max_length: Default::default(),
         });
         p.validate()
     }

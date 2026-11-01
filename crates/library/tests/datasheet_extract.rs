@@ -1,9 +1,9 @@
+use pcbcraft_geom::Point;
 use pcbcraft_library::datasheet_extract::{
     DatasheetExtractBundle, ReviewDecision, TextDocument, TextTableExtractor,
     apply_patch_to_symbol, build_part_patch, extract_from_text_document, set_decision,
 };
 use pcbcraft_library::{SymbolDefinition, SymbolPin};
-use pcbcraft_geom::Point;
 
 fn fixture_doc() -> Result<TextDocument, String> {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -52,10 +52,8 @@ fn fixture_yields_ratings_and_ordering_with_provenance() -> Result<(), String> {
 fn trait_extracts_from_text_document() -> Result<(), String> {
     let doc = fixture_doc()?;
     let extractor = TextTableExtractor { document: doc };
-    let bundle = pcbcraft_library::datasheet_extract::DatasheetTableExtractor::extract(
-        &extractor,
-        &[],
-    )?;
+    let bundle =
+        pcbcraft_library::datasheet_extract::DatasheetTableExtractor::extract(&extractor, &[])?;
     assert_eq!(bundle.pin_table.len(), 2);
     Ok(())
 }
@@ -95,7 +93,7 @@ fn rejected_values_stay_off_the_part() -> Result<(), String> {
             SymbolPin {
                 number: "1".into(),
                 name: "~".into(),
-                position: Point::ZERO,
+                position: Point::new(0.0, 0.0),
                 angle: 0.0,
                 length: 2.54,
                 electrical_type: "input".into(),
@@ -107,7 +105,7 @@ fn rejected_values_stay_off_the_part() -> Result<(), String> {
             SymbolPin {
                 number: "2".into(),
                 name: "~".into(),
-                position: Point::ZERO,
+                position: Point::new(0.0, 0.0),
                 angle: 180.0,
                 length: 2.54,
                 electrical_type: "input".into(),
@@ -121,6 +119,7 @@ fn rejected_values_stay_off_the_part() -> Result<(), String> {
         extends: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        retained: Vec::new(),
     };
     apply_patch_to_symbol(&mut symbol, &patch);
     assert_eq!(symbol.pins[0].name, "IN+");

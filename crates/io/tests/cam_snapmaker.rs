@@ -44,11 +44,13 @@ fn sample_two_pads_track() -> Project {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
-        sourcing: Default::default(),
         compliance: Default::default(),
         sheet: 0,
-    sourcing: Default::default(),
-    compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
     });
     p.components.push(Component {
         sourcing: Default::default(),
@@ -72,11 +74,13 @@ fn sample_two_pads_track() -> Project {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
-        sourcing: Default::default(),
         compliance: Default::default(),
         sheet: 0,
-    sourcing: Default::default(),
-    compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
     });
     let fp1 = Footprint {
         preserved: pcbcraft_doc::PreservedSource::default(),
@@ -228,8 +232,8 @@ fn snapmaker_isolation_with_rubout_writes_second_tool_file() -> Result<(), Strin
     let out = isolation_gcode(&sample_two_pads_track(), &opts, &snapmaker_cnc_profile(&s))?;
     assert_eq!(out.files.len(), 2);
     let names: Vec<&str> = out.files.iter().map(|(n, _)| n.as_str()).collect();
-    assert!(names.iter().any(|n| *n == "isolation-top.nc"));
-    assert!(names.iter().any(|n| *n == "rubout-1-top.nc"));
+    assert!(names.contains(&"isolation-top.nc"));
+    assert!(names.contains(&"rubout-1-top.nc"));
     let files = snapmaker_files(out.files, &s)?;
     assert_eq!(files.len(), 2);
     let rub = files
@@ -316,7 +320,6 @@ fn snapmaker_drill_three_tool_sizes_yields_three_files_each_with_header_and_boun
         from_layer: None,
         to_layer: None,
         covering: None,
-covering_scope: None,
         covering_bottom: None,
         backdrill: None,
     });

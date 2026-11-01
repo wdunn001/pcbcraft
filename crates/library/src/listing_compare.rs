@@ -85,21 +85,20 @@ pub fn compare_table(parts: &[ComparePartInput], quantity: u32) -> Result<Compar
     }
     let labels: Vec<String> = parts.iter().map(part_label).collect();
     let mut table: Vec<(String, Vec<Option<String>>)> = key_parameter_rows(parts);
-    let each =
-        |f: &dyn Fn(&ComparePartInput) -> Option<String>| -> Vec<Option<String>> {
-            parts.iter().map(f).collect()
-        };
+    let each = |f: &dyn Fn(&ComparePartInput) -> Option<String>| -> Vec<Option<String>> {
+        parts.iter().map(f).collect()
+    };
     table.push(("Lifecycle".into(), each(&lifecycle_cell)));
-    table.push((
-        "RoHS".into(),
-        each(&|p| flag_cell(p.listing.rohs)),
-    ));
+    table.push(("RoHS".into(), each(&|p| flag_cell(p.listing.rohs))));
     table.push(("REACH".into(), each(&|p| flag_cell(p.reach))));
     table.push((
         format!("Price at {quantity}"),
         each(&|p| unit_price_cell(&p.listing, quantity)),
     ));
-    table.push(("Stock".into(), each(&|p| p.listing.stock.map(|n| n.to_string()))));
+    table.push((
+        "Stock".into(),
+        each(&|p| p.listing.stock.map(|n| n.to_string())),
+    ));
     table.push((
         "Datasheet".into(),
         each(&|p| p.listing.datasheet_url.clone()),
@@ -175,9 +174,7 @@ fn key_parameters(part: &ComparePartInput) -> Vec<(String, Option<String>)> {
         ("Pin count".into(), part.pins.map(|n| n.to_string())),
         (
             "Value".into(),
-            l.value
-                .zip(l.value_unit)
-                .map(|(v, u)| format_si(v, u)),
+            l.value.zip(l.value_unit).map(|(v, u)| format_si(v, u)),
         ),
         (
             "Tolerance".into(),
@@ -222,7 +219,8 @@ fn flag_cell(v: Option<bool>) -> Option<String> {
 }
 
 fn unit_price_cell(listing: &PartListing, quantity: u32) -> Option<String> {
-    unit_price_at(&listing.price_breaks, quantity).map(|(price, currency)| price_text(price, &currency))
+    unit_price_at(&listing.price_breaks, quantity)
+        .map(|(price, currency)| price_text(price, &currency))
 }
 
 /// Best unit price at `quantity` from one supplier's breaks.
@@ -305,6 +303,9 @@ mod tests {
             footprint: None,
             model3d: None,
             attribution: None,
+            reach: None,
+            halogen_free: None,
+            moisture_level: None,
         }
     }
 
@@ -335,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn rows_differ_when_cells_are_not_all_equal() {
+    fn rows_differ_when_cells_are_not_all_equal() -> Result<(), String> {
         let table = compare_table(
             &[
                 sample_part("A", "1206", 0.1, 5),
@@ -343,18 +344,20 @@ mod tests {
             ],
             1,
         )
-        .expect("valid table");
+        .map_err(|e| format!("{}: {e:?}", "valid table"))?;
         assert!(row(&table, "Package").differs);
         assert!(!row(&table, "Pin count").differs);
         assert!(!row(&table, "Price at 1").differs);
         assert!(row(&table, "Stock").differs);
+        Ok(())
     }
 
     #[test]
-    fn missing_value_differs_from_a_value_and_all_missing_is_equal() {
+    fn missing_value_differs_from_a_value_and_all_missing_is_equal() -> Result<(), String> {
         let mut b = sample_part("B", "1206", 0.1, 5);
         b.pins = None;
-        let table = compare_table(&[sample_part("A", "1206", 0.1, 5), b], 1).expect("valid table");
+        let table = compare_table(&[sample_part("A", "1206", 0.1, 5), b], 1)
+            .map_err(|e| format!("{}: {e:?}", "valid table"))?;
         let pins = row(&table, "Pin count");
         assert!(pins.differs && pins.values[1].is_none());
         let empty = ComparePartInput {
@@ -363,27 +366,33 @@ mod tests {
             pins: None,
             reach: None,
         };
-        let both = compare_table(&[empty.clone(), empty], 1).expect("valid table");
+        let both = compare_table(&[empty.clone(), empty], 1)
+            .map_err(|e| format!("{}: {e:?}", "valid table"))?;
         assert!(
             both.rows.iter().all(|r| !r.differs),
             "two parts that both lack a value do not differ on it"
         );
+        Ok(())
     }
 
     #[test]
-    fn the_price_row_follows_the_asked_quantity() {
+    fn the_price_row_follows_the_asked_quantity() -> Result<(), String> {
         let part = sample_part("A", "1206", 0.1, 5);
         let table = compare_table(std::slice::from_ref(&part), 1000);
         assert!(table.is_err(), "one part is below the minimum");
         let table = compare_table(
-            &[sample_part("A", "1206", 0.1, 5), sample_part("B", "1206", 0.2, 5)],
+            &[
+                sample_part("A", "1206", 0.1, 5),
+                sample_part("B", "1206", 0.2, 5),
+            ],
             1000,
         )
-        .expect("valid table");
+        .map_err(|e| format!("{}: {e:?}", "valid table"))?;
         assert_eq!(
             row(&table, "Price at 1000").values[0].as_deref(),
             Some("0.100 USD")
         );
+        Ok(())
     }
 
     #[test]
@@ -394,7 +403,10 @@ mod tests {
             .map(|i| sample_part(&format!("P{i}"), "1206", 0.1, 5))
             .collect();
         assert!(compare_table(&many, 1).is_err());
-        let pair = [sample_part("A", "1206", 0.1, 5), sample_part("B", "1206", 0.1, 5)];
+        let pair = [
+            sample_part("A", "1206", 0.1, 5),
+            sample_part("B", "1206", 0.1, 5),
+        ];
         assert!(compare_table(&pair, 50).is_err());
     }
 }

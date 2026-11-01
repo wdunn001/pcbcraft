@@ -12,38 +12,53 @@
 //! - crates/geom/src/lib.rs
 mod artifacts;
 mod authoring;
+mod backdrill;
+mod calc;
+pub mod collab;
 pub mod compliance_lists;
+mod datasheet_annotations;
+pub mod design_document;
 mod dry_run;
+mod finding_set;
+#[cfg(feature = "plugin-firmware-target")]
+mod firmware_plugin;
 mod gerber_export;
 mod images;
-pub mod design_document;
+mod layout;
 pub mod library;
-mod registry;
+mod net_properties;
 mod online;
-mod publication;
 mod outline;
 mod packages;
+mod part;
+mod part_records;
+mod part_save;
+mod plugins;
 pub mod profiles;
+pub mod publication;
 pub mod recents;
+pub mod recovery;
+mod registry;
+mod route;
 pub mod scope;
+mod selection_clip;
+mod sim;
+mod snapmaker;
 pub mod source_cache;
+mod summary;
+mod teardrop;
+mod track_round;
+mod tuning;
+pub mod user_config;
+#[cfg(feature = "vendor-handoff")]
+mod vendor_handoff;
+mod via_protection;
 pub mod wirelength;
-pub mod library;
-pub mod profiles;
-pub mod recents;
 pub use collab::{
     CollabSnapshot, OrderedRoomApply, RoomOp, apply_room_command, command_lock_scope,
     shareable_room_command,
 };
 pub use dry_run::{ChangeSummary, DryRun};
-mod datasheet_annotations;
-mod route;
-mod selection_clip;
-mod sim;
-mod snapmaker;
-mod summary;
-mod tuning;
-mod net_properties;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
@@ -184,10 +199,10 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "project.import",
-            "Replace the open design from an interchange file on disk; schematic text is supported today",
+            "Replace the open design from an interchange board or schematic file on disk in one undo step",
             schema(
-                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"format":{"type":"string","enum":["schematic"]}}),
-                &["path", "format"],
+                json!({"format":{"type":"string","enum":["board","schematic"]},"path":{"type":"string","minLength":1,"maxLength":4096}}),
+                &["format", "path"],
             ),
         ),
         (
@@ -395,21 +410,58 @@ pub fn commands() -> Vec<CommandSpec> {
         (
             "part.make_generic",
             "Clear the active orderable binding on a placed part in one undo step, remove distributor-specific properties, and leave schematic and board geometry unchanged",
-            schema(
-                json!({"id":id_schema()}),
-                &["id"],
-            ),
+            schema(json!({"id":id_schema()}), &["id"]),
         ),
         (
             "component.field",
             "Set one named component property (datasheet, manufacturer, custom note), or clear it when value is null or omitted",
             schema(
-                json!({"id":id_schema(),"key":{"type":"string"},"value":{"type":["string","null"]}}),
-                &["id", "key"],
+                json!({"id":id_schema(),"reference":{"type":"string","description":"reference designator, used when id is not given"},"key":{"type":"string"},"value":{"type":["string","null"]}}),
+                &["key"],
             ),
         ),
         (
-"component.set_kind",
+            "component.set_in_bom",
+            "Include or exclude one part from the bill of materials and grouped BOM exports; assembly variants can still leave it unpopulated",
+            schema(
+                json!({"id":id_schema(),"in_bom":{"type":"boolean"}}),
+                &["id", "in_bom"],
+            ),
+        ),
+        (
+            "component.set_in_placement",
+            "Include or exclude one part from pick-and-place and machine placement exports; assembly variants can still leave it unpopulated",
+            schema(
+                json!({"id":id_schema(),"in_placement":{"type":"boolean"}}),
+                &["id", "in_placement"],
+            ),
+        ),
+        (
+            "manufacturer.set",
+            "Add or replace one row in the project manufacturer table, including aliases and country",
+            schema(
+                json!({"name":{"type":"string","maxLength":128},"aliases":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":128}},"country":{"type":"string","maxLength":2},"parent":{"type":["string","null"],"maxLength":128},"supplier_responsibility_on_file":{"type":"boolean"}}),
+                &["name"],
+            ),
+        ),
+        (
+            "components.update",
+            "Change reference, value or named properties on up to 128 components in one undo step; the whole batch is refused when any row fails validation or would duplicate a reference",
+            schema(
+                json!({"updates":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"id":id_schema(),"reference":{"type":"string"},"value":{"type":"string"},"field":{"type":"object","properties":{"key":{"type":"string"},"value":{"type":["string","null"]}},"required":["key"],"additionalProperties":false}},"required":["id"],"additionalProperties":false}}}),
+                &["updates"],
+            ),
+        ),
+        (
+            "components.table.export",
+            "Export the parts table as CSV: one row per component sorted by reference, grouped like the bill of materials, or one row per placed footprint with layout columns",
+            schema(
+                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64},"mode":{"type":"string","enum":["parts","grouped","layout"]}}),
+                &[],
+            ),
+        ),
+        (
+            "component.set_kind",
             "Set the closed component kind slug used by profile and companion rules",
             schema(
                 json!({"id":id_schema(),"kind":{"type":"string","minLength":1,"maxLength":64}}),
@@ -426,7 +478,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "component.set_sourcing",
-"Set or clear typed sourcing fields on a component; keys left out stay unchanged and null clears a field. Set the typed sourcing facts of one part: manufacturer, manufacturer part number, description, lifecycle (active, nrnd, last_time_buy, obsolete, unknown), moisture sensitivity level 1 to 6, and RoHS, REACH and halogen-free flags. A key left out stays as it is; null (or an empty string) clears it. One undo step; the old free-form properties are not touched",
+            "Set or clear typed sourcing fields on a component; keys left out stay unchanged and null clears a field. Set the typed sourcing facts of one part: manufacturer, manufacturer part number, description, lifecycle (active, nrnd, last_time_buy, obsolete, unknown), moisture sensitivity level 1 to 6, and RoHS, REACH and halogen-free flags. A key left out stays as it is; null (or an empty string) clears it. One undo step; the old free-form properties are not touched",
             schema(
                 json!({
                     "id": id_schema(),
@@ -446,11 +498,8 @@ pub fn commands() -> Vec<CommandSpec> {
                 &["id"],
             ),
         ),
-                &["id"],
-            ),
-        ),
         (
-"component.set_supplier",
+            "component.set_supplier",
             "Set one supplier's part number on a part (and an optional link to its page), replacing the entry of the same supplier name (ignoring case) or adding one; a null part_number removes that supplier. A part lists at most 16 suppliers, one number each",
             schema(
                 json!({"id":id_schema(),"supplier":{"type":"string","minLength":1,"maxLength":256},"part_number":{"type":["string","null"],"maxLength":256},"url":{"type":["string","null"],"maxLength":512}}),
@@ -470,21 +519,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            ),
-        ),
-        (
-            "component.find",
-            "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
+            "project.compliance.set",
+            "Choose compliance rule sets, organisation role and target markets for this design",
             schema(
-                json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"kind":{"type":"string","maxLength":64}}),
+                json!({"rule_sets":{"type":"array","maxItems":16,"items":{"type":"string","maxLength":64}},"org_role":{"type":["string","null"],"enum":["maker_seller","integrator","buyer",null]},"target_markets":{"type":"array","maxItems":16,"items":{"type":"string","maxLength":256}}}),
                 &[],
             ),
         ),
         (
-            "footprint.find",
-            "Find placed footprints by component reference wildcard, exact component value, or lock state; * matches any run of characters and ? matches one",
+            "compliance.finding.mute",
+            "Mute one compliance finding for a rule and component or manufacturer, storing a reason on the project",
             schema(
-                json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"locked":{"type":"boolean"}}),
+                json!({"rule":{"type":"string","maxLength":64},"component":{"type":["integer","null"]},"manufacturer":{"type":["string","null"],"maxLength":128},"reason":{"type":"string","maxLength":512}}),
+                &["rule", "reason"],
+            ),
+        ),
+        (
+            "compliance.check",
+            "Run bundled compliance rule sets against the bill of materials and return findings with rule, evidence and citation",
+            schema(json!({}), &[]),
+        ),
+        (
             "component.find",
             "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
             schema(
@@ -572,6 +627,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "net.set_impedance",
+            "Set a target characteristic impedance and tolerance percent for one net, or clear the target by omitting it; member nets inherit a class default until they record their own",
+            schema(
+                json!({"id":id_schema(),"target":{"type":["number","null"],"minimum":10,"maximum":200},"tolerance_pct":{"type":["number","null"],"minimum":0,"maximum":50}}),
+                &["id"],
+            ),
+        ),
+        (
             "net.connect",
             "Assign unassigned or same-net component pins to a net",
             schema(
@@ -638,6 +701,38 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"class":id_schema(),"fast":{"type":"boolean"}}),
                 &["class", "fast"],
+            ),
+        ),
+        (
+            "netclass.rise_time",
+            "Set the signal rise time for a net class in seconds; null clears it and turns off crosstalk estimates for members",
+            schema(
+                json!({"class":id_schema(),"rise_time":{"type":["number","null"],"minimum":1e-12,"maximum":0.001}}),
+                &["class"],
+            ),
+        ),
+        (
+            "netclass.via_rules",
+            "Set the maximum plated vias each member net of a class may carry; null or omitting max_vias clears the limit",
+            schema(
+                json!({"class":id_schema(),"max_vias":{"type":["integer","null"],"minimum":0,"maximum":1024}}),
+                &["class"],
+            ),
+        ),
+        (
+            "netclass.corner_radius",
+            "Set the default corner rounding radius for tracks on a net class; null clears it",
+            schema(
+                json!({"class":id_schema(),"corner_radius":{"type":["number","null"],"exclusiveMinimum":0,"maximum":100}}),
+                &["class"],
+            ),
+        ),
+        (
+            "netclass.radius_rules",
+            "Set the smallest arc radius a net class allows on member tracks; null clears the limit",
+            schema(
+                json!({"class":id_schema(),"min_radius":{"type":["number","null"],"minimum":0,"maximum":100}}),
+                &["class"],
             ),
         ),
         (
@@ -823,6 +918,20 @@ pub fn commands() -> Vec<CommandSpec> {
             "Draw a free-form schematic wire with explicit vertices, optionally bound to a net",
             schema(
                 json!({"points":{"type":"array","items":point_schema(),"minItems":2,"maxItems":256},"net":id_schema()}),
+                &["points"],
+            ),
+        ),
+        (
+            "wire.place",
+            "Commit a multi-vertex schematic wire in one step: assign endpoint pins to a resolved net, optionally tee into an existing wire and place a junction label",
+            schema(
+                json!({
+                    "points":{"type":"array","items":point_schema(),"minItems":2,"maxItems":256},
+                    "pins":{"type":"array","items":pin_schema(),"maxItems":2},
+                    "net":id_schema(),
+                    "tee":{"type":"object","properties":{"wire":id_schema(),"at":point_schema()},"required":["wire","at"],"additionalProperties":false},
+                    "junction":{"type":"boolean"}
+                }),
                 &["points"],
             ),
         ),
@@ -1134,57 +1243,6 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-"hole.slot",
-            "Route an unplated slot as a capsule drill between two centres: width is the drill diameter, centre spacing from 0.01 mm to 50 mm, and overall length runs centre to centre plus that width",
-            schema(
-                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
-                &["start", "end", "width"],
-            ),
-        ),
-        (
-            "board.hole_place",
-            "Drill an unplated through hole at a position: mounting or clearance drills carry no copper and belong to no net",
-            schema(
-                json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.05,"maximum":25,"description":"drill diameter, millimetres"}}),
-                &["position", "diameter"],
-            ),
-        ),
-        (
-            "Route an unplated slot as a capsule drill between two centres: width is the drill diameter, centre spacing from 0.01 mm to 50 mm, and overall length runs centre to centre plus that width",
-            schema(
-                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
-                &["start", "end", "width"],
-            ),
-        ),
-        (
-"hole.slot",
-"board.hole_place",
-"Drill an unplated through hole at a position: mounting or clearance drills carry no copper and belong to no net",
-schema(
-    json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.05,"maximum":25,"description":"drill diameter, millimetres"}}),
-    &["position", "diameter"],
-),
-),
-(
-"Route an unplated slot as a capsule drill between two centres: width is the drill diameter, centre spacing from 0.01 mm to 50 mm, and overall length runs centre to centre plus that width",
-schema(
-    json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
-    &["start", "end", "width"],
-),
-),
-(
-"board.fiducial_place",
-"Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
-schema(
-    json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.2,"maximum":10,"description":"disc diameter, millimetres"},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup, default top"}}),
-    &["position", "diameter"],
-),
-),
-(
-"board.fiducial_move",
-"Move a fiducial mark to a new position",
-schema(
-    json!({"id":id_schema(),"position":point_schema()}),
             "board.fiducial_place",
             "Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
             schema(
@@ -1256,6 +1314,14 @@ schema(
             schema(
                 json!({"id":id_schema(),"diameter":{"type":"number","minimum":0.05,"maximum":25}}),
                 &["id", "diameter"],
+            ),
+        ),
+        (
+            "hole.slot",
+            "Route an unplated slot: a capsule drill from one centre to another at the given width, at least 0.01 mm and at most 50 mm between the centres",
+            schema(
+                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
+                &["start", "end", "width"],
             ),
         ),
         (
@@ -1454,22 +1520,6 @@ schema(
             ),
         ),
         (
-            "teardrop.add",
-            "Grow teardrop copper where tracks meet pads and vias so junctions survive etching and hand soldering; filter by net or layer, and junctions that already have a teardrop are left alone",
-            schema(
-                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"depth":{"type":"number","description":"how far the teardrop runs along the track from the junction, millimetres; default 0.5"}}),
-                &[],
-            ),
-        ),
-        (
-            "teardrop.remove",
-            "Take teardrop copper away again from every junction it was grown on, optionally filtered by net or layer",
-            schema(
-                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
-                &[],
-            ),
-        ),
-        (
             "board.sync",
             "Reconcile schematic components and pin nets into PCB footprints; retain placements and report unassigned library symbols",
             schema(json!({}), &[]),
@@ -1493,6 +1543,14 @@ schema(
             schema(
                 json!({"width":{"type":"number","exclusiveMinimum":0},"height":{"type":"number","exclusiveMinimum":0}}),
                 &["width", "height"],
+            ),
+        ),
+        (
+            "board.clearance.set",
+            "Set the board default copper clearance in millimetres",
+            schema(
+                json!({"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100}}),
+                &["clearance"],
             ),
         ),
         (
@@ -1768,14 +1826,6 @@ schema(
             ),
         ),
         (
-            "via.set_covering",
-            "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
-            schema(
-                json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
-                &["id"],
-            ),
-        ),
-        (
             "via.allow_span",
             "Allow or forbid one extra via span on this board, such as a buried span the fabricator offers; forbidding is refused while a via uses the span",
             schema(
@@ -1934,9 +1984,9 @@ schema(
         ),
         (
             "board.set_layer_record",
-            "Record or replace one physical board layer: its name, role (copper, core, prepreg, soldermask, silkscreen, paste or custom) and thickness in millimetres, plus optional function, side, polarity, material (see board.materials), dk (1 to 20), df (0 to 1), thickness_tol_pct (0 to 50), copper_weight_oz (0.1 to 10), foil (rolled or electrodeposited) and linked_copper (the copper row a mask, silk or paste row sits on); at most 32 layers per board. Fields left out keep their value on an existing layer",
+            "Record or replace one physical board layer: its name, role (see board.set_layer_record kind list) and thickness in millimetres, plus optional function, side, polarity, material (see board.materials), dk (1 to 20), df (0 to 1), thickness_tol_pct (0 to 50), copper_weight_oz (0.1 to 10), foil (rolled or electrodeposited) and linked_copper (the copper row a mask, silk or paste row sits on); at most 32 layers per board. Fields left out keep their value on an existing layer",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":["copper","core","prepreg","soldermask","silkscreen","paste","custom"]},"thickness":{"type":"number"},"copper_role":{"type":"string","enum":["signal","plane","mixed","hatched"]},"function":{"type":"string","enum":pcbcraft_doc::LAYER_FUNCTIONS},"side":{"type":"string","enum":["top","bottom","internal","both","none"]},"polarity":{"type":"string","enum":["positive","negative"]},"material":{"type":"string","maxLength":64},"dk":{"type":"number","minimum":1,"maximum":20},"df":{"type":"number","minimum":0,"maximum":1},"thickness_tol_pct":{"type":"number","minimum":0,"maximum":50},"copper_weight_oz":{"type":"number","minimum":0.1,"maximum":10},"foil":{"type":"string","enum":["rolled","electrodeposited"]},"linked_copper":{"type":"string","maxLength":64}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":pcbcraft_doc::LAYER_KINDS},"thickness":{"type":"number"},"copper_role":{"type":"string","enum":["signal","plane","mixed","hatched"]},"function":{"type":"string","enum":pcbcraft_doc::LAYER_FUNCTIONS},"side":{"type":"string","enum":["top","bottom","internal","both","none"]},"polarity":{"type":"string","enum":["positive","negative"]},"material":{"type":"string","maxLength":64},"dk":{"type":"number","minimum":1,"maximum":20},"df":{"type":"number","minimum":0,"maximum":1},"thickness_tol_pct":{"type":"number","minimum":0,"maximum":50},"copper_weight_oz":{"type":"number","minimum":0.1,"maximum":10},"foil":{"type":"string","enum":["rolled","electrodeposited"]},"linked_copper":{"type":"string","maxLength":64}}),
                 &["name", "kind", "thickness"],
             ),
         ),
@@ -2161,8 +2211,16 @@ schema(
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, acute_angle, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, acute_angle, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
+            ),
+        ),
+        (
+            "rules.esd_max_distance_mm",
+            "Set the maximum board distance in millimetres from a connector signal pad to a protection device pad on the same net",
+            schema(
+                json!({"max_mm":{"type":"number","minimum":0.5,"maximum":100,"description":"pad-centre limit in millimetres"}}),
+                &["max_mm"],
             ),
         ),
         (
@@ -2179,11 +2237,11 @@ json!({"code":{"type":"string","description":"check code: unassigned_pin, single
             schema(json!({}), &[]),
         ),
         (
-            "rules.decoupling_max_mm",
-            "Set the maximum board distance in millimetres from an IC power pin pad to a decoupling capacitor on the same net",
+            "rules.decoupling_set",
+            "Set how close a capacitor must be to an integrated circuit power pin for the missing_decoupling check, and the capacitor value its findings suggest; give at least one field",
             schema(
-                json!({"max_mm":{"type":"number","minimum":0.5,"maximum":50,"description":"pad-centre limit in millimetres; schematic-only designs ignore distance"}}),
-                &["max_mm"],
+                json!({"max_distance_mm":{"type":"number","minimum":0.1,"maximum":50,"description":"pad centre to pad centre, millimetres; default 3"},"suggested_value":{"type":"string","maxLength":32,"description":"capacitor value findings suggest, default 100 nF"}}),
+                &[],
             ),
         ),
         (
@@ -2513,7 +2571,7 @@ json!({"code":{"type":"string","description":"check code: unassigned_pin, single
             "output_job.package",
             "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
             schema(
-json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":pcbcraft_doc::OUTPUT_KINDS.to_vec()},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64},"previous":{"type":"string","minLength":1,"maxLength":4096}}),
+                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":pcbcraft_doc::OUTPUT_KINDS.to_vec()},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64},"previous":{"type":"string","minLength":1,"maxLength":4096}}),
                 &["path"],
             ),
         ),
@@ -2674,14 +2732,6 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties; with a variant name, that build's unpopulated parts are skipped and its footprint swaps printed",
             schema(
                 json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"ids":{"type":"array","items":id_schema(),"maxItems":4096,"description":"only these components; omit for every part"},"group":{"type":"boolean","default":true,"description":"false prints one row per part"}}),
-&[],
-            ),
-        ),
-        (
-            "bom.export",
-            "Export a bill of materials: components grouped by value, kind, footprint and requested properties; with a variant name, that build's unpopulated parts are skipped and its footprint swaps printed",
-            schema(
-                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"ids":{"type":"array","items":id_schema(),"maxItems":4096,"description":"only these components; omit for every part"},"group":{"type":"boolean","default":true,"description":"false prints one row per part"}}),
                 &[],
             ),
         ),
@@ -2690,17 +2740,6 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
             "Write the fabrication files under a naming style and drill options, or list their names when no directory is given. Naming: project (pcb-F.Cu.gbr), plain (.gbr with the layer in the name), protel (.GTL, .GBL, .G2L). Drill files are split (plated and non-plated) or merged, in project, mm or inch units, with decimal points or zeros omitted",
             schema(
                 json!({"naming":{"type":"string","enum":["project","plain","protel"],"default":"project"},"drill_files":{"type":"string","enum":["split","merged"],"default":"split"},"drill_units":{"type":"string","enum":["project","mm","inch"],"default":"project"},"zero_suppression":{"type":"string","enum":["decimal","leading","trailing"],"default":"decimal"},"integer_digits":{"type":"integer","minimum":1,"maximum":6},"decimal_digits":{"type":"integer","minimum":1,"maximum":6},"drill_map":{"type":"boolean","default":true},"job_file":{"type":"boolean","default":true},"readme":{"type":"boolean","default":true},"directory":{"type":"string","minLength":1,"description":"folder to write the files into; omit to list names only"}}),
-                &[],
-            ),
-        ),
-        (
-            "align.distribute",
-            "Align or evenly distribute components or board footprints along an axis, named by id or selected by reference/value/kind filter",
-            schema(
-                json!({"ids":{"type":"array","maxItems":128,"items":id_schema()},"filter":schema(json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"kind":{"type":"string","maxLength":64}}),&[]),"mode":{"type":"string","enum":["left","center_x","right","top","center_y","bottom","distribute_x","distribute_y"]}}),
-                &["mode"],
-            ),
-        ),
                 &[],
             ),
         ),
@@ -2818,6 +2857,14 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
             schema(json!({"id":{"type":"integer","minimum":1}}), &[]),
         ),
         (
+            "firmware.config.compare",
+            "Compare an existing flight-controller config.h pin map with the firmware design attached to the project; read-only",
+            schema(
+                json!({"config":{"type":"string","minLength":1,"maxLength":262144,"description":"full config.h text to compare"}}),
+                &["config"],
+            ),
+        ),
+        (
             "cam.isolation",
             "Generate isolation milling G-code for one copper side without editing the project; returns named file bodies and a time estimate",
             schema(
@@ -2828,6 +2875,20 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
                     "mirror_axis":{"type":"string","enum":["x","y"],"default":"y"},
                     "alignment_holes":{"type":"boolean","default":false},
                     "rubout":{"type":"object","properties":{"rect":{"type":["object","null"],"properties":{"min":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]},"max":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]}},"required":["min","max"]},"tool":{"type":"object","properties":{"diameter_mm":{"type":"number","exclusiveMinimum":0},"feed_mm_min":{"type":"number","exclusiveMinimum":0},"plunge_mm_min":{"type":"number","exclusiveMinimum":0},"depth_mm":{"type":"number","exclusiveMinimum":0},"passes":{"type":"integer","minimum":1,"maximum":8},"spindle_rpm":{"type":"integer","minimum":1}},"required":["diameter_mm","feed_mm_min","plunge_mm_min","depth_mm","passes","spindle_rpm"],"additionalProperties":false},"stepover_pct":{"type":"integer","minimum":30,"maximum":80},"angle_deg":{"type":"number"}},"required":["tool","stepover_pct","angle_deg"],"additionalProperties":false}
+                }),
+                &["side", "tool"],
+            ),
+        ),
+        (
+            "cam.isolation_paths",
+            "Preview isolation toolpaths for one copper side without editing the project; returns linearised paths in board space and the same time estimate as cam.isolation",
+            schema(
+                json!({
+                    "side":{"type":"string","enum":["top","bottom"]},
+                    "tool":{"type":"object","properties":{"diameter_mm":{"type":"number","exclusiveMinimum":0},"feed_mm_min":{"type":"number","exclusiveMinimum":0},"plunge_mm_min":{"type":"number","exclusiveMinimum":0},"depth_mm":{"type":"number","exclusiveMinimum":0},"passes":{"type":"integer","minimum":1,"maximum":8},"spindle_rpm":{"type":"integer","minimum":1}},"required":["diameter_mm","feed_mm_min","plunge_mm_min","depth_mm","passes","spindle_rpm"],"additionalProperties":false},
+                    "overlap_pct":{"type":"integer","minimum":0,"maximum":90,"default":50},
+                    "mirror_axis":{"type":"string","enum":["x","y"],"default":"y"},
+                    "alignment_holes":{"type":"boolean","default":false}
                 }),
                 &["side", "tool"],
             ),
@@ -2847,23 +2908,18 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
         .chain(packages::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
-.into_iter()
-        .map(|(id, description, input_schema)| CommandSpec {
-            id,
-            description,
-            input_schema,
-        })
-        .chain(snapmaker::commands())
-        .chain(authoring::commands())
-        .chain(online::commands())
-        .chain(images::commands())
-        .chain(packages::commands())
-        .chain(outline::commands())
-        .chain(tuning::commands())
         .chain(sim::commands())
         .chain(datasheet_annotations::commands())
         .chain(via_protection::commands())
-        .collect()
+        .chain(backdrill::commands())
+        .chain(layout::commands())
+        .chain(part::commands())
+        .chain(part_save::commands())
+        .chain(publication::commands())
+        .chain(teardrop::commands())
+        .chain(calc::commands())
+        .chain(vendor_handoff_commands())
+        .chain(firmware_plugin_commands())
         .collect()
 }
 
@@ -2878,6 +2934,26 @@ fn vendor_handoff_commands() -> impl Iterator<Item = CommandSpec> {
     }
 }
 
+#[cfg(feature = "plugin-firmware-target")]
+fn firmware_plugin_commands() -> impl Iterator<Item = CommandSpec> {
+    firmware_plugin::commands().into_iter()
+}
+
+#[cfg(not(feature = "plugin-firmware-target"))]
+fn firmware_plugin_commands() -> impl Iterator<Item = CommandSpec> {
+    std::iter::empty()
+}
+
+#[cfg(feature = "plugin-firmware-target")]
+fn firmware_plugin_handles(command: &str) -> bool {
+    firmware_plugin::handles(command)
+}
+
+#[cfg(not(feature = "plugin-firmware-target"))]
+fn firmware_plugin_handles(_command: &str) -> bool {
+    false
+}
+
 #[derive(Clone)]
 pub struct Session {
     pub project: Project,
@@ -2885,6 +2961,9 @@ pub struct Session {
     next_id: Id,
     undo: VecDeque<Project>,
     redo: VecDeque<Project>,
+    /// Where recents, library sources and conversations live. Detached by
+    /// default; the application entry points set the real folder.
+    pub config: user_config::UserConfig,
 }
 impl Default for Session {
     fn default() -> Self {
@@ -2894,6 +2973,7 @@ impl Default for Session {
             next_id: 1,
             undo: VecDeque::new(),
             redo: VecDeque::new(),
+            config: user_config::UserConfig::detached(),
         }
     }
 }
@@ -2930,10 +3010,19 @@ impl Session {
         params: Value,
         expected: Option<u64>,
     ) -> Result<Value, Error> {
+        if publication::handles(id) {
+            self.check_revision(expected)?;
+            let result = publication::run(&self.project, &params).map_err(Error::Invalid)?;
+            return Ok(json!({"revision": self.revision, "result": result}));
+        }
+        if datasheet_annotations::is_profile_command(id) {
+            self.check_revision(expected)?;
+            let result = datasheet_annotations::run_profile(id, &params).map_err(Error::Invalid)?;
+            return Ok(json!({"revision": self.revision, "result": result}));
+        }
         if compliance_lists::command_is_host_only(id) {
             self.check_revision(expected)?;
-            let result =
-                compliance_lists::run_host_command(id, &params).map_err(Error::Invalid)?;
+            let result = compliance_lists::run_host_command(id, &params).map_err(Error::Invalid)?;
             return Ok(json!({"revision": self.revision, "result": result}));
         }
         if artifacts::command_is_read_only(id) {
@@ -2959,7 +3048,15 @@ impl Session {
         }
         let mut candidate = self.project.clone();
         let mut next = self.next_id;
-        let result = run(&mut candidate, &mut next, id, &params, self.revision, false)?;
+        let result = run(
+            &self.config,
+            &mut candidate,
+            &mut next,
+            id,
+            &params,
+            self.revision,
+            false,
+        )?;
         Ok(json!({"revision": self.revision, "result": result}))
     }
     pub fn batch(&mut self, commands: &[Command], expected: Option<u64>) -> Result<Value, Error> {
@@ -2970,14 +3067,15 @@ impl Session {
         if commands.iter().all(|c| {
             c.command == "cam.isolation"
                 || snapmaker::handles(&c.command)
+                || layout::handles(&c.command)
                 || publication::handles(&c.command)
+                || firmware_plugin_handles(&c.command)
         }) {
             let mut results = vec![];
             for command in commands {
                 if publication::handles(&command.command) {
                     results.push(
-                        publication::run(&self.project, &command.params)
-                            .map_err(Error::Invalid)?,
+                        publication::run(&self.project, &command.params).map_err(Error::Invalid)?,
                     );
                 } else {
                     results.push(run_read_only(
@@ -3030,6 +3128,7 @@ impl Session {
                 needs_sync = true;
             }
             results.push(run(
+                &self.config,
                 &mut candidate,
                 &mut next,
                 &command.command,
@@ -3044,7 +3143,11 @@ impl Session {
             results.push(sync_board_from_schematic(&mut candidate, &mut next)?);
             candidate.validate()?;
         }
-        if candidate != self.project {
+        // Every command is one undo step, even when it leaves the design equal to
+        // what it was (a link set to its current value, a glossary lookup). Only
+        // commands that write files or the clipboard and never edit the design
+        // leave history alone.
+        if candidate != self.project || commands.iter().any(|c| !command_never_edits(&c.command)) {
             self.commit(candidate);
         }
         if next != self.next_id {
@@ -3058,7 +3161,15 @@ impl Session {
     pub fn peek(&self, id: &str, params: Value) -> Result<Value, Error> {
         let mut candidate = self.project.clone();
         let mut next = self.next_id;
-        run(&mut candidate, &mut next, id, &params, self.revision, false)
+        run(
+            &self.config,
+            &mut candidate,
+            &mut next,
+            id,
+            &params,
+            self.revision,
+            false,
+        )
     }
     fn commit(&mut self, p: Project) {
         self.undo.push_back(std::mem::replace(&mut self.project, p));
@@ -3147,8 +3258,9 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
+        drc.extend(height_findings(&self.project));
         let compliance = pcbcraft_rules::compliance_check(&self.project);
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"peripheral":pcbcraft_rules::peripheral(&self.project),"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power label or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, labels with no wires or pins, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. When fabrication rules are recorded on the board, track width, drill size, annular ring, copper-to-routed-edge spacing, unlike-net spacing, aspect ratio, and drawn silk text height are compared to those limits, and copper pour neck widths thinner than the minimum track are reported. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. Pin-type rules, hole-to-hole spacing against a fab table, mask dams, and hierarchy are not fully checked."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -3167,6 +3279,19 @@ impl Session {
         )?;
         for name in ["VCC", "LED", "GND"] {
             s.execute("net.create", json!({"name":name}), None)?;
+        }
+        if let Some(j1) = s
+            .project
+            .components
+            .iter_mut()
+            .find(|c| c.reference == "J1")
+        {
+            if let Some(p) = j1.pins.first_mut() {
+                p.electrical_type = "power_out".into();
+            }
+            if let Some(p) = j1.pins.get_mut(1) {
+                p.electrical_type = "power_in".into();
+            }
         }
         for (net, a, ap, b, bp) in [
             (4, 1, "1", 2, "1"),
@@ -3504,6 +3629,11 @@ fn render_kind(
                 pcbcraft_io::testpoints_csv(p)?.into_bytes(),
             ));
         }
+        "bring_up" => {
+            for (name, text) in pcbcraft_io::bring_up_export_files(p)? {
+                out.push((name, text.into_bytes()));
+            }
+        }
         "gencad" => out.push((
             "board.gencad".into(),
             pcbcraft_io::gencad_text(p)?.into_bytes(),
@@ -3543,8 +3673,11 @@ fn render_kind(
         )),
         "compliance_report" => out.push((
             "compliance-report.md".into(),
-            pcbcraft_io::compliance_report_markdown(p, &pcbcraft_io::ComplianceReportOptions::default())?
-                .into_bytes(),
+            pcbcraft_io::compliance_report_markdown(
+                p,
+                &pcbcraft_io::ComplianceReportOptions::default(),
+            )?
+            .into_bytes(),
         )),
         "laser_job" => {
             let profile = pcbcraft_io::laser_galvo_profile_for_export(p, "commarker-b6-mopa")
@@ -3603,6 +3736,15 @@ fn render_kind(
             "touchstone.s2p".into(),
             pcbcraft_io::touchstone_text(p)?.into_bytes(),
         )),
+        "firmware_target" => {
+            for (name, bytes) in pcbcraft_io::firmware_target_files(p).map_err(Error::Invalid)? {
+                out.push((name, bytes));
+            }
+        }
+        #[cfg(feature = "plugin-firmware-target")]
+        kind if firmware_plugin::export_kind(kind) => {
+            out.extend(firmware_plugin::export_kind_files(p, kind)?);
+        }
         other => {
             return Err(Error::Invalid(format!("unknown export kind {other}")));
         }
@@ -3623,10 +3765,10 @@ fn check_finding_json(
         "message": message,
         "objects": objects,
     });
-    if let Some(text) = hint {
-        if let Some(obj) = row.as_object_mut() {
-            obj.insert("hint".into(), json!(text));
-        }
+    if let Some(text) = hint
+        && let Some(obj) = row.as_object_mut()
+    {
+        obj.insert("hint".into(), json!(text));
     }
     row
 }
@@ -3718,15 +3860,94 @@ fn custom_findings(p: &Project) -> Vec<Value> {
     }
     out
 }
-/// Apply an imported netlist: create missing nets and assign pins without duplicating work.
-///
-/// # Rules
-/// - Refuses 0 nets, more than 256 nets, or more than 4096 pin rows total.
-/// - Each net lists 1 to 128 pins; references and pin names are 1 to 64 bytes.
-/// - A pin cannot appear under two different net names in one import.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
+/// Rule-area height violations using the same body boxes as mechanical export.
+fn height_findings(p: &Project) -> Vec<Value> {
+    const CODE: &str = "part_too_tall";
+    // A part taller than the cover allows is a hard mechanical failure by default.
+    if p.rule_disabled(CODE) {
+        return vec![];
+    }
+    let thickness = p.board.thickness;
+    let mut out = vec![];
+    for area in &p.board.rule_areas {
+        let Some(limit) = area.max_height else {
+            continue;
+        };
+        let region = &area.region;
+        for body in pcbcraft_io::part_bodies::part_boxes(p) {
+            let stand = body.z1 - thickness;
+            if stand <= limit + 1e-9 {
+                continue;
+            }
+            let n = body.ring.len();
+            if n == 0 {
+                continue;
+            }
+            let cx = body.ring.iter().map(|pt| pt.x).sum::<f64>() / n as f64;
+            let cy = body.ring.iter().map(|pt| pt.y).sum::<f64>() / n as f64;
+            if cx < region.x - 1e-9
+                || cx > region.x + region.width + 1e-9
+                || cy < region.y - 1e-9
+                || cy > region.y + region.height + 1e-9
+            {
+                continue;
+            }
+            let Some(component_id) = p
+                .components
+                .iter()
+                .find(|c| c.reference == body.name)
+                .map(|c| c.id)
+            else {
+                continue;
+            };
+            let objects = vec![component_id, area.id];
+            if p.rule_excluded(CODE, &objects) || p.rule_region_excluded(CODE, &objects) {
+                continue;
+            }
+            let default_height = component_uses_default_body_height(p, component_id);
+            let severity = p.rule_severity(CODE, "error");
+            let stand_mm = (stand * 10.0).round() / 10.0;
+            let limit_mm = (limit * 10.0).round() / 10.0;
+            let message = if default_height {
+                format!(
+                    "{} stands {stand_mm:.1} mm tall (default height) and area {} allows {limit_mm:.1} mm",
+                    body.name, area.id
+                )
+            } else {
+                format!(
+                    "{} stands {stand_mm:.1} mm tall and area {} allows {limit_mm:.1} mm",
+                    body.name, area.id
+                )
+            };
+            out.push(json!({
+                "code": CODE,
+                "severity": severity,
+                "message": message,
+                "objects": objects,
+                "height_mm": stand_mm,
+                "limit_mm": limit_mm,
+                "area": area.id,
+            }));
+        }
+    }
+    out
+}
+
+fn component_uses_default_body_height(p: &Project, component_id: Id) -> bool {
+    let Some(component) = p.component(component_id) else {
+        return true;
+    };
+    let Some(text) = component.field("height") else {
+        return true;
+    };
+    let trimmed = text.trim();
+    let number = trimmed.strip_suffix("mm").unwrap_or(trimmed).trim();
+    !matches!(
+        number.parse::<f64>(),
+        Ok(v) if v.is_finite() && (0.05..=100.0).contains(&v)
+    )
+}
+
 fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Result<Value, Error> {
     if a.nets.is_empty() || a.nets.len() > 256 {
         return Err(Error::Invalid("netlist must hold 1 to 256 nets".into()));
@@ -3912,6 +4133,23 @@ struct DockEdgeParams {
 struct LockParams {
     id: Id,
     locked: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentInBomParams {
+    id: Id,
+    in_bom: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentInPlacementParams {
+    id: Id,
+    in_placement: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoardClearanceParams {
+    clearance: f64,
 }
 /// Move one object by (dx, dy) millimetres: a part, footprint, track, via,
 /// zone, cutout, datum, board text or drawn graphic. Shared by `object.nudge`
@@ -4208,7 +4446,14 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
     let live: Vec<Id> = p.components.iter().map(|c| c.id).collect();
     p.board.footprints.retain(|f| live.contains(&f.component));
     let staging_x = board_outline_max_x(&p.board) + 10.0;
-    let mut staging_index = 0usize;
+    // New footprints queue behind the ones already waiting in the staging area, so
+    // parts added one command at a time do not land on top of each other.
+    let mut staging_index = p
+        .board
+        .footprints
+        .iter()
+        .filter(|f| f.position.x >= staging_x - 1e-6)
+        .count();
     let mut skipped = vec![];
     for c in &p.components {
         if c.library_symbol.is_some() && c.library_footprint.is_none() {
@@ -4513,6 +4758,14 @@ struct CopperNetParams {
     id: Id,
     net: Id,
 }
+/// Parameters of `wire.connect`: join two symbol pins with a schematic wire on a net.
+///
+/// # Rules
+/// - From and to must differ and name existing pins.
+/// - Net id is optional; when omitted the command reuses an existing pin net or allocates a new auto-named net.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireParams {
@@ -4520,11 +4773,38 @@ struct WireParams {
     from: PinRef,
     to: PinRef,
 }
+/// Parameters of `wire.draw`: place a polyline schematic wire through given vertices.
+///
+/// # Rules
+/// - Two to 256 distinct in-range vertices; repeated consecutive points are refused.
+/// - Optional net id must exist when provided.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DrawnWireParams {
     points: Vec<Point>,
     net: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WirePlaceTeeParams {
+    wire: Id,
+    at: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WirePlaceParams {
+    points: Vec<Point>,
+    #[serde(default)]
+    pins: Vec<PinRef>,
+    #[serde(default)]
+    net: Option<Id>,
+    #[serde(default)]
+    tee: Option<WirePlaceTeeParams>,
+    #[serde(default)]
+    junction: Option<bool>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4595,6 +4875,15 @@ const CODE39: &[(char, &str)] = &[
     ('+', "nwnnnwnwn"),
     ('%', "nnnwnwnwn"),
 ];
+/// Parameters of `graphic.add`: create one schematic or board graphic primitive.
+///
+/// # Rules
+/// - Layer is schematic or board; shape vertex counts must match the shape rule.
+/// - Board graphics need an explicit width; schematic graphics may inherit page line width and colour.
+/// - Text graphics carry non-empty text up to 1024 bytes; board sublayers are limited to silk and mask names.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicParams {
@@ -4891,6 +5180,16 @@ struct OutputJobPackageParams {
     #[serde(default)]
     variant: Option<String>,
 }
+/// Parameters of `dxf.import`: read a DXF drawing into board graphics and optionally the board outline.
+///
+/// # Rules
+/// - Path must read as text; empty or unparseable drawings are refused.
+/// - Optional outline mode needs a closed polyline of 3 to 64 distinct vertices with measurable area.
+/// - Imported geometry must fit coordinate limits; the board holds at most 4096 graphics after import.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DxfImportParams {
@@ -4912,6 +5211,16 @@ struct EnclosureImportParams {
 struct EnclosureTransformParams {
     transform: [f64; 16],
 }
+/// Parameters of `svg.import`: read an SVG drawing into board graphics and optionally the board outline.
+///
+/// # Rules
+/// - Path must read as text; empty or unparseable drawings are refused.
+/// - Optional outline mode needs a closed polygon of 3 to 64 distinct vertices with measurable area.
+/// - Imported geometry must fit coordinate limits; the board holds at most 4096 graphics after import.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SvgImportParams {
@@ -5063,6 +5372,31 @@ fn check_datum_name(p: &Project, name: &str, own: Option<Id>) -> Result<(), Erro
     Ok(())
 }
 /// Refuse datum positions outside the board rectangle or coordinate range.
+fn clear_enclosure_import(p: &mut Project) {
+    if let Some(enclosure) = p.board.enclosure.take() {
+        p.board
+            .datums
+            .retain(|d| !enclosure.linked_datums.contains(&d.id));
+    }
+}
+
+fn parse_enclosure_transform(raw: Option<[f64; 16]>) -> Result<[f64; 16], Error> {
+    let transform = raw.unwrap_or([
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]);
+    if !pcbcraft_doc::EnclosureRef::transform_valid(&transform) {
+        return Err(Error::Invalid(
+            "the enclosure transform must use finite numbers".into(),
+        ));
+    }
+    Ok(transform)
+}
+
+fn mesh_path_allowed(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".gltf") || lower.ends_with(".glb") || lower.ends_with(".obj")
+}
+
 fn check_datum_position(p: &Project, position: Point) -> Result<(), Error> {
     if !position.valid() {
         return Err(Error::Invalid("datum position is out of range".into()));
@@ -5191,12 +5525,14 @@ fn resolve_library_path(p: &Project, path: &str) -> String {
 }
 
 /// Default teardrop extension depth in millimetres when a command omits it.
+#[allow(dead_code)]
 fn teardrop_depth() -> f64 {
     0.5
 }
 /// One track endpoint that lands on a pad or via: the junction point, the
 /// unit direction along the track, the copper radius at the junction, the
 /// track width, the track span, and the net and layer to tag the teardrop.
+#[allow(dead_code)]
 type Junction = (Point, (f64, f64), f64, f64, f64, Id, Layer);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5207,6 +5543,32 @@ struct TeardropRemoveParams {
     #[serde(default)]
     layer: Option<Layer>,
 }
+/// Parameters of `library.link`: add or replace a nickname in the project library table.
+///
+/// # Rules
+/// - Nickname is 1 to 64 path-safe bytes without `/` or `\`.
+/// - Path is 1 to 1024 bytes; the table holds at most 64 entries.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `library.unlink`: remove one nickname from the project library table.
+///
+/// # Rules
+/// - The nickname must exist; missing names are refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `padstack.define`: create or replace a reusable pad copper and drill template.
+///
+/// # Rules
+/// - Name is 1 to 64 bytes; shape is circle, rect, oval or roundrect with size within 0.05 to 100 mm.
+/// - Optional drill stays within 0.05 to 100 mm and smaller than the copper; circles need equal width and height.
+/// - Roundrect rounding is above 0 and at most 0.5; at most 256 padstacks per design.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LibraryLinkParams {
@@ -5230,6 +5592,32 @@ struct PadstackDefineParams {
     #[serde(default)]
     rounding: Option<f64>,
 }
+/// Parameters of `padstack.remove`: delete one named padstack definition.
+///
+/// # Rules
+/// - The name must match a defined padstack.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `padstack.rename` and `padstack.duplicate`: rename or copy a padstack under a new name.
+///
+/// # Rules
+/// - Old and new names are 1 to 64 bytes; new name must differ and must not collide with an existing stack.
+/// - Duplicate refuses when the design already defines 256 padstacks.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `footprint.set_pad_stack`: reshape one placed pad to match a defined padstack.
+///
+/// # Rules
+/// - Pad number is 1 to 32 bytes; footprint and pad must exist with library geometry to reshape.
+/// - The stack name must exist; applying the same stack again is refused.
+/// - Through-hole stacks set drill and layers; surface stacks clear drill and use front copper only.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PadstackRemoveParams {
@@ -5313,6 +5701,15 @@ fn class_pattern_matches(pattern: &str, name: &str) -> bool {
     }
     p == pattern.len()
 }
+/// Parameters of `netclass.width_rules`: set minimum and maximum routed width for a class.
+///
+/// # Rules
+/// - Each bound must be finite, above 0, and at most 100 mm; min cannot exceed max.
+/// - At least one of min_width or max_width must be sent; omitted fields keep the previous bound.
+/// - The merged bounds must still agree after partial updates.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WidthRulesParams {
@@ -5322,6 +5719,15 @@ struct WidthRulesParams {
     #[serde(default)]
     max_width: Option<f64>,
 }
+/// Parameters of `netclass.length_rules`: set target routed length and tolerance for a class.
+///
+/// # Rules
+/// - Target length must be above 0 and at most 10000 mm when set.
+/// - Tolerance must be between 0 and 1000 mm when set; a tolerance without a target is refused.
+/// - At least one of target_length or length_tolerance must be sent.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LengthRulesParams {
@@ -5330,6 +5736,9 @@ struct LengthRulesParams {
     target_length: Option<f64>,
     #[serde(default)]
     length_tolerance: Option<f64>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    max_length: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5337,11 +5746,55 @@ struct StubRulesParams {
     class: Id,
     max_stub: Value,
 }
+/// Parameters of `netclass.clearance`: replace the clearance value on one net class.
+///
+/// # Rules
+/// - Clearance must be finite, above 0, and at most 100 mm.
+/// - The class id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `netclass.set`: rename a class or tune width, via and differential-pair defaults.
+///
+/// # Rules
+/// - At least one field must change; duplicate values for the class are refused.
+/// - Names are 1 to 128 bytes and must stay unique among classes.
+/// - Width, via outer, via drill, and pair width stay within documented mm limits; pair gap is at most 10 mm.
+/// - Via drill must stay smaller than the outer via diameter after merging with existing values.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FastSignalParams {
     class: Id,
     fast: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RiseTimeRulesParams {
+    class: Id,
+    rise_time: Value,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaRulesParams {
+    class: Id,
+    #[serde(default)]
+    max_vias: Option<Value>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CornerRadiusRulesParams {
+    class: Id,
+    corner_radius: Value,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RadiusRulesParams {
+    class: Id,
+    min_radius: Value,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5351,6 +5804,7 @@ struct ClassClearanceParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct ClassSetParams {
     class: Id,
     #[serde(default)]
@@ -5366,9 +5820,11 @@ struct ClassSetParams {
     #[serde(default)]
     pair_gap: Option<f64>,
     #[serde(default)]
-    impedance_target: Option<Value>,
+    target_impedance: Option<f64>,
     #[serde(default)]
-    impedance_tolerance_pct: Option<Value>,
+    impedance_tolerance_pct: Option<f64>,
+    #[serde(default)]
+    impedance_target: Option<Value>,
     #[serde(default)]
     line_structure: Option<Value>,
     #[serde(default)]
@@ -5384,6 +5840,14 @@ struct ClassSetParams {
     #[serde(default)]
     return_path_rule: Option<Value>,
 }
+/// Parameters of `netclass.remove`: delete one net class and release its nets.
+///
+/// # Rules
+/// - The class id must exist.
+/// - Class-pair clearance rules that reference the removed class are dropped with it.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ClassRemoveParams {
@@ -5397,6 +5861,34 @@ struct NetLengthParams {
     target: Option<f64>,
     #[serde(default)]
     tolerance: Option<f64>,
+}
+/// Parameters of `netclass.assign_pattern`: bulk-assign nets whose names match a wildcard pattern.
+///
+/// # Rules
+/// - Pattern is 1 to 64 bytes and must contain `*` or `?`.
+/// - At least one net name must match; the class must exist and stay within 256 nets after adds.
+/// - Matched nets are removed from other classes before joining the target class.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `netclass.assign`: put one net into a class or clear its class.
+///
+/// # Rules
+/// - The net must exist; an optional class id must name a defined class.
+/// - The net is removed from every class before it is added to the target class.
+/// - A class that already holds 256 nets refuses another net unless the net is already a member.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetImpedanceParams {
+    id: Id,
+    #[serde(default)]
+    target: Option<f64>,
+    #[serde(default)]
+    tolerance_pct: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5437,7 +5929,7 @@ struct RuleSeverityParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RuleDecouplingMaxMmParams {
+struct RuleEsdMaxMmParams {
     max_mm: f64,
 }
 #[derive(Deserialize)]
@@ -5671,6 +6163,10 @@ struct RuleAreaParams {
     /// come within the clearance of the rectangle.
     #[serde(default)]
     keepout: Option<bool>,
+    #[serde(default)]
+    forbid: Option<String>,
+    #[serde(default)]
+    footprint_ref: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5889,6 +6385,8 @@ struct DiffPairParams {
     #[serde(default)]
     impedance_tolerance: Option<f64>,
     #[serde(default)]
+    equal_vias: Option<bool>,
+    #[serde(default)]
     id: Option<Id>,
 }
 #[derive(Deserialize)]
@@ -5974,6 +6472,39 @@ struct UpdateItem {
     #[serde(default)]
     size: Option<f64>,
 }
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentUpdateField {
+    key: String,
+    #[serde(default)]
+    value: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentUpdateEntry {
+    id: Id,
+    #[serde(default)]
+    reference: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    field: Option<ComponentUpdateField>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentsUpdateParams {
+    updates: Vec<ComponentUpdateEntry>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentsTableExportParams {
+    #[serde(default)]
+    fields: Vec<String>,
+    #[serde(default)]
+    variant: Option<String>,
+    #[serde(default)]
+    mode: Option<String>,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ItemsUpdateParams {
@@ -5995,6 +6526,34 @@ struct PadTableParams {
     #[serde(default)]
     component: Option<Id>,
 }
+/// Parameters of `netlist.export`: list nets with member pins and unconnected pins for review or export.
+///
+/// # Rules
+/// - Optional net id must name an existing net; when omitted every net is listed.
+/// - Unconnected pins exclude no-connect flags; read-only over the project.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `netlist.import`: assign schematic pins to nets from a structured netlist payload.
+///
+/// # Rules
+/// - The list holds 1 to 256 nets with 1 to 128 pins each; total pins cannot exceed 4096.
+/// - Net names are 1 to 128 bytes; references and pin numbers are 1 to 64 bytes and must exist on the design.
+/// - A pin cannot appear under two net names or conflict with an existing net assignment.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `netlist.import_session`: read an external router session file and import its net map.
+///
+/// # Rules
+/// - Path is 1 to 1024 bytes and must be readable text on disk.
+/// - Parsed nets are passed through the same import rules as `netlist.import`.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetlistExportParams {
@@ -6031,10 +6590,9 @@ struct FindParams {
     #[serde(flatten)]
     filter: ComponentFilter,
 }
-/// Set (or clear, when `value` is `None`) one named property on a component.
-/// Returns whether the property is set afterwards.
 /// Rows keyed by value, kind, footprint, requested property values and, when parts
 /// are listed apart, the reference.
+#[allow(dead_code)]
 type BomGroups =
     std::collections::BTreeMap<(String, String, String, Vec<String>, String), Vec<String>>;
 
@@ -6195,47 +6753,11 @@ pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
             "a bill of materials names at most 4096 parts".into(),
         ));
     }
-    // One row per kind of part, or one row per part when not grouping
-    // (the reference then joins the key).
-    let mut groups: BomGroups = std::collections::BTreeMap::new();
-    let mut populated = 0usize;
-    for c in &p.components {
-        if !c.in_bom()
-            || (!a.ids.is_empty() && !a.ids.contains(&c.id))
-            || variant.is_some_and(|v| v.dnp.contains(&c.id))
-        {
-            continue;
-        }
-        populated += 1;
-        let footprint =
-            match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
-                Some(swap) => swap.footprint.clone(),
-                None => match &c.library_footprint {
-                    Some(footprint) => {
-                        format!("{}:{}", footprint.library, footprint.definition.name)
-                    }
-                    None => "starter pads".into(),
-                },
-            };
-let values: Vec<String> = keys
-            .iter()
-            .map(|key| c.bom_value(key).or_else(|| c.field(key)).unwrap_or("").to_string())
-            .collect();
-        let apart = if a.group {
-            String::new()
-        } else {
-            c.reference.clone()
-        };
-        groups
-            .entry((c.value.clone(), c.kind.clone(), footprint, values, apart))
-            .or_default()
-            .push(c.reference.clone());
-    }
-    let items: Vec<Value> = groups
-        .into_iter()
-        .map(|((value, kind, footprint, values, _), mut references)| {
-            references.sort();
-            let columns = keys.clone();
+    let rows = pcbcraft_io::bom_sheet_rows(p, &sheet).map_err(Error::Invalid)?;
+    let populated: usize = rows.iter().map(|r| r.references.len()).sum();
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|row| {
             let mut fields = serde_json::Map::new();
             for (key, value) in keys.iter().zip(&row.property_values) {
                 fields.insert(key.clone(), json!(value));
@@ -6318,28 +6840,21 @@ struct AttachSourceParams {
     distributor: String,
     #[serde(default)]
     sku: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MakeOrderableParams {
-    id: Id,
-    orderable_id: String,
-}
-fn bounded_record_id(id: &str) -> Result<(), Error> {
-    if id.is_empty() || id.len() > 64 || id.chars().any(char::is_control) {
-        return Err(Error::Invalid(
-            "record id must be 1 to 64 bytes without control characters".into(),
-        ));
-    }
-    Ok(())
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FieldParams {
-    id: Id,
-    key: String,
     #[serde(default)]
-    value: Option<String>,
+    product_url: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    stock: String,
+    #[serde(default)]
+    lifecycle: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    retrieved_at: u64,
+    #[serde(default)]
+    #[allow(dead_code)]
+    checked_at: u64,
+    #[serde(default)]
+    description: String,
 }
 /// Reads a key that may be absent (leave alone), null (clear) or a value (set).
 fn present<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
@@ -6357,6 +6872,8 @@ struct SourcingParams {
     manufacturer: Option<Option<String>>,
     #[serde(default, deserialize_with = "present")]
     mpn: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    description: Option<Option<String>>,
     #[serde(default, deserialize_with = "present")]
     lifecycle: Option<Option<pcbcraft_library::listing::Lifecycle>>,
     #[serde(default, deserialize_with = "present")]
@@ -6376,6 +6893,43 @@ struct SourcingParams {
     #[serde(default, deserialize_with = "present")]
     model3d_url: Option<Option<String>>,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SupplierParams {
+    id: Id,
+    supplier: String,
+    #[serde(default)]
+    part_number: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MakeOrderableParams {
+    id: Id,
+    orderable_id: String,
+}
+fn bounded_record_id(id: &str) -> Result<(), Error> {
+    if id.is_empty() || id.len() > 64 || id.chars().any(char::is_control) {
+        return Err(Error::Invalid(
+            "record id must be 1 to 64 bytes without control characters".into(),
+        ));
+    }
+    Ok(())
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FieldParams {
+    #[serde(default)]
+    id: Option<Id>,
+    /// Names the part by its reference designator instead of its id.
+    #[serde(default)]
+    reference: Option<String>,
+    key: String,
+    #[serde(default)]
+    value: Option<String>,
+}
+/// Reads a key that may be absent (leave alone), null (clear) or a value (set).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ApplyListingParams {
@@ -6492,6 +7046,15 @@ struct RenamePort {
     id: Id,
     name: String,
 }
+/// Parameters of `graphic.rotate`: turn one graphic in 90 degree steps about a pivot.
+///
+/// # Rules
+/// - Degrees must be a nonzero finite multiple of 90.
+/// - Optional pivot must be in range; default pivot is the graphic bounding-box centre.
+/// - Rotated vertices must stay in range.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicRotateParams {
@@ -6514,6 +7077,14 @@ struct LabelSetParams {
     #[serde(default)]
     net: Option<Id>,
 }
+/// Parameters of `wire.add_point`: insert one vertex into a drawn wire.
+///
+/// # Rules
+/// - Index may be from 0 through the current vertex count; position must be in range.
+/// - Wires hold at most 256 vertices; new points cannot sit within 0.01 mm of a neighbour.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AddPointParams {
@@ -6521,6 +7092,32 @@ struct AddPointParams {
     index: u32,
     position: Point,
 }
+/// Parameters of `wire.remove_point`: delete one vertex from a drawn wire.
+///
+/// # Rules
+/// - At least two vertices must remain; junction labels on the removed point block the delete.
+/// - Index must be in range for the wire.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `wire.move`: translate every vertex of a drawn wire by a delta.
+///
+/// # Rules
+/// - Delta must be in range; a move that leaves vertices unchanged is refused.
+/// - Junction labels on the wire net follow vertices that moved.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `wire.set_point`: move one vertex of a drawn wire.
+///
+/// # Rules
+/// - Index and position must be in range; the new point cannot duplicate a neighbour.
+/// - Junction labels sitting on the old vertex block the move until relocated.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RemovePointParams {
@@ -6691,6 +7288,7 @@ enum TrackEnd {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct ViaCoveringParams {
     id: Id,
     #[serde(default)]
@@ -6909,6 +7507,13 @@ struct DeltaParams {
     id: Id,
     delta: Point,
 }
+/// Parameters of `graphic.move`: translate one graphic by a delta.
+///
+/// # Rules
+/// - Every moved vertex must stay in range; the graphic id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicMoveParams {
@@ -6920,6 +7525,39 @@ struct GraphicMoveParams {
 struct ObjectGroupParams {
     members: Vec<Id>,
 }
+/// Parameters of `graphic.group`: tie two to 512 graphics so they move together.
+///
+/// # Rules
+/// - Each id must exist, be unique in the list, and not already belong to another graphic group.
+/// - A project defines at most 256 graphic groups.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `graphic.ungroup`: remove one graphic group without deleting its graphics.
+///
+/// # Rules
+/// - The group id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `graphic.translate`: move every graphic in one group by the same delta.
+///
+/// # Rules
+/// - Group id must exist; every member vertex must stay in range after the shift.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// Parameters of `dimension.add`: create a linear dimension as a grouped set of graphics.
+///
+/// # Rules
+/// - Layer is schematic or board; start and end must differ and stay in range.
+/// - Offset defaults to 2 mm and must be within 100 mm; room must remain under graphic and group caps.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicGroupParams {
@@ -6945,6 +7583,15 @@ struct DimensionParams {
     #[serde(default)]
     offset: Option<f64>,
 }
+/// Parameters of `dimension.set`: re-measure a linear dimension graphic group.
+///
+/// # Rules
+/// - At least one of start, end or offset must be sent.
+/// - The group must contain exactly four graphics (three lines and one text label).
+/// - New ends must differ and stay in range; offset must be within 100 mm.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DimensionSetParams {
@@ -6993,6 +7640,14 @@ fn dimension_pieces(start: Point, end: Point, offset: f64) -> DimensionPieces {
         ],
     )
 }
+/// Parameters of `dimension.radius` and `dimension.diameter`: measure a circle with leader and label graphics.
+///
+/// # Rules
+/// - Layer is schematic or board; centre and point must differ and stay in range.
+/// - Room must remain under graphic and group caps for the three primitives that are created.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RadialParams {
@@ -7197,6 +7852,15 @@ fn unique_reference(p: &Project, base: &str) -> String {
         }
     }
 }
+/// Parameters of `wire.split`: break one drawn wire at a point on a segment.
+///
+/// # Rules
+/// - Split point must lie on a segment, in range, and at least 0.01 mm from both endpoints.
+/// - The wire id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+/// - crates/geom/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SplitParams {
@@ -7748,6 +8412,15 @@ fn bus_members(
     Ok((members, created))
 }
 
+/// Commands that export or copy and never edit the design: running one adds no
+/// undo step and leaves the revision alone.
+fn command_never_edits(command: &str) -> bool {
+    matches!(
+        command,
+        "library.export" | "selection.copy_text" | "plugins.export" | "plugins.list" | "bom.export"
+    ) || collab::reads_the_design(command)
+}
+
 fn missing() -> Error {
     Error::Invalid("object not found".into())
 }
@@ -7884,18 +8557,104 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .ok_or_else(|| Error::Invalid("pad has no net".into()))?;
     Ok((position, net))
 }
+fn apply_component_updates(
+    p: &mut Project,
+    updates: &[ComponentUpdateEntry],
+) -> Result<usize, Error> {
+    if updates.is_empty() || updates.len() > 128 {
+        return Err(Error::Invalid(
+            "components.update accepts 1 to 128 updates".into(),
+        ));
+    }
+    for entry in updates {
+        let changes = entry.reference.is_some() || entry.value.is_some() || entry.field.is_some();
+        if !changes {
+            return Err(Error::Invalid(
+                "each update changes at least one property".into(),
+            ));
+        }
+        if !p.components.iter().any(|c| c.id == entry.id) {
+            return Err(Error::Invalid(format!("no component has id {}", entry.id)));
+        }
+        if let Some(reference) = entry.reference.as_ref()
+            && (reference.is_empty() || reference.len() > 64)
+        {
+            return Err(Error::Invalid("reference must be 1 to 64 bytes".into()));
+        }
+        if let Some(value) = entry.value.as_ref()
+            && value.len() > 256
+        {
+            return Err(Error::Invalid("value must be at most 256 bytes".into()));
+        }
+        if let Some(field) = entry.field.as_ref() {
+            if field.key.is_empty() || field.key.len() > 64 {
+                return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
+            }
+            if field.value.as_ref().is_some_and(|v| v.len() > 256) {
+                return Err(Error::Invalid(
+                    "field value must be at most 256 bytes".into(),
+                ));
+            }
+        }
+    }
+    for entry in updates {
+        let component = p
+            .components
+            .iter_mut()
+            .find(|c| c.id == entry.id)
+            .ok_or_else(missing)?;
+        if let Some(reference) = entry.reference.clone() {
+            component.reference = reference;
+        }
+        if let Some(value) = entry.value.clone() {
+            component.value = value;
+        }
+        if let Some(field) = entry.field.clone() {
+            let existing = component.fields.iter().position(|f| f.key == field.key);
+            match (&field.value, existing) {
+                (Some(value), Some(index)) => {
+                    component.fields[index].value = value.clone();
+                }
+                (Some(value), None) => {
+                    if component.fields.len() >= 32 {
+                        return Err(Error::Invalid(
+                            "a component carries at most 32 fields".into(),
+                        ));
+                    }
+                    component.fields.push(ComponentField {
+                        key: field.key,
+                        value: value.clone(),
+                    });
+                }
+                (None, Some(index)) => {
+                    component.fields.remove(index);
+                }
+                (None, None) => {
+                    return Err(Error::Invalid("component has no such field".into()));
+                }
+            }
+        }
+    }
+    let mut refs = std::collections::BTreeSet::new();
+    for c in &p.components {
+        if !refs.insert(c.reference.clone()) {
+            return Err(Error::Invalid("reference already in use".into()));
+        }
+    }
+    Ok(updates.len())
+}
 
-fn component_for_instance_prototype<'a>(
-    p: &'a Project,
+fn component_for_instance_prototype(
+    p: &Project,
     instance: Id,
     prototype: Id,
-) -> Option<&'a Component> {
+) -> Option<&Component> {
     p.components
         .iter()
         .find(|c| c.instance == Some(instance) && c.prototype == Some(prototype))
 }
 
-fn footprint_for_component<'a>(p: &'a Project, component: Id) -> Option<&'a Footprint> {
+fn footprint_for_component(p: &Project, component: Id) -> Option<&Footprint> {
     p.board.footprints.iter().find(|f| f.component == component)
 }
 
@@ -7964,6 +8723,7 @@ fn merge_design_block_template(
         name: sheet_name,
         parent: block.sheet.parent,
         entry: block.sheet.entry,
+        interchange_uuid: Default::default(),
     });
     for symbol in block.library.symbols {
         if !p.library.symbols.iter().any(|s| s.name == symbol.name) {
@@ -7987,6 +8747,16 @@ fn merge_design_block_template(
             target_length: net.target_length,
             length_tolerance: net.length_tolerance,
             instance: None,
+            current: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
         });
     }
     for component in block.components {
@@ -8010,6 +8780,7 @@ fn merge_design_block_template(
             net: *id_map.get(&port.net).ok_or_else(missing)?,
             sheet: sheet_id,
             position: port.position,
+            interchange_uuid: Default::default(),
         });
     }
     for wire in block.wires {
@@ -8019,10 +8790,12 @@ fn merge_design_block_template(
             from: PinRef {
                 component: *id_map.get(&wire.from.component).ok_or_else(missing)?,
                 pin: wire.from.pin.clone(),
+                unit: None,
             },
             to: PinRef {
                 component: *id_map.get(&wire.to.component).ok_or_else(missing)?,
                 pin: wire.to.pin.clone(),
+                unit: None,
             },
         });
     }
@@ -8202,7 +8975,7 @@ fn select_connected_copper(p: &Project, seed: Id) -> Result<(Vec<Id>, Vec<Value>
             }
             (Via(y), Pad(f, q)) | (Pad(f, q), Via(y)) => {
                 let (v, pad) = (&p.board.vias[y], &p.board.footprints[f].pads[q]);
-p.via_span_layers(v).iter().any(|l| pad_layers(pad, *l))
+                p.via_span_layers(v).iter().any(|l| pad_layers(pad, *l))
                     && v.position.distance(pad_anchor(f, q))
                         <= v.diameter / 2.0 + pad.bounding_radius() + TRACK_ENDPOINT_EPS
             }
@@ -8795,10 +9568,228 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
     }
     Ok(())
 }
+
+#[allow(dead_code)]
+fn count_preserved_nodes(p: &Project) -> usize {
+    let mut n = p.board.preserved.nodes.len();
+    for f in &p.board.footprints {
+        n += f.preserved.nodes.len();
+    }
+    for t in &p.board.tracks {
+        n += t.preserved.nodes.len();
+    }
+    for v in &p.board.vias {
+        n += v.preserved.nodes.len();
+    }
+    for z in &p.board.zones {
+        n += z.preserved.nodes.len();
+    }
+    n
+}
+
+const WIRE_ENDPOINT_SNAP: f64 = 0.01;
+
+fn validate_drawn_wire_points(points: &[Point]) -> Result<(), Error> {
+    if points.len() < 2 || points.len() > 256 {
+        return Err(Error::Invalid("wire needs 2–256 vertices".into()));
+    }
+    if !points.iter().all(|p| p.valid()) {
+        return Err(Error::Invalid("wire vertex is out of range".into()));
+    }
+    if points.windows(2).any(|w| w[0] == w[1]) {
+        return Err(Error::Invalid("wire repeats a vertex".into()));
+    }
+    Ok(())
+}
+
+fn split_drawn_wire_at(p: &mut Project, next: &mut Id, id: Id, at: Point) -> Result<Id, Error> {
+    if !at.valid() {
+        return Err(Error::Invalid("split point is out of range".into()));
+    }
+    let index = p
+        .drawn_wires
+        .iter()
+        .position(|w| w.id == id)
+        .ok_or_else(missing)?;
+    let wire = &p.drawn_wires[index];
+    let segment = (0..wire.points.len() - 1)
+        .find(|i| {
+            let (from, to) = (wire.points[*i], wire.points[*i + 1]);
+            at.distance(from) >= WIRE_ENDPOINT_SNAP
+                && at.distance(to) >= WIRE_ENDPOINT_SNAP
+                && pcbcraft_geom::point_segment(at, from, to) <= 1e-4
+        })
+        .ok_or_else(|| {
+            Error::Invalid("split point must lie on a wire segment, clear of its vertices".into())
+        })?;
+    let tail_id = allocate(next)?;
+    let net = wire.net;
+    let mut head = wire.points[..=segment].to_vec();
+    head.push(at);
+    let mut tail = vec![at];
+    tail.extend_from_slice(&wire.points[segment + 1..]);
+    p.drawn_wires[index].points = head;
+    p.drawn_wires.push(DrawnWire {
+        id: tail_id,
+        net,
+        points: tail,
+    });
+    Ok(tail_id)
+}
+
+fn merge_net_into(p: &mut Project, source: Id, target: Id) -> Result<(), Error> {
+    if source == target {
+        return Err(Error::Invalid("a net cannot be merged into itself".into()));
+    }
+    if !p.nets.iter().any(|n| n.id == source) || !p.nets.iter().any(|n| n.id == target) {
+        return Err(missing());
+    }
+    for c in p.components.iter_mut() {
+        for pin in c.pins.iter_mut() {
+            if pin.net == Some(source) {
+                pin.net = Some(target);
+            }
+        }
+    }
+    for w in p.drawn_wires.iter_mut() {
+        if w.net == Some(source) {
+            w.net = Some(target);
+        }
+    }
+    for w in p.wires.iter_mut() {
+        if w.net == source {
+            w.net = target;
+        }
+    }
+    for l in p.labels.iter_mut() {
+        if l.net == source {
+            l.net = target;
+        }
+    }
+    for t in p.board.tracks.iter_mut() {
+        if t.net == source {
+            t.net = target;
+        }
+    }
+    for v in p.board.vias.iter_mut() {
+        if v.net == source {
+            v.net = target;
+        }
+    }
+    for z in p.board.zones.iter_mut() {
+        if z.net == source {
+            z.net = target;
+        }
+    }
+    for class in p.net_classes.iter_mut() {
+        if class.nets.contains(&source) {
+            class.nets.retain(|n| *n != source && *n != target);
+            class.nets.push(target);
+            class.nets.sort_unstable();
+            class.nets.dedup();
+        }
+    }
+    for rule in p.board.pair_rules.iter_mut() {
+        if rule.a == source {
+            rule.a = target;
+        }
+        if rule.b == source {
+            rule.b = target;
+        }
+    }
+    p.board.pair_rules.retain(|r| r.a != r.b);
+    p.nets.retain(|n| n.id != source);
+    Ok(())
+}
+
+fn net_label_for_conflict(p: &Project, id: Id) -> Value {
+    p.nets
+        .iter()
+        .find(|n| n.id == id)
+        .map(|n| json!({"id": n.id, "name": n.name}))
+        .unwrap_or_else(|| json!({"id": id, "name": ""}))
+}
+
+fn wire_place_net_conflict(p: &Project, nets: &BTreeSet<Id>) -> Error {
+    let candidates: Vec<Value> = nets
+        .iter()
+        .map(|id| net_label_for_conflict(p, *id))
+        .collect();
+    let body = json!({"code": "net_conflict", "candidates": candidates});
+    let message = match serde_json::to_string(&body) {
+        Ok(text) => text,
+        Err(err) => err.to_string(),
+    };
+    Error::Invalid(message)
+}
+
+fn pin_on_wire_endpoint(p: &Project, pin: &PinRef, point: Point) -> Result<(), Error> {
+    let position = p.pin_position(pin).ok_or_else(missing)?;
+    if position.distance(point) > WIRE_ENDPOINT_SNAP {
+        return Err(Error::Invalid(
+            "pin must lie on the first or last wire vertex".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn allocate_auto_net(p: &mut Project, next: &mut Id) -> Result<Id, Error> {
+    let id = allocate(next)?;
+    let mut index = p.nets.len() + 1;
+    while p.nets.iter().any(|n| n.name == format!("N${index}")) {
+        index += 1;
+    }
+    p.nets.push(Net {
+        id,
+        name: format!("N${index}"),
+        ..Default::default()
+    });
+    Ok(id)
+}
+
+fn resolve_wire_place_net(
+    p: &mut Project,
+    next: &mut Id,
+    explicit: Option<Id>,
+    pins: &[PinRef],
+    tee_net: Option<Id>,
+) -> Result<Option<Id>, Error> {
+    if explicit.is_some_and(|net| !p.nets.iter().any(|n| n.id == net)) {
+        return Err(missing());
+    }
+    let mut assigned = BTreeSet::new();
+    for pin in pins {
+        if let Some(net) = p.pin(pin).ok_or_else(missing)?.net {
+            assigned.insert(net);
+        }
+    }
+    if assigned.len() > 1 && explicit.is_none() {
+        return Err(wire_place_net_conflict(p, &assigned));
+    }
+    let resolved = if let Some(net) = explicit {
+        net
+    } else if assigned.len() == 1 {
+        *assigned.iter().next().ok_or_else(missing)?
+    } else if let Some(net) = tee_net {
+        net
+    } else if !pins.is_empty() {
+        allocate_auto_net(p, next)?
+    } else {
+        return Ok(None);
+    };
+    for source in assigned {
+        if source != resolved {
+            merge_net_into(p, source, resolved)?;
+        }
+    }
+    Ok(Some(resolved))
+}
+
 /// Run one command with named parameters resolved, then record what it bound.
 /// A plain number written where a parameter could stand releases that field,
 /// so a later parameter change never overrides a deliberate edit.
 fn run(
+    config: &user_config::UserConfig,
     p: &mut Project,
     next: &mut Id,
     command: &str,
@@ -8833,6 +9824,7 @@ fn run(
         }
     }
     let mut result = run_command(
+        config,
         p,
         next,
         command,
@@ -8863,11 +9855,38 @@ fn run(
     }
     Ok(result)
 }
+#[allow(dead_code)]
+fn cam_isolation_command(command: &str) -> bool {
+    command == "cam.isolation" || command == "cam.isolation_paths"
+}
+
+#[cfg(not(feature = "plugin-firmware-target"))]
+fn firmware_config_compare(p: &Project, params: &Value) -> Result<Value, String> {
+    let text = params
+        .get("config")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "config must hold the config.h text".to_string())?;
+    if text.len() > 262_144 {
+        return Err("config text is too long".into());
+    }
+    let mismatches = pcbcraft_io::firmware_config_compare(p, text)?;
+    Ok(json!({"mismatches": mismatches, "count": mismatches.len()}))
+}
+
 fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Error> {
     match command {
         "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
+        "cam.isolation_paths" => cam_isolation_paths(p, params).map_err(Error::Invalid),
         "sim.dc" => sim::run_read(p, params),
         c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
+        c if layout::handles(c) => layout::run(p, c, params),
+        c if publication::handles(c) => publication::run(p, params).map_err(Error::Invalid),
+        #[cfg(not(feature = "plugin-firmware-target"))]
+        "firmware.config.compare" => firmware_config_compare(p, params).map_err(Error::Invalid),
+        #[cfg(feature = "plugin-firmware-target")]
+        c if firmware_plugin::handles(c) => {
+            firmware_plugin::run(p, c, params).map_err(Error::Invalid)
+        }
         _ => Err(Error::Invalid(format!(
             "unknown read-only command: {command}"
         ))),
@@ -8927,11 +9946,11 @@ fn parse_cam_rubout(value: Option<&Value>) -> Result<Option<pcbcraft_io::RubRegi
         val.get("tool")
             .ok_or_else(|| "rubout.tool is required".to_string())?,
     )?;
-    let stepover_pct = val
-        .get("stepover_pct")
-        .and_then(Value::as_u64)
-        .filter(|v| (30..=80).contains(v))
-        .ok_or_else(|| "rubout.stepover_pct must be 30 to 80".to_string())? as u8;
+    let stepover_pct =
+        val.get("stepover_pct")
+            .and_then(Value::as_u64)
+            .filter(|v| (30..=80).contains(v))
+            .ok_or_else(|| "rubout.stepover_pct must be 30 to 80".to_string())? as u8;
     let angle_deg = val
         .get("angle_deg")
         .and_then(Value::as_f64)
@@ -9025,7 +10044,28 @@ fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
     }))
 }
 
+fn cam_isolation_paths(p: &Project, params: &Value) -> Result<Value, String> {
+    let opts = pcbcraft_io::isolation_options_from_value(params)?;
+    let paths = pcbcraft_io::isolation_toolpaths(p, &opts)?;
+    let paths_json: Vec<Value> = paths
+        .into_iter()
+        .map(|ring| {
+            Value::Array(
+                ring.into_iter()
+                    .map(|pt| json!({"x": pt.x, "y": pt.y}))
+                    .collect(),
+            )
+        })
+        .collect();
+    let out = pcbcraft_io::isolation_gcode(p, &opts, &pcbcraft_io::CncProfile::default())?;
+    Ok(json!({
+        "paths": paths_json,
+        "estimate_s": out.estimate_s,
+    }))
+}
+
 fn run_command(
+    config: &user_config::UserConfig,
     p: &mut Project,
     next: &mut Id,
     command: &str,
@@ -9033,7 +10073,13 @@ fn run_command(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(command) || sim::dc::handles(command) {
+    if command == "cam.isolation"
+        || snapmaker::handles(command)
+        || layout::handles(command)
+        || command == "sim.dc"
+        || publication::handles(command)
+        || firmware_plugin_handles(command)
+    {
         return run_read_only(p, command, params);
     }
     if let Some(result) = authoring::run(p, next, command, params) {
@@ -9045,19 +10091,25 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
     if let Some(result) = tuning::run(p, next, command, params) {
         return result;
     }
-if let Some(result) = via_protection::run(p, command, params) {
+    if let Some(result) = via_protection::run(p, command, params) {
         return result;
     }
     if let Some(result) = backdrill::run(p, command, params) {
         return result;
     }
-    if let Some(result) = authoring::run(p, next, command, params) {
+    if let Some(result) = part::run(p, next, command, params) {
         return result;
     }
-    if let Some(result) = online::run(p, next, command, params) {
+    if let Some(result) = part_save::run(config, p, command, params) {
         return result;
     }
-    if let Some(result) = tuning::run(p, next, command, params) {
+    if let Some(result) = calc::run_mut(p, command, params) {
+        return result;
+    }
+    if let Some(result) = calc::run(p, command, params) {
+        return result;
+    }
+    if let Some(result) = teardrop::run(p, next, command, params) {
         return result;
     }
     if let Some(result) = images::run(p, next, command, params) {
@@ -9072,18 +10124,414 @@ if let Some(result) = via_protection::run(p, command, params) {
     if let Some(result) = datasheet_annotations::run_design(p, command, params) {
         return result;
     }
+    #[cfg(feature = "vendor-handoff")]
+    if let Some(result) = vendor_handoff::run(p, command, params) {
+        return result;
+    }
     match command {
-        "project.rename" => {
-            let a: Name = parse(params)?;
-            p.name = a.name;
-        return result;
+        "project.rename"
+        | "project.replace"
+        | "project.set_meta"
+        | "project.clear_meta"
+        | "parameter.set"
+        | "parameter.remove"
+        | "parameter.list"
+        | "project.set_unit"
+        | "project.set_auto_sync"
+        | "project.export_archive"
+        | "project.import_archive"
+        | "project.import"
+        | "component.add"
+        | "component.place_library"
+        | "footprint.assign"
+        | "footprint.assign_pattern" => {
+            run_command_part_1(config, p, next, command, params, record_revision, mutating)
+        }
+        "footprint.assign_table"
+        | "footprint.assign_file"
+        | "symbol.refresh"
+        | "footprint.refresh"
+        | "component.move"
+        | "component.rotate"
+        | "component.mirror"
+        | "component.value"
+        | "component.reference"
+        | "components.reannotate"
+        | "component.field"
+        | "component.set_sourcing" => {
+            run_command_part_2(config, p, next, command, params, record_revision, mutating)
+        }
+        "component.apply_listing"
+        | "component.set_in_bom"
+        | "component.set_in_placement"
+        | "component.set_compliance"
+        | "manufacturer.set"
+        | "project.compliance.set"
+        | "compliance.finding.mute"
+        | "compliance.check"
+        | "component.set_supplier"
+        | "part.attach_source"
+        | "part.make_orderable"
+        | "part.make_generic"
+        | "component.set_kind"
+        | "components.update"
+        | "components.table.export"
+        | "component.find"
+        | "footprint.find"
+        | "net.create"
+        | "net.rename"
+        | "board.unroute"
+        | "net.unroute"
+        | "track.cleanup"
+        | "net.tie" => {
+            run_command_part_3(config, p, next, command, params, record_revision, mutating)
+        }
+        "net.swap"
+        | "pins.set_all_no_connect"
+        | "pins.clear_all_no_connect"
+        | "net.set_length"
+        | "net.set_impedance"
+        | "net.set_properties"
+        | "net.connect"
+        | "net.disconnect"
+        | "copper.set_net"
+        | "netclass.add"
+        | "netclass.assign"
+        | "netclass.width_rules"
+        | "netclass.length_rules"
+        | "netclass.stub_rules"
+        | "netclass.radius_rules"
+        | "netclass.corner_radius" => {
+            run_command_part_4(config, p, next, command, params, record_revision, mutating)
+        }
+        "netclass.via_rules"
+        | "netclass.rise_time"
+        | "netclass.fast_signal"
+        | "netclass.clearance"
+        | "netclass.set"
+        | "netclass.remove"
+        | "netclass.assign_pattern"
+        | "netlist.import"
+        | "netlist.import_session"
+        | "library.link"
+        | "library.unlink"
+        | "padstack.define"
+        | "design.summary"
+        | "padstack.report"
+        | "padstack.remove" => {
+            run_command_part_5(config, p, next, command, params, record_revision, mutating)
+        }
+        "padstack.rename"
+        | "padstack.duplicate"
+        | "footprint.set_pad_stack"
+        | "dxf.import"
+        | "enclosure.import"
+        | "enclosure.remove"
+        | "enclosure.set_transform"
+        | "enclosure.show" => {
+            run_command_part_6(config, p, next, command, params, record_revision, mutating)
+        }
+        "svg.import" | "netlist.export" | "wire.connect" | "wire.draw" | "wire.place"
+        | "wire.split" | "wire.add_point" => {
+            run_command_part_7(config, p, next, command, params, record_revision, mutating)
+        }
+        "wire.remove_point"
+        | "wire.move"
+        | "wire.set_point"
+        | "graphic.add"
+        | "graphic.move"
+        | "object.group"
+        | "object.ungroup"
+        | "object.group_translate"
+        | "object.set_locked"
+        | "graphic.group"
+        | "graphic.ungroup"
+        | "graphic.translate"
+        | "dimension.set"
+        | "dimension.add" => {
+            run_command_part_8(config, p, next, command, params, record_revision, mutating)
+        }
+        "dimension.radius"
+        | "dimension.diameter"
+        | "graphic.rotate"
+        | "schematic.new_sheet"
+        | "schematic.rename_sheet"
+        | "schematic.set_page_setting"
+        | "schematic.remove_sheet"
+        | "schematic.set_sheet_parent"
+        | "schematic.net_pages"
+        | "schematic.move_component"
+        | "schematic.place_port"
+        | "schematic.move_port"
+        | "schematic.rename_port" => {
+            run_command_part_9(config, p, next, command, params, record_revision, mutating)
+        }
+        "schematic.remove_port"
+        | "schematic.import_sheet"
+        | "schematic.instance_add"
+        | "schematic.instance_remove"
+        | "schematic.export_design_block"
+        | "schematic.import_design_block"
+        | "schematic.cleanup"
+        | "graphic.scale"
+        | "graphic.to_track"
+        | "plot.to_schematic"
+        | "graphic.set" => {
+            run_command_part_10(config, p, next, command, params, record_revision, mutating)
+        }
+        "graphic.set_point"
+        | "barcode.place"
+        | "schematic.table"
+        | "label.place"
+        | "wire.draw_bus"
+        | "label.place_bus"
+        | "label.set_bus"
+        | "label.move"
+        | "label.rotate"
+        | "label.set"
+        | "pin.no_connect"
+        | "board.fiducial_place"
+        | "board.fiducial_move"
+        | "board.fiducial_set" => {
+            run_command_part_11(config, p, next, command, params, record_revision, mutating)
+        }
+        "board.fiducial_remove"
+        | "board.nettie_place"
+        | "board.nettie_move"
+        | "board.nettie_set"
+        | "board.nettie_remove"
+        | "board.hole_place"
+        | "board.hole_move"
+        | "hole.slot"
+        | "pattern.repeat"
+        | "board.notch"
+        | "board.hole_set_size"
+        | "board.datum_add"
+        | "board.datum_move" => {
+            run_command_part_12(config, p, next, command, params, record_revision, mutating)
+        }
+        "board.datum_rename"
+        | "board.datum_remove"
+        | "board.enclosure.import"
+        | "board.enclosure.set_transform"
+        | "board.enclosure.set_view"
+        | "board.enclosure.clear"
+        | "via.place"
+        | "via.move"
+        | "via.set_span"
+        | "via.allow_span"
+        | "via.stitch"
+        | "zone.place"
+        | "zone.move"
+        | "zone.set_layer"
+        | "zone.set_net"
+        | "zone.set_point"
+        | "zone.insert_point" => {
+            run_command_part_13(config, p, next, command, params, record_revision, mutating)
+        }
+        "zone.remove_point" | "zone.set_fill" | "zone.fill" | "zone.pour" | "zone.cutout"
+        | "pad.table" | "items.update" | "drill.chart" | "board.bounds" | "items.find" => {
+            run_command_part_14(config, p, next, command, params, record_revision, mutating)
+        }
+        "board.statistics"
+        | "board.panel"
+        | "panel.set"
+        | "panel.clear"
+        | "drawing_frame.set"
+        | "drawing_frame.clear"
+        | "panel.export"
+        | "board.set_finish"
+        | "board.set_stackup"
+        | "board.set_drill_origin"
+        | "board.reset_drill_origin"
+        | "board.set_outline"
+        | "board.clear_outline"
+        | "board.materials"
+        | "board.copper_layer_roles"
+        | "board.set_copper_layer_role"
+        | "board.set_layer_record"
+        | "board.stackup_add_pair" => {
+            run_command_part_15(config, p, next, command, params, record_revision, mutating)
+        }
+        "board.stackup_move_layer"
+        | "board.stackup_rename_layer"
+        | "board.stackup_remove_layer"
+        | "board.remove_layer_record"
+        | "board.clear_layer_records"
+        | "help.glossary"
+        | "help.term"
+        | "net.members"
+        | "net.lengths"
+        | "board.select_connected"
+        | "board.select_net"
+        | "net.chain"
+        | "rules.class_pair_set"
+        | "rules.class_pair_remove"
+        | "rules.preset_apply"
+        | "rules.preset_list"
+        | "erc.matrix_set"
+        | "erc.matrix_reset"
+        | "rules.severity"
+        | "rules.esd_max_distance_mm" => {
+            run_command_part_16(config, p, next, command, params, record_revision, mutating)
+        }
+        "rules.decoupling_set"
+        | "rules.exclude"
+        | "rules.include"
+        | "rules.exclude_region"
+        | "rules.include_region"
+        | "checks.custom_add"
+        | "checks.custom_remove"
+        | "rules.area_add"
+        | "rules.area_set_height"
+        | "rules.area_remove"
+        | "rules.profile_list"
+        | "rules.profile_read"
+        | "rules.profile_apply"
+        | "plugins.list"
+        | "plugins.export"
+        | "board.layer_add"
+        | "board.layer_rename"
+        | "board.layer_kind_set"
+        | "board.layer_dotted_set"
+        | "board.layer_visible_set"
+        | "board.layer_delete"
+        | "board.layer_line_add"
+        | "board.layer_rect_add" => {
+            run_command_part_17(config, p, next, command, params, record_revision, mutating)
+        }
+        "board.layer_circle_add"
+        | "board.layer_poly_add"
+        | "board.layer_text_add"
+        | "board.layer_shape_delete"
+        | "board.set_machining"
+        | "board.clear_machining"
+        | "board.set_conformal_coat_keepout"
+        | "board.clear_conformal_coat_keepout"
+        | "board.set_pair_rule"
+        | "board.set_diffpair"
+        | "board.rename_diffpair"
+        | "board.remove_diffpair"
+        | "board.remove_pair_rule"
+        | "bom.set_fields"
+        | "bom.clear_fields"
+        | "file.attach"
+        | "file.remove"
+        | "laser_job.export" => {
+            run_command_part_18(config, p, next, command, params, record_revision, mutating)
+        }
+        "output_job.add"
+        | "output_job.remove"
+        | "machine.add"
+        | "machine.set"
+        | "machine.remove"
+        | "machine.list"
+        | "machine.import"
+        | "machine.export"
+        | "placement_yy1.export"
+        | "output_job.run"
+        | "output_job.package"
+        | "artifact.add"
+        | "artifact.set" => {
+            run_command_part_19(config, p, next, command, params, record_revision, mutating)
+        }
+        "artifact.remove"
+        | "artifact.generate"
+        | "artifact.export"
+        | "artifact.stale"
+        | "variant.create"
+        | "variant.set_note"
+        | "variant.set_dnp"
+        | "variant.set_footprint"
+        | "variant.clear_footprint"
+        | "variant.remove"
+        | "bom.export"
+        | "gerber.files"
+        | "compliance.report"
+        | "board.sync"
+        | "board.resize"
+        | "board.clearance.set"
+        | "board.rules.set"
+        | "board.fab_limits.set"
+        | "board.cutout.add"
+        | "board.cutout.move"
+        | "board.cutout.resize"
+        | "footprint.move"
+        | "footprint.rotate"
+        | "footprint.set_pad"
+        | "footprint.set_castellated"
+        | "footprint.dock_edge" => {
+            run_command_part_20(config, p, next, command, params, record_revision, mutating)
+        }
+        "footprint.set_locked"
+        | "footprint.array"
+        | "board.repeat_layout"
+        | "track.add"
+        | "track.add_arc"
+        | "track.set_arc"
+        | "track.straighten"
+        | "track.split"
+        | "track.chamfer" => {
+            run_command_part_21(config, p, next, command, params, record_revision, mutating)
+        }
+        "track.round_corners"
+        | "track.move"
+        | "track.route"
+        | "track.route_pair"
+        | "footprint.mirror"
+        | "footprint.flip"
+        | "align.distribute"
+        | "object.snap" => {
+            run_command_part_22(config, p, next, command, params, record_revision, mutating)
+        }
+        "object.nudge"
+        | "object.duplicate"
+        | "selection.copy_text"
+        | "selection.paste"
+        | "object.delete"
+        | "track.set_width"
+        | "track.set_layer"
+        | "track.set_width_net"
+        | "track.set_layer_net"
+        | "track.set_end"
+        | "track.drag"
+        | "board.set_via_covering_default"
+        | "via.set_size"
+        | "text.place"
+        | "text.move"
+        | "text.set"
+        | "text.rotate"
+        | "text.bind"
+        | "text.expand" => {
+            run_command_part_23(config, p, next, command, params, record_revision, mutating)
+        }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
     }
-    if let Some(result) = images::run(p, next, command, params) {
-        return result;
-    }
-    if let Some(result) = outline::run(p, next, command, params) {
-        return result;
-    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_1(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "project.rename" => {
             let a: Name = parse(params)?;
@@ -9427,25 +10875,54 @@ if let Some(result) = via_protection::run(p, command, params) {
         }
         "project.import" => {
             let a: ProjectImportParams = parse(params)?;
-            if a.format != "schematic" {
-                return Err(Error::Invalid(
-                    "only schematic interchange import is supported".into(),
-                ));
-            }
             let path = std::path::Path::new(&a.path);
             let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
-            let (imported, preserved_bytes) = pcbcraft_io::read_schematic_interchange_path(path, &text)
-                .map_err(Error::Invalid)?;
-            let summary = pcbcraft_io::import_summary(&imported, preserved_bytes);
-            *p = imported;
-            Ok(summary)
+            match a.format.as_str() {
+                "schematic" => {
+                    let imported = pcbcraft_io::read_schematic_interchange_path(path, &text)
+                        .map_err(Error::Invalid)?;
+                    let preserved_bytes = 0usize;
+                    let summary = pcbcraft_io::import_summary(&imported, preserved_bytes);
+                    *p = imported;
+                    Ok(summary)
+                }
+                "board" => {
+                    let rules = pcbcraft_io::read_text(&path.with_extension("kicad_pro")).ok();
+                    let (imported, report) =
+                        pcbcraft_io::read_board_interchange_with_rules(&text, rules.as_deref())
+                            .map_err(Error::Invalid)?;
+                    let preserved_nodes = count_preserved_nodes(&imported);
+                    let summary = json!({
+                        "format": "board",
+                        "components": imported.components.len(),
+                        "nets": imported.nets.len(),
+                        "footprints": imported.board.footprints.len(),
+                        "tracks": imported.board.tracks.len(),
+                        "vias": imported.board.vias.len(),
+                        "zones": imported.board.zones.len(),
+                        "layers": imported.copper_layer_count(),
+                        "preserved_nodes": preserved_nodes,
+                        "notices": report.notices,
+                    });
+                    *p = imported;
+                    // New objects must not reuse an id the import already took.
+                    *next = (*next).max(p.ids().max().unwrap_or(0).saturating_add(1));
+                    Ok(summary)
+                }
+                _ => Err(Error::Invalid("unsupported import format".into())),
+            }
         }
         "component.add" => {
             let a: Add = parse(params)?;
-            let template = TEMPLATES
-                .iter()
-                .find(|t| t.kind == a.kind)
-                .ok_or_else(|| Error::Invalid("unknown symbol kind".into()))?;
+            // The palette kinds have their own prefix; any other kind in the
+            // vocabulary is numbered like an integrated circuit.
+            let prefix = match TEMPLATES.iter().find(|t| t.kind == a.kind) {
+                Some(template) => template.prefix,
+                None if pcbcraft_doc::is_valid_component_kind(&a.kind) && a.kind != "library" => {
+                    "U"
+                }
+                None => return Err(Error::Invalid("unknown symbol kind".into())),
+            };
             let reference = match a.reference {
                 Some(r) => r,
                 None => {
@@ -9453,11 +10930,11 @@ if let Some(result) = via_protection::run(p, command, params) {
                     while p
                         .components
                         .iter()
-                        .any(|c| c.reference == format!("{}{n}", template.prefix))
+                        .any(|c| c.reference == format!("{prefix}{n}"))
                     {
                         n += 1;
                     }
-                    format!("{}{n}", template.prefix)
+                    format!("{prefix}{n}")
                 }
             };
             let id = allocate(next)?;
@@ -9575,6 +11052,34 @@ if let Some(result) = via_protection::run(p, command, params) {
             }
             Ok(json!({"pattern": a.pattern, "assigned": assigned, "skipped": skipped}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_2(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "footprint.assign_table" => {
             let a: AssignTableParams = parse(params)?;
             if a.rows.is_empty() || a.rows.len() > 64 {
@@ -9659,8 +11164,8 @@ if let Some(result) = via_protection::run(p, command, params) {
                         continue;
                     }
                 };
-                let mut pins = pcbcraft_doc::collapse_symbol_pins(&definition)
-                    .map_err(Error::Invalid)?;
+                let mut pins =
+                    pcbcraft_doc::collapse_symbol_pins(&definition).map_err(Error::Invalid)?;
                 for pin in &mut pins {
                     pin.net = old_nets.get(pin.number.as_str()).copied().flatten();
                 }
@@ -9976,7 +11481,7 @@ if let Some(result) = via_protection::run(p, command, params) {
             for (key, g) in &groups {
                 let pre = key
                     .split(':')
-                    .last()
+                    .next_back()
                     .ok_or_else(|| Error::Invalid("invalid reannotate group".into()))?;
                 let pre = a.prefix.as_deref().unwrap_or(pre);
                 for (n, i) in g.iter().enumerate() {
@@ -10014,24 +11519,21 @@ if let Some(result) = via_protection::run(p, command, params) {
         }
         "component.field" => {
             let a: FieldParams = parse(params)?;
-            let component = p
-                .components
-                .iter_mut()
-                .find(|c| c.id == a.id)
-                .ok_or_else(missing)?;
+            let component = match (a.id, a.reference.as_deref()) {
+                (Some(id), None) => p.components.iter_mut().find(|c| c.id == id),
+                (None, Some(reference)) => {
+                    p.components.iter_mut().find(|c| c.reference == reference)
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "name the part by exactly one of id or reference".into(),
+                    ));
+                }
+            }
+            .ok_or_else(missing)?;
+            let id = component.id;
             let set = set_component_field(component, &a.key, a.value.as_deref())?;
-            Ok(json!({"id": a.id, "key": a.key, "set": set}))
-        }
-"component.set_compliance" => {
-            let a: SetComplianceParams = parse(params)?;
-            a.compliance.validate().map_err(Error::Invalid)?;
-            let component = p
-                .components
-                .iter_mut()
-                .find(|c| c.id == a.id)
-                .ok_or_else(missing)?;
-            component.compliance = a.compliance;
-            Ok(json!({"id": a.id}))
+            Ok(json!({"id": id, "key": a.key, "set": set}))
         }
         "component.set_sourcing" => {
             let a: SourcingParams = parse(params)?;
@@ -10047,8 +11549,6 @@ if let Some(result) = via_protection::run(p, command, params) {
                 }
             };
             text(&mut next.manufacturer, a.manufacturer);
-            text(&mut next.mpn, a.mpn);
-text(&mut next.manufacturer, a.manufacturer);
             text(&mut next.mpn, a.mpn);
             text(&mut next.description, a.description);
             if let Some(v) = a.lifecycle {
@@ -10066,7 +11566,7 @@ text(&mut next.manufacturer, a.manufacturer);
             if let Some(v) = a.halogen_free {
                 next.halogen_free = v;
             }
-if let Some(v) = a.packaging {
+            if let Some(v) = a.packaging {
                 next.packaging = v;
             }
             if let Some(v) = a.alternates {
@@ -10078,21 +11578,68 @@ if let Some(v) = a.packaging {
             if let Some(v) = a.model3d_url {
                 next.model3d_url = v.filter(|u| !u.trim().is_empty());
             }
-            if let Some(v) = a.moisture_level {
-                next.moisture_level = v;
-            }
-            if let Some(v) = a.rohs {
-                next.rohs = v;
-            }
-            if let Some(v) = a.reach {
-                next.reach = v;
-            }
-            if let Some(v) = a.halogen_free {
-                next.halogen_free = v;
-            }
             next.validate().map_err(Error::Invalid)?;
             component.sourcing = next;
             Ok(json!({"id": a.id, "sourcing": component.sourcing}))
+        }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_3(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
+        "component.apply_listing" => {
+            let a: ApplyListingParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.sourcing.apply_listing(&a.listing, a.overwrite);
+            component.sourcing.validate().map_err(Error::Invalid)?;
+            Ok(json!({"id": a.id, "sourcing": component.sourcing}))
+        }
+        "component.set_in_bom" => {
+            let a: ComponentInBomParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.include_in_bom = a.in_bom;
+            Ok(json!({"id": a.id, "in_bom": a.in_bom}))
+        }
+        "component.set_in_placement" => {
+            let a: ComponentInPlacementParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.include_in_placement = a.in_placement;
+            Ok(json!({"id": a.id, "in_placement": a.in_placement}))
         }
         "component.set_compliance" => {
             let a: SetComplianceParams = parse(params)?;
@@ -10113,10 +11660,73 @@ if let Some(v) = a.packaging {
                 country: a.country,
                 parent: a.parent.filter(|p| !p.trim().is_empty()),
                 supplier_responsibility_on_file: a.supplier_responsibility_on_file,
+                minerals_report: Default::default(),
             };
             let replaced = p.upsert_manufacturer(record).map_err(Error::Invalid)?;
             Ok(json!({"replaced": replaced, "count": p.manufacturers.len()}))
         }
+        "project.compliance.set" => {
+            let a: ProjectComplianceSetParams = parse(params)?;
+            if let Some(rule_sets) = a.rule_sets {
+                p.compliance_settings.rule_sets = rule_sets;
+            }
+            if let Some(role) = a.org_role {
+                p.compliance_settings.org_role = match role.as_str() {
+                    "maker_seller" => Some(pcbcraft_doc::ComplianceOrgRole::MakerSeller),
+                    "integrator" => Some(pcbcraft_doc::ComplianceOrgRole::Integrator),
+                    "buyer" => Some(pcbcraft_doc::ComplianceOrgRole::Buyer),
+                    "" => None,
+                    other => {
+                        return Err(Error::Invalid(format!(
+                            "org_role must be maker_seller, integrator or buyer, not {other}"
+                        )));
+                    }
+                };
+            }
+            if let Some(markets) = a.target_markets {
+                p.compliance_settings.target_markets = markets;
+            }
+            p.compliance_settings.validate().map_err(Error::Invalid)?;
+            Ok(json!({"rule_sets": p.compliance_settings.rule_sets}))
+        }
+        "compliance.finding.mute" => {
+            let a: ComplianceFindingMuteParams = parse(params)?;
+            if a.component.is_none()
+                && a.manufacturer
+                    .as_deref()
+                    .is_none_or(|m| m.trim().is_empty())
+            {
+                return Err(Error::Invalid(
+                    "mute a finding by component id or manufacturer name".into(),
+                ));
+            }
+            if let Some(id) = a.component
+                && !object_exists(p, id)
+            {
+                return Err(Error::Invalid(format!("no design object with id {id}")));
+            }
+            let mute = pcbcraft_doc::ComplianceFindingMute {
+                rule: a.rule,
+                component: a.component,
+                manufacturer: a
+                    .manufacturer
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty()),
+                reason: a.reason,
+            };
+            mute.validate().map_err(Error::Invalid)?;
+            if p.compliance_mutes.len() >= pcbcraft_doc::MAX_COMPLIANCE_MUTES {
+                return Err(Error::Invalid(format!(
+                    "a project stores at most {} compliance mutes",
+                    pcbcraft_doc::MAX_COMPLIANCE_MUTES
+                )));
+            }
+            p.compliance_mutes.push(mute);
+            Ok(json!({"count": p.compliance_mutes.len()}))
+        }
+        "compliance.check" => Ok(json!({
+            "findings": pcbcraft_rules::compliance_check(p),
+        })),
         "component.set_supplier" => {
             let a: SupplierParams = parse(params)?;
             let component = p
@@ -10129,7 +11739,6 @@ if let Some(v) = a.packaging {
                 .map_err(Error::Invalid)?;
             component.sourcing = next;
             Ok(json!({"id": a.id, "suppliers": component.sourcing.suppliers}))
-        }
         }
         "part.attach_source" => {
             let a: AttachSourceParams = parse(params)?;
@@ -10151,6 +11760,9 @@ if let Some(v) = a.packaging {
             bounded("datasheet", &a.datasheet, 256)?;
             bounded("distributor", &a.distributor, 48)?;
             bounded("sku", &a.sku, 256)?;
+            bounded("description", &a.description, 256)?;
+            bounded("lifecycle", &a.lifecycle, 64)?;
+            bounded("product_url", &a.product_url, 512)?;
             let written = {
                 let component = p
                     .components
@@ -10177,6 +11789,29 @@ if let Some(v) = a.packaging {
                     };
                     put(key, &a.sku)?;
                 }
+                // The typed record gets the same facts, plus what only the typed record keeps.
+                let mut next = component.sourcing.clone();
+                next.manufacturer = a.manufacturer.trim().to_owned();
+                next.mpn = a.mpn.trim().to_owned();
+                if !a.description.trim().is_empty() {
+                    next.description = a.description.trim().to_owned();
+                }
+                if !a.lifecycle.trim().is_empty() {
+                    let kind = pcbcraft_library::listing::lifecycle_from(&a.lifecycle);
+                    if kind != pcbcraft_library::listing::Lifecycle::Unknown {
+                        next.lifecycle = Some(kind);
+                    }
+                }
+                if !a.sku.trim().is_empty() && !a.distributor.trim().is_empty() {
+                    next.set_supplier(
+                        a.distributor.trim(),
+                        Some(a.sku.trim()),
+                        Some(a.product_url.as_str()),
+                    )
+                    .map_err(Error::Invalid)?;
+                }
+                next.validate().map_err(Error::Invalid)?;
+                component.sourcing = next;
                 written
             };
             let records = part_records::attach_source_records(
@@ -10251,6 +11886,48 @@ if let Some(v) = a.packaging {
                 .ok_or_else(missing)?;
             component.kind = kind.clone();
             Ok(json!({"id": a.id, "kind": kind}))
+        }
+        "components.update" => {
+            let a: ComponentsUpdateParams = parse(params)?;
+            let mut trial = p.clone();
+            let _changed = apply_component_updates(&mut trial, &a.updates)?;
+            trial
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let changed = apply_component_updates(p, &a.updates)?;
+            Ok(json!({"changed": changed}))
+        }
+        "components.table.export" => {
+            let a: ComponentsTableExportParams = parse(params)?;
+            let mode = a.mode.as_deref().unwrap_or("parts");
+            if !matches!(mode, "parts" | "grouped" | "layout") {
+                return Err(Error::Invalid(
+                    "mode must be parts, grouped or layout".into(),
+                ));
+            }
+            for key in &a.fields {
+                if key.is_empty() || key.len() > 64 {
+                    return Err(Error::Invalid(
+                        "property names must be 1 to 64 bytes".into(),
+                    ));
+                }
+            }
+            if a.fields.len() > 16 {
+                return Err(Error::Invalid(
+                    "a parts table lists at most 16 properties".into(),
+                ));
+            }
+            let variant = a.variant.as_deref();
+            let csv = match mode {
+                "grouped" => pcbcraft_io::parts_table_csv(p, &a.fields, variant, true)
+                    .map_err(Error::Invalid)?,
+                "layout" => {
+                    pcbcraft_io::parts_table_csv_layout(p, variant).map_err(Error::Invalid)?
+                }
+                _ => pcbcraft_io::parts_table_csv(p, &a.fields, variant, false)
+                    .map_err(Error::Invalid)?,
+            };
+            Ok(json!({"csv": csv, "mode": mode}))
         }
         "component.find" => {
             let a: FindParams = parse(params)?;
@@ -10460,6 +12137,34 @@ if let Some(v) = a.packaging {
             p.nets.retain(|n| n.id != a.source);
             Ok(json!({"merged":a.source,"into":a.target,"moved":moved}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_4(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "net.swap" => {
             let a: NetSwapParams = parse(params)?;
             if a.id_a == a.id_b {
@@ -10580,6 +12285,44 @@ if let Some(v) = a.packaging {
                 "id":a.id,
                 "target":net.target_length,
                 "tolerance":net.length_tolerance.unwrap_or(0.0),
+            }))
+        }
+        "net.set_impedance" => {
+            let a: NetImpedanceParams = parse(params)?;
+            if a.target
+                .is_some_and(|z| !z.is_finite() || !(10.0..=200.0).contains(&z))
+            {
+                return Err(Error::Invalid(
+                    "impedance target must be between 10 and 200 ohms".into(),
+                ));
+            }
+            if a.tolerance_pct
+                .is_some_and(|t| !t.is_finite() || !(0.0..=50.0).contains(&t))
+            {
+                return Err(Error::Invalid(
+                    "impedance tolerance must be between 0 and 50 percent".into(),
+                ));
+            }
+            if a.target.is_none() && a.tolerance_pct.is_some() {
+                return Err(Error::Invalid(
+                    "an impedance tolerance needs an impedance target".into(),
+                ));
+            }
+            let net = p
+                .nets
+                .iter_mut()
+                .find(|n| n.id == a.id)
+                .ok_or_else(missing)?;
+            net.impedance_target = a.target;
+            net.impedance_tolerance_pct = if a.target.is_some() {
+                a.tolerance_pct
+            } else {
+                None
+            };
+            Ok(json!({
+                "id": a.id,
+                "target": net.impedance_target,
+                "tolerance_pct": net.impedance_tolerance_pct.unwrap_or(10.0),
             }))
         }
         "net.set_properties" => net_properties::set_net_properties(p, params),
@@ -10706,12 +12449,16 @@ if let Some(v) = a.packaging {
                 max_width: None,
                 target_length: None,
                 length_tolerance: None,
+                max_length: None,
                 max_stub: None,
                 min_radius: None,
+                max_vias: None,
                 via_diameter: None,
                 via_drill: None,
                 pair_width: None,
                 pair_gap: None,
+                corner_radius: None,
+                rise_time: None,
                 target_impedance: None,
                 nets: a.nets,
                 profile: None,
@@ -10724,6 +12471,8 @@ if let Some(v) = a.packaging {
                 working_voltage: None,
                 insulation: None,
                 return_path_rule: None,
+                backdrill: Default::default(),
+                fast: Default::default(),
             });
             Ok(json!({"id": id}))
         }
@@ -10860,6 +12609,151 @@ if let Some(v) = a.packaging {
                 "max_stub": class.max_stub,
             }))
         }
+        "netclass.radius_rules" => {
+            let a: RadiusRulesParams = parse(params)?;
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.min_radius = match &a.min_radius {
+                Value::Null => None,
+                Value::Number(n) => {
+                    let s = n
+                        .as_f64()
+                        .filter(|v| v.is_finite() && *v >= 0.0 && *v <= 100.0)
+                        .ok_or_else(|| {
+                            Error::Invalid("min radius must be between 0 and 100 mm".into())
+                        })?;
+                    Some(s)
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "min radius must be a number or null to clear it".into(),
+                    ));
+                }
+            };
+            Ok(json!({
+                "class": a.class,
+                "min_radius": class.min_radius,
+            }))
+        }
+        "netclass.corner_radius" => {
+            let a: CornerRadiusRulesParams = parse(params)?;
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.corner_radius = match &a.corner_radius {
+                Value::Null => None,
+                Value::Number(n) => {
+                    let r = n
+                        .as_f64()
+                        .filter(|v| v.is_finite() && *v > 0.0 && *v <= 100.0)
+                        .ok_or_else(|| {
+                            Error::Invalid(
+                                "corner radius must be between 0 and 100 millimetres".into(),
+                            )
+                        })?;
+                    Some(r)
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "corner radius must be a number or null to clear it".into(),
+                    ));
+                }
+            };
+            Ok(json!({
+                "class": a.class,
+                "corner_radius": class.corner_radius,
+            }))
+        }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_5(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
+        "netclass.via_rules" => {
+            let a: ViaRulesParams = parse(params)?;
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.max_vias = match a.max_vias {
+                None | Some(Value::Null) => None,
+                Some(Value::Number(n)) => {
+                    let limit = n.as_u64().filter(|v| *v <= 1024).ok_or_else(|| {
+                        Error::Invalid("max vias must be an integer from 0 to 1024".into())
+                    })?;
+                    Some(limit as u32)
+                }
+                Some(_) => {
+                    return Err(Error::Invalid(
+                        "max vias must be an integer or null to clear it".into(),
+                    ));
+                }
+            };
+            Ok(json!({
+                "class": a.class,
+                "max_vias": class.max_vias,
+            }))
+        }
+        "netclass.rise_time" => {
+            let a: RiseTimeRulesParams = parse(params)?;
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.rise_time = match &a.rise_time {
+                Value::Null => None,
+                Value::Number(n) => {
+                    let s = n
+                        .as_f64()
+                        .filter(|v| v.is_finite() && (1.0e-12..=1.0e-3).contains(v))
+                        .ok_or_else(|| {
+                            Error::Invalid(
+                                "rise time must be between 1 picosecond and 1 millisecond".into(),
+                            )
+                        })?;
+                    Some(s)
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "rise time must be a number or null to clear it".into(),
+                    ));
+                }
+            };
+            Ok(json!({
+                "class": a.class,
+                "rise_time": class.rise_time,
+            }))
+        }
         "netclass.fast_signal" => {
             let a: FastSignalParams = parse(params)?;
             let class = p
@@ -10893,6 +12787,8 @@ if let Some(v) = a.packaging {
                 && a.via_drill.is_none()
                 && a.pair_width.is_none()
                 && a.pair_gap.is_none()
+                && a.target_impedance.is_none()
+                && a.impedance_tolerance_pct.is_none()
                 && !net_properties::class_property_params_touch(params)
             {
                 return Err(Error::Invalid("give at least one field to change".into()));
@@ -10939,17 +12835,38 @@ if let Some(v) = a.packaging {
                 ));
             }
             if a.target_impedance
+                .is_some_and(|z| !z.is_finite() || !(10.0..=200.0).contains(&z))
+            {
+                return Err(Error::Invalid(
+                    "impedance target must be between 10 and 200 ohms".into(),
+                ));
+            }
+            if a.impedance_tolerance_pct
+                .is_some_and(|t| !t.is_finite() || !(0.0..=50.0).contains(&t))
+            {
+                return Err(Error::Invalid(
+                    "impedance tolerance must be between 0 and 50 percent".into(),
+                ));
+            }
+            if a.impedance_tolerance_pct.is_some() && a.target_impedance.is_none() {
+                return Err(Error::Invalid(
+                    "an impedance tolerance needs an impedance target".into(),
+                ));
+            }
+            if a.target_impedance
                 .is_some_and(|z| !z.is_finite() || !(1.0..=2000.0).contains(&z))
             {
                 return Err(Error::Invalid(
                     "target impedance must be 1 to 2000 ohms".into(),
                 ));
             }
-            let class = p
+            let class_index = p
                 .net_classes
-                .iter_mut()
-                .find(|k| k.id == a.class)
+                .iter()
+                .position(|k| k.id == a.class)
                 .ok_or_else(missing)?;
+            let mut class_work = p.net_classes[class_index].clone();
+            let class = &mut class_work;
             let via_diameter = a.via_diameter.or(class.via_diameter);
             let via_drill = a.via_drill.or(class.via_drill);
             if via_diameter
@@ -10967,6 +12884,10 @@ if let Some(v) = a.packaging {
                 && a.via_drill.is_none_or(|v| class.via_drill == Some(v))
                 && a.pair_width.is_none_or(|v| class.pair_width == Some(v))
                 && a.pair_gap.is_none_or(|v| class.pair_gap == Some(v))
+                && a.target_impedance
+                    .is_none_or(|v| class.target_impedance == Some(v))
+                && a.impedance_tolerance_pct
+                    .is_none_or(|v| class.impedance_tolerance_pct == Some(v))
                 && a.target_impedance
                     .is_none_or(|v| class.target_impedance == Some(v))
             {
@@ -10992,7 +12913,15 @@ if let Some(v) = a.packaging {
             if let Some(v) = a.pair_gap {
                 class.pair_gap = Some(v);
             }
+            if let Some(v) = a.target_impedance {
+                class.target_impedance = Some(v);
+            }
+            if let Some(v) = a.impedance_tolerance_pct {
+                class.impedance_tolerance_pct = Some(v);
+            }
             net_properties::apply_class_property_updates(p, class, params)?;
+            p.net_classes[class_index] = class_work.clone();
+            let class = &p.net_classes[class_index];
             let mut out = json!({
                 "class": class.id,
                 "name": class.name,
@@ -11003,12 +12932,14 @@ if let Some(v) = a.packaging {
                 "pair_width": class.pair_width,
                 "pair_gap": class.pair_gap,
                 "target_impedance": class.target_impedance,
+                "impedance_tolerance_pct": class.impedance_tolerance_pct,
+                "target_impedance": class.target_impedance,
                 "nets": class.nets.len()
             });
-            if let Some(props) = out.as_object_mut() {
-                if let Some(extra) = net_properties::class_properties_json(class).as_object() {
-                    props.extend(extra.clone());
-                }
+            if let Some(props) = out.as_object_mut()
+                && let Some(extra) = net_properties::class_properties_json(class).as_object()
+            {
+                props.extend(extra.clone());
             }
             Ok(out)
         }
@@ -11208,6 +13139,7 @@ if let Some(v) = a.packaging {
             Ok(json!({"name": a.name, "shape": a.shape, "replaced": replaced}))
         }
         "design.summary" => Ok(summary::build(p)),
+        // padstack.report: list defined padstacks, count placed pads that match each stack, and summarize unused stacks.
         "padstack.report" => {
             let mut stacks = Vec::with_capacity(p.padstacks.len());
             let mut used_total = 0usize;
@@ -11268,6 +13200,34 @@ if let Some(v) = a.packaging {
             }
             Ok(json!({"name": a.name, "padstacks": p.padstacks.len()}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_6(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "padstack.rename" => {
             let a: PadstackRenameParams = parse(params)?;
             if a.new_name.is_empty() || a.new_name.len() > 64 {
@@ -11681,17 +13641,16 @@ if let Some(v) = a.packaging {
                     "the enclosure path must be 1 to 1024 bytes".into(),
                 ));
             }
-            if let Some(mesh) = &a.mesh_path {
-                if mesh.is_empty() || mesh.len() > 1024 || !mesh_path_allowed(mesh) {
-                    return Err(Error::Invalid(
-                        "the mesh path must end with .gltf, .glb or .obj".into(),
-                    ));
-                }
+            if let Some(mesh) = &a.mesh_path
+                && (mesh.is_empty() || mesh.len() > 1024 || !mesh_path_allowed(mesh))
+            {
+                return Err(Error::Invalid(
+                    "the mesh path must end with .gltf, .glb or .obj".into(),
+                ));
             }
             let transform = parse_enclosure_transform(a.transform)?;
             let bytes = std::fs::read(&a.path).map_err(|e| Error::Invalid(e.to_string()))?;
-            let scan =
-                pcbcraft_io::read_enclosure_step(&bytes).map_err(Error::Invalid)?;
+            let scan = pcbcraft_io::read_enclosure_step(&bytes).map_err(Error::Invalid)?;
             clear_enclosure_import(p);
             let mut linked_datums = Vec::new();
             for datum in &scan.datums {
@@ -11716,18 +13675,25 @@ if let Some(v) = a.packaging {
                 max: scan.bounds.max,
             };
             let notice = scan.notice.clone();
-            p.board.enclosure = Some(pcbcraft_doc::EnclosureRef {
-                path: a.path,
+            p.board.enclosure = Some(pcbcraft_doc::BoardEnclosure {
+                file: String::new(),
+                source_path: a.path,
+                auto_aligned: false,
+                offset: [0.0; 3],
+                scale: [1.0; 3],
+                rotate: [0.0; 3],
+                visible: true,
+                opacity: 1.0,
                 transform,
-                source_format: pcbcraft_doc::EnclosureSourceFormat::Step,
-                bounds,
+                source_format: Some(pcbcraft_doc::EnclosureSourceFormat::Step),
+                bounds: Some(bounds),
                 mesh_path: a.mesh_path,
                 linked_datums,
                 notice,
             });
             p.validate().map_err(Error::Invalid)?;
             Ok(json!({
-                "bounds": scan.bounds,
+                "bounds": {"min": scan.bounds.min, "max": scan.bounds.max},
                 "datums": scan.datums.len(),
                 "planar_faces": scan.planar_faces.len(),
                 "hidden_face_count": scan.hidden_face_count,
@@ -11772,6 +13738,34 @@ if let Some(v) = a.packaging {
                 "notice": enclosure.notice,
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_7(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "svg.import" => {
             let a: SvgImportParams = parse(params)?;
             let text =
@@ -12113,6 +14107,120 @@ if let Some(v) = a.packaging {
             });
             Ok(json!({"id":id,"vertices":vertices}))
         }
+        "wire.place" => {
+            let a: WirePlaceParams = parse(params)?;
+            validate_drawn_wire_points(&a.points)?;
+            if a.pins.len() > 2 {
+                return Err(Error::Invalid(
+                    "wire accepts at most two endpoint pins".into(),
+                ));
+            }
+            if a.pins.len() == 1 {
+                let first = a.points.first().ok_or_else(missing)?;
+                let last = a.points.last().ok_or_else(missing)?;
+                let pin = &a.pins[0];
+                let on_first = p
+                    .pin_position(pin)
+                    .is_some_and(|pos| pos.distance(*first) <= WIRE_ENDPOINT_SNAP);
+                let on_last = p
+                    .pin_position(pin)
+                    .is_some_and(|pos| pos.distance(*last) <= WIRE_ENDPOINT_SNAP);
+                if !on_first && !on_last {
+                    return Err(Error::Invalid(
+                        "pin must lie on the first or last wire vertex".into(),
+                    ));
+                }
+            }
+            if a.pins.len() == 2 {
+                pin_on_wire_endpoint(p, &a.pins[0], a.points[0])?;
+                pin_on_wire_endpoint(p, &a.pins[1], *a.points.last().ok_or_else(missing)?)?;
+            }
+            let tee_net = a.tee.as_ref().and_then(|tee| {
+                p.drawn_wires
+                    .iter()
+                    .find(|w| w.id == tee.wire)
+                    .and_then(|w| w.net)
+            });
+            if a.tee.is_some() {
+                let tee = a.tee.as_ref().ok_or_else(missing)?;
+                if !tee.at.valid() {
+                    return Err(Error::Invalid("split point is out of range".into()));
+                }
+                if !a.points.contains(&tee.at) {
+                    return Err(Error::Invalid(
+                        "tee point must be a vertex of the new wire".into(),
+                    ));
+                }
+                p.drawn_wires
+                    .iter()
+                    .any(|w| w.id == tee.wire)
+                    .then_some(())
+                    .ok_or_else(missing)?;
+            }
+            let net = resolve_wire_place_net(p, next, a.net, &a.pins, tee_net)?;
+            if a.pins.is_empty() && net.is_none() && a.tee.is_none() {
+                return Err(Error::Invalid(
+                    "wire needs a net, endpoint pins, or a tee into an existing wire".into(),
+                ));
+            }
+            let mut split_tail = None;
+            if let Some(tee) = &a.tee {
+                split_tail = Some(split_drawn_wire_at(p, next, tee.wire, tee.at)?);
+            }
+            let wire_id = allocate(next)?;
+            let vertices = a.points.len();
+            p.drawn_wires.push(DrawnWire {
+                id: wire_id,
+                net,
+                points: a.points.clone(),
+            });
+            if let Some(net) = net
+                && !a.pins.is_empty()
+            {
+                assign(p, net, &a.pins)?;
+            }
+            let place_junction = a.junction.unwrap_or(a.tee.is_some());
+            let mut junction_id = None;
+            if place_junction {
+                let Some(net) = net else {
+                    return Err(Error::Invalid(
+                        "junction needs a resolved net on the wire".into(),
+                    ));
+                };
+                let at = a
+                    .tee
+                    .as_ref()
+                    .map(|tee| tee.at)
+                    .or_else(|| a.points.last().copied())
+                    .ok_or_else(missing)?;
+                if !p
+                    .drawn_wires
+                    .iter()
+                    .any(|w| w.net == Some(net) && w.points.contains(&at))
+                {
+                    return Err(Error::Invalid(
+                        "junction must sit on a vertex of a drawn wire of its net".into(),
+                    ));
+                }
+                let label = allocate(next)?;
+                p.labels.push(pcbcraft_doc::Label {
+                    id: label,
+                    kind: "junction".into(),
+                    net,
+                    position: at,
+                    rotation: 0.0,
+                    text: String::new(),
+                });
+                junction_id = Some(label);
+            }
+            Ok(json!({
+                "id": wire_id,
+                "net": net,
+                "vertices": vertices,
+                "split": split_tail,
+                "junction": junction_id,
+            }))
+        }
         "wire.split" => {
             let a: SplitParams = parse(params)?;
             if !a.at.valid() {
@@ -12177,6 +14285,34 @@ if let Some(v) = a.packaging {
             wire.points.insert(at, a.position);
             Ok(json!({"id": a.id, "index": at}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_8(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "wire.remove_point" => {
             let a: RemovePointParams = parse(params)?;
             let wire = p
@@ -12688,6 +14824,34 @@ if let Some(v) = a.packaging {
                 "distance": (distance * 100.0).round() / 100.0,
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_9(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "dimension.radius" | "dimension.diameter" => {
             let diameter = command == "dimension.diameter";
             let a: RadialParams = parse(params)?;
@@ -12834,6 +14998,7 @@ if let Some(v) = a.packaging {
                 name: a.name,
                 parent: None,
                 entry: None,
+                interchange_uuid: Default::default(),
             });
             Ok(json!({"id":id}))
         }
@@ -13128,6 +15293,7 @@ if let Some(v) = a.packaging {
                 net: a.net,
                 sheet: a.sheet,
                 position: a.position,
+                interchange_uuid: None,
             });
             Ok(json!({"id":id,"name":a.name,"sheet":a.sheet}))
         }
@@ -13208,6 +15374,34 @@ if let Some(v) = a.packaging {
             p.ports[index].name = a.name.clone();
             Ok(json!({"id": a.id, "name": a.name}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_10(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "schematic.remove_port" => {
             let a: IdParams = parse(params)?;
             let index = p
@@ -13247,6 +15441,7 @@ if let Some(v) = a.packaging {
                 name: name.clone(),
                 parent: None,
                 entry: None,
+                interchange_uuid: Default::default(),
             });
             let components = file.components.len();
             let ports = file.ports.len();
@@ -13333,11 +15528,12 @@ if let Some(v) = a.packaging {
                     net,
                     sheet,
                     position: item.position,
+                    interchange_uuid: Default::default(),
                 });
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))
         }
-"schematic.instance_add" => {
+        "schematic.instance_add" => {
             let a: InstanceAddParams = parse(params)?;
             if a.name.is_empty() || a.name.len() > MAX_INSTANCE_NAME {
                 return Err(Error::Invalid("instance name must be 1 to 64 bytes".into()));
@@ -13439,18 +15635,6 @@ if let Some(v) = a.packaging {
                 "nets": nets,
             }))
         }
-        "schematic.cleanup" => {
-            let mut merged = 0usize;
-            let mut keep: Vec<(Point, Id)> = Vec::new();
-            p.labels.retain(|l| {
-                if l.kind != "junction" {
-                    return true;
-                }
-                if let Some(i) = keep.iter().position(|(q, _)| *q == l.position) {
-                    if keep[i].1 == l.net {
-                        merged += 1;
-                        return false;
-                    }
         "schematic.cleanup" => {
             let mut merged = 0usize;
             let mut keep: Vec<(Point, Id)> = Vec::new();
@@ -13624,6 +15808,7 @@ if let Some(v) = a.packaging {
                     width,
                     layer,
                     arc: None,
+                    preserved: Default::default(),
                 });
                 ids.push(id);
             }
@@ -13762,6 +15947,34 @@ if let Some(v) = a.packaging {
                 "text":graphic.text,
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_11(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "graphic.set_point" => {
             let a: GraphicPointParams = parse(params)?;
             if !a.position.valid() {
@@ -14294,6 +16507,34 @@ if let Some(v) = a.packaging {
                 "layer": p.layer_name(layer),
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_12(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "board.fiducial_remove" => {
             let a: IdParams = parse(params)?;
             let before = p.board.fiducials.len();
@@ -14798,6 +17039,34 @@ if let Some(v) = a.packaging {
             datum.hole = None;
             Ok(json!({"id":a.id,"position":a.position}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_13(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "board.datum_rename" => {
             let a: DatumRenameParams = parse(params)?;
             check_datum_name(p, &a.name, Some(a.id))?;
@@ -14848,6 +17117,14 @@ if let Some(v) = a.packaging {
                 rotate: [0.0; 3],
                 visible: true,
                 opacity: pcbcraft_io::DEFAULT_ENCLOSURE_OPACITY,
+                transform: [
+                    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+                ],
+                source_format: None,
+                bounds: None,
+                mesh_path: None,
+                linked_datums: Vec::new(),
+                notice: None,
             });
             Ok(json!({"auto_aligned": auto_aligned}))
         }
@@ -14874,7 +17151,10 @@ if let Some(v) = a.packaging {
                 enc.offset = offset;
             }
             if let Some(scale) = a.scale {
-                if !scale.iter().all(|v| v.is_finite() && *v > 0.0 && *v <= 100.0) {
+                if !scale
+                    .iter()
+                    .all(|v| v.is_finite() && *v > 0.0 && *v <= 100.0)
+                {
                     return Err(Error::Invalid("enclosure scale is out of range".into()));
                 }
                 enc.scale = scale;
@@ -14912,7 +17192,9 @@ if let Some(v) = a.packaging {
             }
             if let Some(opacity) = a.opacity {
                 if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
-                    return Err(Error::Invalid("enclosure opacity must be between 0 and 1".into()));
+                    return Err(Error::Invalid(
+                        "enclosure opacity must be between 0 and 1".into(),
+                    ));
                 }
                 enc.opacity = opacity;
             }
@@ -14969,7 +17251,9 @@ if let Some(v) = a.packaging {
                 from_layer,
                 to_layer,
                 covering: None,
-            covering_scope: None,
+                backdrill: None,
+                covering_bottom: Default::default(),
+                preserved: Default::default(),
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -14998,13 +17282,13 @@ if let Some(v) = a.packaging {
                 .ok_or_else(missing)?;
             let (from_layer, to_layer) =
                 resolve_via_span(p, a.from_layer.as_deref(), a.to_layer.as_deref(), current)?;
-            let via = p
+            let mut moved = p
                 .board
                 .vias
-                .iter_mut()
+                .iter()
                 .find(|v| v.id == a.id)
-                .ok_or_else(missing)?;
-            let mut moved = via.clone();
+                .ok_or_else(missing)?
+                .clone();
             moved.from_layer = from_layer;
             moved.to_layer = to_layer;
             if let Some(spec) = moved.backdrill {
@@ -15014,6 +17298,12 @@ if let Some(v) = a.packaging {
                     ))
                 })?;
             }
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
             via.from_layer = from_layer;
             via.to_layer = to_layer;
             let via = via.clone();
@@ -15123,7 +17413,9 @@ if let Some(v) = a.packaging {
                         from_layer: None,
                         to_layer: None,
                         covering: None,
-                        covering_scope: None,
+                        backdrill: Default::default(),
+                        covering_bottom: Default::default(),
+                        preserved: Default::default(),
                     });
                     ids.push(id);
                 }
@@ -15147,6 +17439,7 @@ if let Some(v) = a.packaging {
                 filled: true,
                 kind: None,
                 pour: None,
+                preserved: Default::default(),
             });
             Ok(json!({"id":id}))
         }
@@ -15286,6 +17579,34 @@ if let Some(v) = a.packaging {
             validate_closed_outline(outline).map_err(Error::Invalid)?;
             Ok(json!({"id":a.id,"cutout":a.cutout,"index":a.index,"position":a.position}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_14(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "zone.remove_point" => {
             let a: ZoneRemoveParams = parse(params)?;
             let zone = p
@@ -15434,134 +17755,6 @@ if let Some(v) = a.packaging {
             validate_closed_outline(&a.outline).map_err(Error::Invalid)?;
             zone.cutouts.push(a.outline);
             Ok(json!({"cutouts": zone.cutouts.len()}))
-        }
-        "teardrop.add" => {
-            let a: TeardropParams = parse(params)?;
-            let layer_filter = optional_command_layer(p, params)?;
-            if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
-                return Err(missing());
-            }
-            if !(0.05..=5.0).contains(&a.depth) {
-                return Err(Error::Invalid(
-                    "teardrop depth must be between 0.05 and 5 millimetres".into(),
-                ));
-            }
-            let mut junctions: Vec<Junction> = Vec::new();
-            for track in &p.board.tracks {
-                if layer_filter.is_some_and(|layer| track.layer != layer)
-                    || a.net.is_some_and(|net| track.net != net)
-                {
-                    continue;
-                }
-                for (end, other) in [(track.start, track.end), (track.end, track.start)] {
-                    let dx = other.x - end.x;
-                    let dy = other.y - end.y;
-                    let span = (dx * dx + dy * dy).sqrt();
-                    if span < 0.05 {
-                        continue;
-                    }
-                    let radius = p
-                        .board
-                        .vias
-                        .iter()
-                        .find(|v| v.position.distance(end) <= v.diameter / 2.0 + 0.25)
-                        .map(|v| v.diameter / 2.0)
-                        .or_else(|| {
-                            p.board.footprints.iter().find_map(|footprint| {
-                                footprint.pads.iter().find_map(|pad| {
-                                    let anchor =
-                                        footprint.pad_position(&pad.number).unwrap_or(pad.offset);
-                                    (end.distance(anchor) <= pad.bounding_radius() + 0.25)
-                                        .then(|| pad.bounding_radius())
-                                })
-                            })
-                        });
-                    let Some(radius) = radius else { continue };
-                    junctions.push((
-                        end,
-                        (dx / span, dy / span),
-                        radius,
-                        track.width,
-                        span,
-                        track.net,
-                        track.layer,
-                    ));
-                }
-            }
-            if junctions.len() > 512 {
-                return Err(Error::Invalid(
-                    "too many junctions for one teardrop pass; filter by net or layer".into(),
-                ));
-            }
-            let total = junctions.len();
-            let mut added = 0usize;
-            for (end, u, radius, width, span, net, layer) in junctions {
-                let half_w = (width / 2.0).max(0.05);
-                let reach = radius.clamp(0.05, 3.0);
-                if reach <= half_w + 0.01 {
-                    continue;
-                }
-                let depth = a.depth.min(span * 0.5);
-                let v = (-u.1, u.0);
-                let corners = [
-                    Point::new(end.x + v.0 * reach, end.y + v.1 * reach),
-                    Point::new(
-                        end.x + u.0 * depth + v.0 * half_w,
-                        end.y + u.1 * depth + v.1 * half_w,
-                    ),
-                    Point::new(
-                        end.x + u.0 * depth - v.0 * half_w,
-                        end.y + u.1 * depth - v.1 * half_w,
-                    ),
-                    Point::new(end.x - v.0 * reach, end.y - v.1 * reach),
-                ];
-                if !corners.iter().all(|point| point.valid()) {
-                    continue;
-                }
-                if p.board.zones.iter().any(|zone| {
-                    zone.kind.as_deref() == Some("teardrop")
-                        && zone.layer == layer
-                        && zone.net == net
-                        && zone
-                            .outline
-                            .first()
-                            .is_some_and(|first| first.distance(corners[0]) < 0.01)
-                }) {
-                    continue;
-                }
-                let mut outline = corners.to_vec();
-                outline.push(corners[0]);
-                let id = allocate(next)?;
-                p.board.zones.push(pcbcraft_doc::CopperZone {
-                    id,
-                    net,
-                    layer,
-                    outline,
-                    cutouts: vec![],
-                    filled: true,
-                    kind: Some("teardrop".into()),
-                    pour: None,
-                });
-                added += 1;
-            }
-            Ok(json!({"added": added, "junctions": total}))
-        }
-        "teardrop.remove" => {
-            let a: TeardropRemoveParams = parse(params)?;
-            let layer_filter = optional_command_layer(p, params)?;
-            let before = p.board.zones.len();
-            p.board.zones.retain(|zone| {
-                !(zone.kind.as_deref() == Some("teardrop")
-                    && a.net.is_none_or(|net| zone.net == net)
-                    && layer_filter.is_none_or(|layer| zone.layer == layer))
-            });
-            let removed = before - p.board.zones.len();
-            if removed == 0 {
-                return Err(Error::Invalid(
-                    "no teardrop copper matches the request".into(),
-                ));
-            }
-            Ok(json!({"removed": removed}))
         }
         "pad.table" => {
             let a: PadTableParams = parse(params)?;
@@ -15908,7 +18101,9 @@ if let Some(v) = a.packaging {
                         if a.net.is_some_and(|n| t.net != n) || !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "net": t.net, "layer": t.layer}));
+                        found.push(
+                            json!({"id": t.id, "net": t.net, "layer": p.layer_name(t.layer)}),
+                        );
                     }
                 }
                 "via" => {
@@ -15925,7 +18120,7 @@ if let Some(v) = a.packaging {
                             continue;
                         }
                         found.push(
-                            json!({"id": z.id, "net": z.net, "layer": z.layer, "filled": z.filled}),
+                            json!({"id": z.id, "net": z.net, "layer": p.layer_name(z.layer), "filled": z.filled}),
                         );
                     }
                 }
@@ -15956,7 +18151,9 @@ if let Some(v) = a.packaging {
                         if !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "text": t.text, "layer": t.layer}));
+                        found.push(
+                            json!({"id": t.id, "text": t.text, "layer": p.layer_name(t.layer)}),
+                        );
                     }
                 }
                 "component" => {
@@ -15978,6 +18175,34 @@ if let Some(v) = a.packaging {
             }
             Ok(json!({"kind": a.kind, "count": found.len(), "items": found}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_15(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "board.statistics" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid(
@@ -16376,10 +18601,7 @@ if let Some(v) = a.packaging {
                 .copper_layers()
                 .into_iter()
                 .map(|layer| {
-                    let role = match p.copper_layer_plane_role(layer) {
-                        Some(r) => r,
-                        None => "signal",
-                    };
+                    let role = p.copper_layer_plane_role(layer).unwrap_or("signal");
                     json!({
                         "layer": p.layer_name(layer),
                         "index": layer.index(),
@@ -16406,16 +18628,7 @@ if let Some(v) = a.packaging {
             let name = a.name.trim().to_string();
             if name.is_empty()
                 || name.len() > 64
-                || !matches!(
-                    a.kind.as_str(),
-                    "copper"
-                        | "core"
-                        | "prepreg"
-                        | "soldermask"
-                        | "silkscreen"
-                        | "paste"
-                        | "custom"
-                )
+                || !pcbcraft_doc::LAYER_KINDS.contains(&a.kind.as_str())
                 || !a.thickness.is_finite()
                 || !(0.0..=100.0).contains(&a.thickness)
                 || a.material.as_ref().is_some_and(|m| m.len() > 64)
@@ -16505,6 +18718,34 @@ if let Some(v) = a.packaging {
             p.remap_copper_layer_roles(map);
             Ok(json!({"copper_layers": p.copper_layer_count(), "first_new": first}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_16(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "board.stackup_move_layer" => {
             let a: StackupMoveParams = parse(params)?;
             seed_stackup(p);
@@ -17000,15 +19241,67 @@ if let Some(v) = a.packaging {
             };
             Ok(json!({"code": a.code, "set": set}))
         }
-        "rules.decoupling_max_mm" => {
-            let a: RuleDecouplingMaxMmParams = parse(params)?;
-            if !a.max_mm.is_finite() || a.max_mm < 0.5 || a.max_mm > 50.0 {
+        "rules.esd_max_distance_mm" => {
+            let a: RuleEsdMaxMmParams = parse(params)?;
+            if !a.max_mm.is_finite() || a.max_mm < 0.5 || a.max_mm > 100.0 {
+                return Err(Error::Invalid("esd distance must be 0.5 to 100 mm".into()));
+            }
+            p.esd_max_distance_mm = a.max_mm;
+            Ok(json!({"esd_max_distance_mm": a.max_mm}))
+        }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_17(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
+        "rules.decoupling_set" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Params {
+                max_distance_mm: Option<f64>,
+                suggested_value: Option<String>,
+            }
+            let a: Params = parse(params)?;
+            if a.max_distance_mm.is_none() && a.suggested_value.is_none() {
                 return Err(Error::Invalid(
-                    "decoupling distance must be 0.5 to 50 mm".into(),
+                    "give max_distance_mm, suggested_value or both".into(),
                 ));
             }
-            p.decoupling_max_mm = a.max_mm;
-            Ok(json!({"decoupling_max_mm": a.max_mm}))
+            let mut rule = p.decoupling.clone();
+            if let Some(d) = a.max_distance_mm {
+                rule.max_distance_mm = d;
+            }
+            if let Some(v) = a.suggested_value {
+                rule.suggested_value = v.trim().to_string();
+            }
+            rule.validate().map_err(Error::Invalid)?;
+            p.decoupling = rule;
+            Ok(
+                json!({"max_distance_mm": p.decoupling.max_distance_mm, "suggested_value": p.decoupling.suggested_value}),
+            )
         }
         "rules.exclude" => {
             let a: RuleExcludeParams = parse(params)?;
@@ -17279,6 +19572,26 @@ if let Some(v) = a.packaging {
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
             }
+            if a.footprint_ref
+                .as_ref()
+                .is_some_and(|r| r.is_empty() || r.len() > 64)
+            {
+                return Err(Error::Invalid(
+                    "footprint reference must be 1 to 64 bytes".into(),
+                ));
+            }
+            let forbid = if let Some(raw) = &a.forbid {
+                Some(pcbcraft_doc::RuleForbid::parse(raw).map_err(Error::Invalid)?)
+            } else {
+                None
+            };
+            let _keepout = if forbid.is_some() {
+                None
+            } else {
+                a.keepout
+                    .filter(|keepout| *keepout)
+                    .map(|_| pcbcraft_doc::Keepout::default())
+            };
             let layer = optional_command_layer(p, params)?;
             if p.board.rule_areas.len() >= 64 {
                 return Err(Error::Invalid(
@@ -17304,6 +19617,8 @@ if let Some(v) = a.packaging {
                     height: a.height,
                 },
                 profile: None,
+                forbid,
+                footprint_ref: a.footprint_ref,
             });
             Ok(json!({"id": id}))
         }
@@ -17433,6 +19748,13 @@ if let Some(v) = a.packaging {
             let a: LayerLineParams = parse(params)?;
             art_range(a.x1, a.y1)?;
             art_range(a.x2, a.y2)?;
+            let start = Point { x: a.x1, y: a.y1 };
+            let end = Point { x: a.x2, y: a.y2 };
+            if start.distance(end) < pcbcraft_doc::ART_STROKE_MIN_MM {
+                return Err(Error::Invalid(
+                    "a layer line needs two endpoints at least 0.001 mm apart".into(),
+                ));
+            }
             let Some(layer) = p.board.user_layers.iter_mut().find(|l| l.id == a.layer) else {
                 return Err(Error::Invalid("unknown drawn layer".into()));
             };
@@ -17473,6 +19795,34 @@ if let Some(v) = a.packaging {
             });
             Ok(json!({"index": layer.shapes.len() - 1}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_18(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "board.layer_circle_add" => {
             let a: LayerCircleParams = parse(params)?;
             if !(0.001..=500.0).contains(&a.radius) {
@@ -17504,6 +19854,16 @@ if let Some(v) = a.packaging {
             }
             for pt in &a.points {
                 art_range(pt[0], pt[1])?;
+            }
+            let points: Vec<Point> = a
+                .points
+                .iter()
+                .map(|pt| Point { x: pt[0], y: pt[1] })
+                .collect();
+            if !pcbcraft_doc::art_vertices_distinct(&points) {
+                return Err(Error::Invalid(
+                    "layer outline corners must be distinct".into(),
+                ));
             }
             let Some(layer) = p.board.user_layers.iter_mut().find(|l| l.id == a.layer) else {
                 return Err(Error::Invalid("unknown drawn layer".into()));
@@ -17736,6 +20096,9 @@ if let Some(v) = a.packaging {
                 existing.net_n = a.net_n;
                 existing.gap = a.gap;
                 existing.length_tolerance = a.length_tolerance;
+                if let Some(equal_vias) = a.equal_vias {
+                    existing.equal_vias = equal_vias;
+                }
                 if let Some(z) = a.target_impedance {
                     existing.target_impedance = Some(z);
                     existing.impedance_tolerance = a.impedance_tolerance.or(Some(0.0));
@@ -17757,6 +20120,9 @@ if let Some(v) = a.packaging {
                 pair.net_n = a.net_n;
                 pair.gap = a.gap;
                 pair.length_tolerance = a.length_tolerance;
+                if let Some(equal_vias) = a.equal_vias {
+                    pair.equal_vias = equal_vias;
+                }
                 if let Some(z) = a.target_impedance {
                     pair.target_impedance = Some(z);
                     pair.impedance_tolerance = a.impedance_tolerance.or(Some(0.0));
@@ -17780,9 +20146,13 @@ if let Some(v) = a.packaging {
                 net_n: a.net_n,
                 gap: a.gap,
                 length_tolerance: a.length_tolerance,
+                equal_vias: a.equal_vias.unwrap_or(false),
                 profile: None,
                 target_impedance: target_z,
                 impedance_tolerance: z_tol,
+                max_uncoupled_length: Default::default(),
+                skew_limit_mm: Default::default(),
+                skew_limit_ps: Default::default(),
             });
             Ok(json!({"id": id, "name": name}))
         }
@@ -17974,6 +20344,34 @@ if let Some(v) = a.packaging {
             }
             Ok(json!({"format": a.format, "text": text}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_19(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "output_job.add" => {
             let a: OutputJobAddParams = parse(params)?;
             let name = a.name.trim();
@@ -18499,6 +20897,34 @@ if let Some(v) = a.packaging {
             }
             Ok(json!({"id": a.id}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_20(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "artifact.remove" => {
             if !mutating {
                 return Err(Error::Invalid(
@@ -18732,10 +21158,17 @@ if let Some(v) = a.packaging {
             Ok(json!({"name": name, "count": p.variants.len()}))
         }
         "bom.export" => bom_export(p, params),
+        "gerber.files" => gerber_export::run(p, params, mutating),
         "compliance.report" => compliance_report_write(p, params),
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
+            }
+            if p.board_only {
+                return Err(Error::Invalid(
+                    "this board came from an imported file and has no schematic to sync from"
+                        .into(),
+                ));
             }
             sync_board_from_schematic(p, next)
         }
@@ -18744,6 +21177,16 @@ if let Some(v) = a.packaging {
             p.board.width = a.width;
             p.board.height = a.height;
             Ok(json!({"width":a.width,"height":a.height}))
+        }
+        "board.clearance.set" => {
+            let a: BoardClearanceParams = parse(params)?;
+            if !fab_mm_ok(a.clearance) {
+                return Err(Error::Invalid(
+                    "clearance must be between 0.001 and 100 millimetres".into(),
+                ));
+            }
+            p.board.clearance = a.clearance;
+            Ok(json!({"clearance": p.board.clearance}))
         }
         "board.rules.set" => {
             let a: BoardRulesSetParams = parse(params)?;
@@ -19000,6 +21443,34 @@ if let Some(v) = a.packaging {
                 "position": {"x": footprint.position.x, "y": footprint.position.y},
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_21(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "footprint.set_locked" => {
             let a: LockParams = parse(params)?;
             let footprint = p
@@ -19129,20 +21600,21 @@ if let Some(v) = a.packaging {
                     ));
                 }
             }
-            let template_anchor_id =
+            let template_anchor =
                 template_component_by_reference(p, source.sheet, &a.anchor_reference)
                     .ok_or_else(|| {
                         Error::Invalid("anchor reference is missing on the template page".into())
                     })?
-                    .id;
-            let source_anchor_id =
-                component_for_instance_prototype(p, source.id, template_anchor_id)
-                    .ok_or_else(missing)?
-                    .id;
-            let source_fp = footprint_for_component(p, source_anchor_id).ok_or_else(|| {
-                Error::Invalid("sync footprints before repeating layout across instances".into())
-            })?;
-            let source_fp_position = source_fp.position;
+                    .clone();
+            let source_anchor = component_for_instance_prototype(p, source.id, template_anchor.id)
+                .ok_or_else(missing)?;
+            let source_fp = footprint_for_component(p, source_anchor.id)
+                .cloned()
+                .ok_or_else(|| {
+                    Error::Invalid(
+                        "sync footprints before repeating layout across instances".into(),
+                    )
+                })?;
             if footprint_locked(p, source_fp.id) {
                 return Err(Error::Invalid(
                     "the anchor footprint is locked against placement changes".into(),
@@ -19161,70 +21633,60 @@ if let Some(v) = a.packaging {
                     .sheet_instances
                     .iter()
                     .find(|i| i.id == *target_id)
-                    .ok_or_else(missing)?;
-                let target_anchor_id =
-                    component_for_instance_prototype(p, *target_id, template_anchor_id)
-                        .ok_or_else(missing)?
-                        .id;
-                let target_fp = footprint_for_component(p, target_anchor_id).ok_or_else(|| {
-                    Error::Invalid(
-                        "sync footprints before repeating layout across instances".into(),
-                    )
-                })?;
-                let target_fp_position = target_fp.position;
+                    .ok_or_else(missing)?
+                    .clone();
+                let target_anchor =
+                    component_for_instance_prototype(p, *target_id, template_anchor.id)
+                        .ok_or_else(missing)?;
+                let target_fp = footprint_for_component(p, target_anchor.id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        Error::Invalid(
+                            "sync footprints before repeating layout across instances".into(),
+                        )
+                    })?;
                 if footprint_locked(p, target_fp.id) {
                     return Err(Error::Invalid(
                         "a target anchor footprint is locked against placement changes".into(),
                     ));
                 }
                 let layout_shift = Point::new(
-                    target_fp_position.x - source_fp_position.x,
-                    target_fp_position.y - source_fp_position.y,
+                    target_fp.position.x - source_fp.position.x,
+                    target_fp.position.y - source_fp.position.y,
                 );
                 for prototype in &template_parts {
-                    let source_part_id = component_for_instance_prototype(p, source.id, *prototype)
-                        .ok_or_else(missing)?
-                        .id;
-                    let target_part_id =
-                        component_for_instance_prototype(p, *target_id, *prototype)
-                            .ok_or_else(missing)?
-                            .id;
-                    let (rotation, want) = {
-                        let source_foot =
-                            footprint_for_component(p, source_part_id).ok_or_else(missing)?;
-                        let rel = Point::new(
-                            source_foot.position.x - source_fp_position.x,
-                            source_foot.position.y - source_fp_position.y,
-                        );
-                        let want =
-                            Point::new(target_fp_position.x + rel.x, target_fp_position.y + rel.y);
-                        (source_foot.rotation, want)
-                    };
+                    let source_part = component_for_instance_prototype(p, source.id, *prototype)
+                        .ok_or_else(missing)?;
+                    let target_part = component_for_instance_prototype(p, *target_id, *prototype)
+                        .ok_or_else(missing)?;
+                    let source_foot = footprint_for_component(p, source_part.id)
+                        .cloned()
+                        .ok_or_else(missing)?;
+                    let target_index = p
+                        .board
+                        .footprints
+                        .iter()
+                        .position(|f| f.component == target_part.id)
+                        .ok_or_else(missing)?;
+                    if footprint_locked(p, p.board.footprints[target_index].id) {
+                        return Err(Error::Invalid(
+                            "a target footprint is locked against placement changes".into(),
+                        ));
+                    }
+                    let rel = Point::new(
+                        source_foot.position.x - source_fp.position.x,
+                        source_foot.position.y - source_fp.position.y,
+                    );
+                    let want =
+                        Point::new(target_fp.position.x + rel.x, target_fp.position.y + rel.y);
                     if !want.valid() {
                         return Err(Error::Invalid(
                             "the repeated layout would move a footprint out of range".into(),
                         ));
                     }
-                    let target_foot_id = p
-                        .board
-                        .footprints
-                        .iter()
-                        .find(|f| f.component == target_part_id)
-                        .ok_or_else(missing)?
-                        .id;
-                    if footprint_locked(p, target_foot_id) {
-                        return Err(Error::Invalid(
-                            "a target footprint is locked against placement changes".into(),
-                        ));
-                    }
-                    let target_foot = p
-                        .board
-                        .footprints
-                        .iter_mut()
-                        .find(|f| f.component == target_part_id)
-                        .ok_or_else(missing)?;
+                    let target_foot = &mut p.board.footprints[target_index];
                     target_foot.position = want;
-                    target_foot.rotation = rotation;
+                    target_foot.rotation = source_foot.rotation;
                 }
                 let source_nets: Vec<(String, Id)> = p
                     .nets
@@ -19255,15 +21717,13 @@ if let Some(v) = a.packaging {
                         .collect::<Vec<_>>()
                     {
                         let id = allocate(next)?;
-                        p.board.tracks.push(Track {
-                            id,
-                            net: target_net,
-                            start: track.start.offset(layout_shift),
-                            end: track.end.offset(layout_shift),
-                            width: track.width,
-                            layer: track.layer,
-                            arc: track.arc.map(|mid| mid.offset(layout_shift)),
-                        });
+                        let mut copy = track.clone();
+                        copy.id = id;
+                        copy.net = target_net;
+                        copy.start = track.start.offset(layout_shift);
+                        copy.end = track.end.offset(layout_shift);
+                        copy.arc = track.arc.map(|mid| mid.offset(layout_shift));
+                        p.board.tracks.push(copy);
                         copied_tracks += 1;
                     }
                     for via in p
@@ -19275,13 +21735,11 @@ if let Some(v) = a.packaging {
                         .collect::<Vec<_>>()
                     {
                         let id = allocate(next)?;
-                        p.board.vias.push(Via {
-                            id,
-                            net: target_net,
-                            position: via.position.offset(layout_shift),
-                            diameter: via.diameter,
-                            drill: via.drill,
-                        });
+                        let mut copy = via.clone();
+                        copy.id = id;
+                        copy.net = target_net;
+                        copy.position = via.position.offset(layout_shift);
+                        p.board.vias.push(copy);
                         copied_vias += 1;
                     }
                 }
@@ -19308,6 +21766,7 @@ if let Some(v) = a.packaging {
                 width,
                 layer,
                 arc: None,
+                preserved: Default::default(),
             });
             Ok(json!({"id":id, "width": width}))
         }
@@ -19335,6 +21794,7 @@ if let Some(v) = a.packaging {
                 width,
                 layer,
                 arc: Some(a.mid),
+                preserved: Default::default(),
             });
             Ok(json!({
                 "id": id,
@@ -19409,6 +21869,7 @@ if let Some(v) = a.packaging {
                 width,
                 layer,
                 arc: None,
+                preserved: Default::default(),
             });
             Ok(json!({"id":id,"kept":a.id}))
         }
@@ -19506,9 +21967,38 @@ if let Some(v) = a.packaging {
                 width,
                 layer,
                 arc: None,
+                preserved: Default::default(),
             });
             Ok(json!({"id": id, "a": a.a, "b": a.b}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_22(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "track.round_corners" => track_round::run(p, next, parse(params)?),
         "track.move" => {
             let a: DeltaParams = parse(params)?;
@@ -19575,6 +22065,7 @@ if let Some(v) = a.packaging {
                             width,
                             layer,
                             arc: None,
+                            preserved: Default::default(),
                         });
                     }
                 }
@@ -19589,6 +22080,9 @@ if let Some(v) = a.packaging {
                     from_layer: None,
                     to_layer: None,
                     covering: None,
+                    backdrill: Default::default(),
+                    covering_bottom: Default::default(),
+                    preserved: Default::default(),
                 });
                 return Ok(json!({"ids":ids,"net":net,"width":width,"via":via_id}));
             }
@@ -19616,6 +22110,7 @@ if let Some(v) = a.packaging {
                         width,
                         layer: start_layer,
                         arc: None,
+                        preserved: Default::default(),
                     });
                 }
             }
@@ -19693,6 +22188,7 @@ if let Some(v) = a.packaging {
                     width,
                     layer: a.layer,
                     arc: None,
+                    preserved: Default::default(),
                 });
             }
             for (from, to) in segs_n {
@@ -19706,6 +22202,7 @@ if let Some(v) = a.packaging {
                     width,
                     layer: a.layer,
                     arc: None,
+                    preserved: Default::default(),
                 });
             }
             let touched: Vec<Id> = ids_p.iter().chain(ids_n.iter()).copied().collect();
@@ -20054,6 +22551,34 @@ if let Some(v) = a.packaging {
             }
             Ok(json!({"moved": moved, "grid": a.grid}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_23(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &next, &record_revision, &mutating);
+    match command {
         "object.nudge" => {
             let a: NudgeParams = parse(params)?;
             if !a.dx.is_finite() || !a.dy.is_finite() || a.dx.abs() > 1000.0 || a.dy.abs() > 1000.0
@@ -20317,25 +22842,6 @@ if let Some(v) = a.packaging {
                 a.mode,
             )
         }
-        "via.set_covering" => {
-            let a: ViaCoveringParams = parse(params)?;
-            let via = p
-                .board
-                .vias
-                .iter_mut()
-                .find(|v| v.id == a.id)
-                .ok_or_else(missing)?;
-            if via.drill <= 0.0
-                && a.covering
-                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
-            {
-                return Err(Error::Invalid(
-                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
-                ));
-            }
-            via.covering = a.covering;
-            Ok(json!({"id":a.id,"covering":via.covering}))
-        }
         "board.set_via_covering_default" => {
             let a: ViaCoveringDefaultParams = parse(params)?;
             p.board.via_covering_default = a.covering;
@@ -20543,6 +23049,15 @@ if let Some(v) = a.packaging {
     }
 }
 
+fn bounded(name: &str, text: &str, max: usize) -> Result<(), String> {
+    if text.len() > max || text.chars().any(char::is_control) {
+        return Err(format!(
+            "{name} must be at most {max} bytes without control characters"
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -20653,6 +23168,171 @@ mod tests {
         assert_eq!(s.project.drawn_wires.len(), 1);
         s.undo()?;
         assert_eq!(s.project.drawn_wires.len(), 2);
+        Ok(())
+    }
+    #[test]
+    fn wire_place_creates_drawn_wire_and_connects_two_pins_in_one_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        disable_auto_sync(&mut s);
+        for x in [10.0, 30.0] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":{"x":x,"y":10.0}}),
+                None,
+            )?;
+        }
+        let from = PinRef {
+            component: 1,
+            pin: "2".into(),
+            unit: None,
+        };
+        let to = PinRef {
+            component: 2,
+            pin: "1".into(),
+            unit: None,
+        };
+        let start = s.project.pin_position(&from).ok_or_else(missing)?;
+        let end = s.project.pin_position(&to).ok_or_else(missing)?;
+        let bend = Point::new((start.x + end.x) / 2.0, start.y + 5.0);
+        let revision = s.revision;
+        s.execute(
+            "wire.place",
+            json!({
+                "points": [
+                    {"x": start.x, "y": start.y},
+                    {"x": bend.x, "y": bend.y},
+                    {"x": end.x, "y": end.y}
+                ],
+                "pins": [{"component": from.component, "pin": from.pin}, {"component": to.component, "pin": to.pin}]
+            }),
+            None,
+        )?;
+        assert_eq!(s.revision, revision + 1);
+        assert_eq!(s.project.drawn_wires.len(), 1);
+        assert_eq!(s.project.drawn_wires[0].points.len(), 3);
+        let net = s.project.drawn_wires[0].net.ok_or_else(missing)?;
+        assert_eq!(s.project.pin(&from).ok_or_else(missing)?.net, Some(net));
+        assert_eq!(s.project.pin(&to).ok_or_else(missing)?.net, Some(net));
+        s.undo()?;
+        assert!(s.project.drawn_wires.is_empty());
+        assert_eq!(s.project.pin(&from).ok_or_else(missing)?.net, None);
+        assert_eq!(s.project.pin(&to).ok_or_else(missing)?.net, None);
+        assert_eq!(s.project.nets.len(), 0);
+        Ok(())
+    }
+    #[test]
+    fn wire_place_refuses_conflicting_nets_without_explicit_net() -> Result<(), Error> {
+        let mut s = Session::default();
+        disable_auto_sync(&mut s);
+        for x in [10.0, 30.0] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":{"x":x,"y":10.0}}),
+                None,
+            )?;
+        }
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net": a, "pins":[{"component":1,"pin":"2"}]}),
+            None,
+        )?;
+        s.execute(
+            "net.connect",
+            json!({"net": b, "pins":[{"component":2,"pin":"1"}]}),
+            None,
+        )?;
+        let from = PinRef {
+            component: 1,
+            pin: "2".into(),
+            unit: None,
+        };
+        let to = PinRef {
+            component: 2,
+            pin: "1".into(),
+            unit: None,
+        };
+        let start = s.project.pin_position(&from).ok_or_else(missing)?;
+        let end = s.project.pin_position(&to).ok_or_else(missing)?;
+        let saved = s.inspect();
+        let err = match s.execute(
+            "wire.place",
+            json!({
+                "points": [{"x": start.x, "y": start.y}, {"x": end.x, "y": end.y}],
+                "pins": [{"component": 1, "pin": "2"}, {"component": 2, "pin": "1"}]
+            }),
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => {
+                return Err(Error::Invalid(
+                    "conflicting endpoint nets must be refused".into(),
+                ));
+            }
+        };
+        let message = err.to_string();
+        assert!(message.contains("net_conflict"), "{message}");
+        assert!(message.contains("A"));
+        assert!(message.contains("B"));
+        assert_eq!(s.inspect(), saved);
+        Ok(())
+    }
+    #[test]
+    fn wire_place_tee_splits_existing_wire_and_adds_junction() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let existing = s.execute(
+            "wire.draw",
+            json!({"net": net, "points": [{"x":10.0,"y":10.0},{"x":30.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let tee = Point::new(20.0, 10.0);
+        let revision = s.revision;
+        s.execute(
+            "wire.place",
+            json!({
+                "points": [{"x":5.0,"y":10.0},{"x":20.0,"y":10.0}],
+                "tee": {"wire": existing, "at": {"x": tee.x, "y": tee.y}}
+            }),
+            None,
+        )?;
+        assert_eq!(s.revision, revision + 1);
+        assert_eq!(s.project.drawn_wires.len(), 3);
+        assert!(
+            s.project
+                .labels
+                .iter()
+                .any(|l| l.kind == "junction" && l.net == net && l.position == tee)
+        );
+        assert!(s.project.drawn_wires.iter().all(|w| w.net == Some(net)));
+        s.undo()?;
+        assert_eq!(s.project.drawn_wires.len(), 1);
+        assert!(s.project.labels.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn wire_place_bus_path_unchanged() -> Result<(), Error> {
+        let mut s = Session::default();
+        let wire = s.execute(
+            "wire.draw_bus",
+            json!({"points":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0}],"name":"ADDR*4"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(wire["created"], 4);
+        assert_eq!(s.project.drawn_wires.len(), 1);
+        assert!(s.project.drawn_wires[0].net.is_none());
+        assert_eq!(s.project.labels.len(), 1);
+        s.project.validate()?;
         Ok(())
     }
     #[test]
@@ -22065,10 +24745,12 @@ mod tests {
             .ok_or_else(missing)?
             .pad_position("1")
             .ok_or_else(missing)?;
-        let fab = pcbcraft_io::fabrication_point(&s.project, centre);
+        // Copper files use 4.6 integer words and the bottom film is mirrored
+        // about x=0, so the flipped pad appears at minus its x on that layer.
         assert!(
-            gerber["pcb-B.Cu.gbr"].contains(&format!("{:.6}", fab.x)),
-            "bottom copper carries the same x as the front in fabrication space"
+            gerber["pcb-B.Cu.gbr"].lines().any(|l| l.ends_with("D03*")
+                && l.contains(&format!("X{}Y", (-centre.x * 1e6).round() as i64))),
+            "bottom copper carries the mirrored x"
         );
         assert!(
             !gerber["pcb-F.Cu.gbr"].lines().any(|l| l.ends_with("D03*")
@@ -22276,15 +24958,18 @@ mod tests {
             .as_u64()
             .ok_or_else(missing)?;
         let gap = 2.0;
+        // Two nested L shapes: the second turns `gap` earlier so the legs stay
+        // `gap` apart all the way round (same corner x would overlay the legs).
         for (net, y) in [(n1, 0.0), (n2, gap)] {
+            let x = 10.0 - y;
             s.execute(
                 "track.add",
-                json!({"net":net,"start":{"x":0.0,"y":y},"end":{"x":10.0,"y":y},"width":0.2}),
+                json!({"net":net,"start":{"x":0.0,"y":y},"end":{"x":x,"y":y},"width":0.2}),
                 None,
             )?;
             s.execute(
                 "track.add",
-                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":10.0,"y":10.0},"width":0.2}),
+                json!({"net":net,"start":{"x":x,"y":y},"end":{"x":x,"y":10.0},"width":0.2}),
                 None,
             )?;
         }
@@ -22296,7 +24981,10 @@ mod tests {
         let tracks: Vec<_> = s.project.board.tracks.iter().collect();
         let mut min_gap = f64::INFINITY;
         for a in tracks.iter().filter(|t| t.net == n1) {
-            for b in tracks.iter().filter(|t| t.net == n2 && t.layer == a.layer && t.id != a.id) {
+            for b in tracks
+                .iter()
+                .filter(|t| t.net == n2 && t.layer == a.layer && t.id != a.id)
+            {
                 min_gap = min_gap.min(pcbcraft_geom::segment_distance(
                     a.start, a.end, b.start, b.end,
                 ));
@@ -22367,7 +25055,12 @@ mod tests {
         assert_eq!(out["rounded"], 2);
         assert_eq!(s.project.board.tracks.len(), before + 2);
         assert_eq!(
-            s.project.board.tracks.iter().filter(|t| t.arc.is_some()).count(),
+            s.project
+                .board
+                .tracks
+                .iter()
+                .filter(|t| t.arc.is_some())
+                .count(),
             2
         );
         Ok(())
@@ -24089,8 +26782,8 @@ mod tests {
         assert_eq!(set["drill_origin"]["y"], 10.0);
         let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Plated.drl"].clone();
         assert!(
-            drill.contains("X10.000Y30.000\n"),
-            "the recorded origin moves drill coordinates in fabrication space"
+            drill.contains("X10.000Y10.000\n"),
+            "the recorded origin moves drill coordinates: {drill}"
         );
         assert!(
             !drill.contains("X30.000Y20.000"),
@@ -24267,8 +26960,27 @@ mod tests {
         )?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
+        assert!(
+            s.project.board.footprints.is_empty(),
+            "a library symbol with no footprint waits for one before PCB placement"
+        );
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":id,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
         assert_eq!(s.project.board.footprints.len(), 1);
         assert_eq!(s.project.board.footprints[0].component, id);
+        s.undo()?;
+        s.undo()?;
         s.undo()?;
         assert!(s.project.components.is_empty());
         assert!(s.project.board.footprints.is_empty());
@@ -25701,6 +28413,24 @@ mod tests {
         assert!(
             s.execute(
                 "board.layer_line_add",
+                json!({"layer":cut, "x1":1.0, "y1":1.0, "x2":1.0, "y2":1.0}),
+                None
+            )
+            .is_err(),
+            "a zero-length line is refused"
+        );
+        assert!(
+            s.execute(
+                "board.layer_poly_add",
+                json!({"layer":cut, "points":[[0.0,0.0],[0.0,0.0],[1.0,0.0]]}),
+                None
+            )
+            .is_err(),
+            "duplicate outline corners are refused"
+        );
+        assert!(
+            s.execute(
+                "board.layer_line_add",
                 json!({"layer":9999, "x1":0.0, "y1":0.0, "x2":1.0, "y2":1.0}),
                 None
             )
@@ -25843,6 +28573,209 @@ mod tests {
             "unknown areas are refused"
         );
         assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+
+    fn session_with_part_height_in_area(
+        height_mm: Option<f64>,
+        max_height: f64,
+        part_x: f64,
+        part_y: f64,
+    ) -> Result<(Session, Id, Id), Error> {
+        let mut s = Session::default();
+        let component_id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"330","position":{"x":20,"y":20}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        let footprint_id = s.project.board.footprints[0].id;
+        s.execute(
+            "footprint.move",
+            json!({"id": footprint_id, "position":{"x":part_x,"y":part_y}}),
+            None,
+        )?;
+        if let Some(h) = height_mm {
+            s.execute(
+                "component.field",
+                json!({"id": component_id, "key": "height", "value": format!("{h} mm")}),
+                None,
+            )?;
+        }
+        let area_id = s.execute(
+            "rules.area_add",
+            json!({"clearance":0.3,"x":10.0,"y":10.0,"width":20.0,"height":15.0,"max_height":max_height}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        Ok((s, component_id, area_id))
+    }
+
+    fn part_too_tall_findings(s: &Session) -> Result<Vec<Value>, Error> {
+        Ok(s.checks()["drc"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter(|f| f["code"] == "part_too_tall")
+            .cloned()
+            .collect())
+    }
+
+    #[test]
+    fn part_too_tall_reports_part_area_and_both_numbers() -> Result<(), Error> {
+        let (s, component_id, area_id) =
+            session_with_part_height_in_area(Some(4.0), 2.5, 15.0, 15.0)?;
+        let findings = part_too_tall_findings(&s)?;
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        let f = &findings[0];
+        assert_eq!(f["severity"], "error");
+        assert_eq!(f["height_mm"], 4.0);
+        assert_eq!(f["limit_mm"], 2.5);
+        assert_eq!(f["area"], area_id);
+        assert_eq!(f["objects"], json!([component_id, area_id]));
+        assert!(
+            f["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("R1") && m.contains("4.0") && m.contains("2.5")),
+            "{}",
+            f["message"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn part_inside_the_limit_is_not_reported() -> Result<(), Error> {
+        let (s, _, _) = session_with_part_height_in_area(Some(2.0), 2.5, 15.0, 15.0)?;
+        assert!(part_too_tall_findings(&s)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn part_outside_the_area_is_ignored() -> Result<(), Error> {
+        let (s, _, _) = session_with_part_height_in_area(Some(4.0), 2.5, 50.0, 50.0)?;
+        assert!(part_too_tall_findings(&s)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn part_too_tall_respects_the_severity_setting() -> Result<(), Error> {
+        let (mut s, _, _) = session_with_part_height_in_area(Some(4.0), 2.5, 15.0, 15.0)?;
+        assert_eq!(part_too_tall_findings(&s)?.len(), 1);
+        s.execute(
+            "rules.severity",
+            json!({"code":"part_too_tall","severity":"warning"}),
+            None,
+        )?;
+        assert_eq!(part_too_tall_findings(&s)?[0]["severity"], "warning");
+        s.execute(
+            "rules.severity",
+            json!({"code":"part_too_tall","severity":"off"}),
+            None,
+        )?;
+        assert!(part_too_tall_findings(&s)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn part_too_tall_uses_default_body_height_in_the_message() -> Result<(), Error> {
+        let (s, _, _) = session_with_part_height_in_area(None, 1.0, 15.0, 15.0)?;
+        let findings = part_too_tall_findings(&s)?;
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("default height")),
+            "{}",
+            findings[0]["message"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_bound_keepouts_move_with_the_part_and_forbid_copper() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"Y1","value":"16 MHz","position":{"x":20.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.project.board.footprints[0].id;
+        let anchor = s.project.board.footprints[0].position;
+        let net = s.execute("net.create", json!({"name":"CLK"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "rules.area_add",
+            json!({
+                "name":"under crystal",
+                "clearance":0.2,
+                "x":-2.0,"y":-2.0,"width":4.0,"height":4.0,
+                "forbid":"all_copper",
+                "footprint_ref":"Y1"
+            }),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":[anchor.x, anchor.y],"end":[anchor.x + 2.0, anchor.y],"width":0.2}),
+            None,
+        )?;
+        let keepout = |s: &Session| {
+            s.checks()["drc"]
+                .as_array()
+                .and_then(|items| items.iter().find(|x| x["code"] == "keepout").cloned())
+        };
+        assert!(
+            keepout(&s).is_some(),
+            "a track through the bound keepout is flagged"
+        );
+        s.execute(
+            "footprint.move",
+            json!({"id":fp,"position":[anchor.x + 20.0, anchor.y + 20.0]}),
+            None,
+        )?;
+        assert!(
+            keepout(&s).is_none(),
+            "moving the part clears the violation when copper stays behind"
+        );
+        s.execute(
+            "footprint.move",
+            json!({"id":fp,"position":[anchor.x, anchor.y]}),
+            None,
+        )?;
+        assert!(
+            keepout(&s).is_some(),
+            "moving the part back restores the violation"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rule_area_add_rejects_unknown_forbid_kinds_and_long_footprint_refs() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(
+            s.execute(
+                "rules.area_add",
+                json!({"clearance":0.2,"x":0,"y":0,"width":1,"height":1,"forbid":"copper_everywhere"}),
+                None
+            )
+            .is_err(),
+            "unknown forbid strings are refused"
+        );
+        let long_ref = "R".repeat(65);
+        assert!(
+            s.execute(
+                "rules.area_add",
+                json!({"clearance":0.2,"x":0,"y":0,"width":1,"height":1,"footprint_ref":long_ref}),
+                None
+            )
+            .is_err(),
+            "footprint references longer than 64 bytes are refused"
+        );
         Ok(())
     }
 
@@ -26095,6 +29028,111 @@ mod tests {
     }
 
     #[test]
+    fn project_import_board_replaces_session_undo_once() -> Result<(), Error> {
+        let fixture = include_str!("../../io/tests/fixtures/board_import_simple_2layer.kicad_pcb");
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-board-import-{}.kicad_pcb",
+            std::process::id()
+        ));
+        std::fs::write(&path, fixture).map_err(|e| Error::Invalid(e.to_string()))?;
+        let path = path.to_string_lossy().to_string();
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"led","reference":"D9","value":"LED","position":{"x":1,"y":1}}),
+            None,
+        )?;
+        let before = s.project.clone();
+        let undo_depth = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        let summary = s.execute(
+            "project.import",
+            json!({"format":"board","path":path}),
+            None,
+        )?;
+        assert_eq!(summary["result"]["format"], "board");
+        assert!(summary["result"]["notices"].is_array());
+        assert!(summary["result"]["layers"].as_u64().is_some_and(|n| n >= 2));
+        assert!(
+            summary["result"]["footprints"]
+                .as_u64()
+                .is_some_and(|n| n > 0)
+        );
+        assert_ne!(s.project, before);
+        assert_eq!(
+            s.inspect()["history"]["undo"].as_u64().unwrap_or(0),
+            undo_depth + 1
+        );
+        s.undo()?;
+        assert_eq!(s.project, before);
+        std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn board_sync_on_an_imported_board_changes_nothing() -> Result<(), Error> {
+        let fixture = include_str!("../../io/tests/fixtures/board_import_simple_2layer.kicad_pcb");
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-board-sync-{}.kicad_pcb",
+            std::process::id()
+        ));
+        std::fs::write(&path, fixture).map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut s = Session::default();
+        s.execute(
+            "project.import",
+            json!({"format":"board","path":path.to_string_lossy()}),
+            None,
+        )?;
+        std::fs::remove_file(&path).ok();
+        assert!(s.project.board_only);
+        let before = s.project.clone();
+        assert!(s.execute("board.sync", json!({}), None).is_err());
+        assert_eq!(s.project, before, "Update must not touch an imported board");
+        // Editing keeps every imported part: automatic sync stays off.
+        s.execute("project.set_auto_sync", json!({"auto_sync": true}), None)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"led","reference":"D99","value":"LED","position":{"x":1,"y":1}}),
+            None,
+        )?;
+        assert!(
+            before.board.footprints.iter().all(|f| s
+                .project
+                .board
+                .footprints
+                .iter()
+                .any(|g| g.id == f.id))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn project_import_board_invalid_leaves_project_unchanged() -> Result<(), Error> {
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-board-bad-{}.kicad_pcb",
+            std::process::id()
+        ));
+        std::fs::write(&path, b"(kicad_pcb\n (segment (start 0 0) (end 1)\n")
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let path = path.to_string_lossy().to_string();
+        let mut s = Session::default();
+        let before = s.project.clone();
+        let rejected = s.execute(
+            "project.import",
+            json!({"format":"board","path":path}),
+            None,
+        );
+        assert!(rejected.is_err(), "malformed board must be refused");
+        let msg = match rejected {
+            Err(e) => e.to_string(),
+            Ok(_) => return Err(Error::Invalid("expected import failure".into())),
+        };
+        assert!(msg.contains("line"), "error should name a line: {msg}");
+        assert_eq!(s.project, before);
+        std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
     fn board_mesh_is_a_read_only_query_over_the_sample_board() -> Result<(), Error> {
         let s = Session::sample()?;
         let before = s.revision;
@@ -26131,9 +29169,11 @@ mod tests {
         assert_eq!(s.project, before);
         assert_eq!(s.revision, rev);
         assert_eq!(out["result"]["ok_to_upload"], false);
-        assert!(out["result"]["hard_fails"]
-            .as_array()
-            .is_some_and(|a| !a.is_empty()));
+        assert!(
+            out["result"]["hard_fails"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty())
+        );
         Ok(())
     }
 
@@ -26248,8 +29288,8 @@ mod tests {
         )?;
         let board_new = pcbcraft_io::kicad_board(&s.project)?;
         assert!(
-            board_new.contains("(model \"parts/resistor.wrl\""),
-            "reassigning carries the new model into the export"
+            board_new.contains("(model \"parts/housing.solidcraft\""),
+            "reassigning carries the newest model (the SolidCraft part) into the export: {board_new}"
         );
         for bad in [
             json!({"name":"R_0805_2012Metric","path":""}),
@@ -26300,7 +29340,7 @@ mod tests {
         Ok(())
     }
     #[test]
-fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error> {
+    fn library_footprint_model_auto_align_edits_transform_and_undoes() -> Result<(), Error> {
         let mut s = Session::default();
         let pitch = 3.0;
         let half = pitch / 2.0;
@@ -26343,6 +29383,8 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            box_body: Default::default(),
+            retained: Default::default(),
         };
         s.execute(
             "library.footprint.upsert",
@@ -26351,23 +29393,12 @@ fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error>
         )?;
         s.execute(
             "library.footprint.set_model",
-            json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]}),
-            None,
-        )?;
-        s.execute(
-        s.execute(
-            "library.footprint.upsert",
-            json!({"definition": definition}),
-            None,
-        )?;
-        s.execute(
-            "library.footprint.set_model",
-json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]}),
+            json!({"name":"AlignChip","path":"parts/resistor.wrl","offset":[0,0,0.5]}),
             None,
         )?;
         s.execute(
             "library.footprint.set_model_transform",
-            json!({"name":"R_0805_2012Metric","offset":[1,2,3]}),
+            json!({"name":"AlignChip","offset":[1,2,3]}),
             None,
         )?;
         assert_eq!(
@@ -26376,7 +29407,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         );
         s.execute(
             "library.footprint.set_model_transform",
-            json!({"name":"R_0805_2012Metric","preset":"rotate_90"}),
+            json!({"name":"AlignChip","preset":"rotate_90"}),
             None,
         )?;
         assert_eq!(
@@ -26386,7 +29417,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         );
         s.execute(
             "library.footprint.set_model_transform",
-            json!({"name":"R_0805_2012Metric","preset":"mirror"}),
+            json!({"name":"AlignChip","preset":"mirror"}),
             None,
         )?;
         assert_eq!(
@@ -26408,14 +29439,18 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         assert!(
             s.execute(
                 "library.footprint.set_model_transform",
-                json!({"name":"R_0805_2012Metric","preset":"nope"}),
+                json!({"name":"AlignChip","preset":"nope"}),
                 None
             )
             .is_err(),
             "unknown presets are refused"
         );
         let mesh = pcbcraft_io::shift_mesh(&pcbcraft_io::test_chip_mesh(pitch), 0.3, -0.15, 0.0);
-        let flat: Vec<f64> = mesh.positions.iter().flat_map(|p| p.iter().copied()).collect();
+        let flat: Vec<f64> = mesh
+            .positions
+            .iter()
+            .flat_map(|p| p.iter().copied())
+            .collect();
         let out = s.execute(
             "library.footprint.model_auto_align",
             json!({
@@ -26429,6 +29464,271 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         let residual = out["result"]["residual_mm"].as_f64().ok_or_else(missing)?;
         assert!(residual < 0.05, "residual {residual}");
         assert_eq!(out["result"]["coarse"].as_bool(), Some(false));
+        Ok(())
+    }
+    #[test]
+    fn library_footprint_model_transform_edits_undo_and_lists() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_model",
+            json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_model_transform",
+            json!({"name":"R_0805_2012Metric","offset":[1,2,3]}),
+            None,
+        )?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["offset"],
+            json!([1.0, 2.0, 3.0])
+        );
+        s.execute(
+            "library.footprint.set_model_transform",
+            json!({"name":"R_0805_2012Metric","preset":"rotate_90"}),
+            None,
+        )?;
+        assert!(
+            (s.inspect()["project"]["library"]["footprints"][0]["model"]["rotate"][2]
+                .as_f64()
+                .unwrap_or(0.0)
+                - 90.0)
+                .abs()
+                < 1e-9,
+            "rotate_90 turns the model about Z"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["offset"],
+            json!([1.0, 2.0, 3.0])
+        );
+        assert!(
+            commands()
+                .iter()
+                .any(|c| c.id == "library.footprint.set_model_transform"),
+            "typed command surface lists set_model_transform"
+        );
+        assert!(
+            s.execute(
+                "library.footprint.set_model_transform",
+                json!({"name":"R_0805_2012Metric","preset":"nope"}),
+                None
+            )
+            .is_err(),
+            "unknown presets are refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn library_footprint_model_auto_align_recovers_pad_shift() -> Result<(), Error> {
+        let mut s = Session::default();
+        let pitch = 3.0;
+        let half = pitch / 2.0;
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "AlignChip".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![
+                pcbcraft_library::FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(-half, 0.0),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(0.5, 0.5),
+                    layers: vec!["F.Cu".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+                pcbcraft_library::FootprintPad {
+                    number: "2".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(half, 0.0),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(0.5, 0.5),
+                    layers: vec!["F.Cu".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+            ],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+            box_body: Default::default(),
+            retained: Default::default(),
+        };
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_model",
+            json!({"name":"AlignChip","path":"chip.wrl"}),
+            None,
+        )?;
+        let mesh = pcbcraft_io::shift_mesh(&pcbcraft_io::test_chip_mesh(pitch), 0.3, -0.15, 0.0);
+        let flat: Vec<f64> = mesh
+            .positions
+            .iter()
+            .flat_map(|p| p.iter().copied())
+            .collect();
+        let out = s.execute(
+            "library.footprint.model_auto_align",
+            json!({
+                "name":"AlignChip",
+                "positions": flat,
+                "indices": mesh.indices,
+                "apply": true,
+            }),
+            None,
+        )?;
+        let residual = out["result"]["residual_mm"].as_f64().ok_or_else(missing)?;
+        assert!(residual < 0.05, "residual {residual}");
+        assert!(!out["result"]["coarse"].as_bool().unwrap_or(true));
+        Ok(())
+    }
+    #[test]
+    fn library_footprint_box_body_reads_edits_and_feeds_the_mesh() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_box_body",
+            json!({"name":"R_0805_2012Metric","width":2.0,"depth":1.2,"height":0.8}),
+            None,
+        )?;
+        let stored = s.inspect()["project"]["library"]["footprints"][0]["box_body"].clone();
+        assert_eq!(stored["width"], 2.0);
+        assert_eq!(stored["depth"], 1.2);
+        assert_eq!(stored["height"], 0.8);
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let mesh = s.board_mesh(None, true)?;
+        let body = mesh["parts"]
+            .as_array()
+            .and_then(|parts| parts.iter().find(|p| p["kind"] == "body").cloned())
+            .ok_or_else(missing)?;
+        assert_eq!(body["height_source"], "footprint");
+        assert_eq!(body["family"], "box");
+        let (blo, bhi) = {
+            // Positions are one flat list of x,y,z triples.
+            let positions = body["positions"].as_array().ok_or_else(missing)?;
+            let mut min = [f64::MAX; 3];
+            let mut max = [f64::MIN; 3];
+            for (k, v) in positions.iter().enumerate() {
+                let n = v.as_f64().ok_or_else(missing)?;
+                let i = k % 3;
+                min[i] = min[i].min(n);
+                max[i] = max[i].max(n);
+            }
+            (min, max)
+        };
+        assert!((bhi[2] - blo[2] - 0.8).abs() < 1e-6);
+        for bad in [
+            json!({"name":"R_0805_2012Metric","width":0.01,"depth":1.0,"height":1.0}),
+            json!({"name":"R_0805_2012Metric","width":1.0,"depth":1.0,"height":200.0}),
+            json!({"name":"nope","width":1.0,"depth":1.0,"height":1.0}),
+            json!({"name":"R_0805_2012Metric","width":1.0,"depth":1.0,"height":1.0,"nope":1}),
+            json!({"width":1.0,"depth":1.0,"height":1.0}),
+        ] {
+            assert!(
+                s.execute("library.footprint.set_box_body", bad, None)
+                    .is_err(),
+                "bad box body requests are refused"
+            );
+        }
+        s.execute(
+            "library.footprint.clear_box_body",
+            json!({"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        assert!(
+            s.inspect()["project"]["library"]["footprints"][0]
+                .get("box_body")
+                .is_none(),
+            "clearing drops the box body field"
+        );
+        assert!(
+            s.execute(
+                "library.footprint.clear_box_body",
+                json!({"name":"R_0805_2012Metric"}),
+                None
+            )
+            .is_err(),
+            "clearing an absent box body is refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn attach_starter_model_writes_cache_path_and_notice() -> Result<(), Error> {
+        let Some(_cache) = pcbcraft_library::cad_cache::default_cache_dir() else {
+            return Ok(());
+        };
+        let mut s = Session::default();
+        let fixture_path = library_fixture("open_library/R_0603_1608Metric.kicad_mod");
+        let path = std::path::Path::new(&fixture_path);
+        let definition = library::footprint(path)?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let out = s.execute(
+            "library.footprint.attach_starter_model",
+            json!({"name":"R_0603_1608Metric"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["starter"], "chip_resistor_0603");
+        let stored = &s.inspect()["project"]["library"]["footprints"][0]["model"];
+        let model_path = stored["path"].as_str().ok_or_else(missing)?;
+        assert!(
+            std::path::Path::new(model_path).is_file(),
+            "starter model path must exist on disk"
+        );
+        assert!(
+            s.project
+                .library
+                .notices
+                .iter()
+                .any(|n| n.contains("chip_resistor_0603")),
+            "licence notice is recorded on the library"
+        );
         Ok(())
     }
     #[test]
@@ -26824,6 +30124,25 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     }
 
     #[test]
+    fn part_commands_are_registered_and_reject_bad_payloads() -> Result<(), Error> {
+        for id in ["part.add", "part.verify", "part.attach"] {
+            assert!(
+                commands().iter().any(|c| c.id == id),
+                "MCP clients must see {id}"
+            );
+        }
+        let mut s = Session::default();
+        let rev = s.revision;
+        assert!(
+            s.execute("part.add", json!({"part": {"mpn": "only"}}), None)
+                .is_err(),
+            "incomplete part payload is refused"
+        );
+        assert_eq!(s.revision, rev);
+        Ok(())
+    }
+
+    #[test]
     fn footprint_generate_rejects_unknown_family() -> Result<(), Error> {
         let mut s = Session::default();
         let before = s.revision;
@@ -27196,6 +30515,68 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             s.execute("bom.export", json!({"ids": vec![1u64; 4097]}), None)
                 .is_err(),
             "too many ids are refused"
+        );
+        s.execute(
+            "component.set_in_bom",
+            json!({"id": ids[0], "in_bom": false}),
+            None,
+        )?;
+        assert_eq!(
+            s.execute("bom.export", json!({}), None)?["result"]["components"],
+            1,
+            "the document flag leaves the bill too"
+        );
+        Ok(())
+    }
+    #[test]
+    fn per_part_output_flags_and_board_clearance_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s
+            .execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s
+            .execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R2","value":"10k","position":{"x":20.0,"y":10.0}}),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "component.set_in_bom",
+            json!({"id": r2, "in_bom": false}),
+            None,
+        )?;
+        assert_eq!(
+            s.execute("bom.export", json!({}), None)?["result"]["components"],
+            1
+        );
+        s.execute(
+            "component.set_in_placement",
+            json!({"id": r1, "in_placement": false}),
+            None,
+        )?;
+        let placement = pcbcraft_io::placement_text(&s.project).map_err(Error::Invalid)?;
+        assert!(
+            !placement.contains("R1") && placement.contains("R2"),
+            "placement export skips parts flagged out"
+        );
+        let before = s.project.board.clearance;
+        s.execute("board.clearance.set", json!({"clearance": 0.25}), None)?;
+        assert!((s.project.board.clearance - 0.25).abs() < 1e-9);
+        s.undo()?;
+        assert!((s.project.board.clearance - before).abs() < 1e-9);
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(
+            s.execute("bom.export", json!({}), None)?["result"]["components"],
+            2
         );
         Ok(())
     }
@@ -28110,6 +31491,50 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         Ok(())
     }
     #[test]
+    fn net_impedance_target_is_stored_and_drives_drc() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":10.0,"y":10.0},"end":{"x":40.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        fn z_findings(s: &Session) -> usize {
+            s.checks()["drc"].as_array().map_or(0, |a| {
+                a.iter().filter(|f| f["code"] == "impedance_target").count()
+            })
+        }
+        assert_eq!(z_findings(&s), 0);
+        s.execute(
+            "net.set_impedance",
+            json!({"id":sig,"target":50.0,"tolerance_pct":10.0}),
+            None,
+        )?;
+        assert!(
+            z_findings(&s) >= 1,
+            "0.3 mm on the default stackup misses 50 ohm"
+        );
+        // 0.3 mm over 1.6 mm of dielectric is about 130 ohm: a 50 percent band
+        // around 50 ohm stops at 75, one around 100 ohm reaches 150.
+        s.execute(
+            "net.set_impedance",
+            json!({"id":sig,"target":100.0,"tolerance_pct":50.0}),
+            None,
+        )?;
+        assert_eq!(z_findings(&s), 0, "a wide band accepts the same geometry");
+        for bad in [
+            json!({"id":sig,"target":9.0}),
+            json!({"id":sig,"target":201.0}),
+            json!({"id":sig,"target":null,"tolerance_pct":5.0}),
+            json!({"id":999,"target":50.0}),
+        ] {
+            assert!(s.execute("net.set_impedance", bad, None).is_err());
+        }
+        Ok(())
+    }
+    #[test]
     fn net_class_length_targets_flag_member_nets_outside_the_window() -> Result<(), Error> {
         let mut s = Session::default();
         let power = s.execute("net.create", json!({"name":"PWR"}), None)?["result"]["id"]
@@ -28363,6 +31788,205 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         Ok(())
     }
     #[test]
+    fn netclass_corner_radius_sets_and_clears_default() -> Result<(), Error> {
+        let mut s = Session::default();
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"ROUND","clearance":0.2,"width":0.25}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netclass.corner_radius",
+            json!({"class":class,"corner_radius":0.8}),
+            None,
+        )?;
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.corner_radius == Some(0.8)),
+            "the radius round-trips on the class"
+        );
+        s.execute(
+            "netclass.corner_radius",
+            json!({"class":class,"corner_radius":null}),
+            None,
+        )?;
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.corner_radius.is_none()),
+            "null clears the default"
+        );
+        for params in [
+            json!({"class":class,"corner_radius":0.0}),
+            json!({"class":class,"corner_radius":101.0}),
+            json!({"class":999,"corner_radius":1.0}),
+            json!({"class":class,"corner_radius":"wide"}),
+        ] {
+            assert!(s.execute("netclass.corner_radius", params, None).is_err());
+        }
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn netclass_radius_rules_sets_and_clears_min_radius() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[sig]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn radius_findings(s: &Session) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "track_radius")
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        let track = s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":0.0,"y":0.0},"end":{"x":2.0,"y":0.0},"width":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.set_arc",
+            json!({"id":track,"mid":{"x":1.0,"y":0.5}}),
+            None,
+        )?;
+        assert!(
+            radius_findings(&s).is_empty(),
+            "without a class limit nothing reports"
+        );
+        s.execute(
+            "netclass.radius_rules",
+            json!({"class":class,"min_radius":2.0}),
+            None,
+        )?;
+        assert!(
+            radius_findings(&s)
+                .iter()
+                .any(|m| m.contains("track.round_corners")),
+            "the tight arc is reported once the class limit is set"
+        );
+        s.execute(
+            "netclass.radius_rules",
+            json!({"class":class,"min_radius":null}),
+            None,
+        )?;
+        assert!(radius_findings(&s).is_empty());
+        for params in [
+            json!({"class":class,"min_radius":-0.1}),
+            json!({"class":class,"min_radius":101.0}),
+            json!({"class":999,"min_radius":1.0}),
+            json!({"class":class,"min_radius":"wide"}),
+            json!({"class":class,"min_radius":1.0,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.radius_rules", params, None).is_err());
+        }
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn netclass_rise_time_enables_crosstalk_estimates() -> Result<(), Error> {
+        let mut s = Session::default();
+        let clk = s.execute("net.create", json!({"name":"CLK"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let data = s.execute("net.create", json!({"name":"DATA"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"CLK","clearance":0.2,"width":0.2,"nets":[clk,data]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        // A 1 ns edge is about 170 mm long here; a parallel run must pass a sixth
+        // of that (about 29 mm) to be reported, so the pair runs 40 mm.
+        let width = 0.2;
+        let gap = width;
+        s.execute(
+            "track.add",
+            json!({"net":clk,"start":{"x":0.0,"y":0.0},"end":{"x":40.0,"y":0.0},"width":width}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({
+                "net":data,
+                "start":{"x":0.0,"y":width + gap},
+                "end":{"x":40.0,"y":width + gap},
+                "width":width
+            }),
+            None,
+        )?;
+        fn drc_messages(s: &Session, code: &str) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == code)
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        assert!(
+            drc_messages(&s, "parallel_crosstalk").is_empty(),
+            "without rise time the estimate stays off"
+        );
+        s.execute(
+            "netclass.rise_time",
+            json!({"class":class,"rise_time":1e-9}),
+            None,
+        )?;
+        let parallel = drc_messages(&s, "parallel_crosstalk");
+        assert_eq!(parallel.len(), 1);
+        assert!(parallel[0].contains("estimate"));
+        s.execute(
+            "netclass.rise_time",
+            json!({"class":class,"rise_time":null}),
+            None,
+        )?;
+        assert!(drc_messages(&s, "parallel_crosstalk").is_empty());
+        s.execute(
+            "track.add",
+            json!({"net":clk,"start":{"x":40.0,"y":0.0},"end":{"x":90.0,"y":0.0},"width":width}),
+            None,
+        )?;
+        s.execute(
+            "netclass.rise_time",
+            json!({"class":class,"rise_time":1e-9}),
+            None,
+        )?;
+        let long = drc_messages(&s, "net_electrically_long");
+        // Both nets run past the limit (about 29 mm): CLK at 90 mm and DATA at 40 mm.
+        assert_eq!(long.len(), 2);
+        assert!(long.iter().all(|m| m.contains("electrically long")));
+        assert!(long.iter().any(|m| m.starts_with("CLK routed 90.000 mm")));
+        for params in [
+            json!({"class":class,"rise_time":0.0}),
+            json!({"class":class,"rise_time":0.002}),
+            json!({"class":999,"rise_time":1e-9}),
+            json!({"class":class,"rise_time":"fast"}),
+            json!({"class":class,"rise_time":1e-9,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.rise_time", params, None).is_err());
+        }
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
     fn checks_scope_lists_courtyard_and_silk_checks() {
         let scope = Session::default().checks()["scope"]
             .as_str()
@@ -28370,6 +31994,8 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             .to_string();
         assert!(scope.contains("courtyards that overlap"));
         assert!(scope.contains("drawn silk"));
+        assert!(scope.contains("copper pour neck widths"));
+        assert!(scope.contains("companion-part intent"));
         assert!(scope.contains("decoupling capacitors"));
         assert!(scope.contains("open-drain pull-ups"));
     }
@@ -28377,30 +32003,219 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     fn decoupling_distance_is_set_saved_and_refused_when_out_of_range() -> Result<(), Error> {
         let mut s = Session::default();
         assert!(
-            (s.project.decoupling_max_mm - 3.0).abs() < 1e-9,
+            (s.project.decoupling.max_distance_mm - 3.0).abs() < 1e-9,
             "projects start with a 3 mm decoupling limit"
         );
-        s.execute("rules.decoupling_max_mm", json!({"max_mm": 5.0}), None)?;
-        assert!((s.project.decoupling_max_mm - 5.0).abs() < 1e-9);
+        s.execute(
+            "rules.decoupling_set",
+            json!({"max_distance_mm": 5.0}),
+            None,
+        )?;
+        assert!((s.project.decoupling.max_distance_mm - 5.0).abs() < 1e-9);
         let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
         let loaded: pcbcraft_doc::Project =
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         loaded.validate()?;
-        assert!((loaded.decoupling_max_mm - 5.0).abs() < 1e-9);
+        assert!((loaded.decoupling.max_distance_mm - 5.0).abs() < 1e-9);
         let before = s.inspect();
         for params in [
-            json!({"max_mm": 0.0}),
-            json!({"max_mm": 50.1}),
-            json!({"max_mm": "wide"}),
-            json!({"max_mm": 5.0, "extra": 1}),
+            json!({"max_distance_mm": 0.0}),
+            json!({"max_distance_mm": 50.1}),
+            json!({"max_distance_mm": "wide"}),
+            json!({"max_distance_mm": 5.0, "extra": 1}),
+            json!({}),
         ] {
             assert!(
-                s.execute("rules.decoupling_max_mm", params, None).is_err(),
+                s.execute("rules.decoupling_set", params, None).is_err(),
                 "bad decoupling distance leaves the project unchanged"
             );
         }
         assert_eq!(s.inspect(), before);
-        assert!((s.project.decoupling_max_mm - 5.0).abs() < 1e-9);
+        assert!((s.project.decoupling.max_distance_mm - 5.0).abs() < 1e-9);
+        Ok(())
+    }
+    #[test]
+    fn netclass_via_rules_rejects_max_vias_above_1024() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[net]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect();
+        for params in [
+            json!({"class":class,"max_vias":1025}),
+            json!({"class":class,"max_vias":-1}),
+            json!({"class":999,"max_vias":4}),
+            json!({"class":class,"max_vias":"many"}),
+            json!({"class":class,"max_vias":4,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.via_rules", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.execute(
+            "netclass.via_rules",
+            json!({"class":class,"max_vias":4}),
+            None,
+        )?;
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.max_vias == Some(4))
+        );
+        Ok(())
+    }
+    #[test]
+    fn max_vias_and_equal_vias_round_trip_through_save_and_reload() -> Result<(), Error> {
+        let mut s = Session::default();
+        let p = s.execute("net.create", json!({"name":"USB_D+"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let n = s.execute("net.create", json!({"name":"USB_D-"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[p]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netclass.via_rules",
+            json!({"class":class,"max_vias":4}),
+            None,
+        )?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.2,"equal_vias":true}),
+            None,
+        )?;
+        let encoded =
+            serde_json::to_value(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let decoded: pcbcraft_doc::Project =
+            serde_json::from_value(encoded).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(
+            decoded
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.max_vias == Some(4))
+        );
+        assert!(
+            decoded
+                .board
+                .diff_pairs
+                .iter()
+                .any(|d| d.name == "USB" && d.equal_vias)
+        );
+        let old = pcbcraft_doc::Project::default();
+        let round: pcbcraft_doc::Project = serde_json::from_value(
+            serde_json::to_value(&old).map_err(|e| Error::Invalid(e.to_string()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(round.net_classes.iter().all(|c| c.max_vias.is_none()));
+        assert!(round.board.diff_pairs.iter().all(|d| !d.equal_vias));
+        assert!(round.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn board_set_diffpair_carries_equal_vias() -> Result<(), Error> {
+        let mut s = Session::default();
+        let p = s.execute("net.create", json!({"name":"P"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let n = s.execute("net.create", json!({"name":"N"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let id = s.execute(
+            "board.set_diffpair",
+            json!({"name":"PAIR","net_p":p,"net_n":n,"gap":0.2,"equal_vias":true}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.project
+                .board
+                .diff_pairs
+                .iter()
+                .any(|d| d.id == id && d.equal_vias)
+        );
+        s.execute(
+            "board.set_diffpair",
+            json!({"id":id,"name":"PAIR","net_p":p,"net_n":n,"gap":0.2,"equal_vias":false}),
+            None,
+        )?;
+        assert!(
+            s.project
+                .board
+                .diff_pairs
+                .iter()
+                .any(|d| d.id == id && !d.equal_vias)
+        );
+        Ok(())
+    }
+    fn via_count_codes(s: &Session) -> Vec<String> {
+        s.checks()["drc"]
+            .as_array()
+            .map(|findings| {
+                findings
+                    .iter()
+                    .filter_map(|f| f["code"].as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+    #[test]
+    fn a_class_via_limit_reaches_the_engine_checks_and_can_be_cleared() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"USB_DP"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"usb2","clearance":0.2,"width":0.25,"nets":[net]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netclass.via_rules",
+            json!({"class":class,"max_vias":0}),
+            None,
+        )?;
+        s.execute(
+            "via.stitch",
+            json!({"net":net,"bounds":{"x":10.0,"y":10.0,"width":0.1,"height":0.1},"spacing":1.0,"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        assert!(
+            via_count_codes(&s).contains(&"via_count".to_string()),
+            "a via on a zero-via class reports through the engine"
+        );
+        s.execute(
+            "netclass.via_rules",
+            json!({"class":class,"max_vias":4}),
+            None,
+        )?;
+        assert!(
+            !via_count_codes(&s).contains(&"via_count".to_string()),
+            "raising the limit clears the finding"
+        );
+        s.execute("netclass.via_rules", json!({"class":class}), None)?;
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.max_vias.is_none()),
+            "omitting the limit clears it"
+        );
         Ok(())
     }
     #[test]
@@ -28498,6 +32313,37 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         loaded.validate()?;
         assert_eq!(loaded, s.project);
+        Ok(())
+    }
+    #[test]
+    fn esd_distance_command_round_trips_and_rejects_bad_values() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(
+            (s.project.esd_max_distance_mm - 10.0).abs() < 1e-9,
+            "projects start with a 10 mm esd limit"
+        );
+        s.execute("rules.esd_max_distance_mm", json!({"max_mm": 5.0}), None)?;
+        assert!((s.project.esd_max_distance_mm - 5.0).abs() < 1e-9);
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: pcbcraft_doc::Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert!((loaded.esd_max_distance_mm - 5.0).abs() < 1e-9);
+        let before = s.inspect();
+        for params in [
+            json!({"max_mm": 0.0}),
+            json!({"max_mm": 100.1}),
+            json!({"max_mm": "wide"}),
+            json!({}),
+        ] {
+            assert!(
+                s.execute("rules.esd_max_distance_mm", params, None)
+                    .is_err(),
+                "bad esd distance leaves the project unchanged"
+            );
+        }
+        assert_eq!(s.inspect(), before);
+        assert!((s.project.esd_max_distance_mm - 5.0).abs() < 1e-9);
         Ok(())
     }
     #[test]
@@ -28993,13 +32839,10 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         Ok(())
     }
     #[test]
-    #[test]
     fn a_newcomer_exports_a_compliance_report() -> Result<(), Error> {
         let mut s = Session::default();
-        let directory = std::env::temp_dir().join(format!(
-            "pcbcraft-compliance-report-{}",
-            std::process::id()
-        ));
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-compliance-report-{}", std::process::id()));
         std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
         let r1 = s.execute(
             "component.add",
@@ -29070,19 +32913,22 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         )?;
         let c = s.project.component(r1).ok_or_else(missing)?;
         assert_eq!(
-            c.compliance.country_of_origin.as_ref().map(|o| o.code.as_str()),
+            c.compliance
+                .country_of_origin
+                .as_ref()
+                .map(|o| o.code.as_str()),
             Some("US")
         );
-        assert_eq!(c.compliance.role, Some(pcbcraft_doc::PartRole::FlightController));
+        assert_eq!(
+            c.compliance.role,
+            Some(pcbcraft_doc::PartRole::FlightController)
+        );
         s.execute(
             "manufacturer.set",
             json!({"name":"Example Components","aliases":["ExComp"],"country":"US","supplier_responsibility_on_file":true}),
             None,
         )?;
-        assert!(s
-            .project
-            .resolve_manufacturer("excomp")
-            .is_some());
+        assert!(s.project.resolve_manufacturer("excomp").is_some());
         let before = s.inspect();
         let big = "x".repeat(pcbcraft_doc::MAX_COMPLIANCE_TEXT + 1);
         assert!(
@@ -29097,7 +32943,13 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         s.undo()?;
         assert!(s.project.manufacturers.is_empty());
         s.undo()?;
-        assert!(s.project.component(r1).ok_or_else(missing)?.compliance.is_empty());
+        assert!(
+            s.project
+                .component(r1)
+                .ok_or_else(missing)?
+                .compliance
+                .is_empty()
+        );
         Ok(())
     }
 
@@ -29120,16 +32972,15 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             s.project.compliance_settings.org_role,
             Some(pcbcraft_doc::ComplianceOrgRole::Integrator)
         );
-        let before = s.checks()["compliance"]
-            .as_array()
-            .map_or(0, Vec::len);
+        let before = s.checks()["compliance"].as_array().map_or(0, Vec::len);
         assert!(before > 0);
         s.execute(
             "compliance.finding.mute",
             json!({"rule":"demo.declaration_required","component":r1,"reason":"accepted for prototype"}),
             None,
         )?;
-        let after = s.checks()["compliance"].as_array().ok_or_else(missing)?;
+        let checks_after = s.checks();
+        let after = checks_after["compliance"].as_array().ok_or_else(missing)?;
         assert!(
             after.len() < before,
             "muted finding drops out of the compliance report"
@@ -29140,7 +32991,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         assert_eq!(back.compliance_mutes.len(), 1);
         assert_eq!(back.compliance_mutes[0].reason, "accepted for prototype");
         let run = s.execute("compliance.check", json!({}), None)?;
-        assert!(run["findings"].as_array().is_some());
+        assert!(run["result"]["findings"].as_array().is_some());
         Ok(())
     }
 
@@ -29237,6 +33088,152 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         loaded.validate()?;
         assert_eq!(loaded, s.project);
+        Ok(())
+    }
+    #[test]
+    fn components_update_sets_one_field_on_filtered_ids_in_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut ids = Vec::new();
+        for reference in ["R1", "R2", "R3"] {
+            ids.push(
+                s.execute(
+                    "component.add",
+                    json!({"kind":"resistor","reference":reference,"value":"10k","position":{"x":10.0,"y":10.0}}),
+                    None,
+                )?["result"]["id"]
+                    .as_u64()
+                    .ok_or_else(missing)?,
+            );
+        }
+        let undo_before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        let updates: Vec<Value> = ids
+            .iter()
+            .map(|id| json!({"id": id, "field": {"key": "MPN", "value": "RC0603"}}))
+            .collect();
+        let out =
+            s.execute("components.update", json!({"updates": updates}), None)?["result"].clone();
+        assert_eq!(out["changed"], 3);
+        for id in &ids {
+            assert_eq!(
+                s.project.component(*id).ok_or_else(missing)?.field("MPN"),
+                Some("RC0603")
+            );
+        }
+        assert_eq!(
+            s.inspect()["history"]["undo"].as_u64(),
+            Some(undo_before + 1),
+            "the whole update is one undo step"
+        );
+        s.undo()?;
+        for id in &ids {
+            assert_eq!(
+                s.project.component(*id).ok_or_else(missing)?.field("MPN"),
+                None
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    fn components_update_rejects_invalid_field_and_leaves_project_unchanged() -> Result<(), Error> {
+        let mut s = Session::default();
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect()["project"].clone();
+        assert!(
+            s.execute(
+                "components.update",
+                json!({"updates":[{"id":id,"field":{"key":"Missing"}},{"id":id,"field":{"key":"MPN","value":"x".repeat(257)}}]}),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(s.inspect()["project"], before);
+        Ok(())
+    }
+    #[test]
+    fn components_update_rejects_duplicate_reference_in_batch() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","value":"10k","position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect()["project"].clone();
+        for params in [
+            json!({"updates":[{"id":r1,"reference":"R2"}]}),
+            json!({"updates":[{"id":r1,"reference":"R9"},{"id":r2,"reference":"R9"}]}),
+        ] {
+            assert!(s.execute("components.update", params, None).is_err());
+        }
+        assert_eq!(s.inspect()["project"], before);
+        Ok(())
+    }
+    #[test]
+    fn components_table_export_writes_one_row_per_component_and_skips_variant_dnp()
+    -> Result<(), Error> {
+        let mut s = Session::default();
+        for (reference, value) in [("R2", "10k"), ("R1", "1k")] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","reference":reference,"value":value,"position":{"x":10.0,"y":10.0}}),
+                None,
+            )?;
+        }
+        let r3 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R3","value":"10k","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "bom.set_fields",
+            json!({"fields":[{"key":"MPN","label":"Part"}]}),
+            None,
+        )?;
+        s.execute(
+            "component.field",
+            json!({"id":r3,"key":"MPN","value":"RC0603"}),
+            None,
+        )?;
+        s.execute("variant.create", json!({"name":"Slim","dnp":[r3]}), None)?;
+        let plain_out = s.execute("components.table.export", json!({}), None)?;
+        let plain = plain_out["result"]["csv"].as_str().ok_or_else(missing)?;
+        let lines: Vec<&str> = plain.lines().collect();
+        assert_eq!(
+            lines.first(),
+            Some(&"reference,value,footprint,Part"),
+            "project columns follow bom field labels"
+        );
+        assert_eq!(lines.len(), 4, "one header and three component rows");
+        assert_eq!(lines[1], "R1,1k,starter pads,");
+        assert_eq!(lines[2], "R2,10k,starter pads,");
+        assert_eq!(lines[3], "R3,10k,starter pads,RC0603");
+        let slim_out = s.execute("components.table.export", json!({"variant":"Slim"}), None)?;
+        let slim = slim_out["result"]["csv"].as_str().ok_or_else(missing)?;
+        assert_eq!(
+            slim.lines().count(),
+            3,
+            "variant DNP leaves one header and two rows like bom_csv"
+        );
+        assert!(
+            !slim.contains("R3"),
+            "the skipped part never appears in the export"
+        );
         Ok(())
     }
     #[test]
@@ -31101,6 +35098,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         assert_eq!(c.field("Manufacturer"), Some("Example Components"));
         assert_eq!(c.field("MPN"), Some("SAMPLE-R-10K"));
         assert_eq!(c.field("Datasheet"), Some("https://example.invalid/d.pdf"));
+        assert_eq!(c.field("Datasheet"), Some("https://example.invalid/d.pdf"));
         assert_eq!(c.field("Sample Shop SKU"), Some("SS-1"));
         assert_eq!(s.project.library.orderable_parts.len(), 1);
         assert!(s.project.part_links.contains_key(&r1));
@@ -31145,12 +35143,14 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             None,
         )?;
         let orderable_id = s.project.library.orderable_parts[0].id.clone();
-        s.execute(
-            "part.make_generic",
-            json!({"id":r1}),
-            None,
-        )?;
-        assert!(s.project.component(r1).ok_or_else(missing)?.field("MPN").is_none());
+        s.execute("part.make_generic", json!({"id":r1}), None)?;
+        assert!(
+            s.project
+                .component(r1)
+                .ok_or_else(missing)?
+                .field("MPN")
+                .is_none()
+        );
         let before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
         s.execute(
             "part.make_orderable",
@@ -33570,6 +37570,31 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     }
 
     #[test]
+    fn route_pair_undo_restores_prior_board() -> Result<(), Error> {
+        let gap = 0.3;
+        let width = 0.2;
+        let mut s = Session::default();
+        disable_auto_sync(&mut s);
+        let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+        let tracks_before = s.project.board.tracks.clone();
+        s.execute(
+            "track.route_pair",
+            json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            }),
+            None,
+        )?;
+        assert_ne!(s.project.board.tracks, tracks_before);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks, tracks_before);
+        Ok(())
+    }
+
+    #[test]
     fn unplated_holes_drill_move_resize_and_keep_copper_away() -> Result<(), Error> {
         let mut s = Session::default();
         let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
@@ -34029,21 +38054,18 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             .collect();
         assert_eq!(xs, vec![20.0, 30.0, 10.0, 20.0, 30.0]);
         let files = pcbcraft_io::gerber_files(&s.project)?;
-        let drill = &files["pcb-NPTH.drl"];
+        // The combined drill file holds every slot as a G85 span.
+        let drill = &files["pcb-Drill.drl"];
         assert_eq!(
-            drill.matches("M15").count(),
+            drill.matches("G85").count(),
             6,
             "every copy is a routed slot: {drill}"
-        );
-        assert!(
-            !drill.contains("G85"),
-            "slotted mounting holes never use G85: {drill}"
         );
         let tools: Vec<&str> = drill
             .lines()
             .filter(|l| l.starts_with('T') && l.contains('C'))
             .collect();
-        assert_eq!(tools, vec!["T01C1.000"], "one tool carries all six: {drill}");
+        assert_eq!(tools, vec!["T1C1.000"], "one tool carries all six: {drill}");
         Ok(())
     }
     #[test]
@@ -35234,67 +39256,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             .as_u64()
             .ok_or_else(|| Error::Invalid("missing id".into()))?;
         s.execute("board.sync", json!({}), None)?;
-        s.execute(
-            "footprint.assign_custom",
-            json!({"id":id,"name":"M"}),
-            None,
-        )?;
-        let directory =
-            std::env::temp_dir().join(format!("pcbcraft-step-note-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&directory);
-        s.execute(
-            "output_job.add",
-            json!({"name":"step-only","kinds":["step"]}),
-            None,
-        )?;
-        let out = s.execute(
-            "output_job.run",
-            json!({"name":"step-only","directory":directory.to_string_lossy()}),
-            None,
-        )?;
-        let skipped = out["result"]["skipped"]
-            .as_array()
-            .ok_or_else(|| Error::Invalid("expected skipped notes".into()))?;
-        assert!(
-            skipped.iter().any(|v| {
-                v.as_str()
-                    .is_some_and(|line| line.starts_with("R1:") && line.contains("body.step"))
-            }),
-            "the export names the part and the missing model: {skipped:?}"
-        );
-        assert!(directory.join("board.step").exists());
-        let _ = std::fs::remove_dir_all(&directory);
-        Ok(())
-    }
-
-    #[test]
-    fn export_step_reports_a_model_that_could_not_be_read() -> Result<(), Error> {
-        let mut s = Session::default();
-        let definition = pcbcraft_library::read_footprint(
-            "(footprint M (layer F.Cu)\
-             (model \"parts/body.step\" (at (xyz 0 0 0)))\
-             (pad 1 smd rect (at -1 0) (size 1 1) (layers F.Cu))\
-             (pad 2 smd rect (at 1 0) (size 1 1) (layers F.Cu)))",
-        )
-        .map_err(|e| Error::Invalid(e.to_string()))?;
-        s.execute(
-            "library.footprint.upsert",
-            json!({"definition": definition}),
-            None,
-        )?;
-        let id = s.execute(
-            "component.add",
-            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
-            None,
-        )?["result"]["id"]
-            .as_u64()
-            .ok_or_else(|| Error::Invalid("missing id".into()))?;
-        s.execute("board.sync", json!({}), None)?;
-        s.execute(
-            "footprint.assign_custom",
-            json!({"id":id,"name":"M"}),
-            None,
-        )?;
+        s.execute("footprint.assign_custom", json!({"id":id,"name":"M"}), None)?;
         let directory =
             std::env::temp_dir().join(format!("pcbcraft-step-note-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&directory);
@@ -35433,6 +39395,31 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     }
 
     #[test]
+    fn output_job_writes_bring_up_plan_files() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-bring-up-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"bringup","kinds":["bring_up"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"bringup","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in ["bring-up-plan.md", "bring-up-plan.csv"] {
+            let text = std::fs::read_to_string(directory.join(name))
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            assert!(!text.is_empty(), "{name} should not be empty");
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
     fn uv_print_artifact_refuses_oversize_board() -> Result<(), Error> {
         let mut s = Session::sample()?;
         s.project.board.width = 400.0;
@@ -35532,11 +39519,40 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
                 s.execute("machine.add", json!({"preset": preset}), None)?;
             }
         }
-        assert_eq!(s.project.machine_profiles.len(), 5);
+        assert_eq!(
+            s.project.machine_profiles.len(),
+            pcbcraft_io::builtin_machine_profile_ids().len()
+        );
         assert!(
             s.execute("machine.add", json!({"preset":"commarker-b6-mopa"}), None)
                 .is_err()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn each_shop_preset_imports_via_machine_import() -> Result<(), Error> {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let presets_dir = manifest.join("../../machine-profiles");
+        for id in pcbcraft_io::builtin_machine_profile_ids() {
+            let path = presets_dir.join(format!("{id}.toml"));
+            if !path.is_file() {
+                return Err(Error::Invalid(format!("missing preset file for {id}")));
+            }
+            let mut s = Session::sample()?;
+            s.execute(
+                "machine.import",
+                json!({"path": path.to_string_lossy()}),
+                None,
+            )?;
+            let profile = s
+                .project
+                .machine_profiles
+                .iter()
+                .find(|m| m.id == *id)
+                .ok_or_else(|| Error::Invalid(format!("import did not store {id}")))?;
+            profile.validate().map_err(Error::Invalid)?;
+        }
         Ok(())
     }
 
@@ -35697,6 +39713,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             out["files"],
             json!([
                 "README-fabrication.txt",
+                "gerber-arc-report.txt",
                 "pcb-B.Cmp.gbr",
                 "pcb-B.Cu.gbr",
                 "pcb-B.Mask.gbr",
@@ -35819,6 +39836,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         let expected = [
             "README-fabrication.txt",
             "bom.csv",
+            "gerber-arc-report.txt",
             "pcb-B.Cmp.gbr",
             "pcb-B.Cu.gbr",
             "pcb-B.Mask.gbr",
@@ -35988,7 +40006,9 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     }
 
     #[test]
-    fn package_refuses_ipc2581_until_the_export_is_schema_valid() -> Result<(), Error> {
+    fn package_ships_ipc2581_now_the_export_is_schema_valid() -> Result<(), Error> {
+        // The exporter writes a revision C document that passes the schema, so
+        // the package gate (validate_fabrication_package_file) lets it through.
         let mut s = Session::sample()?;
         s.execute(
             "output_job.add",
@@ -35997,15 +40017,18 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         )?;
         let path =
             std::env::temp_dir().join(format!("pcbcraft-ipc-pkg-{}.zip", std::process::id()));
+        let out = s.execute(
+            "output_job.package",
+            json!({"path": path.to_string_lossy(), "job":"ipc"}),
+            None,
+        )?;
+        let zip = std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?;
+        let entries = package_entries(&zip)?;
         assert!(
-            s.execute(
-                "output_job.package",
-                json!({"path": path.to_string_lossy(), "job":"ipc"}),
-                None,
-            )
-            .is_err(),
-            "legacy IPC-2581 output cannot ship in a package yet"
+            entries.iter().any(|(name, _)| name.ends_with(".xml")),
+            "the package carries the IPC-2581 document: {out}"
         );
+        let _ = std::fs::remove_file(&path);
         Ok(())
     }
 
@@ -39592,7 +43615,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         let out = directory.join(format!("parts-{}.kicad_sym", std::process::id()));
         let result = s.execute(
             "library.export",
-            json!({"kind":"symbol","path": out.to_string_lossy(),"names":["R","C"]}),
+            json!({"kind":"symbol","path": out.to_string_lossy(),"names":["R","LED"]}),
             None,
         )?["result"]
             .clone();
@@ -40326,15 +44349,12 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         )?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
-        let gen = s.query(
-            "artifact.generate",
-            json!({"id": artifact}),
-            None,
-        )?["result"]["payload"]
+        let generated_out = s.query("artifact.generate", json!({"id": artifact}), None)?;
+        let generated = generated_out["result"]["payload"]
             .as_str()
             .ok_or_else(missing)?;
         assert!(
-            gen.contains("%TF.FilePolarity,Positive*%"),
+            generated.contains("%TF.FilePolarity,Positive*%"),
             "artifact generate matches the configured polarity"
         );
         let _ = std::fs::remove_dir_all(&directory);
@@ -40630,7 +44650,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             .ok_or_else(missing)?;
         let b = s.execute(
             "component.add",
-            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":10.0}}),
+            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":20.0}}),
             None,
         )?["result"]["id"]
             .as_u64()
@@ -40657,23 +44677,52 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             .find(|f| f.component == b)
             .ok_or_else(missing)?
             .id;
-        if let Some(f) = s.project.board.footprints.iter_mut().find(|f| f.id == fp_b)
-            && let Some(pad) = f.pads.iter_mut().find(|pad| pad.number == "1")
-        {
-            pad.diameter = 1.6;
-            pad.geometry = Some(pcbcraft_library::FootprintPad {
-                number: "1".into(),
-                pad_type: "smd".into(),
-                shape: "circle".into(),
-                position: Point::default(),
-                rotation: 0.0,
-                size: Point::new(1.6, 1.6),
-                layers: vec!["In1.Cu".into()],
-                drill: None,
-                roundrect_ratio: None,
-                chamfer: None,
-                polygon: vec![],
-                raw_source: String::new(),
+        // Pads that carry stored geometry need the footprint definition that
+        // holds the same pads embedded on the part, so give R2 both.
+        let mut definition_pads = Vec::new();
+        if let Some(f) = s.project.board.footprints.iter_mut().find(|f| f.id == fp_b) {
+            // A right-angle route needs the ends on different rows to have a bend.
+            f.position.y += 10.0;
+            for pad in &mut f.pads {
+                let on_inner = pad.number == "1";
+                if on_inner {
+                    pad.diameter = 1.6;
+                }
+                // Pad 1 is a plated hole, the only placeable pad with copper on
+                // the inner layers; pad 2 stays a front surface-mount pad.
+                let geometry = pcbcraft_library::FootprintPad {
+                    number: pad.number.clone(),
+                    pad_type: if on_inner { "thru_hole" } else { "smd" }.into(),
+                    shape: "circle".into(),
+                    position: pad.offset,
+                    rotation: 0.0,
+                    size: Point::new(pad.diameter, pad.diameter),
+                    layers: if on_inner {
+                        vec!["*.Cu".into(), "*.Mask".into()]
+                    } else {
+                        vec!["F.Cu".into()]
+                    },
+                    drill: on_inner.then(|| pcbcraft_library::Drill {
+                        size: Point::new(0.8, 0.8),
+                        offset: Point::default(),
+                    }),
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                };
+                definition_pads.push(geometry.clone());
+                pad.geometry = Some(geometry);
+            }
+        }
+        if let Some(c) = s.project.components.iter_mut().find(|c| c.id == b) {
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "InnerPad".into(),
+                    pads: definition_pads,
+                    ..Default::default()
+                },
             });
         }
         let tracks_before = s.project.board.tracks.len();
@@ -40983,12 +45032,12 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     }
 
     fn enclosure_fixture_with_datum() -> Result<std::path::PathBuf, Error> {
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../io/tests/fixtures/box.step");
-        let mut text =
-            std::fs::read_to_string(&src).map_err(|e| Error::Invalid(e.to_string()))?;
+        let src =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../io/tests/fixtures/box.step");
+        let mut text = std::fs::read_to_string(&src).map_err(|e| Error::Invalid(e.to_string()))?;
         let insert = "#200=CARTESIAN_POINT('Mount_A',(5.0,5.0,0.0));\n";
-        if let Some(index) = text.find("ENDSEC;") {
+        // The datum point belongs to the DATA section, which ends at the last ENDSEC.
+        if let Some(index) = text.rfind("ENDSEC;") {
             text.insert_str(index, insert);
         } else {
             text.push_str(insert);
@@ -41005,7 +45054,11 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     fn enclosure_import_is_one_undo_step() -> Result<(), Error> {
         let path = enclosure_fixture_with_datum()?;
         let mut s = Session::default();
-        s.execute("enclosure.import", json!({"path": path.to_string_lossy()}), None)?;
+        s.execute(
+            "enclosure.import",
+            json!({"path": path.to_string_lossy()}),
+            None,
+        )?;
         assert!(s.project.board.enclosure.is_some());
         assert_eq!(s.project.board.datums.len(), 1);
         s.undo()?;
@@ -41033,7 +45086,11 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     fn enclosure_record_round_trips_through_save() -> Result<(), Error> {
         let path = enclosure_fixture_with_datum()?;
         let mut s = Session::default();
-        s.execute("enclosure.import", json!({"path": path.to_string_lossy()}), None)?;
+        s.execute(
+            "enclosure.import",
+            json!({"path": path.to_string_lossy()}),
+            None,
+        )?;
         let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
         let project: Project =
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
@@ -41156,10 +45213,69 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         assert_eq!(s.project.board.vias.len(), 2);
         Ok(())
     }
+    /// A four-layer session with the stackup rows a designer would add.
+    fn four_layer_session() -> Result<(Session, u64), Error> {
+        let mut s = Session::default();
+        for name in ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"] {
+            s.project
+                .board
+                .layer_records
+                .push(pcbcraft_doc::LayerRecord {
+                    name: name.into(),
+                    kind: "copper".into(),
+                    thickness: 0.035,
+                    ..Default::default()
+                });
+        }
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        Ok((s, net))
+    }
     #[test]
+    fn every_command_name_is_registered_once() {
+        let mut seen = std::collections::BTreeSet::new();
+        for spec in commands() {
+            assert!(seen.insert(spec.id), "command {} is listed twice", spec.id);
+        }
+    }
     #[test]
-    fn a_newcomer_saves_a_four_layer_board_and_the_file_names_the_bottom_layer(
-    ) -> Result<(), Error> {
+    fn a_bottom_track_on_four_layers_is_the_bottom_layer_not_in3() -> Result<(), Error> {
+        let (mut s, net) = four_layer_session()?;
+        let added = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":"B.Cu"}),
+            None,
+        )?;
+        let track = s.project.board.tracks.last().ok_or_else(missing)?.clone();
+        assert_eq!(track.layer, s.project.bottom_layer());
+        assert_eq!(track.layer.index(), 3);
+        assert!(s.project.is_bottom(track.layer));
+        assert_eq!(s.project.layer_name(track.layer), "B.Cu");
+        let found = s.execute("items.find", json!({"kind":"track","layer":"B.Cu"}), None)?;
+        assert_eq!(
+            found["result"]["items"][0]["layer"], "B.Cu",
+            "{found} after {added}"
+        );
+        // The layer it lands on in fabrication output is the last copper file.
+        let bottom = pcbcraft_io::gerber_copper(&s.project, s.project.bottom_layer())
+            .map_err(Error::Invalid)?;
+        assert!(bottom.contains("Copper,L4,Bot"), "{bottom}");
+        assert!(
+            bottom.contains("D01*"),
+            "the track is drawn on the bottom file"
+        );
+        let inner = pcbcraft_io::gerber_copper(&s.project, Layer::Back).map_err(Error::Invalid)?;
+        assert!(inner.contains("Copper,L2,Inr"), "{inner}");
+        assert!(
+            !inner.contains("D01*"),
+            "inner copper carries no bottom track"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_newcomer_saves_a_four_layer_board_and_the_file_names_the_bottom_layer() -> Result<(), Error>
+    {
         let mut s = Session::default();
         let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
             .as_u64()
@@ -41197,6 +45313,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn via_set_span_updates_range() -> Result<(), Error> {
         let (mut s, net) = six_layer_session()?;
         let id = s.execute(
@@ -41258,8 +45375,9 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     }
 
     #[test]
-    fn help_glossary_thicker_track_includes_track_width_and_set_width_command() -> Result<(), Error> {
-        let s = Session::default();
+    fn help_glossary_thicker_track_includes_track_width_and_set_width_command() -> Result<(), Error>
+    {
+        let mut s = Session::default();
         let rev = s.revision;
         let nets_before = s.project.nets.len();
         let out = s.execute(
@@ -41273,12 +45391,9 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         let hits = out["hits"]
             .as_array()
             .ok_or_else(|| Error::Invalid("hits".into()))?;
-        let ids: Vec<&str> = hits
-            .iter()
-            .filter_map(|h| h["id"].as_str())
-            .collect();
-        assert!(ids.iter().any(|id| *id == "track_width"));
-        assert!(ids.iter().any(|id| *id == "track.set_width"));
+        let ids: Vec<&str> = hits.iter().filter_map(|h| h["id"].as_str()).collect();
+        assert!(ids.contains(&"track_width"));
+        assert!(ids.contains(&"track.set_width"));
         Ok(())
     }
 
@@ -41286,31 +45401,34 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
     fn help_term_unknown_id_returns_error() {
         let mut s = Session::default();
         let err = s.execute("help.term", json!({"id": "not_a_real_term_id"}), None);
-        assert!(err.as_ref().is_err_and(|e| {
-            format!("{e}").contains("not_a_real_term_id")
-        }));
+        assert!(
+            err.as_ref()
+                .is_err_and(|e| { format!("{e}").contains("not_a_real_term_id") })
+        );
     }
 
     #[test]
     fn help_glossary_rejects_limit_out_of_range() {
         let mut s = Session::default();
-        assert!(s
-            .execute("help.glossary", json!({"query": "volt", "limit": 0}), None)
-            .is_err());
-        assert!(s
-            .execute(
+        assert!(
+            s.execute("help.glossary", json!({"query": "volt", "limit": 0}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute(
                 "help.glossary",
                 json!({"query": "volt", "limit": 101}),
                 None,
             )
-            .is_err());
+            .is_err()
+        );
     }
 
     #[test]
     fn help_commands_listed_in_commands() {
         let ids: Vec<&str> = commands().iter().map(|c| c.id).collect();
-        assert!(ids.iter().any(|id| *id == "help.glossary"));
-        assert!(ids.iter().any(|id| *id == "help.term"));
+        assert!(ids.contains(&"help.glossary"));
+        assert!(ids.contains(&"help.term"));
     }
 
     #[test]

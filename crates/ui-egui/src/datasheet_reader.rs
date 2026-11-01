@@ -24,6 +24,9 @@ struct TileKey {
     preview: bool,
 }
 
+#[cfg(test)]
+type TestLoader = Arc<dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync>;
+
 pub struct State {
     pub open: bool,
     source: String,
@@ -41,7 +44,7 @@ pub struct State {
     render_rx: Vec<(TileKey, Receiver<Result<RgbaImage, String>>)>,
     /// Test hook: bytes loader replaces HTTP for e2e.
     #[cfg(test)]
-    pub test_loader: Option<Arc<dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync>>,
+    pub test_loader: Option<TestLoader>,
 }
 
 impl Default for State {
@@ -149,27 +152,31 @@ impl State {
 
     fn poll_renders(&mut self, ctx: &Context) {
         let mut done = Vec::new();
+        let mut arrived = Vec::new();
         for (i, (key, rx)) in self.render_rx.iter().enumerate() {
             if let Ok(result) = rx.try_recv() {
                 done.push(i);
-                self.inflight.remove(key);
-                match result {
-                    Ok(image) => self.store_texture(ctx, *key, image),
-                    Err(e) => {
-                        if self.error.is_empty() {
-                            self.error = e;
-                        }
-                    }
-                }
+                arrived.push((*key, result));
             }
         }
         for i in done.into_iter().rev() {
             self.render_rx.remove(i);
         }
+        for (key, result) in arrived {
+            self.inflight.remove(&key);
+            match result {
+                Ok(image) => self.store_texture(ctx, key, image),
+                Err(e) => {
+                    if self.error.is_empty() {
+                        self.error = e;
+                    }
+                }
+            }
+        }
     }
 
     fn store_texture(&mut self, ctx: &Context, key: TileKey, image: RgbaImage) {
-        if let Some(old) = self.textures.insert(
+        self.textures.insert(
             key,
             ctx.load_texture(
                 format!("datasheet-{key:?}"),
@@ -179,16 +186,12 @@ impl State {
                 ),
                 TextureOptions::LINEAR,
             ),
-        ) {
-            old.destroy(ctx);
-        }
+        );
         self.lru.retain(|k| k != &key);
         self.lru.push_back(key);
         while self.lru.len() > TEXTURE_BUDGET {
             if let Some(evict) = self.lru.pop_front() {
-                if let Some(tex) = self.textures.remove(&evict) {
-                    tex.destroy(ctx);
-                }
+                self.textures.remove(&evict);
             }
         }
     }
@@ -271,8 +274,22 @@ impl State {
             };
             let page_w = page_width_px(size, scale);
             let page_h = page_height_px(size, scale);
-            let full_w = page_width_px(size, if scale > PREVIEW_SCALE { scale } else { PREVIEW_SCALE });
-            let full_h = page_height_px(size, if scale > PREVIEW_SCALE { scale } else { PREVIEW_SCALE });
+            let full_w = page_width_px(
+                size,
+                if scale > PREVIEW_SCALE {
+                    scale
+                } else {
+                    PREVIEW_SCALE
+                },
+            );
+            let full_h = page_height_px(
+                size,
+                if scale > PREVIEW_SCALE {
+                    scale
+                } else {
+                    PREVIEW_SCALE
+                },
+            );
             let (cols, rows) = tile_grid(full_w as u32, full_h as u32);
             for row in 0..rows {
                 for col in 0..cols {
@@ -333,12 +350,9 @@ impl State {
             }
             ui.separator();
             ui.label(t!("library.datasheet_reader.page"));
-            ui.add(
-                egui::TextEdit::singleline(&mut self.jump_draft)
-                    .desired_width(48.0)
-                    .named(&t!("library.datasheet_reader.page")),
-            )
-            .on_hover_text(t!("library.datasheet_reader.page.tip"));
+            ui.add(egui::TextEdit::singleline(&mut self.jump_draft).desired_width(48.0))
+                .named(&t!("library.datasheet_reader.page"))
+                .on_hover_text(t!("library.datasheet_reader.page.tip"));
             if ui
                 .button(t!("library.datasheet_reader.go"))
                 .on_hover_text(t!("library.datasheet_reader.go.tip"))
@@ -348,23 +362,18 @@ impl State {
             }
             if let Some(doc) = &self.document {
                 ui.label(
-                    egui::RichText::new(t!(
+                    crate::fonts::caption(t!(
                         "library.datasheet_reader.of_pages",
                         pages = doc.page_count()
                     ))
-                    .small()
                     .color(muted),
                 )
                 .on_hover_text(t!("library.datasheet_reader.of_pages.tip"));
             }
         });
         if !self.source.is_empty() {
-            ui.label(
-                egui::RichText::new(&self.source)
-                    .small()
-                    .color(muted),
-            )
-            .on_hover_text(t!("library.datasheet_reader.source.tip"));
+            ui.label(crate::fonts::caption(&self.source).color(muted))
+                .on_hover_text(t!("library.datasheet_reader.source.tip"));
         }
         if !self.status.is_empty() {
             ui.label(&self.status);
@@ -377,10 +386,10 @@ impl State {
         };
         let viewport = ui.available_rect_before_wrap();
         let mut scale = self.scale;
-        if self.fit_width {
-            if let Ok(size) = doc.page_size_pt(0) {
-                scale = (viewport.width() / page_width_px(size, 1.0)).clamp(0.2, 6.0);
-            }
+        if self.fit_width
+            && let Ok(size) = doc.page_size_pt(0)
+        {
+            scale = (viewport.width() / page_width_px(size, 1.0)).clamp(0.2, 6.0);
         }
         self.scale = scale;
         let heights = self.page_heights(scale);
@@ -400,7 +409,7 @@ impl State {
                 let offsets = page_offsets(&heights);
                 let scroll_y = (-ui.min_rect().top()).max(0.0);
                 self.pending_scroll_y = Some(scroll_y);
-                for (page, (&top, &height)) in offsets.iter().zip(heights.iter()).enumerate() {
+                for (page, (&_top, &height)) in offsets.iter().zip(heights.iter()).enumerate() {
                     let page = page as u32;
                     if !visible_pages(scroll_y, viewport.height(), &heights, 1).contains(&page) {
                         ui.add_space(height + PAGE_GAP_PX);
@@ -448,7 +457,7 @@ impl State {
     }
 }
 
-fn tile_for(key: TileKey, page_w: f32, page_h: f32, scale: f32) -> Option<TileRect> {
+fn tile_for(key: TileKey, page_w: f32, page_h: f32, _scale: f32) -> Option<TileRect> {
     let w = page_w as u32;
     let h = page_h as u32;
     if w <= MAX_TEXTURE_SIDE && h <= MAX_TEXTURE_SIDE {
@@ -463,8 +472,19 @@ fn tile_for(key: TileKey, page_w: f32, page_h: f32, scale: f32) -> Option<TileRe
     })
 }
 
-fn paint_page(ui: &mut Ui, rect: Rect, page: u32, textures: &HashMap<TileKey, TextureHandle>, accent: Color32) {
-    ui.painter().rect_stroke(rect, 0.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Inside);
+fn paint_page(
+    ui: &mut Ui,
+    rect: Rect,
+    page: u32,
+    textures: &HashMap<TileKey, TextureHandle>,
+    accent: Color32,
+) {
+    ui.painter().rect_stroke(
+        rect,
+        0.0,
+        egui::Stroke::new(1.0, accent),
+        egui::StrokeKind::Inside,
+    );
     let (cols, rows) = tile_grid(rect.width() as u32, rect.height() as u32);
     for row in 0..rows {
         for col in 0..cols {

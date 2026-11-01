@@ -2,9 +2,8 @@
 
 use crate::api::*;
 use crate::backend::{
-ChatBackend, Event, HttpFn, HttpRequest, HttpStreamPart, PromptPart, StartContext, ToolStatus,
-    deliver_streamed_body,
-};
+    ChatBackend, Event, HttpFn, HttpRequest, HttpResponse, HttpStreamPart, PromptPart,
+    StartContext, ToolStatus, deliver_streamed_body,
 };
 use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
@@ -693,10 +692,12 @@ fn streaming_openai_text(text: &str) -> HttpFn {
     let text = text.to_string();
     Arc::new(move |r: &HttpRequest| {
         if r.method == "GET" {
-            return Ok((200, b"{\"data\":[]}".to_vec()));
+            return Ok(HttpResponse::ok(b"{\"data\":[]}".to_vec()));
         }
         let Some(out) = &r.stream_out else {
-            return Ok((200, openai_text(&text).to_string().into_bytes()));
+            return Ok(HttpResponse::ok(
+                openai_text(&text).to_string().into_bytes(),
+            ));
         };
         let first = format!(
             "data: {{\"choices\":[{{\"delta\":{{\"content\":{}}}}}]}}\n\n",
@@ -708,7 +709,7 @@ fn streaming_openai_text(text: &str) -> HttpFn {
         let mut sse = first;
         sse.push_str(tail);
         deliver_streamed_body(out, 200, sse.as_bytes())?;
-        Ok((200, Vec::new()))
+        Ok(HttpResponse::ok(Vec::new()))
     })
 }
 
@@ -718,10 +719,10 @@ fn an_openai_stream_shows_text_before_the_turn_ends() -> Result<(), String> {
     let (ctx, _) = host("ok");
     let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
     say(&mut b, "hi");
-    let end = Instant::now() + Duration::from_secs(10);
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(10);
     let mut saw_early = false;
     let mut saw_end = false;
-    while Instant::now() < end {
+    while pcbcraft_clock::instant_now() < end {
         for e in b.poll() {
             if matches!(&e, Event::Text { text, .. } if text == "early") {
                 saw_early = true;
@@ -747,17 +748,19 @@ fn an_openai_stream_shows_text_before_the_turn_ends() -> Result<(), String> {
 fn slow_openai_stream() -> HttpFn {
     Arc::new(move |r: &HttpRequest| {
         if r.method == "GET" {
-            return Ok((200, b"{\"data\":[]}".to_vec()));
+            return Ok(HttpResponse::ok(b"{\"data\":[]}".to_vec()));
         }
         let Some(out) = &r.stream_out else {
-            return Ok((200, openai_text("late").to_string().into_bytes()));
+            return Ok(HttpResponse::ok(
+                openai_text("late").to_string().into_bytes(),
+            ));
         };
         let chunk = b"data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n";
         out.send(Ok(HttpStreamPart::Chunk(chunk.to_vec())))
             .map_err(|_| "The stream ended early.".to_string())?;
         std::thread::sleep(Duration::from_secs(30));
         let _ = out.send(Ok(HttpStreamPart::End { status: 200 }));
-        Ok((200, Vec::new()))
+        Ok(HttpResponse::ok(Vec::new()))
     })
 }
 
@@ -768,10 +771,10 @@ fn stop_cancels_an_openai_stream_within_a_second() -> Result<(), String> {
     let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
     say(&mut b, "wait");
     std::thread::sleep(Duration::from_millis(50));
-    let t = Instant::now();
+    let t = pcbcraft_clock::instant_now();
     b.cancel();
     let end = t + Duration::from_secs(1);
-    while Instant::now() < end {
+    while pcbcraft_clock::instant_now() < end {
         for e in b.poll() {
             if matches!(e, Event::TurnEnded { reason } if reason == "cancelled") {
                 assert!(t.elapsed() < Duration::from_secs(1));

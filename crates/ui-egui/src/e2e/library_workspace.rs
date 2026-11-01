@@ -27,7 +27,7 @@ fn library_open() -> (egui::Context, App) {
 }
 
 /// The id of the browser card of the built-in resistor.
-const RESISTOR_CARD: &str = "button:Resistor, Built in \u{b7} GPL-#.#-or-later";
+const RESISTOR_CARD: &str = "button:Resistor, Built in \u{b7} MIT OR Apache-#.#";
 
 /// Every line of text painted this frame, for failure messages.
 fn painted(ctx: &egui::Context, app: &mut App) -> String {
@@ -238,7 +238,7 @@ fn a_newcomer_compares_two_parts_and_sees_their_differences() -> Result<(), Stri
     tap_id(
         &ctx,
         &mut app,
-        "button:LED, Built in \u{b7} GPL-#.#-or-later",
+        "button:LED, Built in \u{b7} MIT OR Apache-#.#",
     )?;
     assert_eq!(app.libws.parts.len(), 2, "two parts are open as tabs");
     assert!(

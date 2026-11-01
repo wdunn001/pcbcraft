@@ -1,7 +1,9 @@
 //! Hierarchy ports on schematic pages and child sheet boxes on the parent canvas.
 
 use super::*;
+use crate::canvas::snap;
 use crate::fonts;
+use crate::tool_modifiers::Held;
 use crate::ui_kit::{
     form_row::{FormWidth, form_row},
     section::section,
@@ -60,7 +62,7 @@ impl App {
                 names.push(port.name.clone());
             }
         }
-        names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        names.sort_by_key(|a| a.to_lowercase());
         names
     }
 
@@ -128,22 +130,22 @@ impl App {
     }
 
     pub(crate) fn place_hierarchy_port(&mut self, pos: Point) {
-        let name = self.port_pick_name.trim();
+        let name = self.port_pick_name.trim().to_string();
+        let name = name.as_str();
         if name.is_empty() {
             self.message = t!("schematic.port.pick_a_name");
             return;
         }
-        let Some(net) = self.port_net_for_name(name).or_else(|| {
-            if self.tool_call("net.create", json!({"name": name})) {
-                self.project
-                    .nets
-                    .iter()
-                    .find(|n| n.name == name)
-                    .map(|n| n.id)
-            } else {
-                None
-            }
-        }) else {
+        let mut found = self.port_net_for_name(name);
+        if found.is_none() && self.tool_call("net.create", json!({"name": name})) {
+            found = self
+                .project
+                .nets
+                .iter()
+                .find(|n| n.name == name)
+                .map(|n| n.id);
+        }
+        let Some(net) = found else {
             self.message = t!("schematic.port.no_net");
             return;
         };
@@ -198,17 +200,21 @@ impl App {
                 frame.left_top() + egui::vec2(4.0, 2.0),
                 Align2::LEFT_TOP,
                 &sheet.name,
-                FontId::proportional(11.0),
+                crate::fonts::Role::Caption.font(),
                 sc.text,
             );
-            let ports: Vec<_> = p.ports.iter().filter(|port| port.sheet == sheet.id).collect();
+            let ports: Vec<_> = p
+                .ports
+                .iter()
+                .filter(|port| port.sheet == sheet.id)
+                .collect();
             for (i, port) in ports.iter().enumerate() {
                 let at = Point::new(entry.x + 3.0, entry.y + 8.0 + (i as f64) * 5.08);
                 painter.text(
                     camera.screen(at, rect),
                     Align2::LEFT_CENTER,
                     format!("[{}]", port.name),
-                    FontId::monospace(11.0),
+                    crate::fonts::Role::Mono.font(),
                     sc.wire,
                 );
             }

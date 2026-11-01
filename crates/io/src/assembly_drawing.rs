@@ -4,6 +4,7 @@ use pcbcraft_doc::{Layer, Project};
 use pcbcraft_library::Graphic;
 use std::collections::BTreeMap;
 
+#[allow(dead_code)]
 const PDF_MAX_OPS: usize = 20_000;
 
 mod labels {
@@ -54,6 +55,7 @@ pub fn draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
     draw_assembly(page, p, &options)
 }
 
+#[allow(dead_code)]
 pub fn drawing_svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
     if !view_is_assembly(view) {
@@ -321,7 +323,7 @@ fn draw_footprint_silk(
             continue;
         }
         let points: Vec<Point> = g.path_points().iter().map(|pt| spin(*pt)).collect();
-        let (width, fill, _) = match &g {
+        let (width, fill) = match &g {
             Graphic::Line { width, .. } | Graphic::Arc { width, .. } => (*width, false),
             Graphic::Rectangle { width, fill, .. }
             | Graphic::Circle { width, fill, .. }
@@ -382,15 +384,11 @@ fn draw_assembly(
     } else {
         draw_lbl::ASSEMBLY_TOP_TITLE
     };
-    simple_title_block(
-        page,
-        p,
-        Point::new(bmax.x + 6.0, bmin.y),
-        title,
-    )?;
+    simple_title_block(page, p, Point::new(bmax.x + 6.0, bmin.y), title)?;
     Ok(())
 }
 
+#[allow(dead_code)]
 struct SvgPage {
     body: String,
     ops: usize,
@@ -399,6 +397,7 @@ struct SvgPage {
 }
 
 impl SvgPage {
+    #[allow(dead_code)]
     fn new() -> Self {
         Self {
             body: String::new(),
@@ -407,12 +406,14 @@ impl SvgPage {
             max: Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
         }
     }
+    #[allow(dead_code)]
     fn grow(&mut self, p: Point) {
         self.min.x = self.min.x.min(p.x);
         self.min.y = self.min.y.min(p.y);
         self.max.x = self.max.x.max(p.x);
         self.max.y = self.max.y.max(p.y);
     }
+    #[allow(dead_code)]
     fn rgb_hex(rgb: [f64; 3]) -> String {
         format!(
             "#{:02x}{:02x}{:02x}",
@@ -431,14 +432,9 @@ impl SvgPage {
     }
 }
 
+/// Contract: crates/io/src/lib.rs
 impl DrawPage for SvgPage {
-    fn path(
-        &mut self,
-        points: &[Point],
-        rgb: [f64; 3],
-        w: f64,
-        fill: bool,
-    ) -> Result<(), String> {
+    fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String> {
         self.ops += 1;
         if self.ops > PDF_MAX_OPS {
             return Err("the drawing is too complex for one SVG page".into());
@@ -519,12 +515,14 @@ impl DrawPage for SvgPage {
     }
 }
 
+#[allow(dead_code)]
 fn svg_num(v: f64) -> String {
     let r = (v * 1000.0).round() / 1000.0;
     let r = if r == 0.0 { 0.0 } else { r };
     r.to_string()
 }
 
+#[allow(dead_code)]
 fn svg_escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -532,6 +530,7 @@ fn svg_escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
+#[allow(dead_code)]
 fn svg_document(name: &str, box_min: Point, box_max: Point, body: String) -> String {
     let w = (box_max.x - box_min.x).max(1.0);
     let h = (box_max.y - box_min.y).max(1.0);
@@ -553,20 +552,20 @@ mod tests {
             "../../library/tests/fixtures/R_0805_2012Metric.kicad_mod"
         ))
         .map_err(|e| e.to_string())?;
-        let pad_geom = |n: &str| -> Pad {
+        let pad_geom = |n: &str| -> Result<Pad, String> {
             let src = footprint
                 .pads
                 .iter()
                 .find(|p| p.number == n)
                 .ok_or("pad missing")?;
-            Pad {
+            Ok(Pad {
                 number: src.number.clone(),
                 offset: src.position,
                 diameter: src.size.x.min(src.size.y),
                 net: None,
                 castellated: None,
                 geometry: Some(src.clone()),
-            }
+            })
         };
         let mut project = Project::default();
         project.board.width = 60.0;
@@ -576,6 +575,10 @@ mod tests {
             reference: "R1".into(),
             value: "1k".into(),
             kind: "resistor".into(),
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "project".into(),
+                definition: footprint.clone(),
+            }),
             ..Default::default()
         });
         project.components.push(Component {
@@ -583,6 +586,10 @@ mod tests {
             reference: "R2".into(),
             value: "2k2".into(),
             kind: "resistor".into(),
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "project".into(),
+                definition: footprint.clone(),
+            }),
             ..Default::default()
         });
         project.board.footprints.push(Footprint {
@@ -593,6 +600,7 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad_geom("1")?, pad_geom("2")?],
+            preserved: Default::default(),
         });
         project.board.footprints.push(Footprint {
             id: 11,
@@ -606,9 +614,16 @@ mod tests {
                 let mut p2 = pad_geom("2")?;
                 p1.offset = Point::new(-p1.offset.x, p1.offset.y);
                 p2.offset = Point::new(-p2.offset.x, p2.offset.y);
+                for pad in [&mut p1, &mut p2] {
+                    if let Some(g) = pad.geometry.as_mut() {
+                        g.position = pad.offset;
+                    }
+                }
                 vec![p1, p2]
             },
+            preserved: Default::default(),
         });
+        crate::test_support::embed_pad_geometry(&mut project);
         project.validate()?;
         Ok(project)
     }

@@ -27,6 +27,7 @@ fn sample_symbol(name: &str) -> pcbcraft_library::SymbolDefinition {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: Default::default(),
     }
 }
 
@@ -52,8 +53,12 @@ fn substitute_record_must_point_at_real_symbols() -> Result<(), String> {
         },
     );
     library.validate()?;
-    library.part_substitutes.get_mut("Primary").ok_or("record")?.alternates[0].symbol =
-        "Missing".into();
+    library
+        .part_substitutes
+        .get_mut("Primary")
+        .ok_or("record")?
+        .alternates[0]
+        .symbol = "Missing".into();
     assert!(library.validate().is_err());
     Ok(())
 }

@@ -3,7 +3,7 @@
 //! files; list text never belongs in Rust source.
 //!
 //! # Rules
-//! - Pure data and bounds checks. TOML lives in crates/io/src/compliance_list.rs.
+//! - Pure data and bounds checks; engines parse TOML through `list_from_toml`.
 //! - `schema` must be `1` for files this release reads.
 //!
 //! # Dependencies
@@ -36,7 +36,7 @@ fn valid_slug(id: &str) -> bool {
         && id.len() <= MAX_ID_LEN
         && id
             .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
 }
 
 fn bounded(s: &str, max: usize) -> bool {
@@ -48,9 +48,7 @@ fn optional_bounded(s: &str, max: usize) -> bool {
 }
 
 fn valid_date(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= MAX_DATE_LEN
-        && s.bytes().all(|b| b.is_ascii_digit() || b == b'-')
+    !s.is_empty() && s.len() <= MAX_DATE_LEN && s.bytes().all(|b| b.is_ascii_digit() || b == b'-')
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -69,6 +67,12 @@ pub struct ComplianceListEntityEntry {
     pub added_date: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub citation: String,
+    #[serde(
+        default,
+        rename = "entry_type",
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub entry_type: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,6 +85,22 @@ pub struct ComplianceListSubstanceEntry {
     pub name: String,
     #[serde(default, rename = "added")]
     pub added_date: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub citation: String,
+}
+
+/// One regulatory exemption with an expiry date, for lists such as RoHS Annex III.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ComplianceListExemption {
+    pub number: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// Calendar date the exemption ends, `YYYY-MM-DD`; empty means no end date.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub expires: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub citation: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -89,19 +109,33 @@ pub struct ComplianceListSnapshot {
     pub schema: u32,
     pub id: String,
     pub title: String,
-    #[serde(default, rename = "source_url", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "source_url",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub source_url: String,
-    #[serde(default, rename = "published", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "published",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub published_date: String,
     #[serde(rename = "retrieved")]
     pub retrieved_date: String,
     pub licence: String,
     #[serde(default)]
     pub cadence_days: u32,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Version label of the source list, such as `2026-03`; empty when the
+    /// source has none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version: String,
+    #[serde(default, alias = "entries", skip_serializing_if = "Vec::is_empty")]
     pub entities: Vec<ComplianceListEntityEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub substances: Vec<ComplianceListSubstanceEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exemptions: Vec<ComplianceListExemption>,
 }
 
 impl ComplianceListEntityEntry {
@@ -136,6 +170,9 @@ impl ComplianceListEntityEntry {
         }
         if !optional_bounded(&self.citation, MAX_CITATION_LEN) {
             return Err("entity citation must be at most 512 bytes".into());
+        }
+        if !optional_bounded(&self.entry_type, MAX_NAME_LEN) {
+            return Err("entity entry type must be at most 256 bytes".into());
         }
         Ok(())
     }
@@ -219,10 +256,32 @@ impl ComplianceListSnapshot {
         Ok(())
     }
 
+    /// True when exemption `number` is on the list and has not ended by `today`.
+    pub fn exemption_active(&self, number: &str, today: &str) -> bool {
+        self.exemptions
+            .iter()
+            .find(|e| e.number.eq_ignore_ascii_case(number.trim()))
+            .is_some_and(|e| e.expires.is_empty() || today <= e.expires.as_str())
+    }
+
     /// True when bundled metadata is complete enough to ship.
     pub fn bundled_metadata_ok(&self) -> bool {
-        !self.source_url.is_empty()
-            && !self.retrieved_date.is_empty()
-            && !self.licence.is_empty()
+        !self.source_url.is_empty() && !self.retrieved_date.is_empty() && !self.licence.is_empty()
     }
+
+    /// True when `today` is later than `retrieved_date` plus `cadence_days`.
+    pub fn stale_for_cadence(&self, today: &str) -> bool {
+        if self.cadence_days == 0 || !valid_date(&self.retrieved_date) || !valid_date(today) {
+            return false;
+        }
+        let days = self.cadence_days as i64;
+        compliance_day_number(today) - compliance_day_number(&self.retrieved_date) > days
+    }
+}
+
+fn compliance_day_number(text: &str) -> i64 {
+    let y: i64 = text.get(0..4).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let m: i64 = text.get(5..7).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let d: i64 = text.get(8..10).and_then(|s| s.parse().ok()).unwrap_or(0);
+    y * 372 + m * 31 + d
 }

@@ -1,4 +1,4 @@
-﻿//! Collect MCP tool output as named byte blobs for browser download instead of disk writes.
+//! Collect MCP tool output as named byte blobs for browser download instead of disk writes.
 use pcbcraft_doc::Project;
 use serde_json::{Value, json};
 use std::path::Path;

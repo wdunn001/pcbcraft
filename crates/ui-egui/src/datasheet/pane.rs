@@ -48,6 +48,7 @@ impl Default for Pane {
 
 impl Pane {
     /// True while the reader window is open.
+    #[allow(dead_code)]
     pub(crate) fn is_open(&self) -> bool {
         self.open
     }
@@ -75,11 +76,18 @@ impl Pane {
     }
 
     /// Try to open a local `file://` PDF; returns true when the pane took the file.
+    #[allow(dead_code)]
     pub(crate) fn open_file_url(&mut self, url: &str, ctx: &Context) -> bool {
         let Some(path) = url.strip_prefix("file://") else {
             return false;
         };
-        let path = path.trim_start_matches('/');
+        // `file:///C:/x.pdf` carries a slash before the drive letter; `file:///tmp/x.pdf`
+        // keeps its root slash.
+        let rooted = format!("/{}", path.trim_start_matches('/'));
+        let path = match rooted.as_bytes() {
+            [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => &rooted[1..],
+            _ => rooted.as_str(),
+        };
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
             Err(_) => return false,
@@ -264,7 +272,7 @@ impl Pane {
                 let prev = secondary_button(
                     ui,
                     None,
-                    "◀",
+                    &t!("datasheet.pane.prev_page"),
                     &t!("datasheet.pane.prev_page.tip"),
                     Size::Small,
                     self.page > 0,
@@ -282,7 +290,7 @@ impl Pane {
                 let next = secondary_button(
                     ui,
                     None,
-                    "▶",
+                    &t!("datasheet.pane.next_page"),
                     &t!("datasheet.pane.next_page.tip"),
                     Size::Small,
                     self.page + 1 < pages,
@@ -367,15 +375,14 @@ impl Pane {
         if !has_text && self.layer_error.is_none() {
             ui.label(t!("datasheet.pane.no_text"));
         }
-        if let Some(doc) = self.doc.as_ref() {
-            if let Ok(label) = doc.page_plain_text(self.page) {
-                if !label.is_empty() {
-                    ui.ctx()
-                        .accesskit_node_builder(self.page_response_id, |node| {
-                            node.set_label(label);
-                        });
-                }
-            }
+        if let Some(doc) = self.doc.as_ref()
+            && let Ok(label) = doc.page_plain_text(self.page)
+            && !label.is_empty()
+        {
+            ui.ctx()
+                .accesskit_node_builder(self.page_response_id, |node| {
+                    node.set_label(label);
+                });
         }
         self.ensure_texture(ctx);
         let tex = self.texture.as_ref().map(|(_, h)| h.clone());
@@ -405,14 +412,14 @@ impl Pane {
                 });
             }
         }
-        if response.dragged() {
-            if let Some(pos) = response.interact_pointer_pos() {
-                let (x, y) = self.screen_to_page(rect, pos);
-                if let Some(focus) = char_at_point(&self.layer, x, y) {
-                    if let Some(sel) = &mut self.selection {
-                        sel.focus = focus;
-                    }
-                }
+        if response.dragged()
+            && let Some(pos) = response.interact_pointer_pos()
+        {
+            let (x, y) = self.screen_to_page(rect, pos);
+            if let Some(focus) = char_at_point(&self.layer, x, y)
+                && let Some(sel) = &mut self.selection
+            {
+                sel.focus = focus;
             }
         }
         if response.clicked() {
@@ -450,6 +457,7 @@ impl Pane {
 
     #[cfg(test)]
     pub(crate) fn select_all_on_page(&mut self) {
+        self.reload_layer();
         if self.layer.is_empty() {
             return;
         }

@@ -2,8 +2,8 @@
 use crate::cam_shapes::{LayerShape, layer_shapes};
 use pcbcraft_doc::{Layer, Project};
 use pcbcraft_geom::{
-    OffsetJoin, Point, Ring, hatch, polygon_boundary_distance, polygon_difference,
-    polygon_offset, polygon_union, segment_distance,
+    OffsetJoin, Point, Ring, hatch, polygon_boundary_distance, polygon_difference, polygon_offset,
+    polygon_union, segment_distance,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -434,10 +434,7 @@ fn join_hatch_zigzag(segments: &[(Point, Point)], stepover: f64) -> Vec<Vec<Poin
         used[start] = true;
         let (a, b) = segments[start];
         let mut path = vec![a, b];
-        loop {
-            let Some(tail) = path.last().copied() else {
-                break;
-            };
+        while let Some(tail) = path.last().copied() {
             let mut extended = false;
             for i in 0..segments.len() {
                 if used[i] {
@@ -584,10 +581,12 @@ fn write_polylines(
 }
 
 fn in_work_area(p: Point, profile: &CncProfile) -> bool {
-    p.x >= profile.work_min.x
-        && p.y >= profile.work_min.y
-        && p.x <= profile.work_max.x
-        && p.y <= profile.work_max.y
+    // A micron of slack absorbs rounding in rotated hatch ends that sit on the edge.
+    const SLACK: f64 = 1e-6;
+    p.x >= profile.work_min.x - SLACK
+        && p.y >= profile.work_min.y - SLACK
+        && p.x <= profile.work_max.x + SLACK
+        && p.y <= profile.work_max.y + SLACK
 }
 
 fn check_bounds(points: &[Point], profile: &CncProfile) -> Result<(), String> {

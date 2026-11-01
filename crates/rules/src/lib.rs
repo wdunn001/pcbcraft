@@ -1,27 +1,40 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
 use pcbcraft_doc::{
-    ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
-    PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
-    PanelSeparation, Project, VALIDATION_CHORD_ERROR, Via, ViaKind, panel_layout,
-    panel_score_lines,
+    ArtKind, ArtShape, Board, Component, FabRules, Footprint, Id, Layer, PANEL_ASSEMBLER_MAX_MM,
+    PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM,
+    PANEL_TAB_CHANNEL_MIN_MM, Pad, PanelSeparation, Project, VALIDATION_CHORD_ERROR, Via, ViaKind,
+    panel_layout, panel_score_lines,
 };
 use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-mod compliance;
+mod acute;
+mod companion;
+pub mod compliance;
 mod courtyard;
-mod diffpair_impedance;
 mod decoupling;
+mod diffpair_impedance;
 mod drill;
 mod finding_set;
+mod impedance_target;
+mod pair_properties;
+mod parallel_crosstalk;
+mod peripheral;
+mod return_path;
 mod silk;
 mod stub;
-pub mod compliance;
+pub mod testpoint;
+mod track_radius;
+mod width_advice;
+
+pub use companion::{companion_findings, companion_findings_for_rules};
+pub use width_advice::{WidthAdvice, width_advice, width_advice_on_layer};
 
 pub use compliance::{
-    check as compliance_check, load_list_snapshot, ComplianceFinding, EU_MARKET_RULE_SET,
-    RESPONSIBLE_SOURCING_RULE_SET,
+    BLUE_UAS_STYLE_DRONE_RULE_SET, ComplianceFinding, EU_MARKET_RULE_SET, ExportTradeReport,
+    RESPONSIBLE_SOURCING_RULE_SET, US_GOVERNMENT_NDAA_RULE_SET, bundled_export_and_trade,
+    compliance_check, export_trade_report, export_trade_report_with_ruleset, load_list_snapshot,
 };
 
 pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
@@ -64,6 +77,8 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("missing_footprint", "warning"),
     ("diffpair_gap", "error"),
     ("diffpair_skew", "error"),
+    ("pair_skew_exceeded", "error"),
+    ("pair_uncoupled_too_long", "error"),
     ("art_off_board", "warning"),
     ("cut_hits_via", "error"),
     ("mask_covers_pad", "warning"),
@@ -94,6 +109,8 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("copper_sliver", "error"),
     ("length_group_skew", "error"),
     ("stub_length", "error"),
+    ("backdrill_must_not_cut", "error"),
+    ("backdrill_stub_too_long", "error"),
     ("via_count", "warning"),
     ("decoupling_distance", "warning"),
     ("keepout", "error"),
@@ -202,11 +219,6 @@ fn copper(project: &Project) -> Vec<Copper> {
                     hole: None,
                     cutouts: vec![],
                 };
-for layer in project.copper_layers() {
-                    let mut copy = item.clone();
-                    copy.layer = layer;
-                    result.push(copy);
-                }
                 push_on_copper_layers(project, item, &mut result);
                 continue;
             }
@@ -267,21 +279,10 @@ for layer in project.copper_layers() {
                     cutouts: vec![],
                 };
                 if plated {
-push_on_copper_layers(project, item, &mut result);
-                } else {
                     // Plating joins every copper layer, inner ones included.
-                    for layer in project.copper_layers() {
-                        if layer != item.layer {
-                            let mut copy = item.clone();
-                            copy.layer = layer;
-                            result.push(copy);
-                        }
-                        let mut layer_item = item.clone();
-                        layer_item.layer = layer;
-                        result.push(layer_item);
-                    }
+                    push_on_copper_layers(project, item, &mut result);
+                } else {
                     result.push(item);
-                }
                 }
             }
         }
@@ -369,17 +370,18 @@ push_on_copper_layers(project, item, &mut result);
         };
         // One pad per copper layer in the via's span; it conducts nowhere else.
         for layer in project.via_span_layers(v) {
-            if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer) {
-                if !pcbcraft_doc::fill::plated_item_connected_on_layer(
+            if project.remove_unused_inner_pads_enabled()
+                && !project.copper_layer_is_end(layer)
+                && !pcbcraft_doc::fill::plated_item_connected_on_layer(
                     project,
                     v.net,
                     v.position,
                     v.diameter / 2.0,
                     layer,
                     pcbcraft_doc::fill::PlatedConnectKind::Via,
-                ) {
-                    continue;
-                }
+                )
+            {
+                continue;
             }
             let mut pad = item.clone();
             pad.layer = layer;
@@ -408,35 +410,11 @@ push_on_copper_layers(project, item, &mut result);
             hole: None,
             cutouts: vec![],
         };
-radius: h.diameter / 2.0,
-            contact_radius: h.diameter / 2.0,
-            conservative: false,
-            outline: None,
-            outline_error: 0.0,
-            layer: Layer::Front,
-            pad: false,
-            clearance: None,
-            bridge: None,
-            hole: None,
-            cutouts: vec![],
-        };
         for layer in project.copper_layers() {
             let mut copy = item.clone();
             copy.layer = layer;
             result.push(copy);
         }
-    }
-    for z in &project.board.zones {
-        if !z.filled {
-            continue;
-        }
-        // Real poured copper: the fill already knocked clearance holes around
-        // foreign copper, so what the checks see is what a fab plots.
-        let pieces = match zone_pieces(project, z) {
-            Ok(pieces) => pieces,
-            Err(_) => {
-                let Some(&first) = z.outline.first() else {
-                    continue;
     }
     for z in &project.board.zones {
         if !z.filled {
@@ -1048,19 +1026,105 @@ fn airwires_from(items: &[Copper]) -> Vec<Airwire> {
 pub fn airwires(project: &Project) -> Vec<Airwire> {
     airwires_from(&copper(project))
 }
+const ESD_DEVICE_FAR_CODE: &str = "esd_device_far_from_connector";
+
+fn esd_check_enabled(project: &Project) -> bool {
+    matches!(
+        project
+            .rule_severity
+            .get(ESD_DEVICE_FAR_CODE)
+            .map(String::as_str),
+        Some("error") | Some("warning")
+    )
+}
+
+fn word_tvs(text: &str) -> bool {
+    text.to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|w| w == "tvs")
+}
+
+pub fn is_tvs(component: &Component) -> bool {
+    if component.kind == "tvs" {
+        return true;
+    }
+    if word_tvs(&component.value) {
+        return true;
+    }
+    component.fields.iter().any(|f| word_tvs(&f.value))
+}
+
+fn component_footprint(project: &Project, component: Id) -> Option<&Footprint> {
+    project
+        .board
+        .footprints
+        .iter()
+        .find(|f| f.component == component)
+}
+
+fn esd_device_far_findings(project: &Project) -> Vec<Finding> {
+    if !esd_check_enabled(project) || project.board.footprints.is_empty() {
+        return vec![];
+    }
+    let limit = project.esd_max_distance_mm;
+    let mut result = vec![];
+    for connector in project.components.iter().filter(|c| c.kind == "connector") {
+        let Some(conn_fp) = component_footprint(project, connector.id) else {
+            continue;
+        };
+        for pin in &connector.pins {
+            let Some(net) = pin.net else {
+                continue;
+            };
+            if !project
+                .components
+                .iter()
+                .any(|c| is_tvs(c) && c.pins.iter().any(|p| p.net == Some(net)))
+            {
+                continue;
+            }
+            let Some(conn_pad) = conn_fp.pad_position(&pin.number) else {
+                continue;
+            };
+            for tvs in project.components.iter().filter(|c| is_tvs(c)) {
+                let Some(tvs_fp) = component_footprint(project, tvs.id) else {
+                    continue;
+                };
+                for tvs_pin in tvs.pins.iter().filter(|p| p.net == Some(net)) {
+                    let Some(tvs_pad) = tvs_fp.pad_position(&tvs_pin.number) else {
+                        continue;
+                    };
+                    let distance = conn_pad.distance(tvs_pad);
+                    if distance > limit + 1e-9 {
+                        result.push(Finding {
+                            code: ESD_DEVICE_FAR_CODE,
+                            severity: project.rule_severity(ESD_DEVICE_FAR_CODE, "off"),
+                            message: format!(
+                                "{} is {:.1} mm from {} pin {} on {}; limit is {:.1} mm. \
+                                 Move the protection part next to the connector pad.",
+                                tvs.reference,
+                                distance,
+                                connector.reference,
+                                pin.number,
+                                project.net_name(net),
+                                limit,
+                            ),
+                            objects: vec![connector.id, tvs.id],
+                            hint: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    result
+}
 
 fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
     project
         .no_connects
         .iter()
         .any(|f| f.pin.component == component && f.pin.pin == pin)
-}
-          
-fn net_has_capacitor(project: &Project, net: Id) -> bool {
-    project
-        .components
-        .iter()
-        .any(|c| c.kind == "capacitor" && c.pins.iter().any(|p| p.net == Some(net)))
 }
 
 fn net_has_power_driver(project: &Project, net: Id) -> bool {
@@ -1079,15 +1143,6 @@ fn net_has_power_driver(project: &Project, net: Id) -> bool {
             .iter()
             .any(|p| p.net == Some(net) && p.electrical_type == "power_out")
     })
-}
-
-fn is_ic_like(component: &pcbcraft_doc::Component) -> bool {
-    !["resistor", "capacitor", "connector", "led"]
-        .contains(&component.kind.as_str())
-        && component
-            .pins
-            .iter()
-            .any(|p| p.electrical_type == "power_in")
 }
 
 fn net_has_pullup_to_power(project: &Project, net: Id) -> bool {
@@ -1127,42 +1182,6 @@ fn net_has_schematic_wiring(project: &Project, net: Id) -> bool {
     project.ports.iter().any(|p| p.net == net)
 }
 
-fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
-    project
-        .no_connects
-        .iter()
-        .any(|f| f.pin.component == component && f.pin.pin == pin)
-}
-
-fn decoupling_distance_ok(project: &Project, ic: Id, power_pin: &str, net: Id) -> bool {
-    let Some(ic_fp) = project.board.footprints.iter().find(|f| f.component == ic) else {
-        return true;
-    };
-    let Some(ic_pad) = ic_fp.pad_position(power_pin) else {
-        return false;
-    };
-    let limit = project.decoupling_max_mm;
-    project.components.iter().any(|c| {
-        if c.kind != "capacitor" || !c.pins.iter().any(|p| p.net == Some(net)) {
-            return false;
-        }
-        let Some(cap_fp) = project
-            .board
-            .footprints
-            .iter()
-            .find(|f| f.component == c.id)
-        else {
-            return false;
-        };
-        c.pins.iter().any(|p| {
-            p.net == Some(net)
-                && cap_fp
-                    .pad_position(&p.number)
-                    .is_some_and(|pos| ic_pad.distance(pos) <= limit + 1e-9)
-        })
-    })
-}
-
 fn net_needs_power_not_driven(
     project: &Project,
     net: Id,
@@ -1177,49 +1196,9 @@ fn net_needs_power_not_driven(
     })
 }
 
-fn missing_decoupling_findings(project: &Project) -> Vec<Finding> {
-    let mut result = vec![];
-    for c in &project.components {
-        if !is_ic_like(c) {
-            continue;
-        }
-        for p in &c.pins {
-            if p.electrical_type != "power_in" {
-                continue;
-            }
-            let Some(net) = p.net else {
-                continue;
-            };
-            if pin_flagged_no_connect(project, c.id, &p.number) {
-                continue;
-            }
-            if net_has_pullup_to_power(project, net) {
-                continue;
-            }
-            if net_has_schematic_wiring(project, net) {
-                continue;
-            }
-            if decoupling_distance_ok(project, c.id, &p.number, net) {
-                continue;
-            }
-            if net_has_capacitor(project, net) {
-                continue;
-            }
-            result.push(Finding {
-                code: "missing_decoupling",
-                severity: project.rule_severity("missing_decoupling", "warning"),
-                message: format!(
-                    "{} pin {} on {} needs a decoupling capacitor on the same net",
-                    c.reference,
-                    p.number,
-                    project.net_name(net)
-                ),
-                objects: vec![c.id],
-            });
-        }
-    }
-    result
-}
+/// MCU peripheral and pin-mux conflict checks when a firmware design is attached.
+pub fn peripheral(project: &Project) -> Vec<Finding> {
+    peripheral::peripheral(project)
 }
 
 pub fn erc(project: &Project) -> Vec<Finding> {
@@ -1228,7 +1207,6 @@ pub fn erc(project: &Project) -> Vec<Finding> {
         return vec![];
     }
     let mut result = vec![];
-    result.extend(missing_decoupling_findings(project));
     for c in &project.components {
         for p in &c.pins {
             if p.net.is_none() && !pin_flagged_no_connect(project, c.id, &p.number) {
@@ -1277,27 +1255,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                     net.name
                 ),
                 objects: vec![net.id],
-            });
-        }
-    }
-    for net in &project.nets {
-        let undriven_power = project.components.iter().any(|c| {
-            c.pins.iter().any(|p| {
-                p.net == Some(net.id)
-                    && p.electrical_type == "power_in"
-                    && !pin_flagged_no_connect(project, c.id, &p.number)
-            })
-        });
-        if undriven_power && !net_has_power_driver(project, net.id) {
-            result.push(Finding {
-                code: "power_not_driven",
-                severity: project.rule_severity("power_not_driven", "warning"),
-                message: format!(
-                    "{} has a power input but no power source; drive it from a power output, \
-                     a power label or a connector pin",
-                    net.name
-                ),
-                objects: vec![net.id],
+                hint: None,
             });
         }
     }
@@ -1379,8 +1337,8 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                         pin_a.number, pin_b.number
                     ),
                     objects: vec![*id_a, *id_b],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
         let drives = ["output", "bidirectional", "power_out", "passive"];
@@ -1408,85 +1366,8 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             }
         }
     }
-severity: project.rule_severity("undriven_input", "warning"),
-                        message: format!(
-                            "{reference} pin {} (input) sits on {} with no driver; tie it to an \
-                             output or a passive partner",
-                            pin.number, net.name
-                        ),
-                        objects: vec![*id],
-                    });
-                }
-            }
-        }
-    }
     result.extend(decoupling::missing_decoupling(project));
-    for net in &project.nets {
-        let undriven = project.components.iter().any(|c| {
-            c.pins.iter().any(|p| {
-                p.net == Some(net.id)
-                    && p.electrical_type == "power_in"
-                    && !pin_flagged_no_connect(project, c.id, &p.number)
-            })
-        });
-        if undriven && !net_has_power_driver(project, net.id) {
-            result.push(Finding {
-                code: "power_not_driven",
-                severity: project.rule_severity("power_not_driven", "warning"),
-                message: format!(
-                    "{} has a power input but no power source; drive it from a power output, \
-                     a power label or a connector pin",
-                    net.name
-                ),
-                objects: vec![net.id],
-            });
-        }
-    }
-    for c in &project.components {
-        if !is_ic_like(c) {
-            continue;
-        }
-        let placed = project.board.footprints.iter().any(|f| f.component == c.id);
-        for p in &c.pins {
-            if p.electrical_type != "power_in" {
-                continue;
-            }
-            let Some(net) = p.net else {
-                continue;
-            };
-            if pin_flagged_no_connect(project, c.id, &p.number) {
-                continue;
-            }
-            if !capacitor_on_net(project, net) {
-                result.push(Finding {
-                    code: "missing_decoupling",
-                    severity: project.rule_severity("missing_decoupling", "warning"),
-                    message: format!(
-                        "{} pin {} on {} needs a decoupling capacitor on the same net",
-                        c.reference,
-                        p.number,
-                        project.net_name(net)
-                    ),
-                    objects: vec![c.id],
-                });
-                continue;
-            }
-            if placed && !decoupling_distance_ok(project, c.id, &p.number, net) {
-                result.push(Finding {
-                    code: "missing_decoupling",
-                    severity: project.rule_severity("missing_decoupling", "warning"),
-                    message: format!(
-                        "{} pin {} on {} needs a capacitor pad within {:.1} mm on the board",
-                        c.reference,
-                        p.number,
-                        project.net_name(net),
-                        project.decoupling_max_mm
-                    ),
-                    objects: vec![c.id],
-                });
-            }
-        }
-    }
+    result.extend(esd_device_far_findings(project));
     for net in &project.nets {
         let open_count = project
             .components
@@ -1516,6 +1397,7 @@ severity: project.rule_severity("undriven_input", "warning"),
                     net.name
                 ),
                 objects: vec![net.id],
+                hint: None,
             });
         }
     }
@@ -1532,6 +1414,7 @@ severity: project.rule_severity("undriven_input", "warning"),
                     project.net_name(label.net)
                 ),
                 objects: vec![label.id],
+                hint: None,
             });
         }
     }
@@ -1697,6 +1580,7 @@ fn placement_machine_findings(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity(problem.code, "warning"),
                 message: format!("{}: {}", machine.name, problem.message),
                 objects: problem.components,
+                hint: None,
             });
         }
     }
@@ -1995,6 +1879,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                     advice.width_mm,
                 ),
                 objects: vec![track.id],
+                hint: None,
             });
         }
     }
@@ -2024,6 +1909,40 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     let mut lengths: BTreeMap<Id, f64> = BTreeMap::new();
     for track in &board.tracks {
         *lengths.entry(track.net).or_insert(0.0) += track.length();
+    }
+    let mut via_counts: BTreeMap<Id, (u32, Vec<Id>)> = BTreeMap::new();
+    for via in &board.vias {
+        if via.net == 0 {
+            continue;
+        }
+        let entry = via_counts.entry(via.net).or_insert((0, Vec::new()));
+        entry.0 += 1;
+        entry.1.push(via.id);
+    }
+    for class in &project.net_classes {
+        let Some(limit) = class.max_vias else {
+            continue;
+        };
+        for net in &class.nets {
+            let (count, ids) = via_counts
+                .get(net)
+                .map(|(count, ids)| (*count, ids.clone()))
+                .unwrap_or((0, Vec::new()));
+            if count <= limit {
+                continue;
+            }
+            result.push(Finding {
+                code: "via_count",
+                severity: project.rule_severity("via_count", "error"),
+                message: format!(
+                    "{} has {count} vias, {} allows at most {limit}",
+                    project.net_name(*net),
+                    class.name
+                ),
+                objects: ids,
+                hint: None,
+            });
+        }
     }
     for pair in &board.diff_pairs {
         for a in board
@@ -2060,33 +1979,68 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 });
             }
         }
-        let Some(tolerance) = pair.length_tolerance else {
+        if let Some(tolerance) = pair.length_tolerance
+            && (lengths.contains_key(&pair.net_p) || lengths.contains_key(&pair.net_n))
+        {
+            let skew = (lengths.get(&pair.net_p).copied().unwrap_or(0.0)
+                - lengths.get(&pair.net_n).copied().unwrap_or(0.0))
+            .abs();
+            if skew > tolerance + 1e-9 {
+                result.push(Finding {
+                    code: "diffpair_skew",
+                    severity: project.rule_severity("diffpair_skew", "error"),
+                    message: format!(
+                        "{}: {} sides differ by {:.3} mm, at most {:.3} mm allowed",
+                        pair.name,
+                        project.net_name(pair.net_p),
+                        skew,
+                        tolerance
+                    ),
+                    objects: vec![pair.net_p, pair.net_n],
+                    hint: None,
+                });
+            }
+        }
+        result.extend(pair_properties::pair_property_findings(project, pair));
+    }
+    result.extend(diffpair_impedance::findings(project));
+    for pair in &board.diff_pairs {
+        if !pair.equal_vias {
             continue;
+        }
+        let count_p = via_counts
+            .get(&pair.net_p)
+            .map(|(count, _)| *count)
+            .unwrap_or(0);
+        let count_n = via_counts
+            .get(&pair.net_n)
+            .map(|(count, _)| *count)
+            .unwrap_or(0);
+        if count_p == count_n {
+            continue;
+        }
+        let heavier = if count_p > count_n {
+            pair.net_p
+        } else {
+            pair.net_n
         };
-        if !lengths.contains_key(&pair.net_p) && !lengths.contains_key(&pair.net_n) {
-            continue;
-        }
-        let skew = (lengths.get(&pair.net_p).copied().unwrap_or(0.0)
-            - lengths.get(&pair.net_n).copied().unwrap_or(0.0))
-        .abs();
-        if skew <= tolerance + 1e-9 {
-            continue;
-        }
+        let objects = via_counts
+            .get(&heavier)
+            .map(|(_, ids)| ids.clone())
+            .unwrap_or_default();
         result.push(Finding {
-            code: "diffpair_skew",
-            severity: project.rule_severity("diffpair_skew", "error"),
+            code: "diffpair_via_count",
+            severity: project.rule_severity("diffpair_via_count", "error"),
             message: format!(
-                "{}: {} sides differ by {:.3} mm, at most {:.3} mm allowed",
+                "{}: {} has {count_p} vias and {} has {count_n}, equal count wanted",
                 pair.name,
                 project.net_name(pair.net_p),
-                skew,
-                tolerance
+                project.net_name(pair.net_n)
             ),
-            objects: vec![pair.net_p, pair.net_n],
+            objects,
             hint: None,
         });
     }
-    result.extend(diffpair_impedance::findings(project));
     for group in &board.length_groups {
         let routed: Vec<(Id, f64)> = group
             .nets
@@ -2204,6 +2158,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 net.name, target
             ),
             objects: vec![net.id],
+            hint: None,
         });
     }
     result.extend(panel_findings(project));
@@ -2404,6 +2359,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         remaining,
                     ),
                     objects: vec![zone.id],
+                    hint: None,
                 });
             } else if fill.removed > 0 {
                 result.push(Finding {
@@ -2416,6 +2372,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         fill.removed
                     ),
                     objects: vec![zone.id],
+                    hint: None,
                 });
             }
         }
@@ -2467,6 +2424,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         zone.id
                     ),
                     objects: vec![zone.id],
+                    hint: None,
                 });
             }
         }
@@ -2486,10 +2444,16 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 project.layer_name(zone.layer)
             ),
             objects: vec![zone.id],
+            hint: None,
         });
     }
     result.extend(stub::stub_length_findings(project, &items));
+    result.extend(stub::backdrill_findings(project));
     result.extend(acute::acute_angle_findings(project));
+    result.extend(track_radius::track_radius_findings(project));
+    result.extend(parallel_crosstalk::parallel_crosstalk_findings(project));
+    result.extend(impedance_target::impedance_target_findings(project));
+    result.extend(return_path::return_path_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
@@ -2517,49 +2481,6 @@ fn pad_annular_ring(rules: &FabRules, pad: &Pad) -> Option<f64> {
 
 /// Deepest hole, as a ratio of span depth to drill, a mechanical drill makes.
 const MECHANICAL_ASPECT_LIMIT: f64 = 8.0;
-
-/// Plain-language warning when a via is too deep for its drill to plate well;
-/// none when the ratio is fine or a laser-drilled micro via is exempt.
-fn via_in_pad_requires_capped(project: &Project, via: &pcbcraft_doc::Via) -> bool {
-    use pcbcraft_doc::ViaCovering;
-    if via.gerber_via_drill(&project.board) == pcbcraft_doc::ViaGerberDrill::VII {
-        return false;
-    }
-    for f in &project.board.footprints {
-        for pad in &f.pads {
-            if pad.net.unwrap_or(0) != via.net {
-                continue;
-            }
-            let Some(center) = f.pad_world_position(pad) else {
-                continue;
-            };
-            let inside = pad
-                .geometry
-                .as_ref()
-                .filter(|g| g.shape == "circle")
-                .is_some_and(|g| {
-                    via.position.distance(center) + via.diameter / 2.0
-                        <= g.size.x / 2.0 + 1e-6
-                })
-                || pad
-                    .geometry
-                    .as_ref()
-                    .filter(|g| g.shape != "circle")
-                    .is_some_and(|_| {
-                        let outline: Vec<Point> = pad
-                            .outline_points()
-                            .into_iter()
-                            .map(|p| f.position.offset(p.rotate(-f.rotation)))
-                            .collect();
-                        point_in_polygon(via.position, &outline)
-                    });
-            if inside {
-                return via.effective_covering(&project.board) != ViaCovering::FilledCapped;
-            }
-        }
-    }
-    false
-}
 
 pub fn via_aspect_warning(project: &Project, via: &pcbcraft_doc::Via) -> Option<String> {
     let board = &project.board;
@@ -2650,6 +2571,7 @@ fn via_findings(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("via_in_pad_not_capped", "warning"),
                 message,
                 objects: vec![via.id],
+                hint: None,
             });
         }
         if let Some(message) = via_aspect_warning(project, via) {
@@ -2659,17 +2581,6 @@ fn via_findings(project: &Project) -> Vec<Finding> {
                 message,
                 objects: vec![via.id],
                 hint: None,
-            });
-        }
-        if via_in_pad_requires_capped(project, via) {
-            result.push(Finding {
-                code: "via_in_pad_not_capped",
-                severity: project.rule_severity("via_in_pad_not_capped", "error"),
-                message: format!(
-                    "Via at {:.2}, {:.2} sits inside a pad and must be filled and capped",
-                    via.position.x, via.position.y
-                ),
-                objects: vec![via.id],
             });
         }
     }
@@ -2903,6 +2814,7 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                         min
                     ),
                     objects: vec![zone.id],
+                    hint: None,
                 });
             }
         }
@@ -2936,7 +2848,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymbol, LayerRecord, Net, NoConnectFlag, Pad, Pin, PinRef, Track, Via, component_template,
+        Component, FabRules, Footprint, Label, LayerRecord, LibraryFootprint, LibrarySymbol, Net,
+        NoConnectFlag, Pad, Pin, PinRef, Track, Via, component_template,
     };
     use pcbcraft_library::{Drill, FootprintDefinition, FootprintPad, SymbolDefinition};
 
@@ -2969,6 +2882,8 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: p.electrical_type.clone(),
                 unit: p.unit,
                 body_style: 0,
+                graphical_style: "line".into(),
+                visible: Default::default(),
             })
             .collect();
         let component = Component {
@@ -2996,11 +2911,19 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                     extends: None,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: Default::default(),
                 },
             }),
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         };
         Ok(component)
     }
@@ -3024,6 +2947,8 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 model: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                box_body: Default::default(),
+                retained: Default::default(),
             },
         });
         Ok(component)
@@ -3051,6 +2976,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 castellated: None,
                 geometry: Some(def_pad.clone()),
             }],
+            preserved: Default::default(),
         }
     }
 
@@ -3070,6 +2996,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 castellated: None,
                 geometry: None,
             }],
+            preserved: Default::default(),
         }
     }
 
@@ -3110,7 +3037,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         }
         p
     }
-  
+
     fn test_copper(id: Id, point: Point, layer: Layer, net: Id, pad: bool) -> Copper {
         Copper {
             id,
@@ -3130,7 +3057,124 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             cutouts: vec![],
         }
     }
-  
+    fn esd_placed_fixture(connector_x: f64, tvs_x: f64, enable: bool) -> Result<Project, String> {
+        let mut p = Project {
+            esd_max_distance_mm: 10.0,
+            ..Project::default()
+        };
+        if enable {
+            p.rule_severity
+                .insert("esd_device_far_from_connector".into(), "warning".into());
+        }
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut connector =
+            component_template("connector", 2, "J1".into(), Point::new(connector_x, 0.0))
+                .ok_or("connector template missing")?;
+        connector.pins[0].net = Some(1);
+        p.components.push(connector);
+        let mut tvs = component_template("tvs", 3, "D1".into(), Point::new(tvs_x, 0.0))
+            .ok_or("tvs template missing")?;
+        tvs.pins[0].net = Some(1);
+        p.components.push(tvs);
+        for (component, x) in [(2_u64, connector_x), (3, tvs_x)] {
+            p.board.footprints.push(Footprint {
+                id: component + 10,
+                component,
+                position: Point::new(x, 0.0),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![
+                    Pad {
+                        number: "1".into(),
+                        offset: Point::default(),
+                        diameter: 1.0,
+                        net: Some(1),
+                        castellated: None,
+                        geometry: None,
+                    },
+                    Pad {
+                        number: "2".into(),
+                        offset: Point::new(2.0, 0.0),
+                        diameter: 1.0,
+                        net: None,
+                        castellated: None,
+                        geometry: None,
+                    },
+                ],
+                preserved: Default::default(),
+            });
+        }
+        Ok(p)
+    }
+    #[test]
+    fn is_tvs_matches_kind_and_value_word() -> Result<(), String> {
+        let mut by_kind = component_template("tvs", 1, "D1".into(), Point::default())
+            .ok_or("tvs template missing")?;
+        assert!(is_tvs(&by_kind));
+        by_kind.kind = "resistor".into();
+        by_kind.value = "SM712 TVS".into();
+        assert!(is_tvs(&by_kind));
+        by_kind.value = "stvsomething".into();
+        assert!(!is_tvs(&by_kind));
+        by_kind.value = "1k".into();
+        by_kind.fields.push(pcbcraft_doc::ComponentField {
+            key: "Note".into(),
+            value: "Use a TVS here".into(),
+        });
+        assert!(is_tvs(&by_kind));
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_esd_device_far_from_connector_when_placed() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 25.0, true)?;
+        p.validate()?;
+        assert!(
+            erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_clears_esd_device_when_close() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 3.0, true)?;
+        p.validate()?;
+        assert!(
+            !erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_esd_off_by_default() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 25.0, false)?;
+        p.validate()?;
+        assert!(
+            !erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_esd_ignores_schematic_only_designs() -> Result<(), String> {
+        let mut p = esd_placed_fixture(0.0, 25.0, true)?;
+        p.board.footprints.clear();
+        p.validate()?;
+        assert!(
+            !erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
+        Ok(())
+    }
+
     #[test]
     fn erc_suppresses_unassigned_pin_warnings_for_no_connect_flags() -> Result<(), String> {
         let mut p = Project::default();
@@ -3161,7 +3205,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
         Ok(())
     }
-  
+
     fn pin_on_net(
         p: &mut Project,
         component: Id,
@@ -3191,7 +3235,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         }
         Ok(())
     }
-  
+
     #[test]
     fn erc_flags_two_outputs_on_one_net_and_undriven_input() -> Result<(), String> {
         let mut p = Project::default();
@@ -3240,7 +3284,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
-  
+
     #[test]
     fn erc_power_input_fed_by_power_output_is_clean() -> Result<(), String> {
         let mut p = Project::default();
@@ -3273,7 +3317,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
-  
+
     #[test]
     fn erc_reports_undriven_power_input_once() -> Result<(), String> {
         let mut p = Project::default();
@@ -3313,7 +3357,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
-  
+
     #[test]
     fn erc_power_not_driven_cleared_by_connector_pin() -> Result<(), String> {
         let mut p = Project::default();
@@ -3339,7 +3383,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
-  
+
     #[test]
     fn erc_power_not_driven_exclusion_hides_the_single_finding() -> Result<(), String> {
         let mut p = Project::default();
@@ -3367,7 +3411,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
-  
+
     #[test]
     fn erc_reports_missing_decoupling_without_cap_on_power_net() -> Result<(), String> {
         let mut p = Project::default();
@@ -3387,6 +3431,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: "power_in".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: Default::default(),
             }],
         )?);
         p.validate()?;
@@ -3412,6 +3457,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: "power_in".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: Default::default(),
             }],
         )?);
         let mut cap = component_template("capacitor", 3, "C1".into(), Point::new(30.0, 20.0))
@@ -3426,10 +3472,8 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
     }
     #[test]
     fn erc_applies_decoupling_distance_when_ic_is_placed() -> Result<(), String> {
-        let mut p = Project {
-            decoupling_max_mm: 3.0,
-            ..Default::default()
-        };
+        let mut p = Project::default();
+        p.decoupling.max_distance_mm = 3.0;
         let vdd = 101;
         let ic = 201;
         let cap_id = 202;
@@ -3450,6 +3494,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: "power_in".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: Default::default(),
             }],
         )?);
         let mut cap = component_template("capacitor", cap_id, "C1".into(), Point::new(30.0, 20.0))
@@ -3495,6 +3540,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                     electrical_type: "open_collector".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: Default::default(),
                 },
                 Pin {
                     number: "2".into(),
@@ -3504,6 +3550,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                     electrical_type: "open_collector".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: Default::default(),
                 },
             ],
         )?);
@@ -3538,6 +3585,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                     electrical_type: "open_collector".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: Default::default(),
                 },
                 Pin {
                     number: "2".into(),
@@ -3547,6 +3595,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                     electrical_type: "open_collector".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: Default::default(),
                 },
             ],
         )?);
@@ -3586,6 +3635,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 electrical_type: "power_in".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: Default::default(),
             }],
         )?);
         p.validate()?;
@@ -3662,7 +3712,6 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             from_layer: None,
             to_layer: None,
             covering: None,
-covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -3870,7 +3919,6 @@ covering_scope: None,
                 from_layer: None,
                 to_layer: None,
                 covering: None,
-covering_scope: None,
                 covering_bottom: None,
                 backdrill: None,
             });
@@ -4142,9 +4190,10 @@ covering_scope: None,
             preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p.validate()?;
+        let found = drc(&p);
         assert!(
-            drc(&p).is_empty(),
-            "standard 0805 pads are not a short at 0.2mm clearance"
+            found.is_empty(),
+            "standard 0805 pads are not a short at 0.2mm clearance: {found:?}"
         );
         p.board.clearance = 0.9;
         assert!(drc(&p).iter().any(|f| f.code == "pad_clearance_bound"));
@@ -4214,9 +4263,18 @@ covering_scope: None,
             if let Some(mut c) =
                 component_template("resistor", id, format!("R{id}"), Point::new(x, 10.0))
             {
+                c.pins.truncate(1);
                 for pin in &mut c.pins {
                     pin.net = Some(1);
                 }
+                c.library_footprint = Some(LibraryFootprint {
+                    library: "test".into(),
+                    definition: FootprintDefinition {
+                        name: "TH".into(),
+                        pads: vec![pad_geom.clone()],
+                        ..Default::default()
+                    },
+                });
                 p.components.push(c);
             }
             p.board.footprints.push(Footprint {
@@ -4234,6 +4292,7 @@ covering_scope: None,
                     castellated: None,
                     geometry: Some(pad_geom.clone()),
                 }],
+                preserved: Default::default(),
             });
         }
         let inner = Layer::from_index(1).map_err(|e| e.to_string())?;
@@ -4245,6 +4304,7 @@ covering_scope: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.vias.push(Via {
             id: 4,
@@ -4255,6 +4315,9 @@ covering_scope: None,
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 21,
@@ -4264,6 +4327,7 @@ covering_scope: None,
             width: 0.25,
             layer: inner,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         assert!(
@@ -4295,22 +4359,17 @@ covering_scope: None,
         });
         let inner_a = Layer::from_index(1).map_err(|e| e.to_string())?;
         let inner_b = Layer::from_index(2).map_err(|e| e.to_string())?;
-        let outline = vec![
-            Point::new(0.0, 0.0),
-            Point::new(40.0, 0.0),
-            Point::new(40.0, 20.0),
-            Point::new(0.0, 20.0),
-            Point::new(0.0, 0.0),
-        ];
-        p.board.zones.push(CopperZone {
+        // A poured zone retreats from foreign copper, so it cannot come
+        // closer than the clearance; two tracks can.
+        p.board.tracks.push(Track {
             id: 10,
             net: 1,
+            start: Point::new(10.0, 20.0),
+            end: Point::new(30.0, 20.0),
+            width: 0.25,
             layer: inner_a,
-            outline: outline.clone(),
-            cutouts: vec![],
-            filled: true,
-            kind: None,
-            pour: None,
+            arc: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 11,
@@ -4320,6 +4379,7 @@ covering_scope: None,
             width: 0.25,
             layer: inner_a,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         let clearance_on_inner = |p: &Project| {
@@ -4331,7 +4391,8 @@ covering_scope: None,
         };
         assert!(
             clearance_on_inner(&p),
-            "inner tracks of different nets on the same layer are checked for clearance"
+            "inner tracks of different nets on the same layer are checked for clearance: {:?}",
+            drc(&p)
         );
         if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == 11) {
             t.layer = inner_b;
@@ -4551,6 +4612,7 @@ covering_scope: None,
                 width: 0.2 + next(0.6),
                 layer,
                 arc: None,
+                preserved: Default::default(),
             });
         }
         for id in 100..108 {
@@ -4569,6 +4631,8 @@ covering_scope: None,
                     castellated: None,
                     geometry: None,
                 }],
+                preserved: Default::default(),
+                side: Default::default(),
             });
         }
         p
@@ -5022,6 +5086,7 @@ covering_scope: None,
                 min_width: Some(0.1),
                 ..Default::default()
             }),
+            preserved: Default::default(),
         });
         let findings = drc(&p);
         assert!(
@@ -5061,7 +5126,6 @@ covering_scope: None,
             from_layer: None,
             to_layer: None,
             covering: None,
-covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -5137,8 +5201,6 @@ covering_scope: None,
             from_layer: None,
             to_layer: None,
             covering: None,
-covering: None,
-            covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -5407,6 +5469,7 @@ covering: None,
             width: 0.2,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         assert!(
             drc(&p).iter().any(|f| f.code == "board_edge"),
@@ -5575,8 +5638,6 @@ covering: None,
             from_layer: from.and_then(|i| Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| Layer::from_index(i).ok()),
             covering: None,
-covering: None,
-            covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -5667,6 +5728,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 21,
@@ -5676,6 +5738,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Back,
             arc: None,
+            preserved: Default::default(),
         });
         p
     }
@@ -5706,14 +5769,34 @@ covering: None,
     #[test]
     fn obstacles_carry_the_clearance_of_their_net_class() -> Result<(), String> {
         let mut p = fixture();
+        // An embedded footprint definition needs its pad, and the placed pad
+        // must carry that same geometry.
+        let definition_pad = FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        if let Some(f) = p.board.footprints.iter_mut().find(|f| f.id == 12) {
+            f.pads[0].geometry = Some(definition_pad.clone());
+        }
         if let Some(c) = p.components.iter_mut().find(|c| c.id == 2) {
+            c.pins.truncate(1);
             c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
                 library: "Test".into(),
                 definition: pcbcraft_library::FootprintDefinition {
                     name: "pad".into(),
                     description: String::new(),
                     keywords: String::new(),
-                    pads: vec![],
+                    pads: vec![definition_pad],
                     graphics: vec![],
                     model: None,
                     rules: Some(pcbcraft_library::FootprintRules {
@@ -5723,6 +5806,8 @@ covering: None,
                     }),
                     raw_source: String::new(),
                     unsupported: vec![],
+                    box_body: Default::default(),
+                    retained: Default::default(),
                 },
             });
         }
@@ -5753,6 +5838,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 21,
@@ -5762,6 +5848,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         let for_twenty = copper_conflicts(&p, &[20]);
@@ -5799,6 +5886,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         assert!(
@@ -5826,6 +5914,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 21,
@@ -5835,6 +5924,7 @@ covering: None,
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
         p.validate()?;
         let short = copper_conflicts(&p, &[20])
@@ -5858,8 +5948,8 @@ covering: None,
 mod pour_tests {
     use super::*;
     use pcbcraft_doc::{
-        CopperZone, Footprint, Keepout, Net, Pad, RuleArea, RuleRegion, Track, Via, ZoneIslands,
-        ZonePour, component_template,
+        CopperZone, DiffPair, Footprint, Keepout, Net, NetClass, Pad, RuleArea, RuleRegion, Track,
+        Via, ZoneIslands, ZonePour, component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
 
@@ -5990,7 +6080,6 @@ mod pour_tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -6117,6 +6206,8 @@ covering_scope: None,
                 height: 4.0,
             },
             profile: None,
+            footprint_ref: Default::default(),
+            forbid: Default::default(),
         }
     }
 
@@ -6176,7 +6267,149 @@ covering_scope: None,
         Ok(())
     }
 
-#[test]
+    fn via_on(p: &mut Project, id: Id, net: Id, x: f64, y: f64) {
+        p.board.vias.push(Via {
+            id,
+            net,
+            position: Point::new(x, y),
+            diameter: 1.0,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
+        });
+    }
+
+    fn class_with_limit(
+        p: &mut Project,
+        class_id: Id,
+        net: Id,
+        max_vias: u32,
+    ) -> Result<(), String> {
+        p.net_classes.push(NetClass {
+            id: class_id,
+            name: "USB".into(),
+            clearance: 0.2,
+            width: 0.25,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_stub: None,
+            max_vias: Some(max_vias),
+            via_diameter: None,
+            via_drill: None,
+            pair_width: None,
+            pair_gap: None,
+            nets: vec![net],
+            profile: None,
+            backdrill: Default::default(),
+            corner_radius: Default::default(),
+            current: Default::default(),
+            fast: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            min_radius: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            rise_time: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
+        });
+        p.validate()
+    }
+
+    fn via_count_findings(p: &Project) -> Vec<Finding> {
+        drc(p)
+            .into_iter()
+            .filter(|f| f.code == "via_count")
+            .collect()
+    }
+
+    #[test]
+    fn a_class_with_max_vias_zero_reports_via_count_until_the_via_is_removed() -> Result<(), String>
+    {
+        let mut p = board();
+        via_on(&mut p, 100, 2, 20.0, 20.0);
+        class_with_limit(&mut p, 50, 2, 0)?;
+        assert_eq!(via_count_findings(&p).len(), 1);
+        p.board.vias.clear();
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_class_with_max_vias_four_allows_four_and_reports_five() -> Result<(), String> {
+        let mut p = board();
+        class_with_limit(&mut p, 50, 2, 4)?;
+        for (i, x) in (0..4_u64).map(|i| (i, 10.0 + i as f64 * 2.0)) {
+            via_on(&mut p, 100 + i, 2, x, 20.0);
+        }
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
+        via_on(&mut p, 200, 2, 30.0, 20.0);
+        p.validate()?;
+        assert_eq!(via_count_findings(&p).len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn a_pair_with_equal_vias_reports_diffpair_via_count_until_counts_match() -> Result<(), String>
+    {
+        let mut p = board();
+        p.nets.push(Net {
+            id: 3,
+            name: "USB_N".into(),
+            ..Default::default()
+        });
+        p.board.diff_pairs.push(DiffPair {
+            id: 60,
+            name: "USB".into(),
+            net_p: 2,
+            net_n: 3,
+            gap: 0.2,
+            length_tolerance: None,
+            equal_vias: true,
+            profile: None,
+            impedance_tolerance: Default::default(),
+            max_uncoupled_length: Default::default(),
+            skew_limit_mm: Default::default(),
+            skew_limit_ps: Default::default(),
+            target_impedance: Default::default(),
+        });
+        via_on(&mut p, 101, 2, 12.0, 20.0);
+        via_on(&mut p, 102, 2, 14.0, 20.0);
+        via_on(&mut p, 103, 3, 16.0, 20.0);
+        p.validate()?;
+        let findings: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "diffpair_via_count")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        via_on(&mut p, 104, 3, 18.0, 20.0);
+        p.validate()?;
+        assert!(drc(&p).iter().all(|f| f.code != "diffpair_via_count"));
+        Ok(())
+    }
+
+    #[test]
+    fn vias_on_a_net_outside_any_class_never_report_via_count() -> Result<(), String> {
+        let mut p = board();
+        via_on(&mut p, 100, 2, 20.0, 20.0);
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
+        Ok(())
+    }
+
+    #[test]
     fn finding_hint_serializes_only_when_present() -> Result<(), String> {
         use serde_json::{json, to_value};
         let with_hint = Finding {
@@ -6251,6 +6484,7 @@ covering_scope: None,
                 width: 0.2 + next(0.6),
                 layer,
                 arc: None,
+                preserved: Default::default(),
             });
         }
         for id in 100..108 {
@@ -6270,6 +6504,7 @@ covering_scope: None,
                     castellated: None,
                     geometry: None,
                 }],
+                preserved: Default::default(),
             });
         }
         p

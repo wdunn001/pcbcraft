@@ -17,13 +17,19 @@
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
+mod a11y;
+mod changeset;
 mod compliance_lists;
+mod coverage;
 mod doc_check;
 mod e2e;
 mod i18n;
+mod lint;
+mod registry_check;
 mod showcase;
 mod status_data;
 mod status_schema;
+mod test_standards;
 mod tooltips;
 
 use std::path::{Path, PathBuf};
@@ -33,13 +39,15 @@ use std::time::Duration;
 const USAGE: &str = "usage: cargo xtask <command>
 
   ci           policy, fmt, clippy, test, wasm and docs (run before committing)
+  lint         stage 1: conflict markers, workflow files, fmt, policy, layers, docs check, strings check [--json]
   policy       dependency layers and lint configuration
   layers       dependency layers only
   fmt          rustfmt check
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
-bench        timed large-board bench (release, ignored tests)
+  bench        timed large-board bench (release, ignored tests)
   wasm         WebAssembly check of the shared UI and browser entry point, wasm clippy, trunk build and browser smoke
+  wasm-deps    the portable crates must pass cargo check for wasm32; reports the craft-libs revision
   tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
   docs check   documentation standard: paths, trait implementation lists, AGENTS.md, missing-docs ratchet
@@ -68,6 +76,7 @@ tooltips     [--strict] check tooltip text against docs/tooltips.md
   visual-gate  compare current screenshots against baselines in target/baselines (run screenshots first)
   board3d-bench  run the six-hundred-part 3D render regression test
   status-data  [--refresh] write site/src/data/status.json from the cached tracker snapshot
+";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
 const WASM_PACKAGES: [&str; 2] = ["pcbcraft-ui-egui", "pcbcraft-web"];
@@ -328,16 +337,11 @@ fn wasm() -> Result<(), String> {
     cargo(&args)?;
 
     let conf = root()?.join("clippy-wasm");
-    let mut clippy_args = vec![
-        "clippy",
-        "--locked",
-        "--target",
-        "wasm32-unknown-unknown",
-    ];
+    let mut clippy_args = vec!["clippy", "--locked", "--target", "wasm32-unknown-unknown"];
     for package in WASM_PACKAGES {
-        clippy_args.extend(["-p", package, "--lib"]);
+        clippy_args.extend(["-p", package]);
     }
-    clippy_args.extend(["--", "-D", "warnings"]);
+    clippy_args.extend(["--lib", "--", "-D", "warnings"]);
     run_env(
         "cargo",
         &clippy_args,
@@ -360,12 +364,7 @@ fn wasm() -> Result<(), String> {
     }
     if !web.join("node_modules/playwright").is_dir() {
         run_env_in(&web, "npm", &["ci", "--no-audit", "--no-fund"], &[])?;
-        run_env_in(
-            &web,
-            "npx",
-            &["playwright", "install", "chromium"],
-            &[],
-        )?;
+        run_env_in(&web, "npx", &["playwright", "install", "chromium"], &[])?;
     }
     run_env_in(&web, "node", &["scripts/smoke-first-frame.mjs"], &[])?;
     Ok(())
@@ -475,6 +474,10 @@ fn layers() -> Result<(), String> {
             .ok_or("missing dependencies")?
         {
             let dep = str_field(dependency, "name")?;
+            // Test-only dependencies may reach upward; they never ship.
+            if dependency.get("kind").and_then(serde_json::Value::as_str) == Some("dev") {
+                continue;
+            }
             if layer(dep).is_some_and(|target| target > level)
                 || (level < 4
                     && ["egui", "eframe", "wgpu", "winit", "rfd", "craft-ui"].contains(&dep))
@@ -666,6 +669,103 @@ fn screenshots(args: &[String]) -> Result<(), String> {
     }
 }
 
+/// Portable crates that must build for wasm32 (short names; the package is
+/// `pcbcraft-<name>`).
+const PORTABLE_CRATES: [&str; 15] = [
+    "geom",
+    "doc",
+    "calc",
+    "rules",
+    "sim",
+    "text",
+    "clock",
+    "io",
+    "engine",
+    "mcp",
+    "ui-egui",
+    "library",
+    "plugin",
+    "portal",
+    "publication",
+];
+
+/// Reads the revision of the shared `craft-libs` git dependency from a workspace manifest.
+fn craft_libs_rev(manifest: &str) -> Option<String> {
+    let line = manifest
+        .lines()
+        .find(|l| l.contains("craft-libs") && l.contains("rev"))?;
+    let after = line.split("rev").nth(1)?;
+    let start = after.find('"')? + 1;
+    let len = after.get(start..)?.find('"')?;
+    Some(after.get(start..start + len)?.to_string())
+}
+
+/// The portable crates must keep building for the browser. Also reports the shared
+/// library revision and warns when a sibling checkout pins a different one.
+fn wasm_deps() -> Result<(), String> {
+    let root = root()?;
+    let manifest = std::fs::read_to_string(root.join("Cargo.toml")).map_err(|e| e.to_string())?;
+    match craft_libs_rev(&manifest) {
+        Some(rev) => {
+            println!("craft-libs revision pinned here: {rev}");
+            let sibling = match std::env::var("SOLIDCRAFT_DIR") {
+                Ok(dir) => PathBuf::from(dir),
+                Err(_) => root.join("..").join("solidcraft"),
+            };
+            if let Ok(other) = std::fs::read_to_string(sibling.join("Cargo.toml")) {
+                match craft_libs_rev(&other) {
+                    Some(theirs) if theirs != rev => println!(
+                        "warning: craft-libs revision differs from the sibling checkout ({theirs}); align them"
+                    ),
+                    Some(_) => println!("craft-libs revision matches the sibling checkout"),
+                    None => {}
+                }
+            }
+        }
+        None => println!("warning: no craft-libs revision found in Cargo.toml"),
+    }
+    // A crate that is not in this checkout yet is skipped, so the list can name
+    // crates that land on other branches first.
+    let names: Vec<String> = PORTABLE_CRATES
+        .iter()
+        .filter(|name| root.join("crates").join(name).join("Cargo.toml").is_file())
+        .map(|name| format!("pcbcraft-{name}"))
+        .collect();
+    let mut args = vec!["check", "--locked", "--target", "wasm32-unknown-unknown"];
+    for name in &names {
+        args.extend(["-p", name]);
+    }
+    cargo(&args)
+}
+
+/// Stage 1 of CI: the cheap checks in order, one result per step. `--json` adds the
+/// result array as the last line. Every step runs; the exit code is non-zero if any failed.
+fn lint_stage(args: &[String]) -> Result<(), String> {
+    let root = root()?;
+    let results = vec![
+        lint::timed("conflict-markers", || lint::conflict_markers(&root)),
+        lint::timed("workflows", || lint::workflows(&root)),
+        lint::timed("fmt", fmt),
+        lint::timed("policy", lint_policy),
+        lint::timed("layers", layers),
+        lint::timed("docs-check", || doc_check::run(&[])),
+        lint::timed("strings-check", || strings(Some("check"))),
+    ];
+    if args.iter().any(|a| a == "--json") {
+        println!("{}", lint::to_json(&results));
+    }
+    let failed: Vec<&str> = results
+        .iter()
+        .filter(|r| !r.ok)
+        .map(|r| r.step.as_str())
+        .collect();
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("lint failed: {}", failed.join(", ")))
+    }
+}
+
 /// Dispatches the subcommand named on the command line; `ci` is the default.
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -687,6 +787,8 @@ fn run() -> Result<(), String> {
             lint_policy()?;
         }
         "layers" => layers()?,
+        "lint" => lint_stage(args.get(1..).unwrap_or(&[]))?,
+        "wasm-deps" => wasm_deps()?,
         "fmt" => fmt()?,
         "clippy" => clippy()?,
         "test" => test()?,
@@ -707,7 +809,7 @@ fn run() -> Result<(), String> {
         "showcase" => showcase::run(&root()?)?,
         "status-data" => status_data::run(args.get(1..).unwrap_or(&[]), &root()?)?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
-"bless-parity" => {
+        "bless-parity" => {
             run_env(
                 "cargo",
                 &["test", "-p", "pcbcraft-engine", "--test", "parity"],
@@ -860,6 +962,7 @@ fn collect_rs(base: &Path, dir: &Path, out: &mut Vec<(String, String)>) -> Resul
 
 /// Compares current screenshots against baselines stored in target/baselines.
 /// Fails if any screenshot differs beyond tolerance.
+#[allow(dead_code)]
 fn visual_gate(_args: &[String]) -> Result<(), String> {
     let root = root()?;
     let baselines_dir = root.join("target").join("baselines");
@@ -898,7 +1001,7 @@ fn visual_gate(_args: &[String]) -> Result<(), String> {
 
         // Allow 1% difference in file size (compression variations)
         let max_diff = (baseline_size as f64 * 0.01) as u64;
-        if (baseline_size as i64 - current_size as i64).abs() as u64 > max_diff {
+        if (baseline_size as i64 - current_size as i64).unsigned_abs() > max_diff {
             differences.push(format!(
                 "screenshot differs: {} (baseline: {} bytes, current: {} bytes)",
                 stem, baseline_size, current_size

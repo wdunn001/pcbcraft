@@ -1,6 +1,6 @@
 //! Betaflight-style board target export and reverse pin-map check.
 use pcbcraft_doc::Project;
-use pcbcraft_library::firmware_design::{load_firmware_context, FirmwareContext};
+use pcbcraft_doc::firmware_design::{FirmwareContext, load_firmware_context};
 use std::collections::BTreeMap;
 
 /// Files written for export kind `firmware_target`.
@@ -102,29 +102,31 @@ fn board_manifest_json(ctx: &FirmwareContext) -> Result<String, String> {
 }
 
 /// Compare an existing config.h pin map with the schematic firmware design.
-pub fn firmware_config_compare(project: &Project, config_text: &str) -> Result<Vec<String>, String> {
+pub fn firmware_config_compare(
+    project: &Project,
+    config_text: &str,
+) -> Result<Vec<String>, String> {
     let ctx = load_firmware_context(project)?;
     let parsed = parse_defines(config_text);
     let mut mismatches = vec![];
-    if let Some(gyro) = ctx.design.gyro.first() {
-        if let Some(cs) = parsed.get("GYRO_1_CS_PIN") {
-            if cs != &gyro.cs {
-                mismatches.push(format!(
-                    "GYRO_1_CS_PIN is {cs} in the file but the design uses {}",
-                    gyro.cs
-                ));
-            }
-        }
+    if let Some(gyro) = ctx.design.gyro.first()
+        && let Some(cs) = parsed.get("GYRO_1_CS_PIN")
+        && cs != &gyro.cs
+    {
+        mismatches.push(format!(
+            "GYRO_1_CS_PIN is {cs} in the file but the design uses {}",
+            gyro.cs
+        ));
     }
     for assign in &ctx.design.assignment {
         let key = format!("PIN_MAP_{}", assign.function);
-        if let Some(pin) = parsed.get(&key) {
-            if pin != &assign.pin {
-                mismatches.push(format!(
-                    "{key} is {pin} in the file but the design uses {}",
-                    assign.pin
-                ));
-            }
+        if let Some(pin) = parsed.get(&key)
+            && pin != &assign.pin
+        {
+            mismatches.push(format!(
+                "{key} is {pin} in the file but the design uses {}",
+                assign.pin
+            ));
         }
     }
     Ok(mismatches)
@@ -144,10 +146,7 @@ fn parse_defines(text: &str) -> BTreeMap<String, String> {
             }
             continue;
         };
-        out.insert(
-            name.to_string(),
-            value.trim_matches('"').trim().to_string(),
-        );
+        out.insert(name.to_string(), value.trim_matches('"').trim().to_string());
     }
     out
 }
@@ -184,6 +183,13 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         project
     }

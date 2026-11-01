@@ -55,7 +55,7 @@ fn internal_angle_deg(ax: f64, ay: f64, bx: f64, by: f64) -> Option<f64> {
         return None;
     }
     let between = (ax * bx + ay * by).clamp(-1.0, 1.0).acos().to_degrees();
-    Some(between.min(180.0 - between))
+    Some(between)
 }
 
 /// `acute_angle` findings for every track joint sharper than ninety degrees.
@@ -134,6 +134,7 @@ pub(crate) fn acute_angle_findings(project: &Project) -> Vec<Finding> {
                                 MIN_INTERNAL_ANGLE_DEG,
                             ),
                             objects: vec![id_a, id_b],
+                            hint: None,
                         });
                     }
                 }
@@ -159,6 +160,7 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+            preserved: Default::default(),
         });
     }
 
@@ -193,7 +195,7 @@ mod tests {
             ..Default::default()
         });
         track(&mut p, 20, Point::new(0.0, 0.0), Point::new(10.0, 0.0));
-        track(&mut p, 21, Point::new(10.0, 0.0), Point::new(15.0, 5.0));
+        track(&mut p, 21, Point::new(10.0, 0.0), Point::new(5.0, 5.0));
         p.validate()?;
         let found = acute(&p);
         assert_eq!(found.len(), 1);

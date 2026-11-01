@@ -18,9 +18,11 @@
 //! Limits are explicit: [`BoardMesh::warnings`] says what was skipped and why.
 #[path = "board_mesh_bench.rs"]
 mod board_mesh_bench;
-pub use board_mesh_bench::bench_project_600_parts;
+use crate::mesh_material::{MaterialClass, parametric_body_material};
 use crate::model_load::LoadedModel;
-use pcbcraft_doc::{ArtKind, ArtShape, Component, Footprint, Id, Layer, Pad, Project};
+use crate::parametric_body::ParametricBody;
+pub use board_mesh_bench::bench_project_600_parts;
+use pcbcraft_doc::{ArtKind, ArtShape, Footprint, Id, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::Model3D;
 use serde_json::{Value, json};
@@ -42,7 +44,9 @@ const MAX_RING: usize = 256;
 const MAX_MERGED_VERTICES: usize = 12_000;
 const MAX_HOLES_PER_POLYGON: usize = 2_000;
 const EPS: f64 = 1e-9;
+#[allow(dead_code)]
 const DECAL_MIN_AREA: f64 = 14.0;
+#[allow(dead_code)]
 const DECAL_RAISE: f64 = 0.06;
 
 /// What a part of the mesh is.
@@ -118,6 +122,10 @@ pub struct BodyPrototype {
     /// Main package shell triangles before pin posts, for level-of-detail.
     pub shell_triangles: u32,
     pub color: Option<[f32; 3]>,
+    /// One material per triangle, in index order; empty when the source had none.
+    pub materials: Vec<MaterialClass>,
+    /// sRGB 0..1 for triangles with [`MaterialClass::Authored`]; same length as `materials`.
+    pub authored_colors: Vec<[f32; 3]>,
 }
 
 /// One named triangle list.
@@ -138,11 +146,15 @@ pub struct MeshPart {
     pub prototype: Option<Arc<BodyPrototype>>,
     /// Row-major 4x4 local-to-board matrix when [`Self::prototype`] is set.
     pub instance: Option<[f64; 16]>,
+    /// One material per triangle, in index order.
+    pub materials: Vec<MaterialClass>,
+    /// sRGB 0..1 for triangles with [`MaterialClass::Authored`]; same length as `materials`.
+    pub authored_colors: Vec<[f32; 3]>,
     pub positions: Vec<[f64; 3]>,
     pub indices: Vec<u32>,
 }
 impl MeshPart {
-    fn new(kind: PartKind, name: String) -> Self {
+    pub(crate) fn new(kind: PartKind, name: String) -> Self {
         Self {
             kind,
             name,
@@ -153,6 +165,8 @@ impl MeshPart {
             color: None,
             prototype: None,
             instance: None,
+            materials: vec![],
+            authored_colors: vec![],
             positions: vec![],
             indices: vec![],
         }
@@ -171,6 +185,26 @@ impl MeshPart {
             return Some((min, max));
         }
         self.bounds()
+    }
+    /// The part with its instanced prototype expanded into plain world-space
+    /// triangles, for writers that take a flat mesh. A part that is not
+    /// instanced comes back unchanged.
+    pub fn flattened(&self) -> MeshPart {
+        let (Some(proto), Some(m)) = (&self.prototype, &self.instance) else {
+            return self.clone();
+        };
+        let mut out = self.clone();
+        out.positions = proto
+            .positions
+            .iter()
+            .map(|p| apply_matrix(m, *p))
+            .collect();
+        out.indices = proto.indices.clone();
+        out.materials = proto.materials.clone();
+        out.authored_colors = proto.authored_colors.clone();
+        out.prototype = None;
+        out.instance = None;
+        out
     }
     pub fn triangle_count(&self) -> usize {
         if let Some(proto) = &self.prototype {
@@ -273,6 +307,16 @@ impl BoardMesh {
                         };
                         map.insert("positions".into(), json!(positions));
                         map.insert("indices".into(), json!(indices));
+                        let materials = match (&part.prototype, &part.instance) {
+                            (Some(proto), Some(_)) => &proto.materials,
+                            _ => &part.materials,
+                        };
+                        if !materials.is_empty() {
+                            map.insert(
+                                "materials".into(),
+                                json!(materials.iter().map(|m| m.name()).collect::<Vec<_>>()),
+                            );
+                        }
                     }
                 }
                 v
@@ -743,6 +787,7 @@ fn board_part_materials(kind: PartKind, gold_finish: bool) -> (MaterialClass, Ma
             (MaterialClass::Marking, MaterialClass::Marking)
         }
         PartKind::Body => (MaterialClass::MouldCompound, MaterialClass::MouldCompound),
+        PartKind::Lead => (MaterialClass::TinLead, MaterialClass::TinLead),
     }
 }
 
@@ -875,31 +920,49 @@ pub fn model_matrix(
     );
     mul(&footprint, &local)
 }
-fn parametric_body_key(body: &Body, bottom: bool) -> u64 {
+fn hash_solid(solid: &crate::parametric_body::Solid, state: &mut impl Hasher) {
+    solid.z0.to_bits().hash(state);
+    solid.z1.to_bits().hash(state);
+    for p in &solid.ring {
+        p.x.to_bits().hash(state);
+        p.y.to_bits().hash(state);
+    }
+}
+
+/// Key of a parametric body prototype: two bodies with the same shape and side
+/// share one prototype and differ only by their placement matrix.
+fn parametric_body_key(body: &ParametricBody, bottom: bool) -> u64 {
     let mut state = std::collections::hash_map::DefaultHasher::new();
     body.family.hash(&mut state);
     body.height.to_bits().hash(&mut state);
+    body.standoff.to_bits().hash(&mut state);
     bottom.hash(&mut state);
     for p in &body.ring {
         p.x.to_bits().hash(&mut state);
         p.y.to_bits().hash(&mut state);
     }
-    body.pins.len().hash(&mut state);
-    for pin in &body.pins {
-        pin.len().hash(&mut state);
+    for group in [&body.leads, &body.pins, &body.extras] {
+        group.len().hash(&mut state);
+        for solid in group {
+            hash_solid(solid, &mut state);
+        }
+    }
+    for solid in [&body.pin1_chamfer, &body.polarity].into_iter().flatten() {
+        hash_solid(solid, &mut state);
     }
     state.finish()
 }
 
-fn local_body_ring(body: &Body, bottom: bool) -> Vec<Point> {
-    let mut ring = body.ring.clone();
+/// A ring in the footprint frame, flipped for a part on the bottom side.
+fn local_ring(ring: &[Point], bottom: bool) -> Vec<Point> {
+    let mut out = ring.to_vec();
     if bottom {
-        ring.reverse();
-        for p in &mut ring {
+        out.reverse();
+        for p in &mut out {
             p.x = -p.x;
         }
     }
-    ring
+    out
 }
 
 /// Footprint pose for a parametric body prototype (local mm to board mm).
@@ -912,43 +975,80 @@ pub fn footprint_body_matrix(fp: &Footprint, bottom: bool, thickness: f64) -> [f
 }
 
 fn build_parametric_prototype(
-    body: &Body,
+    body: &ParametricBody,
     bottom: bool,
     budget: &mut Budget,
     warnings: &mut Warnings,
 ) -> Result<BodyPrototype, String> {
-    let mut b = Builder {
-        part: MeshPart::new(PartKind::Body, "prototype".into()),
+    let compound = parametric_body_material(body.family, body.height);
+    let mut b = new_builder(
+        MeshPart::new(PartKind::Body, "prototype".into()),
         budget,
+        compound,
+        compound,
+    );
+    // A bottom-side part hangs below the board: z runs downward from the seat.
+    let span = |z0: f64, z1: f64| -> (f64, f64) {
+        let (lo, hi) = (body.standoff + z0, body.standoff + z1);
+        if bottom { (-hi, -lo) } else { (lo, hi) }
     };
-    let (z0, z1) = if bottom {
-        (-body.height, 0.0)
-    } else {
-        (0.0, body.height)
+    let extrude = |b: &mut Builder<'_>,
+                   ring: &[Point],
+                   z0: f64,
+                   z1: f64,
+                   mat: MaterialClass,
+                   warnings: &mut Warnings|
+     -> Result<(), String> {
+        b.cap_mat = mat;
+        b.wall_mat = mat;
+        let (lo, hi) = span(z0, z1);
+        if let Some(ring) = clean_ring(&local_ring(ring, bottom)) {
+            b.prism(&ring, vec![], lo, hi, warnings)?;
+        }
+        Ok(())
     };
-    let pin_z0 = if bottom { 0.0 } else { body.height };
-    let pin_z1 = pin_z0 + POST_HEIGHT;
-    if let Some(ring) = clean_ring(&local_body_ring(body, bottom)) {
-        b.prism(&ring, vec![], z0, z1, warnings)?;
-    }
+    extrude(&mut b, &body.ring, 0.0, body.height, compound, warnings)?;
     let shell = u32::try_from(b.part.triangle_count()).unwrap_or(u32::MAX);
-    for pin in &body.pins {
-        let mut local = pin.clone();
-        if bottom {
-            local.reverse();
-            for p in &mut local {
-                p.x = -p.x;
-            }
-        }
-        if let Some(ring) = clean_ring(&local) {
-            b.prism(&ring, vec![], pin_z0, pin_z1, warnings)?;
-        }
+    for solid in &body.extras {
+        extrude(&mut b, &solid.ring, solid.z0, solid.z1, compound, warnings)?;
+    }
+    for solid in &body.leads {
+        extrude(
+            &mut b,
+            &solid.ring,
+            solid.z0,
+            solid.z1,
+            MaterialClass::TinLead,
+            warnings,
+        )?;
+    }
+    for solid in &body.pins {
+        extrude(
+            &mut b,
+            &solid.ring,
+            solid.z0,
+            solid.z1,
+            MaterialClass::TinLead,
+            warnings,
+        )?;
+    }
+    for solid in [&body.pin1_chamfer, &body.polarity].into_iter().flatten() {
+        extrude(
+            &mut b,
+            &solid.ring,
+            solid.z0,
+            solid.z1,
+            MaterialClass::Marking,
+            warnings,
+        )?;
     }
     Ok(BodyPrototype {
         positions: b.part.positions,
         indices: b.part.indices,
         shell_triangles: shell,
         color: None,
+        materials: b.part.materials,
+        authored_colors: b.part.authored_colors,
     })
 }
 
@@ -989,6 +1089,7 @@ pub fn with_models(
     mut lookup: impl FnMut(&ModelPlacement) -> ModelLookup,
 ) -> Vec<(Id, ModelStatus)> {
     let mut notes = vec![];
+    let mut loaded_ids: Vec<Id> = vec![];
     let mut file_prototypes: HashMap<String, Arc<BodyPrototype>> = HashMap::new();
     for part in &mut mesh.parts {
         let (Some(id), Some(model)) = (part.component, part.model.as_mut()) else {
@@ -997,19 +1098,24 @@ pub fn with_models(
         if part.kind != PartKind::Body {
             continue;
         }
-        match lookup(model) {
+        let looked = match &model.preloaded {
+            Some(m) => ModelLookup::Ready(m.clone()),
+            None => lookup(model),
+        };
+        match looked {
             ModelLookup::Loading => notes.push((id, ModelStatus::Loading)),
             ModelLookup::Failed(reason) => notes.push((id, ModelStatus::Failed(reason))),
-ModelLookup::Ready(m) => {
+            ModelLookup::Ready(m) => {
                 let proto = file_prototypes
                     .entry(model.path.clone())
                     .or_insert_with(|| {
                         Arc::new(BodyPrototype {
                             positions: m.positions.clone(),
                             indices: m.indices.clone(),
-                            shell_triangles: u32::try_from(m.indices.len() / 3)
-                                .unwrap_or(u32::MAX),
+                            shell_triangles: u32::try_from(m.indices.len() / 3).unwrap_or(u32::MAX),
                             color: m.color,
+                            materials: m.triangle_materials.clone(),
+                            authored_colors: m.authored_colors.clone(),
                         })
                     })
                     .clone();
@@ -1098,6 +1204,7 @@ fn parse_height(text: &str) -> Option<f64> {
     (v.is_finite() && (0.05..=100.0).contains(&v)).then_some(v)
 }
 
+#[allow(dead_code)]
 fn glyph_rows(ch: char) -> [u8; 3] {
     match ch {
         '0' => [0b111, 0b101, 0b111],
@@ -1140,6 +1247,7 @@ fn glyph_rows(ch: char) -> [u8; 3] {
     }
 }
 
+#[allow(dead_code)]
 fn decal_rings(text: &str, cx: f64, cy: f64, span_w: f64, span_h: f64) -> Vec<Vec<Point>> {
     let chars: Vec<char> = text.chars().collect();
     if chars.is_empty() {
@@ -1478,7 +1586,7 @@ pub fn board_mesh_with_dir(
                 .and_then(|c| c.library_footprint.as_ref())
                 .and_then(|l| l.definition.box_body)
             {
-                body = Body::plain("box", explicit.outline(), explicit.height);
+                body = ParametricBody::plain("box", explicit.outline(), explicit.height);
                 height_source = "footprint";
             } else if let Some(text) = component.and_then(|c| c.field("height")) {
                 match parse_height(text) {
@@ -1498,7 +1606,8 @@ pub fn board_mesh_with_dir(
             let proto = match parametric_prototypes.get(&key) {
                 Some(p) => p.clone(),
                 None => {
-                    let built = build_parametric_prototype(&body, bottom, &mut budget, &mut warnings)?;
+                    let built =
+                        build_parametric_prototype(&body, bottom, &mut budget, &mut warnings)?;
                     let arc = Arc::new(built);
                     parametric_prototypes.insert(key, Arc::clone(&arc));
                     arc
@@ -1517,7 +1626,11 @@ pub fn board_mesh_with_dir(
                 .and_then(|c| c.library_footprint.as_ref())
                 .and_then(|l| l.definition.model.as_ref())
             {
-part.model = Some(ModelPlacement {
+                let preloaded = (!model.embedded.is_empty())
+                    .then(|| crate::decode_compact_base64(&model.embedded).ok())
+                    .flatten()
+                    .map(std::sync::Arc::new);
+                part.model = Some(ModelPlacement {
                     path: crate::model_resolve::resolve_model_path(
                         p,
                         &model.path,
@@ -1526,127 +1639,14 @@ part.model = Some(ModelPlacement {
                             .map(|l| l.library.as_str()),
                         design_dir,
                     ),
-                    matrix: model_matrix(
-                        model,
-                        fp.position,
-                        fp.rotation,
-                        bottom,
-                        thickness,
-                    ),
-                    loaded: false,
-                });
-                    matrix: model_matrix(
-                        model,
-                        fp.position,
-                        fp.rotation,
-                        bottom,
-                        thickness,
-                    ),
-                    loaded: false,
-                    preloaded: (!model.embedded.is_empty())
-                        .then(|| crate::decode_compact_base64(&model.embedded).ok())
-                        .flatten()
-                        .map(std::sync::Arc::new),
-                });
-                    path: model.path.clone(),
-                    matrix: model_matrix(
-                        model,
-                        fp.position,
-                        fp.rotation,
-                        bottom,
-                        thickness,
-                    ),
+                    cad_part: None,
+                    matrix: model_matrix(model, fp.position, fp.rotation, bottom, thickness),
                     loaded: false,
                     preloaded,
                 });
             }
-            let z_base = thickness + body.standoff;
-            let mut extrude =
-                |ring: &[Point], z0: f64, z1: f64| -> Result<(), String> {
-                    if let Some(ring) = clean_ring(&map_ring(fp, ring)) {
-                        b.prism(&ring, vec![], z_base + z0, z_base + z1, &mut warnings)?;
-                    }
-                    Ok(())
-                };
-            extrude(&body.ring, 0.0, body.height)?;
-            for lead in &body.leads {
-                extrude(&lead.ring, lead.z0, lead.z1)?;
-            }
-            if let Some(mark) = &body.pin1_chamfer {
-                extrude(&mark.ring, mark.z0, mark.z1)?;
-            }
-            if let Some(mark) = &body.polarity {
-                extrude(&mark.ring, mark.z0, mark.z1)?;
-            }
-            for pin in &body.pins {
-                extrude(&pin.ring, pin.z0, pin.z1)?;
-            }
-            for extra in &body.extras {
-                extrude(&extra.ring, extra.z0, extra.z1)?;
-            }
-            if let Some(text) = &body.decal {
-                let (lo, hi) = ring_bounds(&body.ring);
-                let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-                let (w, h) = (hi.x - lo.x, hi.y - lo.y);
-                if w * h >= DECAL_MIN_AREA {
-                    for ring in decal_rings(text, cx, cy, w * 0.85, h * 0.85) {
-                        extrude(&ring, body.height, body.height + DECAL_RAISE)?;
-                    }
-                }
-                if !leads.part.indices.is_empty() {
-                    extra.push(leads.part);
-                }
-                if !body.pins.is_empty() {
-                    let mut pins = Builder {
-                        part: MeshPart::new(PartKind::Lead, format!("{name} pins")),
-                        budget: &mut budget,
-                    };
-                    pins.part.component = Some(fp.component);
-                    pins.part.color = Some(PIN_GOLD);
-                    for pin in &body.pins {
-                        if let Some(ring) = clean_ring(&map_ring(fp, pin)) {
-                            pins.prism(
-                                &ring,
-                                vec![],
-                                thickness + body.height,
-                                thickness + body.height + POST_HEIGHT,
-                                &mut warnings,
-                            )?;
-                        }
-                    }
-                    if !pins.part.indices.is_empty() {
-                        extra.push(pins.part);
-                    }
-                }
-                if let Some((centre, radius)) = details.mark {
-                    let mut dot = Builder {
-                        part: MeshPart::new(PartKind::Body, format!("{name} mark")),
-                        budget: &mut budget,
-                    };
-                    dot.part.component = Some(fp.component);
-                    dot.part.family = Some("mark".into());
-                    dot.part.color = Some([0.62, 0.63, 0.65]);
-                    if let Some(ring) = clean_ring(&map_ring(fp, &circle_ring(centre, radius))) {
-                        dot.prism(
-                            &ring,
-                            vec![],
-                            thickness + body.height,
-                            thickness + body.height + MARK_THICKNESS,
-                            &mut warnings,
-                        )?;
-                    }
-                    if !dot.part.indices.is_empty() {
-                        extra.push(dot.part);
-                    }
-                }
-                parts.push(body_part);
-                parts.extend(extra);
-            }
+            parts.push(part);
         }
-    }
-
-    if let Some(ref enc) = p.board.enclosure {
-        crate::solidcraft_enclosure::append_enclosure_parts(&mut parts, p, enc)?;
     }
 
     Ok(BoardMesh {
@@ -1853,7 +1853,6 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-covering_scope: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -1951,13 +1950,12 @@ covering_scope: None,
             graphics: vec![],
             model: None,
             rules: None,
-            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
-            retained: vec![],
+            box_body: Default::default(),
+            retained: Default::default(),
         };
-        p.components.push(Component {
-            sourcing: Default::default(),
+        p.components.push(pcbcraft_doc::Component {
             id: 11,
             reference: "R1".into(),
             value: "10k".into(),
@@ -1974,7 +1972,7 @@ covering_scope: None,
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
-                    appearances: vec![],
+                    appearances: Default::default(),
                 })
                 .collect(),
             units: vec![],
@@ -1984,13 +1982,14 @@ covering_scope: None,
                 definition,
             }),
             fields: vec![],
+            sheet: 0,
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
-            sheet: 0,
-instance: None,
-            prototype: None,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
             sourcing: Default::default(),
-            compliance: Default::default(),
         });
         p.board.footprints.push(footprint(pads));
         p
@@ -2031,6 +2030,8 @@ instance: None,
             rotate,
             cad_part: None,
             raw_source: String::new(),
+            body_id: Default::default(),
+            embedded: Default::default(),
         }
     }
 
@@ -2051,15 +2052,20 @@ instance: None,
                 model: Some(ModelPlacement {
                     path: "missing/box.step".into(),
                     matrix: [
-                        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
-                        0.0, 1.0,
+                        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+                        1.0,
                     ],
                     loaded: false,
                     preloaded: Some(std::sync::Arc::new(loaded)),
+                    cad_part: Default::default(),
                 }),
                 color: None,
                 positions: vec![[0.0; 3]; 8],
                 indices: vec![0; 36],
+                instance: Default::default(),
+                prototype: Default::default(),
+                authored_colors: Default::default(),
+                materials: Default::default(),
             }],
             ..Default::default()
         };
@@ -2073,7 +2079,7 @@ instance: None,
         }
         assert_eq!(notes, vec![(1, ModelStatus::Loaded)]);
         assert!(mesh.parts[0].model.as_ref().is_some_and(|m| m.loaded));
-        assert_eq!(embedded.len() > 20, true);
+        assert!(embedded.len() > 20);
         Ok(())
     }
 
@@ -2134,12 +2140,29 @@ instance: None,
         let body = part(&mesh, PartKind::Body)?;
         assert_eq!(body.family.as_deref(), Some("chip"));
         assert_eq!(body.component, Some(11));
-        let (blo, bhi) = body.bounds().ok_or("no body bounds")?;
+        // The body shell is the first solid of the instanced prototype; the
+        // leads and the polarity mark that follow reach past it.
+        let proto = body.prototype.as_ref().ok_or("body is not instanced")?;
+        let m = body.instance.as_ref().ok_or("body has no placement")?;
+        let shell = proto.shell_triangles as usize * 3;
+        let world: Vec<[f64; 3]> = proto.indices[..shell]
+            .iter()
+            .map(|i| apply_matrix(m, proto.positions[*i as usize]))
+            .collect();
+        let blo = world.iter().fold([f64::MAX; 3], |a, p| {
+            [a[0].min(p[0]), a[1].min(p[1]), a[2].min(p[2])]
+        });
+        let bhi = world.iter().fold([f64::MIN; 3], |a, p| {
+            [a[0].max(p[0]), a[1].max(p[1]), a[2].max(p[2])]
+        });
         assert!(
             close(blo[2], 1.6) && close(bhi[2], 1.6 + 0.55),
             "{blo:?} {bhi:?}"
         );
         assert!(close(bhi[0] - blo[0], 1.95));
+        // The two pad-sized leads reach to the outer pad edges.
+        let (wlo, whi) = body.bounds().ok_or("no body bounds")?;
+        assert!(whi[0] - wlo[0] > 2.8, "{wlo:?} {whi:?}");
         assert!(mesh.parts.iter().all(|p| p.kind != PartKind::CopperBottom));
         Ok(())
     }
@@ -2148,12 +2171,12 @@ instance: None,
     fn every_triangle_has_a_material_id() -> Check {
         let mesh = board_mesh(&resistor_project(), MeshLayers::default())?;
         for part in &mesh.parts {
-            assert_eq!(
-                part.materials.len(),
-                part.triangle_count(),
-                "{}",
-                part.name
-            );
+            // An instanced body keeps its materials on the shared prototype.
+            let materials = part
+                .prototype
+                .as_ref()
+                .map_or(&part.materials, |proto| &proto.materials);
+            assert_eq!(materials.len(), part.triangle_count(), "{}", part.name);
         }
         Ok(())
     }
@@ -2171,13 +2194,13 @@ instance: None,
     #[test]
     fn a_footprint_box_body_overrides_pad_defaults() -> Check {
         let mut p = resistor_project();
-        if let Some(c) = p.components.first_mut() {
-            c.library_footprint.as_mut().map(|l| {
-                l.definition.box_body = Some(pcbcraft_library::FootprintBoxBody {
-                    width: 3.0,
-                    depth: 2.0,
-                    height: 4.0,
-                });
+        if let Some(c) = p.components.first_mut()
+            && let Some(l) = c.library_footprint.as_mut()
+        {
+            l.definition.box_body = Some(pcbcraft_library::FootprintBoxBody {
+                width: 3.0,
+                depth: 2.0,
+                height: 4.0,
             });
         }
         let mesh = board_mesh(&p, MeshLayers::default())?;
@@ -2362,9 +2385,12 @@ instance: None,
             .filter(|p| p.kind == PartKind::Body)
             .count();
         assert_eq!(bodies, 600);
-        assert!(mesh.parts.iter().filter(|p| p.kind == PartKind::Body).all(
-            |p| p.prototype.is_some() && p.instance.is_some()
-        ));
+        assert!(
+            mesh.parts
+                .iter()
+                .filter(|p| p.kind == PartKind::Body)
+                .all(|p| p.prototype.is_some() && p.instance.is_some())
+        );
         Ok(())
     }
 
@@ -2393,6 +2419,10 @@ instance: None,
                 color: None,
                 positions: (0..8).map(|i| [i as f64, 0.0, 0.0]).collect(),
                 indices: vec![0, 1, 2, 0, 2, 3],
+                instance: Default::default(),
+                prototype: Default::default(),
+                authored_colors: Default::default(),
+                materials: Default::default(),
             }],
             warnings: vec![],
         };

@@ -22,7 +22,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const MAX_HEADER_BYTES: u64 = 16 * 1024;
 const ENDPOINT: &str = "/mcp";
@@ -370,35 +370,6 @@ fn reply(code: u16, reason: &'static str, body: Option<Value>) -> Reply {
     }
 }
 
-/// Turn one parsed body into a status and an optional JSON reply.
-fn dispatch(hub: &DocumentHub, body: &[u8]) -> (u16, &'static str, Option<Value>) {
-    match serde_json::from_slice::<Value>(body) {
-        Err(_) => (
-            400,
-            "Bad Request",
-            Some(rpc_error(Value::Null, -32700, "parse error")),
-        ),
-        Ok(Value::Array(_)) => (
-            400,
-            "Bad Request",
-            Some(rpc_error(Value::Null, -32600, "batching is not supported")),
-        ),
-        Ok(message) => {
-            let is_client_response = message.get("method").is_none()
-                && (message.get("result").is_some() || message.get("error").is_some());
-            if is_client_response {
-                return (202, "Accepted", None);
-            }
-            match handle_rpc(hub, message, None, None) {
-                Some(reply) => (200, "OK", Some(reply)),
-                None => (202, "Accepted", None),
-            }
-        }
-    }
-}
-    }
-}
-
 fn respond(stream: &mut TcpStream, code: u16, reason: &str, extra: &str, body: Option<&Value>) {
     let text = body.map(Value::to_string).unwrap_or_default();
     let kind = if body.is_some() {
@@ -482,7 +453,7 @@ fn run_call(
                     return;
                 }
                 let _ = sender.send(Work::Progress(1, "running"));
-                let _ = sender.send(Work::Done(handle_rpc(&server.hub, message, None)));
+                let _ = sender.send(Work::Done(handle_rpc(&server.hub, message, None, None)));
             })
     };
     drop(sender);
@@ -497,7 +468,7 @@ fn run_call(
             event += 1;
         }
     }
-    let mut last_write = Instant::now();
+    let mut last_write = pcbcraft_clock::instant_now();
     let outcome = if worker.is_err() {
         Some(rpc_error(id.clone(), -32603, "could not start the call"))
     } else {
@@ -507,7 +478,7 @@ fn run_call(
                     if let (true, Some(token)) = (streaming && open, token.as_ref()) {
                         open = send_event(stream, event, &progress_event(token, step, text));
                         event += 1;
-                        last_write = Instant::now();
+                        last_write = pcbcraft_clock::instant_now();
                     }
                 }
                 Ok(Work::Done(Some(result))) if !flag.load(Ordering::SeqCst) => {
@@ -531,7 +502,7 @@ fn run_call(
                     if streaming && open && last_write.elapsed() >= KEEPALIVE {
                         open =
                             stream.write_all(b": keepalive\n\n").is_ok() && stream.flush().is_ok();
-                        last_write = Instant::now();
+                        last_write = pcbcraft_clock::instant_now();
                     }
                 }
             }
@@ -598,7 +569,7 @@ fn dispatch(
     if method == "tools/call" && message.get("id").is_some() {
         return run_call(server, stream, message, session, wants_stream);
     }
-    match handle_rpc(&server.hub, message, None) {
+    match handle_rpc(&server.hub, message, None, None) {
         Some(result) => {
             let mut out = reply(200, "OK", None);
             if method == "initialize" && result.get("result").is_some() {

@@ -45,8 +45,10 @@ fn th_pad(number: &str, x: f64) -> pcbcraft_library::FootprintPad {
 }
 
 fn placed_board() -> Result<Project, String> {
-    let mut p = Project::default();
-    p.name = "demo".into();
+    let mut p = Project {
+        name: "demo".into(),
+        ..Project::default()
+    };
     let fp_def = |name: &str, smd: bool| FootprintDefinition {
         name: name.into(),
         description: String::new(),
@@ -61,6 +63,8 @@ fn placed_board() -> Result<Project, String> {
         rules: None,
         raw_source: String::new(),
         unsupported: vec![],
+        box_body: Default::default(),
+        retained: Default::default(),
     };
     p.components.push(Component {
         sheet: 0,
@@ -78,6 +82,7 @@ fn placed_board() -> Result<Project, String> {
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: Default::default(),
         }],
         units: vec![],
         library_symbol: None,
@@ -103,6 +108,13 @@ fn placed_board() -> Result<Project, String> {
                 value: "123-ABC".into(),
             },
         ],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     });
     p.components.push(Component {
         sheet: 0,
@@ -120,6 +132,7 @@ fn placed_board() -> Result<Project, String> {
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: Default::default(),
         }],
         units: vec![],
         library_symbol: None,
@@ -128,6 +141,13 @@ fn placed_board() -> Result<Project, String> {
             definition: fp_def("HDR1", false),
         }),
         fields: vec![],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     });
     p.board.footprints.push(Footprint {
         id: 10,
@@ -144,6 +164,7 @@ fn placed_board() -> Result<Project, String> {
             castellated: None,
             geometry: Some(smd_pad("1", 0.0)),
         }],
+        preserved: Default::default(),
     });
     p.board.footprints.push(Footprint {
         id: 11,
@@ -160,6 +181,7 @@ fn placed_board() -> Result<Project, String> {
             castellated: None,
             geometry: Some(th_pad("1", 0.0)),
         }],
+        preserved: Default::default(),
     });
     p.validate()?;
     Ok(p)

@@ -1,5 +1,5 @@
 //! Parse MCU pin-mux files from TOML or JSON.
-use super::schema::{McuDocument, McuImportBundle, MCU_SCHEMA};
+use super::schema::{MCU_SCHEMA, McuDocument, McuImportBundle};
 use super::validate::validate_mcu;
 
 pub const MCU_FILE_SUFFIX: &str = ".pcbcraft-mcu.toml";

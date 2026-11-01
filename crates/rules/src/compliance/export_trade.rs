@@ -176,7 +176,7 @@ pub fn export_trade_report_with_ruleset(
     let lines = bom_lines(project);
     let eccn_codes: Vec<&str> = lines
         .iter()
-        .filter_map(|c| field_any(c, FIELD_ECCN))
+        .map(|c| field_any(c, FIELD_ECCN).unwrap_or(""))
         .collect();
     let (highest_eccn, unknown_eccn_count) = highest_eccn(eccn_codes.iter().copied());
 

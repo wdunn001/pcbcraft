@@ -2,7 +2,7 @@
 mod ipc2581_assembly;
 
 use crate::board_mesh::{COPPER_THICKNESS, MASK_THICKNESS, SILK_THICKNESS};
-use ipc2581_assembly::{collect_enterprises, AssemblyMeta};
+use ipc2581_assembly::{AssemblyMeta, collect_enterprises};
 use pcbcraft_doc::{Layer, LayerRecord, Project, Track};
 use pcbcraft_geom::Point as GeomPoint;
 use std::collections::{BTreeMap, BTreeSet};
@@ -53,24 +53,35 @@ impl Writer {
         let assembly = AssemblyMeta::plan(p);
         let enterprises = collect_enterprises(p, &assembly);
         self.push("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")?;
-        self.push(&format!(
-            "<IPC-2581 revision=\"C\" xmlns=\"{NS}\">\n"
-        ))?;
-        self.write_content(&assembly)?;
+        self.push(&format!("<IPC-2581 revision=\"C\" xmlns=\"{NS}\">\n"))?;
+        self.write_content(p, &assembly)?;
         self.write_logistic_header(&enterprises)?;
         self.write_history_record(p)?;
-        self.push("<Ecad>\n")?;
+        self.write_assembly_bom_root(p, &assembly)?;
+        self.push("<Ecad name=\"PCBCraft\">\n")?;
         self.write_cad_header(p)?;
         self.write_cad_data(p, &assembly)?;
         self.push("</Ecad>\n")?;
-        self.write_assembly_root(p, &assembly)?;
+        self.write_assembly_avl_root(p, &assembly)?;
         self.push("</IPC-2581>\n")?;
         Ok(())
     }
 
-    fn write_content(&mut self, assembly: &AssemblyMeta) -> Result<(), String> {
+    fn write_content(&mut self, p: &Project, assembly: &AssemblyMeta) -> Result<(), String> {
         self.push("<Content roleRef=\"Owner\">\n")?;
         self.push("<FunctionMode mode=\"FABRICATION\"/>\n")?;
+        // The content section names the step and every layer it uses, the
+        // stackup rows first and then the drill spans.
+        self.push("<StepRef name=\"Board\"/>\n")?;
+        for row in stackup_rows(p) {
+            self.push(&format!("<LayerRef name=\"{}\"/>\n", xml_escape(&row.name)))?;
+        }
+        for span in drill_span_layers(p)? {
+            self.push(&format!(
+                "<LayerRef name=\"{}\"/>\n",
+                xml_escape(&span.layer_name)
+            ))?;
+        }
         self.write_content_assembly_refs(assembly)?;
         self.push("<DictionaryColor/>\n")?;
         self.push("<DictionaryLineDesc units=\"MILLIMETER\">\n")?;
@@ -92,7 +103,10 @@ impl Writer {
         Ok(())
     }
 
-    fn write_logistic_header(&mut self, enterprises: &BTreeMap<String, String>) -> Result<(), String> {
+    fn write_logistic_header(
+        &mut self,
+        enterprises: &BTreeMap<String, String>,
+    ) -> Result<(), String> {
         self.push("<LogisticHeader>\n")?;
         self.push("<Role id=\"Owner\" roleFunction=\"OWNER\"/>\n")?;
         self.push("<Enterprise id=\"PCBCraft\" name=\"PCBCraft\" code=\"PCBCraft\"/>\n")?;
@@ -104,9 +118,7 @@ impl Writer {
                 xml_escape(id)
             ))?;
         }
-        self.push(
-            "<Person name=\"Exporter\" enterpriseRef=\"PCBCraft\" roleRef=\"Owner\"/>\n",
-        )?;
+        self.push("<Person name=\"Exporter\" enterpriseRef=\"PCBCraft\" roleRef=\"Owner\"/>\n")?;
         self.push("</LogisticHeader>\n")?;
         Ok(())
     }
@@ -162,7 +174,7 @@ impl Writer {
             xml_escape(&row.name)
         ))?;
         if let Some(spec_id) = spec_id_for_layer(row) {
-            self.push(&format!("<SpecRef id=\"{spec_id}\"/>\n"));
+            self.push(&format!("<SpecRef id=\"{spec_id}\"/>\n"))?;
         }
         self.push("</Layer>\n")?;
         Ok(())
@@ -187,6 +199,9 @@ impl Writer {
         self.push(&format!(
             "<Stackup name=\"primary\" overallThickness=\"{total:.6}\" tolPlus=\"0\" tolMinus=\"0\" whereMeasured=\"METAL\" stackupStatus=\"PROPOSED\">\n"
         ))?;
+        self.push(&format!(
+            "<StackupGroup name=\"primary_group\" thickness=\"{total:.6}\" tolPlus=\"0\" tolMinus=\"0\">\n"
+        ))?;
         for (seq, row) in rows.iter().enumerate() {
             let spec = spec_id_for_layer(row);
             self.push(&format!(
@@ -196,10 +211,11 @@ impl Writer {
                 seq + 1
             ))?;
             if let Some(id) = spec {
-                self.push(&format!("<SpecRef id=\"{id}\"/>\n"));
+                self.push(&format!("<SpecRef id=\"{id}\"/>\n"))?;
             }
             self.push("</StackupLayer>\n")?;
         }
+        self.push("</StackupGroup>\n")?;
         self.push("</Stackup>\n")?;
         let _ = p;
         Ok(())
@@ -276,7 +292,7 @@ impl Writer {
                 GeomPoint::new(0.0, 0.0),
             ],
         };
-        self.push("<Profile>\n<Contour>\n<Polygon>\n")?;
+        self.push("<Profile>\n<Polygon>\n")?;
         for (i, pt) in outline.iter().enumerate() {
             if i == 0 {
                 self.push(&format!(
@@ -290,7 +306,7 @@ impl Writer {
                 ))?;
             }
         }
-        self.push("</Polygon>\n</Contour>\n</Profile>\n")?;
+        self.push("</Polygon>\n</Profile>\n")?;
         Ok(())
     }
 
@@ -320,18 +336,13 @@ impl Writer {
                     return Err("pin references an unknown net".into());
                 };
                 let entry = (c.reference.clone(), pin.number.clone());
-                pins.entry(net_name.clone())
-                    .or_default()
-                    .push(entry);
+                pins.entry(net_name.clone()).or_default().push(entry);
             }
         }
         for (name, mut list) in pins {
             list.sort();
             list.dedup();
-            self.push(&format!(
-                "<LogicalNet name=\"{}\">\n",
-                xml_escape(&name)
-            ))?;
+            self.push(&format!("<LogicalNet name=\"{}\">\n", xml_escape(&name)))?;
             for (reference, pin) in list {
                 self.push(&format!(
                     "<PinRef componentRef=\"{}\" pin=\"{}\"/>\n",
@@ -358,13 +369,15 @@ impl Writer {
         }
         self.push("<PhyNetGroup name=\"copper\">\n")?;
         for (name, tracks) in by_net {
-            self.push(&format!("<PhyNet name=\"{}\">\n", xml_escape(&name)))?;
+            // Physical and logical nets share one key space in the schema, so
+            // the physical net carries the layer group in its name.
+            self.push(&format!(
+                "<PhyNet name=\"{}\">\n",
+                xml_escape(&format!("{name}@copper"))
+            ))?;
             for track in tracks {
                 let layer_name = p.layer_name(track.layer);
-                for (i, (x, y, node)) in track_phy_points(track)
-                    .into_iter()
-                    .enumerate()
-                {
+                for (i, (x, y, node)) in track_phy_points(track).into_iter().enumerate() {
                     let _ = i;
                     self.push(&format!(
                         "<PhyNetPoint x=\"{x:.6}\" y=\"{y:.6}\" layerRef=\"{}\" netNode=\"{node}\" exposure=\"EXPOSED\">\n",
@@ -383,12 +396,7 @@ impl Writer {
     fn write_copper_features(&mut self, p: &Project, row: &LayerRecord) -> Result<(), String> {
         let layer = p.resolve_copper_layer(&row.name)?;
         let names: BTreeMap<u64, String> = p.nets.iter().map(|n| (n.id, n.name.clone())).collect();
-        let tracks: Vec<&Track> = p
-            .board
-            .tracks
-            .iter()
-            .filter(|t| t.layer == layer)
-            .collect();
+        let tracks: Vec<&Track> = p.board.tracks.iter().filter(|t| t.layer == layer).collect();
         if tracks.is_empty() {
             return Ok(());
         }
@@ -407,7 +415,9 @@ impl Writer {
         for (net, list) in by_net {
             self.push(&format!("<Set net=\"{}\">\n", xml_escape(&net)))?;
             for track in list {
+                self.push("<Features>\n")?;
                 self.write_track_polyline(track)?;
+                self.push("</Features>\n")?;
             }
             self.push("</Set>\n")?;
         }
@@ -433,8 +443,7 @@ impl Writer {
         } else {
             self.push(&format!(
                 "<PolyStepSegment x=\"{:.6}\" y=\"{:.6}\"/>\n",
-                track.end.x,
-                track.end.y
+                track.end.x, track.end.y
             ))?;
         }
         self.push("<LineDescRef id=\"trace\"/>\n")?;
@@ -458,7 +467,7 @@ impl Writer {
                 continue;
             }
             hole_id += 1;
-            let padstack = if p.via_kind(via) == pcbcraft_doc::ViaKind::Buried
+            let _padstack = if p.via_kind(via) == pcbcraft_doc::ViaKind::Buried
                 || p.via_kind(via) == pcbcraft_doc::ViaKind::Blind
             {
                 "via_antipad"
@@ -467,7 +476,7 @@ impl Writer {
             };
             let _net = names.get(&via.net).map(String::as_str).unwrap_or("");
             self.push(&format!(
-                "<Hole name=\"V{hole_id}\" diameter=\"{:.6}\" platingStatus=\"VIA\" plusTol=\"0\" minusTol=\"0\" x=\"{:.6}\" y=\"{:.6}\" padstackDefRef=\"{padstack}\"/>\n",
+                "<Hole name=\"V{hole_id}\" diameter=\"{:.6}\" platingStatus=\"VIA\" plusTol=\"0\" minusTol=\"0\" x=\"{:.6}\" y=\"{:.6}\"/>\n",
                 via.drill.max(0.0),
                 via.position.x,
                 via.position.y
@@ -503,8 +512,7 @@ fn drill_span_layers(p: &Project) -> Result<Vec<DrillSpanLayer>, String> {
     if spans.is_empty() && (!p.board.holes.is_empty() || p.board.vias.is_empty()) {
         let top = p.layer_name(Layer::Front);
         let bottom = p.layer_name(
-            Layer::from_index(p.copper_layer_count().saturating_sub(1))
-                .unwrap_or(Layer::Back),
+            Layer::from_index(p.copper_layer_count().saturating_sub(1)).unwrap_or(Layer::Back),
         );
         spans.insert((top, bottom));
     }
@@ -521,11 +529,7 @@ fn drill_span_layers(p: &Project) -> Result<Vec<DrillSpanLayer>, String> {
 }
 
 fn drill_layer_name(from: &str, to: &str) -> String {
-    format!(
-        "DRILL_{}_{}",
-        from.replace('.', "_"),
-        to.replace('.', "_")
-    )
+    format!("DRILL_{}_{}", from.replace('.', "_"), to.replace('.', "_"))
 }
 
 fn stackup_rows(p: &Project) -> Vec<LayerRecord> {
@@ -538,8 +542,7 @@ fn stackup_rows(p: &Project) -> Vec<LayerRecord> {
 fn synthesized_stackup(p: &Project) -> Vec<LayerRecord> {
     let copper = p.copper_layer_count().max(2);
     let gaps = (copper - 1).max(1) as f64;
-    let dielectric =
-        ((p.board.thickness - COPPER_THICKNESS * copper as f64) / gaps).max(0.0);
+    let dielectric = ((p.board.thickness - COPPER_THICKNESS * copper as f64) / gaps).max(0.0);
     let mut rows = Vec::new();
     rows.push(LayerRecord {
         name: "F.SilkS".into(),
@@ -554,7 +557,7 @@ fn synthesized_stackup(p: &Project) -> Vec<LayerRecord> {
         ..LayerRecord::default()
     });
     for layer in 0..copper {
-        let name = p.layer_name(Layer::from_index(layer as u8).unwrap_or(Layer::Front));
+        let name = p.layer_name(Layer::from_index(layer).unwrap_or(Layer::Front));
         rows.push(LayerRecord {
             name,
             kind: "copper".into(),
@@ -590,7 +593,7 @@ fn synthesized_stackup(p: &Project) -> Vec<LayerRecord> {
 
 fn ipc_layer_attrs(p: &Project, row: &LayerRecord) -> (&'static str, &'static str) {
     let function = match row.kind.as_str() {
-        "copper" => match row.function().as_str() {
+        "copper" => match row.function() {
             "plane" => "PLANE",
             "mixed" => "MIXED",
             _ => "SIGNAL",
@@ -637,9 +640,12 @@ fn ipc_layer_attrs(p: &Project, row: &LayerRecord) -> (&'static str, &'static st
 }
 
 fn spec_id_for_layer(row: &LayerRecord) -> Option<String> {
-    if row.is_dielectric() || row.material.is_some() || row.dk.is_some() || row.df.is_some() {
-        Some(format!("spec_{}", sanitize_id(&row.name)))
-    } else if row.kind == "copper" && row.copper_weight_oz.is_some() {
+    if row.is_dielectric()
+        || row.material.is_some()
+        || row.dk.is_some()
+        || row.df.is_some()
+        || (row.kind == "copper" && row.copper_weight_oz.is_some())
+    {
         Some(format!("spec_{}", sanitize_id(&row.name)))
     } else {
         None
@@ -651,25 +657,25 @@ fn spec_for_layer(row: &LayerRecord) -> Option<String> {
     let mut block = format!("<Spec name=\"{id}\">\n");
     if row.is_dielectric() {
         if let Some(dk) = row.dk() {
-            let _ = write!(
+            let _ = writeln!(
                 block,
-                "<Dielectric type=\"DIELECTRIC_CONSTANT\"><Property value=\"{dk:.6}\"/></Dielectric>\n"
+                "<Dielectric type=\"DIELECTRIC_CONSTANT\"><Property value=\"{dk:.6}\"/></Dielectric>"
             );
         }
         if let Some(df) = row.df() {
-            let _ = write!(
+            let _ = writeln!(
                 block,
-                "<Loss type=\"LOSS_TANGENT\"><Property value=\"{df:.6}\"/></Loss>\n"
+                "<Loss type=\"LOSS_TANGENT\"><Property value=\"{df:.6}\"/></Loss>"
             );
         }
     }
-    if row.kind == "copper" {
-        if let Some(oz) = row.copper_weight_oz {
-            let _ = write!(
-                block,
-                "<Conductor type=\"WEIGHT\"><Property value=\"{oz:.6}\"/></Conductor>\n"
-            );
-        }
+    if row.kind == "copper"
+        && let Some(oz) = row.copper_weight_oz
+    {
+        let _ = writeln!(
+            block,
+            "<Conductor type=\"WEIGHT\"><Property value=\"{oz:.6}\"/></Conductor>"
+        );
     }
     block.push_str("</Spec>\n");
     Some(block)

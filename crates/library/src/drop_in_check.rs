@@ -120,7 +120,9 @@ impl DropInPart {
             return Err(format!("at most {MAX_PADS} pads may be compared"));
         }
         if self.pin_to_pad.len() > MAX_PIN_TO_PAD {
-            return Err(format!("at most {MAX_PIN_TO_PAD} pin_to_pad entries may be compared"));
+            return Err(format!(
+                "at most {MAX_PIN_TO_PAD} pin_to_pad entries may be compared"
+            ));
         }
         for pin in &self.pins {
             if pin.number.is_empty() || pin.number.len() > 32 {
@@ -175,11 +177,11 @@ impl DropInPart {
     }
 }
 
-fn finding(code: &str, pass: bool, message: impl Into<String>) -> DropInFinding {
+fn finding(code: &str, pass: bool, message: String) -> DropInFinding {
     DropInFinding {
         code: code.into(),
         pass,
-        message: message.into(),
+        message,
     }
 }
 
@@ -194,10 +196,7 @@ fn lifecycle_rank(l: Lifecycle) -> u8 {
 }
 
 fn footprint_matches(inc: &DropInPart, cand: &DropInPart) -> DropInFinding {
-    let (inc_key, cand_key) = (
-        inc.package_key.trim(),
-        cand.package_key.trim(),
-    );
+    let (inc_key, cand_key) = (inc.package_key.trim(), cand.package_key.trim());
     if !inc_key.is_empty() && !cand_key.is_empty() {
         let pass = inc_key == cand_key;
         return finding(
@@ -349,16 +348,23 @@ fn tolerance_no_worse(inc: (f32, f32), cand: (f32, f32)) -> bool {
     cand.0 <= inc.0 + 1e-6 && cand.1 <= inc.1 + 1e-6
 }
 
-fn compare_optional_f64(field: &str, inc: Option<f64>, cand: Option<f64>, at_least: bool) -> DropInFinding {
+fn compare_optional_f64(
+    field: &str,
+    inc: Option<f64>,
+    cand: Option<f64>,
+    at_least: bool,
+) -> DropInFinding {
     match (inc, cand) {
         (None, None) => finding(field, true, format!("No {field} on either part")),
-        (Some(_), None) | (None, Some(_)) => finding(
-            field,
-            false,
-            format!("{field} is unknown on one part"),
-        ),
+        (Some(_), None) | (None, Some(_)) => {
+            finding(field, false, format!("{field} is unknown on one part"))
+        }
         (Some(i), Some(c)) => {
-            let pass = if at_least { c + 1e-12 >= i } else { value_close(i, c) };
+            let pass = if at_least {
+                c + 1e-12 >= i
+            } else {
+                value_close(i, c)
+            };
             finding(
                 field,
                 pass,
@@ -379,9 +385,16 @@ fn compare_temp(inc: &DropInPart, cand: &DropInPart) -> DropInFinding {
         (inc.temp_min_c, inc.temp_max_c),
         (cand.temp_min_c, cand.temp_max_c),
     ) {
-        ((None, None), (None, None)) => {
-            finding("temperature", true, "No temperature span on either part".into())
-        }
+        ((None, None), (None, None)) => finding(
+            "temperature",
+            true,
+            "No temperature span on either part".into(),
+        ),
+        ((None, None), (Some(_), Some(_))) | ((Some(_), Some(_)), (None, None)) => finding(
+            "temperature",
+            false,
+            "Temperature span is missing on one of the parts".into(),
+        ),
         ((Some(_), None) | (None, Some(_)), _) | (_, (Some(_), None) | (None, Some(_))) => finding(
             "temperature",
             false,
@@ -405,9 +418,11 @@ fn compare_temp(inc: &DropInPart, cand: &DropInPart) -> DropInFinding {
 fn compare_tolerance(inc: &DropInPart, cand: &DropInPart) -> DropInFinding {
     match (inc.tolerance_pct, cand.tolerance_pct) {
         (None, None) => finding("tolerance", true, "No tolerance on either part".into()),
-        (Some(_), None) | (None, Some(_)) => {
-            finding("tolerance", false, "Tolerance is unknown on one part".into())
-        }
+        (Some(_), None) | (None, Some(_)) => finding(
+            "tolerance",
+            false,
+            "Tolerance is unknown on one part".into(),
+        ),
         (Some(i), Some(c)) => {
             let pass = tolerance_no_worse(i, c);
             finding(
@@ -428,7 +443,11 @@ fn compare_value(inc: &DropInPart, cand: &DropInPart) -> Vec<DropInFinding> {
     match (inc.value, cand.value) {
         (None, None) => out.push(finding("value", true, "No value on either part".into())),
         (Some(_), None) | (None, Some(_)) => {
-            out.push(finding("value", false, "Value is unknown on one part".into()));
+            out.push(finding(
+                "value",
+                false,
+                "Value is unknown on one part".into(),
+            ));
         }
         (Some(i), Some(c)) => {
             out.push(finding(
@@ -443,7 +462,11 @@ fn compare_value(inc: &DropInPart, cand: &DropInPart) -> Vec<DropInFinding> {
         }
     }
     match (inc.value_unit, cand.value_unit) {
-        (None, None) => out.push(finding("value_unit", true, "No value unit on either part".into())),
+        (None, None) => out.push(finding(
+            "value_unit",
+            true,
+            "No value unit on either part".into(),
+        )),
         (Some(_), None) | (None, Some(_)) => {
             out.push(finding(
                 "value_unit",
@@ -489,9 +512,11 @@ fn rating_findings(inc: &DropInPart, cand: &DropInPart) -> Vec<DropInFinding> {
         if let Some(f) = require_known("value", inc.value.is_some(), cand.value.is_some()) {
             out.push(f);
         }
-        if let Some(f) =
-            require_known("value_unit", inc.value_unit.is_some(), cand.value_unit.is_some())
-        {
+        if let Some(f) = require_known(
+            "value_unit",
+            inc.value_unit.is_some(),
+            cand.value_unit.is_some(),
+        ) {
             out.push(f);
         }
         if let Some(f) = require_known(
@@ -516,11 +541,7 @@ fn rating_findings(inc: &DropInPart, cand: &DropInPart) -> Vec<DropInFinding> {
             out.push(f);
         }
         if needs_power(category)
-            && let Some(f) = require_known(
-                "power_w",
-                inc.power_w.is_some(),
-                cand.power_w.is_some(),
-            )
+            && let Some(f) = require_known("power_w", inc.power_w.is_some(), cand.power_w.is_some())
         {
             out.push(f);
         }
@@ -573,7 +594,12 @@ fn rating_findings(inc: &DropInPart, cand: &DropInPart) -> Vec<DropInFinding> {
         ));
     }
     if inc.power_w.is_some() || cand.power_w.is_some() {
-        out.push(compare_optional_f64("power_w", inc.power_w, cand.power_w, true));
+        out.push(compare_optional_f64(
+            "power_w",
+            inc.power_w,
+            cand.power_w,
+            true,
+        ));
     }
     if inc.temp_min_c.is_some()
         || inc.temp_max_c.is_some()
@@ -587,13 +613,10 @@ fn rating_findings(inc: &DropInPart, cand: &DropInPart) -> Vec<DropInFinding> {
 
 fn lifecycle_finding(inc: &DropInPart, cand: &DropInPart) -> DropInFinding {
     if cand.lifecycle == Lifecycle::Unknown {
-        return finding(
-            "lifecycle",
-            false,
-            "Candidate lifecycle is unknown".into(),
-        );
+        return finding("lifecycle", false, "Candidate lifecycle is unknown".into());
     }
-    if inc.lifecycle != Lifecycle::Unknown && lifecycle_rank(cand.lifecycle) > lifecycle_rank(inc.lifecycle)
+    if inc.lifecycle != Lifecycle::Unknown
+        && lifecycle_rank(cand.lifecycle) > lifecycle_rank(inc.lifecycle)
     {
         return finding(
             "lifecycle",
@@ -633,7 +656,10 @@ fn height_finding(inc: &DropInPart, cand: &DropInPart) -> DropInFinding {
 /// None.
 /// # Do not
 /// Guess missing ratings or treat empty footprint and package as a match.
-pub fn drop_in_check(incumbent: &DropInPart, candidate: &DropInPart) -> Result<DropInReport, String> {
+pub fn drop_in_check(
+    incumbent: &DropInPart,
+    candidate: &DropInPart,
+) -> Result<DropInReport, String> {
     incumbent.validate()?;
     candidate.validate()?;
     let mut findings = vec![footprint_matches(incumbent, candidate)];
@@ -706,7 +732,12 @@ mod tests {
         cand.rated_voltage_v = None;
         let report = drop_in_check(&inc, &cand)?;
         assert!(!report.drop_in);
-        assert!(report.findings.iter().any(|f| f.code == "rated_voltage_v" && !f.pass));
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.code == "rated_voltage_v" && !f.pass)
+        );
         Ok(())
     }
 

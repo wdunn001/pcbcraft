@@ -4,28 +4,25 @@ use pcbcraft_library::records::{
     self, AttachRecords, OrderablePartRecord, pin_to_pad_from_pin_numbers,
 };
 use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    pcbcraft_clock::unix_secs()
 }
 
-pub fn link_inputs(project: &Project, component: &Component) -> (Option<(String, String)>, Option<(String, String)>, BTreeMap<String, String>) {
-    let symbol = component.library_symbol.as_ref().map(|s| {
-        (
-            s.library.clone(),
-            s.definition.name.clone(),
-        )
-    });
-    let footprint = component.library_footprint.as_ref().map(|f| {
-        (
-            f.library.clone(),
-            f.definition.name.clone(),
-        )
-    });
+type LibraryRef = Option<(String, String)>;
+
+pub fn link_inputs(
+    project: &Project,
+    component: &Component,
+) -> (LibraryRef, LibraryRef, BTreeMap<String, String>) {
+    let symbol = component
+        .library_symbol
+        .as_ref()
+        .map(|s| (s.library.clone(), s.definition.name.clone()));
+    let footprint = component
+        .library_footprint
+        .as_ref()
+        .map(|f| (f.library.clone(), f.definition.name.clone()));
     let pin_to_pad = if let Some(fp) = &component.library_footprint {
         pin_to_pad_from_pin_numbers(
             component.pins.iter().map(|p| p.number.clone()),
@@ -129,7 +126,9 @@ pub fn clear_orderable_fields(component: &mut Component) -> Result<(), String> {
     for key in ["Manufacturer", "MPN", "Datasheet"] {
         clear_field(component, key)?;
     }
-    component.fields.retain(|f| !f.key.ends_with(" SKU") && f.key != "SKU");
+    component
+        .fields
+        .retain(|f| !f.key.ends_with(" SKU") && f.key != "SKU");
     Ok(())
 }
 

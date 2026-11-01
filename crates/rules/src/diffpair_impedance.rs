@@ -82,6 +82,7 @@ pub fn findings(project: &Project) -> Vec<Finding> {
                 gap = pair.gap,
             ),
             objects: vec![pair.net_p, pair.net_n],
+            hint: None,
         });
     }
     result
@@ -116,6 +117,10 @@ mod tests {
             profile: None,
             target_impedance: Some(90.0),
             impedance_tolerance: Some(0.1),
+            equal_vias: Default::default(),
+            max_uncoupled_length: Default::default(),
+            skew_limit_mm: Default::default(),
+            skew_limit_ps: Default::default(),
         });
         for (id, net) in [(100, 1), (101, 2)] {
             p.board.tracks.push(Track {
@@ -125,7 +130,8 @@ mod tests {
                 width,
                 start: pcbcraft_geom::Point::new(0.0, 0.0),
                 end: pcbcraft_geom::Point::new(10.0, 0.0),
-                ..Default::default()
+                arc: None,
+                preserved: Default::default(),
             });
         }
         p
@@ -133,7 +139,7 @@ mod tests {
 
     #[test]
     fn pair_with_target_flags_when_estimate_misses() {
-        let p = usb_pair_project(2.0);
+        let p = usb_pair_project(3.0);
         let codes: Vec<_> = findings(&p).into_iter().map(|f| f.code).collect();
         assert!(codes.contains(&"diffpair_impedance"));
     }
@@ -146,7 +152,7 @@ mod tests {
 
     #[test]
     fn pair_without_target_is_silent() {
-        let mut p = usb_pair_project(2.0);
+        let mut p = usb_pair_project(3.0);
         p.board.diff_pairs[0].target_impedance = None;
         p.board.diff_pairs[0].impedance_tolerance = None;
         assert!(findings(&p).is_empty());

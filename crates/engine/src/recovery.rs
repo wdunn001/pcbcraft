@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Overrides the recovery folder; tests set it so they never touch the real
 /// one. Guard writes with [`RECOVERY_TEST_LOCK`] like the recents list does.
@@ -56,7 +55,7 @@ pub fn default_dir() -> Result<PathBuf, String> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Entry {
-/// The snapshot's file stem, unique per design.
+    /// The snapshot's file stem, unique per design.
     pub id: String,
     /// The design's file, when it had been saved somewhere.
     #[serde(default)]
@@ -66,51 +65,17 @@ pub struct Entry {
     /// When the snapshot was written, in seconds since 1970.
     pub saved_at: u64,
     /// The revision the snapshot holds.
-    pub id: String,
-    /// The design's file, when it had been saved somewhere.
-    #[serde(default)]
-    pub path: Option<String>,
-/// The design name the prompt shows for this snapshot.
-    pub name: String,
-    /// When the snapshot was written, in seconds since 1970.
-    pub saved_at: u64,
-    /// The revision the snapshot holds.
     pub revision: u64,
     /// How much is in it, for the sentence the prompt shows.
     #[serde(default)]
     pub components: usize,
     /// Placed pads in the snapshot, for the sentence the prompt shows.
-    #[serde(default)]
-    pub pads: Vec<String>,
-    pub name: String,
-    /// When the snapshot was written, in seconds since 1970.
-    pub saved_at: u64,
-    /// The revision the snapshot holds.
-    pub revision: u64,
-    /// How much is in it, for the sentence the prompt shows.
-    #[serde(default)]
-    pub components: usize,
-/// The design name the prompt shows for this snapshot.
-    pub name: String,
-    /// When the snapshot was written, in seconds since 1970.
-    pub saved_at: u64,
-    /// The revision the snapshot holds.
-    pub revision: u64,
-    /// How much is in it, for the sentence the prompt shows.
-    #[serde(default)]
-    pub components: usize,
-    /// Placed pads in the snapshot, for the sentence the prompt shows.
-    #[serde(default)]
-    pub pads: usize,
     #[serde(default)]
     pub pads: usize,
 }
 
 fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    pcbcraft_clock::unix_secs()
 }
 
 /// An id names files in the folder, so it stays short and free of separators.
@@ -371,20 +336,8 @@ mod tests {
         // Nothing is offered while this app holds its lock.
         assert!(orphans(&d).is_empty());
         drop(a);
-// saved_at is whole seconds; wait so the second snapshot sorts first.
+        // saved_at is whole seconds; wait so the second snapshot sorts first.
         std::thread::sleep(std::time::Duration::from_secs(1));
-        let mut t = Session::default();
-        add_track(&mut t)?;
-        let mut b = Autosaver::new(&d)?;
-        b.tick(&t, None)?;
-        let newer = b.id().to_owned();
-        drop(b);
-
-        let offered = orphans(&d);
-        assert_eq!(offered.len(), 2, "{offered:?}");
-        assert_eq!(offered[0].id, newer, "newest first");
-        let (project, entry) = load(&d, &newer)?;
-
         let mut t = Session::default();
         add_track(&mut t)?;
         let mut b = Autosaver::new(&d)?;

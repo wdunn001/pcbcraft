@@ -60,6 +60,13 @@ pub struct FabRules {
     /// Assembly solder alloy choice, for example `lead_free` or `leaded`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solder: Option<String>,
+    /// When set, fabrication export writes true Gerber arcs by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arcs: Option<bool>,
+    /// When unset, inner unused pad removal follows the board layer count (on
+    /// from six copper layers up). End layers always keep their pads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remove_unused_inner_pads: Option<bool>,
 }
 
 impl FabRules {

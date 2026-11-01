@@ -35,6 +35,7 @@ fn board(copper: u8) -> Result<Project, String> {
             width: 0.25,
             layer: Layer::from_index(i)?,
             arc: None,
+            preserved: Default::default(),
         });
     }
     Ok(p)

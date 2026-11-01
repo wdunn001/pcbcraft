@@ -195,6 +195,7 @@ mod tests {
             extends: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         }
     }
 
@@ -227,8 +228,15 @@ mod tests {
             units: vec![],
             library_symbol: None,
             library_footprint: None,
+            part: None,
             fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             sheet: 0,
+            instance: Default::default(),
+            prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
         });
         p.migrate_component_kinds();
         assert_eq!(p.components[0].kind, "ic");

@@ -60,7 +60,9 @@ fn fetch_url(url: &str) -> Result<Vec<u8>, LoadError> {
             break;
         }
         if bytes.len() + n > MAX_BYTES {
-            return Err(LoadError::Failed("The download is too large to open.".into()));
+            return Err(LoadError::Failed(
+                "The download is too large to open.".into(),
+            ));
         }
         bytes.extend_from_slice(&buf[..n]);
     }

@@ -1,4 +1,4 @@
-﻿use super::super::*;
+use super::super::*;
 use super::support::*;
 
 #[test]

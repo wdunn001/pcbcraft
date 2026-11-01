@@ -8,10 +8,11 @@
 //!
 //! Local rules:
 //! - A power pin is a pin of electrical type `power_in` on a part that is not a
-//!   capacitor itself. Pins on a ground-named net (GND, VSS, ground, earth) are
+//!   capacitor itself, not a resistor, connector or LED (unless its reference
+//!   starts with U), and not flagged no-connect. Pins on a ground-named net (GND, VSS, ground, earth) are
 //!   skipped: the return path is not what this check is about.
 //! - A capacitor is a part of kind `capacitor`, or a reference starting with C
-//!   and a digit. It counts only if its other pin sits on a different net.
+//!   and a digit. It counts when any of its pins sits on the net.
 //! - No capacitor on the net at all is always a finding. A capacitor that
 //!   exists but is too far is a finding only when the power pad and the
 //!   capacitor pad are both placed; unplaced parts are never guessed at.
@@ -58,7 +59,7 @@ struct Cap<'a> {
     pads: Vec<&'a str>,
 }
 
-/// Capacitors with a pin on `net` and another pin on a different net.
+/// Capacitors with a pin on `net`.
 fn caps_on_net(project: &Project, net: Id) -> Vec<Cap<'_>> {
     project
         .components
@@ -71,8 +72,7 @@ fn caps_on_net(project: &Project, net: Id) -> Vec<Cap<'_>> {
                 .filter(|p| p.net == Some(net))
                 .map(|p| p.number.as_str())
                 .collect();
-            let returns = c.pins.iter().any(|p| p.net.is_some() && p.net != Some(net));
-            (!pads.is_empty() && returns).then_some(Cap { part: c, pads })
+            (!pads.is_empty()).then_some(Cap { part: c, pads })
         })
         .collect()
 }
@@ -96,13 +96,18 @@ pub(crate) fn missing_decoupling(project: &Project) -> Vec<Finding> {
     let rule = &project.decoupling;
     let mut result = vec![];
     for c in &project.components {
-        if is_capacitor(c) {
+        // An integrated circuit by kind, or by its U reference when the kind says otherwise.
+        let ic_like = pcbcraft_doc::is_ic_like_kind(&c.kind) || c.reference.starts_with('U');
+        if is_capacitor(c) || !ic_like {
             continue;
         }
         for pin in &c.pins {
             let Some(net) = pin.net.filter(|_| pin.electrical_type == "power_in") else {
                 continue;
             };
+            if super::pin_flagged_no_connect(project, c.id, &pin.number) {
+                continue;
+            }
             let net_name = project
                 .nets
                 .iter()
@@ -168,5 +173,6 @@ fn finding(project: &Project, message: String, objects: Vec<Id>) -> Finding {
         severity: project.rule_severity("missing_decoupling", "warning"),
         message,
         objects,
+        hint: None,
     }
 }

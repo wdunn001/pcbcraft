@@ -18,7 +18,7 @@
 //! - Write to a project; the caller runs `library.place_online` with the result.
 use crate::cad::{CadKind, CadRef, CadSource};
 use crate::online_import::{footprint_ref_from_field, import_footprint_only, import_part};
-use crate::open_library::{OpenLibrarySource, FOOTPRINT_SKU_PREFIX};
+use crate::open_library::{FOOTPRINT_SKU_PREFIX, OpenLibrarySource};
 use crate::read_symbols;
 use crate::sources::SourceError;
 use serde_json::Value;
@@ -35,7 +35,7 @@ fn invalid(text: &str) -> SourceError {
 ///   model, then the symbol alone; when false, the model is never fetched.
 ///
 /// # Dependencies
-/// - [`import_part`] and [`import_footprint_only`]
+/// - crates/library/src/online_import.rs
 ///
 /// # Do not
 /// - Write to the project; the caller runs `library.place_online` with the result.
@@ -69,7 +69,7 @@ pub fn import_open(
     let start = usize::from(!fetch_3d);
     let mut last = invalid("the part could not be imported");
     for (fp, m) in &candidates[start..] {
-        match import_part(source, &symbol, fp.copied(), m.copied()) {
+        match import_part(source, &symbol, *fp, *m) {
             Ok(part) => return Ok(part.to_params()),
             Err(e) => last = e,
         }

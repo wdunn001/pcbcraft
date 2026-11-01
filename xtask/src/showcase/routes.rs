@@ -37,19 +37,16 @@ pub fn all(g: &mut Gen) -> Res<usize> {
     )?;
     run(g, "CC1", SIG, &[W::P("J1", "3"), W::P("R1", "1")])?;
     run(g, "CC2", SIG, &[W::P("J1", "6"), W::P("R2", "1")])?;
-    // Fuse to charger.
-    run(
-        g,
-        "VBUS",
-        PWR,
-        &[W::P("F1", "2"), W::X(26.7), W::P("C1", "1")],
-    )?;
+    // Fuse to charger: one trunk along y = 9 with a tee at x = 26.7, so no
+    // two legs start on the fuse pad in the same direction.
+    run(g, "VBUS", PWR, &[W::P("F1", "2"), W::X(26.7)])?;
+    run(g, "VBUS", PWR, &[W::A(26.7, 9.0), W::P("C1", "1")])?;
     run(g, "VBUS", PWR, &[W::P("F1", "2"), W::P("U1", "1")])?;
     run(
         g,
         "VBUS",
         PWR,
-        &[W::P("F1", "2"), W::X(32.98), W::P("R4", "1")],
+        &[W::A(26.7, 9.0), W::X(32.98), W::P("R4", "1")],
     )?;
     run(
         g,

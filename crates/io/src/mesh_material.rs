@@ -1,7 +1,7 @@
 //! Material classes for the 3D board mesh and colour classification for loaded models.
 
 /// A small set of part materials shared by the mesh builder and the software renderer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[repr(u8)]
 pub enum MaterialClass {
     MouldCompound = 0,
@@ -18,6 +18,23 @@ pub enum MaterialClass {
 }
 
 impl MaterialClass {
+    /// The class stored under `value` by [`MaterialClass`]'s `repr(u8)` codes.
+    pub fn from_code(value: u8) -> Option<Self> {
+        Some(match value {
+            0 => Self::MouldCompound,
+            1 => Self::TinLead,
+            2 => Self::GoldContact,
+            3 => Self::Ceramic,
+            4 => Self::Resistor,
+            5 => Self::CanSleeve,
+            6 => Self::ConnectorPlastic,
+            7 => Self::Lens,
+            8 => Self::Marking,
+            255 => Self::Authored,
+            _ => return None,
+        })
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::MouldCompound => "mould_compound",
@@ -68,11 +85,7 @@ pub fn classify_model_color(c: [f32; 3]) -> (MaterialClass, [f32; 3]) {
     let max = c[0].max(c[1]).max(c[2]);
     let min = c[0].min(c[1]).min(c[2]);
     let lum = (max + min) * 0.5;
-    let sat = if max <= 1e-6 {
-        0.0
-    } else {
-        (max - min) / max
-    };
+    let sat = if max <= 1e-6 { 0.0 } else { (max - min) / max };
     if lum < 0.12 {
         return (MaterialClass::MouldCompound, c);
     }

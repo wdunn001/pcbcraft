@@ -15,7 +15,7 @@ const CTRL: Modifiers = Modifiers {
     ..Modifiers::NONE
 };
 
-fn sample(tab: Tab) -> (App, egui::Context) {
+pub(crate) fn sample(tab: Tab) -> (App, egui::Context) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
@@ -29,7 +29,7 @@ fn sample(tab: Tab) -> (App, egui::Context) {
 }
 
 /// Where a world point sits on screen in the active canvas.
-fn screen_of(app: &App, world: Point) -> Pos2 {
+pub(crate) fn screen_of(app: &App, world: Point) -> Pos2 {
     let camera = if app.tab == Tab::Pcb {
         app.pcb
     } else {
@@ -57,7 +57,7 @@ fn hover(ctx: &egui::Context, app: &mut App, at: Pos2, m: Modifiers) {
 }
 
 /// Move the pointer onto a spot and click it with the modifiers held.
-fn click(ctx: &egui::Context, app: &mut App, at: Pos2, m: Modifiers) {
+pub(crate) fn click(ctx: &egui::Context, app: &mut App, at: Pos2, m: Modifiers) {
     hover(ctx, app, at, m);
     hover(ctx, app, at, m);
     press(ctx, app, at, true, m);

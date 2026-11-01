@@ -201,14 +201,14 @@ impl VendorAdapterDescriptor {
         if !bounded(&self.id, MAX_ADAPTER_ID) || !bounded(&self.label, MAX_LABEL) {
             return false;
         }
-        if !self.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        if !self
+            .id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        {
             return false;
         }
-        if self
-            .page_url
-            .as_ref()
-            .is_some_and(|u| !bounded(u, MAX_URL))
-        {
+        if self.page_url.as_ref().is_some_and(|u| !bounded(u, MAX_URL)) {
             return false;
         }
         if self.capabilities.len() > MAX_TAGS
@@ -232,10 +232,7 @@ impl VendorQuoteFileEntry {
     pub fn valid(&self) -> bool {
         bounded(&self.path, MAX_PATH)
             && sha256_hex(&self.sha256)
-            && self
-                .role
-                .as_ref()
-                .is_none_or(|r| bounded(r, MAX_TAG))
+            && self.role.as_ref().is_none_or(|r| bounded(r, MAX_TAG))
     }
 }
 
@@ -332,7 +329,7 @@ pub fn fixture_upload_adapter() -> VendorAdapterDescriptor {
 }
 
 const FIXTURE_UPLOAD_ARCHIVE: &[u8] =
-    include_bytes!("../../tests/fixtures/vendor-quote-handoff/fixture-upload.zip");
+    include_bytes!("../tests/fixtures/vendor-quote-handoff/fixture-upload.zip");
 
 /// Fixture upload-flow archive for tests (manufacturing outputs only).
 pub fn fixture_upload_archive() -> VendorQuotePreparedArchive {
@@ -383,9 +380,7 @@ mod tests {
         assert!(!caps.marketplace);
         assert!(caps.adapter_modes.is_empty());
         let json = settings.capability_json(true);
-        let obj = json
-            .as_object()
-            .ok_or("capabilities must be an object")?;
+        let obj = json.as_object().ok_or("capabilities must be an object")?;
         assert!(obj.get("module_enabled").is_none());
         assert!(obj.get("marketplace").is_none());
         Ok(())

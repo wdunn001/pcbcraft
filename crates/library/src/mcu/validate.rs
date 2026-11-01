@@ -1,8 +1,9 @@
 //! Deterministic validation for MCU pin-mux documents.
 use super::schema::{
-    BootStrap, McuDocument, McuPackage, McuPeripheral, McuProvenance, DEFAULT_MAX_AF, MAX_AF_PER_PIN,
-    MAX_DMA_REQUESTS, MAX_ID_BYTES, MAX_NAME_BYTES, MAX_PACKAGE_PINS, MAX_PACKAGES, MAX_PERIPHERALS,
-    MAX_PERIPHERAL_SIGNALS, MAX_PINS, MAX_TEXT_BYTES, MAX_TIMER_CHANNELS, MCU_SCHEMA,
+    BootStrap, DEFAULT_MAX_AF, MAX_AF_PER_PIN, MAX_DMA_REQUESTS, MAX_ID_BYTES, MAX_NAME_BYTES,
+    MAX_PACKAGE_PINS, MAX_PACKAGES, MAX_PERIPHERAL_SIGNALS, MAX_PERIPHERALS, MAX_PINS,
+    MAX_TEXT_BYTES, MAX_TIMER_CHANNELS, MCU_SCHEMA, McuDocument, McuPackage, McuPeripheral,
+    McuProvenance,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -92,7 +93,9 @@ fn gpio_signal_allowed(signal: &str) -> bool {
     let Some(rest) = signal.strip_prefix("GPIO") else {
         return false;
     };
-    let (port, pin) = rest.split_once('.')?;
+    let Some((port, pin)) = rest.split_once('.') else {
+        return false;
+    };
     port.len() == 1
         && port.chars().all(|c| c.is_ascii_uppercase())
         && !pin.is_empty()
@@ -119,7 +122,8 @@ fn validate_pin_signal(
             "pin {pin_name} alternate function {af} exceeds max {max_af}"
         )));
     }
-    let Some((instance, signal_part)) = signal.split_once('.') else {
+    // The instance may itself contain a dot (USB.FS), so the signal is the last part.
+    let Some((instance, signal_part)) = signal.rsplit_once('.') else {
         return Err(err(format!(
             "pin {pin_name} signal {signal} must be INSTANCE.SIGNAL"
         )));
@@ -145,10 +149,7 @@ fn validate_pin_signal(
     Ok(())
 }
 
-fn validate_package_pins(
-    package: &McuPackage,
-    pin_names: &BTreeSet<&str>,
-) -> Result<(), String> {
+fn validate_package_pins(package: &McuPackage, pin_names: &BTreeSet<&str>) -> Result<(), String> {
     bounded_id("package.id", &package.id)?;
     bounded_name("package.name", &package.name)?;
     if package.pins.len() > MAX_PACKAGE_PINS {
@@ -157,12 +158,9 @@ fn validate_package_pins(
             package.id
         )));
     }
-    let mut seen = BTreeSet::new();
     for pin in &package.pins {
         bounded_name("package pin", pin)?;
-        if !seen.insert(pin.as_str()) {
-            return Err(err(format!("package {} lists pin {pin} twice", package.id)));
-        }
+        // A supply pin (VSS, VDD) appears once per ball or lead, so repeats are legal.
         if !pin_names.contains(pin.as_str()) {
             return Err(err(format!(
                 "package {} pin {pin} is missing from the pin mux table",
@@ -173,10 +171,7 @@ fn validate_package_pins(
     Ok(())
 }
 
-fn validate_pin_not_in_package(
-    packages: &[McuPackage],
-    pin_name: &str,
-) -> Result<(), String> {
+fn validate_pin_not_in_package(packages: &[McuPackage], pin_name: &str) -> Result<(), String> {
     let listed = packages
         .iter()
         .any(|pkg| pkg.pins.iter().any(|p| p == pin_name));
@@ -216,7 +211,8 @@ pub fn validate_mcu(doc: &McuDocument) -> Result<(), String> {
     let mut pin_names = BTreeSet::new();
     for pin in &doc.pin {
         bounded_name("pin.name", &pin.name)?;
-        if !pin_names.insert(pin.name.as_str()) {
+        // Supply pins (VSS, VDD) legitimately repeat; a pin with functions must be unique.
+        if !pin_names.insert(pin.name.as_str()) && !pin.alternate.is_empty() {
             return Err(err(format!("duplicate pin name {}", pin.name)));
         }
         if let Some(domain) = &pin.power_domain {

@@ -37,5 +37,5 @@ pub fn refused_path(path: &str) -> bool {
         return false;
     }
     let lower = ext.to_ascii_lowercase();
-    refused_list().iter().any(|e| *e == lower)
+    refused_list().contains(&lower)
 }

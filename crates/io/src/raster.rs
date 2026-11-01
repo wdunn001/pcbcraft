@@ -215,16 +215,17 @@ fn draw_stroke(
         .collect();
     let radius = width_mm * f64::from(opts.dpi) / 25.4 / 2.0;
     let color = ink(pol);
-    let segments = pts.len().saturating_sub(1);
+    // A closed stroke joins its last point back to its first, whether or not
+    // the ring repeats the first point itself.
+    let count = pts.len();
+    let segments = if closed && count > 2 {
+        count
+    } else {
+        count.saturating_sub(1)
+    };
     for i in 0..segments {
         let a = pts[i];
-        let b = if closed && i + 1 == segments {
-            pts[0]
-        } else if i + 1 < pts.len() {
-            pts[i + 1]
-        } else {
-            a
-        };
+        let b = pts[(i + 1) % count];
         line_grey(img, a, b, radius.max(0.5), color);
     }
 }
@@ -352,8 +353,11 @@ fn fill_polygon_grey(image: &mut GrayImage, points: &[Point], color: u8) {
     for y in top..=bottom {
         let row = f64::from(y) + 0.5;
         let mut crossings: Vec<f64> = vec![];
-        for edge in points.windows(2) {
-            let (a, b) = (edge[0], edge[1]);
+        // A polygon is always closed: the last point joins back to the first,
+        // whether or not the ring repeats its first point.
+        for (index, a) in points.iter().enumerate() {
+            let b = points[(index + 1) % points.len()];
+            let a = *a;
             if (a.y > row) != (b.y > row) {
                 let dx = b.x - a.x;
                 if dx.abs() > 1e-12 || a.y != b.y {
@@ -633,8 +637,10 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
-        sourcing: Default::default(),
-        compliance: Default::default(),
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
         });
         p.validate()?;
         Ok(p)
@@ -827,15 +833,23 @@ mod tests {
         let mut p = Project::default();
         p.board.width = 30.0;
         p.board.height = 30.0;
+        p.nets.push(pcbcraft_doc::Net {
+            id: 2,
+            name: "N".into(),
+            ..Default::default()
+        });
         p.board.vias.push(pcbcraft_doc::Via {
             id: 1,
-            net: 1,
+            net: 2,
             position: Point::new(10.0, 12.0),
-            diameter: 0.8,
+            diameter: 1.4,
             drill: 0.8,
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
         });
         p.validate()?;
         let mut opts = base_opts(FabLayer::CopperTop);

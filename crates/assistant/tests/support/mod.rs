@@ -166,22 +166,22 @@ impl FakeServer {
 
 fn answer(mut c: TcpStream, r: Reply, stream: bool) {
     std::thread::sleep(Duration::from_millis(r.delay_ms));
-let (ctype, body) = if stream && r.status == 200 {
+    // Only an OpenAI-shaped completion is turned into an event stream; an
+    // Anthropic-shaped message (or a cut-off body) goes out as plain JSON, which
+    // the backend accepts when it asked for a stream.
+    let openai_shaped = r.declared_len.is_none() && r.body.contains("\"choices\"");
+    let (ctype, body) = if stream && r.status == 200 && openai_shaped {
         ("text/event-stream", openai_completion_to_sse(&r.body))
     } else {
         ("application/json", r.body.clone())
     };
-    let length = r.declared_len.unwrap_or_else(|| body.len());
+    let length = r.declared_len.unwrap_or(body.len());
     let head = format!(
         "HTTP/1.1 {} X\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         r.status, ctype, length
     );
     let _ = c.write_all(head.as_bytes());
     let _ = c.write_all(body.as_bytes());
-}
-    );
-    let _ = c.write_all(head.as_bytes());
-    let _ = c.write_all(r.body.as_bytes());
 }
 
 fn openai_completion_to_sse(json_body: &str) -> String {
@@ -190,11 +190,10 @@ fn openai_completion_to_sse(json_body: &str) -> String {
     if let Some(t) = v
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
+        && !t.is_empty()
     {
-        if !t.is_empty() {
-            let line = json!({"choices": [{"delta": {"content": t}}]});
-            out.push_str(&format!("data: {line}\n\n"));
-        }
+        let line = json!({"choices": [{"delta": {"content": t}}]});
+        out.push_str(&format!("data: {line}\n\n"));
     }
     if let Some(calls) = v
         .pointer("/choices/0/message/tool_calls")

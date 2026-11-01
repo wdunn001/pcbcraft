@@ -27,6 +27,9 @@ pub struct PageSizePt {
 }
 
 /// Opens documents and renders pages; alternate backends implement this trait.
+///
+/// # Implementations
+/// - crates/datasheet/src/hayro_backend.rs
 pub trait PageRenderer: Send + Sync {
     type Document: PageDocument + Send;
 
@@ -34,6 +37,10 @@ pub trait PageRenderer: Send + Sync {
 }
 
 /// Page metadata and rasterization for one open document.
+///
+/// # Implementations
+/// - crates/datasheet/src/hayro_backend.rs
+/// - crates/datasheet/tests/lazy_pages.rs
 pub trait PageDocument: Send {
     fn page_count(&self) -> u32;
     fn page_size_pt(&self, page: u32) -> Result<PageSizePt, RenderError>;

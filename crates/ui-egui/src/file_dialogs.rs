@@ -19,11 +19,11 @@
 //!
 //! # Do not
 //! - Add a File menu item for one format; mark the registry row `common` instead.
-//! - Invent packages; `packages()` is the hook a later change fills.
+//! - Invent packages; `packages()` reads the bundled records from the io crate.
 use crate::App;
 use crate::bom_export;
 use pcbcraft_doc::{BOM_EXCLUDE_FIELD, Id, Project};
-use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope, bom_flavour};
+use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -88,15 +88,39 @@ pub(crate) struct Recents {
 
 /// A named bundle of several formats, such as the files one fab house asks for.
 pub(crate) struct Package {
-    pub label: &'static str,
+    pub id: String,
+    pub label: String,
+    /// Who it is for, then why it cannot run when it cannot.
+    pub tip: String,
+    pub available: bool,
 }
 
 /// The packages the Export dialog lists.
 ///
-/// Why: the hook for named multi-format bundles. A research task is defining which ones
-/// ship; until then there are none and the dialog says so.
-pub(crate) fn packages() -> &'static [Package] {
-    &[]
+/// Why: the hook for named multi-format bundles. The records are data in
+/// `crates/io/data/packages.json` (issue #224); a package whose writer is not written yet
+/// is listed disabled with the reason and the issue that tracks it, never hidden.
+///
+/// # Do not
+/// - Run a package here; `package.export` in `crates/engine/src/packages.rs` does.
+pub(crate) fn packages() -> Vec<Package> {
+    pcbcraft_io::bundled_packages()
+        .iter()
+        .filter_map(|d| {
+            let a = pcbcraft_io::availability(d).ok()?;
+            let mut tip = d.audience.clone();
+            if !a.available {
+                tip.push_str("\nNot available yet: ");
+                tip.push_str(&a.reasons.join("; "));
+            }
+            Some(Package {
+                id: d.id.clone(),
+                label: d.name.clone(),
+                tip,
+                available: a.available,
+            })
+        })
+        .collect()
 }
 
 /// What the open dialog remembers between frames.
@@ -106,6 +130,8 @@ pub(crate) struct DialogState {
     pub mode: Mode,
     /// Id of the chosen format, empty for none.
     pub format: String,
+    /// Package the user clicked this frame; it is exported then cleared.
+    pub package: String,
     pub values: BTreeMap<String, String>,
     /// File to read or write for Import and Save as.
     pub path: String,
@@ -123,7 +149,7 @@ pub(crate) struct DialogState {
 /// through File and Export to show the submenu.
 #[derive(Default)]
 pub(crate) struct CaptureScript {
-/// The scene asked for: `file-export`, `export-dialog` or `export-flavour`.
+    /// The scene asked for: `file-export`, `export-dialog` or `export-flavour`.
     pub show: Option<String>,
     /// Where the menu buttons were drawn last frame.
     pub rects: BTreeMap<&'static str, egui::Pos2>,
@@ -146,19 +172,7 @@ fn spec(id: &str) -> Option<&'static FormatSpec> {
 /// The option values a format starts with.
 fn defaults(project: &Project, f: &FormatSpec) -> BTreeMap<String, String> {
     if f.id == "bom" {
-return bom_export::default_values(project, &formats::BOM_FLAVOURS[0]);
-    }
-    let mut out = BTreeMap::new();
-    for o in f.options {
-        let value = match o.kind {
-            OptionKind::Bool { default } => default.to_string(),
-            OptionKind::Choice { choices, default } => choices
-                .get(default)
-                .map(|(v, _)| (*v).to_owned())
-                .unwrap_or_default(),
-            _ => String::new(),
-        };
-        out.insert(o.label.to_owned(), value);
+        return bom_export::default_values(project, formats::default_bom_flavour());
     }
     let mut out = BTreeMap::new();
     for o in f.options {
@@ -453,6 +467,12 @@ impl App {
                 });
                 ui.add_space(6.0);
             });
+        if !d.package.is_empty() {
+            let id = std::mem::take(&mut d.package);
+            if self.tool_call("package.export", json!({"id": id, "directory": make_dir})) {
+                close = true;
+            }
+        }
         if go {
             let ok = self.run_dialog(ctx, &d);
             if ok {
@@ -540,22 +560,10 @@ impl App {
             return false;
         }
         match f.export {
-Some(Run::Engine("gerber.files")) => {
+            Some(Run::Engine("gerber.files")) => {
                 let mut params = gerber_params(f, d);
                 params["directory"] = json!(&directory);
                 let ok = self.tool_call("gerber.files", params);
-                if ok {
-                    self.message = format!("{} saved in {directory}.", f.label);
-                }
-                ok
-            }
-            Some(Run::Kind(kind)) => {
-                let job = format!("export-{kind}");
-                let _ = self.tool_call("output_job.add", json!({"name": &job, "kinds": [kind]}));
-                let ok = self.tool_call(
-                    "output_job.run",
-                    json!({"name": &job, "directory": &directory}),
-                );
                 if ok {
                     self.message = format!("{} saved in {directory}.", f.label);
                 }
@@ -650,9 +658,7 @@ Some(Run::Engine("gerber.files")) => {
         }
         let o = bom_export::Options::from_values(
             &self.project,
-&bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]),
             &bom_export::default_values(&self.project, formats::default_bom_flavour()),
-            &[],
             &[],
         );
         let n = bom_export::table(&self.project, &o).map_or(0, |t| t.rows.len());
@@ -719,28 +725,13 @@ Some(Run::Engine("gerber.files")) => {
         if !self.edit.dialog.preview_open {
             return;
         }
-let values = bom_export::default_values(&self.project, formats::default_bom_flavour());
+        let values = bom_export::default_values(&self.project, formats::default_bom_flavour());
         let o = bom_export::Options::from_values(&self.project, &values, &[]);
         let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
             headers: vec![],
             rows: vec![],
             header: true,
             missing: vec![],
-        });
-        let mut open = true;
-        let mut export = false;
-        let o = bom_export::Options::from_values(&self.project, &values, &[]);
-        let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
-            headers: vec![],
-            rows: vec![],
-let values = bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
-        let o = bom_export::Options::from_values(&self.project, &values, &[]);
-        let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
-            headers: vec![],
-            rows: vec![],
-            header: true,
-            missing: vec![],
-        });
         });
         let mut open = true;
         let mut export = false;
@@ -845,9 +836,21 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
                 );
         }
         for p in packages() {
-            let _ = ui
-                .selectable_label(false, p.label)
-                .on_hover_text("A named bundle of formats.");
+            let tip = if p.available {
+                format!("{}\nClick to write it into the make folder.", p.tip)
+            } else {
+                p.tip.clone()
+            };
+            let r = ui
+                .add_enabled_ui(p.available, |ui| {
+                    ui.selectable_label(false, p.label.as_str())
+                })
+                .inner
+                .on_disabled_hover_text(tip.as_str())
+                .on_hover_text(tip.as_str());
+            if r.clicked() {
+                d.package = p.id.clone();
+            }
         }
     }
 }
@@ -910,20 +913,10 @@ fn detail(
         ui.add_space(8.0);
         let o = bom_export::Options::from_values(project, &d.values, &d.only);
         match bom_export::table(project, &o) {
-Ok(table) => {
+            Ok(table) => {
                 bom_needs_ui(ui, &table, &o);
                 preview_grid_limited(ui, &table);
             }
-            Err(e) => {
-                ui.colored_label(ui.visuals().error_fg_color, e);
-            }
-        }
-    }
-if f.id == "bom" && d.mode == Mode::Export {
-        ui.add_space(8.0);
-        let o = bom_export::Options::from_values(project, &d.values, &d.only);
-        match bom_export::table(project, &o) {
-            Ok(table) => preview_grid_limited(ui, &table),
             Err(e) => {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -951,15 +944,19 @@ if f.id == "bom" && d.mode == Mode::Export {
     }
 }
 
+/// Say, before anything is written, which parts lack a field the flavour needs and
+/// which site limits the list exceeds.
 fn bom_needs_ui(ui: &mut egui::Ui, table: &bom_export::Table, o: &bom_export::Options) {
     for m in &table.missing {
         let shown: Vec<&str> = m.references.iter().take(12).map(String::as_str).collect();
         let more = m.references.len().saturating_sub(shown.len());
+        let (noun, verb) = match m.references.len() {
+            1 => ("part", "lacks"),
+            _ => ("parts", "lack"),
+        };
         let mut text = format!(
-            "{} part{} lack{} a {}: {}",
+            "{} {noun} {verb} a {}: {}",
             m.references.len(),
-            if m.references.len() == 1 { "" } else { "s" },
-            if m.references.len() == 1 { "s" } else { "" },
             m.what,
             shown.join(", ")
         );
@@ -983,16 +980,6 @@ fn preview_grid_limited(ui: &mut egui::Ui, table: &bom_export::Table) {
         rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
         header: table.header,
         missing: vec![],
-    };
-    ui.label(format!(
-fn preview_grid_limited(ui: &mut egui::Ui, table: &bom_export::Table) {
-    ui.label(egui::RichText::new("Preview").strong());
-    let shown = bom_export::Table {
-        headers: table.headers.clone(),
-        rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
-header: table.header,
-        missing: vec![],
-        rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
     };
     ui.label(format!(
         "First {} of {} rows",
@@ -1057,7 +1044,7 @@ fn option_row(
         }
         OptionKind::Flavour => {
             let current = bom_export::flavour_of(&d.values);
-ui.horizontal_wrapped(|ui| {
+            ui.horizontal(|ui| {
                 ui.label(o.label);
                 egui::ComboBox::from_id_salt("bom_flavour")
                     .selected_text(&current.label)
@@ -1143,9 +1130,8 @@ ui.horizontal_wrapped(|ui| {
                         changed = true;
                     }
                 };
-for (token, header) in flavour.columns {
-                    toggle(ui, token.to_owned(), header.to_owned());
-                }
+                for column in &flavour.columns {
+                    toggle(ui, column.token.clone(), column.header.clone());
                 }
                 for field in &project.bom_fields {
                     let label = if field.label.is_empty() {
@@ -1164,6 +1150,15 @@ for (token, header) in flavour.columns {
     let _ = f;
 }
 
+/// The option values a fresh bill of the given flavour starts with.
+#[cfg(test)]
+pub(crate) fn bom_default_values(
+    project: &Project,
+    flavour: &pcbcraft_io::formats::BomFlavour,
+) -> BTreeMap<String, String> {
+    bom_export::default_values(project, flavour)
+}
+
 impl App {
     /// Capture option: stage a scene for the screenshot (`file-export`, `export-dialog`, `export-flavour`).
     pub fn with_capture_show(mut self, scene: Option<String>) -> Self {
@@ -1177,17 +1172,6 @@ impl App {
             Some("file-export") => {
                 let mut values =
                     bom_export::default_values(&self.project, formats::default_bom_flavour());
-    pub fn with_capture_show(mut self, scene: Option<String>) -> Self {
-        self.edit.dialog.script.show = scene;
-        self
-    }
-
-    /// Frame 3 of a `--show` capture: seed a Recent export or open the dialog.
-    pub(crate) fn capture_scene(&mut self) {
-        match self.edit.dialog.script.show.clone().as_deref() {
-            Some("file-export") => {
-                let mut values =
-bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
                 values.insert(bom_export::FILE_TYPE.into(), "tsv".into());
                 values.insert(bom_export::GROUP.into(), "false".into());
                 let summary = bom_export::summary(&self.project, &values);
@@ -1201,35 +1185,18 @@ bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
                 );
             }
             Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
-Some("export-flavour") => {
+            Some(scene) if scene.starts_with("files-") => self.files_capture_scene(scene),
+            Some("export-flavour") => {
                 self.open_dialog(Mode::Export, Some("bom"), None, vec![]);
                 if let Some(flavour) = formats::bom_flavour("asm_proto_a") {
                     self.edit.dialog.values = bom_export::default_values(&self.project, flavour);
                 }
             }
-            Some("export-dialog") => {
-                self.open_dialog(Mode::Export, Some("bom"), None, vec![]);
-                let mut values = self.edit.dialog.values.clone();
-                values.insert(bom_export::GROUP.into(), "false".into());
-                let summary = bom_export::summary(&self.project, &values);
-                remember(
-                    &mut self.preferences.recent_files.exports,
-                    Recent {
-                        format: "bom".into(),
-                        values,
-                        summary,
-                    },
-                );
-            }
             Some(scene) if scene.starts_with("library-") => self.capture_library_scene(scene),
-            Some(scene) if scene.starts_with("files-") => self.files_capture_scene(scene),
             Some(scene) => {
                 self.capture_project_settings(scene);
             }
             None => {}
-        }
-    }
-            _ => {}
         }
     }
 
@@ -1260,18 +1227,6 @@ Some("export-flavour") => {
         let target = match script.step {
             0 => "File",
             1 if script.wait >= 6 => "Export",
-            _ => return,
-        };
-        if let Some(pos) = script.rects.get(target).copied() {
-            raw.events.push(egui::Event::PointerMoved(pos));
-            raw.events.push(button(pos, true));
-            script.release = Some(pos);
-            script.step += 1;
-            script.wait = 0;
-        }
-    }
-}
-1 if script.wait >= 6 => "Export",
             _ => return,
         };
         if let Some(pos) = script.rects.get(target).copied() {

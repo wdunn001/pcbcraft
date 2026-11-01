@@ -7,7 +7,7 @@ named there. They are test data only; nothing here ships in the app.
 
 | File | What it is |
 | --- | --- |
-| `Device-R.kicad_sym`, `Device-C.kicad_sym` | symbol files |
+| `Device-R.kicad_sym`, `Device-C.kicad_sym` | symbol files; `Device-R` has its Footprint property set to `Resistor_SMD:R_0603_1608Metric` (the upstream value is empty) so the import tests follow a symbol to its footprint |
 | `R_0603_1608Metric.kicad_mod`, `R_0603_1608Metric.step` | a footprint and its 3D model |
 | `LQFP-64_10x10mm_P0.5mm.kicad_mod` | the 64-pin package footprint, `Package_QFP.pretty` |
 | `footprints-Package_QFP.json` | the `Package_QFP.pretty` folder listing, trimmed to the 64-pin quad flat packages and their relatives |

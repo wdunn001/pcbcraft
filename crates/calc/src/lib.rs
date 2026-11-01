@@ -26,7 +26,7 @@ pub mod meta;
 pub mod spacing;
 pub mod utilities;
 
-pub use glossary::{search_glossary, term_by_id, GlossaryHit, Term, TERMS};
+pub use glossary::{GlossaryHit, TERMS, Term, search_glossary, term_by_id};
 
 /// Why a calculator refused its inputs.
 #[derive(Debug, Clone, PartialEq)]

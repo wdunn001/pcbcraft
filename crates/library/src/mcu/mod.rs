@@ -4,10 +4,10 @@ mod parse;
 mod schema;
 mod validate;
 
-pub use builtins::{builtin_ids, load_builtin, BuiltinMcu, BUILT_INS};
-pub use parse::{import_mcu_bundle_json, parse_and_validate_mcu, MCU_FILE_SUFFIX};
+pub use builtins::{BUILT_INS, BuiltinMcu, builtin_ids, load_builtin};
+pub use parse::{MCU_FILE_SUFFIX, import_mcu_bundle_json, parse_and_validate_mcu};
 pub use schema::{
-    BootStrap, DmaRequest, McuDocument, McuIdentity, McuImportBundle, McuPackage, McuPeripheral,
-    McuPin, McuProvenance, PinAlternate, MCU_SCHEMA,
+    BootStrap, DmaRequest, MCU_SCHEMA, McuDocument, McuIdentity, McuImportBundle, McuPackage,
+    McuPeripheral, McuPin, McuProvenance, PinAlternate,
 };
 pub use validate::validate_mcu;

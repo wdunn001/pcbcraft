@@ -1,6 +1,6 @@
 use pcbcraft_publication::{
-    bundle_root_hash, sha256_hex, Author, FileEntry, Identity, LayerLicences, ProvenanceBlock,
-    PublicationManifest, VersionInfo, SCHEMA_VERSION,
+    Author, FileEntry, Identity, LayerLicences, ProvenanceBlock, PublicationManifest,
+    SCHEMA_VERSION, VersionInfo, bundle_root_hash, sha256_hex,
 };
 use std::collections::BTreeMap;
 

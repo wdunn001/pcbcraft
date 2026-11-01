@@ -49,8 +49,8 @@ fn both_commands_are_listed_with_their_schemas() {
 #[test]
 fn online_status_lists_imported_parts_without_network() -> Result<(), Error> {
     let mut s = Session::default();
-    let rev = s.revision;
     s.execute("library.import_online", import_params()?, None)?;
+    let rev = s.revision;
     let out = s.execute("library.online_status", json!({}), None)?;
     assert_eq!(s.revision, rev, "online_status must not change the design");
     let entries = out
@@ -216,11 +216,7 @@ fn place_online_keeps_the_cached_model_on_the_placed_footprint() -> Result<(), E
     let mut params = place_params("layout", 10.0, 10.0)?;
     params["model"] = json!({"path": "/data/cache/part.step"});
     s.execute("library.place_online", params, None)?;
-    let c = s
-        .project
-        .components
-        .last()
-        .ok_or_else(missing)?;
+    let c = s.project.components.last().ok_or_else(missing)?;
     let path = c
         .library_footprint
         .as_ref()

@@ -57,6 +57,7 @@ fn part(thru: bool, side: Option<Layer>) -> Footprint {
             castellated: None,
             geometry: Some(geometry),
         }],
+        preserved: Default::default(),
     }
 }
 
@@ -88,6 +89,8 @@ fn bottom_maps_to_the_last_copper_layer_on_2_4_6_and_8_layers() -> Result<(), St
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: Default::default(),
+            preserved: Default::default(),
         };
         assert_eq!(p.via_span(&via), (Layer::Front, last), "{count} layers");
         assert_eq!(p.via_span_layers(&via).len(), count as usize);

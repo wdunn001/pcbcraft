@@ -1,6 +1,6 @@
 README-fabrication.txt	-
 Showcase_sensor_node-NPTH.XLN	-
-Showcase_sensor_node.G2L	Copper,L2,Bot
+Showcase_sensor_node.G2L	Copper,L2,Inr
 Showcase_sensor_node.G3L	Copper,L3,Inr
 Showcase_sensor_node.GBL	Copper,L4,Bot
 Showcase_sensor_node.GBO	Legend,Bot
@@ -14,4 +14,8 @@ Showcase_sensor_node.GTP	Paste,Top
 Showcase_sensor_node.GTS	Soldermask,Top
 Showcase_sensor_node.XLN	-
 Showcase_sensor_node.gbrjob	-
+gerber-arc-report.txt	-
 logo.gbr	Legend,Top
+pcb-B.Cmp.gbr	Component,L4,Bot
+pcb-F.Cmp.gbr	Component,L1,Top
+pcb-Viafill.gbr	Viafill

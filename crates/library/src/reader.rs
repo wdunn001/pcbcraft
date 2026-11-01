@@ -603,6 +603,8 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     scale,
                     rotate,
                     cad_part,
+                    body_id: None,
+                    embedded: String::new(),
                     raw_source: source[child.span.clone()].to_owned(),
                 });
             }

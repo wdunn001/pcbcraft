@@ -342,6 +342,64 @@ fn a_newcomer_plans_a_panel_with_their_own_gaps() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_saves_the_panel_grid_on_the_design() -> Result<(), String> {
+    let (mut app, ctx) = sample_in_settings()?;
+    assert!(
+        !app.project.panel.enabled,
+        "a new design has no saved panel"
+    );
+    tap_id(&ctx, &mut app, "checkbox:Panel enabled for manufacturing")?;
+    assert!(app.panel_enabled, "the box is ticked");
+    type_into(&ctx, &mut app, "spinbutton:Copies across", "4")?;
+    tap_id(&ctx, &mut app, "button:Apply panel settings")?;
+    app.refresh();
+    assert!(
+        app.project.panel.enabled && app.project.panel.columns == 4,
+        "the design keeps the panel that was ticked and applied: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_switches_panel_separation_to_v_score() -> Result<(), String> {
+    let (mut app, ctx) = sample_in_settings()?;
+    assert_eq!(app.panel_separation, "tab", "tab routing is the default");
+    assert!(
+        on_screen(&ctx, &mut app, "spinbutton:Tab channel width"),
+        "tab routing offers a channel width"
+    );
+    tap_id(&ctx, &mut app, "combobox:Panel separation method")?;
+    tap_id(&ctx, &mut app, "button:V-score")?;
+    assert_eq!(app.panel_separation, "v_score", "the choice is kept");
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        !on_screen(&ctx, &mut app, "spinbutton:Tab channel width"),
+        "a scored panel has no tab channel to set"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sets_the_width_of_the_tab_channel() -> Result<(), String> {
+    let (mut app, ctx) = sample_in_settings()?;
+    type_into(&ctx, &mut app, "spinbutton:Tab channel width", "1.8")?;
+    assert!(
+        (app.panel_tab_channel - 1.8).abs() < 1e-9,
+        "the field keeps the typed width: {}",
+        app.panel_tab_channel
+    );
+    tap_id(&ctx, &mut app, "button:Apply panel settings")?;
+    app.refresh();
+    assert!(
+        (app.project.panel.tab_channel - 1.8).abs() < 1e-9,
+        "the design carries the applied channel width: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_brings_in_a_drawing_and_uses_its_edge_as_the_board() -> Result<(), String> {
     let (mut app, ctx) = sample_in_settings()?;
     let file = std::env::temp_dir().join(format!("pcbcraftdraw-{}.svg", std::process::id()));
@@ -584,5 +642,16 @@ fn a_missing_font_file_keeps_the_app_usable_and_says_so() -> Result<(), String> 
         paints_text(&ctx, &mut app, "APPEARANCE")?,
         "the app stays usable and keeps painting text"
     );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_the_design_setup_wizard_from_settings() -> Result<(), String> {
+    let mut app = fresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "button:Open design setup wizard")?;
+    assert!(app.setup_wizard.open, "the wizard opens: {}", app.message);
     Ok(())
 }

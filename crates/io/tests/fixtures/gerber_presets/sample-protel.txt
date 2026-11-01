@@ -10,3 +10,6 @@ LED_indicator.GTP	Paste,Top
 LED_indicator.GTS	Soldermask,Top
 LED_indicator.gbrjob	-
 README-fabrication.txt	-
+gerber-arc-report.txt	-
+pcb-B.Cmp.gbr	Component,L2,Bot
+pcb-F.Cmp.gbr	Component,L1,Top

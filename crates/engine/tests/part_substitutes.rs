@@ -132,12 +132,12 @@ fn footprint_rename_updates_alternate_footprint_override() -> Result<(), Error> 
     )?;
     let alt = substitutes(&s, "Primary")?.alternates[0].footprint.clone();
     assert_eq!(alt, "FP_C");
-    s.execute(
-        "library.footprint.remove",
-        json!({"name":"FP_C"}),
-        None,
-    )?;
-    assert!(substitutes(&s, "Primary")?.alternates[0].footprint.is_empty());
+    s.execute("library.footprint.remove", json!({"name":"FP_C"}), None)?;
+    assert!(
+        substitutes(&s, "Primary")?.alternates[0]
+            .footprint
+            .is_empty()
+    );
     s.project.validate()?;
     Ok(())
 }

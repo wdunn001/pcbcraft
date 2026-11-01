@@ -67,7 +67,7 @@ pub(crate) fn import_open(
     };
     let mut last = String::new();
     for (fp, m) in attempts {
-        match import_part(source, &symbol, fp, m) {
+        match import_part(source, &symbol, *fp, *m) {
             Ok(part) => return Ok(part.to_params()),
             Err(e) => last = e.to_string(),
         }

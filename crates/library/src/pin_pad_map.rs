@@ -118,11 +118,7 @@ fn default_pad_role(pad: &FootprintPad) -> PadRole {
 }
 
 fn pin_numbers(symbol: &SymbolDefinition) -> BTreeSet<String> {
-    symbol
-        .pins
-        .iter()
-        .map(|p| p.number.clone())
-        .collect()
+    symbol.pins.iter().map(|p| p.number.clone()).collect()
 }
 
 fn pads_by_number(footprint: &FootprintDefinition) -> BTreeMap<String, Vec<String>> {
@@ -194,7 +190,10 @@ impl PinPadMap {
 
     /// Role for `pad`, defaulting to electrical when unset.
     pub fn pad_role(&self, pad: &str) -> PadRole {
-        self.pad_roles.get(pad).copied().unwrap_or(PadRole::Electrical)
+        self.pad_roles
+            .get(pad)
+            .copied()
+            .unwrap_or(PadRole::Electrical)
     }
 
     /// Every pad label on the footprint.
@@ -257,7 +256,10 @@ pub fn validate_pin_pad_map(
             if !pad_set.contains(pad) {
                 findings.push(PinPadFinding {
                     code: "pad_unknown".into(),
-                    message: format!("pin {} claims {} which is not on footprint {}", row.pin, pad, footprint.name),
+                    message: format!(
+                        "pin {} claims {} which is not on footprint {}",
+                        row.pin, pad, footprint.name
+                    ),
                     pin: Some(row.pin.clone()),
                     pad: Some(pad.clone()),
                 });
@@ -271,7 +273,10 @@ pub fn validate_pin_pad_map(
         if role == PadRole::Electrical && !claimed {
             findings.push(PinPadFinding {
                 code: "pad_unclaimed".into(),
-                message: format!("{pad} on footprint {} is not mapped to a pin", footprint.name),
+                message: format!(
+                    "{pad} on footprint {} is not mapped to a pin",
+                    footprint.name
+                ),
                 pin: None,
                 pad: Some(pad.clone()),
             });
@@ -298,15 +303,15 @@ pub fn validate_pin_pad_map(
     let mut pad_to_pin: BTreeMap<String, String> = BTreeMap::new();
     for row in &map.rows {
         for pad in &row.pads {
-            if let Some(other) = pad_to_pin.insert(pad.clone(), row.pin.clone()) {
-                if other != row.pin {
-                    findings.push(PinPadFinding {
-                        code: "pad_duplicate".into(),
-                        message: format!("{pad} is mapped to both pin {other} and pin {}", row.pin),
-                        pin: Some(row.pin.clone()),
-                        pad: Some(pad.clone()),
-                    });
-                }
+            if let Some(other) = pad_to_pin.insert(pad.clone(), row.pin.clone())
+                && other != row.pin
+            {
+                findings.push(PinPadFinding {
+                    code: "pad_duplicate".into(),
+                    message: format!("{pad} is mapped to both pin {other} and pin {}", row.pin),
+                    pin: Some(row.pin.clone()),
+                    pad: Some(pad.clone()),
+                });
             }
         }
     }

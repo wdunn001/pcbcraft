@@ -88,10 +88,7 @@ pub struct EntityMatch {
 
 /// Match a manufacturer or entity name against list entries. Ownership is never
 /// inferred beyond the `parent` field stored in the entry.
-pub fn match_entity_name(
-    snapshot: &ComplianceListSnapshot,
-    query: &str,
-) -> Option<EntityMatch> {
+pub fn match_entity_name(snapshot: &ComplianceListSnapshot, query: &str) -> Option<EntityMatch> {
     let normalized = normalize_compliance_name(query);
     if normalized.is_empty() {
         return None;
@@ -158,9 +155,7 @@ fn levenshtein(a: &[u8], b: &[u8]) -> usize {
         cur[0] = i + 1;
         for (j, &byte_b) in b.iter().enumerate() {
             let cost = if byte_a == byte_b { 0 } else { 1 };
-            cur[j + 1] = (prev[j + 1] + 1)
-                .min(cur[j] + 1)
-                .min(prev[j] + cost);
+            cur[j + 1] = (prev[j + 1] + 1).min(cur[j] + 1).min(prev[j] + cost);
         }
         std::mem::swap(&mut prev, &mut cur);
     }
@@ -217,7 +212,7 @@ fn days_in_month(y: u32, m: u32) -> u32 {
 }
 
 fn is_leap(y: u32) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }
 
 /// Staleness note when `cadence_days` is set and the snapshot is older than that.

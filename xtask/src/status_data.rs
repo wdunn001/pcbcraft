@@ -100,7 +100,8 @@ impl EtagCache {
         if !path.is_file() {
             return Ok(Self::default());
         }
-        let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let text =
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
     }
 
@@ -1047,7 +1048,9 @@ fn api_get(
         return Ok(None); // Not modified; caller keeps cached value.
     }
     if !out.status.success() && code != "200" {
-        return Err(format!("GitHub API request for {path} failed (HTTP {code})"));
+        return Err(format!(
+            "GitHub API request for {path} failed (HTTP {code})"
+        ));
     }
     if body.is_empty() {
         return Ok(Some((json!(null), new_etag)));
@@ -1114,7 +1117,11 @@ fn fetch_snapshot(repo: &str, fetched_at: &str, root: &Path) -> Result<Value, St
 
         // If page 1 was full, fetch remaining pages starting from page 2
         if page1_items.len() == 100 {
-            all_issues.extend(api_pages_from(&format!("repos/{repo}/issues?state=all"), 2, &mut requests)?);
+            all_issues.extend(api_pages_from(
+                &format!("repos/{repo}/issues?state=all"),
+                2,
+                &mut requests,
+            )?);
         }
 
         // Update cache with new ETag
@@ -1141,8 +1148,8 @@ fn fetch_snapshot(repo: &str, fetched_at: &str, root: &Path) -> Result<Value, St
                     if snapshot_path.is_file() {
                         let text = std::fs::read_to_string(&snapshot_path)
                             .map_err(|e| format!("{}: {e}", snapshot_path.display()))?;
-                        let snap: Value = serde_json::from_str(&text)
-                            .map_err(|e| format!("snapshot: {e}"))?;
+                        let snap: Value =
+                            serde_json::from_str(&text).map_err(|e| format!("snapshot: {e}"))?;
                         let cached_issues = snap["issues"].as_array().cloned().unwrap_or_default();
                         // Merge: replace updated issues, add new ones
                         let merged = merge_issues(&cached_issues, &items)?;
@@ -1166,8 +1173,7 @@ fn fetch_snapshot(repo: &str, fetched_at: &str, root: &Path) -> Result<Value, St
         let snapshot_path = root.join(SNAPSHOT_PATH);
         let text = std::fs::read_to_string(&snapshot_path)
             .map_err(|e| format!("{}: {e}", snapshot_path.display()))?;
-        let snap: Value = serde_json::from_str(&text)
-            .map_err(|e| format!("snapshot: {e}"))?;
+        let snap: Value = serde_json::from_str(&text).map_err(|e| format!("snapshot: {e}"))?;
         snap["issues"].as_array().cloned().unwrap_or_default()
     };
 
@@ -1179,7 +1185,11 @@ fn fetch_snapshot(repo: &str, fetched_at: &str, root: &Path) -> Result<Value, St
         &mut requests,
         None,
     )?;
-    let releases = api_get(&format!("repos/{repo}/releases?per_page=30"), &mut requests, None)?;
+    let releases = api_get(
+        &format!("repos/{repo}/releases?per_page=30"),
+        &mut requests,
+        None,
+    )?;
     let branch = api_get(&format!("repos/{repo}/branches/main"), &mut requests, None)?;
     Ok(json!({
         "repo": repo, "fetched_at": fetched_at, "api_requests": requests,
@@ -1234,7 +1244,6 @@ fn merge_issues(cached: &[Value], updates: &[Value]) -> Result<Vec<Value>, Strin
     }
     Ok(by_number.into_values().collect())
 }
-
 
 /// Current UTC time as `YYYY-MM-DDTHH:MM:SSZ`, from `date`.
 fn utc_now() -> String {
@@ -1338,15 +1347,13 @@ pub fn run(args: &[String], root: &Path) -> Result<(), String> {
                     .map_err(|read_e| format!("{}: {read_e}", snapshot_path.display()))?;
                 let cached_snap: Value = serde_json::from_str(&cached)
                     .map_err(|parse_e| format!("snapshot: {parse_e}"))?;
-                let fetched_at = cached_snap["fetched_at"]
-                    .as_str()
-                    .unwrap_or("");
-                if let Some(age_days) = snapshot_age_days(fetched_at) {
-                    if age_days >= 7 {
-                        return Err(format!(
-                            "refresh failed ({e}) and cached snapshot is {age_days} days old (>= 7 days)"
-                        ));
-                    }
+                let fetched_at = cached_snap["fetched_at"].as_str().unwrap_or("");
+                if let Some(age_days) = snapshot_age_days(fetched_at)
+                    && age_days >= 7
+                {
+                    return Err(format!(
+                        "refresh failed ({e}) and cached snapshot is {age_days} days old (>= 7 days)"
+                    ));
                 }
                 eprintln!("refresh failed ({e}); using the cached snapshot");
                 stale = true;

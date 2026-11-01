@@ -15,7 +15,12 @@ pub struct DatasheetRect {
 
 impl DatasheetRect {
     pub fn checked(x0: f32, y0: f32, x1: f32, y1: f32) -> Result<Self, String> {
-        if !(x1 > x0 && y1 > y0 && x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite())
+        if !(x1 > x0
+            && y1 > y0
+            && x0.is_finite()
+            && y0.is_finite()
+            && x1.is_finite()
+            && y1.is_finite())
         {
             return Err("invalid datasheet rectangle".into());
         }

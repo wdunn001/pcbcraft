@@ -2,10 +2,10 @@
 use pcbcraft_engine::{Error, Session};
 use serde_json::json;
 
-fn width(result: &serde_json::Value) -> f64 {
+fn width(result: &serde_json::Value) -> Result<f64, Error> {
     result["result"]["width_mm"]
         .as_f64()
-        .expect("width_mm")
+        .ok_or_else(|| Error::Invalid("width_mm".into()))
 }
 
 #[test]
@@ -16,12 +16,9 @@ fn track_width_matches_ipc2152_table_for_two_amps() -> Result<(), Error> {
         json!({"current": 2.0, "temperature_rise": 10.0, "method": "ipc2152"}),
         None,
     )?;
-    let w = width(&out);
+    let w = width(&out)?;
     assert!((w - 0.762).abs() < 0.001, "expected 0.762 mm, got {w}");
-    assert_eq!(
-        out["result"]["method_used"].as_str(),
-        Some("ipc2152")
-    );
+    assert_eq!(out["result"]["method_used"].as_str(), Some("ipc2152"));
     Ok(())
 }
 
@@ -34,7 +31,7 @@ fn apply_track_width_updates_net_class_default() -> Result<(), Error> {
         None,
     )?["result"]["id"]
         .as_u64()
-        .expect("class id");
+        .ok_or_else(|| Error::Invalid("class id".into()))?;
     s.execute(
         "calc.apply",
         json!({"kind": "track_width", "class": class, "current": 2.0, "temperature_rise": 10.0}),
@@ -46,8 +43,11 @@ fn apply_track_width_updates_net_class_default() -> Result<(), Error> {
         .iter()
         .find(|c| c.id == class)
         .map(|c| c.width)
-        .expect("Power class");
-    assert!((w - 0.762).abs() < 0.01, "Power class width should reflect 2 A at 10 K");
+        .ok_or_else(|| Error::Invalid("Power class".into()))?;
+    assert!(
+        (w - 0.762).abs() < 0.01,
+        "Power class width should reflect 2 A at 10 K"
+    );
     Ok(())
 }
 
@@ -59,7 +59,14 @@ fn divider_and_convert_return_meta() -> Result<(), Error> {
         json!({"vin": 5.0, "r1": 1000.0, "r2": 1000.0}),
         None,
     )?;
-    assert!((div["result"]["vout_v"].as_f64().unwrap() - 2.5).abs() < 0.001);
+    assert!(
+        (div["result"]["vout_v"]
+            .as_f64()
+            .ok_or_else(|| Error::Invalid("missing value".into()))?
+            - 2.5)
+            .abs()
+            < 0.001
+    );
     assert!(div["result"]["meta"]["formula"].is_string());
 
     let mil = s.execute(
@@ -67,7 +74,14 @@ fn divider_and_convert_return_meta() -> Result<(), Error> {
         json!({"value": 30.0, "from": "mil", "to": "mm"}),
         None,
     )?;
-    assert!((mil["result"]["value"].as_f64().unwrap() - 0.762).abs() < 0.001);
+    assert!(
+        (mil["result"]["value"]
+            .as_f64()
+            .ok_or_else(|| Error::Invalid("missing value".into()))?
+            - 0.762)
+            .abs()
+            < 0.001
+    );
     Ok(())
 }
 

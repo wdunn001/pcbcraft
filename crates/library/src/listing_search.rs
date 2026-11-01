@@ -119,6 +119,7 @@ pub trait ListingProvider: Send + Sync {
 fn kind_name(source: ListingSource) -> &'static str {
     match source {
         ListingSource::Fixture => "fixture",
+        ListingSource::Generated => "generated",
         ListingSource::Project => "project",
         ListingSource::Installed => "installed",
         ListingSource::OpenLibrary => "open_library",
@@ -143,6 +144,7 @@ fn priority(source: ListingSource) -> u8 {
         ListingSource::Project => 0,
         ListingSource::Installed => 1,
         ListingSource::Fixture => 2,
+        ListingSource::Generated => 2,
         ListingSource::OpenLibrary => 3,
         ListingSource::Distributor => 4,
     }

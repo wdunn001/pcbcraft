@@ -23,7 +23,7 @@ use crate::ui_kit::{
     form_row::{FormWidth, form_row, toggle_row},
     number_field::{NumberSpec, number_field},
     section::section,
-    segmented::{Segment, segmented},
+    segmented::{Segment, SegmentedStyle, segmented_styled},
 };
 
 const ROW: FormWidth = FormWidth::Aside;
@@ -238,7 +238,8 @@ impl App {
                     let (top_tip, bottom_tip) =
                         (t!("props.side_top.tip"), t!("props.side_bottom.tip"));
                     form_row(ui, ROW, &t!("props.side"), None, None, |ui| {
-                        segmented(
+                        let group = t!("props.side");
+                        segmented_styled(
                             ui,
                             "prop-side",
                             &mut side,
@@ -246,6 +247,10 @@ impl App {
                                 Segment::text(&top_label, &top_tip),
                                 Segment::text(&bottom_label, &bottom_tip),
                             ],
+                            SegmentedStyle {
+                                group_name: Some(&group),
+                                ..Default::default()
+                            },
                         );
                     });
                     if side != usize::from(bottom) {
@@ -341,7 +346,7 @@ impl App {
                 });
             },
         );
-if self
+        if self
             .project
             .board
             .footprints

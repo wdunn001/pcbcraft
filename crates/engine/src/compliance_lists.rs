@@ -70,18 +70,18 @@ fn load_all_installed() -> Result<BTreeMap<String, pcbcraft_doc::ComplianceListS
     for id in builtin_compliance_list_ids() {
         out.insert((*id).to_owned(), load_installed(id)?);
     }
-    if let Ok(dir) = lists_dir() {
-        if dir.is_dir() {
-            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
-                let entry = entry.map_err(|e| e.to_string())?;
-                let path = entry.path();
-                if path.extension().is_some_and(|e| e == "toml")
-                    && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-                {
-                    let text = pcbcraft_io::read_text(&path)?;
-                    let snapshot = compliance_list_from_toml(&text)?;
-                    out.insert(stem.to_owned(), snapshot);
-                }
+    if let Ok(dir) = lists_dir()
+        && dir.is_dir()
+    {
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "toml")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                let text = pcbcraft_io::read_text(&path)?;
+                let snapshot = compliance_list_from_toml(&text)?;
+                out.insert(stem.to_owned(), snapshot);
             }
         }
     }
@@ -93,8 +93,7 @@ fn write_installed(snapshot: &pcbcraft_doc::ComplianceListSnapshot) -> Result<()
     let dir = lists_dir()?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let text = compliance_list_to_toml(snapshot)?;
-    pcbcraft_io::atomic_write(&list_path(&snapshot.id)?, text.as_bytes())
-        .map_err(|e| e.to_string())
+    pcbcraft_io::atomic_write(&list_path(&snapshot.id)?, text.as_bytes()).map_err(|e| e.to_string())
 }
 
 #[derive(Deserialize)]
@@ -222,15 +221,15 @@ fn lists_update(params: &Value) -> Result<Value, String> {
             substances_added: incoming
                 .substances
                 .iter()
-                .filter_map(|s| {
+                .map(|s| {
                     if s.name.is_empty() {
                         if s.cas.is_empty() {
-                            Some(s.ec_number.clone())
+                            s.ec_number.clone()
                         } else {
-                            Some(s.cas.clone())
+                            s.cas.clone()
                         }
                     } else {
-                        Some(s.name.clone())
+                        s.name.clone()
                     }
                 })
                 .collect(),

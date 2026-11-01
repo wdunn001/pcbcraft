@@ -62,10 +62,7 @@ fn cache_key(source: &str, query: &str) -> String {
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), SourceError> {
     let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let stamp = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => d.as_secs(),
-        Err(_) => 0,
-    };
+    let stamp = pcbcraft_clock::unix_secs();
     let tmp = path.with_file_name(format!(".tmp-{}-{n}-{stamp}", std::process::id()));
     {
         let mut f = fs::File::create(&tmp)
@@ -165,6 +162,7 @@ impl DiskLayer {
         Ok(Some(StoredResponse { stored_at, results }))
     }
 
+    #[allow(dead_code)]
     fn remove(&self, source: &str, key: &str) -> Result<(), SourceError> {
         if let Some(path) = self.path(source, key)? {
             let _ = fs::remove_file(path);

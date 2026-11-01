@@ -15,6 +15,13 @@ pub(crate) struct BackDrillHit {
     pub stop: u8,
 }
 
+impl BackDrillHit {
+    /// The first and last layer indices the pass removes, lowest first.
+    pub(crate) fn range(&self) -> (u8, u8) {
+        (self.entry.min(self.stop), self.entry.max(self.stop))
+    }
+}
+
 /// Every back-drilled hole of the project, in via order.
 pub(crate) fn collect_backdrill_hits(p: &Project) -> Vec<BackDrillHit> {
     let last = p.copper_layer_count().saturating_sub(1);

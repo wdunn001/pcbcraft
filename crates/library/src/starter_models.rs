@@ -50,9 +50,7 @@ fn name_matches(list: &[&str], name: &str) -> bool {
 
 /// Pick a starter model for a project-library footprint name.
 pub fn for_footprint(name: &str) -> Option<&'static StarterModel> {
-    all()
-        .iter()
-        .find(|m| name_matches(m.footprint_names, name))
+    all().iter().find(|m| name_matches(m.footprint_names, name))
 }
 
 /// Pick a starter model from a footprint model reference path.

@@ -3,5 +3,6 @@
 # preload downloads the wasm whether or not the check passed. The loader is a
 # module that waits for the flag set by the classic script in the page body.
 [build]
+filehash = true
 pattern_preload = ""
 pattern_script = """<script type="module">if (window.pcbcraftGraphics) { const bindings = await import('{base}{js}'); await bindings.default({ module_or_path: '{base}{wasm}' }); }</script>"""
