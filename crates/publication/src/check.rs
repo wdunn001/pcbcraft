@@ -31,7 +31,7 @@ impl CheckVerdict {
         }
     }
 
-    fn flag(reason: impl Into<String>) -> Self {
+    pub fn flag(reason: impl Into<String>) -> Self {
         Self::Flag(vec![reason.into()])
     }
 }
