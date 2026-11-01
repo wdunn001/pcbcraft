@@ -395,7 +395,7 @@ fn gerber_mount(mount: &str) -> &'static str {
         "THT" => "TH",
         "SMT" => "SMD",
         "PressFit" => "Other",
-        _ if mount.starts_with("FID") => "Fiducial",
+        // The reference reader knows TH, SMD, PressFit and Other; a fiducial is Other.
         _ => "Other",
     }
 }
@@ -478,7 +478,7 @@ pub fn gerber_component_layers(
             let reference = format!("FID{:02}", i + 1);
             body.push_str("D10*\n");
             body.push_str(&format!("%TO.C,{}*%\n", reference));
-            body.push_str("%TO.CMnt,Fiducial*%\n");
+            body.push_str("%TO.CMnt,Other*%\n");
             body.push_str("%TO.CRot,0*%\n");
             body.push_str(&format!(
                 "X{}Y{}D03*\n%TD*%\n",

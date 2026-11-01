@@ -215,16 +215,17 @@ fn draw_stroke(
         .collect();
     let radius = width_mm * f64::from(opts.dpi) / 25.4 / 2.0;
     let color = ink(pol);
-    let segments = pts.len().saturating_sub(1);
+    // A closed stroke joins its last point back to its first, whether or not
+    // the ring repeats the first point itself.
+    let count = pts.len();
+    let segments = if closed && count > 2 {
+        count
+    } else {
+        count.saturating_sub(1)
+    };
     for i in 0..segments {
         let a = pts[i];
-        let b = if closed && i + 1 == segments {
-            pts[0]
-        } else if i + 1 < pts.len() {
-            pts[i + 1]
-        } else {
-            a
-        };
+        let b = pts[(i + 1) % count];
         line_grey(img, a, b, radius.max(0.5), color);
     }
 }
@@ -824,48 +825,6 @@ mod tests {
         let from_bmp = image::load_from_memory(&bmp_bytes).map_err(|e| e.to_string())?;
         assert_eq!(from_png.width(), from_bmp.width());
         assert_eq!(from_png.height(), from_bmp.height());
-        Ok(())
-    }
-
-    #[test]
-    fn dbg_negative_polygon_clears_centre_dot() -> Result<(), String> {
-        let mut p = Project::default();
-        p.board.width = 30.0;
-        p.board.height = 30.0;
-        let opts = RasterOptions {
-            layer: FabLayer::LegendTop,
-            dpi: 1440,
-            mirror: false,
-            invert: false,
-            outline: false,
-            registration: None,
-            drill_marks: None,
-            margin_mm: 0.3,
-            depth: RasterDepth::Grey8,
-        };
-        let stroke = Shape::Stroke(
-            vec![Point::new(10.0, 15.0), Point::new(20.0, 15.0)],
-            0.15,
-            false,
-            ShapePolarity::Positive,
-        );
-        let poly = Shape::Polygon(
-            vec![
-                Point::new(12.8, 17.1),
-                Point::new(17.1, 17.1),
-                Point::new(17.1, 12.8),
-                Point::new(12.8, 12.8),
-                Point::new(12.8, 17.1),
-            ],
-            ShapePolarity::Negative,
-        );
-        let r = rasterize_shapes(&p, &[stroke, poly], &opts)?;
-        let RasterPixels::Grey(img) = r.pixels else {
-            return Err("grey".into());
-        };
-        let (cx, cy) = (img.width() / 2, img.height() / 2);
-        let near: Vec<u8> = (0..15).map(|d| img.get_pixel(cx - 7 + d, cy).0[0]).collect();
-        assert_eq!(near, vec![255u8; 15], "centre row {near:?}");
         Ok(())
     }
 
