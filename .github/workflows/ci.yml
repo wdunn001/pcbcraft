@@ -204,6 +204,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
+      # Chromium needs system libraries the runner image may lack; the install
+      # does nothing when they are already present.
+      - name: Install browser system libraries
+        run: sudo env "PATH=$PATH" npx --yes playwright@1.50.1 install-deps chromium
       # Checks the wasm packages, wasm clippy, a trunk release build with hashed
       # file names, and the headless browser first-frame smoke.
       - run: cargo xtask wasm
@@ -319,6 +323,11 @@ jobs:
         with:
           name: web-dist
           path: apps/pcbcraft-web/dist
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Install browser system libraries
+        run: sudo env "PATH=$PATH" npx --yes playwright@1.50.1 install-deps chromium
       - name: Browser smoke against the built bundle
         working-directory: apps/pcbcraft-web
         run: |

@@ -724,8 +724,11 @@ fn wasm_deps() -> Result<(), String> {
         }
         None => println!("warning: no craft-libs revision found in Cargo.toml"),
     }
+    // A crate that is not in this checkout yet is skipped, so the list can name
+    // crates that land on other branches first.
     let names: Vec<String> = PORTABLE_CRATES
         .iter()
+        .filter(|name| root.join("crates").join(name).join("Cargo.toml").is_file())
         .map(|name| format!("pcbcraft-{name}"))
         .collect();
     let mut args = vec!["check", "--locked", "--target", "wasm32-unknown-unknown"];
