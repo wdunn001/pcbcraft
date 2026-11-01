@@ -86,13 +86,18 @@ fn odb_validation_rejects_an_archive_without_the_job_tree() -> Result<(), String
 
 #[test]
 fn legacy_ipc2581_export_is_rejected_for_fabrication_packages() -> Result<(), String> {
+    // The one exporter writes the schema revision C document, so it passes.
     let text = ipc2581_text(&Project::default())?;
+    validate_ipc2581_document(&text)?;
+    validate_fabrication_package_file("ipc2581", "board.xml", text.as_bytes())?;
+    // A document in the old custom shape is refused, alone and as a package file.
+    let legacy = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<EDA3D version=\"IPC-2581\"></EDA3D>\n";
     assert!(
-        validate_ipc2581_document(&text).is_err(),
-        "the legacy writer is not schema-valid yet"
+        validate_ipc2581_document(legacy).is_err(),
+        "the legacy root element is not schema-valid"
     );
     assert!(
-        validate_fabrication_package_file("ipc2581", "board.xml", text.as_bytes()).is_err(),
+        validate_fabrication_package_file("ipc2581", "board.xml", legacy.as_bytes()).is_err(),
         "packages refuse legacy IPC-2581 output"
     );
     Ok(())

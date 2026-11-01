@@ -2055,12 +2055,12 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
     }
     let features = |comment: &str, file: &Feat| -> String {
         format!(
-            "UnitsType=MM\n.Features\n\t.Comment {comment}\n{}\tEndFeatures\n",
+            "UnitsType=MM\n.Features\n\t.Comment {comment}\n{}\t.EndFeatures\n",
             file.body
         )
     };
     let components =
-        |body: &str| -> String { format!("UnitsType=MM\n.Components\n{body}\tEndComponents\n") };
+        |body: &str| -> String { format!("UnitsType=MM\n.Components\n{body}\t.EndComponents\n") };
     let entries = vec![
         (format!("{job}/matrix/matrix"), matrix.into_bytes()),
         (format!("{job}/symbols/symbols"), symbols_text.into_bytes()),
@@ -3369,6 +3369,9 @@ fn gerber_files_core(
         Track(u64),
         /// A via pad, kept apart from component pads of the same diameter.
         Via(u64),
+        /// A disc that carries its own aperture function, such as an antipad,
+        /// kept apart from a thermal pad of the same diameter.
+        Named(u64, &'static str),
     }
     #[derive(Clone)]
     struct LayerFile {
@@ -3430,6 +3433,10 @@ fn gerber_files_core(
             self.code_fn(ap, None)
         }
         fn code_fn(&mut self, ap: Ap, function: Option<&'static str>) -> Result<u32, String> {
+            let ap = match (ap, function) {
+                (Ap::Circle(d), Some(f)) => Ap::Named(d, f),
+                (other, _) => other,
+            };
             if let Some(code) = self.apertures.get(&ap) {
                 if let Some(f) = function {
                     self.ap_fn.entry(*code).or_insert(f);
@@ -3597,7 +3604,7 @@ fn gerber_files_core(
                     block.push_str("%TA.AperFunction,ViaPad*%\n");
                 }
                 match *ap {
-                    Ap::Circle(d) | Ap::Track(d) | Ap::Via(d) => block.push_str(&format!(
+                    Ap::Circle(d) | Ap::Track(d) | Ap::Via(d) | Ap::Named(d, _) => block.push_str(&format!(
                         "%ADD{code}C,{:.6}*%\n",
                         d as f64 / 1000.0 * self.scale
                     )),
@@ -10675,8 +10682,8 @@ mod tests {
             "via copper aperture"
         );
         assert!(
-            front.contains("%ADD11C,1.600000*%\n"),
-            "through-hole pad aperture"
+            front.contains("C,1.6*%\n"),
+            "through-hole pad aperture: {front}"
         );
         assert!(
             front.contains("D10*\nG36*\nX5000000Y5000000D02*\nX45000000Y5000000D01*\n"),

@@ -248,6 +248,19 @@ enum Ap {
     Rect(u64, u64),
     Obround(u64, u64),
     Round(u64, u64, u64),
+    /// A one micrometre disc that names the region it draws: 0 for a plain
+    /// opening, 1 for a pad whose copper the mask defines, 2 for a copper
+    /// defined surface pad.
+    Region(u8),
+}
+
+/// The aperture function an `Ap::Region` stands for.
+fn region_function(kind: u8) -> Option<&'static str> {
+    match kind {
+        1 => Some("SMDPad,SMDef"),
+        2 => Some("SMDPad,CuDef"),
+        _ => None,
+    }
 }
 
 struct LayerAttrs<'a> {
@@ -413,6 +426,12 @@ impl GerberLayer {
         );
         for (ap, code) in &self.apertures {
             match *ap {
+                Ap::Region(kind) => {
+                    if let Some(function) = region_function(kind) {
+                        out.push_str(&format!("%TA.AperFunction,{function}*%\n"));
+                    }
+                    out.push_str(&format!("%ADD{code}C,0.001*%\n"));
+                }
                 Ap::Circle(d) => out.push_str(&format!(
                     "%ADD{code}C,{:.3}*%\n",
                     d as f64 / 1000.0 * self.scale
@@ -940,12 +959,21 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 
             let mask_on_front = through || !is_back;
             let mask_on_back = through || is_back;
+            let region_kind = if pad_is_smd(pad) {
+                if crate::gerber_fidelity::pad_mask_defined(f, pad) {
+                    1
+                } else {
+                    2
+                }
+            } else {
+                0
+            };
             if mask_on_front && !mask_ring.is_empty() {
-                let code = mask_front.code(Ap::Circle(1))?;
+                let code = mask_front.code(Ap::Region(region_kind))?;
                 mask_front.fill(code, &outline_ring(&mask_ring))?;
             }
             if mask_on_back && !mask_ring.is_empty() {
-                let code = mask_back.code(Ap::Circle(1))?;
+                let code = mask_back.code(Ap::Region(region_kind))?;
                 let mirrored: Vec<(f64, f64)> = mask_ring
                     .iter()
                     .map(|(x, y)| mirror(*x, *y, true))
