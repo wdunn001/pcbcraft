@@ -10129,6 +10129,410 @@ fn run_command(
         return result;
     }
     match command {
+        "project.rename"
+        | "project.replace"
+        | "project.set_meta"
+        | "project.clear_meta"
+        | "parameter.set"
+        | "parameter.remove"
+        | "parameter.list"
+        | "project.set_unit"
+        | "project.set_auto_sync"
+        | "project.export_archive"
+        | "project.import_archive"
+        | "project.import"
+        | "component.add"
+        | "component.place_library"
+        | "footprint.assign"
+        | "footprint.assign_pattern" => {
+            run_command_part_1(config, p, next, command, params, record_revision, mutating)
+        }
+        "footprint.assign_table"
+        | "footprint.assign_file"
+        | "symbol.refresh"
+        | "footprint.refresh"
+        | "component.move"
+        | "component.rotate"
+        | "component.mirror"
+        | "component.value"
+        | "component.reference"
+        | "components.reannotate"
+        | "component.field"
+        | "component.set_sourcing" => {
+            run_command_part_2(config, p, next, command, params, record_revision, mutating)
+        }
+        "component.apply_listing"
+        | "component.set_in_bom"
+        | "component.set_in_placement"
+        | "component.set_compliance"
+        | "manufacturer.set"
+        | "project.compliance.set"
+        | "compliance.finding.mute"
+        | "compliance.check"
+        | "component.set_supplier"
+        | "part.attach_source"
+        | "part.make_orderable"
+        | "part.make_generic"
+        | "component.set_kind"
+        | "components.update"
+        | "components.table.export"
+        | "component.find"
+        | "footprint.find"
+        | "net.create"
+        | "net.rename"
+        | "board.unroute"
+        | "net.unroute"
+        | "track.cleanup"
+        | "net.tie" => {
+            run_command_part_3(config, p, next, command, params, record_revision, mutating)
+        }
+        "net.swap"
+        | "pins.set_all_no_connect"
+        | "pins.clear_all_no_connect"
+        | "net.set_length"
+        | "net.set_impedance"
+        | "net.set_properties"
+        | "net.connect"
+        | "net.disconnect"
+        | "copper.set_net"
+        | "netclass.add"
+        | "netclass.assign"
+        | "netclass.width_rules"
+        | "netclass.length_rules"
+        | "netclass.stub_rules"
+        | "netclass.radius_rules"
+        | "netclass.corner_radius" => {
+            run_command_part_4(config, p, next, command, params, record_revision, mutating)
+        }
+        "netclass.via_rules"
+        | "netclass.rise_time"
+        | "netclass.fast_signal"
+        | "netclass.clearance"
+        | "netclass.set"
+        | "netclass.remove"
+        | "netclass.assign_pattern"
+        | "netlist.import"
+        | "netlist.import_session"
+        | "library.link"
+        | "library.unlink"
+        | "padstack.define"
+        | "design.summary"
+        | "padstack.report"
+        | "padstack.remove" => {
+            run_command_part_5(config, p, next, command, params, record_revision, mutating)
+        }
+        "padstack.rename"
+        | "padstack.duplicate"
+        | "footprint.set_pad_stack"
+        | "dxf.import"
+        | "enclosure.import"
+        | "enclosure.remove"
+        | "enclosure.set_transform"
+        | "enclosure.show" => {
+            run_command_part_6(config, p, next, command, params, record_revision, mutating)
+        }
+        "svg.import" | "netlist.export" | "wire.connect" | "wire.draw" | "wire.place"
+        | "wire.split" | "wire.add_point" => {
+            run_command_part_7(config, p, next, command, params, record_revision, mutating)
+        }
+        "wire.remove_point"
+        | "wire.move"
+        | "wire.set_point"
+        | "graphic.add"
+        | "graphic.move"
+        | "object.group"
+        | "object.ungroup"
+        | "object.group_translate"
+        | "object.set_locked"
+        | "graphic.group"
+        | "graphic.ungroup"
+        | "graphic.translate"
+        | "dimension.set"
+        | "dimension.add" => {
+            run_command_part_8(config, p, next, command, params, record_revision, mutating)
+        }
+        "dimension.radius"
+        | "dimension.diameter"
+        | "graphic.rotate"
+        | "schematic.new_sheet"
+        | "schematic.rename_sheet"
+        | "schematic.set_page_setting"
+        | "schematic.remove_sheet"
+        | "schematic.set_sheet_parent"
+        | "schematic.net_pages"
+        | "schematic.move_component"
+        | "schematic.place_port"
+        | "schematic.move_port"
+        | "schematic.rename_port" => {
+            run_command_part_9(config, p, next, command, params, record_revision, mutating)
+        }
+        "schematic.remove_port"
+        | "schematic.import_sheet"
+        | "schematic.instance_add"
+        | "schematic.instance_remove"
+        | "schematic.export_design_block"
+        | "schematic.import_design_block"
+        | "schematic.cleanup"
+        | "graphic.scale"
+        | "graphic.to_track"
+        | "plot.to_schematic"
+        | "graphic.set" => {
+            run_command_part_10(config, p, next, command, params, record_revision, mutating)
+        }
+        "graphic.set_point"
+        | "barcode.place"
+        | "schematic.table"
+        | "label.place"
+        | "wire.draw_bus"
+        | "label.place_bus"
+        | "label.set_bus"
+        | "label.move"
+        | "label.rotate"
+        | "label.set"
+        | "pin.no_connect"
+        | "board.fiducial_place"
+        | "board.fiducial_move"
+        | "board.fiducial_set" => {
+            run_command_part_11(config, p, next, command, params, record_revision, mutating)
+        }
+        "board.fiducial_remove"
+        | "board.nettie_place"
+        | "board.nettie_move"
+        | "board.nettie_set"
+        | "board.nettie_remove"
+        | "board.hole_place"
+        | "board.hole_move"
+        | "hole.slot"
+        | "pattern.repeat"
+        | "board.notch"
+        | "board.hole_set_size"
+        | "board.datum_add"
+        | "board.datum_move" => {
+            run_command_part_12(config, p, next, command, params, record_revision, mutating)
+        }
+        "board.datum_rename"
+        | "board.datum_remove"
+        | "board.enclosure.import"
+        | "board.enclosure.set_transform"
+        | "board.enclosure.set_view"
+        | "board.enclosure.clear"
+        | "via.place"
+        | "via.move"
+        | "via.set_span"
+        | "via.allow_span"
+        | "via.stitch"
+        | "zone.place"
+        | "zone.move"
+        | "zone.set_layer"
+        | "zone.set_net"
+        | "zone.set_point"
+        | "zone.insert_point" => {
+            run_command_part_13(config, p, next, command, params, record_revision, mutating)
+        }
+        "zone.remove_point" | "zone.set_fill" | "zone.fill" | "zone.pour" | "zone.cutout"
+        | "pad.table" | "items.update" | "drill.chart" | "board.bounds" | "items.find" => {
+            run_command_part_14(config, p, next, command, params, record_revision, mutating)
+        }
+        "board.statistics"
+        | "board.panel"
+        | "panel.set"
+        | "panel.clear"
+        | "drawing_frame.set"
+        | "drawing_frame.clear"
+        | "panel.export"
+        | "board.set_finish"
+        | "board.set_stackup"
+        | "board.set_drill_origin"
+        | "board.reset_drill_origin"
+        | "board.set_outline"
+        | "board.clear_outline"
+        | "board.materials"
+        | "board.copper_layer_roles"
+        | "board.set_copper_layer_role"
+        | "board.set_layer_record"
+        | "board.stackup_add_pair" => {
+            run_command_part_15(config, p, next, command, params, record_revision, mutating)
+        }
+        "board.stackup_move_layer"
+        | "board.stackup_rename_layer"
+        | "board.stackup_remove_layer"
+        | "board.remove_layer_record"
+        | "board.clear_layer_records"
+        | "help.glossary"
+        | "help.term"
+        | "net.members"
+        | "net.lengths"
+        | "board.select_connected"
+        | "board.select_net"
+        | "net.chain"
+        | "rules.class_pair_set"
+        | "rules.class_pair_remove"
+        | "rules.preset_apply"
+        | "rules.preset_list"
+        | "erc.matrix_set"
+        | "erc.matrix_reset"
+        | "rules.severity"
+        | "rules.esd_max_distance_mm" => {
+            run_command_part_16(config, p, next, command, params, record_revision, mutating)
+        }
+        "rules.decoupling_set"
+        | "rules.exclude"
+        | "rules.include"
+        | "rules.exclude_region"
+        | "rules.include_region"
+        | "checks.custom_add"
+        | "checks.custom_remove"
+        | "rules.area_add"
+        | "rules.area_set_height"
+        | "rules.area_remove"
+        | "rules.profile_list"
+        | "rules.profile_read"
+        | "rules.profile_apply"
+        | "plugins.list"
+        | "plugins.export"
+        | "board.layer_add"
+        | "board.layer_rename"
+        | "board.layer_kind_set"
+        | "board.layer_dotted_set"
+        | "board.layer_visible_set"
+        | "board.layer_delete"
+        | "board.layer_line_add"
+        | "board.layer_rect_add" => {
+            run_command_part_17(config, p, next, command, params, record_revision, mutating)
+        }
+        "board.layer_circle_add"
+        | "board.layer_poly_add"
+        | "board.layer_text_add"
+        | "board.layer_shape_delete"
+        | "board.set_machining"
+        | "board.clear_machining"
+        | "board.set_conformal_coat_keepout"
+        | "board.clear_conformal_coat_keepout"
+        | "board.set_pair_rule"
+        | "board.set_diffpair"
+        | "board.rename_diffpair"
+        | "board.remove_diffpair"
+        | "board.remove_pair_rule"
+        | "bom.set_fields"
+        | "bom.clear_fields"
+        | "file.attach"
+        | "file.remove"
+        | "laser_job.export" => {
+            run_command_part_18(config, p, next, command, params, record_revision, mutating)
+        }
+        "output_job.add"
+        | "output_job.remove"
+        | "machine.add"
+        | "machine.set"
+        | "machine.remove"
+        | "machine.list"
+        | "machine.import"
+        | "machine.export"
+        | "placement_yy1.export"
+        | "output_job.run"
+        | "output_job.package"
+        | "artifact.add"
+        | "artifact.set" => {
+            run_command_part_19(config, p, next, command, params, record_revision, mutating)
+        }
+        "artifact.remove"
+        | "artifact.generate"
+        | "artifact.export"
+        | "artifact.stale"
+        | "variant.create"
+        | "variant.set_note"
+        | "variant.set_dnp"
+        | "variant.set_footprint"
+        | "variant.clear_footprint"
+        | "variant.remove"
+        | "bom.export"
+        | "gerber.files"
+        | "compliance.report"
+        | "board.sync"
+        | "board.resize"
+        | "board.clearance.set"
+        | "board.rules.set"
+        | "board.fab_limits.set"
+        | "board.cutout.add"
+        | "board.cutout.move"
+        | "board.cutout.resize"
+        | "footprint.move"
+        | "footprint.rotate"
+        | "footprint.set_pad"
+        | "footprint.set_castellated"
+        | "footprint.dock_edge" => {
+            run_command_part_20(config, p, next, command, params, record_revision, mutating)
+        }
+        "footprint.set_locked"
+        | "footprint.array"
+        | "board.repeat_layout"
+        | "track.add"
+        | "track.add_arc"
+        | "track.set_arc"
+        | "track.straighten"
+        | "track.split"
+        | "track.chamfer" => {
+            run_command_part_21(config, p, next, command, params, record_revision, mutating)
+        }
+        "track.round_corners"
+        | "track.move"
+        | "track.route"
+        | "track.route_pair"
+        | "footprint.mirror"
+        | "footprint.flip"
+        | "align.distribute"
+        | "object.snap" => {
+            run_command_part_22(config, p, next, command, params, record_revision, mutating)
+        }
+        "object.nudge"
+        | "object.duplicate"
+        | "selection.copy_text"
+        | "selection.paste"
+        | "object.delete"
+        | "track.set_width"
+        | "track.set_layer"
+        | "track.set_width_net"
+        | "track.set_layer_net"
+        | "track.set_end"
+        | "track.drag"
+        | "board.set_via_covering_default"
+        | "via.set_size"
+        | "text.place"
+        | "text.move"
+        | "text.set"
+        | "text.rotate"
+        | "text.bind"
+        | "text.expand" => {
+            run_command_part_23(config, p, next, command, params, record_revision, mutating)
+        }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_1(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "project.rename" => {
             let a: Name = parse(params)?;
             p.name = a.name;
@@ -10648,6 +11052,34 @@ fn run_command(
             }
             Ok(json!({"pattern": a.pattern, "assigned": assigned, "skipped": skipped}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_2(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "footprint.assign_table" => {
             let a: AssignTableParams = parse(params)?;
             if a.rows.is_empty() || a.rows.len() > 64 {
@@ -11150,6 +11582,34 @@ fn run_command(
             component.sourcing = next;
             Ok(json!({"id": a.id, "sourcing": component.sourcing}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_3(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "component.apply_listing" => {
             let a: ApplyListingParams = parse(params)?;
             let component = p
@@ -11677,6 +12137,34 @@ fn run_command(
             p.nets.retain(|n| n.id != a.source);
             Ok(json!({"merged":a.source,"into":a.target,"moved":moved}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_4(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "net.swap" => {
             let a: NetSwapParams = parse(params)?;
             if a.id_a == a.id_b {
@@ -12181,6 +12669,34 @@ fn run_command(
                 "corner_radius": class.corner_radius,
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_5(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "netclass.via_rules" => {
             let a: ViaRulesParams = parse(params)?;
             let class = p
@@ -12684,6 +13200,34 @@ fn run_command(
             }
             Ok(json!({"name": a.name, "padstacks": p.padstacks.len()}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_6(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "padstack.rename" => {
             let a: PadstackRenameParams = parse(params)?;
             if a.new_name.is_empty() || a.new_name.len() > 64 {
@@ -13194,6 +13738,34 @@ fn run_command(
                 "notice": enclosure.notice,
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_7(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "svg.import" => {
             let a: SvgImportParams = parse(params)?;
             let text =
@@ -13713,6 +14285,34 @@ fn run_command(
             wire.points.insert(at, a.position);
             Ok(json!({"id": a.id, "index": at}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_8(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "wire.remove_point" => {
             let a: RemovePointParams = parse(params)?;
             let wire = p
@@ -14224,6 +14824,34 @@ fn run_command(
                 "distance": (distance * 100.0).round() / 100.0,
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_9(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "dimension.radius" | "dimension.diameter" => {
             let diameter = command == "dimension.diameter";
             let a: RadialParams = parse(params)?;
@@ -14746,6 +15374,34 @@ fn run_command(
             p.ports[index].name = a.name.clone();
             Ok(json!({"id": a.id, "name": a.name}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_10(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "schematic.remove_port" => {
             let a: IdParams = parse(params)?;
             let index = p
@@ -15291,6 +15947,34 @@ fn run_command(
                 "text":graphic.text,
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_11(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "graphic.set_point" => {
             let a: GraphicPointParams = parse(params)?;
             if !a.position.valid() {
@@ -15823,6 +16507,34 @@ fn run_command(
                 "layer": p.layer_name(layer),
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_12(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "board.fiducial_remove" => {
             let a: IdParams = parse(params)?;
             let before = p.board.fiducials.len();
@@ -16327,6 +17039,34 @@ fn run_command(
             datum.hole = None;
             Ok(json!({"id":a.id,"position":a.position}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_13(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "board.datum_rename" => {
             let a: DatumRenameParams = parse(params)?;
             check_datum_name(p, &a.name, Some(a.id))?;
@@ -16839,6 +17579,34 @@ fn run_command(
             validate_closed_outline(outline).map_err(Error::Invalid)?;
             Ok(json!({"id":a.id,"cutout":a.cutout,"index":a.index,"position":a.position}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_14(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "zone.remove_point" => {
             let a: ZoneRemoveParams = parse(params)?;
             let zone = p
@@ -17407,6 +18175,34 @@ fn run_command(
             }
             Ok(json!({"kind": a.kind, "count": found.len(), "items": found}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_15(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "board.statistics" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid(
@@ -17922,6 +18718,34 @@ fn run_command(
             p.remap_copper_layer_roles(map);
             Ok(json!({"copper_layers": p.copper_layer_count(), "first_new": first}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_16(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "board.stackup_move_layer" => {
             let a: StackupMoveParams = parse(params)?;
             seed_stackup(p);
@@ -18425,6 +19249,34 @@ fn run_command(
             p.esd_max_distance_mm = a.max_mm;
             Ok(json!({"esd_max_distance_mm": a.max_mm}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_17(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "rules.decoupling_set" => {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
@@ -18943,6 +19795,34 @@ fn run_command(
             });
             Ok(json!({"index": layer.shapes.len() - 1}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_18(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "board.layer_circle_add" => {
             let a: LayerCircleParams = parse(params)?;
             if !(0.001..=500.0).contains(&a.radius) {
@@ -19464,6 +20344,34 @@ fn run_command(
             }
             Ok(json!({"format": a.format, "text": text}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_19(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "output_job.add" => {
             let a: OutputJobAddParams = parse(params)?;
             let name = a.name.trim();
@@ -19989,6 +20897,34 @@ fn run_command(
             }
             Ok(json!({"id": a.id}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_20(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "artifact.remove" => {
             if !mutating {
                 return Err(Error::Invalid(
@@ -20507,6 +21443,34 @@ fn run_command(
                 "position": {"x": footprint.position.x, "y": footprint.position.y},
             }))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_21(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "footprint.set_locked" => {
             let a: LockParams = parse(params)?;
             let footprint = p
@@ -21007,6 +21971,34 @@ fn run_command(
             });
             Ok(json!({"id": id, "a": a.a, "b": a.b}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_22(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "track.round_corners" => track_round::run(p, next, parse(params)?),
         "track.move" => {
             let a: DeltaParams = parse(params)?;
@@ -21559,6 +22551,34 @@ fn run_command(
             }
             Ok(json!({"moved": moved, "grid": a.grid}))
         }
+        _ => Err(Error::Invalid(format!("unknown command: {command}"))),
+    }
+}
+
+/// One slice of the command dispatcher, kept in its own function so the
+/// unoptimised frame of each stays small.
+///
+/// # Rules
+/// - Only commands that `run_command` routes here arrive; the fall-through is a
+///   plain refusal.
+///
+/// # Dependencies
+/// - `run_command`, which lists the same commands.
+///
+/// # Do not
+/// - Add a command here without adding its id to the matching arm in `run_command`.
+#[allow(clippy::too_many_arguments)]
+fn run_command_part_23(
+    config: &user_config::UserConfig,
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
+    let _ = (&config, &record_revision, &mutating);
+    match command {
         "object.nudge" => {
             let a: NudgeParams = parse(params)?;
             if !a.dx.is_finite() || !a.dy.is_finite() || a.dx.abs() > 1000.0 || a.dy.abs() > 1000.0
@@ -43630,7 +44650,7 @@ mod tests {
             .ok_or_else(missing)?;
         let b = s.execute(
             "component.add",
-            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":10.0}}),
+            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":20.0}}),
             None,
         )?["result"]["id"]
             .as_u64()
