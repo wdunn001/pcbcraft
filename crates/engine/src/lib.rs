@@ -421,18 +421,6 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "component.apply_listing",
-            "Copy matching fields from a part listing into typed sourcing; skips values already set unless overwrite is true",
-            schema(
-                json!({
-                    "id": id_schema(),
-                    "listing": {"type": "object"},
-                    "overwrite": {"type": "boolean"}
-                }),
-                &["id", "listing"],
-            ),
-        ),
-        (
             "component.set_in_bom",
             "Include or exclude one part from the bill of materials and grouped BOM exports; assembly variants can still leave it unpopulated",
             schema(
@@ -449,27 +437,11 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "component.set_compliance",
-            "Set typed compliance on a placed part: country of origin, product role, declarations and substances",
-            schema(
-                json!({"id":id_schema(),"compliance":{"type":"object"}}),
-                &["id", "compliance"],
-            ),
-        ),
-        (
             "manufacturer.set",
             "Add or replace one row in the project manufacturer table, including aliases and country",
             schema(
                 json!({"name":{"type":"string","maxLength":128},"aliases":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":128}},"country":{"type":"string","maxLength":2},"parent":{"type":["string","null"],"maxLength":128},"supplier_responsibility_on_file":{"type":"boolean"}}),
                 &["name"],
-            ),
-        ),
-        (
-            "component.set_supplier",
-            "Set one supplier's part number on a part (and an optional link to its page), replacing the entry of the same supplier name (ignoring case) or adding one; a null part_number removes that supplier. A part lists at most 16 suppliers, one number each",
-            schema(
-                json!({"id":id_schema(),"supplier":{"type":"string","minLength":1,"maxLength":256},"part_number":{"type":["string","null"],"maxLength":256},"url":{"type":["string","null"],"maxLength":512}}),
-                &["id", "supplier"],
             ),
         ),
         (
@@ -1271,30 +1243,6 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "hole.slot",
-            "Route an unplated slot as a capsule drill between two centres: width is the drill diameter, centre spacing from 0.01 mm to 50 mm, and overall length runs centre to centre plus that width",
-            schema(
-                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
-                &["start", "end", "width"],
-            ),
-        ),
-        (
-            "board.hole_place",
-            "Drill an unplated through hole at a position: mounting or clearance drills carry no copper and belong to no net",
-            schema(
-                json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.05,"maximum":25,"description":"drill diameter, millimetres"}}),
-                &["position", "diameter"],
-            ),
-        ),
-        (
-            "hole.slot",
-            "Route an unplated mounting slot between two centres: width is the drill diameter, length runs centre to centre plus that width",
-            schema(
-                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
-                &["start", "end", "width"],
-            ),
-        ),
-        (
             "board.fiducial_place",
             "Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
             schema(
@@ -1569,22 +1517,6 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"path":{"type":"string","description":"symbol library file, nickname paths allowed"},"symbol":{"type":"string","description":"symbol name inside that file"}}),
                 &["path", "symbol"],
-            ),
-        ),
-        (
-            "teardrop.add",
-            "Grow teardrop copper where tracks meet pads and vias so junctions survive etching and hand soldering; filter by net or layer, and junctions that already have a teardrop are left alone",
-            schema(
-                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"depth":{"type":"number","description":"how far the teardrop runs along the track from the junction, millimetres; default 0.5"}}),
-                &[],
-            ),
-        ),
-        (
-            "teardrop.remove",
-            "Take teardrop copper away again from every junction it was grown on, optionally filtered by net or layer",
-            schema(
-                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
-                &[],
             ),
         ),
         (
@@ -1890,14 +1822,6 @@ pub fn commands() -> Vec<CommandSpec> {
             "Change which copper layers an existing via joins, making it through, blind or buried; the span must be one the board allows",
             schema(
                 json!({"id":id_schema(),"from_layer":{"type":"string","description":"upper copper layer of the span; keeps the current one when omitted"},"to_layer":{"type":"string","description":"lower copper layer of the span; keeps the current one when omitted"}}),
-                &["id"],
-            ),
-        ),
-        (
-            "via.set_covering",
-            "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
-            schema(
-                json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
                 &["id"],
             ),
         ),
@@ -2812,27 +2736,11 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "bom.export",
-            "Export a bill of materials: components grouped by value, kind, footprint and requested properties; with a variant name, that build's unpopulated parts are skipped and its footprint swaps printed",
-            schema(
-                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"ids":{"type":"array","items":id_schema(),"maxItems":4096,"description":"only these components; omit for every part"},"group":{"type":"boolean","default":true,"description":"false prints one row per part"}}),
-                &[],
-            ),
-        ),
-        (
             "gerber.files",
             "Write the fabrication files under a naming style and drill options, or list their names when no directory is given. Naming: project (pcb-F.Cu.gbr), plain (.gbr with the layer in the name), protel (.GTL, .GBL, .G2L). Drill files are split (plated and non-plated) or merged, in project, mm or inch units, with decimal points or zeros omitted",
             schema(
                 json!({"naming":{"type":"string","enum":["project","plain","protel"],"default":"project"},"drill_files":{"type":"string","enum":["split","merged"],"default":"split"},"drill_units":{"type":"string","enum":["project","mm","inch"],"default":"project"},"zero_suppression":{"type":"string","enum":["decimal","leading","trailing"],"default":"decimal"},"integer_digits":{"type":"integer","minimum":1,"maximum":6},"decimal_digits":{"type":"integer","minimum":1,"maximum":6},"drill_map":{"type":"boolean","default":true},"job_file":{"type":"boolean","default":true},"readme":{"type":"boolean","default":true},"directory":{"type":"string","minLength":1,"description":"folder to write the files into; omit to list names only"}}),
                 &[],
-            ),
-        ),
-        (
-            "align.distribute",
-            "Align or evenly distribute components or board footprints along an axis, named by id or selected by reference/value/kind filter",
-            schema(
-                json!({"ids":{"type":"array","maxItems":128,"items":id_schema()},"filter":schema(json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"kind":{"type":"string","maxLength":64}}),&[]),"mode":{"type":"string","enum":["left","center_x","right","top","center_y","bottom","distribute_x","distribute_y"]}}),
-                &["mode"],
             ),
         ),
         (
@@ -3005,6 +2913,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(via_protection::commands())
         .chain(backdrill::commands())
         .chain(layout::commands())
+        .chain(part::commands())
         .chain(part_save::commands())
         .chain(publication::commands())
         .chain(teardrop::commands())
@@ -5604,12 +5513,14 @@ fn resolve_library_path(p: &Project, path: &str) -> String {
 }
 
 /// Default teardrop extension depth in millimetres when a command omits it.
+#[allow(dead_code)]
 fn teardrop_depth() -> f64 {
     0.5
 }
 /// One track endpoint that lands on a pad or via: the junction point, the
 /// unit direction along the track, the copper radius at the junction, the
 /// track width, the track span, and the net and layer to tag the teardrop.
+#[allow(dead_code)]
 type Junction = (Point, (f64, f64), f64, f64, f64, Id, Layer);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -7362,6 +7273,7 @@ enum TrackEnd {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct ViaCoveringParams {
     id: Id,
     #[serde(default)]
@@ -17037,135 +16949,6 @@ fn run_command(
             zone.cutouts.push(a.outline);
             Ok(json!({"cutouts": zone.cutouts.len()}))
         }
-        "teardrop.add" => {
-            let a: TeardropParams = parse(params)?;
-            let layer_filter = optional_command_layer(p, params)?;
-            if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
-                return Err(missing());
-            }
-            if !(0.05..=5.0).contains(&a.depth) {
-                return Err(Error::Invalid(
-                    "teardrop depth must be between 0.05 and 5 millimetres".into(),
-                ));
-            }
-            let mut junctions: Vec<Junction> = Vec::new();
-            for track in &p.board.tracks {
-                if layer_filter.is_some_and(|layer| track.layer != layer)
-                    || a.net.is_some_and(|net| track.net != net)
-                {
-                    continue;
-                }
-                for (end, other) in [(track.start, track.end), (track.end, track.start)] {
-                    let dx = other.x - end.x;
-                    let dy = other.y - end.y;
-                    let span = (dx * dx + dy * dy).sqrt();
-                    if span < 0.05 {
-                        continue;
-                    }
-                    let radius = p
-                        .board
-                        .vias
-                        .iter()
-                        .find(|v| v.position.distance(end) <= v.diameter / 2.0 + 0.25)
-                        .map(|v| v.diameter / 2.0)
-                        .or_else(|| {
-                            p.board.footprints.iter().find_map(|footprint| {
-                                footprint.pads.iter().find_map(|pad| {
-                                    let anchor =
-                                        footprint.pad_position(&pad.number).unwrap_or(pad.offset);
-                                    (end.distance(anchor) <= pad.bounding_radius() + 0.25)
-                                        .then(|| pad.bounding_radius())
-                                })
-                            })
-                        });
-                    let Some(radius) = radius else { continue };
-                    junctions.push((
-                        end,
-                        (dx / span, dy / span),
-                        radius,
-                        track.width,
-                        span,
-                        track.net,
-                        track.layer,
-                    ));
-                }
-            }
-            if junctions.len() > 512 {
-                return Err(Error::Invalid(
-                    "too many junctions for one teardrop pass; filter by net or layer".into(),
-                ));
-            }
-            let total = junctions.len();
-            let mut added = 0usize;
-            for (end, u, radius, width, span, net, layer) in junctions {
-                let half_w = (width / 2.0).max(0.05);
-                let reach = radius.clamp(0.05, 3.0);
-                if reach <= half_w + 0.01 {
-                    continue;
-                }
-                let depth = a.depth.min(span * 0.5);
-                let v = (-u.1, u.0);
-                let corners = [
-                    Point::new(end.x + v.0 * reach, end.y + v.1 * reach),
-                    Point::new(
-                        end.x + u.0 * depth + v.0 * half_w,
-                        end.y + u.1 * depth + v.1 * half_w,
-                    ),
-                    Point::new(
-                        end.x + u.0 * depth - v.0 * half_w,
-                        end.y + u.1 * depth - v.1 * half_w,
-                    ),
-                    Point::new(end.x - v.0 * reach, end.y - v.1 * reach),
-                ];
-                if !corners.iter().all(|point| point.valid()) {
-                    continue;
-                }
-                if p.board.zones.iter().any(|zone| {
-                    zone.kind.as_deref() == Some("teardrop")
-                        && zone.layer == layer
-                        && zone.net == net
-                        && zone
-                            .outline
-                            .first()
-                            .is_some_and(|first| first.distance(corners[0]) < 0.01)
-                }) {
-                    continue;
-                }
-                let mut outline = corners.to_vec();
-                outline.push(corners[0]);
-                let id = allocate(next)?;
-                p.board.zones.push(pcbcraft_doc::CopperZone {
-                    id,
-                    net,
-                    layer,
-                    outline,
-                    cutouts: vec![],
-                    filled: true,
-                    kind: Some("teardrop".into()),
-                    pour: None,
-                    preserved: Default::default(),
-                });
-                added += 1;
-            }
-            Ok(json!({"added": added, "junctions": total}))
-        }
-        "teardrop.remove" => {
-            let a: TeardropRemoveParams = parse(params)?;
-            let layer_filter = optional_command_layer(p, params)?;
-            let before = p.board.zones.len();
-            p.board.zones.retain(|zone| {
-                !(zone.kind.as_deref() == Some("teardrop")
-                    && a.net.is_none_or(|net| zone.net == net)
-                    && layer_filter.is_none_or(|layer| zone.layer == layer))
-            });
-            let removed = before - p.board.zones.len();
-            if removed == 0 {
-                return Err(Error::Invalid(
-                    "no teardrop copper matches the request".into(),
-                ));
-            }
-            Ok(json!({"removed": removed}))
-        }
         "pad.table" => {
             let a: PadTableParams = parse(params)?;
             if a.component
@@ -22004,25 +21787,6 @@ fn run_command(
                 a.position,
                 a.mode,
             )
-        }
-        "via.set_covering" => {
-            let a: ViaCoveringParams = parse(params)?;
-            let via = p
-                .board
-                .vias
-                .iter_mut()
-                .find(|v| v.id == a.id)
-                .ok_or_else(missing)?;
-            if via.drill <= 0.0
-                && a.covering
-                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
-            {
-                return Err(Error::Invalid(
-                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
-                ));
-            }
-            via.covering = a.covering;
-            Ok(json!({"id":a.id,"covering":via.covering}))
         }
         "board.set_via_covering_default" => {
             let a: ViaCoveringDefaultParams = parse(params)?;
