@@ -1118,6 +1118,7 @@ pub struct App {
     /// Text for the language chosen in Settings.
     catalog: std::sync::Arc<pcbcraft_text::Catalog>,
     /// Embedded in-app tour definitions (#769).
+    #[allow(dead_code)]
     tours: tour::data::Doc,
     /// Active tour while steps are shown.
     tour_playback: Option<tour::playback::Playback>,
@@ -2054,6 +2055,7 @@ impl App {
             compare_tint: std::collections::BTreeMap::new(),
             library,
             tour: {
+                #[allow(unused_mut)]
                 let mut catalog = Vec::new();
                 #[cfg(test)]
                 catalog.extend(tour::state::e2e_fixture_catalog());
@@ -2076,6 +2078,7 @@ impl App {
             || self.edit.dialog.open
             || self.edit.dialog.preview_open
     }
+    #[allow(dead_code)]
     fn tour_shell_view(&self) -> tour::state::ShellView<'_> {
         tour::state::ShellView {
             offer_tours: self.preferences.offer_tours,
@@ -9793,7 +9796,7 @@ mod tests {
     #[test]
     #[ignore = "timed bench: run with cargo xtask bench"]
     fn large_board_ten_thousand_pads_stays_within_its_budget() -> Result<(), String> {
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
         let project = large_board()?;
         let pads: usize = project.board.footprints.iter().map(|f| f.pads.len()).sum();
         assert_eq!(pads, 10_240, "the bench board holds ten thousand pads");
@@ -9802,14 +9805,14 @@ mod tests {
             pairs <= items * 40,
             "the broad phase should hand the exact test at most 40 pairs per item, not {pairs} for {items} items"
         );
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let findings = pcbcraft_rules::drc(&project);
         let checks = started.elapsed();
         assert!(
             !findings.is_empty(),
             "the bench board is dense enough to report findings"
         );
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let airwires = pcbcraft_rules::airwires(&project);
         let wires = started.elapsed();
         assert!(
@@ -9831,7 +9834,7 @@ mod tests {
         app.refresh();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         for step in 0..5 {
             frame(
                 &ctx,

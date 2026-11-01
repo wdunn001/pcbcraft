@@ -47,7 +47,7 @@ impl Profile {
 }
 
 #[test]
-fn a_newcomer_opens_Help_Tours_and_sees_every_tour_listed() -> Result<(), String> {
+fn a_newcomer_opens_help_tours_and_sees_every_tour_listed() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
@@ -120,7 +120,7 @@ fn replay_one_tour(tour: &Tour, profile: Profile) -> Result<(), String> {
     app.tour_start(tour.id.clone(), tour.version);
     let count = tour.steps.len();
     while app.tour_playback().is_some() {
-        let index = app.tour_playback().unwrap().step;
+        let index = app.tour_playback().ok_or("missing value")?.step;
         let step = tour
             .steps
             .get(index)
@@ -288,7 +288,7 @@ fn esc_mid_tour_stores_progress_and_resume_returns_to_the_same_step() -> Result<
     let Some(tour) = doc.tour.first() else {
         return Ok(());
     };
-    let profile = Profile::ALL[0];
+    let _profile = Profile::ALL[0];
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();

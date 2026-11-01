@@ -1,6 +1,5 @@
 //! Stories for the in-app datasheet text layer.
 
-use super::super::*;
 use super::support::*;
 use super::workbench::{centre_of, fresh, settled};
 use pcbcraft_datasheet::fixtures;

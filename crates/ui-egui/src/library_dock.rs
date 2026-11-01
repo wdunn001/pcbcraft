@@ -410,6 +410,7 @@ fn view_tab_bucket(tab: Tab) -> usize {
     }
 }
 
+#[allow(dead_code)]
 fn default_view_for_tab(tab: Tab) -> ViewKind {
     match tab {
         Tab::Schematic => ViewKind::Symbols,
@@ -535,61 +536,12 @@ impl App {
                         .clicked()
                     {
                         self.dock.tag = if on { None } else { Some(tag.clone()) };
+                        ui.ctx().request_repaint();
                     }
                 }
             });
         }
-        let mut cards: Vec<Card> = Vec::new();
-        let mut sets: BTreeMap<String, usize> = BTreeMap::new();
-        for d in &project_parts {
-            let matches = query.is_empty()
-                || finds(&query, &d.name)
-                || d.keywords.to_lowercase().contains(query.as_str())
-                || d.set.to_lowercase().contains(query.as_str());
-            let tagged = self
-                .dock
-                .tag
-                .as_ref()
-                .is_none_or(|t| d.keywords.to_lowercase().split_whitespace().any(|w| w == t));
-            let kind_ok =
-                self.kind_allows(&category_name("", &format!("{} {}", d.keywords, d.name)));
-            if matches && tagged && kind_ok {
-                let set = d.set.trim().to_owned();
-                if !set.is_empty() {
-                    *sets.entry(set.clone()).or_default() += 1;
-                }
-                if set.is_empty() || !self.hidden_sets.contains(&set) {
-                    cards.push(Card::Project(Box::new(d.clone())));
-                }
-            }
-        }
-        if !self.dock.hide_installed && self.dock.tag.is_none() {
-            for item in &self.dock.items {
-                cards.push(Card::Installed(item.clone()));
-            }
-        }
-        if !self.dock.hide_built_in && self.dock.tag.is_none() {
-            for t in TEMPLATES {
-                let kind_ok = self.kind_allows(&category_name("", t.kind));
-                if kind_ok
-                    && (query.is_empty()
-                        || finds(&query, t.label)
-                        || t.kind.contains(query.as_str()))
-                {
-                    cards.push(Card::BuiltIn(t.kind, t.label));
-                }
-            }
-        }
-        if !self.dock.hide_online && self.dock.tag.is_none() {
-            for (part, credit) in self.online_parts(ui) {
-                cards.push(Card::Online(Box::new(part), credit));
-            }
-        }
         cards = ranked(&query, cards);
-        let favourites = self.preferences.library_favourites.clone();
-        if self.dock.favourites_only {
-            cards.retain(|c| favourites.contains(&c.key()));
-        }
         if self.dock.view == ViewKind::Footprints {
             cards.retain(card_has_footprint);
         }

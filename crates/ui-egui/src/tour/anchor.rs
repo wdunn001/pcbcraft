@@ -44,6 +44,7 @@ pub(crate) fn anchor_rect(ui: &Ui, id: &str, rect: Rect) {
 }
 
 /// The visible rectangle published for this anchor, if any.
+#[allow(dead_code)]
 pub(crate) fn lookup(ctx: &Context, id: &str) -> Option<Rect> {
     if id.is_empty() || id == "none" {
         return None;
@@ -75,7 +76,7 @@ mod tests {
     use crate::ui_kit::testing::{context, frame};
 
     #[test]
-    fn anchor_lookup_returns_the_clipped_rect() {
+    fn anchor_lookup_returns_the_clipped_rect() -> Result<(), String> {
         let ctx = context(true);
         frame(&ctx, vec![], |ui| {
             let (rect, response) =
@@ -83,8 +84,9 @@ mod tests {
             assert_eq!(rect, response.rect);
             anchor(ui, "shell.tab.files", &response);
         });
-        let got = lookup(&ctx, "shell.tab.files").expect("anchor was stored");
+        let got = lookup(&ctx, "shell.tab.files").ok_or("anchor was stored")?;
         assert!(got.width() > 0.0 && got.height() > 0.0);
         assert!(lookup(&ctx, "shell.tab.missing").is_none());
+        Ok(())
     }
 }

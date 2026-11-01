@@ -48,6 +48,7 @@ impl Default for Pane {
 
 impl Pane {
     /// True while the reader window is open.
+    #[allow(dead_code)]
     pub(crate) fn is_open(&self) -> bool {
         self.open
     }
@@ -75,6 +76,7 @@ impl Pane {
     }
 
     /// Try to open a local `file://` PDF; returns true when the pane took the file.
+    #[allow(dead_code)]
     pub(crate) fn open_file_url(&mut self, url: &str, ctx: &Context) -> bool {
         let Some(path) = url.strip_prefix("file://") else {
             return false;
@@ -367,16 +369,14 @@ impl Pane {
         if !has_text && self.layer_error.is_none() {
             ui.label(t!("datasheet.pane.no_text"));
         }
-        if let Some(doc) = self.doc.as_ref() {
-            if let Ok(label) = doc.page_plain_text(self.page) {
-                if !label.is_empty() {
+        if let Some(doc) = self.doc.as_ref()
+            && let Ok(label) = doc.page_plain_text(self.page)
+                && !label.is_empty() {
                     ui.ctx()
                         .accesskit_node_builder(self.page_response_id, |node| {
                             node.set_label(label);
                         });
                 }
-            }
-        }
         self.ensure_texture(ctx);
         let tex = self.texture.as_ref().map(|(_, h)| h.clone());
         let available = ui.available_size();
@@ -405,16 +405,14 @@ impl Pane {
                 });
             }
         }
-        if response.dragged() {
-            if let Some(pos) = response.interact_pointer_pos() {
+        if response.dragged()
+            && let Some(pos) = response.interact_pointer_pos() {
                 let (x, y) = self.screen_to_page(rect, pos);
-                if let Some(focus) = char_at_point(&self.layer, x, y) {
-                    if let Some(sel) = &mut self.selection {
+                if let Some(focus) = char_at_point(&self.layer, x, y)
+                    && let Some(sel) = &mut self.selection {
                         sel.focus = focus;
                     }
-                }
             }
-        }
         if response.clicked() {
             let (x, y) =
                 self.screen_to_page(rect, response.interact_pointer_pos().unwrap_or(rect.min));

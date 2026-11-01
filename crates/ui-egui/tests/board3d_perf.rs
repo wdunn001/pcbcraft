@@ -1,7 +1,6 @@
 //! 3D software renderer benchmark for large boards (issue 721).
 
 use pcbcraft_io::{MeshLayers, bench_project_600_parts, board_mesh};
-use std::time::Instant;
 
 const BASELINE_MS: u64 = 9000;
 const REGRESSION_RATIO: f64 = 1.30;
@@ -19,7 +18,7 @@ fn six_hundred_parts_render_stays_within_the_baseline() -> Result<(), String> {
         return Err(format!("expected 600 bodies, got {bodies}"));
     }
     let basis = bench_camera();
-    let start = Instant::now();
+    let start = pcbcraft_clock::instant_now();
     let _ = pcbcraft_ui_egui::board3d::bench_render(&mesh, &basis, 800, 600);
     let elapsed = start.elapsed().as_millis() as u64;
     let limit = ((BASELINE_MS as f64) * REGRESSION_RATIO).ceil() as u64;

@@ -47,7 +47,7 @@ fn triple_row(ui: &mut egui::Ui, label: &str, values: &mut [f64; 3], suffix: &st
     changed
 }
 
-fn run_transform(app: &mut App, name: &str, params: serde_json::Value) {
+fn run_transform(app: &mut App, _name: &str, params: serde_json::Value) {
     app.run("library.footprint.set_model_transform", params);
 }
 

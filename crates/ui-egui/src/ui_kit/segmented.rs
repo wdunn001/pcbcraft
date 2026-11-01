@@ -132,12 +132,12 @@ fn next_enabled(current: usize, items: &[Segment<'_>], step: i32) -> usize {
         return current.min(items.len().saturating_sub(1));
     }
     let pos = enabled.iter().position(|&i| i == current).unwrap_or(0);
-    let next = if step >= 0 {
+    
+    if step >= 0 {
         enabled[(pos + 1).min(enabled.len() - 1)]
     } else {
         enabled[pos.saturating_sub(1)]
-    };
-    next
+    }
 }
 
 /// Item widths for the labels (or icon-only slots) in `items`.
@@ -214,11 +214,10 @@ pub fn segmented_styled(
         return ui.allocate_response(Vec2::ZERO, Sense::hover());
     }
     *selected = (*selected).min(count - 1);
-    if items[*selected].disabled.is_some() {
-        if let Some(&first) = enabled_indices(items).first() {
+    if items[*selected].disabled.is_some()
+        && let Some(&first) = enabled_indices(items).first() {
             *selected = first;
         }
-    }
     let panel_width = ui.max_rect().width();
     let icons_only = panel_width < ICON_ONLY_BREAK && items.iter().all(|s| s.icon.is_some());
     let total = if style.full_width {
@@ -301,8 +300,8 @@ pub fn segmented_styled(
             }
         }
     }
-    if outer.clicked() {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+    if outer.clicked()
+        && let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
             for (i, rect) in rects.iter().enumerate() {
                 if rect.contains(pos) && items[i].disabled.is_none() && i != *selected {
                     *selected = i;
@@ -311,7 +310,6 @@ pub fn segmented_styled(
                 }
             }
         }
-    }
     let pointer = ui.input(|i| i.pointer.hover_pos());
     paint(
         ui,
@@ -338,6 +336,7 @@ pub fn segmented_styled(
     outer
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint(
     ui: &mut Ui,
     track: Rect,
@@ -381,7 +380,7 @@ fn paint(
         let label = display_label(item, is_selected, icons_only, panel_width);
         let mut x = rect.center().x;
         let mut parts_w = 0.0f32;
-        if let Some(name) = item.icon {
+        if let Some(_name) = item.icon {
             parts_w += ICON_SIZE;
             if !label.is_empty() {
                 parts_w += 4.0;

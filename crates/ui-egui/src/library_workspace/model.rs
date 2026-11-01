@@ -585,16 +585,17 @@ mod tests {
     }
 
     #[test]
-    fn the_one_part_project_builds_a_mesh_with_a_body() {
+    fn the_one_part_project_builds_a_mesh_with_a_body() -> Result<(), String> {
         let (p, _) = part_project(&two_pads());
         let mesh = pcbcraft_io::board_mesh(&p, pcbcraft_io::MeshLayers::default());
-        let mesh = mesh.unwrap_or_else(|e| panic!("mesh error: {e}"));
+        let mesh = mesh.map_err(|e| format!("mesh error: {e}"))?;
         assert!(
             mesh.parts
                 .iter()
                 .any(|m| m.kind == pcbcraft_io::PartKind::Body && m.component == Some(PART)),
             "the renderer makes a body for the part"
         );
+        Ok(())
     }
 
     #[test]

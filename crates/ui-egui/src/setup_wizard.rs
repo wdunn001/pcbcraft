@@ -69,11 +69,13 @@ impl Default for State {
 
 impl State {
     pub fn open_for_project(project: &Project) -> Self {
-        let mut s = Self::default();
-        s.width = project.board.width;
-        s.height = project.board.height;
-        s.open = true;
-        s
+        
+        Self {
+            width: project.board.width,
+            height: project.board.height,
+            open: true,
+            ..Self::default()
+        }
     }
 
     fn preset_name(&self) -> Option<&'static str> {
@@ -441,11 +443,9 @@ impl App {
                             .button("Next")
                             .on_hover_text("Continue to the next step.")
                             .clicked()
-                        {
-                            if let Err(e) = w.advance() {
+                            && let Err(e) = w.advance() {
                                 self.message = e;
                             }
-                        }
                     });
                 });
                 if wizard_seen {

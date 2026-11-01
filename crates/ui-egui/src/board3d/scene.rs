@@ -42,6 +42,7 @@ pub(super) struct Scene<'a> {
     pub drawables: Vec<Drawable<'a>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn prepare<'a>(
     mesh: &'a BoardMesh,
     basis: &Basis,
@@ -76,6 +77,7 @@ pub(super) fn prepare<'a>(
     Scene { drawables }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn body_drawable<'a>(
     part: &'a MeshPart,
     basis: &Basis,
@@ -183,6 +185,7 @@ fn frustum_skip_part(
     frustum_skip_bounds(min, max, basis, sw, sh, focal, cx, cy)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn frustum_skip_bounds(
     min: V,
     max: V,

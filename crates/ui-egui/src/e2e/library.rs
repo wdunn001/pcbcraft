@@ -527,7 +527,8 @@ fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<()
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Checks);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    for needle in ["SquashedPair: Two pads share the same copper area"] {
+    {
+        let needle = "SquashedPair: Two pads share the same copper area";
         assert!(
             scrolled_to_at(&ctx, &mut app, needle, 720.0)?,
             "the findings sheet should show \"{needle}\""

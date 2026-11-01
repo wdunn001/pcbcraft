@@ -24,6 +24,9 @@ struct TileKey {
     preview: bool,
 }
 
+#[cfg(test)]
+type TestLoader = Arc<dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync>;
+
 pub struct State {
     pub open: bool,
     source: String,
@@ -41,7 +44,7 @@ pub struct State {
     render_rx: Vec<(TileKey, Receiver<Result<RgbaImage, String>>)>,
     /// Test hook: bytes loader replaces HTTP for e2e.
     #[cfg(test)]
-    pub test_loader: Option<Arc<dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync>>,
+    pub test_loader: Option<TestLoader>,
 }
 
 impl Default for State {
@@ -384,11 +387,10 @@ impl State {
         };
         let viewport = ui.available_rect_before_wrap();
         let mut scale = self.scale;
-        if self.fit_width {
-            if let Ok(size) = doc.page_size_pt(0) {
+        if self.fit_width
+            && let Ok(size) = doc.page_size_pt(0) {
                 scale = (viewport.width() / page_width_px(size, 1.0)).clamp(0.2, 6.0);
             }
-        }
         self.scale = scale;
         let heights = self.page_heights(scale);
         let total_h = scroll_height(&heights);
@@ -407,7 +409,7 @@ impl State {
                 let offsets = page_offsets(&heights);
                 let scroll_y = (-ui.min_rect().top()).max(0.0);
                 self.pending_scroll_y = Some(scroll_y);
-                for (page, (&top, &height)) in offsets.iter().zip(heights.iter()).enumerate() {
+                for (page, (&_top, &height)) in offsets.iter().zip(heights.iter()).enumerate() {
                     let page = page as u32;
                     if !visible_pages(scroll_y, viewport.height(), &heights, 1).contains(&page) {
                         ui.add_space(height + PAGE_GAP_PX);
@@ -455,7 +457,7 @@ impl State {
     }
 }
 
-fn tile_for(key: TileKey, page_w: f32, page_h: f32, scale: f32) -> Option<TileRect> {
+fn tile_for(key: TileKey, page_w: f32, page_h: f32, _scale: f32) -> Option<TileRect> {
     let w = page_w as u32;
     let h = page_h as u32;
     if w <= MAX_TEXTURE_SIDE && h <= MAX_TEXTURE_SIDE {

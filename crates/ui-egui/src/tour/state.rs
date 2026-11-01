@@ -17,6 +17,7 @@ pub enum WorkspaceId {
 }
 
 impl WorkspaceId {
+    #[allow(dead_code)]
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "files" => Some(Self::Files),
@@ -48,6 +49,7 @@ pub enum Trigger {
 }
 
 impl Trigger {
+    #[allow(dead_code)]
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "first_launch" => Some(Self::FirstLaunch),
@@ -152,6 +154,7 @@ pub struct ShellView<'a> {
     pub offer_tours: bool,
     pub modal_open: bool,
     pub file_busy: bool,
+    #[allow(dead_code)]
     pub tab: crate::Tab,
     pub workspace: Option<WorkspaceId>,
     pub progress: &'a BTreeMap<String, TourRecord>,
@@ -185,6 +188,7 @@ impl Controller {
         &self.catalog
     }
 
+    #[allow(dead_code)]
     pub fn take_events(&mut self) -> Vec<TourEvent> {
         std::mem::take(&mut self.session.events)
     }
@@ -215,7 +219,7 @@ impl Controller {
 
     #[cfg(test)]
     pub fn test_quiet_tab_changes(&mut self) {
-        self.session.tab_changed_at = Some(Instant::now() - TAB_QUIET - Duration::from_secs(1));
+        self.session.tab_changed_at = Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_secs(1));
     }
 
     pub fn note_tab_change(&mut self, now: Instant) {
@@ -442,10 +446,7 @@ fn unprompted_allowed(view: ShellView<'_>, now: Instant) -> bool {
     if view.modal_open || view.file_busy {
         return false;
     }
-    match view.tab_changed_at {
-        Some(at) if now.saturating_duration_since(at) < TAB_QUIET => false,
-        _ => true,
-    }
+    !matches!(view.tab_changed_at, Some(at) if now.saturating_duration_since(at) < TAB_QUIET)
 }
 
 fn version_needs_chip(live: u32, stored: Option<&TourRecord>) -> bool {
@@ -503,7 +504,7 @@ mod tests {
             workspace: Some(WorkspaceId::Layout),
             progress,
             first_launch_done: false,
-            tab_changed_at: Some(Instant::now() - TAB_QUIET - Duration::from_millis(1)),
+            tab_changed_at: Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1)),
         }
     }
 
@@ -516,7 +517,7 @@ mod tests {
         ctrl.session.active_step = 2;
         write_record(
             &mut progress,
-            ctrl.catalog().first().unwrap(),
+            ctrl.catalog().first().ok_or("missing value")?,
             PersistedState::InProgress,
             2,
         );
@@ -543,10 +544,10 @@ mod tests {
         ctrl.session.visits.insert(WorkspaceId::Layout);
         let mut view = shell(&progress, false);
         view.tab_changed_at = None;
-        ctrl.sync_triggers(view, Instant::now());
+        ctrl.sync_triggers(view, pcbcraft_clock::instant_now());
         assert!(ctrl.pending_offer().is_none());
         view.offer_tours = true;
-        ctrl.sync_triggers(view, Instant::now());
+        ctrl.sync_triggers(view, pcbcraft_clock::instant_now());
         assert!(ctrl.pending_offer().is_some());
         Ok(())
     }
@@ -575,14 +576,14 @@ mod tests {
             workspace: Some(WorkspaceId::Layout),
             progress: &progress,
             first_launch_done: true,
-            tab_changed_at: Some(Instant::now() - TAB_QUIET - Duration::from_millis(1)),
+            tab_changed_at: Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1)),
         };
-        ctrl.sync_triggers(view, Instant::now());
+        ctrl.sync_triggers(view, pcbcraft_clock::instant_now());
         let offer = ctrl.pending_offer().ok_or("expected version chip")?;
         assert_eq!(offer.kind, OfferKind::VersionChip);
         ctrl.session.version_chip_shown.insert("e2e_resume".into());
         ctrl.session.pending = None;
-        ctrl.sync_triggers(view, Instant::now());
+        ctrl.sync_triggers(view, pcbcraft_clock::instant_now());
         assert!(ctrl.pending_offer().is_none());
         Ok(())
     }

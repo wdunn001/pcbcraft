@@ -1350,13 +1350,13 @@ impl App {
     fn run_library_export(&mut self, kind: &str, names: Vec<String>, path: &str) {
         if names.is_empty() {
             self.library.editor.notice =
-                Some(t!("library.project_library.export_pick_at_least_one").into());
+                Some(t!("library.project_library.export_pick_at_least_one"));
             return;
         }
         let path = path.trim();
         if path.is_empty() {
             self.library.editor.notice =
-                Some(t!("library.project_library.export_path_required").into());
+                Some(t!("library.project_library.export_path_required"));
             return;
         }
         let params = json!({"kind": kind, "path": path, "names": names});
@@ -1372,7 +1372,7 @@ impl App {
             Ok(_) => {
                 self.refresh();
                 self.library.editor.notice =
-                    Some(t!("library.project_library.export_done", path = path).into());
+                    Some(t!("library.project_library.export_done", path = path));
             }
             Err(e) => self.library.editor.notice = Some(e),
         }

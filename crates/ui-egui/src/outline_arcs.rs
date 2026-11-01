@@ -46,13 +46,12 @@ impl OutlineUi {
             self.loaded = self.segment;
             self.radius = 5.0;
             self.convex = true;
-            if let Some(seg) = self.segment {
-                if let Some(points) = project.board.outline.as_ref()
+            if let Some(seg) = self.segment
+                && let Some(points) = project.board.outline.as_ref()
                     && let Some(arc) = segment_arc(points, &project.board.outline_arcs, seg)
                 {
                     self.radius = arc.radius;
                 }
-            }
         }
     }
 
@@ -127,6 +126,7 @@ pub(crate) fn pick_at(project: &Project, pos: Point, zoom: f32) -> Option<Outlin
     let arcs = &project.board.outline_arcs;
     let n = points.len();
     let mut best: Option<(f64, OutlineHit)> = None;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..n {
         let d = points[i].distance(pos);
         if near(zoom, d, 8.0) && best.as_ref().is_none_or(|(known, _)| d < *known) {
@@ -196,6 +196,7 @@ impl App {
                 painter.add(egui::Shape::line(edge, Stroke::new(2.5, accent)));
             }
         }
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             let at = camera.screen(points[i], rect);
             let r = if self.outline_ui.segment == Some(i) {
@@ -266,8 +267,8 @@ impl App {
         let Some(pos) = cursor else {
             return;
         };
-        if response.drag_started_by(egui::PointerButton::Primary) {
-            if let Some(hit) = pick_at(&self.project, pos, zoom) {
+        if response.drag_started_by(egui::PointerButton::Primary)
+            && let Some(hit) = pick_at(&self.project, pos, zoom) {
                 self.edit.press = None;
                 self.select(None);
                 self.outline_ui.pick(hit, &self.project);
@@ -277,12 +278,10 @@ impl App {
                 });
                 self.outline_ui.drag_preview = Some(crate::canvas::snap(pos));
             }
-        }
-        if response.dragged_by(egui::PointerButton::Primary) {
-            if self.outline_ui.drag.is_some() {
+        if response.dragged_by(egui::PointerButton::Primary)
+            && self.outline_ui.drag.is_some() {
                 self.outline_ui.drag_preview = Some(crate::canvas::snap(pos));
             }
-        }
         if response.drag_stopped_by(egui::PointerButton::Primary) {
             let Some(drag) = self.outline_ui.drag.take() else {
                 return;

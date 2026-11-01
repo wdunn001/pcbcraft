@@ -803,7 +803,7 @@ mod tests {
             };
             let mut best = f64::MAX;
             for _ in 0..12 {
-                let t = std::time::Instant::now();
+                let t = pcbcraft_clock::instant_now();
                 std::hint::black_box(raster::render(mesh, &basis, w, h, &look));
                 best = best.min(t.elapsed().as_secs_f64() * 1000.0);
             }

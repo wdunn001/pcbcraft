@@ -7,7 +7,7 @@ use super::super::*;
 use super::support::*;
 
 #[test]
-fn a_newcomer_opens_Help_Tours_and_sees_every_tour_listed() -> Result<(), String> {
+fn a_newcomer_opens_help_tours_and_sees_every_tour_listed() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
