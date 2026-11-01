@@ -55,7 +55,7 @@ pub fn default_dir() -> Result<PathBuf, String> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Entry {
-/// The snapshot's file stem, unique per design.
+    /// The snapshot's file stem, unique per design.
     pub id: String,
     /// The design's file, when it had been saved somewhere.
     #[serde(default)]
@@ -65,30 +65,13 @@ pub struct Entry {
     /// When the snapshot was written, in seconds since 1970.
     pub saved_at: u64,
     /// The revision the snapshot holds.
-    /// The design's file, when it had been saved somewhere.
-    #[serde(default)]
-/// The design name the prompt shows for this snapshot.
-    /// When the snapshot was written, in seconds since 1970.
-    /// The revision the snapshot holds.
     pub revision: u64,
     /// How much is in it, for the sentence the prompt shows.
     #[serde(default)]
     pub components: usize,
     /// Placed pads in the snapshot, for the sentence the prompt shows.
     #[serde(default)]
-    pub pads: Vec<String>,
-    /// When the snapshot was written, in seconds since 1970.
-    /// The revision the snapshot holds.
-    /// How much is in it, for the sentence the prompt shows.
-    #[serde(default)]
-/// The design name the prompt shows for this snapshot.
-    /// When the snapshot was written, in seconds since 1970.
-    /// The revision the snapshot holds.
-    /// How much is in it, for the sentence the prompt shows.
-    #[serde(default)]
-    /// Placed pads in the snapshot, for the sentence the prompt shows.
-    #[serde(default)]
-    #[serde(default)]
+    pub pads: usize,
 }
 
 fn unix_now() -> u64 {

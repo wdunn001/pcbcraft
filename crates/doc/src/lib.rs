@@ -576,6 +576,9 @@ pub struct Net {
     /// Defaults to zero, and requires a target.
     #[serde(default)]
     pub length_tolerance: Option<f64>,
+    /// Largest total routed length allowed for this net, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<f64>,
     /// Target characteristic impedance in ohms; overrides the net class when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub impedance_target: Option<f64>,
@@ -651,6 +654,9 @@ pub struct NetClass {
     /// millimetres. Defaults to zero, an exact match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Largest total routed length allowed for member nets, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<f64>,
     /// Longest dead-end copper branch allowed on member nets, in millimetres.
     /// Absent means no stub check; zero means no stubs at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -927,6 +933,16 @@ pub struct LengthGroup {
     /// Largest allowed difference between the longest and shortest routed
     /// net, in millimetres.
     pub tolerance: f64,
+    /// When set, every other net is measured against this member instead of
+    /// against the group's shortest and longest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<Id>,
+    /// When true, each net's routed length counts on one copper layer only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub same_layer: bool,
+    /// Rule profile that last applied this group, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 impl LengthGroup {
     fn valid(&self) -> bool {
@@ -938,6 +954,13 @@ impl LengthGroup {
             && !self.nets.contains(&0)
             && self.tolerance.is_finite()
             && (0.0..=100.0).contains(&self.tolerance)
+            && self
+                .reference
+                .is_none_or(|r| r != 0 && self.nets.contains(&r))
+            && self
+                .profile
+                .as_ref()
+                .is_none_or(|p| !p.is_empty() && p.len() <= 64)
     }
 }
 /// A rectangular board area that demands a stricter minimum copper
@@ -2760,36 +2783,11 @@ fn enclosure_identity_transform() -> [f64; 16] {
         1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-/// Reference to an imported enclosure body shown in the 3D tab.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct EnclosureRef {
-    pub path: String,
-    #[serde(default = "enclosure_identity_transform")]
-    pub transform: [f64; 16],
-    pub source_format: EnclosureSourceFormat,
-    pub bounds: EnclosureBounds,
-    /// Optional mesh file drawn for the picture when the STEP holds curved faces.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mesh_path: Option<String>,
-    /// Board datums created when this enclosure was imported.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub linked_datums: Vec<Id>,
-    /// Plain sentence when curved faces were skipped during import.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub notice: Option<String>,
-}
+/// Helpers shared by enclosure placement checks.
+pub struct EnclosureRef;
 impl EnclosureRef {
     pub fn transform_valid(m: &[f64; 16]) -> bool {
         m.iter().all(|v| v.is_finite())
-    }
-    pub fn valid(&self) -> bool {
-        !self.path.trim().is_empty()
-            && self.path.len() <= 1024
-            && Self::transform_valid(&self.transform)
-            && self.bounds.valid()
-            && self.mesh_path.as_ref().is_none_or(|p| {
-                !p.trim().is_empty() && p.len() <= 1024
-            })
     }
 }
 /// An optical assembly mark: a bare copper circle, usually 1 mm, that the
@@ -3487,6 +3485,24 @@ pub struct BoardEnclosure {
     pub visible: bool,
     #[serde(default = "default_enclosure_opacity")]
     pub opacity: f64,
+    /// Row-major 4x4 placement of a referenced STEP body; identity when unset.
+    #[serde(default = "enclosure_identity_transform")]
+    pub transform: [f64; 16],
+    /// Format of a body referenced by path instead of embedded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_format: Option<EnclosureSourceFormat>,
+    /// Cached bounds of a referenced body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<EnclosureBounds>,
+    /// Optional mesh file drawn for the picture when the STEP holds curved faces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh_path: Option<String>,
+    /// Board datums created when this enclosure was imported.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub linked_datums: Vec<Id>,
+    /// Plain sentence when curved faces were skipped during import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 fn default_one_scale() -> [f64; 3] {
@@ -3495,8 +3511,15 @@ fn default_one_scale() -> [f64; 3] {
 
 impl BoardEnclosure {
     pub fn valid(&self) -> bool {
-        self.file == ENCLOSURE_ATTACHMENT_NAME
+        (self.file == ENCLOSURE_ATTACHMENT_NAME
+            || (self.file.is_empty() && !self.source_path.trim().is_empty()))
             && self.source_path.len() <= 1024
+            && EnclosureRef::transform_valid(&self.transform)
+            && self.bounds.as_ref().is_none_or(EnclosureBounds::valid)
+            && self
+                .mesh_path
+                .as_ref()
+                .is_none_or(|p| !p.trim().is_empty() && p.len() <= 1024)
             && self.offset.iter().all(|v| v.is_finite() && v.abs() <= 1e6)
             && self.rotate.iter().all(|v| v.is_finite() && v.abs() <= 360.0)
             && self.scale.iter().all(|v| v.is_finite() && *v > 0.0 && *v <= 100.0)
@@ -4233,6 +4256,10 @@ pub struct ProjectLibrary {
     pub footprints: Vec<pcbcraft_library::FootprintDefinition>,
     #[serde(default)]
     pub parts: Vec<pcbcraft_library::Part>,
+    /// Parameters, alternates and provenance for project-library parts that
+    /// do not fit in the symbol or footprint files, one record per symbol.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub part_sidecars: Vec<pcbcraft_library::PartSidecar>,
     /// Generic part definitions copied into the project (symbol, footprint, parameters).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub part_components: Vec<pcbcraft_library::records::ComponentRecord>,
@@ -4255,6 +4282,16 @@ impl ProjectLibrary {
             return Err("project library supports at most 256 parts".into());
         }
         pcbcraft_library::records::validate_store(&self.part_components, &self.orderable_parts)?;
+        if self.part_sidecars.len() > 256 {
+            return Err("project library supports at most 256 part records".into());
+        }
+        let mut sidecar_symbols = BTreeSet::new();
+        for record in &self.part_sidecars {
+            record.validate()?;
+            if !sidecar_symbols.insert(&record.symbol) {
+                return Err("duplicate library part symbol name".into());
+            }
+        }
         if self.part_substitutes.len() > 256 {
             return Err("part substitute records exceed the library symbol limit".into());
         }
@@ -5866,6 +5903,9 @@ impl Project {
                 || n.length_tolerance
                     .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
+                || n
+                    .max_length
+                    .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
                 || n.current
                     .is_some_and(|i| !i.is_finite() || !(0.001..=100.0).contains(&i))
                 || n.temperature_rise
@@ -5902,6 +5942,9 @@ impl Project {
                 || c.length_tolerance
                     .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
+                || c
+                    .max_length
+                    .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
                 || c.max_stub
                     .is_some_and(|s| !s.is_finite() || !(0.0..=100.0).contains(&s))
                 || c.max_vias.is_some_and(|v| v > 1024)
@@ -6011,7 +6054,7 @@ impl Project {
             if !enc.valid() {
                 return Err("enclosure settings are out of range".into());
             }
-            if !self.files.iter().any(|f| f.name == enc.file) {
+            if !enc.file.is_empty() && !self.files.iter().any(|f| f.name == enc.file) {
                 return Err("the enclosure attachment is missing from the project".into());
             }
         }

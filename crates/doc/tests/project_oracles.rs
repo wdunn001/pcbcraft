@@ -238,6 +238,7 @@ fn net_class_and_rule_overrides() -> T {
         corner_radius: Default::default(),
         min_radius: Default::default(),
         rise_time: Default::default(),
+        max_length: Default::default(),
     });
     assert_eq!(p.net_class_id(1), Some(10));
     let class = p.net_class(1).ok_or("net 1 is in class 10")?;
@@ -322,6 +323,7 @@ fn required_clearance_takes_the_strictest_rule() -> T {
         corner_radius: Default::default(),
         min_radius: Default::default(),
         rise_time: Default::default(),
+        max_length: Default::default(),
     });
     assert!((p.required_clearance(1, 2) - 0.4).abs() < 1e-12);
     p.board.pair_rules.push(NetPairRule {

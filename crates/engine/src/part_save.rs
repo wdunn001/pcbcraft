@@ -202,7 +202,7 @@ fn resolve_from_library(p: &Project, name: &str) -> Result<ResolvedPart, Error> 
         .cloned()
         .ok_or_else(|| Error::Invalid("symbol is not in the project library".into()))?;
     let footprint = footprint_from_project(p, &symbol);
-    let existing = p.library.parts.iter().find(|part| part.symbol == name);
+    let existing = p.library.part_sidecars.iter().find(|part| part.symbol == name);
     Ok(ResolvedPart {
         symbol,
         footprint,
@@ -249,15 +249,15 @@ fn save_to_project(
     }
     if let Some(existing) = p
         .library
-        .parts
+        .part_sidecars
         .iter_mut()
         .find(|part| part.symbol == sidecar.symbol)
     {
         *existing = sidecar.clone();
     } else {
-        p.library.parts.push(sidecar.clone());
+        p.library.part_sidecars.push(sidecar.clone());
     }
-    p.library.parts.sort_by(|a, b| a.symbol.cmp(&b.symbol));
+    p.library.part_sidecars.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     p.library.validate().map_err(Error::Invalid)?;
     Ok(json!({
         "target": "project",
@@ -483,8 +483,8 @@ mod tests {
             json!({"target":"project","symbol":"SaveMe","alternates":[{"manufacturer":"AltCo","mpn":"1"}]}),
             None,
         )?;
-        assert_eq!(s.project.library.parts.len(), 1);
-        assert_eq!(s.project.library.parts[0].alternates.len(), 1);
+        assert_eq!(s.project.library.part_sidecars.len(), 1);
+        assert_eq!(s.project.library.part_sidecars[0].alternates.len(), 1);
         Ok(())
     }
 }

@@ -622,6 +622,7 @@ impl ImportCtx {
                 return_path_rule: Default::default(),
                 temperature_rise: Default::default(),
                 working_voltage: Default::default(),
+                max_length: Default::default(),
             });
         }
 
@@ -661,6 +662,7 @@ impl ImportCtx {
                 return_path_rule: Default::default(),
                 temperature_rise: Default::default(),
                 working_voltage: Default::default(),
+                max_length: Default::default(),
             });
             orphan += 1;
         }

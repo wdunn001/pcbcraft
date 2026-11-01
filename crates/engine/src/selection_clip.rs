@@ -453,6 +453,7 @@ fn resolve_net(
             insulation: source.insulation.clone(),
             return_path_rule: source.return_path_rule.clone(),
             instance: Default::default(),
+            max_length: Default::default(),
         });
         id
     };

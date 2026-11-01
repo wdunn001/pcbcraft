@@ -591,7 +591,11 @@ fn new_conflicts(
         .collect()
 }
 
-fn diff_pair_by_ref(p: &Project, id: Option<Id>, name: Option<&str>) -> Result<&DiffPair, Error> {
+fn diff_pair_by_ref<'a>(
+    p: &'a Project,
+    id: Option<Id>,
+    name: Option<&str>,
+) -> Result<&'a DiffPair, Error> {
     match (id, name.map(str::trim).filter(|s| !s.is_empty())) {
         (Some(id), None) => p
             .board

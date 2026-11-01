@@ -170,6 +170,7 @@ fn a_drilled_out_layer_is_not_connected_through_the_via() -> T {
         corner_radius: Default::default(),
         min_radius: Default::default(),
         rise_time: Default::default(),
+        max_length: Default::default(),
     });
     let v = p.board.vias[0].clone();
     assert_eq!(

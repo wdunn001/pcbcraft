@@ -1050,6 +1050,7 @@ impl ImportCtx {
             return_path_rule: Default::default(),
             temperature_rise: Default::default(),
             working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         self.net_by_name.insert(stored, id);
         Some(id)
@@ -1083,6 +1084,7 @@ impl ImportCtx {
             return_path_rule: Default::default(),
             temperature_rise: Default::default(),
             working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         self.net_by_name.insert("unassigned".into(), id);
         self.unassigned = Some(id);

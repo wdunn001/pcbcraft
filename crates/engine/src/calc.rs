@@ -344,7 +344,7 @@ fn track_width_cmd(params: &Value) -> Result<Value, Error> {
     if let Some(map) = meta.as_object_mut() {
         map.insert("method_used".into(), json!(out.method_used));
     }
-    let mut notes = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
     if out.scaled_from_1oz {
         notes.push("IPC-2152 table is for 1 oz copper; width scaled by 1/oz as an approximation".into());
     }
@@ -385,7 +385,7 @@ fn impedance_cmd(p: &Project, params: &Value) -> Result<Value, Error> {
     let layer = a
         .layer
         .clone()
-        .unwrap_or_else(|| p.layer_name(Layer::Top));
+        .unwrap_or_else(|| p.layer_name(Layer::Front));
     let (height, er) = dielectric_for(p, &layer);
     let h = a.height.unwrap_or(height);
     let er_v = a.er.unwrap_or(er);

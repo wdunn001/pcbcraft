@@ -436,6 +436,12 @@ mod tests {
             rotate: [0.0; 3],
             visible: true,
             opacity: DEFAULT_ENCLOSURE_OPACITY,
+            transform: [1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0],
+            source_format: None,
+            bounds: None,
+            mesh_path: None,
+            linked_datums: Vec::new(),
+            notice: None,
         });
         let step = crate::step_board(&project)?;
         assert!(

@@ -464,7 +464,7 @@ fn part_fetch_datasheet(p: &mut Project, params: &Value) -> Result<Value, Error>
             });
         ds.url = a.url;
         ds.sha256 = hash.sha256;
-        ds.local_path = Some(hash.path);
+        ds.local_path = Some(hash.path.clone());
         ds.retrieved_at = hash.retrieved_at;
         ds.checked_at = hash.retrieved_at;
         Ok(json!({"sha256": hash.sha256, "path": hash.path}))

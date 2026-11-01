@@ -159,6 +159,7 @@ pub fn expand_instance(
             return_path_rule: Default::default(),
             temperature_rise: Default::default(),
             working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         net_map.insert(net, new_id);
     }
@@ -455,6 +456,7 @@ mod sheet_instance_tests {
             return_path_rule: Default::default(),
             temperature_rise: Default::default(),
             working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         p.components.push(Component {
             id: r1,

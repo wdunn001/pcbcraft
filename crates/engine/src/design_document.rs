@@ -187,6 +187,7 @@ mod tests {
             return_path_rule: Default::default(),
             temperature_rise: Default::default(),
             working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         assert!(project_has_content(&project));
         assert!(is_dirty(None, 0, "", true));
