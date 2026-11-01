@@ -507,7 +507,7 @@ pub(crate) fn invoke_session(
                     &s.project.library,
                     "symbol",
                     &Path::new(directory).join(&file),
-                    &[item.name.clone()],
+                    std::slice::from_ref(&item.name),
                 )?;
                 files.push(file);
             }
@@ -1159,12 +1159,11 @@ pub fn forward(
     bridge_token: Option<&str>,
 ) -> Result<Value, String> {
     let mut payload = request.clone();
-    if let Some(token) = bridge_token {
-        if let Some(obj) = payload.as_object_mut() {
+    if let Some(token) = bridge_token
+        && let Some(obj) = payload.as_object_mut() {
             obj.entry("token".to_string())
                 .or_insert_with(|| Value::String(token.to_string()));
         }
-    }
     let mut stream = std::net::TcpStream::connect_timeout(
         &loopback(address)?,
         std::time::Duration::from_secs(3),
@@ -3420,8 +3419,8 @@ mod tests {
             .flatten()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert!(names.iter().any(|n| *n == "help.glossary"));
-        assert!(names.iter().any(|n| *n == "help.term"));
+        assert!(names.contains(&"help.glossary"));
+        assert!(names.contains(&"help.term"));
     }
 
     #[test]

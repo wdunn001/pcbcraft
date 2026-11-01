@@ -1348,13 +1348,12 @@ pub fn run(args: &[String], root: &Path) -> Result<(), String> {
                 let cached_snap: Value = serde_json::from_str(&cached)
                     .map_err(|parse_e| format!("snapshot: {parse_e}"))?;
                 let fetched_at = cached_snap["fetched_at"].as_str().unwrap_or("");
-                if let Some(age_days) = snapshot_age_days(fetched_at) {
-                    if age_days >= 7 {
+                if let Some(age_days) = snapshot_age_days(fetched_at)
+                    && age_days >= 7 {
                         return Err(format!(
                             "refresh failed ({e}) and cached snapshot is {age_days} days old (>= 7 days)"
                         ));
                     }
-                }
                 eprintln!("refresh failed ({e}); using the cached snapshot");
                 stale = true;
             }

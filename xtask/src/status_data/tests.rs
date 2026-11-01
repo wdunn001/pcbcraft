@@ -461,30 +461,31 @@ fn the_golden_snapshot_itself_is_clean() {
 // --- Issue #581: status data caching, stale fallback, CI integration ---
 
 #[test]
-fn warm_cache_sends_if_none_match() {
+fn warm_cache_sends_if_none_match() -> Result<(), String> {
     // Create a temp directory with a cache file at the expected path
     let tmp_dir = std::env::temp_dir().join("pcbcraft_test_etag_cache_dir");
     let _ = std::fs::remove_dir_all(&tmp_dir);
     let _ = std::fs::create_dir_all(&tmp_dir);
     let cache_path = tmp_dir.join("site/src/data/status-cache.json");
-    let _ = std::fs::create_dir_all(cache_path.parent().unwrap());
+    let _ = std::fs::create_dir_all(cache_path.parent().ok_or("missing value")?);
 
     let cache_content = serde_json::json!({
         "issues_etag": "W/\"test-etag-123\"",
         "last_full": "2026-10-29T23:00:00Z"
     });
-    std::fs::write(&cache_path, cache_content.to_string()).unwrap();
+    std::fs::write(&cache_path, cache_content.to_string()).map_err(|e| format!("{e:?}"))?;
 
     // Load the cache and verify the ETag is present
-    let cache = EtagCache::load(&tmp_dir).unwrap();
+    let cache = EtagCache::load(&tmp_dir).map_err(|e| format!("{e:?}"))?;
     assert_eq!(cache.issues_etag, Some("W/\"test-etag-123\"".to_string()));
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&tmp_dir);
+    Ok(())
 }
 
 #[test]
-fn failure_reuses_last_snapshot_and_marks_stale() {
+fn failure_reuses_last_snapshot_and_marks_stale() -> Result<(), String> {
     // Create a temp directory with a snapshot file
     let tmp_dir = std::env::temp_dir().join("pcbcraft_test_stale_fallback");
     let _ = std::fs::create_dir_all(&tmp_dir);
@@ -495,19 +496,20 @@ fn failure_reuses_last_snapshot_and_marks_stale() {
         "fetched_at": "2026-10-29T23:00:00Z",
         "issues": []
     });
-    std::fs::write(&snapshot_path, snapshot_content.to_string()).unwrap();
+    std::fs::write(&snapshot_path, snapshot_content.to_string()).map_err(|e| format!("{e:?}"))?;
 
     // Verify the snapshot can be read and parsed
-    let text = std::fs::read_to_string(&snapshot_path).unwrap();
-    let snap: Value = serde_json::from_str(&text).unwrap();
+    let text = std::fs::read_to_string(&snapshot_path).map_err(|e| format!("{e:?}"))?;
+    let snap: Value = serde_json::from_str(&text).map_err(|e| format!("{e:?}"))?;
     assert_eq!(snap["fetched_at"], "2026-10-29T23:00:00Z");
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&tmp_dir);
+    Ok(())
 }
 
 #[test]
-fn old_stale_snapshot_fails_the_run() {
+fn old_stale_snapshot_fails_the_run() -> Result<(), String> {
     // Test that snapshot_age_days correctly identifies an old snapshot
     // Use a date that is definitely more than 7 days ago
     let old_date = "2026-10-15T23:00:00Z";
@@ -519,7 +521,7 @@ fn old_stale_snapshot_fails_the_run() {
         "snapshot_age_days should return Some for a valid date"
     );
     assert!(
-        age.unwrap() >= 7,
+        age.ok_or("missing value")? >= 7,
         "snapshot from Oct 15 should be >= 7 days old"
     );
 
@@ -531,7 +533,8 @@ fn old_stale_snapshot_fails_the_run() {
         "snapshot_age_days should return Some for a recent date"
     );
     assert!(
-        recent_age.unwrap() < 7,
+        recent_age.ok_or("missing value")? < 7,
         "snapshot from yesterday should be < 7 days old"
     );
+    Ok(())
 }

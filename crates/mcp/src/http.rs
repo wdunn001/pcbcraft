@@ -22,7 +22,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const MAX_HEADER_BYTES: u64 = 16 * 1024;
 const ENDPOINT: &str = "/mcp";
@@ -468,7 +468,7 @@ fn run_call(
             event += 1;
         }
     }
-    let mut last_write = Instant::now();
+    let mut last_write = pcbcraft_clock::instant_now();
     let outcome = if worker.is_err() {
         Some(rpc_error(id.clone(), -32603, "could not start the call"))
     } else {
@@ -478,7 +478,7 @@ fn run_call(
                     if let (true, Some(token)) = (streaming && open, token.as_ref()) {
                         open = send_event(stream, event, &progress_event(token, step, text));
                         event += 1;
-                        last_write = Instant::now();
+                        last_write = pcbcraft_clock::instant_now();
                     }
                 }
                 Ok(Work::Done(Some(result))) if !flag.load(Ordering::SeqCst) => {
@@ -502,7 +502,7 @@ fn run_call(
                     if streaming && open && last_write.elapsed() >= KEEPALIVE {
                         open =
                             stream.write_all(b": keepalive\n\n").is_ok() && stream.flush().is_ok();
-                        last_write = Instant::now();
+                        last_write = pcbcraft_clock::instant_now();
                     }
                 }
             }

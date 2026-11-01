@@ -959,6 +959,7 @@ fn collect_rs(base: &Path, dir: &Path, out: &mut Vec<(String, String)>) -> Resul
 
 /// Compares current screenshots against baselines stored in target/baselines.
 /// Fails if any screenshot differs beyond tolerance.
+#[allow(dead_code)]
 fn visual_gate(_args: &[String]) -> Result<(), String> {
     let root = root()?;
     let baselines_dir = root.join("target").join("baselines");
@@ -997,7 +998,7 @@ fn visual_gate(_args: &[String]) -> Result<(), String> {
 
         // Allow 1% difference in file size (compression variations)
         let max_diff = (baseline_size as f64 * 0.01) as u64;
-        if (baseline_size as i64 - current_size as i64).abs() as u64 > max_diff {
+        if (baseline_size as i64 - current_size as i64).unsigned_abs() > max_diff {
             differences.push(format!(
                 "screenshot differs: {} (baseline: {} bytes, current: {} bytes)",
                 stem, baseline_size, current_size

@@ -37,6 +37,7 @@ pub fn run(repo: &Path, bless: bool) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn root() -> Result<PathBuf, String> {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
