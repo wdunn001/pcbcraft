@@ -90,7 +90,12 @@ fn a_two_call_tool_loop_runs_over_a_socket_and_sends_tool_use_ids_back() -> Resu
     let msgs = posts[1].body["messages"].as_array().ok_or("no messages")?;
     let tool_user = msgs
         .iter()
-        .find(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+        .find(|m| {
+            m.get("role").and_then(|r| r.as_str()) == Some("user")
+                && m["content"]
+                    .as_array()
+                    .is_some_and(|b| b.iter().any(|x| x["type"] == "tool_result"))
+        })
         .ok_or("no user message with tool results")?;
     let blocks = tool_user["content"].as_array().ok_or("no content blocks")?;
     assert_eq!(blocks[0]["type"], "tool_result");

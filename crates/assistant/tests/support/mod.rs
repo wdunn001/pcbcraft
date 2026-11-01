@@ -166,7 +166,11 @@ impl FakeServer {
 
 fn answer(mut c: TcpStream, r: Reply, stream: bool) {
     std::thread::sleep(Duration::from_millis(r.delay_ms));
-    let (ctype, body) = if stream && r.status == 200 {
+    // Only an OpenAI-shaped completion is turned into an event stream; an
+    // Anthropic-shaped message (or a cut-off body) goes out as plain JSON, which
+    // the backend accepts when it asked for a stream.
+    let openai_shaped = r.declared_len.is_none() && r.body.contains("\"choices\"");
+    let (ctype, body) = if stream && r.status == 200 && openai_shaped {
         ("text/event-stream", openai_completion_to_sse(&r.body))
     } else {
         ("application/json", r.body.clone())
