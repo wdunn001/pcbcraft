@@ -424,7 +424,9 @@ impl GerberLayer {
             file_function = attrs.file_function,
             polarity = attrs.polarity
         );
-        for (ap, code) in &self.apertures {
+        let mut by_code: Vec<(&Ap, &u32)> = self.apertures.iter().collect();
+        by_code.sort_by_key(|(_, code)| **code);
+        for (ap, code) in by_code {
             match *ap {
                 Ap::Region(kind) => {
                     if let Some(function) = region_function(kind) {

@@ -10,3 +10,6 @@ LED_indicator-Soldermask_Bot.gbr	Soldermask,Bot
 LED_indicator-Soldermask_Top.gbr	Soldermask,Top
 LED_indicator.gbrjob	-
 README-fabrication.txt	-
+gerber-arc-report.txt	-
+pcb-B.Cmp.gbr	Component,L2,Bot
+pcb-F.Cmp.gbr	Component,L1,Top

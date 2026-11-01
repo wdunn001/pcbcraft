@@ -4636,7 +4636,7 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
          Substrate permittivity: {:.2}\n\
          Surface finish: {}\n\
          Drill origin: {:.3}, {:.3} mm\n\n\
-         Layer notes:\nNAME,KIND,THICKNESS_MM\n",
+         Layer notes:\nNAME,KIND,THICKNESS_MM,ON_COPPER\n",
         p.board.width,
         p.board.height,
         p.board.thickness,
@@ -4650,7 +4650,28 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
     }
     let mut total = 0.0;
     for l in &p.board.layer_records {
-        out.push_str(&format!("{},{},{:.3}\n", l.name, l.kind, l.thickness));
+        // Coatings, masks, paste and silk name the copper row they sit on.
+        let on_copper = if matches!(
+            l.kind.as_str(),
+            "soldermask"
+                | "silkscreen"
+                | "paste"
+                | "coverlay"
+                | "peelable_mask"
+                | "carbon_ink"
+                | "gold_mask"
+                | "heatsink_mask"
+                | "silver_mask"
+                | "tin_mask"
+        ) {
+            p.linked_copper(&l.name).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        out.push_str(&format!(
+            "{},{},{:.3},{on_copper}\n",
+            l.name, l.kind, l.thickness
+        ));
         total += l.thickness;
     }
     out.push_str(&format!("Total recorded thickness: {:.3} mm\n", total));
