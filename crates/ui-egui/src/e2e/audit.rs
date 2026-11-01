@@ -307,6 +307,13 @@ fn walk(path: &Path) {
         if let Some(tab) = tab {
             app.tab = tab;
         }
+        if matches!(tab, Some(Tab::Schematic | Tab::Pcb)) {
+            // The map is a peek that closes when the pointer leaves it, so
+            // whether its pin and surface were listed depended on where the
+            // pointer happened to rest. Open it the way the Map button does,
+            // which keeps it up for the whole walk of the page.
+            app.minimap.click_open = true;
+        }
         TALL_SCREEN.with(|tall| tall.set(true));
         settle(&ctx, &mut app);
         if tab == Some(Tab::Libraries) {
