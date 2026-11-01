@@ -32,11 +32,8 @@ pub fn page_offsets(heights: &[f32]) -> Vec<f32> {
 
 /// Total scroll height for the given page pixel heights.
 pub fn scroll_height(heights: &[f32]) -> f32 {
-    page_offsets(heights)
-        .last()
-        .copied()
-        .unwrap_or(0.0)
-        .saturating_add(heights.last().copied().unwrap_or(0.0))
+    page_offsets(heights).last().copied().unwrap_or(0.0)
+        + heights.last().copied().unwrap_or(0.0)
 }
 
 /// Page indices intersecting a vertical viewport in pixel space.

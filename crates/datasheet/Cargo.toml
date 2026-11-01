@@ -10,9 +10,14 @@ workspace = true
 
 [dependencies]
 hayro = "0.8"
+image.workspace = true
+thiserror.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { version = "2", default-features = false, features = ["tls"] }
 
 [features]
 fixtures = []

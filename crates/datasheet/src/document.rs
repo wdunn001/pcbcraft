@@ -1,6 +1,6 @@
 //! An opened PDF kept in memory for the reader pane.
 
-use crate::render::{Bitmap, render_page};
+use crate::bitmap::{Bitmap, render_page as render_bitmap};
 use crate::search::{DocSearch, search_document};
 use crate::text::{CharBox, open, page_has_text, plain_text, text_layer};
 use hayro::RenderCache;
@@ -37,7 +37,7 @@ impl Document {
     /// Rasterise one page for display.
     pub fn render(&self, page: usize, dpi: f32) -> Result<Bitmap, String> {
         let cache = RenderCache::new();
-        render_page(&self.pdf, page, dpi, &cache)
+        render_bitmap(&self.pdf, page, dpi, &cache)
     }
 
     /// Text layer for one page, cached by the caller if needed.

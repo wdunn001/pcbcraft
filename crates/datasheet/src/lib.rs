@@ -12,10 +12,36 @@
 //! # Do not
 //! - Pull in egui or the engine; UI lives in `pcbcraft-ui-egui`.
 
+mod bitmap;
+mod document;
+mod error;
+pub mod fixtures;
 pub mod gate;
+mod hayro_backend;
+pub mod layout;
+mod load;
 pub mod lru;
 pub mod record;
 pub mod render;
+mod search;
+mod selection;
+mod text;
+pub mod traits;
+
+pub use bitmap::{Bitmap, MAX_SIDE_PX, render_page};
+pub use document::Document;
+pub use error::{LoadError, OpenError, RenderError};
+pub use fixtures::Fixture;
+pub use hayro_backend::{HayroDocument, HayroRenderer};
+pub use layout::{
+    MAX_TEXTURE_SIDE, PAGE_GAP_PX, page_height_px, page_offsets, page_width_px, scroll_height,
+    tile_grid, visible_pages,
+};
+pub use load::load_bytes;
+pub use search::{DocHit, DocSearch, Hit, find, search_document};
+pub use selection::{Selection, char_at_point, selected_text};
+pub use text::{CharBox, open, page_has_text, page_size, plain_text, text_layer};
+pub use traits::{PageDocument, PageRenderer, PageSizePt, RenderRequest, TileRect};
 
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixture_pdf;

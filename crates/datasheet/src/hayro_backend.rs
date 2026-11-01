@@ -37,7 +37,7 @@ impl HayroDocument {
         })
     }
 
-    fn page(&self, index: u32) -> Result<hayro::hayro_syntax::page::Page<'_>, RenderError> {
+    fn page(&self, index: u32) -> Result<&hayro::hayro_syntax::page::Page<'_>, RenderError> {
         self.pdf
             .pages()
             .get(index as usize)
