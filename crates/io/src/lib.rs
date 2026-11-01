@@ -3604,10 +3604,9 @@ fn gerber_files_core(
                     block.push_str("%TA.AperFunction,ViaPad*%\n");
                 }
                 match *ap {
-                    Ap::Circle(d) | Ap::Track(d) | Ap::Via(d) | Ap::Named(d, _) => block.push_str(&format!(
-                        "%ADD{code}C,{:.6}*%\n",
-                        d as f64 / 1000.0 * self.scale
-                    )),
+                    Ap::Circle(d) | Ap::Track(d) | Ap::Via(d) | Ap::Named(d, _) => block.push_str(
+                        &format!("%ADD{code}C,{:.6}*%\n", d as f64 / 1000.0 * self.scale),
+                    ),
                     Ap::Rect(w, h) => block.push_str(&format!(
                         "%ADD{code}R,{:.6}X{:.6}*%\n",
                         w as f64 / 1000.0 * self.scale,
@@ -11566,8 +11565,7 @@ mod tests {
                     ipc2581_attr(line, "x")?,
                     ipc2581_attr(line, "y")?,
                 ));
-            } else if line.starts_with("<PolyStepSegment ") || line.starts_with("<PolyStepCurve ")
-            {
+            } else if line.starts_with("<PolyStepSegment ") || line.starts_with("<PolyStepCurve ") {
                 let from = at.ok_or("a step comes before the polyline begins")?;
                 let to = Point::new(ipc2581_attr(line, "x")?, ipc2581_attr(line, "y")?);
                 if line.starts_with("<PolyStepCurve ") {
@@ -12598,19 +12596,19 @@ mod tests {
                 net: Some(7),
                 castellated: None,
                 geometry: Some(pcbcraft_library::FootprintPad {
-                number: "1".into(),
-                pad_type: "smd".into(),
-                shape: "rect".into(),
-                position: Point::default(),
-                rotation: 0.0,
-                size: Point::new(1.0, 1.0),
-                layers: vec!["F.Cu".into()],
-                drill: None,
-                roundrect_ratio: None,
-                raw_source: String::new(),
-                chamfer: None,
-                polygon: Vec::new(),
-                    }),
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: Point::default(),
+                    rotation: 0.0,
+                    size: Point::new(1.0, 1.0),
+                    layers: vec!["F.Cu".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    raw_source: String::new(),
+                    chamfer: None,
+                    polygon: Vec::new(),
+                }),
             }],
             preserved: Default::default(),
         });

@@ -132,9 +132,14 @@ fn export_then_read_back_preserves_parts() -> Check {
             let b = design_as_value(&round)?;
             let keys: Vec<&String> = a
                 .as_object()
-                .map(|m| m.keys().filter(|k| a.get(k.as_str()) != b.get(k.as_str())).collect())
+                .map(|m| {
+                    m.keys()
+                        .filter(|k| a.get(k.as_str()) != b.get(k.as_str()))
+                        .collect()
+                })
                 .unwrap_or_default();
-            let first = |v: &Value, key: &str| v.get(key).map(|x| x.to_string()).unwrap_or_default();
+            let first =
+                |v: &Value, key: &str| v.get(key).map(|x| x.to_string()).unwrap_or_default();
             return Err(format!(
                 "seed {seed}: designs differ in {keys:?}: {} against {}",
                 first(&a, "occurrences"),

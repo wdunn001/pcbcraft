@@ -194,7 +194,11 @@ impl MeshPart {
             return self.clone();
         };
         let mut out = self.clone();
-        out.positions = proto.positions.iter().map(|p| apply_matrix(m, *p)).collect();
+        out.positions = proto
+            .positions
+            .iter()
+            .map(|p| apply_matrix(m, *p))
+            .collect();
         out.indices = proto.indices.clone();
         out.materials = proto.materials.clone();
         out.authored_colors = proto.authored_colors.clone();

@@ -1,7 +1,7 @@
 //! Gerber X2 aperture and file function fidelity (issue #655).
 use pcbcraft_doc::{
-    Component, CopperZone, Footprint, Layer, LayerRecord, Net, Pad, Project, Via, ViaCovering, ZoneConnect,
-    ZonePour,
+    Component, CopperZone, Footprint, Layer, LayerRecord, Net, Pad, Project, Via, ViaCovering,
+    ZoneConnect, ZonePour,
 };
 use pcbcraft_geom::Point;
 use pcbcraft_library::{Drill, FootprintPad};
@@ -22,7 +22,6 @@ fn smdef_pad() -> FootprintPad {
         raw_source: String::new(),
     }
 }
-
 
 /// The part a placed footprint belongs to: one pin on `net`, with the pad's
 /// geometry embedded so the project validates.

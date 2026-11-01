@@ -91,7 +91,8 @@ fn legacy_ipc2581_export_is_rejected_for_fabrication_packages() -> Result<(), St
     validate_ipc2581_document(&text)?;
     validate_fabrication_package_file("ipc2581", "board.xml", text.as_bytes())?;
     // A document in the old custom shape is refused, alone and as a package file.
-    let legacy = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<EDA3D version=\"IPC-2581\"></EDA3D>\n";
+    let legacy =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<EDA3D version=\"IPC-2581\"></EDA3D>\n";
     assert!(
         validate_ipc2581_document(legacy).is_err(),
         "the legacy root element is not schema-valid"

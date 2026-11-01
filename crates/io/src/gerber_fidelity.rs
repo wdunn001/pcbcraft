@@ -30,7 +30,11 @@ pub(crate) fn attach_gerber_md5_in_header(text: String) -> String {
         return attach_gerber_md5(text);
     };
     let hash = gerber_md5_hex(prefix);
-    format!("{}%TF.MD5,{hash}*%\n{}{marker}", &prefix[..at], &prefix[at..])
+    format!(
+        "{}%TF.MD5,{hash}*%\n{}{marker}",
+        &prefix[..at],
+        &prefix[at..]
+    )
 }
 
 /// Check `%TF.MD5` against the file body (reader acceptance for issue #655).

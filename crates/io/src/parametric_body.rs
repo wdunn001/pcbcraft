@@ -881,12 +881,14 @@ fn infer_from_pads(fp: &Footprint, component: Option<&Component>) -> Option<Para
         let c = a.centre.distance(b.centre);
         // Two pads on an integrated circuit is not a chip passive; without a
         // recognised footprint name the body stays a plain box.
-        if c < 0.2 || component.is_some_and(|comp| {
+        if c < 0.2
+            || component.is_some_and(|comp| {
                 matches!(
                     comp.kind.as_str(),
                     "ic" | "mcu" | "ldo" | "buck" | "opamp" | "sensor" | "motor_driver"
                 )
-            }) {
+            })
+        {
             return Some(generic());
         }
         let along_x = (b.centre.x - a.centre.x).abs() >= (b.centre.y - a.centre.y).abs();

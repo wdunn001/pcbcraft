@@ -559,7 +559,10 @@ mod generate_tests {
             return Err("expected a file map".into());
         };
         // A package is dated with the fixed package date so its hash is stable.
-        assert_eq!(map, crate::gerber_files_at(&project, PACKAGE_CREATION_DATE)?);
+        assert_eq!(
+            map,
+            crate::gerber_files_at(&project, PACKAGE_CREATION_DATE)?
+        );
         Ok(())
     }
 

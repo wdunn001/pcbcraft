@@ -69,11 +69,8 @@ pub fn bom_sheet_rows(p: &Project, params: &BomSheetParams) -> Result<Vec<BomShe
                     None => "starter pads".into(),
                 },
             };
-        let property_values: Vec<String> = params
-            .fields
-            .iter()
-            .map(|key| c.bom_value(key))
-            .collect();
+        let property_values: Vec<String> =
+            params.fields.iter().map(|key| c.bom_value(key)).collect();
         let apart = if params.group {
             String::new()
         } else {

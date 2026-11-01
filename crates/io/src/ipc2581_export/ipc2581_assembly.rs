@@ -85,7 +85,8 @@ impl Writer {
             let package = package_name(c);
             if packages.insert(package.clone()) {
                 // The package outline is the box around the footprint's pads.
-                let (mut lo_x, mut lo_y, mut hi_x, mut hi_y) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                let (mut lo_x, mut lo_y, mut hi_x, mut hi_y) =
+                    (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
                 for pad in &f.pads {
                     let (w, h) = pad
                         .geometry
