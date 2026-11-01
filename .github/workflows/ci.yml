@@ -34,6 +34,7 @@ jobs:
       contents: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
+      site: ${{ steps.filter.outputs.site }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,10 +56,16 @@ jobs:
           if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
             echo "No usable base commit; running everything."
             echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "site=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed=$(git diff --name-only "$base" HEAD)
           printf 'Changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE '^site/|^\.github/workflows/ci\.yml$'; then
+            echo "site=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "site=false" >> "$GITHUB_OUTPUT"
+          fi
           code=$(printf '%s\n' "$changed" | grep -vE '^$|\.md$|^docs/|^LICENSE$|^NOTICE$|^\.github/ISSUE_TEMPLATE/' || true)
           if [ -n "$code" ]; then
             echo "rust=true" >> "$GITHUB_OUTPUT"
@@ -335,11 +342,49 @@ jobs:
           npx playwright install chromium
           node scripts/smoke-first-frame.mjs
 
+  # The marketing site and user guide (Astro). Runs when site/ or this workflow changes.
+  # Every command is one npm script in site/package.json, so a failure reproduces locally.
+  site:
+    name: Site
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    runs-on: [self-hosted, pcbcraft]
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run test:contrast
+      - run: npm run test:features
+      - run: npm run check
+      - run: npm run build
+      - run: npm run test:links
+      - run: npm run test:csp
+      # The browser check needs playwright-core and axe-core next to a Chromium build.
+      - name: Install browser system libraries
+        run: sudo env "PATH=$PATH" npx --yes playwright@1.50.1 install-deps chromium
+      - name: Accessibility check in a browser
+        env:
+          PW_DIR: ${{ runner.temp }}/pw
+        run: |
+          mkdir -p "$PW_DIR"
+          (cd "$PW_DIR" && npm init -y >/dev/null && npm install --no-audit --no-fund playwright-core@1.50.1 axe-core@4.13.0)
+          (cd "$PW_DIR" && npx --yes playwright@1.50.1 install chromium)
+          node scripts/check-a11y.mjs
+
   # The single required check. Runs even when an earlier job failed.
   result:
     name: CI result
     if: ${{ always() }}
-    needs: [changes, lint, clippy, deny, unit, build-wasm, build-linux-x64, build-windows, e2e]
+    needs: [changes, lint, clippy, deny, unit, build-wasm, build-linux-x64, build-windows, e2e, site]
     runs-on: [self-hosted, pcbcraft]
     permissions: {}
     steps:
