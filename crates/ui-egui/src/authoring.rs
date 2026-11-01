@@ -1397,6 +1397,7 @@ impl App {
         ui.horizontal(|ui| {
             ui.label(t!("library.project_library.collection_file"));
             ui.add(crate::targets::text_field(&mut self.library.editor.path))
+                .on_hover_text(t!("library.project_library.collection_file.tip"))
                 .named(&t!("library.project_library.collection_file"));
             if ui
                 .button(t!("library.project_library.save_library"))

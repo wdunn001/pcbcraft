@@ -310,6 +310,7 @@ impl App {
                     }
                 })
                 .response
+                .on_hover_text(t!("library.collection_browser.library_source.tip"))
                 .named("Library source");
             ui.horizontal(|ui| {
                 ui.label(t!("library.collection_browser.library_path"));
@@ -385,6 +386,7 @@ impl App {
                             ))
                             .desired_width(360.0),
                     )
+                    .on_hover_text(t!("library.collection_browser.search_names.tip"))
                     .named("Search names, descriptions, keywords");
                 if ui
                     .button(t!("library.collection_browser.search"))
