@@ -802,12 +802,14 @@ mod tests {
         let i = (cy * w_px + cx) as usize * 4;
         let dbg_shapes = crate::layers::legend_shapes(&p, pcbcraft_doc::Layer::Front, profile.pad_clearance_mm, false)?;
         let ink: Vec<(u32, u32)> = (0..h_px).flat_map(|y| (0..w_px).map(move |x| (x, y))).filter(|(x, y)| colour[((y * w_px + x) as usize) * 4 + 3] != 0).collect();
+        let row: Vec<u8> = (700..1040).step_by(20).map(|x| colour[((cy * w_px + x) as usize) * 4 + 3]).collect();
+        let col: Vec<u8> = (700..1040).step_by(20).map(|y| colour[((y * w_px + cx) as usize) * 4 + 3]).collect();
         let (minx, maxx) = (ink.iter().map(|p| p.0).min(), ink.iter().map(|p| p.0).max());
         let (miny, maxy) = (ink.iter().map(|p| p.1).min(), ink.iter().map(|p| p.1).max());
         assert_eq!(
             colour.get(i + 3).copied().unwrap_or(0),
             0,
-            "legend stroke over the pad should be cleared: centre {cx},{cy} of {w_px}x{h_px}; ink x {minx:?}..{maxx:?} y {miny:?}..{maxy:?}; shapes {:?}",
+            "legend stroke over the pad should be cleared: centre {cx},{cy} of {w_px}x{h_px}; ink x {minx:?}..{maxx:?} y {miny:?}..{maxy:?}; shapes {:?} row {row:?} col {col:?}",
             dbg_shapes.shapes
         );
         Ok(())
