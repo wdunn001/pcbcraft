@@ -980,6 +980,26 @@ pub fn search_parts(
     search_parts_over(config, args, project, paths(config))
 }
 
+fn starter_models_list() -> Result<Value, String> {
+    let models: Vec<Value> = pcbcraft_library::starter_models::all()
+        .iter()
+        .map(|m| {
+            json!({
+                "id": m.id,
+                "file_name": m.file_name,
+                "bytes": m.bytes.len(),
+                "footprint_names": m.footprint_names,
+                "license_title": m.license_title,
+                "source": m.source,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "models": models,
+        "license_file": "crates/library/assets/starter_models/LICENSE.md",
+    }))
+}
+
 pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value, String> {
     let text = |key: &str| {
         args.get(key)
@@ -988,6 +1008,7 @@ pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value,
     };
     match name {
         "library.catalog" => catalog(config),
+        "library.starter_models.list" => starter_models_list(),
         "library.sources" => sources(config),
         "library.list" => list_with_project(config, args, None),
         "parts.search" => search_parts(config, args, None),
