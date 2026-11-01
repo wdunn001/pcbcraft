@@ -107,6 +107,12 @@ pub const PART_FIELDS: &[PartField] = &[
         alias: None,
         label: "supplier part number",
     },
+    PartField {
+        key: "Suppliers",
+        token: "suppliers",
+        alias: None,
+        label: "supplier part numbers",
+    },
 ];
 
 /// Column tokens worked out from the design rather than typed in.
@@ -210,7 +216,18 @@ pub fn profile_of(values: &BTreeMap<String, String>) -> &'static BomProfile {
 
 /// Option values for a fresh bill: file type, every column, grouping as the profile says.
 pub fn default_export_values(project: &Project, profile: &BomProfile) -> BTreeMap<String, String> {
-    let mut columns: Vec<String> = profile.columns.iter().map(|c| c.token.clone()).collect();
+    // The supplier column starts ticked only when some part lists a supplier, so a bill
+    // without any keeps its familiar columns.
+    let suppliers = project
+        .components
+        .iter()
+        .any(|part| !part.sourcing.suppliers.is_empty());
+    let mut columns: Vec<String> = profile
+        .columns
+        .iter()
+        .filter(|c| suppliers || c.token != "suppliers")
+        .map(|c| c.token.clone())
+        .collect();
     columns.extend(
         project
             .bom_fields

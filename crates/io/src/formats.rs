@@ -800,6 +800,12 @@ pub const PART_FIELDS: &[PartField] = &[
         alias: None,
         label: "supplier part number",
     },
+    PartField {
+        key: "Suppliers",
+        token: "suppliers",
+        alias: None,
+        label: "supplier part numbers",
+    },
 ];
 
 /// Column tokens worked out from the design rather than typed in:

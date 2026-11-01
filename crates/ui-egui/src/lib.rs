@@ -3999,19 +3999,27 @@ impl App {
     }
     /// Open the in-app datasheet reader on the Library tab.
     pub(crate) fn open_datasheet(&mut self, ctx: &egui::Context, url: String) {
+        // A PDF on this computer opens in the reader window with its text layer.
+        if url.to_ascii_lowercase().starts_with("file://") {
+            if !self.datasheet_pane.open_file_url(&url, ctx) {
+                self.message = t!("datasheet.pane.open_failed");
+            }
+            return;
+        }
         self.change_tab(Tab::Libraries);
         self.library.editor.mode = 1;
         self.datasheet.open_source(ctx, url);
     }
 
-    /// The datasheet address when the field holds a plain web link.
+    /// The datasheet address when the field holds a plain web link or a local PDF.
     fn datasheet_url(field: Option<&str>) -> Option<String> {
         let url = field?.trim();
         let lower = url.to_ascii_lowercase();
-        ((lower.starts_with("http://") || lower.starts_with("https://"))
-            && url.len() <= 2048
-            && !url.chars().any(char::is_whitespace))
-        .then(|| url.to_owned())
+        let web = lower.starts_with("http://") || lower.starts_with("https://");
+        // A local file is accepted only as a PDF, which the reader window draws as a page.
+        let local_pdf = lower.starts_with("file://") && lower.ends_with(".pdf");
+        ((web || local_pdf) && url.len() <= 2048 && !url.chars().any(char::is_whitespace))
+            .then(|| url.to_owned())
     }
     /// True when the window is too narrow to put the library dock beside the
     /// drawing (WCAG 1.4.10 reflow at 320 points). The dock steps aside and the

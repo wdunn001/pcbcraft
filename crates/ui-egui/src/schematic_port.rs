@@ -200,7 +200,7 @@ impl App {
                 frame.left_top() + egui::vec2(4.0, 2.0),
                 Align2::LEFT_TOP,
                 &sheet.name,
-                FontId::proportional(11.0),
+                crate::fonts::Role::Caption.font(),
                 sc.text,
             );
             let ports: Vec<_> = p
@@ -214,7 +214,7 @@ impl App {
                     camera.screen(at, rect),
                     Align2::LEFT_CENTER,
                     format!("[{}]", port.name),
-                    FontId::monospace(11.0),
+                    crate::fonts::Role::Mono.font(),
                     sc.wire,
                 );
             }

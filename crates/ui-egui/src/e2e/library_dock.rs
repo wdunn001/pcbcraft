@@ -10,6 +10,7 @@ fn frame_sized(
     size: egui::Vec2,
     events: Vec<egui::Event>,
 ) -> egui::FullOutput {
+    ctx.enable_accesskit();
     let mut output = ctx.run_ui(
         egui::RawInput {
             screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, size)),
@@ -18,6 +19,7 @@ fn frame_sized(
         },
         |ui| app.show(ui),
     );
+    audit::remember_labels(&output);
     output.textures_delta.clear();
     output
 }
@@ -68,8 +70,9 @@ fn a_newcomer_switches_the_library_between_symbols_footprints_and_both() -> Resu
 #[test]
 fn a_newcomer_uses_the_arrow_keys_on_the_filter() -> Result<(), String> {
     let (ctx, mut app) = library_open();
-    let rect = library_view_strip(&ctx, &app)?;
-    tap_at(&ctx, &mut app, rect.center())?;
+    // Tab moves the keys onto the strip; it changes nothing by itself.
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("library-view")));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     frame(
         &ctx,
         &mut app,
@@ -172,12 +175,19 @@ fn the_library_view_switch_fits_a_narrow_aside() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     app.region().left_tab = "library".to_owned();
     let ctx = egui::Context::default();
-    for width in [320.0_f32, 380.0] {
-        let output = frame_sized(&ctx, &mut app, egui::Vec2::new(width, 640.0), vec![]);
+    // Below 640 points the whole dock steps aside (reflow), so the narrow case is the
+    // default 320 point aside: the switch must stay inside it at the smallest windows
+    // that still draw it.
+    for width in [640.0_f32, 1000.0] {
+        // The first passes install the fonts; the dock draws on a later one.
+        let mut output = frame_sized(&ctx, &mut app, egui::Vec2::new(width, 640.0), vec![]);
+        for _ in 0..3 {
+            output = frame_sized(&ctx, &mut app, egui::Vec2::new(width, 640.0), vec![]);
+        }
         let strip = library_view_strip(&ctx, &app)?;
         assert!(
-            strip.max.x <= width + 1.0,
-            "view switch should not spill at {width} px, got {:.0}",
+            strip.max.x <= 321.0,
+            "view switch should not spill out of the aside in a {width} px window, got {:.0}",
             strip.max.x
         );
         let _ = output;

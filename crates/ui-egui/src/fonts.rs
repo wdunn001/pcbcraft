@@ -397,7 +397,11 @@ mod tests {
                 .unwrap_or(&file)
                 .to_string_lossy()
                 .replace('\\', "/");
-            if rel.ends_with("src/fonts.rs") || rel.contains("src/ui_kit/") {
+            // The story files are test-only code, not production call sites.
+            if rel.ends_with("src/fonts.rs")
+                || rel.contains("src/ui_kit/")
+                || rel.contains("src/e2e/")
+            {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(&file) else {

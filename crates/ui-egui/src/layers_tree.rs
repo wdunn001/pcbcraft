@@ -883,20 +883,23 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 .filter(|f| on_side(f, front))
                 .count();
             let gfx = silk_graphics(env, front).count();
-            out.push(sub_row(
-                key,
-                "zones",
-                if front { "zones:front" } else { "zones:back" },
-                SubLayer::Zones.label().into(),
-                sw,
-                Visibility::SubLayer {
-                    side: side_path.clone(),
-                    sub: SubLayer::Zones,
-                },
-                false,
-                zones,
-                zones > 0,
-            ));
+            // A side with no copper pour leaves the Zones row out, like the other empty rows.
+            if zones > 0 || env.show_empty {
+                out.push(sub_row(
+                    key,
+                    "zones",
+                    if front { "zones:front" } else { "zones:back" },
+                    SubLayer::Zones.label().into(),
+                    sw,
+                    Visibility::SubLayer {
+                        side: side_path.clone(),
+                        sub: SubLayer::Zones,
+                    },
+                    false,
+                    zones,
+                    zones > 0,
+                ));
+            }
             out.push(sub_row(
                 key,
                 "silk",
@@ -3540,6 +3543,7 @@ pub(crate) fn explain(tab: TreeTab, r: &Row) -> String {
         (_, "copper") => t!("tree.explain.copper"),
         (_, "mask") => t!("tree.explain.mask"),
         (_, "silk") => t!("tree.explain.silk"),
+        (_, "zones") => t!("tree.explain.zones"),
         (_, "paste") => t!("tree.explain.paste"),
         (_, "components") if tab == TreeTab::Layout && nested => t!("tree.explain.components"),
         (_, "components") if tab == TreeTab::Schematic => t!("tree.explain.parts_sheet"),

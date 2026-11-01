@@ -24,7 +24,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Copper")?,
+        paints_text(&ctx, &mut app, "Tracks")?,
         "the copper sublayer is a row of the tree: {}",
         app.message
     );

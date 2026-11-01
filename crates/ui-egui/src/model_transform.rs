@@ -102,7 +102,7 @@ pub(super) fn footprint_model_transform_panel(
         return;
     }
 
-    ui.heading(t!("library.model_transform.heading"));
+    ui.label(crate::fonts::title(t!("library.model_transform.heading")));
     ui.label(t!("library.model_transform.hint"));
 
     let mut offset = model.offset;
@@ -204,6 +204,6 @@ pub(super) fn footprint_model_transform_panel(
     }
 
     if let Some(path) = def.model.as_ref().map(|m| m.path.clone()) {
-        ui.label(egui::RichText::new(path).small().color(Color32::GRAY));
+        ui.label(crate::fonts::caption(path).color(Color32::GRAY));
     }
 }
