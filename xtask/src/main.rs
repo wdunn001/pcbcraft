@@ -17,14 +17,19 @@
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
+mod a11y;
+mod changeset;
 mod compliance_lists;
+mod coverage;
 mod doc_check;
 mod e2e;
 mod i18n;
 mod lint;
+mod registry_check;
 mod showcase;
 mod status_data;
 mod status_schema;
+mod test_standards;
 mod tooltips;
 
 use std::path::{Path, PathBuf};
@@ -71,6 +76,7 @@ tooltips     [--strict] check tooltip text against docs/tooltips.md
   visual-gate  compare current screenshots against baselines in target/baselines (run screenshots first)
   board3d-bench  run the six-hundred-part 3D render regression test
   status-data  [--refresh] write site/src/data/status.json from the cached tracker snapshot
+";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
 const WASM_PACKAGES: [&str; 2] = ["pcbcraft-ui-egui", "pcbcraft-web"];

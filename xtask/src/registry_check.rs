@@ -41,6 +41,6 @@ pub fn run(repo: &Path, bless: bool) -> Result<(), String> {
 pub fn root() -> Result<PathBuf, String> {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .ok_or("xtask has no parent directory")
+        .ok_or_else(|| "xtask has no parent directory".to_string())
         .map(|p| p.to_path_buf())
 }

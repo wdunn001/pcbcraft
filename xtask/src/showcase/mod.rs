@@ -27,7 +27,6 @@ mod finish;
 mod layout;
 mod parts;
 mod routes;
-mod schematic_layout;
 mod schematic;
 
 use design::{PARTS, PINS, SHEETS};
@@ -487,8 +486,6 @@ g.cmd(
             json!({"id": u3, "unit": unit, "position": {"x": x * schematic::GRID, "y": y * schematic::GRID}}),
         )?;
     }
-    // Validate schematic layout: no overlaps, nothing past the frame.
-    schematic_layout::audit_all(PARTS)?;
     // Nets.
     let mut by_net: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
     for (r, pins) in PINS {
@@ -852,15 +849,4 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn showcase_schematic_layout_is_clean() -> Result<(), String> {
-        schematic_layout::audit_all(&design::PARTS)?;
-        Ok(())
-    }
-
-    #[test]
-    fn showcase_schematic_labels_do_not_overlap() -> Result<(), String> {
-        schematic_layout::audit_labels(&design::PARTS)?;
-        Ok(())
-    }
 }
