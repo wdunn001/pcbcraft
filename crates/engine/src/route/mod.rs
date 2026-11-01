@@ -41,7 +41,6 @@ pub(crate) const MARGIN: f64 = 1e-4;
 ///
 /// # Do not
 /// - Change the default; UI and CLI expect Orthogonal when mode is not given.
-
 pub(crate) enum Mode {
     /// One bend, right angles, no obstacle checks (the original behaviour).
     #[default]
@@ -62,7 +61,6 @@ pub(crate) enum Mode {
 ///
 /// # Do not
 /// - Add a third variant; the resolver assumes pad-or-point at both ends.
-
 pub(crate) enum Endpoint {
     Pad(PadRef),
     Point(Point),
