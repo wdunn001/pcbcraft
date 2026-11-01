@@ -617,6 +617,7 @@ mod tests {
             },
             preserved: Default::default(),
         });
+        crate::test_support::embed_pad_geometry(&mut project);
         project.validate()?;
         Ok(project)
     }

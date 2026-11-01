@@ -838,7 +838,7 @@ mod tests {
             id: 1,
             net: 2,
             position: Point::new(10.0, 12.0),
-            diameter: 0.8,
+            diameter: 1.4,
             drill: 0.8,
             from_layer: None,
             to_layer: None,

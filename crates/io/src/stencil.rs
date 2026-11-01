@@ -445,6 +445,7 @@ mod stencil_tests {
             diameter: 1.0,
             layer: Layer::Front,
         });
+        crate::test_support::embed_pad_geometry(&mut p);
         p.validate()?;
         Ok(p)
     }

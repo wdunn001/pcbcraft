@@ -437,6 +437,7 @@ mod tests {
             working_voltage: Default::default(),
             max_length: Default::default(),
         }];
+        crate::test_support::embed_pad_geometry(&mut project);
         project
     }
 
