@@ -95,14 +95,14 @@ pub(crate) fn gerber_body(scale: f64, p: &Project) -> Result<(String, usize), St
                 out.push_str("G75*\n");
                 let clockwise = arc.sweep < 0.0;
                 out.push_str(&format!(
-                    "X{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\nG01*\n",
+                    "X{}Y{}D02*\nG0{}*\nX{}Y{}I{}J{}D01*\nG01*\n",
                     n(from.x),
                     n(from.y),
+                    if clockwise { 2 } else { 3 },
                     n(to.x),
                     n(to.y),
                     n(arc.center.x - from.x),
                     n(arc.center.y - from.y),
-                    if clockwise { 2 } else { 3 }
                 ));
                 ops += 1;
             }

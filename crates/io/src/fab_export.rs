@@ -393,14 +393,14 @@ impl GerberLayer {
         self.select(code);
         self.body.push_str("G75*\n");
         self.body.push_str(&format!(
-            "X{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\n",
+            "X{}Y{}D02*\nG0{}*\nX{}Y{}I{}J{}D01*\nG01*\n",
             coordinate(sx * self.scale),
             coordinate(sy * self.scale),
+            if clockwise { 2 } else { 3 },
             coordinate(ex * self.scale),
             coordinate(ey * self.scale),
             coordinate((cx - sx) * self.scale),
             coordinate((cy - sy) * self.scale),
-            if clockwise { 2 } else { 3 }
         ));
         Ok(())
     }

@@ -3533,17 +3533,17 @@ fn gerber_files_core(
             if self.ops > MAX_OPS {
                 return Err("gerber export exceeds the object limit".into());
             }
-            self.body.push_str(&format!("D{code}D02*\n"));
+            self.select(code);
             self.body.push_str("G75*\n");
             self.body.push_str(&format!(
-                "X{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\nG01*\n",
+                "X{}Y{}D02*\nG0{}*\nX{}Y{}I{}J{}D01*\nG01*\n",
                 coordinate(sx * self.scale),
                 coordinate(sy * self.scale),
+                if clockwise { 2 } else { 3 },
                 coordinate(ex * self.scale),
                 coordinate(ey * self.scale),
                 coordinate((cx - sx) * self.scale),
                 coordinate((cy - sy) * self.scale),
-                if clockwise { 2 } else { 3 }
             ));
             Ok(())
         }
@@ -3900,7 +3900,7 @@ fn gerber_files_core(
                 return Err("gerber export exceeds the object limit".into());
             }
             outline.arcs.push_str(&format!(
-                "G75*\nX{x}Y{y}D02*\nX{x}Y{y}I{}J{}G02*\nG01*\n",
+                "G75*\nX{x}Y{y}D02*\nG02*\nX{x}Y{y}I{}J{}D01*\nG01*\n",
                 coordinate(c.radius * scale),
                 0,
                 x = coordinate((c.center.x - c.radius) * scale),
@@ -10707,8 +10707,11 @@ mod tests {
             "through-hole pad aperture: {front}"
         );
         assert!(
-            front.contains("D10*\nG36*\nX5000000Y5000000D02*\nX45000000Y5000000D01*\n"),
-            "the poured zone must appear as a filled region: {front}"
+            front.contains("D10*\nG36*\n")
+                && front.contains("G37*\n")
+                && front.contains("X5000000Y")
+                && front.contains("X45000000Y"),
+            "the poured zone must appear as a filled region spanning the zone: {front}"
         );
         assert!(
             front.contains("X30000000Y10000000D03*\n"),
@@ -10738,7 +10741,7 @@ mod tests {
             "the board edge must be traced"
         );
         assert!(
-            outline.contains("X44000000Y20000000D02*\nX44000000Y20000000I2000000J0G02*\n"),
+            outline.contains("X44000000Y20000000D02*\nG02*\nX44000000Y20000000I2000000J0D01*\n"),
             "the circular cutout must trace a circle"
         );
         let drill = &files["pcb-Drill.drl"];
