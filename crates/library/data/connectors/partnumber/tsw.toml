@@ -1,0 +1,204 @@
+id = "tsw"
+prefix = "TSW"
+manufacturer = "Samtec"
+description = "Classic 0.100 inch through-hole header strip"
+
+[limits]
+max_input_len = 64
+min_positions_per_row = 1
+max_positions_per_row = 50
+
+[[fields]]
+id = "series"
+label = "Series"
+kind = "literal"
+text = "TSW"
+
+[[fields]]
+id = "pitch_positions"
+label = "Pitch and positions per row"
+kind = "pitch_positions"
+
+[[fields]]
+id = "lead"
+label = "Lead style"
+kind = "enum"
+
+[[fields.values]]
+code = "05"
+label = "Lead style 05"
+[fields.values.meaning]
+overall_length_mm = 8.51
+post_length_mm = 3.3
+tail_length_mm = 2.67
+
+[[fields.values]]
+code = "06"
+label = "Lead style 06"
+[fields.values.meaning]
+overall_length_mm = 7.62
+post_length_mm = 2.41
+tail_length_mm = 2.67
+
+[[fields.values]]
+code = "07"
+label = "Lead style 07"
+[fields.values.meaning]
+overall_length_mm = 10.92
+post_length_mm = 2.54
+tail_length_mm = 5.84
+
+[[fields.values]]
+code = "08"
+label = "Lead style 08"
+[fields.values.meaning]
+overall_length_mm = 13.46
+post_length_mm = 5.08
+tail_length_mm = 5.84
+
+[[fields.values]]
+code = "09"
+label = "Lead style 09"
+[fields.values.meaning]
+overall_length_mm = 18.54
+post_length_mm = 10.16
+tail_length_mm = 5.84
+
+[[fields.values]]
+code = "10"
+label = "Lead style 10"
+[fields.values.meaning]
+overall_length_mm = 21.08
+post_length_mm = 12.7
+tail_length_mm = 5.84
+
+[[fields.values]]
+code = "11"
+label = "Lead style 11"
+[fields.values.meaning]
+overall_length_mm = 23.62
+post_length_mm = 15.24
+tail_length_mm = 5.84
+
+[[fields.values]]
+code = "12"
+label = "Lead style 12"
+[fields.values.meaning]
+overall_length_mm = 26.16
+post_length_mm = 17.78
+tail_length_mm = 5.84
+
+[[fields.values]]
+code = "13"
+label = "Lead style 13"
+[fields.values.meaning]
+overall_length_mm = 31.24
+post_length_mm = 22.86
+tail_length_mm = 5.84
+
+[[fields.values]]
+code = "14"
+label = "Lead style 14"
+[fields.values.meaning]
+overall_length_mm = 13.46
+post_length_mm = 2.79
+tail_length_mm = 8.13
+
+[[fields.values]]
+code = "15"
+label = "Lead style 15"
+[fields.values.meaning]
+overall_length_mm = 18.54
+post_length_mm = 13.21
+tail_length_mm = 2.79
+
+[[fields.values]]
+code = "16"
+label = "Lead style 16"
+[fields.values.meaning]
+overall_length_mm = 7.87
+post_length_mm = 8.13
+tail_length_mm = 2.79
+
+[[fields.values]]
+code = "17"
+label = "Lead style 17"
+[fields.values.meaning]
+overall_length_mm = 21.08
+post_length_mm = 2.79
+tail_length_mm = 15.74
+
+[[fields.values]]
+code = "18"
+label = "Lead style 18"
+[fields.values.meaning]
+overall_length_mm = 23.62
+post_length_mm = 18.29
+tail_length_mm = 2.79
+
+[[fields]]
+id = "plating"
+label = "Plating"
+kind = "enum"
+
+[[fields.values]]
+code = "F"
+label = "Gold flash on post, matte tin on tail"
+
+[[fields.values]]
+code = "L"
+label = "10 microinch gold on post, matte tin on tail"
+
+[[fields.values]]
+code = "G"
+label = "10 microinch gold on post, gold flash on balance"
+
+[[fields.values]]
+code = "S"
+label = "Matte tin"
+
+[[fields.values]]
+code = "T"
+label = "Matte tin (alternate code)"
+
+[[fields.values]]
+code = "LM"
+label = "Light gold on post, matte tin on tail"
+
+[[fields.values]]
+code = "TM"
+label = "Matte tin (TM code)"
+
+[[fields]]
+id = "row"
+label = "Row option"
+kind = "enum"
+
+[[fields.values]]
+code = "S"
+label = "Single row"
+[fields.values.meaning]
+rows = 1
+
+[[fields.values]]
+code = "D"
+label = "Double row"
+[fields.values.meaning]
+rows = 2
+
+[[fields.values]]
+code = "T"
+label = "Triple row"
+[fields.values.meaning]
+rows = 3
+
+[[fields.values]]
+code = "Q"
+label = "Double row on 0.200 inch row spacing"
+[fields.values.meaning]
+rows = 2
+
+[[constraints]]
+kind = "even_total_positions"
+row_field = "row"
+positions_field = "pitch_positions"

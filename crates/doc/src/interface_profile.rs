@@ -207,6 +207,9 @@ pub struct NetClassSpec {
     /// Maximum routed length.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_length: Option<f64>,
+    /// Target single-ended or pair impedance in ohms.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_impedance: Option<f64>,
     /// Net name globs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub patterns: Vec<String>,
@@ -236,6 +239,20 @@ pub struct PairSpec {
     /// Require equal via counts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub equal_vias: Option<bool>,
+    /// Differential impedance target and tolerance for the pair.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impedance: Option<PairImpedanceSpec>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+/// Differential impedance target of one pair.
+pub struct PairImpedanceSpec {
+    /// Target in ohms.
+    pub target: f64,
+    /// Allowed fractional deviation, 0 to 1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tolerance: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -264,6 +281,13 @@ pub struct RuleAreaSpec {
     /// Layer name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<String>,
+    /// What the area forbids, such as `tracks` or `components`; plain
+    /// clearance areas leave it unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forbid: Option<String>,
+    /// Footprint reference the area is anchored to, when it follows a part.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub footprint_ref: Option<String>,
     /// Clearance in millimetres.
     pub clearance: f64,
     /// Left edge in millimetres.
@@ -360,6 +384,12 @@ pub struct InterfaceProfileDocument {
     /// Rule areas.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_area: Vec<RuleAreaSpec>,
+    /// Keepout rows: areas that forbid a kind of object.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keepout: Vec<RuleAreaSpec>,
+    /// Placement keepout rows for components.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placement: Vec<RuleAreaSpec>,
     /// Value provenance rows.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub value_source: Vec<ValueSourceSpec>,
@@ -508,7 +538,22 @@ impl InterfaceProfileDocument {
                 "a profile defines at most {MAX_RULE_AREAS} rule areas"
             ));
         }
-        for area in &self.rule_area {
+        if self.keepout.len() + self.placement.len() > MAX_RULE_AREAS {
+            return Err(format!(
+                "a profile defines at most {MAX_RULE_AREAS} keepout and placement rows together"
+            ));
+        }
+        for row in self.keepout.iter().chain(self.placement.iter()) {
+            if row.forbid.is_none() {
+                return Err("keepout and placement rows need a forbid kind".into());
+            }
+        }
+        for area in self
+            .rule_area
+            .iter()
+            .chain(self.keepout.iter())
+            .chain(self.placement.iter())
+        {
             if area.name.as_ref().is_some_and(|n| !bounded(n, 128)) {
                 return Err("rule area name out of range".into());
             }
@@ -779,8 +824,10 @@ pub fn known_value_source_fields() -> &'static [&'static str] {
         "net_class.max_width",
         "net_class.target_length",
         "net_class.length_tolerance",
+        "net_class.target_impedance",
         "pair.gap",
         "pair.length_tolerance",
+        "pair.impedance",
         "pair_rule.clearance",
         "rule_area.clearance",
         "bus.limits.impedance_ohm",

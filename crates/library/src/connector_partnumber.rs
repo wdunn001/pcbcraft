@@ -5,9 +5,9 @@
 //! - Every input is bounded by [`SeriesLimits`]; unknown field tokens and overlong strings are rejected.
 //!
 //! # Dependencies
-//! - crates/library/data/connectors/tsw.toml
-//! - crates/library/data/connectors/ssw.toml
-//! - crates/library/data/connectors/bth.toml
+//! - crates/library/data/connectors/partnumber/tsw.toml
+//! - crates/library/data/connectors/partnumber/ssw.toml
+//! - crates/library/data/connectors/partnumber/bth.toml
 //! - crates/library/src/lib.rs
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -177,9 +177,9 @@ pub fn load_embedded_series(text: &str) -> Result<SeriesSpec, toml::de::Error> {
 /// Returns an error when an embedded table fails to deserialize.
 pub fn first_slice_specs() -> Result<Vec<SeriesSpec>, toml::de::Error> {
     Ok(vec![
-        load_embedded_series(include_str!("../data/connectors/tsw.toml"))?,
-        load_embedded_series(include_str!("../data/connectors/ssw.toml"))?,
-        load_embedded_series(include_str!("../data/connectors/bth.toml"))?,
+        load_embedded_series(include_str!("../data/connectors/partnumber/tsw.toml"))?,
+        load_embedded_series(include_str!("../data/connectors/partnumber/ssw.toml"))?,
+        load_embedded_series(include_str!("../data/connectors/partnumber/bth.toml"))?,
     ])
 }
 
