@@ -364,7 +364,7 @@ impl App {
             at + Vec2::new(pad + 6.0, 0.0),
             Align2::LEFT_CENTER,
             note,
-            FontId::monospace(10.0),
+            crate::fonts::Role::Mono.font(),
             if refusal.is_some() { red } else { self.muted() },
         );
     }
