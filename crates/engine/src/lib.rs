@@ -1984,9 +1984,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.set_layer_record",
-            "Record or replace one physical board layer: its name, role (copper, core, prepreg, soldermask, silkscreen, paste or custom) and thickness in millimetres, plus optional function, side, polarity, material (see board.materials), dk (1 to 20), df (0 to 1), thickness_tol_pct (0 to 50), copper_weight_oz (0.1 to 10), foil (rolled or electrodeposited) and linked_copper (the copper row a mask, silk or paste row sits on); at most 32 layers per board. Fields left out keep their value on an existing layer",
+            "Record or replace one physical board layer: its name, role (see board.set_layer_record kind list) and thickness in millimetres, plus optional function, side, polarity, material (see board.materials), dk (1 to 20), df (0 to 1), thickness_tol_pct (0 to 50), copper_weight_oz (0.1 to 10), foil (rolled or electrodeposited) and linked_copper (the copper row a mask, silk or paste row sits on); at most 32 layers per board. Fields left out keep their value on an existing layer",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":["copper","core","prepreg","soldermask","silkscreen","paste","custom"]},"thickness":{"type":"number"},"copper_role":{"type":"string","enum":["signal","plane","mixed","hatched"]},"function":{"type":"string","enum":pcbcraft_doc::LAYER_FUNCTIONS},"side":{"type":"string","enum":["top","bottom","internal","both","none"]},"polarity":{"type":"string","enum":["positive","negative"]},"material":{"type":"string","maxLength":64},"dk":{"type":"number","minimum":1,"maximum":20},"df":{"type":"number","minimum":0,"maximum":1},"thickness_tol_pct":{"type":"number","minimum":0,"maximum":50},"copper_weight_oz":{"type":"number","minimum":0.1,"maximum":10},"foil":{"type":"string","enum":["rolled","electrodeposited"]},"linked_copper":{"type":"string","maxLength":64}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":pcbcraft_doc::LAYER_KINDS},"thickness":{"type":"number"},"copper_role":{"type":"string","enum":["signal","plane","mixed","hatched"]},"function":{"type":"string","enum":pcbcraft_doc::LAYER_FUNCTIONS},"side":{"type":"string","enum":["top","bottom","internal","both","none"]},"polarity":{"type":"string","enum":["positive","negative"]},"material":{"type":"string","maxLength":64},"dk":{"type":"number","minimum":1,"maximum":20},"df":{"type":"number","minimum":0,"maximum":1},"thickness_tol_pct":{"type":"number","minimum":0,"maximum":50},"copper_weight_oz":{"type":"number","minimum":0.1,"maximum":10},"foil":{"type":"string","enum":["rolled","electrodeposited"]},"linked_copper":{"type":"string","maxLength":64}}),
                 &["name", "kind", "thickness"],
             ),
         ),
@@ -6872,7 +6872,6 @@ struct SourcingParams {
     #[serde(default, deserialize_with = "present")]
     mpn: Option<Option<String>>,
     #[serde(default, deserialize_with = "present")]
-    #[allow(dead_code)]
     description: Option<Option<String>>,
     #[serde(default, deserialize_with = "present")]
     lifecycle: Option<Option<pcbcraft_library::listing::Lifecycle>>,
@@ -8415,7 +8414,10 @@ fn bus_members(
 /// Commands that export or copy and never edit the design: running one adds no
 /// undo step and leaves the revision alone.
 fn command_never_edits(command: &str) -> bool {
-    matches!(command, "library.export" | "selection.copy_text")
+    matches!(
+        command,
+        "library.export" | "selection.copy_text" | "plugins.export" | "plugins.list"
+    )
 }
 
 fn missing() -> Error {
@@ -10507,10 +10509,15 @@ fn run_command(
         }
         "component.add" => {
             let a: Add = parse(params)?;
-            let template = TEMPLATES
-                .iter()
-                .find(|t| t.kind == a.kind)
-                .ok_or_else(|| Error::Invalid("unknown symbol kind".into()))?;
+            // The palette kinds have their own prefix; any other kind in the
+            // vocabulary is numbered like an integrated circuit.
+            let prefix = match TEMPLATES.iter().find(|t| t.kind == a.kind) {
+                Some(template) => template.prefix,
+                None if pcbcraft_doc::is_valid_component_kind(&a.kind) && a.kind != "library" => {
+                    "U"
+                }
+                None => return Err(Error::Invalid("unknown symbol kind".into())),
+            };
             let reference = match a.reference {
                 Some(r) => r,
                 None => {
@@ -10518,11 +10525,11 @@ fn run_command(
                     while p
                         .components
                         .iter()
-                        .any(|c| c.reference == format!("{}{n}", template.prefix))
+                        .any(|c| c.reference == format!("{prefix}{n}"))
                     {
                         n += 1;
                     }
-                    format!("{}{n}", template.prefix)
+                    format!("{prefix}{n}")
                 }
             };
             let id = allocate(next)?;
@@ -11110,6 +11117,7 @@ fn run_command(
             };
             text(&mut next.manufacturer, a.manufacturer);
             text(&mut next.mpn, a.mpn);
+            text(&mut next.description, a.description);
             if let Some(v) = a.lifecycle {
                 next.lifecycle = v;
             }
@@ -17819,16 +17827,7 @@ fn run_command(
             let name = a.name.trim().to_string();
             if name.is_empty()
                 || name.len() > 64
-                || !matches!(
-                    a.kind.as_str(),
-                    "copper"
-                        | "core"
-                        | "prepreg"
-                        | "soldermask"
-                        | "silkscreen"
-                        | "paste"
-                        | "custom"
-                )
+                || !pcbcraft_doc::LAYER_KINDS.contains(&a.kind.as_str())
                 || !a.thickness.is_finite()
                 || !(0.0..=100.0).contains(&a.thickness)
                 || a.material.as_ref().is_some_and(|m| m.len() > 64)

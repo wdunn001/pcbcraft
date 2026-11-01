@@ -2985,8 +2985,26 @@ pub struct LayerRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linked_copper: Option<String>,
 }
+/// Layer roles a physical stack row may carry.
+pub const LAYER_KINDS: [&str; 15] = [
+    "copper",
+    "core",
+    "prepreg",
+    "soldermask",
+    "silkscreen",
+    "paste",
+    "custom",
+    "adhesive",
+    "coverlay",
+    "stiffener",
+    "peelable_mask",
+    "carbon_ink",
+    "gold_mask",
+    "plating",
+    "finish",
+];
 /// Layer functions a record may state.
-pub const LAYER_FUNCTIONS: [&str; 10] = [
+pub const LAYER_FUNCTIONS: [&str; 18] = [
     "signal",
     "plane",
     "mixed",
@@ -2995,9 +3013,31 @@ pub const LAYER_FUNCTIONS: [&str; 10] = [
     "soldermask",
     "silkscreen",
     "paste",
+    "adhesive",
+    "coverlay",
+    "stiffener",
+    "peelable_mask",
+    "carbon_ink",
+    "gold_mask",
+    "plating",
+    "finish",
     "other",
     "none",
 ];
+/// True when a stack row may name or default the copper layer it sits on.
+pub fn layer_kind_names_copper(kind: &str) -> bool {
+    matches!(
+        kind,
+        "soldermask"
+            | "silkscreen"
+            | "paste"
+            | "custom"
+            | "peelable_mask"
+            | "gold_mask"
+            | "carbon_ink"
+            | "coverlay"
+    )
+}
 /// Design roles an inner copper layer may carry: routing, ground plane or power plane.
 pub const COPPER_LAYER_PLANE_ROLES: [&str; 3] = ["signal", "ground", "power"];
 
@@ -3013,10 +3053,7 @@ impl LayerRecord {
         };
         !self.name.trim().is_empty()
             && self.name.len() <= 64
-            && matches!(
-                self.kind.as_str(),
-                "copper" | "core" | "prepreg" | "soldermask" | "silkscreen" | "paste" | "custom"
-            )
+            && LAYER_KINDS.contains(&self.kind.as_str())
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
             && in_set(&self.copper_role, &["signal", "plane", "mixed", "hatched"])
@@ -3053,6 +3090,14 @@ impl LayerRecord {
             "soldermask" => "soldermask",
             "silkscreen" => "silkscreen",
             "paste" => "paste",
+            "adhesive" => "adhesive",
+            "coverlay" => "coverlay",
+            "stiffener" => "stiffener",
+            "peelable_mask" => "peelable_mask",
+            "carbon_ink" => "carbon_ink",
+            "gold_mask" => "gold_mask",
+            "plating" => "plating",
+            "finish" => "finish",
             _ => "other",
         }
     }
@@ -4780,7 +4825,13 @@ pub fn component_template(
     reference: String,
     position: Point,
 ) -> Option<Component> {
-    let t = TEMPLATES.iter().find(|t| t.kind == kind)?;
+    // Kinds outside the palette (an IC, a regulator, a sensor) still get a plain
+    // two-pin part, so callers can place any kind the vocabulary allows.
+    let palette = TEMPLATES.iter().find(|t| t.kind == kind);
+    if palette.is_none() && !(is_valid_component_kind(kind) && kind != "library") {
+        return None;
+    }
+    let value = palette.map_or("", |t| t.value);
     let names = if kind == "led" {
         ["A", "K"]
     } else if kind == "connector" {
@@ -4792,7 +4843,7 @@ pub fn component_template(
         units: vec![],
         id,
         reference,
-        value: t.value.into(),
+        value: value.into(),
         kind: kind.into(),
         position,
         rotation: 0.0,
@@ -5016,6 +5067,9 @@ impl Project {
         let i = rows.iter().position(|r| r.name == name)?;
         let rec = &rows[i];
         if rec.kind == "copper" || rec.kind == "core" || rec.kind == "prepreg" {
+            return None;
+        }
+        if !layer_kind_names_copper(&rec.kind) {
             return None;
         }
         if let Some(l) = &rec.linked_copper {
@@ -6673,7 +6727,8 @@ impl Project {
                     return Err("embedded footprint pad numbers do not match symbol pins".into());
                 }
             }
-            if c.pins.is_empty() || c.pins.len() > 256 {
+            // A part may have no pins at all (hardware, a label-only BOM line).
+            if c.pins.len() > 256 {
                 return Err("invalid pin count".into());
             }
             let mut numbers = BTreeSet::new();
@@ -7072,7 +7127,12 @@ impl Project {
             {
                 return Err("via span must run from an upper to a lower copper layer".into());
             }
-            if v.drill <= 0.0 && v.covering.is_some_and(|c| c != ViaCovering::Open) {
+            if v.drill <= 0.0
+                && [v.covering, v.covering_bottom]
+                    .into_iter()
+                    .flatten()
+                    .any(|c| c != ViaCovering::Open)
+            {
                 return Err(
                     "a via without a drilled hole cannot be tented, plugged or filled".into(),
                 );
@@ -7247,6 +7307,9 @@ pub fn library_component(
     position: Point,
     value: Option<String>,
 ) -> Result<Component, String> {
+    // Collapse the pins first so a clash between copies of one physical pin is
+    // reported as that clash, not as a generic duplicate-pin refusal.
+    let pins = collapse_symbol_pins(&definition)?;
     definition.validate().map_err(|e| e.to_string())?;
     if !definition.unsupported.is_empty() {
         return Err(format!(
@@ -7255,7 +7318,6 @@ pub fn library_component(
         ));
     }
     let unit_ids = symbol_units(&definition)?;
-    let pins = collapse_symbol_pins(&definition)?;
     if pins.is_empty() {
         return Err("symbol placement requires at least one pin".into());
     }

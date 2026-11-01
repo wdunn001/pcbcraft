@@ -240,7 +240,8 @@ pub const PIN_GRAPHICAL_STYLES: &[&str] = &[
 ];
 impl SymbolPin {
     pub fn graphical_style_supported(style: &str) -> bool {
-        PIN_GRAPHICAL_STYLES.contains(&style)
+        // An unnamed style is the plain line.
+        style.is_empty() || PIN_GRAPHICAL_STYLES.contains(&style)
     }
     /// Inner end of the pin stem in y-down millimetres (connection is `position`).
     pub fn stem_end(&self) -> Point {
