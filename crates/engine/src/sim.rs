@@ -183,7 +183,7 @@ fn build_netlist(p: &Project) -> Result<BuiltNetlist, String> {
             }
         }
     }
-    pending.sort_by(|a, b| a.0.cmp(&b.0));
+    pending.sort_by_key(|a| a.0);
     for (net, name) in pending {
         if node_by_net.contains_key(&net) {
             continue;

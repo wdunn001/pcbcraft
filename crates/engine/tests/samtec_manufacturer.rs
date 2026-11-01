@@ -46,7 +46,7 @@ fn import_manufacturer_step_attaches_model_path() -> Result<(), Box<dyn std::err
     std::fs::copy(fixture, &fp_path)?;
     let step_path = dir.path().join("part.step");
     let mut step = std::fs::File::create(&step_path)?;
-    write!(step, "ISO-10303-21;\n")?;
+    writeln!(step, "ISO-10303-21;")?;
 
     let mut s = Session::default();
     s.execute(

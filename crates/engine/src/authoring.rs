@@ -1,7 +1,6 @@
 use super::*;
 use pcbcraft_library::{
-    FootprintDefinition, FootprintPad, Graphic, LandPatternDensity, LandPatternParams,
-    PartSubstitutes, SymbolDefinition, SymbolPin, UnitGraphic, generate_footprint,
+    FootprintDefinition, FootprintPad, Graphic, LandPatternDensity, LandPatternParams, SymbolDefinition, SymbolPin, UnitGraphic, generate_footprint,
 };
 
 pub(super) fn commands() -> Vec<CommandSpec> {
@@ -784,14 +783,15 @@ pub(super) fn run(
                     .iter_mut()
                     .find(|s| s.name == a.name)
                     .ok_or_else(missing)?;
-                let path = a
+                let path_owned: String = a
                     .path
-                    .as_deref()
-                    .or_else(|| def.model.as_ref().map(|m| m.path.as_str()))
+                    .clone()
+                    .or_else(|| def.model.as_ref().map(|m| m.path.clone()))
                     .filter(|p| !p.is_empty())
                     .ok_or_else(|| {
                         Error::Invalid("set a model path on the footprint first".into())
                     })?;
+                let path = path_owned.as_str();
                 if path.len() > 1024 {
                     return Err(Error::Invalid("model path must be 1 to 1024 bytes".into()));
                 }
@@ -901,7 +901,7 @@ pub(super) fn run(
                 &body_id,
                 height,
             )
-            .map_err(|e| Error::Invalid(e))?;
+            .map_err(Error::Invalid)?;
             let path = project
                 .to_str()
                 .ok_or_else(|| Error::Invalid("the export path is not valid text".into()))?
@@ -2672,7 +2672,7 @@ pub(super) fn run(
                 .library
                 .part_substitutes
                 .entry(a.name.clone())
-                .or_insert_with(PartSubstitutes::default);
+                .or_default();
             match a.kind.as_str() {
                 "second_source" => {
                     let manufacturer = a.manufacturer.filter(|s| !s.is_empty()).ok_or_else(|| {

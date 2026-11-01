@@ -1,7 +1,6 @@
 use pcbcraft_engine::Session;
 use serde_json::json;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 fn with_lists_dir<T>(run: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let _lock = pcbcraft_engine::compliance_lists::LISTS_TEST_LOCK

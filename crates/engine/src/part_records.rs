@@ -9,12 +9,14 @@ pub fn now_secs() -> u64 {
     pcbcraft_clock::unix_secs()
 }
 
+type LibraryRef = Option<(String, String)>;
+
 pub fn link_inputs(
     project: &Project,
     component: &Component,
 ) -> (
-    Option<(String, String)>,
-    Option<(String, String)>,
+    LibraryRef,
+    LibraryRef,
     BTreeMap<String, String>,
 ) {
     let symbol = component

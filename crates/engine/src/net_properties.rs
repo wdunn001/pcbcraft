@@ -153,6 +153,7 @@ pub fn set_net_properties(p: &mut Project, params: &Value) -> Result<Value, Erro
     Ok(net_properties_json(p, net))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_net_properties(
     net: &mut Net,
     impedance_target: Option<Option<f64>>,

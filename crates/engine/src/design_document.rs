@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn document_switch_restores_workbench_tab_and_selection() {
+    fn document_switch_restores_workbench_tab_and_selection() -> Result<(), String> {
         let mut slots = DocumentSlots {
             documents: vec![
                 DesignDocument {
@@ -217,14 +217,14 @@ mod tests {
             active: 0,
         };
         let mut live = slots.documents[0].shell.clone();
-        slots.activate_document(1, &mut live).unwrap();
+        slots.activate_document(1, &mut live).map_err(|e| format!("{e:?}"))?;
         assert_eq!(live.workbench_tab, WorkbenchTab::Pcb);
         assert_eq!(live.selected, Some(2));
         assert_eq!(live.selected_unit, 2);
 
         live.workbench_tab = WorkbenchTab::Libraries;
         live.selected = Some(99);
-        slots.activate_document(0, &mut live).unwrap();
+        slots.activate_document(0, &mut live).map_err(|e| format!("{e:?}"))?;
         assert_eq!(live.workbench_tab, WorkbenchTab::Schematic);
         assert_eq!(live.selected, Some(1));
         assert_eq!(
@@ -232,5 +232,6 @@ mod tests {
             WorkbenchTab::Libraries
         );
         assert_eq!(slots.documents[1].shell.selected, Some(99));
+        Ok(())
     }
 }

@@ -3895,11 +3895,10 @@ fn check_finding_json(
         "message": message,
         "objects": objects,
     });
-    if let Some(text) = hint {
-        if let Some(obj) = row.as_object_mut() {
+    if let Some(text) = hint
+        && let Some(obj) = row.as_object_mut() {
             obj.insert("hint".into(), json!(text));
         }
-    }
     row
 }
 
@@ -3990,17 +3989,8 @@ fn custom_findings(p: &Project) -> Vec<Value> {
     }
     out
 }
-/// Apply an imported netlist: create missing nets and assign pins without duplicating work.
-///
-/// # Rules
-/// - Refuses 0 nets, more than 256 nets, or more than 4096 pin rows total.
-/// - Each net lists 1 to 128 pins; references and pin names are 1 to 64 bytes.
-/// - A pin cannot appear under two different net names in one import.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
-
 /// Rule-area height violations using the same body boxes as mechanical export.
+#[allow(dead_code)]
 fn height_findings(p: &Project) -> Vec<Value> {
     const CODE: &str = "part_too_tall";
     // A part taller than the cover allows is a hard mechanical failure by default.
@@ -4073,6 +4063,7 @@ fn height_findings(p: &Project) -> Vec<Value> {
     out
 }
 
+#[allow(dead_code)]
 fn component_uses_default_body_height(p: &Project, component_id: Id) -> bool {
     let Some(component) = p.component(component_id) else {
         return true;
@@ -5682,6 +5673,7 @@ struct TeardropRemoveParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `library.unlink`: remove one nickname from the project library table.
 ///
 /// # Rules
@@ -5689,6 +5681,7 @@ struct TeardropRemoveParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `padstack.define`: create or replace a reusable pad copper and drill template.
 ///
 /// # Rules
@@ -5728,6 +5721,7 @@ struct PadstackDefineParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `padstack.rename` and `padstack.duplicate`: rename or copy a padstack under a new name.
 ///
 /// # Rules
@@ -5736,6 +5730,7 @@ struct PadstackDefineParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `footprint.set_pad_stack`: reshape one placed pad to match a defined padstack.
 ///
 /// # Rules
@@ -5864,6 +5859,7 @@ struct LengthRulesParams {
     #[serde(default)]
     length_tolerance: Option<f64>,
     #[serde(default)]
+    #[allow(dead_code)]
     max_length: Option<f64>,
 }
 #[derive(Deserialize)]
@@ -5880,6 +5876,7 @@ struct StubRulesParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `netclass.set`: rename a class or tune width, via and differential-pair defaults.
 ///
 /// # Rules
@@ -5929,6 +5926,7 @@ struct ClassClearanceParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct ClassSetParams {
     class: Id,
     #[serde(default)]
@@ -5995,6 +5993,7 @@ struct NetLengthParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `netclass.assign`: put one net into a class or clear its class.
 ///
 /// # Rules
@@ -6657,6 +6656,7 @@ struct PadTableParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `netlist.import`: assign schematic pins to nets from a structured netlist payload.
 ///
 /// # Rules
@@ -6666,6 +6666,7 @@ struct PadTableParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `netlist.import_session`: read an external router session file and import its net map.
 ///
 /// # Rules
@@ -6713,6 +6714,7 @@ struct FindParams {
 }
 /// Rows keyed by value, kind, footprint, requested property values and, when parts
 /// are listed apart, the reference.
+#[allow(dead_code)]
 type BomGroups =
     std::collections::BTreeMap<(String, String, String, Vec<String>, String), Vec<String>>;
 
@@ -6963,12 +6965,15 @@ struct AttachSourceParams {
     #[serde(default)]
     product_url: String,
     #[serde(default)]
+    #[allow(dead_code)]
     stock: String,
     #[serde(default)]
     lifecycle: String,
     #[serde(default)]
+    #[allow(dead_code)]
     retrieved_at: u64,
     #[serde(default)]
+    #[allow(dead_code)]
     checked_at: u64,
     #[serde(default)]
     description: String,
@@ -6990,6 +6995,7 @@ struct SourcingParams {
     #[serde(default, deserialize_with = "present")]
     mpn: Option<Option<String>>,
     #[serde(default, deserialize_with = "present")]
+    #[allow(dead_code)]
     description: Option<Option<String>>,
     #[serde(default, deserialize_with = "present")]
     lifecycle: Option<Option<pcbcraft_library::listing::Lifecycle>>,
@@ -7213,6 +7219,7 @@ struct AddPointParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `wire.move`: translate every vertex of a drawn wire by a delta.
 ///
 /// # Rules
@@ -7221,6 +7228,7 @@ struct AddPointParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `wire.set_point`: move one vertex of a drawn wire.
 ///
 /// # Rules
@@ -7643,6 +7651,7 @@ struct ObjectGroupParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `graphic.ungroup`: remove one graphic group without deleting its graphics.
 ///
 /// # Rules
@@ -7650,6 +7659,7 @@ struct ObjectGroupParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `graphic.translate`: move every graphic in one group by the same delta.
 ///
 /// # Rules
@@ -7657,6 +7667,7 @@ struct ObjectGroupParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 /// Parameters of `dimension.add`: create a linear dimension as a grouped set of graphics.
 ///
 /// # Rules
@@ -8674,16 +8685,14 @@ fn apply_component_updates(
         if !p.components.iter().any(|c| c.id == entry.id) {
             return Err(Error::Invalid(format!("no component has id {}", entry.id)));
         }
-        if let Some(reference) = entry.reference.as_ref() {
-            if reference.is_empty() || reference.len() > 64 {
+        if let Some(reference) = entry.reference.as_ref()
+            && (reference.is_empty() || reference.len() > 64) {
                 return Err(Error::Invalid("reference must be 1 to 64 bytes".into()));
             }
-        }
-        if let Some(value) = entry.value.as_ref() {
-            if value.len() > 256 {
+        if let Some(value) = entry.value.as_ref()
+            && value.len() > 256 {
                 return Err(Error::Invalid("value must be at most 256 bytes".into()));
             }
-        }
         if let Some(field) = entry.field.as_ref() {
             if field.key.is_empty() || field.key.len() > 64 {
                 return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
@@ -8742,17 +8751,17 @@ fn apply_component_updates(
     Ok(updates.len())
 }
 
-fn component_for_instance_prototype<'a>(
-    p: &'a Project,
+fn component_for_instance_prototype(
+    p: &Project,
     instance: Id,
     prototype: Id,
-) -> Option<&'a Component> {
+) -> Option<&Component> {
     p.components
         .iter()
         .find(|c| c.instance == Some(instance) && c.prototype == Some(prototype))
 }
 
-fn footprint_for_component<'a>(p: &'a Project, component: Id) -> Option<&'a Footprint> {
+fn footprint_for_component(p: &Project, component: Id) -> Option<&Footprint> {
     p.board.footprints.iter().find(|f| f.component == component)
 }
 
@@ -9667,6 +9676,7 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
     Ok(())
 }
 
+#[allow(dead_code)]
 fn count_preserved_nodes(p: &Project) -> usize {
     let mut n = p.board.preserved.nodes.len();
     for f in &p.board.footprints {
@@ -9952,6 +9962,7 @@ fn run(
     }
     Ok(result)
 }
+#[allow(dead_code)]
 fn cam_isolation_command(command: &str) -> bool {
     command == "cam.isolation" || command == "cam.isolation_paths"
 }
@@ -10581,96 +10592,6 @@ fn run_command(
             *p = imported;
             Ok(summary)
         }
-        "project.import" => {
-            let a: ProjectImportParams = parse(params)?;
-            if a.format != "board" {
-                return Err(Error::Invalid("unsupported import format".into()));
-            }
-            let text =
-                pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
-            let imported = pcbcraft_io::read_board_interchange(&text).map_err(Error::Invalid)?;
-            let preserved_nodes = count_preserved_nodes(&imported);
-            let summary = json!({
-                "format": "board",
-                "components": imported.components.len(),
-                "nets": imported.nets.len(),
-                "footprints": imported.board.footprints.len(),
-                "tracks": imported.board.tracks.len(),
-                "vias": imported.board.vias.len(),
-                "zones": imported.board.zones.len(),
-                "preserved_nodes": preserved_nodes,
-            });
-            *p = imported;
-            Ok(summary)
-        }
-        "project.import" => {
-            let a: ProjectImportParams = parse(params)?;
-            if a.format != "schematic" {
-                return Err(Error::Invalid(
-                    "only schematic interchange import is supported".into(),
-                ));
-            }
-            let path = std::path::Path::new(&a.path);
-            let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
-            let imported = pcbcraft_io::read_schematic_interchange_path(path, &text)
-                .map_err(Error::Invalid)?;
-            let summary = pcbcraft_io::import_summary(&imported, 0);
-            *p = imported;
-            // New objects must not reuse an id the import already took.
-            *next = (*next).max(p.ids().max().unwrap_or(0).saturating_add(1));
-            Ok(summary)
-        }
-        "project.import" => {
-            let a: ProjectImportParams = parse(params)?;
-            if a.format != "schematic" {
-                return Err(Error::Invalid(
-                    "only schematic interchange import is supported".into(),
-                ));
-            }
-            let path = std::path::Path::new(&a.path);
-            let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
-            let imported = pcbcraft_io::read_schematic_interchange_path(path, &text)
-                .map_err(Error::Invalid)?;
-            let summary = pcbcraft_io::import_summary(&imported, 0);
-            *p = imported;
-            Ok(summary)
-        }
-        "project.import" => {
-            let a: ProjectImportParams = parse(params)?;
-            let path = std::path::Path::new(&a.path);
-            let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
-            let (imported, summary) = match a.format.as_str() {
-                "board" => {
-                    let (imported, report) = pcbcraft_io::read_board_interchange_report(&text)
-                        .map_err(Error::Invalid)?;
-                    let preserved_nodes = count_preserved_nodes(&imported);
-                    let summary = json!({
-                        "format": "board",
-                        "components": imported.components.len(),
-                        "nets": imported.nets.len(),
-                        "footprints": imported.board.footprints.len(),
-                        "tracks": imported.board.tracks.len(),
-                        "vias": imported.board.vias.len(),
-                        "zones": imported.board.zones.len(),
-                        "layers": imported.copper_layer_count(),
-                        "preserved_nodes": preserved_nodes,
-                        "notices": report.notices,
-                    });
-                    (imported, summary)
-                }
-                "schematic" => {
-                    let imported = pcbcraft_io::read_schematic_interchange_path(path, &text)
-                        .map_err(Error::Invalid)?;
-                    let summary = pcbcraft_io::import_summary(&imported, 0);
-                    (imported, summary)
-                }
-                _ => return Err(Error::Invalid("unsupported import format".into())),
-            };
-            *p = imported;
-            // New objects must not reuse an id the import already took.
-            *next = (*next).max(p.ids().max().unwrap_or(0).saturating_add(1));
-            Ok(summary)
-        }
         "component.add" => {
             let a: Add = parse(params)?;
             let template = TEMPLATES
@@ -11207,7 +11128,7 @@ fn run_command(
             for (key, g) in &groups {
                 let pre = key
                     .split(':')
-                    .last()
+                    .next_back()
                     .ok_or_else(|| Error::Invalid("invalid reannotate group".into()))?;
                 let pre = a.prefix.as_deref().unwrap_or(pre);
                 for (n, i) in g.iter().enumerate() {
@@ -11329,76 +11250,6 @@ fn run_command(
                 .ok_or_else(missing)?;
             component.include_in_placement = a.in_placement;
             Ok(json!({"id": a.id, "in_placement": a.in_placement}))
-        }
-        "component.set_compliance" => {
-            let a: SetComplianceParams = parse(params)?;
-            a.compliance.validate().map_err(Error::Invalid)?;
-            let component = p
-                .components
-                .iter_mut()
-                .find(|c| c.id == a.id)
-                .ok_or_else(missing)?;
-            component.compliance = a.compliance;
-            Ok(json!({"id": a.id}))
-        }
-        "component.set_sourcing" => {
-            let a: SourcingParams = parse(params)?;
-            let component = p
-                .components
-                .iter_mut()
-                .find(|c| c.id == a.id)
-                .ok_or_else(missing)?;
-            let mut next = component.sourcing.clone();
-            let text = |slot: &mut String, v: Option<Option<String>>| {
-                if let Some(v) = v {
-                    *slot = v.map(|t| t.trim().to_owned()).unwrap_or_default();
-                }
-            };
-            text(&mut next.manufacturer, a.manufacturer);
-            text(&mut next.mpn, a.mpn);
-            text(&mut next.description, a.description);
-            if let Some(v) = a.lifecycle {
-                next.lifecycle = v;
-            }
-            if let Some(v) = a.moisture_level {
-                next.moisture_level = v;
-            }
-            if let Some(v) = a.rohs {
-                next.rohs = v;
-            }
-            if let Some(v) = a.reach {
-                next.reach = v;
-            }
-            if let Some(v) = a.halogen_free {
-                next.halogen_free = v;
-            }
-            if let Some(v) = a.packaging {
-                next.packaging = v;
-            }
-            if let Some(v) = a.alternates {
-                next.alternates = v.unwrap_or_default();
-            }
-            if let Some(v) = a.datasheet_url {
-                next.datasheet_url = v.filter(|u| !u.trim().is_empty());
-            }
-            if let Some(v) = a.model3d_url {
-                next.model3d_url = v.filter(|u| !u.trim().is_empty());
-            }
-            if let Some(v) = a.moisture_level {
-                next.moisture_level = v;
-            }
-            if let Some(v) = a.rohs {
-                next.rohs = v;
-            }
-            if let Some(v) = a.reach {
-                next.reach = v;
-            }
-            if let Some(v) = a.halogen_free {
-                next.halogen_free = v;
-            }
-            next.validate().map_err(Error::Invalid)?;
-            component.sourcing = next;
-            Ok(json!({"id": a.id, "sourcing": component.sourcing}))
         }
         "component.set_compliance" => {
             let a: SetComplianceParams = parse(params)?;
@@ -11649,7 +11500,7 @@ fn run_command(
         "components.update" => {
             let a: ComponentsUpdateParams = parse(params)?;
             let mut trial = p.clone();
-            let changed = apply_component_updates(&mut trial, &a.updates)?;
+            let _changed = apply_component_updates(&mut trial, &a.updates)?;
             trial
                 .validate()
                 .map_err(|e| Error::Invalid(e.to_string()))?;
@@ -11679,11 +11530,11 @@ fn run_command(
             let variant = a.variant.as_deref();
             let csv = match mode {
                 "grouped" => pcbcraft_io::parts_table_csv(p, &a.fields, variant, true)
-                    .map_err(|e| Error::Invalid(e))?,
+                    .map_err(Error::Invalid)?,
                 "layout" => pcbcraft_io::parts_table_csv_layout(p, variant)
-                    .map_err(|e| Error::Invalid(e))?,
+                    .map_err(Error::Invalid)?,
                 _ => pcbcraft_io::parts_table_csv(p, &a.fields, variant, false)
-                    .map_err(|e| Error::Invalid(e))?,
+                    .map_err(Error::Invalid)?,
             };
             Ok(json!({"csv": csv, "mode": mode}))
         }
@@ -12638,11 +12489,10 @@ fn run_command(
                 "target_impedance": class.target_impedance,
                 "nets": class.nets.len()
             });
-            if let Some(props) = out.as_object_mut() {
-                if let Some(extra) = net_properties::class_properties_json(class).as_object() {
+            if let Some(props) = out.as_object_mut()
+                && let Some(extra) = net_properties::class_properties_json(class).as_object() {
                     props.extend(extra.clone());
                 }
-            }
             Ok(out)
         }
         "netclass.remove" => {
@@ -13315,13 +13165,12 @@ fn run_command(
                     "the enclosure path must be 1 to 1024 bytes".into(),
                 ));
             }
-            if let Some(mesh) = &a.mesh_path {
-                if mesh.is_empty() || mesh.len() > 1024 || !mesh_path_allowed(mesh) {
+            if let Some(mesh) = &a.mesh_path
+                && (mesh.is_empty() || mesh.len() > 1024 || !mesh_path_allowed(mesh)) {
                     return Err(Error::Invalid(
                         "the mesh path must end with .gltf, .glb or .obj".into(),
                     ));
                 }
-            }
             let transform = parse_enclosure_transform(a.transform)?;
             let bytes = std::fs::read(&a.path).map_err(|e| Error::Invalid(e.to_string()))?;
             let scan = pcbcraft_io::read_enclosure_step(&bytes).map_err(Error::Invalid)?;
@@ -13820,11 +13669,10 @@ fn run_command(
                 net,
                 points: a.points.clone(),
             });
-            if let Some(net) = net {
-                if !a.pins.is_empty() {
+            if let Some(net) = net
+                && !a.pins.is_empty() {
                     assign(p, net, &a.pins)?;
                 }
-            }
             let place_junction = a.junction.unwrap_or(a.tee.is_some());
             let mut junction_id = None;
             if place_junction {
@@ -15094,108 +14942,6 @@ fn run_command(
                 });
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))
-        }
-        "schematic.instance_add" => {
-            let a: InstanceAddParams = parse(params)?;
-            if a.name.is_empty() || a.name.len() > MAX_INSTANCE_NAME {
-                return Err(Error::Invalid("instance name must be 1 to 64 bytes".into()));
-            }
-            if a.reference_offset > MAX_REFERENCE_OFFSET {
-                return Err(Error::Invalid(
-                    "reference offset must be 0 to 999000".into(),
-                ));
-            }
-            if !a.entry.valid() {
-                return Err(Error::Invalid("entry position is out of range".into()));
-            }
-            if p.sheet_instances.len() >= MAX_SHEET_INSTANCES {
-                return Err(Error::Invalid(
-                    "a schematic supports at most 64 sheet instances".into(),
-                ));
-            }
-            if p.sheet_instances
-                .iter()
-                .any(|i| i.parent == a.parent && i.name == a.name)
-            {
-                return Err(Error::Invalid(
-                    "that parent page already carries an instance with this name".into(),
-                ));
-            }
-            if !p.sheets.iter().any(|s| s.id == a.sheet) {
-                return Err(Error::Invalid("template sheet does not exist".into()));
-            }
-            if !p.components.iter().any(|c| c.sheet == a.sheet) {
-                return Err(Error::Invalid("template sheet has no components".into()));
-            }
-            let id = allocate(next)?;
-            let inst = SheetInstance {
-                id,
-                sheet: a.sheet,
-                name: a.name.clone(),
-                reference_offset: a.reference_offset,
-                parent: a.parent,
-                entry: a.entry,
-            };
-            let (components, nets) = expand_instance(p, &inst, next).map_err(Error::Invalid)?;
-            p.sheet_instances.push(inst);
-            Ok(json!({"id": id, "components": components, "nets": nets}))
-        }
-        "schematic.instance_remove" => {
-            let a: InstanceRemoveParams = parse(params)?;
-            if !p.sheet_instances.iter().any(|i| i.id == a.id) {
-                return Err(missing());
-            }
-            collapse_instance(p, a.id).map_err(Error::Invalid)?;
-            Ok(json!({"removed": a.id}))
-        }
-        "schematic.export_design_block" => {
-            let a: DesignBlockExportParams = parse(params)?;
-            let bytes = pcbcraft_io::design_block_zip(p, a.sheet).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(std::path::Path::new(&a.path), &bytes)
-                .map_err(Error::Invalid)?;
-            Ok(json!({"path": a.path, "bytes": bytes.len()}))
-        }
-        "schematic.import_design_block" => {
-            let a: DesignBlockImportParams = parse(params)?;
-            if !a.entry.valid() {
-                return Err(Error::Invalid("entry position is out of range".into()));
-            }
-            let bytes = std::fs::read(std::path::Path::new(&a.path))
-                .map_err(|e| Error::Invalid(e.to_string()))?;
-            let block = pcbcraft_io::design_block_read(&bytes).map_err(Error::Invalid)?;
-            let sheet = merge_design_block_template(p, block, next)?;
-            let name = a.name.unwrap_or_else(|| "block".into());
-            let reference_offset = a.reference_offset.unwrap_or(0);
-            if name.is_empty() || name.len() > MAX_INSTANCE_NAME {
-                return Err(Error::Invalid("instance name must be 1 to 64 bytes".into()));
-            }
-            if reference_offset > MAX_REFERENCE_OFFSET {
-                return Err(Error::Invalid(
-                    "reference offset must be 0 to 999000".into(),
-                ));
-            }
-            if p.sheet_instances.len() >= MAX_SHEET_INSTANCES {
-                return Err(Error::Invalid(
-                    "a schematic supports at most 64 sheet instances".into(),
-                ));
-            }
-            let id = allocate(next)?;
-            let inst = SheetInstance {
-                id,
-                sheet,
-                name: name.clone(),
-                reference_offset,
-                parent: a.parent,
-                entry: a.entry,
-            };
-            let (components, nets) = expand_instance(p, &inst, next).map_err(Error::Invalid)?;
-            p.sheet_instances.push(inst);
-            Ok(json!({
-                "sheet": sheet,
-                "instance": id,
-                "components": components,
-                "nets": nets,
-            }))
         }
         "schematic.instance_add" => {
             let a: InstanceAddParams = parse(params)?;
@@ -18088,83 +17834,6 @@ fn run_command(
             p.drawing_frame = pcbcraft_doc::DrawingFrame::default();
             Ok(json!({"drawing_frame": p.drawing_frame}))
         }
-        "drawing_frame.set" => {
-            let a: DrawingFrameSetParams = parse(params)?;
-            let frame = &mut p.drawing_frame;
-            let mut changed = false;
-            if let Some(enabled) = a.enabled {
-                if frame.enabled == enabled {
-                    return Err(Error::Invalid(
-                        "the drawing frame already holds that enabled flag".into(),
-                    ));
-                }
-                frame.enabled = enabled;
-                changed = true;
-            }
-            if let Some(page_size) = a.page_size {
-                let upper = page_size.trim().to_ascii_uppercase();
-                if !upper.is_empty() && !pcbcraft_doc::known_page_size(&upper) {
-                    return Err(Error::Invalid(
-                        "drawing frame page size is A7 to A0 or empty".into(),
-                    ));
-                }
-                if frame.page_size == upper {
-                    return Err(Error::Invalid(
-                        "the drawing frame already holds that page size".into(),
-                    ));
-                }
-                frame.page_size = upper;
-                changed = true;
-            }
-            if let Some(show_zones) = a.show_zones {
-                if frame.show_zones == show_zones {
-                    return Err(Error::Invalid(
-                        "the drawing frame already holds that zone setting".into(),
-                    ));
-                }
-                frame.show_zones = show_zones;
-                changed = true;
-            }
-            if let Some(logo_text) = a.logo_text {
-                if logo_text.len() > pcbcraft_doc::MAX_LOGO_TEXT {
-                    return Err(Error::Invalid(
-                        "drawing frame logo text fits 256 bytes".into(),
-                    ));
-                }
-                if frame.logo_text == logo_text {
-                    return Err(Error::Invalid(
-                        "the drawing frame already holds that logo text".into(),
-                    ));
-                }
-                frame.logo_text = logo_text;
-                changed = true;
-            }
-            if let Some(fields) = a.fields {
-                if fields == frame.fields {
-                    return Err(Error::Invalid(
-                        "the drawing frame already holds those title block rows".into(),
-                    ));
-                }
-                frame.fields = fields;
-                changed = true;
-            }
-            if !changed {
-                return Err(Error::Invalid(
-                    "drawing_frame.set needs at least one field to change".into(),
-                ));
-            }
-            frame.validate().map_err(Error::Invalid)?;
-            Ok(json!({"drawing_frame": frame}))
-        }
-        "drawing_frame.clear" => {
-            if p.drawing_frame == pcbcraft_doc::DrawingFrame::default() {
-                return Err(Error::Invalid(
-                    "the drawing frame is already at its defaults".into(),
-                ));
-            }
-            p.drawing_frame = pcbcraft_doc::DrawingFrame::default();
-            Ok(json!({"drawing_frame": p.drawing_frame}))
-        }
         "panel.export" => {
             let a: PanelExportParams = parse(params)?;
             if a.directory.is_empty() || a.directory.len() > 4096 {
@@ -18327,10 +17996,7 @@ fn run_command(
                 .copper_layers()
                 .into_iter()
                 .map(|layer| {
-                    let role = match p.copper_layer_plane_role(layer) {
-                        Some(r) => r,
-                        None => "signal",
-                    };
+                    let role = p.copper_layer_plane_role(layer).unwrap_or("signal");
                     json!({
                         "layer": p.layer_name(layer),
                         "index": layer.index(),
@@ -19267,7 +18933,7 @@ fn run_command(
             } else {
                 None
             };
-            let keepout = if forbid.is_some() {
+            let _keepout = if forbid.is_some() {
                 None
             } else {
                 a.keepout
@@ -21310,211 +20976,6 @@ fn run_command(
                         copy.net = target_net;
                         copy.position = via.position.offset(layout_shift);
                         p.board.vias.push(copy);
-                        copied_vias += 1;
-                    }
-                }
-            }
-            Ok(json!({
-                "targets": a.targets,
-                "tracks": copied_tracks,
-                "vias": copied_vias,
-            }))
-        }
-        "board.repeat_layout" => {
-            let a: RepeatLayoutParams = parse(params)?;
-            if a.targets.is_empty() || a.targets.len() > 63 {
-                return Err(Error::Invalid("targets must list 1 to 63 instances".into()));
-            }
-            if a.anchor_reference.is_empty() || a.anchor_reference.len() > 64 {
-                return Err(Error::Invalid(
-                    "anchor reference must be 1 to 64 bytes".into(),
-                ));
-            }
-            let source = p
-                .sheet_instances
-                .iter()
-                .find(|i| i.id == a.source_instance)
-                .ok_or_else(missing)?
-                .clone();
-            if a.targets.contains(&a.source_instance) {
-                return Err(Error::Invalid(
-                    "the source instance cannot also be a target".into(),
-                ));
-            }
-            for target in &a.targets {
-                if !p.sheet_instances.iter().any(|i| i.id == *target) {
-                    return Err(Error::Invalid("target instance does not exist".into()));
-                }
-                if p.sheet_instances
-                    .iter()
-                    .find(|i| i.id == *target)
-                    .is_some_and(|t| t.sheet != source.sheet || t.parent != source.parent)
-                {
-                    return Err(Error::Invalid(
-                        "every target must share the template and parent page".into(),
-                    ));
-                }
-            }
-            let template_anchor_id =
-                template_component_by_reference(p, source.sheet, &a.anchor_reference)
-                    .ok_or_else(|| {
-                        Error::Invalid("anchor reference is missing on the template page".into())
-                    })?
-                    .id;
-            let source_anchor_id =
-                component_for_instance_prototype(p, source.id, template_anchor_id)
-                    .ok_or_else(missing)?
-                    .id;
-            let source_fp = footprint_for_component(p, source_anchor_id).ok_or_else(|| {
-                Error::Invalid("sync footprints before repeating layout across instances".into())
-            })?;
-            let source_fp_position = source_fp.position;
-            if footprint_locked(p, source_fp.id) {
-                return Err(Error::Invalid(
-                    "the anchor footprint is locked against placement changes".into(),
-                ));
-            }
-            let template_parts: Vec<Id> = p
-                .components
-                .iter()
-                .filter(|c| c.sheet == source.sheet && c.instance.is_none())
-                .map(|c| c.id)
-                .collect();
-            let mut copied_tracks = 0usize;
-            let mut copied_vias = 0usize;
-            for target_id in &a.targets {
-                let target_row = p
-                    .sheet_instances
-                    .iter()
-                    .find(|i| i.id == *target_id)
-                    .ok_or_else(missing)?;
-                let target_anchor_id =
-                    component_for_instance_prototype(p, *target_id, template_anchor_id)
-                        .ok_or_else(missing)?
-                        .id;
-                let target_fp = footprint_for_component(p, target_anchor_id).ok_or_else(|| {
-                    Error::Invalid(
-                        "sync footprints before repeating layout across instances".into(),
-                    )
-                })?;
-                let target_fp_position = target_fp.position;
-                if footprint_locked(p, target_fp.id) {
-                    return Err(Error::Invalid(
-                        "a target anchor footprint is locked against placement changes".into(),
-                    ));
-                }
-                let layout_shift = Point::new(
-                    target_fp_position.x - source_fp_position.x,
-                    target_fp_position.y - source_fp_position.y,
-                );
-                for prototype in &template_parts {
-                    let source_part_id = component_for_instance_prototype(p, source.id, *prototype)
-                        .ok_or_else(missing)?
-                        .id;
-                    let target_part_id =
-                        component_for_instance_prototype(p, *target_id, *prototype)
-                            .ok_or_else(missing)?
-                            .id;
-                    let (rotation, want) = {
-                        let source_foot =
-                            footprint_for_component(p, source_part_id).ok_or_else(missing)?;
-                        let rel = Point::new(
-                            source_foot.position.x - source_fp_position.x,
-                            source_foot.position.y - source_fp_position.y,
-                        );
-                        let want =
-                            Point::new(target_fp_position.x + rel.x, target_fp_position.y + rel.y);
-                        (source_foot.rotation, want)
-                    };
-                    if !want.valid() {
-                        return Err(Error::Invalid(
-                            "the repeated layout would move a footprint out of range".into(),
-                        ));
-                    }
-                    let target_foot_id = p
-                        .board
-                        .footprints
-                        .iter()
-                        .find(|f| f.component == target_part_id)
-                        .ok_or_else(missing)?
-                        .id;
-                    if footprint_locked(p, target_foot_id) {
-                        return Err(Error::Invalid(
-                            "a target footprint is locked against placement changes".into(),
-                        ));
-                    }
-                    let target_foot = p
-                        .board
-                        .footprints
-                        .iter_mut()
-                        .find(|f| f.component == target_part_id)
-                        .ok_or_else(missing)?;
-                    target_foot.position = want;
-                    target_foot.rotation = rotation;
-                }
-                let source_nets: Vec<(String, Id)> = p
-                    .nets
-                    .iter()
-                    .filter(|n| n.instance == Some(source.id))
-                    .map(|n| (n.name.clone(), n.id))
-                    .collect();
-                for (name, source_net) in source_nets {
-                    let template_name = name
-                        .strip_suffix(&format!("__{}", source.name))
-                        .ok_or_else(|| {
-                            Error::Invalid("instance net names no longer match the template".into())
-                        })?;
-                    let target_name =
-                        instance_materialized_net_name(template_name, &target_row.name);
-                    let target_net = p
-                        .nets
-                        .iter()
-                        .find(|n| n.instance == Some(*target_id) && n.name == target_name)
-                        .map(|n| n.id)
-                        .ok_or_else(|| Error::Invalid("target instance net is missing".into()))?;
-                    for track in p
-                        .board
-                        .tracks
-                        .iter()
-                        .filter(|t| t.net == source_net)
-                        .cloned()
-                        .collect::<Vec<_>>()
-                    {
-                        let id = allocate(next)?;
-                        p.board.tracks.push(Track {
-                            id,
-                            net: target_net,
-                            start: track.start.offset(layout_shift),
-                            end: track.end.offset(layout_shift),
-                            width: track.width,
-                            layer: track.layer,
-                            arc: track.arc.map(|mid| mid.offset(layout_shift)),
-                            preserved: Default::default(),
-                        });
-                        copied_tracks += 1;
-                    }
-                    for via in p
-                        .board
-                        .vias
-                        .iter()
-                        .filter(|v| v.net == source_net)
-                        .cloned()
-                        .collect::<Vec<_>>()
-                    {
-                        let id = allocate(next)?;
-                        p.board.vias.push(Via {
-                            id,
-                            net: target_net,
-                            position: via.position.offset(layout_shift),
-                            diameter: via.diameter,
-                            drill: via.drill,
-                            backdrill: Default::default(),
-                            covering: Default::default(),
-                            covering_bottom: Default::default(),
-                            from_layer: Default::default(),
-                            preserved: Default::default(),
-                            to_layer: Default::default(),
-                        });
                         copied_vias += 1;
                     }
                 }
@@ -32537,7 +31998,6 @@ mod tests {
         assert!(s.project.validate().is_ok());
         Ok(())
     }
-    #[test]
     #[test]
     fn a_newcomer_exports_a_compliance_report() -> Result<(), Error> {
         let mut s = Session::default();
@@ -44933,7 +44393,6 @@ mod tests {
         Ok(())
     }
     #[test]
-    #[test]
     fn a_newcomer_saves_a_four_layer_board_and_the_file_names_the_bottom_layer() -> Result<(), Error>
     {
         let mut s = Session::default();
@@ -44973,6 +44432,7 @@ mod tests {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn via_set_span_updates_range() -> Result<(), Error> {
         let (mut s, net) = six_layer_session()?;
         let id = s.execute(
@@ -45051,8 +44511,8 @@ mod tests {
             .as_array()
             .ok_or_else(|| Error::Invalid("hits".into()))?;
         let ids: Vec<&str> = hits.iter().filter_map(|h| h["id"].as_str()).collect();
-        assert!(ids.iter().any(|id| *id == "track_width"));
-        assert!(ids.iter().any(|id| *id == "track.set_width"));
+        assert!(ids.contains(&"track_width"));
+        assert!(ids.contains(&"track.set_width"));
         Ok(())
     }
 
@@ -45086,8 +44546,8 @@ mod tests {
     #[test]
     fn help_commands_listed_in_commands() {
         let ids: Vec<&str> = commands().iter().map(|c| c.id).collect();
-        assert!(ids.iter().any(|id| *id == "help.glossary"));
-        assert!(ids.iter().any(|id| *id == "help.term"));
+        assert!(ids.contains(&"help.glossary"));
+        assert!(ids.contains(&"help.term"));
     }
 
     #[test]

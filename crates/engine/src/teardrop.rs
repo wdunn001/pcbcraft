@@ -22,6 +22,7 @@ struct TeardropRemoveParams {
     #[serde(default)]
     net: Option<Id>,
     #[serde(default)]
+    #[allow(dead_code)]
     layer: Option<Layer>,
 }
 

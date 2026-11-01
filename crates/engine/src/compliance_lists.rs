@@ -70,8 +70,8 @@ fn load_all_installed() -> Result<BTreeMap<String, pcbcraft_doc::ComplianceListS
     for id in builtin_compliance_list_ids() {
         out.insert((*id).to_owned(), load_installed(id)?);
     }
-    if let Ok(dir) = lists_dir() {
-        if dir.is_dir() {
+    if let Ok(dir) = lists_dir()
+        && dir.is_dir() {
             for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
                 let entry = entry.map_err(|e| e.to_string())?;
                 let path = entry.path();
@@ -84,7 +84,6 @@ fn load_all_installed() -> Result<BTreeMap<String, pcbcraft_doc::ComplianceListS
                 }
             }
         }
-    }
     Ok(out)
 }
 
@@ -221,15 +220,15 @@ fn lists_update(params: &Value) -> Result<Value, String> {
             substances_added: incoming
                 .substances
                 .iter()
-                .filter_map(|s| {
+                .map(|s| {
                     if s.name.is_empty() {
                         if s.cas.is_empty() {
-                            Some(s.ec_number.clone())
+                            s.ec_number.clone()
                         } else {
-                            Some(s.cas.clone())
+                            s.cas.clone()
                         }
                     } else {
-                        Some(s.name.clone())
+                        s.name.clone()
                     }
                 })
                 .collect(),

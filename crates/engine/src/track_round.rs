@@ -43,7 +43,9 @@ struct CornerPair {
 
 #[derive(Clone, Copy, Debug)]
 struct LegSnapshot {
+    #[allow(dead_code)]
     start: Point,
+    #[allow(dead_code)]
     end: Point,
     length: f64,
 }
@@ -164,6 +166,7 @@ fn shorten_at(track: &mut Track, corner: Point, target: Point) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_fillet(
     p: &mut Project,
     pair: CornerPair,

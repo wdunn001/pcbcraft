@@ -308,7 +308,7 @@ fn upsert_footprint(p: &mut Project, footprint: &FootprintDefinition) {
 
 fn save_to_folder(
     config: &crate::user_config::UserConfig,
-    p: &Project,
+    _p: &Project,
     resolved: &ResolvedPart,
     sidecar: PartSidecar,
     target: &str,
@@ -344,7 +344,7 @@ mod tests {
     use crate::user_config::UserConfig;
     use pcbcraft_library::{SymbolDefinition, SymbolPin};
     use serde_json::json;
-    use std::sync::Mutex;
+    
 
     struct TestDirectory {
         path: std::path::PathBuf,
@@ -355,7 +355,7 @@ mod tests {
             let path = std::env::temp_dir().join(format!(
                 "pcbcraft-part-save-{}-{}",
                 std::process::id(),
-                std::time::SystemTime::now()
+                pcbcraft_clock::system_now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_err(|e| e.to_string())?
                     .as_nanos()
@@ -423,8 +423,10 @@ mod tests {
         )
         .map_err(Error::Invalid)?;
 
-        let mut s = Session::default();
-        s.config = config.clone();
+        let mut s = Session {
+            config: config.clone(),
+            ..Session::default()
+        };
         let symbol = sample_symbol();
         s.execute("library.symbol.upsert", json!({"definition": symbol}), None)?;
         let footprint = pcbcraft_library::read_footprint(

@@ -198,7 +198,7 @@ pub(super) fn run(
     if !commands().iter().any(|c| c.id == command) {
         return None;
     }
-    Some((|| match command {
+    Some(match command {
         "part.add" => part_add(p, next, params),
         "part.set" => part_set(p, params),
         "part.remove" => part_remove(p, params),
@@ -211,7 +211,7 @@ pub(super) fn run(
         "part.set_distributor_credential" => part_set_distributor_credential(params),
         "part.clear_distributor_credential" => part_clear_distributor_credential(params),
         _ => Err(Error::Invalid("unknown part command".into())),
-    })())
+    })
 }
 
 fn part_add(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> {
@@ -338,7 +338,7 @@ fn part_import(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, 
     }
     let (symbol, footprint) =
         load_symbol_footprint_files(&a.symbol_path, &a.symbol_name, &a.footprint_path)
-            .map_err(|e| Error::Invalid(e))?;
+            .map_err(Error::Invalid)?;
     symbol
         .validate()
         .map_err(|e| Error::Invalid(e.to_string()))?;
@@ -360,7 +360,7 @@ fn part_import(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, 
         &a.datasheet_url,
         attribution,
     )
-    .map_err(|e| Error::Invalid(e))?;
+    .map_err(Error::Invalid)?;
     if p.library.parts.iter().any(|x| x.mpn == part.mpn) {
         return Err(Error::Invalid("duplicate part MPN".into()));
     }
@@ -519,11 +519,10 @@ fn upsert_symbol_footprint(
     footprint: &pcbcraft_library::FootprintDefinition,
     notice: Option<&str>,
 ) {
-    if let Some(n) = notice {
-        if !p.library.notices.contains(&n.to_string()) {
+    if let Some(n) = notice
+        && !p.library.notices.contains(&n.to_string()) {
             p.library.notices.push(n.to_string());
         }
-    }
     if let Some(def) = p.library.symbols.iter_mut().find(|s| s.name == symbol.name) {
         *def = symbol.clone();
     } else {

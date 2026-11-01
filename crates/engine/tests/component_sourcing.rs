@@ -14,7 +14,8 @@ fn add_resistor(s: &mut Session) -> Result<u64, Error> {
 }
 
 fn sample_listing() -> PartListing {
-    let mut l = PartListing {
+    
+    PartListing {
         source: ListingSource::Fixture,
         source_id: "Sample".into(),
         source_ref: "X".into(),
@@ -49,8 +50,7 @@ fn sample_listing() -> PartListing {
         footprint: None,
         model3d: Some("https://example.invalid/model.step".into()),
         attribution: None,
-    };
-    l
+    }
 }
 
 #[test]

@@ -30,6 +30,7 @@ impl Session {
     }
 }
 
+#[allow(dead_code)]
 fn counts_by_hand(checks: &Value, project: &pcbcraft_doc::Project) -> (usize, usize, usize) {
     let mut c = (0usize, 0usize, 0usize);
     for key in ["erc", "drc"] {
@@ -58,6 +59,7 @@ fn counts_by_hand(checks: &Value, project: &pcbcraft_doc::Project) -> (usize, us
 }
 
 /// Every aggregate agrees with the hand count and with each other filter.
+#[allow(dead_code)]
 pub(crate) fn assert_finding_counts_agree(session: &Session, set: &FindingSet, what: &str) {
     let (e, w, n) = counts_by_hand(&session.checks(), &session.project);
     let all = set.counts();
@@ -100,7 +102,7 @@ pub(crate) fn assert_finding_counts_agree(session: &Session, set: &FindingSet, w
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_io;
+    
     use pcbcraft_rules::Loudness;
     use serde_json::json;
     use std::path::PathBuf;

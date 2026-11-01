@@ -162,6 +162,7 @@ impl DiskLayer {
         Ok(Some(StoredResponse { stored_at, results }))
     }
 
+    #[allow(dead_code)]
     fn remove(&self, source: &str, key: &str) -> Result<(), SourceError> {
         if let Some(path) = self.path(source, key)? {
             let _ = fs::remove_file(path);

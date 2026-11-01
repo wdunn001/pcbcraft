@@ -348,7 +348,7 @@ mod tests {
         let offered = orphans(&d);
         assert_eq!(offered.len(), 2, "{offered:?}");
         assert_eq!(offered[0].id, newer, "newest first");
-        let (project, entry) = load(&d, &newer)?;
+        let (_project, _entry) = load(&d, &newer)?;
 
         let mut t = Session::default();
         add_track(&mut t)?;

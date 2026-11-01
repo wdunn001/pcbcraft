@@ -9,7 +9,6 @@ pub use apply::{OrderedRoomApply, RoomOp};
 pub use scopes::command_lock_scope;
 
 use crate::{Error, Session};
-use pcbcraft_doc::Project;
 use serde_json::Value;
 
 /// Whether a command may be submitted to a shared room or applied from a relay echo.
@@ -56,6 +55,7 @@ pub fn apply_room_command(session: &mut Session, id: &str, params: Value) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pcbcraft_doc::Project;
     use serde_json::json;
 
     fn fresh_pair() -> Result<(Session, Session), Error> {
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn wire_connect_locks_the_net() -> Result<(), Error> {
-        let mut s = Session::sample()?;
+        let s = Session::sample()?;
         let net = s
             .project
             .nets

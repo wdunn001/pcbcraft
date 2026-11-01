@@ -286,11 +286,10 @@ pub fn set_source_role(
         if same_folder(Path::new(&source.path), &target) {
             found = true;
             source.role = role.map(str::to_owned);
-        } else if let Some(role) = role {
-            if source.role.as_deref() == Some(role) {
+        } else if let Some(role) = role
+            && source.role.as_deref() == Some(role) {
                 source.role = None;
             }
-        }
     }
     if !found {
         return Err("register that folder as a library source before marking its role".into());
@@ -1093,6 +1092,7 @@ pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value,
                 .map_err(|e| e.to_string())?;
             Ok(json!({"url": url}))
         }
+        name if name.starts_with("registry.") => crate::registry::read_tool(name, args),
         _ => Err("unknown library query".into()),
     }
 }
@@ -1358,6 +1358,7 @@ mod tests {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn library_source_tools_answer_through_the_read_tool_router() -> Result<(), String> {
         let config = &UserConfig::detached();
         let listing = read_tool(config, "library.sources", &json!({}))?;
