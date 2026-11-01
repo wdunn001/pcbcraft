@@ -1,3 +1,24 @@
+//! Library symbol and footprint authoring UI.
+//!
+//! Provides the drawing canvas, property editors, and save/load workflow for
+//! creating and modifying library symbols and footprints within the project.
+//!
+//! # Rules
+//! - Draft objects are transient; they become library entries only when saved.
+//! - Pad shape controls adapt to the selected shape type.
+//! - Unplated holes get special defaults (no copper layers, no number).
+//!
+//! # Dependencies
+//! - ../library/src/lib.rs: PadChamfer, ChamferCorners, MAX_PAD_POLYGON_VERTICES, custom_polygon_error
+//! - ../text/strings/en.txt: library editor string keys
+//! - ./a11y.rs: name_control
+//! - ./canvas.rs: snap, fit_camera, polygon_contains
+//! - ./library.rs: library_geometry_paths, library_paths_bounds
+//!
+//! # Do not
+//! - Change the Draft enum variants without updating all match arms.
+//! - Rename pad shape fields without updating pad_shape_controls.
+
 use super::*;
 use crate::a11y::Named;
 use egui::{Pos2, Sense};
@@ -12,6 +33,19 @@ use std::collections::BTreeSet;
 /// Placing a footprint still stops at 64 pads until the placement limit is lifted.
 const PAD_LIST_LIMIT: usize = 1600;
 
+/// In-progress symbol or footprint being edited in the library editor.
+///
+/// The draft is transient state that lives only while the editor is open.
+/// Saving commits it to the project library as a real entry.
+///
+/// # Rules
+/// - Symbol drafts have pins and unit graphics.
+/// - Footprint drafts have pads and graphics.
+///
+/// # Dependencies
+/// - ../library/src/lib.rs: SymbolDefinition, FootprintDefinition
+
+
 #[derive(Clone)]
 pub(super) enum Draft {
     Symbol(SymbolDefinition),
@@ -19,6 +53,19 @@ pub(super) enum Draft {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
+/// Toolbar tool currently selected in the library editor.
+///
+/// Controls what happens when the user clicks or drags on the canvas:
+/// placing pins, pads, or drawing graphics.
+///
+/// # Rules
+/// - Select is the default tool.
+/// - Pin and Pad tools auto-advance to Select after placement.
+///
+/// # Dependencies
+/// - ../text/strings/en.txt: tool tooltip string keys
+
+
 pub(super) enum LibraryTool {
     #[default]
     Select,
@@ -38,6 +85,24 @@ enum LibraryPick {
     SymbolGraphic(usize),
     FootprintGraphic(usize),
 }
+
+/// Library editor state: draft, tool selection, canvas camera, and file path.
+///
+/// Holds all transient editing state including the current draft object,
+/// selected tool, camera transform, and the path for save/load operations.
+///
+/// # Rules
+/// - draft is None when no editor is open.
+/// - camera tracks the canvas view transform.
+/// - canvas_rect is set during layout and used for screen/world conversion.
+///
+/// # Dependencies
+/// - ../library/src/lib.rs: Draft types
+/// - ./canvas.rs: Camera
+///
+/// # Do not
+/// - Access draft without checking for None.
+
 
 pub(super) struct Editor {
     pub mode: u8,
@@ -104,6 +169,23 @@ impl Editor {
         "F.SilkS"
     }
 }
+/// Create a new library editor with a fresh draft for the given tab.
+///
+/// Opens a symbol or footprint editor based on the tab name, or creates
+/// a symbol editor by default. The draft starts empty and unsaved.
+///
+/// # Rules
+/// - tab "symbol-editor" creates a symbol draft.
+/// - tab "footprint-editor" creates a footprint draft.
+/// - Any other tab creates a symbol draft.
+///
+/// # Dependencies
+/// - ./authoring.rs: new_symbol, new_footprint
+///
+/// # Do not
+/// - Call with a None project.
+
+
 pub(super) fn initial_editor(tab: Option<&str>, project: &Project) -> Editor {
     match tab {
         Some("project-library") => Editor {
@@ -148,6 +230,20 @@ fn rectangle(layer: &str) -> Graphic {
         layer: layer.into(),
     }
 }
+/// Create a new empty symbol definition for editing.
+///
+/// Returns a symbol with default name "NewSymbol" and no pins or graphics.
+/// This is the starting point for symbol authoring.
+///
+/// # Rules
+/// - Name is always "NewSymbol" initially.
+/// - No pins or graphics are created.
+/// - Unit count starts at 1.
+///
+/// # Dependencies
+/// - ../library/src/lib.rs: SymbolDefinition
+
+
 pub(super) fn new_symbol() -> SymbolDefinition {
     SymbolDefinition {
         name: "NewSymbol".into(),
@@ -186,6 +282,20 @@ fn new_pin(number: &str, unit: u32, position: Point, angle: f64) -> SymbolPin {
         visible: true,
     }
 }
+/// Create a new SMD pad at the given position.
+///
+/// Returns a 1x1mm rectangular SMD pad on the front copper layer with
+/// paste and mask layers. The pad has no drill hole.
+///
+/// # Rules
+/// - Default size is 1x1mm.
+/// - Default layers are F.Cu, F.Paste, F.Mask.
+/// - No drill is created.
+///
+/// # Dependencies
+/// - ../library/src/lib.rs: FootprintPad
+
+
 pub(crate) fn new_pad(number: &str, x: f64) -> FootprintPad {
     FootprintPad {
         number: number.into(),
@@ -205,6 +315,20 @@ pub(crate) fn new_pad(number: &str, x: f64) -> FootprintPad {
         raw_source: String::new(),
     }
 }
+/// Create a new empty footprint definition for editing.
+///
+/// Returns a footprint with default name "NewFootprint" and no pads or graphics.
+/// This is the starting point for footprint authoring.
+///
+/// # Rules
+/// - Name is always "NewFootprint" initially.
+/// - No pads or graphics are created.
+/// - Layers start empty.
+///
+/// # Dependencies
+/// - ../library/src/lib.rs: FootprintDefinition
+
+
 pub(super) fn new_footprint() -> FootprintDefinition {
     FootprintDefinition {
         name: "NewFootprint".into(),
@@ -970,6 +1094,24 @@ impl App {
         }
     }
 
+    /// Library editor drawing canvas with toolbar and pan/zoom.
+    ///
+    /// Renders the main editing area where users place pins, pads, and graphics.
+    /// Includes the toolbar for tool selection and handles canvas interactions
+    /// like panning, zooming, and object placement.
+    ///
+    /// # Rules
+    /// - The canvas occupies the remaining space after the toolbar.
+    /// - Camera transform is applied to all world coordinates.
+    /// - Grid snapping uses the 0.5 mm library grid.
+    ///
+    /// # Dependencies
+    /// - ./canvas.rs: snap, fit_camera
+    /// - ./library.rs: library_geometry_paths
+    ///
+    /// # Do not
+    /// - Change the canvas rect calculation without updating world_to_screen.
+
     pub(super) fn library_editor_canvas(&mut self, ui: &mut egui::Ui, draft: &mut Draft) {
         let symbol = matches!(draft, Draft::Symbol(_));
         ui.horizontal_wrapped(|ui| {
@@ -1377,6 +1519,22 @@ impl App {
         }
     }
 
+    /// Library workspace selector and new item buttons.
+    ///
+    /// Provides tabs to switch between library browser and editor views,
+    /// plus buttons to create new symbols, footprints, or run the footprint
+    /// generation wizard.
+    ///
+    /// # Rules
+    /// - Mode 0 is the library browser; mode 2 is the editor.
+    /// - Creating a new item switches to editor mode and clears notices.
+    ///
+    /// # Dependencies
+    /// - ../text/strings/en.txt: library.workspaces string keys
+    ///
+    /// # Do not
+    /// - Change the mode values without updating all mode comparisons.
+
     pub(super) fn library_workspaces(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.selectable_value(
@@ -1439,6 +1597,20 @@ impl App {
     }
     /// One library page: every collection from every added or installed
     /// source, then the definitions this project can edit, in one scroll.
+    ///
+    /// Combines the collection browser and project library into a single
+    /// scrollable view for browsing and managing all library content.
+    ///
+    /// # Rules
+    /// - Collections are listed first, then project definitions.
+    /// - A separator divides the two sections.
+    ///
+    /// # Dependencies
+    /// - ./authoring.rs: collection_browser, project_library
+    ///
+    /// # Do not
+    /// - Change the order of collection browser vs project library.
+
     pub(super) fn unified_library(&mut self, ui: &mut egui::Ui) {
         self.collection_browser(ui);
         ui.separator();
@@ -1661,6 +1833,24 @@ impl App {
             });
         }
     }
+    /// Full library editor page with property panel and canvas.
+    ///
+    /// Shows the main editing interface with the property editor on the left
+    /// and the drawing canvas on the right. Handles save/load operations and
+    /// validates the draft before saving.
+    ///
+    /// # Rules
+    /// - If no draft is open, shows the create new item prompt.
+    /// - Validation errors are shown before allowing save.
+    /// - Save operations use tool calls to persist to the project library.
+    ///
+    /// # Dependencies
+    /// - ./authoring.rs: library_editor_canvas, footprint_wizard
+    /// - ../text/strings/en.txt: library.editor string keys
+    ///
+    /// # Do not
+    /// - Change the save flow without updating the tool call names.
+
     pub(super) fn library_editor(&mut self, ui: &mut egui::Ui) {
         self.footprint_wizard(ui);
         let Some(mut draft) = self.library.editor.draft.take() else {
@@ -2029,6 +2219,21 @@ pub(crate) fn apply_unplated_defaults(pad: &mut pcbcraft_library::FootprintPad) 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    /// Run one egui frame for library editor tests.
+    ///
+    /// Processes the given events and returns the full output including
+    /// shapes and viewport information for assertion.
+    ///
+    /// # Rules
+    /// - Always call before asserting on rendered output.
+    /// - Pass empty events vec for a quiescent frame.
+    ///
+    /// # Dependencies
+    /// - ../e2e/support.rs: frame
+    ///
+    /// # Do not
+    /// - Skip this call when testing UI state changes.
+
     pub(crate) fn frame(
         ctx: &egui::Context,
         app: &mut App,
@@ -2235,6 +2440,21 @@ pub(crate) mod tests {
         Ok(())
     }
 
+    /// Get the current symbol draft from the editor.
+    ///
+    /// Returns the symbol definition if the draft is a symbol, or an error
+    /// if the draft is a footprint or does not exist.
+    ///
+    /// # Rules
+    /// - Returns Err if no draft is open.
+    /// - Returns Err if the draft is a footprint.
+    ///
+    /// # Dependencies
+    /// - ../library/src/lib.rs: SymbolDefinition
+    ///
+    /// # Do not
+    /// - Use this to modify the draft; it returns a reference.
+
     pub(crate) fn draft_symbol(app: &App) -> Result<SymbolDefinition, String> {
         app.library
             .editor
@@ -2246,6 +2466,23 @@ pub(crate) mod tests {
             })
             .unwrap_or_else(|| Err("there is no draft".to_string()))
     }
+    /// Create a fresh library editor test environment.
+    ///
+    /// Sets up a new App with the given editor kind (symbol or footprint),
+    /// opens the library editor page, and returns the session, app, and
+    /// egui context for test use.
+    ///
+    /// # Rules
+    /// - The app starts with no draft open.
+    /// - The library editor page is opened automatically.
+    ///
+    /// # Dependencies
+    /// - ../mcp/shared.rs: SharedSession
+    /// - ./authoring.rs: open_page
+    ///
+    /// # Do not
+    /// - Reuse the returned session across multiple tests.
+
     pub(crate) fn editor(
         kind: &str,
     ) -> Result<(pcbcraft_mcp::SharedSession, App, egui::Context), String> {
@@ -2400,6 +2637,22 @@ pub(crate) mod tests {
         Ok(())
     }
 
+    /// Click at a world coordinate on the library editor canvas.
+    ///
+    /// Converts the world coordinate to screen space and simulates a mouse
+    /// click at that location. The click is snapped to the library grid.
+    ///
+    /// # Rules
+    /// - World coordinates are in millimeters.
+    /// - The canvas must be visible and the camera must be initialized.
+    ///
+    /// # Dependencies
+    /// - ../geom/point.rs: Point
+    /// - ./authoring.rs: frame
+    ///
+    /// # Do not
+    /// - Use this to test toolbar interactions; it targets the canvas.
+
     pub(crate) fn library_world_click(
         ctx: &egui::Context,
         app: &mut App,
@@ -2438,6 +2691,22 @@ pub(crate) mod tests {
         }
         Ok(())
     }
+
+    /// Drag from one world coordinate to another on the library editor canvas.
+    ///
+    /// Simulates a mouse drag operation between two world coordinates,
+    /// useful for testing object movement and selection rectangle drawing.
+    ///
+    /// # Rules
+    /// - Both from and to coordinates are in millimeters.
+    /// - The drag is snapped to the library grid at both endpoints.
+    ///
+    /// # Dependencies
+    /// - ../geom/point.rs: Point
+    /// - ./authoring.rs: frame
+    ///
+    /// # Do not
+    /// - Use this for canvas panning; it targets object interaction.
 
     pub(crate) fn library_world_drag(
         ctx: &egui::Context,
@@ -2483,6 +2752,21 @@ pub(crate) mod tests {
         frame(ctx, app, vec![]);
         Ok(())
     }
+
+    /// Clear all pins and graphics from the current symbol draft.
+    ///
+    /// Resets the symbol draft to an empty state while preserving the
+    /// draft definition itself (name, reference, etc.).
+    ///
+    /// # Rules
+    /// - Only affects symbol drafts; footprint drafts are unchanged.
+    /// - Does not remove the draft; it just clears its contents.
+    ///
+    /// # Dependencies
+    /// - ./authoring.rs: Draft
+    ///
+    /// # Do not
+    /// - Call this expecting to remove the draft entirely.
 
     pub(crate) fn clear_symbol_draft(app: &mut App) {
         if let Some(Draft::Symbol(def)) = app.library.editor.draft.as_mut() {
