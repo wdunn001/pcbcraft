@@ -102,6 +102,21 @@ struct FrameKey {
     mask: [u8; 3],
     silk: [u8; 3],
 }
+impl View3d {
+    /// A view whose converted models are cached below the session's settings
+    /// folder; with no folder the cache stays in memory.
+    pub(crate) fn for_config(config: &pcbcraft_engine::user_config::UserConfig) -> Self {
+        let mut view = Self::default();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(folder) = config.folder() {
+            view.models = ModelCache::with_disk_dir(Some(folder.join("models")));
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = config;
+        view
+    }
+}
+
 impl Default for View3d {
     fn default() -> Self {
         Self {
@@ -110,7 +125,7 @@ impl Default for View3d {
             dist: 100.0,
             target: [0.0; 3],
             mesh: None,
-            models: ModelCache::default(),
+            models: ModelCache::memory_only(),
             model_gen: 0,
             notes: Default::default(),
             error: None,
@@ -638,7 +653,7 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &mut Env<'_>) -> O
             Color32::WHITE,
         );
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(
             egui::RichText::new(if loading {
                 t!("board.board3d.loading_models_note")

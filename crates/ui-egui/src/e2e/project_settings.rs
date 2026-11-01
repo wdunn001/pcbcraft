@@ -297,8 +297,17 @@ fn a_newcomer_fills_the_title_block_and_sees_it_on_the_sheet() -> Result<(), Str
     press(&ctx, &mut app, "Save")?;
     assert!(!app.project_settings.open, "Save closed the dialog");
     app.change_tab(Tab::Schematic);
+    // The title block has a REV cell: the caption above, the typed revision below.
     assert!(
-        paints_text(&ctx, &mut app, "REV B")?,
+        paints_text(&ctx, &mut app, "REV")?,
+        "the sheet has a REV cell"
+    );
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            egui::Shape::Text(text) if text.galley.text() == "B"
+        )),
         "the revision shows on the sheet"
     );
     assert!(

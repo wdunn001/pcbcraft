@@ -302,7 +302,15 @@ pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
             .filter(|d| !d.is_empty())
             .or_else(|| p.meta.get("date").cloned())
             .unwrap_or_else(today),
-        revision: settings.revision.clone(),
+        revision: Some(settings.revision.clone())
+            .filter(|r| !r.is_empty())
+            .or_else(|| {
+                p.meta
+                    .get("revision")
+                    .map(|r| r.trim().to_owned())
+                    .filter(|r| !r.is_empty())
+            })
+            .unwrap_or_default(),
         company: settings.company.clone(),
         drawn_by: settings.drawn_by.clone(),
         title_shown: !settings.title_hidden,

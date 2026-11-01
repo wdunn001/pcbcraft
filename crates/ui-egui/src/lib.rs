@@ -49,7 +49,6 @@ mod number_entry;
 mod outline_arcs;
 mod pages;
 mod palette;
-mod pin_matrix;
 mod placement_machine_ui;
 mod plot_viewer;
 mod pour_panel;
@@ -1874,7 +1873,7 @@ impl App {
             tool: Tool::Select,
             selected: None,
             edit: editing::EditState::default(),
-            view3d: board3d::View3d::default(),
+            view3d: board3d::View3d::for_config(&config),
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
@@ -2026,7 +2025,7 @@ impl App {
             width,
             height,
             cutout_radius: 1.6,
-            path: "design.pcbcraft".into(),
+            path: files_home::DEFAULT_PROJECT_PATH.into(),
             saved_revision: None,
             command: "component.add".into(),
             params: "{\"kind\":\"resistor\",\"position\":{\"x\":30,\"y\":20}}".into(),
@@ -7658,7 +7657,6 @@ impl App {
             }
             ui.add_space(12.0);
         }
-        self.pin_matrix_section(ui);
     }
     fn capture(&mut self, ctx: &egui::Context) {
         self.frames = self.frames.saturating_add(1);
@@ -8325,7 +8323,12 @@ mod tests {
     #[test]
     fn the_file_menu_is_where_you_open_save_and_start_a_design() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
+        // A first New opens the setup wizard over the window; this story is about the menus.
+        let preferences = Preferences {
+            setup_wizard_seen: true,
+            ..Preferences::default()
+        };
+        let mut app = App::create(shared, preferences, None, None);
         app.refresh();
         let file = std::env::temp_dir()
             .join(format!(
@@ -8729,11 +8732,29 @@ mod tests {
             "a design you saved is listed for one-click return"
         );
         let want = app.path.clone();
+        // The start screen is taller than the window: scroll down to the list.
+        for _ in 0..3 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -400.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
         authoring::tests::tap(&ctx, &mut app, &want)?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             !app.home_open,
-            "clicking a recent design opens it and leaves the start screen"
+            "clicking a recent design opens it and leaves the start screen: {}",
+            app.message
         );
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())

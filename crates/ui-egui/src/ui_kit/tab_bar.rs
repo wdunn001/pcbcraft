@@ -152,8 +152,17 @@ pub fn tab_bar(
     let mut x = bar.min.x;
     let mut moved_to = None;
     let mut rects = Vec::with_capacity(count);
-    for item in tabs {
-        let w = tab_width(ui, item, size);
+    // In a bar narrower than its tabs every tab gives up the same share of its width, and a label
+    // that no longer fits is cut with an ellipsis instead of running into its neighbour.
+    let natural: Vec<f32> = tabs.iter().map(|item| tab_width(ui, item, size)).collect();
+    let total: f32 = natural.iter().sum();
+    let squeeze = if total > bar.width() && total > 0.0 {
+        (bar.width() / total).max(0.0)
+    } else {
+        1.0
+    };
+    for w in natural {
+        let w = w * squeeze;
         rects.push(Rect::from_min_size(
             pos2(x, bar.min.y),
             Vec2::new(w, size.height()),
@@ -176,10 +185,27 @@ pub fn tab_bar(
                 }
                 let ink = if active || hovered { t.text } else { t.muted };
                 let font = label_font(active);
-                let galley = ui
-                    .painter()
-                    .layout_no_wrap(item.label.to_owned(), font, ink);
-                let mut cx = rect.min.x + size.padding();
+                let pad = size.padding() * squeeze;
+                let icon_width = if item.icon.is_some() {
+                    ICON_SIZE + 6.0
+                } else {
+                    0.0
+                };
+                let badge_width = item
+                    .badge
+                    .as_ref()
+                    .map_or(0.0, |(text, _)| 6.0 + chip::badge_size(ui, text).x);
+                let galley = if squeeze < 1.0 {
+                    let room = (rect.width() - 2.0 * pad - icon_width - badge_width).max(0.0);
+                    let mut job =
+                        egui::text::LayoutJob::simple_singleline(item.label.to_owned(), font, ink);
+                    job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+                    ui.painter().layout_job(job)
+                } else {
+                    ui.painter()
+                        .layout_no_wrap(item.label.to_owned(), font, ink)
+                };
+                let mut cx = rect.min.x + pad;
                 let cy = rect.center().y;
                 if let Some(icon) = item.icon {
                     let r =

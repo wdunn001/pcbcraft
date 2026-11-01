@@ -883,20 +883,23 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 .filter(|f| on_side(f, front))
                 .count();
             let gfx = silk_graphics(env, front).count();
-            out.push(sub_row(
-                key,
-                "zones",
-                if front { "zones:front" } else { "zones:back" },
-                SubLayer::Zones.label().into(),
-                sw,
-                Visibility::SubLayer {
-                    side: side_path.clone(),
-                    sub: SubLayer::Zones,
-                },
-                false,
-                zones,
-                zones > 0,
-            ));
+            // Like the text row, the zones row appears only when the side has zones.
+            if zones > 0 {
+                out.push(sub_row(
+                    key,
+                    "zones",
+                    if front { "zones:front" } else { "zones:back" },
+                    SubLayer::Zones.label().into(),
+                    sw,
+                    Visibility::SubLayer {
+                        side: side_path.clone(),
+                        sub: SubLayer::Zones,
+                    },
+                    false,
+                    zones,
+                    true,
+                ));
+            }
             out.push(sub_row(
                 key,
                 "silk",

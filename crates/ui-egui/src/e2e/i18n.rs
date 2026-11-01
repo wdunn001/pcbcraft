@@ -56,23 +56,15 @@ fn clipped_text(out: &egui::FullOutput) -> usize {
     seen.len()
 }
 
-/// Controls whose rectangle leaves the window sideways.
-fn escaped_controls(ctx: &egui::Context, app: &mut App, width: f32) -> usize {
-    interactive_rects(ctx, app)
-        .iter()
-        .filter(|(_, r)| r.max.x > width + 1.0 || r.min.x < -1.0)
-        .count()
-}
-
-/// Start-page escaped count at the real window width, on a fresh context.
+/// Controls whose rectangle leaves a window `width` points wide sideways.
 ///
-/// Why: `escaped_controls` paints at the 1440 test window after a 320 pass, and
-/// the start page's centered 300px actions flake between 10 and 18. Measuring
-/// this screen at `width` on a new context is stable and still matches the
-/// already-on-main 1280 count.
-fn start_page_escaped(app: &mut App, width: f32) -> usize {
+/// Why: the window is drawn at `width` itself. Reading the controls from the
+/// default test window instead counted everything right of `width` in a 1440
+/// point layout, which grows with every control added anywhere and says nothing
+/// about a narrow window. A fresh context keeps the start page's centred 300 point
+/// actions stable from one run to the next.
+fn escaped_at(ctx: &egui::Context, app: &mut App, width: f32) -> usize {
     use egui::accesskit::Role;
-    let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let paint = |ctx: &egui::Context, app: &mut App| {
         let mut out = ctx.run_ui(
@@ -88,9 +80,9 @@ fn start_page_escaped(app: &mut App, width: f32) -> usize {
         out.textures_delta.clear();
         out
     };
-    let _ = paint(&ctx, app);
-    let _ = paint(&ctx, app);
-    let output = paint(&ctx, app);
+    let _ = paint(ctx, app);
+    let _ = paint(ctx, app);
+    let output = paint(ctx, app);
     let mut n = 0;
     if let Some(update) = output.platform_output.accesskit_update {
         for (_, node) in update.nodes {
@@ -152,9 +144,9 @@ fn i18n_pseudo_locale_fits_every_screen_at_1280_and_320() -> Result<(), String> 
             };
             let clipped = clipped_text(&out);
             let escaped = if name == "Start page" {
-                start_page_escaped(app, width)
+                escaped_at(&egui::Context::default(), app, width)
             } else {
-                escaped_controls(ctx, app, width)
+                escaped_at(ctx, app, width)
             };
             now.push((format!("clipped | {name} | {width:.0}"), clipped));
             now.push((format!("escaped | {name} | {width:.0}"), escaped));

@@ -57,6 +57,20 @@ impl std::fmt::Debug for ModelCache {
 }
 
 impl ModelCache {
+    /// A cache that keeps parsed models in memory only and never touches the disk.
+    ///
+    /// Used where no user folder is known, such as a test or a window whose
+    /// session carries no settings folder.
+    pub fn memory_only() -> Self {
+        Self {
+            shared: Arc::new(Shared::default()),
+            #[cfg(not(target_arch = "wasm32"))]
+            jobs: Arc::new(Mutex::new(None)),
+            #[cfg(not(target_arch = "wasm32"))]
+            import_cache: ImportCache::in_memory(),
+        }
+    }
+
     /// Optional override for the on-disk import cache folder.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_disk_dir(dir: Option<std::path::PathBuf>) -> Self {
