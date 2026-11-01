@@ -69,7 +69,6 @@ pub enum FieldKind {
 
 /// Ordered segment of a series part number.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct FieldSpec {
     /// Stable key used in [`BuildOptions`] and [`ParsedPart::values`].
     pub id: String,

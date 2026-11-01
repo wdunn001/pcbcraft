@@ -59,7 +59,11 @@ struct LineGroup {
 fn group_lines(doc: &TextDocument) -> Result<Vec<LineGroup>, String> {
     let mut all: Vec<TextCell> = Vec::new();
     for page in &doc.pages {
-        all.extend(page.cells.clone());
+        // The page carries the printed label its cells share.
+        all.extend(page.cells.iter().cloned().map(|mut cell| {
+            cell.page_label = page.page_label;
+            cell
+        }));
     }
     all.sort_by(|a, b| {
         a.page_index

@@ -233,7 +233,7 @@ fn unit_word(word: &str) -> Option<Unit> {
         "f" | "farad" | "farads" => Unit::Farad,
         "h" | "henry" | "henries" => Unit::Henry,
         "hz" | "hertz" => Unit::Hertz,
-        "v" | "volt" | "volts" => Unit::Volt,
+        "v" | "volt" | "volts" | "vac" | "vdc" => Unit::Volt,
         "a" | "amp" | "amps" | "ampere" | "amperes" => Unit::Ampere,
         "w" | "watt" | "watts" => Unit::Watt,
         _ => return None,

@@ -545,7 +545,8 @@ impl PartSearchIndex {
                 }
             }
 
-            if score > 0.0 || (need_tokens.is_empty() && required.is_empty()) {
+            // With no stated need, everything that met the tags and filter is a hit.
+            if score > 0.0 || need_tokens.is_empty() {
                 scored.push(PartSearchHit {
                     listing: entry.listing.clone(),
                     score,

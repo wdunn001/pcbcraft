@@ -62,7 +62,14 @@ pub fn bundle_root_hash(files: &[PublicationFile]) -> String {
         hasher.update(file.path.as_bytes());
         hasher.update(file.sha256.as_bytes());
     }
-    sha256_hex(&hasher.finalize())
+    // The digest itself, once: the hash of "path" followed by the file's hex digest,
+    // for every file in path order, as the shipped registry fixtures record it.
+    let mut hex = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        hex.push(nibble(byte >> 4));
+        hex.push(nibble(byte & 0x0f));
+    }
+    hex
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -675,8 +682,13 @@ mod tests {
     struct TempDir(PathBuf);
     impl TempDir {
         fn new() -> Result<Self, String> {
-            let path =
-                std::env::temp_dir().join(format!("pcbcraft-registry-test-{}", std::process::id()));
+            // Tests run in parallel inside one process, so each folder needs its own name.
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "pcbcraft-registry-test-{}-{n}",
+                std::process::id()
+            ));
             let _ = fs::remove_dir_all(&path);
             fs::create_dir_all(&path).map_err(|e| e.to_string())?;
             Ok(Self(path))
