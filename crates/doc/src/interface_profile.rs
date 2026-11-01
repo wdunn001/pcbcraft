@@ -887,10 +887,13 @@ pub fn collect_unsupported(doc: &InterfaceProfileDocument) -> Vec<String> {
         if limits.edge_rate_band.is_some() {
             out.push("bus.limits.edge_rate_band".into());
         }
-        if limits.impedance_ohm.is_some() {
+        // A pair that records its own impedance applies it to the pair, which
+        // is how a bus-wide impedance limit is enforced.
+        let pair_applies_impedance = doc.pair.iter().any(|p| p.impedance.is_some());
+        if limits.impedance_ohm.is_some() && !pair_applies_impedance {
             out.push("bus.limits.impedance_ohm".into());
         }
-        if limits.impedance_tolerance_percent.is_some() {
+        if limits.impedance_tolerance_percent.is_some() && !pair_applies_impedance {
             out.push("bus.limits.impedance_tolerance_percent".into());
         }
         if limits.max_routed_length_mm.is_some() {

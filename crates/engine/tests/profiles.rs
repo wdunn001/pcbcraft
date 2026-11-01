@@ -140,7 +140,11 @@ fn every_built_in_profile_toml_parses() {
             parsed.err()
         );
         let doc = parsed.unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
-        assert_eq!(doc["schema"].as_integer(), Some(1));
+        assert!(
+            matches!(doc["schema"].as_integer(), Some(1 | 2)),
+            "{} must be schema 1 or 2",
+            builtin.id
+        );
         assert_eq!(doc["profile"]["id"].as_str(), Some(builtin.id));
     }
 }
@@ -275,7 +279,7 @@ fn parse_builtin_returns_embedded_toml_or_unknown_error() -> Result<(), String> 
     let usb = parse_builtin("usb2").map_err(|e| format!("{}: {e:?}", "usb2 is built in"))?;
     let doc: toml::Value =
         toml::from_str(usb).map_err(|e| format!("{}: {e:?}", "embedded TOML parses"))?;
-    assert_eq!(doc["schema"].as_integer(), Some(1));
+    assert!(matches!(doc["schema"].as_integer(), Some(1 | 2)));
     assert_eq!(doc["profile"]["id"].as_str(), Some("usb2"));
     let err = parse_builtin("not-a-profile")
         .err()

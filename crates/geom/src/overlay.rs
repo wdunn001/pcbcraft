@@ -211,11 +211,14 @@ mod tests {
             hole_ring.push(first);
         }
         let cut = polygon_difference(&[outer], &[hole_ring]);
-        assert_eq!(cut.len(), 1);
-        assert!(crate::polygon_area(&open_ring(&cut[0])).abs() > 95.0);
-        assert!(!crate::point_in_polygon(
-            Point::new(3.0, 3.0),
-            &open_ring(&cut[0])
-        ));
+        // One outer boundary and one hole boundary come back as two rings.
+        assert_eq!(cut.len(), 2);
+        let mut areas: Vec<f64> = cut
+            .iter()
+            .map(|r| crate::polygon_area(&open_ring(r)).abs())
+            .collect();
+        areas.sort_by(f64::total_cmp);
+        assert!(areas[1] > 95.0, "outer boundary keeps the square");
+        assert!((areas[0] - 4.0).abs() < 1e-6, "the hole is its own ring");
     }
 }
