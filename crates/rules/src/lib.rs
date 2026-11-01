@@ -86,6 +86,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("track_length", "error"),
     ("unrouted", "warning"),
     ("missing_footprint", "warning"),
+    ("unassigned_via", "warning"),
     ("diffpair_gap", "error"),
     ("diffpair_skew", "error"),
     ("pair_skew_exceeded", "error"),
@@ -1896,6 +1897,20 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 ),
                 objects: vec![track.id],
                 hint: None,
+            });
+        }
+    }
+    for via in &board.vias {
+        if via.net == 0 && !project.rule_disabled("unassigned_via") {
+            result.push(Finding {
+                code: "unassigned_via",
+                severity: project.rule_severity("unassigned_via", "warning"),
+                message: format!(
+                    "Via at {:.1}, {:.1} has no net; assign it to a net",
+                    via.position.x, via.position.y
+                ),
+                objects: vec![via.id],
+                hint: Some("Select the via and pick its net in Properties.".into()),
             });
         }
     }
@@ -4908,6 +4923,37 @@ mod tests {
                 .iter()
                 .any(|f| f.code == "panel_component_near_score")
         );
+    }
+    #[test]
+    fn drc_reports_a_via_with_no_net_and_stays_quiet_once_it_has_one() {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.board.vias.push(pcbcraft_doc::Via {
+            id: 7,
+            net: 0,
+            position: Point::new(12.0, 18.5),
+            diameter: 0.8,
+            drill: 0.4,
+            preserved: Default::default(),
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+        let found = drc(&p);
+        let hit: Vec<_> = found
+            .iter()
+            .filter(|f| f.code == "unassigned_via")
+            .collect();
+        assert_eq!(hit.len(), 1, "one net-less via, one finding");
+        assert_eq!(hit[0].objects, vec![7]);
+        p.board.vias[0].net = 1;
+        assert!(!drc(&p).iter().any(|f| f.code == "unassigned_via"));
     }
     #[test]
     fn drc_clearance_when_track_crosses_footprint_unplated_drill() -> Result<(), String> {

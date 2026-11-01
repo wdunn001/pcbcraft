@@ -1407,10 +1407,10 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "via.place",
-            "Place a plated via on an existing net. It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
+            "Place a plated via on an existing net, or on no net when net is left out or 0 (the checks report it until it is assigned). It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
             schema(
                 json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"},"from_layer":{"type":"string","description":"upper copper layer of the span, for example F.Cu or In1.Cu; default is the top layer"},"to_layer":{"type":"string","description":"lower copper layer of the span; default is the bottom layer"}}),
-                &["net", "position"],
+                &["position"],
             ),
         ),
         (
@@ -5276,6 +5276,8 @@ struct RepeatLayoutParams {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaParams {
+    /// Net the via joins; 0 or absent places a via with no net.
+    #[serde(default)]
     net: Id,
     position: Point,
     #[serde(default)]
@@ -17208,7 +17210,7 @@ fn run_command_part_13(
         }
         "via.place" => {
             let a: ViaParams = parse(params)?;
-            if !p.nets.iter().any(|n| n.id == a.net) {
+            if a.net != 0 && !p.nets.iter().any(|n| n.id == a.net) {
                 return Err(missing());
             }
             if !a.position.valid() {
@@ -23705,6 +23707,46 @@ mod tests {
             .ok_or_else(missing)?;
         assert_eq!(label.kind, "global", "undo restores the kind");
         assert_eq!(label.net, b);
+        Ok(())
+    }
+    #[test]
+    fn via_place_without_a_net_makes_a_net_less_via_that_validates_and_undoes() -> Result<(), Error>
+    {
+        let mut s = Session::default();
+        s.execute(
+            "via.place",
+            json!({"position":{"x":10.0,"y":10.0},"diameter":0.8,"drill":0.4}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias.len(), 1);
+        assert_eq!(s.project.board.vias[0].net, 0);
+        assert!(s.project.validate().is_ok());
+        assert!(
+            pcbcraft_rules::drc(&s.project)
+                .iter()
+                .any(|f| f.code == "unassigned_via"),
+            "the checks mention the net-less via"
+        );
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let via = s.project.board.vias[0].id;
+        s.execute("copper.set_net", json!({"id":via,"net":net}), None)?;
+        assert_eq!(s.project.board.vias[0].net, net);
+        assert!(
+            !pcbcraft_rules::drc(&s.project)
+                .iter()
+                .any(|f| f.code == "unassigned_via")
+        );
+        assert!(
+            s.execute(
+                "via.place",
+                json!({"net":9999,"position":{"x":1.0,"y":1.0},"diameter":0.8}),
+                None
+            )
+            .is_err(),
+            "an unknown net is still refused"
+        );
         Ok(())
     }
     #[test]

@@ -1895,6 +1895,8 @@ impl Track {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Via {
     pub id: Id,
+    /// Net the via belongs to; 0 means no net yet (a stitching or thermal
+    /// via assigned later), which the design checks report.
     pub net: Id,
     /// Centre position in millimetres.
     pub position: Point,
@@ -7132,7 +7134,8 @@ impl Project {
             }
         }
         for v in &b.vias {
-            if !nets.contains(&v.net)
+            // Net 0 is a via that no net owns yet; the checks report it.
+            if (v.net != 0 && !nets.contains(&v.net))
                 || !v.position.valid()
                 || !positive(v.diameter)
                 || v.diameter > 100.0

@@ -713,6 +713,9 @@ impl App {
                     );
                 }
                 Tool::Keepout => self.paint_keepout_ghost(&painter, rect, camera, snapped),
+                Tool::Via if self.tab == Tab::Pcb => {
+                    self.paint_via_ghost(&painter, rect, camera, pos)
+                }
                 Tool::Hole => {
                     painter.circle_stroke(
                         camera.screen(snapped, rect),
@@ -2826,7 +2829,7 @@ mod tests {
 }
 
 /// Shortest distance from a point to a straight segment, in millimetres.
-fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
+pub(crate) fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
     let dx = to.x - from.x;
     let dy = to.y - from.y;
     let span = dx * dx + dy * dy;
