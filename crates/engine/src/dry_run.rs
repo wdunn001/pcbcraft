@@ -82,6 +82,7 @@ impl Session {
         let mut results = vec![];
         for command in commands {
             results.push(run(
+                &self.config,
                 &mut candidate,
                 &mut next,
                 &command.command,

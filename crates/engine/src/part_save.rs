@@ -55,14 +55,23 @@ struct ResolvedPart {
     fields: Vec<ComponentField>,
 }
 
-pub(super) fn run(p: &mut Project, command: &str, params: &Value) -> Option<Result<Value, Error>> {
+pub(super) fn run(
+    config: &crate::user_config::UserConfig,
+    p: &mut Project,
+    command: &str,
+    params: &Value,
+) -> Option<Result<Value, Error>> {
     if command != "part.save" {
         return None;
     }
-    Some(part_save(p, params))
+    Some(part_save(config, p, params))
 }
 
-fn part_save(p: &mut Project, params: &Value) -> Result<Value, Error> {
+fn part_save(
+    config: &crate::user_config::UserConfig,
+    p: &mut Project,
+    params: &Value,
+) -> Result<Value, Error> {
     let a: PartSaveParams = parse(params)?;
     if a.target != "project" && a.target != "personal" && a.target != "shared" {
         return Err(Error::Invalid(
@@ -113,7 +122,7 @@ fn part_save(p: &mut Project, params: &Value) -> Result<Value, Error> {
     sidecar.validate().map_err(Error::Invalid)?;
     match a.target.as_str() {
         "project" => save_to_project(p, &resolved, sidecar),
-        "personal" | "shared" => save_to_folder(p, &resolved, sidecar, &a.target),
+        "personal" | "shared" => save_to_folder(config, p, &resolved, sidecar, &a.target),
         _ => Err(Error::Invalid(
             "target must be project, personal or shared".into(),
         )),
@@ -292,12 +301,13 @@ fn upsert_footprint(p: &mut Project, footprint: &FootprintDefinition) {
 }
 
 fn save_to_folder(
+    config: &crate::user_config::UserConfig,
     p: &Project,
     resolved: &ResolvedPart,
     sidecar: PartSidecar,
     target: &str,
 ) -> Result<Value, Error> {
-    let folder = crate::library::folder_for_role(target).map_err(Error::Invalid)?;
+    let folder = crate::library::folder_for_role(config, target).map_err(Error::Invalid)?;
     let symbol_path = folder.join(format!("{}.kicad_sym", resolved.symbol.name));
     let symbol_text = pcbcraft_io::symbol_library_text(&resolved.symbol).map_err(Error::Invalid)?;
     pcbcraft_io::atomic_write(&symbol_path, symbol_text.as_bytes()).map_err(Error::Invalid)?;
@@ -324,21 +334,18 @@ fn save_to_folder(
 mod tests {
     use super::*;
     use crate::Session;
-    use crate::library::{SOURCES_PATH_TEST, SOURCES_TEST_LOCK, add_folder, set_source_role};
+    use crate::library::{add_folder, set_source_role};
+    use crate::user_config::UserConfig;
     use pcbcraft_library::{SymbolDefinition, SymbolPin};
     use serde_json::json;
     use std::sync::Mutex;
 
     struct TestDirectory {
-        _guard: std::sync::MutexGuard<'static, ()>,
         path: std::path::PathBuf,
     }
 
     impl TestDirectory {
         fn new() -> Result<Self, String> {
-            let guard = SOURCES_TEST_LOCK
-                .lock()
-                .map_err(|_| "test lock unavailable")?;
             let path = std::env::temp_dir().join(format!(
                 "pcbcraft-part-save-{}-{}",
                 std::process::id(),
@@ -348,22 +355,12 @@ mod tests {
                     .as_nanos()
             ));
             std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-            SOURCES_PATH_TEST
-                .lock()
-                .map_err(|_| "test lock unavailable")?
-                .replace(path.join("sources.json"));
-            Ok(Self {
-                _guard: guard,
-                path,
-            })
+            Ok(Self { path })
         }
     }
 
     impl Drop for TestDirectory {
         fn drop(&mut self) {
-            if let Ok(mut slot) = SOURCES_PATH_TEST.lock() {
-                slot.take();
-            }
             let _ = std::fs::remove_dir_all(&self.path);
         }
     }
@@ -402,7 +399,9 @@ mod tests {
         let _dir = TestDirectory::new().map_err(Error::Invalid)?;
         let personal = _dir.path.join("my-parts");
         std::fs::create_dir_all(&personal).map_err(|e| Error::Invalid(e.to_string()))?;
+        let config = UserConfig::in_folder(_dir.path.join("config"));
         add_folder(
+            &config,
             personal
                 .to_str()
                 .ok_or_else(|| Error::Invalid("path".into()))?,
@@ -410,6 +409,7 @@ mod tests {
         )
         .map_err(Error::Invalid)?;
         set_source_role(
+            &config,
             personal
                 .to_str()
                 .ok_or_else(|| Error::Invalid("path".into()))?,
@@ -418,6 +418,7 @@ mod tests {
         .map_err(Error::Invalid)?;
 
         let mut s = Session::default();
+        s.config = config.clone();
         let symbol = sample_symbol();
         s.execute("library.symbol.upsert", json!({"definition": symbol}), None)?;
         let footprint = pcbcraft_library::read_footprint(

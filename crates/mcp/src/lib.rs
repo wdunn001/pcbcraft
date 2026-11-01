@@ -192,7 +192,7 @@ enum ToolKind {
 }
 
 fn tool_kind(name: &str) -> ToolKind {
-    const READ_ONLY: [&str; 16] = [
+    const READ_ONLY: &[&str] = &[
         "inspect_design",
         "list_commands",
         "checks",
@@ -389,7 +389,7 @@ pub(crate) fn invoke_session(
         let s = session
             .lock()
             .map_err(|_| "session unavailable after internal failure".to_string())?;
-        return pcbcraft_engine::library::search_parts(args, Some(&s.project)).map(text_result);
+        return pcbcraft_engine::library::search_parts(session.config(), args, Some(&s.project)).map(text_result);
     }
     if [
         "design.recents",
@@ -773,7 +773,7 @@ pub(crate) fn invoke_session(
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                const COPPER: [&str; 8] = [
+                const COPPER: &[&str] = &[
                     "clearance",
                     "copper_short",
                     "track_width",
@@ -1161,7 +1161,7 @@ pub fn forward(
     let mut payload = request.clone();
     if let Some(token) = bridge_token {
         if let Some(obj) = payload.as_object_mut() {
-            obj.entry("token".into())
+            obj.entry("token".to_string())
                 .or_insert_with(|| Value::String(token.to_string()));
         }
     }
@@ -1281,23 +1281,6 @@ mod tests {
             .ok_or_else(|| "tools is an array".to_string())
     }
     #[test]
-fn every_listed_tool_name_is_unique() -> Result<(), String> {
-        let mut seen = std::collections::BTreeSet::new();
-        for tool in listed_tools()? {
-            let name = tool["name"].as_str().unwrap_or("?");
-            if !seen.insert(name.to_string()) {
-                return Err(format!("tool {name} is listed twice"));
-            }
-        }
-        Ok(())
-    }
-        let mut seen = std::collections::BTreeSet::new();
-        for tool in listed_tools()? {
-            let name = tool["name"].as_str().unwrap_or("?");
-            if !seen.insert(name.to_string()) {
-                return Err(format!("tool {name} is listed twice"));
-            }
-#[test]
     fn every_listed_tool_name_is_unique() -> Result<(), String> {
         let mut seen = std::collections::BTreeSet::new();
         for tool in listed_tools()? {
@@ -1305,9 +1288,6 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
             if !seen.insert(name.to_string()) {
                 return Err(format!("tool {name} is listed twice"));
             }
-        }
-        Ok(())
-    }
         }
         Ok(())
     }

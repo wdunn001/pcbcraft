@@ -11,6 +11,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.remove","Remove a project-library symbol; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.remove","Remove a project-library footprint; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.load","Load and validate a .pcbcraft-lib collection into the project as one undoable transaction",schema(json!({"path":{"type":"string"}}),&["path"])),
+        ("library.export","Write project-library symbols to one symbol library file or footprints to a folder or single footprint file on disk without changing the design",schema(json!({"kind":{"type":"string","enum":["symbol","footprint"]},"path":{"type":"string","minLength":1,"maxLength":1024},"names":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}}}),&["kind","path","names"])),
         ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_manufacturer_file","Import one symbol, footprint or STEP file the user downloaded from a manufacturer page into the project library with a not-redistributed notice; only Samtec is supported today and STEP files need the footprint name to attach the model path",schema(json!({"manufacturer":{"type":"string","enum":["samtec"]},"mpn":{"type":"string","minLength":1,"maxLength":64},"path":{"type":"string","minLength":1,"maxLength":1024},"footprint":{"type":"string","description":"project-library footprint name when path is a STEP file"}}),&["manufacturer","mpn","path"])),
@@ -624,6 +625,13 @@ fn apply_model_transform(
     Ok(())
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LibraryExportParams {
+    kind: String,
+    path: String,
+    names: Vec<String>,
+}
 pub(super) fn run(
     p: &mut Project,
     next: &mut Id,
@@ -1188,6 +1196,19 @@ pub(super) fn run(
                 "renamed": touched.len(),
                 "components": affected.len()
             }))
+        }
+        "library.export" => {
+            let a: LibraryExportParams = parse(params)?;
+            p.library
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            pcbcraft_io::export_library_definitions(
+                &p.library,
+                &a.kind,
+                std::path::Path::new(&a.path),
+                &a.names,
+            )
+            .map_err(Error::Invalid)
         }
         "library.load" => {
             let a: PathParams = parse(params)?;

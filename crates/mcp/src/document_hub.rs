@@ -125,7 +125,7 @@ impl DocumentHub {
                     project_has_content(&locked.project),
                 ),
                 "workbench_tab": slot.shell.workbench_tab.as_str(),
-                "selected": slot.shell.selected.map(|id| id.0),
+                "selected": slot.shell.selected,
                 "selected_unit": slot.shell.selected_unit,
             }));
         }

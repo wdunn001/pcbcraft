@@ -1,12 +1,12 @@
 //! Native project persistence and original, limited KiCad PCB / preview writers.
-use pcbcraft_doc::Project;
+use pcbcraft_doc::{Project, ProjectLibrary};
 use pcbcraft_geom::Point;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
-use std::path::Path;
+use std::path::{Component, Path};
 pub mod assembly_profiles;
 mod drill_table;
 mod assembly_drawing;
@@ -7427,6 +7427,20 @@ fn lib_layer(layer: &str) -> String {
     lib_text(layer)
 }
 
+fn append_indented_source(out: &mut String, source: &str, indent: &str) {
+    for line in source.trim().lines() {
+        out.push_str(indent);
+        out.push_str(line);
+        out.push('\n');
+    }
+}
+
+fn append_retained_nodes(out: &mut String, retained: &[String], indent: &str) {
+    for node in retained {
+        append_indented_source(out, node, indent);
+    }
+}
+
 /// Format one footprint definition as a footprint library text file. The
 /// result re-parses to the same pads, artwork, model reference and rule
 /// overrides; placed footprint and board state are untouched.
@@ -7520,16 +7534,11 @@ pub fn footprint_library_text(
     Ok(out)
 }
 
-/// Format one symbol definition as a symbol library text file. Pins and
-/// artwork regroup into unit/body sub-symbols and the stored y-up drawing
-/// coordinates mirror back to the file frame; the result re-parses to the
-/// same pins and artwork.
-pub fn symbol_library_text(symbol: &pcbcraft_library::SymbolDefinition) -> Result<String, String> {
+fn symbol_library_inner(symbol: &pcbcraft_library::SymbolDefinition) -> Result<String, String> {
     symbol
         .validate()
         .map_err(|e| format!("symbol is invalid: {e}"))?;
-    let mut out = String::from("(kicad_symbol_lib (version 20260206) (generator pcbcraft)\n");
-    out.push_str(&format!("  (symbol {}\n", lib_text(&symbol.name)));
+    let mut out = format!("  (symbol {}\n", lib_text(&symbol.name));
     for (key, value) in [
         ("Reference", &symbol.reference),
         ("Value", &symbol.value),
@@ -7586,11 +7595,152 @@ pub fn symbol_library_text(symbol: &pcbcraft_library::SymbolDefinition) -> Resul
         }
         out.push_str("    )\n");
     }
-    out.push_str("  )\n)\n");
+    append_retained_nodes(&mut out, &symbol.retained, "    ");
+    out.push_str("  )\n");
+    Ok(out)
+}
+
+/// Format one symbol definition as a symbol library text file. Pins and
+/// artwork regroup into unit/body sub-symbols and the stored y-up drawing
+/// coordinates mirror back to the file frame; the result re-parses to the
+/// same pins and artwork.
+pub fn symbol_library_text(symbol: &pcbcraft_library::SymbolDefinition) -> Result<String, String> {
+    let mut out = String::from("(kicad_symbol_lib (version 20260206) (generator pcbcraft)\n");
+    out.push_str(&symbol_library_inner(symbol)?);
+    out.push_str(")\n");
     if out.len() as u64 > MAX_FILE_BYTES {
         return Err("symbol library text exceeds the file size limit".into());
     }
     Ok(out)
+}
+
+/// Write several symbol definitions into one symbol library file.
+pub fn symbols_library_file_text(
+    symbols: &[pcbcraft_library::SymbolDefinition],
+) -> Result<String, String> {
+    if symbols.is_empty() {
+        return Err("no symbols to export".into());
+    }
+    if symbols.len() > 64 {
+        return Err("symbol export lists at most 64 names".into());
+    }
+    let mut names = BTreeSet::new();
+    for symbol in symbols {
+        if !names.insert(&symbol.name) {
+            return Err("duplicate symbol name in export list".into());
+        }
+    }
+    let mut sorted = symbols.to_vec();
+    sorted.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut out = String::from("(kicad_symbol_lib (version 20260206) (generator pcbcraft)\n");
+    for symbol in &sorted {
+        out.push_str(&symbol_library_inner(symbol)?);
+    }
+    out.push_str(")\n");
+    if out.len() as u64 > MAX_FILE_BYTES {
+        return Err("symbol library text exceeds the file size limit".into());
+    }
+    Ok(out)
+}
+
+/// Write project-library symbols or footprints to library text on disk.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn export_library_definitions(
+    library: &ProjectLibrary,
+    kind: &str,
+    path: &Path,
+    names: &[String],
+) -> Result<serde_json::Value, String> {
+    library.validate()?;
+    if names.is_empty() || names.len() > 64 {
+        return Err("export needs 1 to 64 library names".into());
+    }
+    let mut seen = BTreeSet::new();
+    for name in names {
+        if name.is_empty() || name.len() > 128 || !seen.insert(name.as_str()) {
+            return Err("export names must be unique and 1 to 128 bytes".into());
+        }
+    }
+    if path.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Err("path must not contain ..".into());
+    }
+    match kind {
+        "symbol" => {
+            if path.extension().and_then(|e| e.to_str()) != Some("kicad_sym") {
+                return Err("path must end in .kicad_sym".into());
+            }
+            let mut symbols = Vec::with_capacity(names.len());
+            for name in names {
+                let item = library
+                    .symbols
+                    .iter()
+                    .find(|s| s.name == *name)
+                    .ok_or_else(|| format!("unknown project-library symbol: {name}"))?;
+                symbols.push(item.clone());
+            }
+            symbols.sort_by(|a, b| a.name.cmp(&b.name));
+            let text = if symbols.len() == 1 {
+                symbol_library_text(&symbols[0])?
+            } else {
+                symbols_library_file_text(&symbols)?
+            };
+            atomic_write(path, text.as_bytes())?;
+            let file = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(str::to_string)
+                .ok_or_else(|| "path must name a file".to_string())?;
+            Ok(serde_json::json!({"path": path.to_string_lossy(), "files": [file]}))
+        }
+        "footprint" => {
+            let mut files = Vec::new();
+            if names.len() == 1
+                && path.extension().and_then(|e| e.to_str()) == Some("kicad_mod")
+            {
+                let name = &names[0];
+                let item = library
+                    .footprints
+                    .iter()
+                    .find(|f| f.name == *name)
+                    .ok_or_else(|| format!("unknown project-library footprint: {name}"))?;
+                let text = footprint_library_text(item)?;
+                atomic_write(path, text.as_bytes())?;
+                let file = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(str::to_string)
+                    .ok_or_else(|| "path must name a file".to_string())?;
+                files.push(file);
+                return Ok(serde_json::json!({"path": path.to_string_lossy(), "files": files}));
+            }
+            if path.exists() && !path.is_dir() {
+                return Err("footprint export needs a folder path unless writing one .kicad_mod file".into());
+            }
+            std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
+            for name in names {
+                let item = library
+                    .footprints
+                    .iter()
+                    .find(|f| f.name == *name)
+                    .ok_or_else(|| format!("unknown project-library footprint: {name}"))?;
+                let text = footprint_library_text(item)?;
+                let file = format!("{name}.kicad_mod");
+                atomic_write(&path.join(&file), text.as_bytes())?;
+                files.push(file);
+            }
+            Ok(serde_json::json!({"path": path.to_string_lossy(), "files": files}))
+        }
+        _ => Err("export kind must be symbol or footprint".into()),
+    }
+}
+#[cfg(target_arch = "wasm32")]
+pub fn export_library_definitions(
+    _library: &ProjectLibrary,
+    _kind: &str,
+    _path: &Path,
+    _names: &[String],
+) -> Result<serde_json::Value, String> {
+    Err("host filesystem writes are unavailable in the browser; download support is planned".into())
 }
 
 /// Render one library footprint as a standalone SVG preview: copper pads

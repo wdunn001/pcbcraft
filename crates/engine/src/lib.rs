@@ -3180,7 +3180,7 @@ impl Session {
         }
         let mut candidate = self.project.clone();
         let mut next = self.next_id;
-        let result = run(&mut candidate, &mut next, id, &params, self.revision, false)?;
+        let result = run(&self.config, &mut candidate, &mut next, id, &params, self.revision, false)?;
         Ok(json!({"revision": self.revision, "result": result}))
     }
     pub fn batch(&mut self, commands: &[Command], expected: Option<u64>) -> Result<Value, Error> {
@@ -3252,6 +3252,7 @@ impl Session {
                 needs_sync = true;
             }
             results.push(run(
+                &self.config,
                 &mut candidate,
                 &mut next,
                 &command.command,
@@ -3280,7 +3281,7 @@ impl Session {
     pub fn peek(&self, id: &str, params: Value) -> Result<Value, Error> {
         let mut candidate = self.project.clone();
         let mut next = self.next_id;
-        run(&mut candidate, &mut next, id, &params, self.revision, false)
+        run(&self.config, &mut candidate, &mut next, id, &params, self.revision, false)
     }
     fn commit(&mut self, p: Project) {
         self.undo.push_back(std::mem::replace(&mut self.project, p));
@@ -9866,6 +9867,7 @@ fn resolve_wire_place_net(
 /// A plain number written where a parameter could stand releases that field,
 /// so a later parameter change never overrides a deliberate edit.
 fn run(
+    config: &user_config::UserConfig,
     p: &mut Project,
     next: &mut Id,
     command: &str,
@@ -9900,6 +9902,7 @@ fn run(
         }
     }
     let mut result = run_command(
+        config,
         p,
         next,
         command,
@@ -10139,6 +10142,7 @@ fn cam_isolation_paths(p: &Project, params: &Value) -> Result<Value, String> {
 }
 
 fn run_command(
+    config: &user_config::UserConfig,
     p: &mut Project,
     next: &mut Id,
     command: &str,
@@ -10173,7 +10177,7 @@ fn run_command(
     if let Some(result) = part::run(p, next, command, params) {
         return result;
     }
-    if let Some(result) = part_save::run(p, command, params) {
+    if let Some(result) = part_save::run(config, p, command, params) {
         return result;
     }
     if let Some(result) = calc::run(p, command, params) {
