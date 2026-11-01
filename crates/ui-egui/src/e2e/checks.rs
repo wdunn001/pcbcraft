@@ -516,3 +516,93 @@ fn a_newcomer_sees_a_decoupling_finding_when_the_capacitor_is_removed() -> Resul
     );
     Ok(())
 }
+
+/// A newcomer writes a firmware design with two functions on the same pin and
+/// reads the instance conflict on the Findings sheet.
+#[test]
+fn a_newcomer_sees_a_pin_conflict_in_the_findings_list() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    {
+        let mut s = shared.lock().map_err(|e| e.to_string())?;
+        let u1 = s
+            .project
+            .components
+            .iter_mut()
+            .find(|c| c.kind == "ic")
+            .ok_or("the sample has an ic")?;
+        u1.reference = "U1".into();
+        u1.value = "STM32F405".into();
+        u1.kind = "ic_mcu".into();
+        u1.pins = vec![
+            pcbcraft_doc::Pin {
+                number: "PA5".into(),
+                name: "PA5".into(),
+                offset: pcbcraft_geom::Point { x: 0.0, y: 0.0 },
+                net: Some(10),
+                electrical_type: "bidirectional".into(),
+                direction: None,
+                unit: 1,
+                appearances: Default::default(),
+            },
+        ];
+        let n10 = s
+            .project
+            .nets
+            .iter_mut()
+            .find(|n| n.id == 10)
+            .ok_or("the sample has net 10")?;
+        n10.name = "SIG".into();
+        let design_text = include_str!("../../../library/tests/fixtures/firmware-design.toml").to_string();
+        let mcu_text = include_str!("../../../library/tests/fixtures/stm32f405-fixture.mcu.toml").to_string();
+        let conflicting = design_text
+            .replace("function = \"SPI1_SCK\"", "function = \"USART1_TX\"")
+            .replace("pin = \"PA9\"", "pin = \"PA5\"");
+        s.project.files.push(pcbcraft_doc::EmbeddedFile {
+            name: "firmware-design.toml".into(),
+            data: conflicting,
+            encoding: String::new(),
+        });
+        s.project.files.push(pcbcraft_doc::EmbeddedFile {
+            name: "stm32f405-fixture.mcu.toml".into(),
+            data: mcu_text,
+            encoding: String::new(),
+        });
+    }
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let conflict = app
+        .checks
+        .get("peripheral")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|f| f.get("code").and_then(Value::as_str) == Some("peripheral_instance_conflict"))
+        .ok_or("the peripheral check found the conflict")?;
+    let message = conflict
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or("the finding has a message")?;
+    assert!(
+        message.contains("PA5"),
+        "the finding names the conflicted pin: {}",
+        message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, &message)?,
+        "the Findings sheet shows the conflict: {}",
+        message
+    );
+    tap_id(&ctx, &mut app, &format!("button:{}", message))?;
+    assert!(
+        app.selected.is_some(),
+        "clicking the finding selects the MCU"
+    );
+    Ok(())
+}
