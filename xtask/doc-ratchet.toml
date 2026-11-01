@@ -4,20 +4,20 @@
 pcbcraft-geom = 29
 pcbcraft-sim = 0
 pcbcraft-doc = 590
-pcbcraft-library = 883
+pcbcraft-library = 884
 pcbcraft-datasheet = 30
 pcbcraft-rules = 94
 pcbcraft-plugin = 20
-pcbcraft-io = 435
+pcbcraft-io = 447
 pcbcraft-engine = 93
-pcbcraft-mcp = 13
+pcbcraft-mcp = 17
 pcbcraft-ui-egui = 4
 pcbcraft-assistant = 127
 pcbcraft-calc = 15
 pcbcraft-plugin-firmware-target = 21
 pcbcraft-plugin-sdk = 11
 pcbcraft-portal = 285
-pcbcraft-publication = 115
+pcbcraft-publication = 116
 
 # Traits and registries that do not have a contract block yet.
 # The doc pass for each one deletes its line.

@@ -10517,7 +10517,7 @@ fn run_command(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -11064,7 +11064,7 @@ fn run_command_part_1(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -11594,7 +11594,7 @@ fn run_command_part_2(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -12149,7 +12149,7 @@ fn run_command_part_3(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -12681,7 +12681,7 @@ fn run_command_part_4(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -13212,7 +13212,7 @@ fn run_command_part_5(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -13750,7 +13750,7 @@ fn run_command_part_6(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -14297,7 +14297,7 @@ fn run_command_part_7(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -14836,7 +14836,7 @@ fn run_command_part_8(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -15386,7 +15386,7 @@ fn run_command_part_9(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -15959,7 +15959,7 @@ fn run_command_part_10(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -16519,7 +16519,7 @@ fn run_command_part_11(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -17051,7 +17051,7 @@ fn run_command_part_12(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -17591,7 +17591,7 @@ fn run_command_part_13(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -18187,7 +18187,7 @@ fn run_command_part_14(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -18730,7 +18730,7 @@ fn run_command_part_15(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -19261,7 +19261,7 @@ fn run_command_part_16(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -19807,7 +19807,7 @@ fn run_command_part_17(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -20356,7 +20356,7 @@ fn run_command_part_18(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -20909,7 +20909,7 @@ fn run_command_part_19(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -21455,7 +21455,7 @@ fn run_command_part_20(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -21983,7 +21983,7 @@ fn run_command_part_21(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -22563,7 +22563,7 @@ fn run_command_part_22(
 ///   plain refusal.
 ///
 /// # Dependencies
-/// - `run_command`, which lists the same commands.
+/// - crates/engine/src/lib.rs (`run_command` lists the same commands)
 ///
 /// # Do not
 /// - Add a command here without adding its id to the matching arm in `run_command`.
@@ -44681,6 +44681,8 @@ mod tests {
         // holds the same pads embedded on the part, so give R2 both.
         let mut definition_pads = Vec::new();
         if let Some(f) = s.project.board.footprints.iter_mut().find(|f| f.id == fp_b) {
+            // A right-angle route needs the ends on different rows to have a bend.
+            f.position.y += 10.0;
             for pad in &mut f.pads {
                 let on_inner = pad.number == "1";
                 if on_inner {

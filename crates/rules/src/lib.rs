@@ -2848,8 +2848,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Component, CopperZone, FabRules, Footprint, Label, LayerRecord, LibraryFootprint,
-        LibrarySymbol, Net, NoConnectFlag, Pad, Pin, PinRef, Track, Via, component_template,
+        Component, FabRules, Footprint, Label, LayerRecord, LibraryFootprint, LibrarySymbol, Net,
+        NoConnectFlag, Pad, Pin, PinRef, Track, Via, component_template,
     };
     use pcbcraft_library::{Drill, FootprintDefinition, FootprintPad, SymbolDefinition};
 

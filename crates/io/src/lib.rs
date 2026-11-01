@@ -920,6 +920,11 @@ struct PdfPage {
 }
 /// Any surface that can receive the shared view drawing: path outlines,
 /// circles and text, in millimetre design coordinates.
+///
+/// # Implementations
+/// - crates/io/src/lib.rs
+/// - crates/io/src/drawing_frame.rs
+/// - crates/io/src/assembly_drawing.rs
 pub trait DrawPage {
     fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String>;
     fn circle(
