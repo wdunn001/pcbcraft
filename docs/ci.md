@@ -152,6 +152,66 @@ matching other Craft suite nightlies). Assets include every nightly archive plus
 `SHA256SUMS.txt`. Pre-releases are published with `--latest=false`; they never
 replace the latest stable download links from tagged releases.
 
+## Continuous deployment (`cd.yml`)
+
+When the **CI** workflow finishes green on `main`, `cd.yml` runs (it only trusts
+push runs of this repository on `main`, never pull request or fork runs; it can
+also be started by hand from `main`). Runs queue in the `cd` concurrency group
+and never cancel a deployment in flight. Both jobs use the exact commit CI tested.
+
+- **Deploy site and demo** (`deploy-site`): builds the Astro site in `site/` (Node 22), runs the
+  site checks (`test:contrast`, `test:features`, `check`, `test:links`, `test:csp`), builds the
+  wasm demo with `trunk build --release --public-url /demo/` (hashed file names, see
+  `apps/pcbcraft-web/Trunk.toml`), then runs `site/scripts/deploy.sh`.
+- **Publish native builds** (`publish-native`): takes the `linux-x86_64` and `windows-x86_64`
+  artifacts of that CI run and replaces the rolling `main-latest` pre-release with
+  `pcbcraft-main-linux-x86_64.tar.gz`, `pcbcraft-main-windows-x86_64.zip` and
+  `SHA256SUMS.txt`. It does nothing when either artifact is missing (a documentation-only
+  run, or artifacts past retention). The pre-release is never marked latest.
+
+### Pointing a runner at a deploy target
+
+No host, path or key is in the repository. On the runner that carries the
+`pcbcraft-laptop` label:
+
+1. Copy `site/.env.deploy.example` to a file outside any checkout, readable by the runner
+   user, and fill it in (ssh target, remote root, optional `DEPLOY_CHECK_URL`).
+2. Set `PCBCRAFT_DEPLOY_ENV` to that file's path, either in the runner's own environment
+   (its `.env` file) or as a repository variable of the same name.
+3. Use whatever ssh key the runner user already has; the script runs ssh in batch mode and
+   takes extra options from `DEPLOY_SSH_OPTS`.
+
+Until step 2 is done the deploy job logs `no deploy target configured`, skips the builds
+and ends green.
+
+### What the deploy does
+
+The remote root holds `releases/<UTC time>-<sha>/` directories and a `current` symlink.
+`deploy.sh` copies the site into a staging directory, adds the demo under `demo/`, writes a
+`demo/_headers` file (hashed files immutable, the entry page revalidated), precompresses
+text files for `gzip_static`, writes a checksum manifest, rsyncs the lot into a new release
+directory, verifies the manifest on the target, swaps `current` atomically and prunes to the
+newest `DEPLOY_KEEP` releases (at least two).
+
+The smoke step then needs `DEPLOY_CHECK_URL`: the site root and `/demo/` must answer 200, and
+the hashed `*_bg.wasm` and JavaScript the demo page names must resolve, the wasm starting
+with the WebAssembly magic bytes. When the smoke fails, `deploy.sh` switches `current` back
+to the previous release, removes the failed one and exits non-zero. The web server is
+responsible for sending long `Cache-Control` values for hashed files; the smoke prints what
+it sees.
+
+### Rolling back
+
+From a checkout on the runner (or any machine with the env file and ssh access):
+
+```
+DEPLOY_ENV_FILE=/path/to/env site/scripts/deploy.sh list
+DEPLOY_ENV_FILE=/path/to/env site/scripts/deploy.sh rollback          # previous release
+DEPLOY_ENV_FILE=/path/to/env site/scripts/deploy.sh rollback NAME     # a named release
+```
+
+A rollback is one atomic symlink swap and runs the same smoke check afterwards.
+
 ## Releases (`release.yml`, `build-dist.yml`)
 
 Push a tag `vX.Y.Z` (or `vX.Y.Z-rc.1`) that matches the workspace version in
