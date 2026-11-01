@@ -439,6 +439,16 @@ pub(crate) fn invoke_session(
             } else {
                 "symbol"
             };
+            // One definition goes to one file; folders belong to
+            // library.export_footprints.
+            let suffix = if kind == "footprint" {
+                "kicad_mod"
+            } else {
+                "kicad_sym"
+            };
+            if Path::new(path).extension().and_then(|e| e.to_str()) != Some(suffix) {
+                return Err(format!("path must end in .{suffix}"));
+            }
             let written = pcbcraft_io::export_library_definitions(
                 &s.project.library,
                 kind,
