@@ -176,16 +176,15 @@ fn a_newcomer_tents_a_via_on_top_and_leaves_it_open_underneath_for_a_test_probe(
         "tented on one side is type Ia: {}",
         app.message
     );
-    assert!(!pcbcraft_io::via_mask_opening_on_face(
-        &v,
-        &app.project.board,
-        false
-    ));
-    assert!(pcbcraft_io::via_mask_opening_on_face(
-        &v,
-        &app.project.board,
-        true
-    ));
+    // The last argument is `top`: tented on top, open for the probe underneath.
+    assert!(
+        !pcbcraft_io::via_mask_opening_on_face(&v, &app.project.board, true),
+        "the top side is tented"
+    );
+    assert!(
+        pcbcraft_io::via_mask_opening_on_face(&v, &app.project.board, false),
+        "the bottom side is open"
+    );
     let files = pcbcraft_io::gerber_files(&app.project)?;
     let drill = files.get("pcb-Plated.drl").ok_or("no plated drill file")?;
     assert!(

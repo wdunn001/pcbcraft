@@ -270,6 +270,10 @@ impl Controller {
     }
 
     pub fn sync_triggers(&mut self, view: ShellView<'_>, now: Instant) {
+        if !view.offer_tours && self.session.active_id.is_none() {
+            // Turning offers off withdraws the one already on screen.
+            self.session.pending = None;
+        }
         if self.session.active_id.is_some() || self.session.pending.is_some() {
             return;
         }

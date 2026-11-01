@@ -371,7 +371,8 @@ placement = "auto"
         // A key that exists in the catalog but has no `.tip` beside it.
         let mut keys = fixture_catalog_keys();
         keys.insert("tour.validator-fixture.untipped".into());
-        let text = good_tour_toml().replace("menu.help.shortcuts", "tour.validator-fixture.untipped");
+        let text =
+            good_tour_toml().replace("menu.help.shortcuts", "tour.validator-fixture.untipped");
         let doc = parse_toml(&text)?;
         let err = validate_with_catalog(&doc, &keys)
             .err()

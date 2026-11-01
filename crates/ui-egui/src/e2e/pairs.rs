@@ -168,6 +168,8 @@ fn a_newcomer_sees_a_pair_bend_at_45_degrees_by_default() -> Result<(), String> 
 #[test]
 fn a_newcomer_turns_chamfer_corners_off_for_right_angles() -> Result<(), String> {
     let (mut app, from, to) = pair_board(true)?;
+    // The Corners switch lives on the Layout tool bar.
+    app.change_tab(Tab::Pcb);
     app.tool = Tool::Route(None);
     app.refresh();
     let ctx = egui::Context::default();

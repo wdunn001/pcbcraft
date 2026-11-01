@@ -321,9 +321,7 @@ impl App {
         let Some(seg) = self.outline_ui.segment else {
             if outline_points(&self.project).is_some() {
                 ui.label(
-                    egui::RichText::new(t!("board.outline.select_hint"))
-                        .small()
-                        .color(self.muted()),
+                    crate::fonts::caption(t!("board.outline.select_hint")).color(self.muted()),
                 );
             }
             return;
@@ -420,6 +418,7 @@ mod tests {
     fn pick_finds_a_vertex_before_the_open_edge() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
         app.run(
             "board.set_outline",
             json!({"points": [
@@ -429,7 +428,12 @@ mod tests {
                 {"x":0.0,"y":30.0}
             ]}),
         );
-        let hit = pick_at(&app.project, Point::new(40.0, 0.0), 15.0).ok_or("corner vertex")?;
+        let hit = pick_at(&app.project, Point::new(40.0, 0.0), 15.0).ok_or_else(|| {
+            format!(
+                "corner vertex: {} {:?}",
+                app.message, app.project.board.outline
+            )
+        })?;
         assert_eq!(hit, OutlineHit::Vertex(1));
         Ok(())
     }

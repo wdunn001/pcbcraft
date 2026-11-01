@@ -260,7 +260,7 @@ impl App {
                 ui.add_space(6.0);
                 match w.step {
                     Step::BoardSize => {
-                        ui.heading("Board size");
+                        ui.label(crate::fonts::title("Board size"));
                         size_field(
                             ui,
                             "Width",
@@ -275,7 +275,7 @@ impl App {
                         );
                     }
                     Step::Layers => {
-                        ui.heading("Copper layers");
+                        ui.label(crate::fonts::title("Copper layers"));
                         ui.label("Pick a starter stack. You can tune layers later in Settings.");
                         ui.horizontal(|ui| {
                             if ui
@@ -299,7 +299,7 @@ impl App {
                         });
                     }
                     Step::FabPreset => {
-                        ui.heading("Fabrication preset");
+                        ui.label(crate::fonts::title("Fabrication preset"));
                         ui.label("Apply minimum track, space, and drill rules from a named preset.");
                         let selected = w
                             .preset_name()
@@ -327,7 +327,7 @@ impl App {
                             );
                     }
                     Step::Defaults => {
-                        ui.heading("Default spacing");
+                        ui.label(crate::fonts::title("Default spacing"));
                         mm_field(
                             ui,
                             "Clearance",
@@ -342,7 +342,7 @@ impl App {
                         );
                     }
                     Step::NetClasses => {
-                        ui.heading("Starter net classes");
+                        ui.label(crate::fonts::title("Starter net classes"));
                         ui.label("Power and Signal classes you can assign nets to later.");
                         ui.label("Power");
                         mm_field(
@@ -372,7 +372,7 @@ impl App {
                         );
                     }
                     Step::Summary => {
-                        ui.heading("Summary");
+                        ui.label(crate::fonts::title("Summary"));
                         let layers = if w.four_layers {
                             "Four copper layers"
                         } else {

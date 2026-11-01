@@ -121,11 +121,7 @@ impl App {
         )
         .default_open(true)
         .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(t!("checks.pin_matrix.blurb"))
-                    .small()
-                    .color(self.muted()),
-            );
+            ui.label(crate::fonts::caption(t!("checks.pin_matrix.blurb")).color(self.muted()));
             ui.add_space(8.0);
             let changed = !self.project.pin_matrix.is_empty();
             ui.add_enabled_ui(changed, |ui| {
@@ -148,8 +144,7 @@ impl App {
                             ui.label("");
                             for column in PIN_ELECTRICAL_TYPES {
                                 let (_, short, tip) = type_words(column);
-                                ui.label(egui::RichText::new(short).small())
-                                    .on_hover_text(tip);
+                                ui.label(crate::fonts::caption(short)).on_hover_text(tip);
                             }
                             ui.end_row();
                             for (row_index, row) in PIN_ELECTRICAL_TYPES.iter().enumerate() {
@@ -180,8 +175,7 @@ impl App {
                                     let response = ui
                                         .add(
                                             egui::Button::new(
-                                                egui::RichText::new(face)
-                                                    .small()
+                                                crate::fonts::caption(face)
                                                     .color(egui::Color32::WHITE),
                                             )
                                             .fill(tint)

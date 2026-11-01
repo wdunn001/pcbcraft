@@ -362,18 +362,17 @@ impl State {
             }
             if let Some(doc) = &self.document {
                 ui.label(
-                    egui::RichText::new(t!(
+                    crate::fonts::caption(t!(
                         "library.datasheet_reader.of_pages",
                         pages = doc.page_count()
                     ))
-                    .small()
                     .color(muted),
                 )
                 .on_hover_text(t!("library.datasheet_reader.of_pages.tip"));
             }
         });
         if !self.source.is_empty() {
-            ui.label(egui::RichText::new(&self.source).small().color(muted))
+            ui.label(crate::fonts::caption(self.source.clone()).color(muted))
                 .on_hover_text(t!("library.datasheet_reader.source.tip"));
         }
         if !self.status.is_empty() {

@@ -407,9 +407,7 @@ fn tool_hint(tool: &Tool) -> String {
         }
         Tool::Wire(None) => t!("board.tool_hint.lmb_pick_the_first_pin", common = common),
         Tool::Wire(Some(_)) => {
-            "Click empty space for bends, another pin or wire to finish. Escape cancels."
-                .to_string()
-                + &common
+            t!("board.tool_hint.lmb_pick_the_second_pin", common = common)
         }
         Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local) => {
             "Click a wire or pin to place a net label.".to_string() + &common
@@ -3956,7 +3954,11 @@ impl App {
                             pcbcraft_text::lookup(&row.detail_key, &[])
                         }
                     };
-                    if ui.button(format!("{label} ({detail})")).clicked() {
+                    if ui
+                        .button(format!("{label} ({detail})"))
+                        .on_hover_text(t!("menu.help.tours.row.tip", tour = label.as_str()))
+                        .clicked()
+                    {
                         self.tour.start_from_menu(
                             &mut self.preferences.tour_progress,
                             &row.id,

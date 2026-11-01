@@ -110,6 +110,10 @@ impl Default for View3d {
             dist: 100.0,
             target: [0.0; 3],
             mesh: None,
+            // The test suite must leave the user's cache folder alone.
+            #[cfg(test)]
+            models: ModelCache::in_memory(),
+            #[cfg(not(test))]
             models: ModelCache::default(),
             model_gen: 0,
             notes: Default::default(),

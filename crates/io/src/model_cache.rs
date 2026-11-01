@@ -57,6 +57,16 @@ impl std::fmt::Debug for ModelCache {
 }
 
 impl ModelCache {
+    /// A cache that converts models but never writes the disk (tests).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn in_memory() -> Self {
+        Self {
+            shared: Arc::new(Shared::default()),
+            jobs: Arc::new(Mutex::new(None)),
+            import_cache: ImportCache::in_memory(),
+        }
+    }
+
     /// Optional override for the on-disk import cache folder.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_disk_dir(dir: Option<std::path::PathBuf>) -> Self {
