@@ -3,6 +3,13 @@
 //! The new route has the top rank. A pushed line gets its pusher's rank minus
 //! one, so a line only ever pushes lines of lower rank and nothing pushes back.
 //! Pad-anchored and free ends never move. Only iteration counts bound the work.
+//!
+//! # Dependencies
+//! - crates/engine/src/route/walk.rs
+//! - crates/engine/src/route/mod.rs
+//! - crates/engine/src/lib.rs
+//! - crates/doc/src/lib.rs
+//! - crates/geom/src/lib.rs
 use super::walk::{Hull, Space, Turn, acute, length, optimize, path_ok, walkaround};
 use super::{MARGIN, bounds, solid_hulls};
 use crate::{Error, allocate};
@@ -182,9 +189,18 @@ fn rewalk(p: &Project, layer: Layer, victim: &Line, pushers: &[Line]) -> Option<
     best
 }
 
+/// Result of a shove operation.
+///
+/// # Rules
+/// - `lines[0]` is always the new route; subsequent entries are pushed lines.
+/// - `iterations` counts how many times tracks were pushed.
+///
+/// # Do not
+/// - Assume any particular order for pushed lines beyond the new route first.
 pub struct Outcome {
     /// The new route first, then every pushed line.
     pub lines: Vec<Line>,
+    /// How many times tracks were pushed.
     pub iterations: usize,
 }
 

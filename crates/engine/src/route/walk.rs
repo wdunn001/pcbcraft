@@ -1,4 +1,10 @@
 //! Walkaround: bend a 45-degree path around octagonal hulls, with counted limits only.
+//!
+//! # Dependencies
+//! - crates/engine/src/route/mod.rs
+//! - crates/engine/src/lib.rs
+//! - crates/doc/src/lib.rs
+//! - crates/geom/src/lib.rs
 use pcbcraft_doc::Id;
 use pcbcraft_geom::hull::{boundary_position, boundary_vertices, clip_segment, strictly_inside};
 use pcbcraft_geom::{Point, segment_distance};
@@ -8,6 +14,14 @@ pub const WALK_ITERATIONS: usize = 40;
 const STRICT: f64 = 1e-6;
 const MERGE: f64 = 1e-7;
 
+/// An obstacle the path must avoid.
+///
+/// # Rules
+/// - `pts` is the convex octagon boundary of the grown obstacle.
+/// - `net` identifies which net owns the obstacle (pads, cutouts, or tracks).
+///
+/// # Do not
+/// - Mutate `pts` after creation; the hull is immutable once built.
 #[derive(Clone, Debug)]
 pub struct Hull {
     pub pts: Vec<Point>,
@@ -21,6 +35,14 @@ pub struct Space {
     pub hi: Point,
 }
 
+/// Which side to take when detouring around a hull.
+///
+/// # Rules
+/// - Shortest picks the closer side; Ccw and Cw force counter- or clockwise detours.
+/// - Used when multiple detour options exist around a single hull.
+///
+/// # Do not
+/// - Add new variants; the walkaround logic assumes exactly these three choices.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Turn {
     Shortest,
@@ -32,6 +54,11 @@ fn lerp(a: Point, b: Point, t: f64) -> Point {
     Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
 }
 
+/// Total length of a path, measured as the sum of segment distances.
+///
+/// # Rules
+/// - Returns 0 for paths with fewer than 2 points.
+/// - Uses Euclidean distance between consecutive points.
 pub fn length(path: &[Point]) -> f64 {
     path.windows(2).map(|w| w[0].distance(w[1])).sum()
 }
