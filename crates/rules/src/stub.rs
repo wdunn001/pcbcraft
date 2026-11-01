@@ -433,6 +433,7 @@ mod tests {
             corner_radius: Default::default(),
             min_radius: Default::default(),
             rise_time: Default::default(),
+            max_length: Default::default(),
         });
         p.validate()
     }

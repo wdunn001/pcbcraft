@@ -129,6 +129,7 @@ mod tests {
             target_impedance: Default::default(),
             temperature_rise: Default::default(),
             working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         arc_track(
             &mut p,
@@ -185,6 +186,7 @@ mod tests {
             target_impedance: Default::default(),
             temperature_rise: Default::default(),
             working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         p.board.tracks.push(Track {
             id: 11,

@@ -6333,6 +6333,7 @@ mod pour_tests {
             target_impedance: Default::default(),
             temperature_rise: Default::default(),
             working_voltage: Default::default(),
+            max_length: Default::default(),
         });
         p.validate()
     }
