@@ -15,7 +15,7 @@
 //! icons published through `App::record_icon`.
 
 use super::super::*;
-use super::support::{TALL_SCREEN, frame};
+use super::support::{TALL_SCREEN, frame, waits_for_library_read};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
@@ -320,13 +320,7 @@ fn walk(path: &Path) {
             // The collection browser reads its folders on a worker thread;
             // list the page only once that answer is in, so every run sees
             // the same controls.
-            for _ in 0..200 {
-                if app.library.catalog.is_some() && app.library.pending.is_none() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            }
+            let _ = waits_for_library_read(&ctx, &mut app);
             settle(&ctx, &mut app);
         }
         let listed = controls(&ctx, &app);
