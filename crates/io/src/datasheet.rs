@@ -279,7 +279,7 @@ mod tests {
             .fetch_url(&transport, &url(&server, "/x.pdf"), false)
             .err();
         assert!(
-            matches!(err, Some(DatasheetError::Invalid(m)) if m.contains("not a PDF")),
+            matches!(&err, Some(DatasheetError::Invalid(m)) if m.contains("not a PDF")),
             "{err:?}"
         );
         Ok(())
@@ -294,7 +294,7 @@ mod tests {
             .fetch_url(&transport, &url(&server, "/loop.pdf"), false)
             .err();
         assert!(
-            matches!(err, Some(DatasheetError::Invalid(m)) if m.contains("redirect")),
+            matches!(&err, Some(DatasheetError::Invalid(m)) if m.contains("redirect")),
             "{err:?}"
         );
         Ok(())
@@ -353,7 +353,7 @@ mod tests {
     fn eviction_keeps_disk_use_under_the_cap() -> TestResult {
         let tmp = cache_dir()?;
         let cap = PDF.len() as u64 * 2 + 64;
-        let cache = DatasheetCache::open(tmp.path().join("cache")).with_cap(cap);
+        let cache = DatasheetCache::open(&tmp.path().join("cache")).with_cap(cap);
         for i in 0..4u8 {
             let mut body = PDF.to_vec();
             body.push(i);
@@ -377,7 +377,7 @@ mod tests {
         let pdf_path = tmp.path().join("local.pdf");
         std::fs::write(&pdf_path, PDF)?;
         let absolute = std::fs::canonicalize(&pdf_path)?;
-        let cache = DatasheetCache::open(tmp.path().join("cache"));
+        let cache = DatasheetCache::open(&tmp.path().join("cache"));
         let (_reference, bytes) = cache.import_local_file(&absolute)?;
         assert_eq!(bytes, PDF);
         Ok(())

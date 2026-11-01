@@ -109,7 +109,8 @@ fn optional_layer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Layer, LayerRecord, Net, Point, Project, Track};
+    use pcbcraft_doc::{Layer, LayerRecord, Net, Project, Track};
+    use pcbcraft_geom::Point;
     fn four_layer() -> Result<Project, String> {
         let mut p = Project::default();
         p.nets.push(Net {

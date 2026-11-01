@@ -53,6 +53,7 @@ pub fn via(
         covering: top,
         covering_bottom: bottom,
         backdrill: None,
+        preserved: Default::default(),
     })
 }
 
@@ -95,6 +96,7 @@ pub fn thru_part(id: Id, x: f64, y: f64, drill: f64) -> Footprint {
             castellated: None,
             geometry: Some(geometry),
         }],
+        preserved: Default::default(),
     }
 }
 
@@ -138,6 +140,7 @@ pub fn golden_board() -> Result<Project, String> {
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: Default::default(),
         }],
         units: vec![],
         library_symbol: None,
@@ -153,10 +156,19 @@ pub fn golden_board() -> Result<Project, String> {
                 rules: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                box_body: Default::default(),
+                retained: Default::default(),
             },
         }),
         fields: vec![],
         sheet: 0,
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     }];
     p.board.footprints = vec![thru_part(50, 30.0, 20.0, 0.8)];
     p.board.machining = Some(MachiningNotes {

@@ -165,6 +165,7 @@ fn a_connected_inner_pad_is_never_removed() -> Result<(), String> {
         width: 0.25,
         layer: Layer::from_index(2)?,
         arc: None,
+        preserved: Default::default(),
     });
     project.validate()?;
     let inner = Layer::from_index(2)?;
@@ -227,6 +228,9 @@ fn an_unconnected_inner_via_pad_is_omitted_from_the_plot() -> Result<(), String>
         from_layer: None,
         to_layer: None,
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     project.validate()?;
     let inner = Layer::from_index(2)?;

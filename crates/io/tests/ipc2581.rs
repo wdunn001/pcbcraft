@@ -39,6 +39,9 @@ fn six_layer_board() -> Result<Project, String> {
         from_layer: Some(Layer::Front),
         to_layer: Some(Layer::from_index(2)?),
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     p.board.vias.push(Via {
         id: 11,
@@ -49,6 +52,9 @@ fn six_layer_board() -> Result<Project, String> {
         from_layer: Some(Layer::from_index(2)?),
         to_layer: Some(Layer::from_index(4)?),
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     p.board.vias.push(Via {
         id: 12,
@@ -59,6 +65,9 @@ fn six_layer_board() -> Result<Project, String> {
         from_layer: None,
         to_layer: None,
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     p.validate()?;
     Ok(p)
@@ -199,11 +208,19 @@ fn logical_nets_list_connected_pins() -> Result<(), String> {
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: Default::default(),
         }],
         units: vec![],
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     });
     p.board.tracks.push(Track {
         id: 1,
@@ -213,6 +230,7 @@ fn logical_nets_list_connected_pins() -> Result<(), String> {
         width: 0.25,
         layer: Layer::Front,
         arc: None,
+        preserved: Default::default(),
     });
     p.validate()?;
     let text = ipc2581_text(&p)?;

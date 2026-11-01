@@ -481,8 +481,11 @@ mod tests {
 
     #[test]
     fn enclosure_scan_refuses_oversized_input() {
-        let huge = b"ISO-10303-21;\nDATA;\n".to_vec()
-            + &(b"#1=CARTESIAN_POINT('',(0,0,0));\n".repeat(500_000));
+        let huge = [
+            b"ISO-10303-21;\nDATA;\n".to_vec(),
+            b"#1=CARTESIAN_POINT('',(0,0,0));\n".repeat(500_000),
+        ]
+        .concat();
         assert!(read_enclosure_step(&huge).is_err());
     }
 }

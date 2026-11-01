@@ -517,7 +517,7 @@ pub struct SessionNet {
 ///
 /// # Do not
 /// - Add render-specific fields; this crate is a bounded reader.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FootprintDefinition {
     pub name: String,
@@ -653,7 +653,7 @@ fn unit_scale() -> [f64; 3] {
 ///
 /// # Do not
 /// - Use `position` for rendering; convert to screen coordinates first.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FootprintPad {
     pub number: String,

@@ -167,7 +167,7 @@ pub struct PinAppearance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direction: Option<f64>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Pin {
     pub number: String,
     pub name: String,
@@ -296,7 +296,7 @@ pub struct LibraryFootprint {
     pub library: String,
     pub definition: pcbcraft_library::FootprintDefinition,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Component {
     pub id: Id,
     pub reference: String,
@@ -1302,7 +1302,7 @@ pub struct PadDrill {
     /// True when the hole wall is plated.
     pub plated: bool,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Pad {
     pub number: String,
     pub offset: Point,
@@ -1567,7 +1567,7 @@ pub fn chamfered_rect(size: Point, chamfer: pcbcraft_library::PadChamfer) -> Vec
     }
     points
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Footprint {
     pub id: Id,
     pub component: Id,

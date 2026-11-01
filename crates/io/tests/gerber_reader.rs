@@ -57,6 +57,8 @@ fn gerber_minimal_reader_counts_flashes_per_aperture_on_sample_board() -> Result
         covering: None,
     
         preserved: pcbcraft_doc::PreservedSource::default(),
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
 });
     project.validate()?;
     let files = pcbcraft_io::gerber_files(&project)?;

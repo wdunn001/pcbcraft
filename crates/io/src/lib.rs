@@ -11345,6 +11345,7 @@ mod tests {
         project.validate()?;
         let assembly = ipc2581_text(&project)?;
         assert!(
+            assembly.contains("<TRACK ") && assembly.contains("center_x="),
             "the assembly exchange lists the curved track as an arc"
         );
         assert!(
@@ -11719,6 +11720,7 @@ mod tests {
             fast: Default::default(),
             min_radius: Default::default(),
             rise_time: Default::default(),
+            max_length: Default::default(),
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
@@ -12801,6 +12803,7 @@ mod tests {
             "empty key"
         );
         assert!(
+            bom_csv(&project, &["x".repeat(65)], None).is_err(),
             "overlong key"
         );
         assert!(
@@ -16415,7 +16418,7 @@ mod tests {
     fn schematic_import_hierarchy_matches_golden_json() -> Result<(), String> {
         let path = schematic_fixture_dir().join("schematic_import_hierarchy_root.kicad_sch");
         let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let (project, _) = read_schematic_interchange_path(&path, &text)?;
+        let project = read_schematic_interchange_path(&path, &text)?;
         let snapshot = schematic_snapshot(&project);
         let golden = load_schematic_golden("schematic_import_hierarchy.golden.json")?;
         assert_eq!(snapshot["components"], golden["components"]);

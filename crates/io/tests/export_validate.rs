@@ -30,6 +30,7 @@ fn sample_odb_project() -> Result<Project, String> {
         width: 0.3,
         layer: pcbcraft_doc::Layer::Front,
         arc: None,
+        preserved: Default::default(),
     });
     project.board.vias.push(pcbcraft_doc::Via {
         id: 502,
@@ -40,6 +41,9 @@ fn sample_odb_project() -> Result<Project, String> {
         from_layer: None,
         to_layer: None,
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     project.validate()?;
     Ok(project)

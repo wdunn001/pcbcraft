@@ -553,20 +553,21 @@ mod tests {
             "../../library/tests/fixtures/R_0805_2012Metric.kicad_mod"
         ))
         .map_err(|e| e.to_string())?;
-        let pad_geom = |n: &str| -> Pad {
+        let pad_geom = |n: &str| -> Result<Pad, String> {
             let src = footprint
                 .pads
                 .iter()
                 .find(|p| p.number == n)
                 .ok_or("pad missing")?;
-            Pad {
+            Ok(Pad {
                 number: src.number.clone(),
                 offset: src.position,
                 diameter: src.size.x.min(src.size.y),
                 net: None,
                 castellated: None,
                 geometry: Some(src.clone()),
-            }
+                ..Default::default()
+            })
         };
         let mut project = Project::default();
         project.board.width = 60.0;

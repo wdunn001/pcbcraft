@@ -348,6 +348,7 @@ mod tests {
                 target_length: Default::default(),
                 temperature_rise: Default::default(),
                 working_voltage: Default::default(),
+                max_length: Default::default(),
             },
             Net {
                 id: 2,
@@ -364,6 +365,7 @@ mod tests {
                 target_length: Default::default(),
                 temperature_rise: Default::default(),
                 working_voltage: Default::default(),
+                max_length: Default::default(),
             },
             Net {
                 id: 3,
@@ -380,6 +382,7 @@ mod tests {
                 target_length: Default::default(),
                 temperature_rise: Default::default(),
                 working_voltage: Default::default(),
+                max_length: Default::default(),
             },
         ];
         p.components.push(Component {

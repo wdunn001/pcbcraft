@@ -41,8 +41,8 @@ pub fn component_flashes(text: &str) -> Result<Vec<ComponentFlash>, String> {
                 .strip_prefix('X')
                 .and_then(|rest| rest.split_once('Y'))
                 .ok_or("component flash without coordinates")?;
-            let x: f64 = (xs.parse().map_err(|e| format!("{e}"))?) / 1e6 * scale;
-            let y: f64 = (ys.parse().map_err(|e| format!("{e}"))?) / 1e6 * scale;
+            let x: f64 = xs.parse::<f64>().map_err(|e| format!("{e}"))? / 1e6 * scale;
+            let y: f64 = ys.parse::<f64>().map_err(|e| format!("{e}"))? / 1e6 * scale;
             let rotation = attrs
                 .get("CRot")
                 .ok_or("component flash without rotation")?

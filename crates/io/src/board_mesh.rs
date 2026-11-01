@@ -2015,6 +2015,8 @@ instance: None,
                 indices: vec![0; 36],
                 instance: Default::default(),
                 prototype: Default::default(),
+                authored_colors: Default::default(),
+                materials: Default::default(),
             }],
             ..Default::default()
         };
@@ -2350,6 +2352,8 @@ instance: None,
                 indices: vec![0, 1, 2, 0, 2, 3],
                 instance: Default::default(),
                 prototype: Default::default(),
+                authored_colors: Default::default(),
+                materials: Default::default(),
             }],
             warnings: vec![],
         };

@@ -11,7 +11,11 @@ use serde_json::Value;
 type Check = Result<(), String>;
 
 fn read_fixture(name: &str) -> Result<SolidcraftDesign, String> {
-    read_solidcraft(include_bytes!(concat!("fixtures/solidcraft/", name)).as_slice())
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/solidcraft")
+        .join(name);
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    read_solidcraft(&bytes)
 }
 
 fn body_names(doc: &Value) -> Result<Vec<String>, String> {
@@ -164,6 +168,7 @@ fn random_board(seed: u64) -> Result<Project, String> {
             electrical_type: p.electrical_type.clone(),
             direction: Some(p.angle),
             unit: p.unit,
+            appearances: Default::default(),
         })
         .collect();
     let mut project = Project::default();
@@ -197,6 +202,13 @@ fn random_board(seed: u64) -> Result<Project, String> {
                 definition: footprint.clone(),
             }),
             fields: vec![],
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: id + 1,
@@ -206,6 +218,7 @@ fn random_board(seed: u64) -> Result<Project, String> {
             locked: None,
             side: if n % 2 == 0 { None } else { Some(Layer::Back) },
             pads: pads.clone(),
+            preserved: Default::default(),
         });
     }
     project.validate()?;

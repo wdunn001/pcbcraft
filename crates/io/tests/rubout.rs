@@ -56,6 +56,7 @@ fn single_pad_20mm_board() -> Project {
         }],
         locked: None,
         side: None,
+        preserved: Default::default(),
     });
     p
 }
@@ -108,7 +109,7 @@ fn rubout_hatch_stays_clear_of_pad_and_covers_the_region() -> Result<(), String>
             );
         }
     }
-    let copper = vec![pad];
+    let copper = vec![pad.clone()];
     let grown = polygon_offset(&polygon_union(&copper), half, OffsetJoin::Round);
     let rect = vec![
         Point::new(0.0, 0.0),

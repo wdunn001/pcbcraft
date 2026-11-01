@@ -406,13 +406,13 @@ mod tests {
             id: 2,
             reference: "U1".into(),
             value: "part".into(),
-            footprint: Some(1),
             pins: vec![],
             units: vec![],
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
             sheet: 0,
+            ..Default::default()
         }];
         project.nets = vec![Net {
             id: 1,
@@ -429,6 +429,7 @@ mod tests {
             return_path_rule: Default::default(),
             temperature_rise: Default::default(),
             working_voltage: Default::default(),
+            max_length: Default::default(),
         }];
         project
     }

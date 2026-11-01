@@ -51,6 +51,7 @@ fn square_zone(
         filled: true,
         kind: None,
         pour: None,
+        preserved: Default::default(),
     })
 }
 
@@ -87,6 +88,9 @@ fn island_and_thermal() -> Result<Project, String> {
         from_layer: None,
         to_layer: None,
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     p.board.vias.push(Via {
         id: 21,
@@ -97,6 +101,9 @@ fn island_and_thermal() -> Result<Project, String> {
         from_layer: None,
         to_layer: None,
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     p.board.tracks.push(Track {
         id: 30,
@@ -106,6 +113,7 @@ fn island_and_thermal() -> Result<Project, String> {
         width: 1.0,
         layer: Layer::Front,
         arc: None,
+        preserved: Default::default(),
     });
     p.validate()?;
     Ok(p)
@@ -222,6 +230,9 @@ fn six_layer_pour_stays_under_cap_and_in_time() -> Result<(), String> {
                 from_layer: None,
                 to_layer: None,
                 covering: None,
+                backdrill: Default::default(),
+                covering_bottom: Default::default(),
+                preserved: Default::default(),
             });
         }
     }

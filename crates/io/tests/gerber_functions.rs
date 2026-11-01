@@ -46,6 +46,7 @@ fn a_mask_defined_pad_uses_smdef_for_copper_and_mask() -> Result<(), String> {
             castellated: None,
             geometry: Some(smdef_pad()),
         }],
+        preserved: Default::default(),
     });
     p.validate()?;
     let files = pcbcraft_io::gerber_files(&p)?;
@@ -122,6 +123,7 @@ fn six_layer_plane_board() -> Result<Project, String> {
             via_connect: ZoneConnect::Relief,
             ..Default::default()
         }),
+        preserved: Default::default(),
     });
     p.board.vias.push(Via {
         id: 2,
@@ -132,6 +134,9 @@ fn six_layer_plane_board() -> Result<Project, String> {
         from_layer: None,
         to_layer: None,
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     p.board.vias.push(Via {
         id: 3,
@@ -142,6 +147,9 @@ fn six_layer_plane_board() -> Result<Project, String> {
         from_layer: None,
         to_layer: None,
         covering: None,
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     p.validate()?;
     Ok(p)
@@ -197,6 +205,7 @@ fn inner_through_hole_pads_are_component_pads() -> Result<(), String> {
                 raw_source: String::new(),
             }),
         }],
+        preserved: Default::default(),
     });
     p.validate()?;
     let files = pcbcraft_io::gerber_files(&p)?;
@@ -282,6 +291,7 @@ fn every_gerber_file_carries_an_md5_the_reader_accepts() -> Result<(), String> {
         width: 0.25,
         layer: Layer::Front,
         arc: None,
+        preserved: Default::default(),
     });
     p.validate()?;
     let files = pcbcraft_io::gerber_files(&p)?;
@@ -311,6 +321,9 @@ fn filled_via_writes_a_viafill_file() -> Result<(), String> {
         from_layer: None,
         to_layer: None,
         covering: Some(ViaCovering::Filled),
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     p.validate()?;
     let files = pcbcraft_io::gerber_files(&p)?;

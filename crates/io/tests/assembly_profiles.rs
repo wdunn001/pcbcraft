@@ -58,6 +58,7 @@ fn add_part(
             electrical_type: "passive".into(),
             direction: None,
             unit: 1,
+            appearances: Default::default(),
         }],
         units: vec![],
         library_symbol: None,
@@ -73,6 +74,8 @@ fn add_part(
                 rules: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                box_body: Default::default(),
+                retained: Default::default(),
             },
         }),
         fields: vec![
@@ -85,6 +88,13 @@ fn add_part(
                 value: "Acme".into(),
             },
         ],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     });
     p.board.footprints.push(Footprint {
         id: id + 100,
@@ -101,6 +111,7 @@ fn add_part(
             castellated: None,
             geometry: Some(pad(pad_kind.0, pad_kind.1)),
         }],
+        preserved: Default::default(),
     });
 }
 
