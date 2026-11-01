@@ -100,18 +100,10 @@ fn paste_margin(p: &Project, footprint: &Footprint) -> f64 {
         .unwrap_or(crate::gerber::DEFAULT_PASTE_MARGIN)
 }
 
-fn pad_on_layer(_fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
-    let paste = if layer == Layer::Front {
-        "F.Paste"
-    } else {
-        "B.Paste"
-    };
-    pad.geometry.as_ref().is_some_and(|g| {
-        g.drill.is_none()
-            && !g.pad_type.starts_with("thru_hole")
-            && !g.pad_type.starts_with("np_thru_hole")
-            && g.layers.iter().any(|l| l == paste)
-    })
+/// Whether the pad takes stencil paste on `layer`: a surface-mounted pad on
+/// the face its part sits on, as the paste Gerber decides it.
+fn pad_on_layer(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
+    crate::gerber::pad_is_smd(pad) && crate::gerber::pad_on_side(fp, pad, layer)
 }
 
 fn opening_ring(
@@ -400,7 +392,7 @@ mod stencil_tests {
                 position: Point::default(),
                 rotation: 0.0,
                 size: Point::new(1.2, 0.8),
-                layers: vec!["B.Cu".into(), "B.Paste".into(), "B.Mask".into()],
+                layers: vec!["F.Cu".into(), "F.Paste".into(), "F.Mask".into()],
                 drill: None,
                 roundrect_ratio: None,
                 chamfer: None,
@@ -416,6 +408,7 @@ mod stencil_tests {
             position: Point::new(30.0, 20.0),
             rotation: 0.0,
             pads: vec![pad.clone()],
+            side: Some(Layer::Back),
             ..Default::default()
         });
         p.components.push(pcbcraft_doc::Component {

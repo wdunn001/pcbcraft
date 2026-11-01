@@ -601,6 +601,10 @@ pub fn plated_item_connected_on_layer(
         if !project.via_span_layers(via).contains(&layer) {
             continue;
         }
+        // A via is not tied to the layer by its own barrel.
+        if kind == PlatedConnectKind::Via && at.distance(via.position) < 1e-9 {
+            continue;
+        }
         if at.distance(via.position) <= reach + via.diameter / 2.0 {
             return true;
         }

@@ -3443,16 +3443,15 @@ fn gerber_files_core(
             rest.push_str(&self.body);
             rest.push_str(&self.arcs);
             rest.push_str("M02*\n");
-            let digest = gerber::md5_hex(format!("{head}{rest}").as_bytes());
             head.push_str(&gerber::x2_header(
                 creation,
                 file_function,
                 Some(polarity),
                 same_coordinates,
-                Some(&digest),
+                None,
             ));
             head.push_str(&rest);
-            head
+            gerber_fidelity::attach_gerber_md5_in_header(head)
         }
     }
     // One file per copper layer, top first. Copper layers beyond the two
@@ -12312,7 +12311,27 @@ mod tests {
                     retained: Default::default(),
                 },
             }),
-            library_footprint: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "project".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "Test_Pad".into(),
+                    pads: vec![pcbcraft_library::FootprintPad {
+                        number: "1".into(),
+                        pad_type: "smd".into(),
+                        shape: "rect".into(),
+                        position: Point::default(),
+                        rotation: 0.0,
+                        size: Point::new(1.0, 1.0),
+                        layers: vec!["F.Cu".into()],
+                        drill: None,
+                        roundrect_ratio: None,
+                        raw_source: String::new(),
+                        chamfer: None,
+                        polygon: Vec::new(),
+                    }],
+                    ..Default::default()
+                },
+            }),
             fields: vec![],
             compliance: Default::default(),
             include_in_bom: true,
@@ -12344,7 +12363,20 @@ mod tests {
                 diameter: 1.0,
                 net: Some(7),
                 castellated: None,
-                geometry: None,
+                geometry: Some(pcbcraft_library::FootprintPad {
+                number: "1".into(),
+                pad_type: "smd".into(),
+                shape: "rect".into(),
+                position: Point::default(),
+                rotation: 0.0,
+                size: Point::new(1.0, 1.0),
+                layers: vec!["F.Cu".into()],
+                drill: None,
+                roundrect_ratio: None,
+                raw_source: String::new(),
+                chamfer: None,
+                polygon: Vec::new(),
+                    }),
             }],
             preserved: Default::default(),
         });
@@ -16390,7 +16422,7 @@ mod tests {
             });
         }
         project.board.tracks.push(pcbcraft_doc::Track {
-            id: 1,
+            id: 2,
             net: 1,
             start: Point::new(0.0, 0.0),
             end: Point::new(5.0, 0.0),
@@ -16438,7 +16470,7 @@ mod tests {
             });
         }
         project.board.tracks.push(pcbcraft_doc::Track {
-            id: 1,
+            id: 2,
             net: 1,
             start: Point::new(0.0, 0.0),
             end: Point::new(5.0, 0.0),

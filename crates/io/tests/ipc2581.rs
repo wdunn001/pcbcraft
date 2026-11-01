@@ -191,7 +191,7 @@ fn logical_nets_list_connected_pins() -> Result<(), String> {
     });
     p.components.push(pcbcraft_doc::Component {
         sheet: 0,
-        id: 1,
+        id: 2,
         reference: "R1".into(),
         value: String::new(),
         kind: "resistor".into(),
@@ -220,7 +220,7 @@ fn logical_nets_list_connected_pins() -> Result<(), String> {
         sourcing: Default::default(),
     });
     p.board.tracks.push(Track {
-        id: 1,
+        id: 3,
         net: 1,
         start: Point::new(0.0, 0.0),
         end: Point::new(1.0, 0.0),

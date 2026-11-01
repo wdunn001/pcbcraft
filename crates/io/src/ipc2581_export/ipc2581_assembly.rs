@@ -469,7 +469,9 @@ fn oem_part_id(c: &Component, package: &str) -> String {
     let base = if !component_mpn(c).is_empty() {
         component_mpn(c).to_string()
     } else if !c.value.is_empty() {
-        format!("{}_{}", c.kind, c.value)
+        // The same value in two packages is two bill items, so the package is
+        // part of the number.
+        format!("{}_{}_{}", c.kind, c.value, package)
     } else {
         format!("{}_{}", c.kind, package)
     };

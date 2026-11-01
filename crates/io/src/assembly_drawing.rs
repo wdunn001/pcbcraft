@@ -613,6 +613,11 @@ mod tests {
                 let mut p2 = pad_geom("2")?;
                 p1.offset = Point::new(-p1.offset.x, p1.offset.y);
                 p2.offset = Point::new(-p2.offset.x, p2.offset.y);
+                for pad in [&mut p1, &mut p2] {
+                    if let Some(g) = pad.geometry.as_mut() {
+                        g.position = pad.offset;
+                    }
+                }
                 vec![p1, p2]
             },
             preserved: Default::default(),

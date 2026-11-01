@@ -25,7 +25,7 @@ struct FootprintOutline {
 fn idf_float(v: f64) -> String {
     let r = (v * 1000.0).round() / 1000.0;
     if r == 0.0 {
-        "0.0".into()
+        "0.000".into()
     } else {
         format!("{r:.3}")
     }
