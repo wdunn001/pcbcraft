@@ -72,6 +72,24 @@ unreachable = "deny"
 debug = 0
 incremental = false
 
+# Unoptimised, a pour fill plus the checks of the showcase board take about half a
+# minute, and the stories that edit that board run them after every command. The
+# geometry crates are built with optimisation so the whole suite stays short.
+[profile.dev.package.pcbcraft-geom]
+opt-level = 3
+[profile.dev.package.pcbcraft-rules]
+opt-level = 2
+[profile.dev.package.i_overlay]
+opt-level = 3
+[profile.dev.package.i_float]
+opt-level = 3
+[profile.dev.package.i_shape]
+opt-level = 3
+[profile.dev.package.i_tree]
+opt-level = 3
+[profile.dev.package.i_key_sort]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 strip = true

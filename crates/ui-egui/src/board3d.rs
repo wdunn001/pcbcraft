@@ -106,14 +106,19 @@ impl View3d {
     /// A view whose converted models are cached below the session's settings
     /// folder; with no folder the cache stays in memory.
     pub(crate) fn for_config(config: &pcbcraft_engine::user_config::UserConfig) -> Self {
-        let mut view = Self::default();
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(folder) = config.folder() {
-            view.models = ModelCache::with_disk_dir(Some(folder.join("models")));
+        {
+            let mut view = Self::default();
+            if let Some(folder) = config.folder() {
+                view.models = ModelCache::with_disk_dir(Some(folder.join("models")));
+            }
+            view
         }
         #[cfg(target_arch = "wasm32")]
-        let _ = config;
-        view
+        {
+            let _ = config;
+            Self::default()
+        }
     }
 }
 

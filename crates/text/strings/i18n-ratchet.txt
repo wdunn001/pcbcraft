@@ -18,5 +18,5 @@ literals | via_span.rs | 13
 missing | de | 758
 missing | es | 1917
 missing | fr | 758
-unused | keys | 253
+unused | keys | 83
 concatenation | library_dock.rs | 1

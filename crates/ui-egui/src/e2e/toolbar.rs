@@ -110,3 +110,20 @@ fn a_newcomer_arms_via_and_keepout_from_the_tool_bar() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_arms_the_power_port_tool_on_the_schematic() -> Result<(), String> {
+    let (ctx, mut app) = layout_page();
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "icon:tool-power")?;
+    assert!(
+        matches!(
+            app.tool,
+            Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power)
+        ),
+        "the Power tool is armed: {}",
+        app.message
+    );
+    Ok(())
+}

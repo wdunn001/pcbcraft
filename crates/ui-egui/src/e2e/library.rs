@@ -1081,35 +1081,22 @@ fn waits_for_collections(ctx: &egui::Context, app: &mut App) -> Result<(), Strin
 }
 
 /// Keeps the folder list of a story away from the real user configuration:
-/// holds the shared test lock and points the list at a file of its own.
+/// the session reads and writes its settings in a folder of its own.
 struct OwnSources {
-    _turn: std::sync::MutexGuard<'static, ()>,
-    file: std::path::PathBuf,
+    config: pcbcraft_engine::user_config::UserConfig,
+    folder: std::path::PathBuf,
 }
 
 impl OwnSources {
     fn take(name: &str) -> Result<Self, String> {
-        let turn = pcbcraft_engine::library::SOURCES_TEST_LOCK
-            .lock()
-            .map_err(|_| "source test lock unavailable")?;
-        let file = std::env::temp_dir().join(format!(
-            "pcbcraft-e2e-sources-{name}-{}.json",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_file(&file);
-        *pcbcraft_engine::library::SOURCES_PATH_TEST
-            .lock()
-            .map_err(|_| "source path slot unavailable")? = Some(file.clone());
-        Ok(Self { _turn: turn, file })
+        let (config, folder) = private_config(name)?;
+        Ok(Self { config, folder })
     }
 }
 
 impl Drop for OwnSources {
     fn drop(&mut self) {
-        if let Ok(mut slot) = pcbcraft_engine::library::SOURCES_PATH_TEST.lock() {
-            *slot = None;
-        }
-        let _ = std::fs::remove_file(&self.file);
+        let _ = std::fs::remove_dir_all(&self.folder);
     }
 }
 
@@ -1117,7 +1104,7 @@ fn libraries_page(
     name: &str,
 ) -> Result<(OwnSources, pcbcraft_mcp::SharedSession, App, egui::Context), String> {
     let own = OwnSources::take(name)?;
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let shared = session_with(&own.config);
     let mut app = App::create(shared.clone(), Preferences::default(), None, None);
     app.refresh();
     let ctx = egui::Context::default();
@@ -1263,5 +1250,22 @@ fn a_newcomer_saves_a_collection_file_and_loads_it_back() -> Result<(), String> 
     );
     drop(session);
     let _ = std::fs::remove_file(&file);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_switches_the_collection_between_symbols_and_footprints_and_names_an_export_folder()
+-> Result<(), String> {
+    let (_own, _shared, mut app, ctx) = libraries_page("kinds")?;
+    tap_id(&ctx, &mut app, "button:Footprints")?;
+    tap_id(&ctx, &mut app, "button:Symbols")?;
+    let folder = std::env::temp_dir().join(format!("pcbcraft-fp-export-{}", std::process::id()));
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Footprint export folder",
+        &folder.to_string_lossy(),
+    )?;
+    let _ = std::fs::remove_dir_all(&folder);
     Ok(())
 }

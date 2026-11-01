@@ -30,15 +30,23 @@ fn stamp_part_numbers(app: &mut App) {
         .iter()
         .map(|c| (c.id, c.value.clone()))
         .collect();
-    for (id, value) in parts {
-        let slug: String = value
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric())
-            .collect();
-        app.tool_call(
-            "component.field",
-            json!({"id": id, "key": "MPN", "value": format!("MP-{slug}")}),
-        );
+    // One batch per 100 parts: every single tool call re-runs the checks and the
+    // pour fill of the whole board, which is far too slow for a board this size.
+    let commands: Vec<Value> = parts
+        .into_iter()
+        .map(|(id, value)| {
+            let slug: String = value
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .collect();
+            json!({
+                "command": "component.field",
+                "params": {"id": id, "key": "MPN", "value": format!("MP-{slug}")}
+            })
+        })
+        .collect();
+    for chunk in commands.chunks(100) {
+        app.tool_call("batch", json!({"commands": chunk}));
     }
 }
 

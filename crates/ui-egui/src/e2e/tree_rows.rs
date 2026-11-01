@@ -228,3 +228,35 @@ fn a_newcomer_opens_and_closes_the_branches_of_the_layout_tree() -> Result<(), S
     }
     Ok(())
 }
+
+#[test]
+fn a_newcomer_hides_and_locks_each_copper_layer_and_reopens_the_tracks_branch() -> Result<(), String>
+{
+    let (ctx, mut app) = practice(Tab::Pcb);
+    flip_each(
+        &ctx,
+        &mut app,
+        &[
+            (
+                "button:Hide Layer # \u{b7} Top",
+                "button:Show Layer # \u{b7} Top",
+            ),
+            (
+                "button:Hide Layer # \u{b7} Bottom",
+                "button:Show Layer # \u{b7} Bottom",
+            ),
+            (
+                "button:Lock Layer # \u{b7} Top",
+                "button:Unlock Layer # \u{b7} Top",
+            ),
+            (
+                "button:Lock Layer # \u{b7} Bottom",
+                "button:Unlock Layer # \u{b7} Bottom",
+            ),
+            // Closed, then opened again: both faces of the chevron are pressed.
+            ("button:Collapse Tracks", "button:Expand Tracks"),
+            ("button:Expand Tracks", "button:Collapse Tracks"),
+        ],
+    )?;
+    Ok(())
+}

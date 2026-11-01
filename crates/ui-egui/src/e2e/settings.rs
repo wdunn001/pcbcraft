@@ -644,3 +644,14 @@ fn a_missing_font_file_keeps_the_app_usable_and_says_so() -> Result<(), String> 
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_opens_the_design_setup_wizard_from_settings() -> Result<(), String> {
+    let mut app = fresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "button:Open design setup wizard")?;
+    assert!(app.setup_wizard.open, "the wizard opens: {}", app.message);
+    Ok(())
+}

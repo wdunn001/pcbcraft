@@ -216,3 +216,48 @@ fn a_newcomer_opens_a_project_from_the_open_page() -> Result<(), String> {
     assert_eq!(app.path, files[1], "the typed project opens");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_walks_the_files_tab_from_recent_to_close() -> Result<(), String> {
+    let recents = IsolatedRecents::new()?;
+    let (ctx, mut app, _) = files_tab(&recents)?;
+    for (control, page) in [
+        ("button:Import", files_home::Page::Import),
+        ("button:Open…", files_home::Page::Open),
+        ("button:Recent", files_home::Page::Recent),
+    ] {
+        tap_id(&ctx, &mut app, control)?;
+        assert_eq!(app.files_home.page, page, "{control} opens its page");
+    }
+    tap_id(&ctx, &mut app, "tab:Details")?;
+    tap_id(&ctx, &mut app, "tab:Project")?;
+    tap_id(&ctx, &mut app, "button:Preferences…")?;
+    assert_eq!(app.tab, Tab::Settings, "Preferences opens the Settings tab");
+    app.change_tab(Tab::Files);
+    tap_id(&ctx, &mut app, "button:New project")?;
+    app.change_tab(Tab::Files);
+    tap_id(&ctx, &mut app, "button:Close project")?;
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_with_no_recent_projects_is_offered_to_open_one() -> Result<(), String> {
+    let recents = IsolatedRecents::new()?;
+    let mut app = App::create(
+        session_with(&recents.config),
+        Preferences::default(),
+        None,
+        None,
+    );
+    app.refresh();
+    app.change_tab(Tab::Files);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "button:Open a project")?;
+    assert_eq!(
+        app.files_home.page,
+        files_home::Page::Open,
+        "the empty list sends the person to the folder browser"
+    );
+    Ok(())
+}

@@ -329,13 +329,25 @@ pub fn segmented_styled(
     if outer.has_focus() {
         focus::paint_ring(ui.painter(), track, theme::RADIUS_CONTROL, &t);
     }
+    let mut over: Option<(Response, &str)> = None;
     for (i, (rect, item)) in rects.iter().zip(items).enumerate() {
-        let tip = segment_tip(item);
-        let hover = ui.interact(*rect, id.with(i), Sense::hover());
+        let hover = ui.interact(*rect, id.with(("segment", i)), Sense::hover());
         if hover.hovered() {
-            hover.on_hover_text(tip);
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            over = Some((hover, segment_tip(item)));
         }
+    }
+    // The group itself carries the tip, so a reader that hovers the whole track
+    // (the middle of it, or one segment) gets the words of the segment under the
+    // pointer, or of the one shown when the pointer is between them.
+    if outer.hovered() {
+        let tip = over
+            .as_ref()
+            .map_or_else(|| segment_tip(&items[*selected]), |(_, tip)| tip);
+        return outer.on_hover_text(tip);
+    }
+    if let Some((hover, tip)) = over {
+        hover.on_hover_text(tip);
     }
     outer
 }
