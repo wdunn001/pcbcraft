@@ -203,6 +203,17 @@ jobs:
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: trunk
+      # Trunk downloads wasm-opt into its tool cache on first use, and that
+      # download times out now and then. Restore the cache instead; the key is
+      # the version pinned in apps/pcbcraft-web/Trunk.toml.
+      - name: Read the pinned wasm-opt version
+        id: wasm-opt
+        run: echo "version=$(sed -n 's/^wasm_opt *= *"\(.*\)"/\1/p' apps/pcbcraft-web/Trunk.toml)" >> "$GITHUB_OUTPUT"
+      - name: Restore the trunk tool cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trunk
+          key: trunk-tools-${{ runner.os }}-${{ steps.wasm-opt.outputs.version }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: wasm
