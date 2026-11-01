@@ -20,7 +20,7 @@ Click the **Layout** tab.
 ## Read the counts
 
 1. Look at the right end of the status strip at the bottom of the window.
-2. It shows the number of errors and warnings. This example shows 1 error and 2 warnings.
+2. It shows the number of errors and warnings. The sample board shows 0 errors and 3 warnings.
 
 ## Open the findings
 
@@ -28,7 +28,7 @@ Click the **Layout** tab.
 2. Click **Findings**, or open **View** and pick **Checks**. The panel opens.
 3. Read the list. Each row has a coloured dot and a message.
 
-   ![The Findings panel. Two rows say LED0_A and LED1_A have disconnected copper islands. A third row says text HOT covers a pad of TP1. Each row has Show, Hide and Mute buttons. Run checks and a filter sit above.](../../../../assets/guide/checks-sheet.png)
+   ![The Findings panel. Three rows say VCC, LED and GND have disconnected copper islands. Each row has Show, Hide and Mute buttons.](../../../../assets/guide/checks-sheet.png)
 
 The dot shows how serious a finding is. An error must be fixed before the board is built. A warning is worth a look. A note is for information.
 

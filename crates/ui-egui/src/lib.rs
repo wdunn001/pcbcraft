@@ -7733,6 +7733,8 @@ impl App {
             && library_ready
             && self.online_settled()
             && self.edit.dialog.script.ready()
+            // A staged dialog fades in; wait until it is fully drawn.
+            && (self.edit.dialog.script.show.is_none() || self.frames >= 30)
             && (self.tab != Tab::Files || self.files_home.settled(&self.files_listed()))
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));

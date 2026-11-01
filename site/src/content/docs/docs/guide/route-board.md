@@ -16,7 +16,7 @@ Open the sample with `cargo run -p pcbcraft -- --sample`. Click the **Layout** t
 1. Look at the board. Three parts sit on a 60 by 40 mm board.
 2. Dashed lines join pads of the same net. They are labelled VCC, LED and GND.
 
-   ![The Layout tab with the Layers tree at the left. The board holds J1, R1 and D1. Dashed lines labelled VCC, LED and GND join their pads.](../../../../assets/guide/board-unrouted.png)
+   ![The board on the Layout tab. J1, R1 and D1 sit on a 60 by 40 mm outline. Dashed lines labelled VCC, LED and GND join their pads.](../../../../assets/guide/board-unrouted.png)
 
 ## Pick the layer and the corners
 
@@ -31,7 +31,7 @@ The status strip shows the active layer, for example Layer 1 of 2 · Top copper.
 2. Click the first pad.
 3. Click the second pad of the same net.
 
-   ![The tool strip on the Layout tab: Select, Move, Route, Via, Keepout, drawing tools, Cutout and Mounting hole, then More and the Corners switch.](../../../../assets/guide/board-tools.png)
+   ![The tool strip on the Layout tab: Select, Move, Route, Via, Keepout, Line, Box, Circle, Outline, Text, Draw shape, Cutout, Mounting hole, Assembly mark and Measure.](../../../../assets/guide/board-tools.png)
 
 You can also press on the first pad and drag to the second pad. If you release off a pad, the app says the route is cancelled and changes nothing.
 
@@ -46,7 +46,7 @@ You can also right-click a pad and pick **Start route**.
 
 The Showcase board has a finished route. Open it with `cargo run -p pcbcraft -- --project examples/showcase.pcbcraft`.
 
-![The Layout tab of the Showcase board. Orange tracks on the top layer and blue tracks on the bottom layer join the parts across a 72 by 60 mm board.](../../../../assets/guide/board-routed.png)
+![The Showcase board on the Layout tab. Orange tracks on the top layer and blue tracks on the bottom layer join the parts across a 72 by 60 mm board.](../../../../assets/guide/board-routed.png)
 
 Top copper is orange and bottom copper is blue. The Layers tree lists each net with its item count.
 
