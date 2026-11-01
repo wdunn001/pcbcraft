@@ -281,6 +281,21 @@ mod tests {
             rise_time: Some(1e-9),
             nets: vec![1, 2],
             profile: None,
+            backdrill: Default::default(),
+            corner_radius: Default::default(),
+            current: Default::default(),
+            fast: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            max_vias: Default::default(),
+            min_radius: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
         });
         p.validate().expect("valid fixture");
         p

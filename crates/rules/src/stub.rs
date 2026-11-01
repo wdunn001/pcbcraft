@@ -369,10 +369,9 @@ mod tests {
                 offset: Point::default(),
                 diameter: 1.0,
                 net: Some(1),
-                castellated: None,
                 geometry: None,
+                castellated: Default::default(),
             }],
-            preserved: pcbcraft_doc::PreservedSource::default(),
         });
     }
     fn track(p: &mut Project, id: Id, a: Point, b: Point) {
@@ -382,10 +381,9 @@ mod tests {
             net: 1,
             start: a,
             end: b,
-            width: 0.25,
             layer: Layer::Front,
             arc: None,
-            preserved: pcbcraft_doc::PreservedSource::default(),
+            width: Default::default(),
         });
     }
     /// A 20 mm run from a pad at x=10 to a pad at x=30 with a junction at x=20.
@@ -432,6 +430,9 @@ mod tests {
             return_path_rule: None,
             backdrill: Default::default(),
             fast: Default::default(),
+            corner_radius: Default::default(),
+            min_radius: Default::default(),
+            rise_time: Default::default(),
         });
         p.validate()
     }

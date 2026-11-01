@@ -1,8 +1,8 @@
 use super::{
-    is_unknown, load_list_snapshot, load_rule_set, push_hit, ComplianceFinding,
-    ComplianceRuleSpec,
+    ComplianceFinding, ComplianceRuleSpec, declaration_of, is_unknown, load_failure,
+    load_list_snapshot, load_rule_set, push_hit,
 };
-use pcbcraft_doc::{ComplianceStatus, Project};
+use pcbcraft_doc::{ComplianceListSnapshot, DeclarationStatus, PartRole, Project};
 use std::collections::BTreeSet;
 
 pub const RESPONSIBLE_SOURCING_RULE_SET: &str =
@@ -16,16 +16,12 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
     let set = match load_rule_set(RESPONSIBLE_SOURCING_RULE_SET) {
         Ok(s) => s,
         Err(e) => {
-            return vec![ComplianceFinding {
-                code: "responsible_sourcing_load".into(),
-                state: "hit".into(),
-                severity: "warning".into(),
-                message: format!("Responsible sourcing rule set failed to load: {e}"),
-                rule: "responsible_sourcing".into(),
-                evidence: e,
-                citation: "PCBCraft bundled compliance data".into(),
-                objects: vec![],
-            }];
+            return vec![load_failure(
+                "responsible_sourcing",
+                "Responsible sourcing",
+                "warning",
+                e,
+            )];
         }
     };
     let prop65 = load_list_snapshot(PROP65_LIST).ok();
@@ -93,12 +89,7 @@ fn manufacturer_needs_emrt(project: &Project, manufacturer: &str) -> bool {
         if component.field("Manufacturer") != Some(manufacturer) {
             continue;
         }
-        let role = project
-            .compliance_by_component
-            .get(&component.id)
-            .and_then(|c| c.role.as_deref())
-            .unwrap_or("");
-        if role == "battery" {
+        if component.compliance.role == Some(PartRole::Battery) {
             return true;
         }
     }
@@ -170,31 +161,25 @@ fn scoped_declaration(
         if !component.in_bom() {
             continue;
         }
-        let role = project
-            .compliance_by_component
-            .get(&component.id)
-            .and_then(|c| c.role.as_deref())
-            .unwrap_or("");
-        if role != rule.role {
+        let Some(role) = component.compliance.role else {
+            continue;
+        };
+        if !role.token().eq_ignore_ascii_case(&rule.role) {
             continue;
         }
-        let comp = match project.compliance_by_component.get(&component.id) {
-            Some(c) => c,
+        if component.compliance.is_empty() {
+            push_scoped_unknown(
+                out,
+                rule,
+                component.id,
+                &component.reference,
+                rule_as_of,
+                "no compliance record",
+            );
+            continue;
+        }
+        match declaration_of(component, &rule.regime) {
             None => {
-                push_scoped_unknown(
-                    out,
-                    rule,
-                    component.id,
-                    &component.reference,
-                    rule_as_of,
-                    "no compliance record",
-                );
-                continue;
-            }
-        };
-        let decl = comp.declaration_for(&rule.regime);
-        match decl {
-            None | Some(d) if is_unknown(d) => {
                 push_scoped_unknown(
                     out,
                     rule,
@@ -204,7 +189,17 @@ fn scoped_declaration(
                     "PFAS status unknown",
                 );
             }
-            Some(d) if d.status == ComplianceStatus::DeclaredNoncompliant => {
+            Some(d) if is_unknown(&d) => {
+                push_scoped_unknown(
+                    out,
+                    rule,
+                    component.id,
+                    &component.reference,
+                    rule_as_of,
+                    "PFAS status unknown",
+                );
+            }
+            Some(d) if d.status == DeclarationStatus::DeclaredNoncompliant => {
                 push_hit(
                     out,
                     rule,
@@ -248,13 +243,14 @@ fn push_scoped_unknown(
         evidence: format!("Part {reference}: {evidence} (rule file date {rule_as_of})."),
         citation: rule.citation.clone(),
         objects: vec![component_id],
+        manufacturer: None,
     });
 }
 
 fn listed_substance(
     project: &Project,
     rule: &ComplianceRuleSpec,
-    list: Option<&super::ListSnapshot>,
+    list: Option<&ComplianceListSnapshot>,
     out: &mut Vec<ComplianceFinding>,
 ) {
     let Some(list) = list else {
@@ -264,10 +260,7 @@ fn listed_substance(
         if !component.in_bom() {
             continue;
         }
-        let Some(comp) = project.compliance_by_component.get(&component.id) else {
-            continue;
-        };
-        for substance in &comp.substances {
+        for substance in &component.compliance.substances {
             let Some(entry) = list.substances.iter().find(|e| {
                 substance_matches(substance, &e.name, &e.cas)
             }) else {
@@ -275,7 +268,7 @@ fn listed_substance(
             };
             let evidence = format!(
                 "declared {} matches list snapshot {} (retrieved {})",
-                substance.name, list.version, list.retrieved
+                substance.name, list.version, list.retrieved_date
             );
             let message = if rule.message_hit.is_empty() {
                 format!(
@@ -302,10 +295,8 @@ fn substance_matches(
     entry_name: &str,
     entry_cas: &str,
 ) -> bool {
-    if let Some(cas) = &declared.cas {
-        if !cas.is_empty() && cas.eq_ignore_ascii_case(entry_cas) {
-            return true;
-        }
+    if !declared.cas.is_empty() && declared.cas.eq_ignore_ascii_case(entry_cas) {
+        return true;
     }
     normalize_substance_name(&declared.name) == normalize_substance_name(entry_name)
 }
@@ -320,7 +311,7 @@ fn normalize_substance_name(name: &str) -> String {
 fn push_manufacturer(
     out: &mut Vec<ComplianceFinding>,
     rule: &ComplianceRuleSpec,
-    _manufacturer: &str,
+    manufacturer: &str,
     state: &str,
     severity: &str,
     message: &str,
@@ -335,5 +326,6 @@ fn push_manufacturer(
         evidence: evidence.to_string(),
         citation: rule.citation.clone(),
         objects: vec![],
+        manufacturer: Some(manufacturer.to_string()),
     });
 }

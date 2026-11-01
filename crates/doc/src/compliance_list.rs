@@ -36,7 +36,7 @@ fn valid_slug(id: &str) -> bool {
         && id.len() <= MAX_ID_LEN
         && id
             .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
 }
 
 fn bounded(s: &str, max: usize) -> bool {
@@ -83,6 +83,22 @@ pub struct ComplianceListSubstanceEntry {
     pub name: String,
     #[serde(default, rename = "added")]
     pub added_date: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub citation: String,
+}
+
+/// One regulatory exemption with an expiry date, for lists such as RoHS Annex III.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ComplianceListExemption {
+    pub number: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// Calendar date the exemption ends, `YYYY-MM-DD`; empty means no end date.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub expires: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub citation: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -100,10 +116,16 @@ pub struct ComplianceListSnapshot {
     pub licence: String,
     #[serde(default)]
     pub cadence_days: u32,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Version label of the source list, such as `2026-03`; empty when the
+    /// source has none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version: String,
+    #[serde(default, alias = "entries", skip_serializing_if = "Vec::is_empty")]
     pub entities: Vec<ComplianceListEntityEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub substances: Vec<ComplianceListSubstanceEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exemptions: Vec<ComplianceListExemption>,
 }
 
 impl ComplianceListEntityEntry {
@@ -222,6 +244,14 @@ impl ComplianceListSnapshot {
             }
         }
         Ok(())
+    }
+
+    /// True when exemption `number` is on the list and has not ended by `today`.
+    pub fn exemption_active(&self, number: &str, today: &str) -> bool {
+        self.exemptions
+            .iter()
+            .find(|e| e.number.eq_ignore_ascii_case(number.trim()))
+            .is_some_and(|e| e.expires.is_empty() || today <= e.expires.as_str())
     }
 
     /// True when bundled metadata is complete enough to ship.

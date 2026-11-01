@@ -258,7 +258,6 @@ mod tests {
                 geometry: None,
             }],
         
-            preserved: pcbcraft_doc::PreservedSource::default(),
 });
         p
     }

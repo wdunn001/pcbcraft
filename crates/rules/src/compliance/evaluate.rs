@@ -14,7 +14,8 @@ pub fn evaluate_ruleset(project: &Project, set: &ComplianceRuleSet) -> Vec<Compl
         match rule.kind.as_str() {
             "declaration_required" => declaration_required(project, rule, &mut out),
             "declaration_fresh" => declaration_fresh(project, rule, &mut out),
-            "entity_list" => entity_list(project, rule, &mut out),
+            "entity_list" => super::us_government::entity_list_rule(project, rule, &mut out),
+            "silicon_vendor" => super::us_government::silicon_vendor_rule(project, rule, &mut out),
             "origin" => origin_rule(project, rule, &mut out),
             "attribute_limit" => attribute_limit(project, rule, &mut out),
             "classification_report" => classification_report(project, rule, &mut out),
@@ -79,16 +80,7 @@ fn declaration_fresh(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec
         if !role_applies(rule, component) {
             continue;
         }
-        let Some(decl) = component
-            .compliance
-            .declaration_for(&rule.regime)
-            .or_else(|| {
-                component
-                    .effective_declarations()
-                    .into_iter()
-                    .find(|d| d.regime.trim().eq_ignore_ascii_case(rule.regime.trim()))
-            })
-        else {
+        let Some(decl) = super::declaration_of(component, &rule.regime) else {
             continue;
         };
         if decl.status == DeclarationStatus::Unknown {
@@ -130,61 +122,6 @@ fn declaration_fresh(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec
         } else if decl.status == DeclarationStatus::DeclaredExempt {
             push_declared_ok(out, rule, component, "declaration exempt and fresh");
         }
-    }
-}
-
-fn entity_list(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
-    let Ok(snapshot) = load_bundled_list(&rule.list) else {
-        return;
-    };
-    let entry_filter = if rule.entry_type.is_empty() {
-        None
-    } else {
-        Some(rule.entry_type.as_str())
-    };
-    let list_stale = snapshot.stale_for_cadence(EVAL_DAY);
-    for component in &project.components {
-        if !role_applies(rule, component) {
-            continue;
-        }
-        let Some(maker) = component_manufacturer(component) else {
-            push_unverified(
-                out,
-                rule,
-                component,
-                &message_or_default(
-                    &rule.message_unverified,
-                    "Manufacturer is unknown for this entity list check.",
-                ),
-            );
-            continue;
-        };
-        let resolved = project
-            .resolve_manufacturer(maker)
-            .map(|r| r.name.as_str())
-            .unwrap_or(maker);
-        let Some(entity_match) = match_entity_name(&snapshot, resolved, entry_filter) else {
-            continue;
-        };
-        let mut evidence = format!(
-            "list {} retrieved {}, entry {}",
-            snapshot.id, snapshot.retrieved_date, entity_match.entry_name
-        );
-        if list_stale {
-            evidence.push_str(&format!(
-                " (snapshot past its {}-day cadence as of {EVAL_DAY})",
-                snapshot.cadence_days
-            ));
-        }
-        let state = if list_stale { "stale" } else { "hit" };
-        push_finding(
-            out,
-            rule,
-            component,
-            state,
-            &message_or_default(&rule.message_hit, "Manufacturer matches a list entry."),
-            &evidence,
-        );
     }
 }
 
@@ -278,7 +215,7 @@ fn classification_report(project: &Project, rule: &ComplianceRuleSpec, out: &mut
     }
 }
 
-fn role_applies(rule: &ComplianceRuleSpec, component: &Component) -> bool {
+pub(super) fn role_applies(rule: &ComplianceRuleSpec, component: &Component) -> bool {
     let roles: Vec<&str> = if rule.roles.is_empty() {
         if rule.role.is_empty() {
             return true;
@@ -303,18 +240,7 @@ fn part_role_matches(want: &str, role: PartRole) -> bool {
 }
 
 fn snake_case_role(role: PartRole) -> String {
-    match role {
-        PartRole::FlightController => "flight_controller".into(),
-        PartRole::Esc => "esc".into(),
-        PartRole::RadioLink => "radio_link".into(),
-        PartRole::Camera => "camera".into(),
-        PartRole::Gimbal => "gimbal".into(),
-        PartRole::Gnss => "gnss".into(),
-        PartRole::Battery => "battery".into(),
-        PartRole::Motor => "motor".into(),
-        PartRole::CompanionComputer => "companion_computer".into(),
-        PartRole::Other => "other".into(),
-    }
+    role.token().to_owned()
 }
 
 fn component_manufacturer(component: &Component) -> Option<&str> {

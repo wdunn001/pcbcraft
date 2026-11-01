@@ -1,9 +1,9 @@
 use super::{
-    exemption_number, finish_is_leaded, is_exempt, is_unknown, list_version_stale,
-    load_list_snapshot, load_rule_set, push_board_hit, push_hit, push_stale, push_unverified,
-    ComplianceFinding, ComplianceRuleSpec,
+    ComplianceFinding, ComplianceRuleSpec, declaration_of, exemption_number, finish_is_leaded,
+    is_exempt, is_unknown, list_version_stale, load_failure, load_list_snapshot, load_rule_set,
+    push_board_hit, push_hit, push_stale, push_unverified,
 };
-use pcbcraft_doc::{ComplianceStatus, Project};
+use pcbcraft_doc::{ComplianceListSnapshot, DeclarationStatus, Project};
 
 pub const EU_MARKET_RULE_SET: &str = include_str!("../../data/compliance/rulesets/eu_market.toml");
 const REACH_LIST: &str = include_str!("../../data/compliance/lists/reach_svhc_candidate.toml");
@@ -16,16 +16,7 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
     let set = match load_rule_set(EU_MARKET_RULE_SET) {
         Ok(s) => s,
         Err(e) => {
-            return vec![ComplianceFinding {
-                code: "eu_market_load".into(),
-                state: "hit".into(),
-                severity: "error".into(),
-                message: format!("EU market rule set failed to load: {e}"),
-                rule: "eu_market".into(),
-                evidence: e,
-                citation: "PCBCraft bundled compliance data".into(),
-                objects: vec![],
-            }];
+            return vec![load_failure("eu_market", "EU market", "error", e)];
         }
     };
     let reach = load_list_snapshot(REACH_LIST).ok();
@@ -58,7 +49,7 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
             if finding.rule.contains("reach") {
                 finding.evidence.push_str(&format!(
                     " (REACH snapshot retrieved {} is past its {}-day cadence.)",
-                    reach.retrieved, reach.cadence_days
+                    reach.retrieved_date, reach.cadence_days
                 ));
             }
         }
@@ -77,19 +68,12 @@ fn declaration_required(project: &Project, rule: &ComplianceRuleSpec, out: &mut 
             msg.push(' ');
             msg.push_str(&rule.message_reference);
         }
-        let comp = match project.compliance_by_component.get(&component.id) {
-            Some(c) => c,
-            None => {
-                push_unverified(out, rule, component.id, &component.reference, &msg);
-                continue;
-            }
-        };
-        let decl = comp.declaration_for(&rule.regime);
-        match decl {
-            None | Some(d) if is_unknown(d) => {
+        match declaration_of(component, &rule.regime) {
+            None => push_unverified(out, rule, component.id, &component.reference, &msg),
+            Some(d) if is_unknown(&d) => {
                 push_unverified(out, rule, component.id, &component.reference, &msg);
             }
-            Some(d) if d.status == ComplianceStatus::DeclaredNoncompliant => {
+            Some(d) if d.status == DeclarationStatus::DeclaredNoncompliant => {
                 push_hit(
                     out,
                     rule,
@@ -107,23 +91,20 @@ fn declaration_required(project: &Project, rule: &ComplianceRuleSpec, out: &mut 
 fn declaration_fresh(
     project: &Project,
     rule: &ComplianceRuleSpec,
-    reach: Option<&super::ListSnapshot>,
-    rohs_ex: Option<&super::ListSnapshot>,
+    reach: Option<&ComplianceListSnapshot>,
+    rohs_ex: Option<&ComplianceListSnapshot>,
     out: &mut Vec<ComplianceFinding>,
 ) {
     for component in &project.components {
-        let Some(comp) = project.compliance_by_component.get(&component.id) else {
+        let Some(decl) = declaration_of(component, &rule.regime) else {
             continue;
         };
-        let Some(decl) = comp.declaration_for(&rule.regime) else {
-            continue;
-        };
-        if rule.status == "declared_exempt" && !is_exempt(decl) {
+        if rule.status == "declared_exempt" && !is_exempt(&decl) {
             continue;
         }
         if rule.list == "rohs_exemptions" {
             let Some(list) = rohs_ex else { continue };
-            let Some(number) = exemption_number(decl) else {
+            let Some(number) = exemption_number(&decl) else {
                 push_stale(
                     out,
                     rule,
@@ -147,7 +128,7 @@ fn declaration_fresh(
         }
         if rule.list == "reach_svhc_candidate" {
             let Some(list) = reach else { continue };
-            if list_version_stale(&decl.detail, &list.version, &list.retrieved, decl.as_of.as_deref())
+            if list_version_stale(&decl.detail, &list.version, &list.retrieved_date, &decl.as_of)
             {
                 push_stale(
                     out,
@@ -170,10 +151,7 @@ fn attribute_limit(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<C
         return;
     }
     for component in &project.components {
-        let Some(comp) = project.compliance_by_component.get(&component.id) else {
-            continue;
-        };
-        for substance in &comp.substances {
+        for substance in &component.compliance.substances {
             if substance.weight_percent > rule.limit {
                 push_hit(
                     out,
@@ -220,12 +198,11 @@ fn board_finish(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<Comp
 
 fn classification_report(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
     for component in &project.components {
-        let role = project
-            .component_compliance
-            .get(&component.id)
-            .and_then(|c| c.role.as_deref())
-            .unwrap_or("");
-        if role != rule.role {
+        let Some(role) = component.compliance.role else {
+            continue;
+        };
+        let role = role.token();
+        if !role.eq_ignore_ascii_case(&rule.role) {
             continue;
         }
         push_hit(

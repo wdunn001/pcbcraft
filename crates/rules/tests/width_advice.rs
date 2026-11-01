@@ -61,6 +61,7 @@ fn advice_matches_the_published_example_values() -> T {
         width: 0.5,
         layer: Layer::Front,
         arc: None,
+        preserved: Default::default(),
     });
     let advice = width_advice(&p, 1).ok_or("advice when current is set")?;
     assert_eq!(advice.method, "ipc2221");
@@ -107,6 +108,7 @@ fn no_current_gives_no_advice() -> T {
         width: 0.2,
         layer: Layer::Front,
         arc: None,
+        preserved: Default::default(),
     });
     assert!(width_advice(&p, 1).is_none());
     Ok(())
@@ -130,6 +132,7 @@ fn a_narrow_track_gets_a_warning_not_an_error() -> T {
         width: 0.15,
         layer: Layer::Front,
         arc: None,
+        preserved: Default::default(),
     });
     let findings: Vec<_> = drc(&p)
         .into_iter()

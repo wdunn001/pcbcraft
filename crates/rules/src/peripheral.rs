@@ -323,6 +323,8 @@ mod tests {
             compliance: Default::default(),
             part: None,
             sourcing: Default::default(),
+            instance: Default::default(),
+            prototype: Default::default(),
         });
         project.nets.push(Net {
             id: 10,

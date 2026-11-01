@@ -765,7 +765,8 @@ pub fn companion_findings(project: &Project) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Net, Pin, Point};
+    use pcbcraft_doc::{Net, Pin};
+    use pcbcraft_geom::Point;
 
     fn pin(num: &str, net: Option<Id>, electrical_type: &str) -> Pin {
         Pin {
@@ -797,6 +798,8 @@ mod tests {
             compliance: Default::default(),
             part: None,
             sourcing: Default::default(),
+            instance: Default::default(),
+            prototype: Default::default(),
         }
     }
 

@@ -315,6 +315,8 @@ mod tests {
             compliance: Default::default(),
             part: None,
             sourcing: Default::default(),
+            instance: Default::default(),
+            prototype: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: 20,
@@ -353,6 +355,8 @@ mod tests {
             compliance: Default::default(),
             part: None,
             sourcing: Default::default(),
+            instance: Default::default(),
+            prototype: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: 21,
@@ -382,7 +386,7 @@ mod tests {
                     raw_source: String::new(),
                 }),
             }],
-            ..Default::default()
+            preserved: Default::default(),
         });
         p.validate()?;
         let report = coverage_report(&p)?;

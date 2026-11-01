@@ -293,7 +293,8 @@ pub(crate) fn impedance_target_findings(project: &Project) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{DiffPair, Net, Point};
+    use pcbcraft_doc::{DiffPair, Net};
+    use pcbcraft_geom::Point;
 
     fn codes(p: &Project) -> Vec<&'static str> {
         impedance_target_findings(p)
@@ -360,7 +361,7 @@ mod tests {
         p.nets.push(Net {
             id: 1,
             name: "SIG".into(),
-            target_impedance: Some(50.0),
+            impedance_target: Some(50.0),
             impedance_tolerance_pct: Some(10.0),
             ..Default::default()
         });
@@ -401,7 +402,7 @@ mod tests {
     #[test]
     fn differential_pair_wrong_gap_flags() -> Result<(), String> {
         let mut p = four_layer_stack();
-        p.nets[0].target_impedance = Some(100.0);
+        p.nets[0].impedance_target = Some(100.0);
         p.nets.push(Net {
             id: 2,
             name: "SIGN".into(),
@@ -418,6 +419,9 @@ mod tests {
             equal_vias: Default::default(),
             impedance_tolerance: Default::default(),
             max_uncoupled_length: Default::default(),
+            skew_limit_mm: Default::default(),
+            skew_limit_ps: Default::default(),
+            target_impedance: Default::default(),
         });
         let width = 0.3;
         for (id, y) in [(10, 10.0), (11, 10.0 + width + 0.15)] {
@@ -442,7 +446,7 @@ mod tests {
     #[test]
     fn no_target_means_no_report() -> Result<(), String> {
         let mut p = four_layer_stack();
-        p.nets[0].target_impedance = None;
+        p.nets[0].impedance_target = None;
         add_track(&mut p, 10, 0.15);
         p.validate()?;
         assert!(codes(&p).is_empty());

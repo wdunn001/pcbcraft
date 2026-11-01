@@ -58,8 +58,35 @@ pub enum PartRole {
     Battery,
     Motor,
     CompanionComputer,
+    /// Processor, microcontroller or SoC silicon.
+    Processor,
+    /// Memory silicon.
+    Memory,
+    /// Cable, tubing or part made of a fluoropolymer, for PFAS reporting.
+    Fluoropolymer,
     #[default]
     Other,
+}
+
+impl PartRole {
+    /// The snake_case token used in rule files and saved projects.
+    pub fn token(self) -> &'static str {
+        match self {
+            PartRole::FlightController => "flight_controller",
+            PartRole::Esc => "esc",
+            PartRole::RadioLink => "radio_link",
+            PartRole::Camera => "camera",
+            PartRole::Gimbal => "gimbal",
+            PartRole::Gnss => "gnss",
+            PartRole::Battery => "battery",
+            PartRole::Motor => "motor",
+            PartRole::CompanionComputer => "companion_computer",
+            PartRole::Processor => "processor",
+            PartRole::Memory => "memory",
+            PartRole::Fluoropolymer => "fluoropolymer",
+            PartRole::Other => "other",
+        }
+    }
 }
 
 /// One compliance answer for a named regime.
@@ -108,12 +135,22 @@ pub struct DeclarationSource {
 }
 
 /// Optional free-form substance note on a part.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DeclaredSubstance {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// CAS registry number, when known.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub cas: String,
+    /// Share of the part's mass in percent; zero when not declared.
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub weight_percent: f64,
+}
+
+fn is_zero_f64(v: &f64) -> bool {
+    *v == 0.0
 }
 
 /// Typed compliance record on one component. Empty records are not saved.
@@ -137,6 +174,10 @@ pub struct Compliance {
     /// Equipment authorisation held for the radio.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub radio_grant: Option<RadioGrant>,
+    /// Name of the silicon vendor, matched against entity lists for covered
+    /// semiconductors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub silicon_vendor: Option<String>,
     /// Country of the silicon vendor, when different from the module maker.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub silicon_vendor_country: Option<String>,
@@ -172,6 +213,21 @@ pub struct ManufacturerRecord {
     pub parent: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub supplier_responsibility_on_file: bool,
+    /// Conflict-minerals reporting template kept on file for this maker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minerals_report: Option<MineralsReportOnFile>,
+}
+
+/// A conflict-minerals reporting template kept on file for one manufacturer.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MineralsReportOnFile {
+    /// Template id, such as `cmrt` or `emrt`.
+    pub template: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub as_of: String,
 }
 
 fn bounded(name: &str, text: &str, max: usize) -> Result<(), String> {
@@ -240,6 +296,9 @@ pub struct ComplianceProjectSettings {
     pub org_role: Option<ComplianceOrgRole>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub target_markets: Vec<String>,
+    /// RoHS exemption number applied at board level when a leaded finish is chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_rohs_exemption: Option<String>,
     /// Whether origin rules read the module maker or the silicon vendor.
     #[serde(default, skip_serializing_if = "is_module_origin")]
     pub origin_interpretation: OriginInterpretation,
@@ -322,6 +381,17 @@ impl Declaration {
     }
 }
 
+impl MineralsReportOnFile {
+    /// True for a known template with a version and, when given, a valid date.
+    pub fn valid(&self) -> bool {
+        let template = self.template.trim();
+        (template == "cmrt" || template == "emrt")
+            && !self.version.trim().is_empty()
+            && self.version.len() <= MAX_COMPLIANCE_TEXT
+            && (self.as_of.is_empty() || valid_date(&self.as_of))
+    }
+}
+
 impl DeclaredSubstance {
     pub fn validate(&self) -> Result<(), String> {
         if self.name.trim().is_empty() {
@@ -338,6 +408,7 @@ impl ComplianceProjectSettings {
         self.rule_sets.is_empty()
             && self.org_role.is_none()
             && self.target_markets.is_empty()
+            && self.board_rohs_exemption.is_none()
             && self.origin_interpretation == OriginInterpretation::Module
             && self.board_assembler_country.is_empty()
     }
@@ -441,6 +512,11 @@ impl ManufacturerRecord {
         }
         if let Some(parent) = &self.parent {
             bounded("manufacturer parent", parent, MAX_MANUFACTURER_NAME)?;
+        }
+        if let Some(report) = &self.minerals_report {
+            if !report.valid() {
+                return Err("minerals report needs template cmrt or emrt, a version and a valid date".into());
+            }
         }
         Ok(())
     }
@@ -643,6 +719,9 @@ pub fn part_role_text(role: PartRole) -> &'static str {
         PartRole::Battery => "battery",
         PartRole::Motor => "motor",
         PartRole::CompanionComputer => "companion computer",
+        PartRole::Processor => "processor",
+        PartRole::Memory => "memory",
+        PartRole::Fluoropolymer => "fluoropolymer",
         PartRole::Other => "other",
     }
 }

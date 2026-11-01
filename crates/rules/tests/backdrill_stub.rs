@@ -47,6 +47,8 @@ fn via(id: Id, span: Option<(u8, u8)>, spec: BackDrill) -> Result<Via, String> {
         to_layer: span.map(|s| Layer::from_index(s.1)).transpose()?,
         covering: None,
         backdrill: Some(spec),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     })
 }
 
@@ -108,6 +110,7 @@ fn a_backdrill_through_a_layer_the_net_uses_is_reported() -> T {
         width: 0.2,
         layer: Layer::from_index(4)?,
         arc: None,
+        preserved: Default::default(),
     });
     assert_eq!(codes(&p, "backdrill_must_not_cut"), vec![7, 8]);
     p.board.tracks[0].layer = Layer::from_index(1)?;

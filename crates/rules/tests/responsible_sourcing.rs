@@ -1,7 +1,13 @@
 use pcbcraft_doc::{
-    Compliance, ComplianceDeclaration, ComplianceSource, ComplianceSourceKind, ComplianceStatus,
-    DeclaredSubstance, ManufacturerRecord, MineralsReportOnFile, Project,
+    Compliance, Declaration, DeclarationSource, DeclarationSourceKind, DeclarationStatus,
+    DeclaredSubstance, ManufacturerRecord, MineralsReportOnFile, PartRole, Project,
 };
+
+fn set_compliance(p: &mut Project, id: u64, compliance: Compliance) {
+    if let Some(c) = p.components.iter_mut().find(|c| c.id == id) {
+        c.compliance = compliance;
+    }
+}
 use pcbcraft_rules::compliance_check;
 
 fn part(id: u64, reference: &str, manufacturer: &str) -> pcbcraft_doc::Component {
@@ -26,16 +32,16 @@ fn a_newcomer_sees_which_suppliers_owe_a_minerals_report() {
     p.components.push(part(1, "R1", "Alpha Parts"));
     p.components.push(part(2, "R2", "Beta Supply"));
     p.manufacturers.push(ManufacturerRecord {
-        id: 10,
         name: "Alpha Parts".into(),
         aliases: vec![],
-        country: None,
+        country: String::new(),
         parent: None,
         minerals_report: Some(MineralsReportOnFile {
             template: "cmrt".into(),
             version: "6.22".into(),
             as_of: "2026-03-01".into(),
         }),
+        supplier_responsibility_on_file: Default::default(),
     });
 
     let findings = compliance_check(&p);
@@ -64,17 +70,15 @@ fn a_listed_prop65_substance_cites_the_bundled_snapshot() {
     let mut p = Project::default();
     p.compliance_settings.rule_sets = vec!["responsible_sourcing".into()];
     p.components.push(part(1, "C1", "Example Co"));
-    p.compliance_by_component.insert(
-        1,
-        Compliance {
+    set_compliance(&mut p, 1, Compliance {
             substances: vec![DeclaredSubstance {
                 name: "Lead".into(),
-                cas: Some("7439-92-1".into()),
+                cas: "7439-92-1".into(),
                 weight_percent: 0.0,
+                note: Default::default(),
             }],
             ..Compliance::default()
-        },
-    );
+        });
 
     let findings = compliance_check(&p);
     let prop65: Vec<_> = findings
@@ -95,25 +99,22 @@ fn fluoropolymer_parts_surface_unknown_pfas_status_as_information() {
     let mut p = Project::default();
     p.compliance_settings.rule_sets = vec!["responsible_sourcing".into()];
     p.components.push(part(1, "W1", "Wire Co"));
-    p.compliance_by_component.insert(
-        1,
-        Compliance {
-            role: Some("fluoropolymer".into()),
-            declarations: vec![ComplianceDeclaration {
+    set_compliance(&mut p, 1, Compliance {
+            role: Some(PartRole::Fluoropolymer),
+            declarations: vec![Declaration {
                 regime: "us.tsca.pfas".into(),
-                status: ComplianceStatus::Unknown,
+                status: DeclarationStatus::Unknown,
                 detail: String::new(),
-                source: ComplianceSource {
-                    kind: ComplianceSourceKind::User,
+                source: DeclarationSource {
+                    kind: DeclarationSourceKind::User,
                     label: "lab".into(),
                     url: None,
                     document_ref: None,
                 },
-                as_of: None,
+                as_of: String::new(),
             }],
             ..Compliance::default()
-        },
-    );
+        });
 
     let findings = compliance_check(&p);
     let pfas: Vec<_> = findings

@@ -1,6 +1,7 @@
 use pcbcraft_doc::{
-    Footprint, Net, Pad, Point, Project, Via, ViaCovering, component_template,
+    Footprint, Net, Pad, Project, Via, ViaCovering, component_template,
 };
+use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintPad;
 use pcbcraft_rules::drc;
 
@@ -42,6 +43,7 @@ fn via_in_pad_board(covering: ViaCovering) -> Result<Project, String> {
                 raw_source: String::new(),
             }),
         }],
+        preserved: Default::default(),
     });
     p.board.vias.push(Via {
         id: 12,
@@ -52,6 +54,9 @@ fn via_in_pad_board(covering: ViaCovering) -> Result<Project, String> {
         from_layer: None,
         to_layer: None,
         covering: Some(covering),
+        backdrill: Default::default(),
+        covering_bottom: Default::default(),
+        preserved: Default::default(),
     });
     p.validate()?;
     Ok(p)

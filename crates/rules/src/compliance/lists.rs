@@ -78,7 +78,7 @@ pub fn country_covered(list: &CoveredCountriesList, code: &str) -> bool {
         .any(|c| c.code.eq_ignore_ascii_case(code))
 }
 
-pub fn framework_entry(list: &FrameworkList, mpn: &str) -> Option<&FrameworkPart> {
+pub fn framework_entry<'a>(list: &'a FrameworkList, mpn: &str) -> Option<&'a FrameworkPart> {
     list.part_numbers
         .iter()
         .find(|p| p.mpn.eq_ignore_ascii_case(mpn))

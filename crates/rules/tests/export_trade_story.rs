@@ -22,6 +22,11 @@ fn part(id: u64, reference: &str, fields: &[(&str, &str)]) -> Component {
             })
             .collect(),
         sheet: 0,
+        compliance: Default::default(),
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     }
 }
 

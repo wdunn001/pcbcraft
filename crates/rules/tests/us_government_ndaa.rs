@@ -8,12 +8,19 @@ fn sample_project() -> Project {
     let mut project = Project::default();
     project.compliance_settings = ComplianceProjectSettings {
         rule_sets: vec!["us_government_ndaa".into()],
+        board_assembler_country: Default::default(),
+        board_rohs_exemption: Default::default(),
+        org_role: Default::default(),
+        origin_interpretation: Default::default(),
+        target_markets: Default::default(),
     };
     project.manufacturers.push(ManufacturerRecord {
         name: "Synthetic Telecom Vendor Orion".into(),
         aliases: vec!["Orion Telecom Demo".into()],
         country: String::new(),
         parent: None,
+        minerals_report: Default::default(),
+        supplier_responsibility_on_file: Default::default(),
     });
     project
 }
@@ -38,8 +45,12 @@ fn component(id: u64, reference: &str, manufacturer: Option<&str>, compliance: O
         library_symbol: None,
         library_footprint: None,
         fields,
-        compliance,
+        compliance: compliance.unwrap_or_default(),
         sheet: 0,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
     }
 }
 
@@ -66,6 +77,13 @@ fn a_newcomer_sees_a_listed_maker_flagged_on_the_us_government_rule_set() {
         Some(Compliance {
             role: Some(PartRole::Processor),
             silicon_vendor: None,
+            country_of_origin: Default::default(),
+            declarations: Default::default(),
+            radio_bands_mhz: Default::default(),
+            radio_grant: Default::default(),
+            radio_max_power_dbm: Default::default(),
+            silicon_vendor_country: Default::default(),
+            substances: Default::default(),
         }),
     ));
     project.components.push(component(
@@ -75,6 +93,13 @@ fn a_newcomer_sees_a_listed_maker_flagged_on_the_us_government_rule_set() {
         Some(Compliance {
             role: Some(PartRole::Memory),
             silicon_vendor: Some("Synthetic Semiconductor Vendor Delta".into()),
+            country_of_origin: Default::default(),
+            declarations: Default::default(),
+            radio_bands_mhz: Default::default(),
+            radio_grant: Default::default(),
+            radio_max_power_dbm: Default::default(),
+            silicon_vendor_country: Default::default(),
+            substances: Default::default(),
         }),
     ));
 

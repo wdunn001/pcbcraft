@@ -120,6 +120,7 @@ mod tests {
             equal_vias: Default::default(),
             max_uncoupled_length: Default::default(),
             skew_limit_mm: Default::default(),
+            skew_limit_ps: Default::default(),
         });
         for (id, net) in [(100, 1), (101, 2)] {
             p.board.tracks.push(Track {
@@ -129,7 +130,8 @@ mod tests {
                 width,
                 start: pcbcraft_geom::Point::new(0.0, 0.0),
                 end: pcbcraft_geom::Point::new(10.0, 0.0),
-                ..Default::default()
+                arc: None,
+                preserved: Default::default(),
             });
         }
         p

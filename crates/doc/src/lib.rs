@@ -33,7 +33,7 @@ pub use compliance::{
     DeclaredSubstance, MAX_ALIASES, MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_MARKETS,
     MAX_COMPLIANCE_MUTE_REASON, MAX_COMPLIANCE_MUTES, MAX_COMPLIANCE_RULE_SETS,
     MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURER_NAME, MAX_MANUFACTURERS,
-    MAX_SUBSTANCES, ManufacturerRecord, OriginInterpretation, PartRole, RadioGrant,
+    MAX_SUBSTANCES, ManufacturerRecord, MineralsReportOnFile, OriginInterpretation, PartRole, RadioGrant,
     RadioGrantKind, apply_listing_declarations, date_le, normalize_manufacturer_name,
     part_role_text, valid_date,
 };

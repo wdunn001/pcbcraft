@@ -11,26 +11,15 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
     let set = match load_rule_set(US_GOVERNMENT_NDAA_RULE_SET) {
         Ok(s) => s,
         Err(e) => {
-            return vec![ComplianceFinding {
-                code: "us_government_ndaa_load".into(),
-                state: "hit".into(),
-                severity: "error".into(),
-                message: format!("US government rule set failed to load: {e}"),
-                rule: "us_government_ndaa".into(),
-                evidence: e,
-                citation: "PCBCraft bundled compliance data".into(),
-                objects: vec![],
-            }];
+            return vec![super::load_failure(
+                "us_government_ndaa",
+                "US government",
+                "error",
+                e,
+            )];
         }
     };
-    let mut out = Vec::new();
-    for rule in &set.rules {
-        match rule.kind.as_str() {
-            "entity_list" => entity_list_rule(project, rule, &mut out),
-            "silicon_vendor" => silicon_vendor_rule(project, rule, &mut out),
-            _ => {}
-        }
-    }
+    let mut out = super::evaluate_ruleset(project, &set);
     if !set.description.is_empty() {
         for finding in &mut out {
             if finding.state == "hit" || finding.state == "possible" {
@@ -41,7 +30,7 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
     out
 }
 
-fn entity_list_rule(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
+pub(super) fn entity_list_rule(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
     let Ok(snapshot) = load_bundled_list(&rule.list) else {
         return;
     };
@@ -52,6 +41,9 @@ fn entity_list_rule(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<
     };
     let staleness = snapshot_stale_note(&snapshot, EVAL_DAY);
     for component in &project.components {
+        if !super::evaluate::role_applies(rule, component) {
+            continue;
+        }
         let Some(maker) = component_manufacturer(component) else {
             push_unverified(out, rule, component, &rule.message_unverified);
             continue;
@@ -94,7 +86,7 @@ fn entity_list_rule(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<
     }
 }
 
-fn silicon_vendor_rule(
+pub(super) fn silicon_vendor_rule(
     project: &Project,
     rule: &ComplianceRuleSpec,
     out: &mut Vec<ComplianceFinding>,
@@ -104,11 +96,7 @@ fn silicon_vendor_rule(
     };
     let staleness = snapshot_stale_note(&snapshot, EVAL_DAY);
     for component in &project.components {
-        let Some(role) = component
-            .compliance
-            .as_ref()
-            .and_then(|c| c.role)
-        else {
+        let Some(role) = component.compliance.role else {
             continue;
         };
         if !role_matches(rule, role) {
@@ -116,8 +104,8 @@ fn silicon_vendor_rule(
         }
         let silicon = component
             .compliance
-            .as_ref()
-            .and_then(|c| c.silicon_vendor.as_deref())
+            .silicon_vendor
+            .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty());
         let Some(vendor) = silicon else {
@@ -288,5 +276,6 @@ fn push_finding(
         evidence: format!("Part {}: {evidence}", component.reference),
         citation: rule.citation.clone(),
         objects: vec![component.id],
+        manufacturer: component_manufacturer(component).map(str::to_owned),
     });
 }

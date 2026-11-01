@@ -1,5 +1,6 @@
 //! Differential-pair skew and uncoupled-length rules.
-use pcbcraft_doc::{DiffPair, Id, Layer, LayerRecord, Net, Point, Project, Track};
+use pcbcraft_doc::{DiffPair, Id, Layer, LayerRecord, Net, Project, Track};
+use pcbcraft_geom::Point;
 use pcbcraft_rules::drc;
 
 type T = Result<(), String>;
@@ -21,6 +22,7 @@ fn track(id: Id, net: Id, start: Point, end: Point, layer: Layer) -> Track {
         width: 0.2,
         layer,
         arc: None,
+        preserved: Default::default(),
     }
 }
 
@@ -37,6 +39,8 @@ fn pair(id: Id, net_p: Id, net_n: Id) -> DiffPair {
         skew_limit_ps: None,
         max_uncoupled_length: None,
         profile: None,
+        equal_vias: Default::default(),
+        impedance_tolerance: Default::default(),
     }
 }
 

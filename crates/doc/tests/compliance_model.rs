@@ -45,6 +45,7 @@ fn compliance_round_trips_and_old_files_load_without_compliance_fields() -> Resu
             radio_grant: Default::default(),
             radio_max_power_dbm: Default::default(),
             silicon_vendor_country: Default::default(),
+            silicon_vendor: Default::default(),
         },
         sheet: 0,
         part: None,
@@ -117,6 +118,7 @@ fn manufacturer_alias_normalisation_resolves_names() -> Result<(), String> {
         country: "US".into(),
         parent: None,
         supplier_responsibility_on_file: true,
+        minerals_report: Default::default(),
     })?;
     assert!(p.resolve_manufacturer("acme corp.").is_some());
     assert!(p.resolve_manufacturer("ACME International").is_some());
@@ -193,6 +195,7 @@ fn compliance_settings_and_mutes_round_trip() -> Result<(), String> {
         target_markets: vec!["demo-market".into()],
         board_assembler_country: Default::default(),
         origin_interpretation: Default::default(),
+        board_rohs_exemption: Default::default(),
     };
     p.compliance_mutes.push(ComplianceFindingMute {
         rule: "demo.declaration_required".into(),

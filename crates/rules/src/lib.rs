@@ -32,8 +32,9 @@ pub use companion::{companion_findings, companion_findings_for_rules};
 pub use width_advice::{WidthAdvice, width_advice, width_advice_on_layer};
 
 pub use compliance::{
-    check as compliance_check, load_list_snapshot, ComplianceFinding, EU_MARKET_RULE_SET,
-    RESPONSIBLE_SOURCING_RULE_SET,
+    BLUE_UAS_STYLE_DRONE_RULE_SET, ComplianceFinding, EU_MARKET_RULE_SET, ExportTradeReport,
+    RESPONSIBLE_SOURCING_RULE_SET, US_GOVERNMENT_NDAA_RULE_SET, bundled_export_and_trade,
+    compliance_check, export_trade_report, export_trade_report_with_ruleset, load_list_snapshot,
 };
 
 pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
@@ -2798,6 +2799,8 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             compliance: Default::default(),
             part: None,
             sourcing: Default::default(),
+            instance: Default::default(),
+            prototype: Default::default(),
         };
         Ok(component)
     }
@@ -4838,6 +4841,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
                 min_width: Some(0.1),
                 ..Default::default()
             }),
+            preserved: Default::default(),
         });
         let findings = drc(&p);
         assert!(
@@ -4952,7 +4956,6 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             from_layer: None,
             to_layer: None,
             covering: None,
-covering: None,
             covering_bottom: None,
             backdrill: None,
         });
@@ -5390,7 +5393,6 @@ covering: None,
             from_layer: from.and_then(|i| Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| Layer::from_index(i).ok()),
             covering: None,
-covering: None,
             covering_bottom: None,
             backdrill: None,
         });

@@ -339,7 +339,6 @@ mod tests {
                 geometry: None,
             }],
         
-            preserved: pcbcraft_doc::PreservedSource::default(),
 });
     }
     fn found(p: &Project) -> Vec<Finding> {
