@@ -1,10 +1,8 @@
+use super::ComplianceFinding;
 use super::entity_match::match_entity_name;
 use super::list_load::load_bundled_list;
 use super::ruleset::{ComplianceRuleSet, ComplianceRuleSpec};
-use super::ComplianceFinding;
-use pcbcraft_doc::{
-    date_le, valid_date, Component, DeclarationStatus, PartRole, Project,
-};
+use pcbcraft_doc::{Component, DeclarationStatus, PartRole, Project, date_le, valid_date};
 
 pub const EVAL_DAY: &str = "2026-06-15";
 
@@ -32,12 +30,19 @@ pub(crate) fn apply_mutes(project: &Project, findings: &mut Vec<ComplianceFindin
     });
 }
 
-fn declaration_required(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
+fn declaration_required(
+    project: &Project,
+    rule: &ComplianceRuleSpec,
+    out: &mut Vec<ComplianceFinding>,
+) {
     for component in &project.components {
         if !role_applies(rule, component) {
             continue;
         }
-        let message = message_or_default(&rule.message_unverified, "No declaration is recorded for this rule.");
+        let message = message_or_default(
+            &rule.message_unverified,
+            "No declaration is recorded for this rule.",
+        );
         let decls = component.effective_declarations();
         let matching = decls
             .iter()
@@ -69,7 +74,11 @@ fn declaration_required(project: &Project, rule: &ComplianceRuleSpec, out: &mut 
     }
 }
 
-fn declaration_fresh(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
+fn declaration_fresh(
+    project: &Project,
+    rule: &ComplianceRuleSpec,
+    out: &mut Vec<ComplianceFinding>,
+) {
     let snapshot = rule.list.as_str();
     let list = if snapshot.is_empty() {
         None
@@ -179,7 +188,11 @@ fn attribute_limit(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<C
     }
 }
 
-fn classification_report(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
+fn classification_report(
+    project: &Project,
+    rule: &ComplianceRuleSpec,
+    out: &mut Vec<ComplianceFinding>,
+) {
     for component in &project.components {
         if !role_applies(rule, component) {
             continue;
@@ -189,7 +202,11 @@ fn classification_report(project: &Project, rule: &ComplianceRuleSpec, out: &mut
         } else {
             rule.field.as_str()
         };
-        let Some(value) = component.field(field).map(str::trim).filter(|s| !s.is_empty()) else {
+        let Some(value) = component
+            .field(field)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
             push_unverified(
                 out,
                 rule,
@@ -235,8 +252,7 @@ pub(super) fn role_applies(rule: &ComplianceRuleSpec, component: &Component) -> 
 
 fn part_role_matches(want: &str, role: PartRole) -> bool {
     let text = pcbcraft_doc::part_role_text(role);
-    want.eq_ignore_ascii_case(text)
-        || want.eq_ignore_ascii_case(&snake_case_role(role))
+    want.eq_ignore_ascii_case(text) || want.eq_ignore_ascii_case(&snake_case_role(role))
 }
 
 fn snake_case_role(role: PartRole) -> String {

@@ -48,9 +48,7 @@ fn optional_bounded(s: &str, max: usize) -> bool {
 }
 
 fn valid_date(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= MAX_DATE_LEN
-        && s.bytes().all(|b| b.is_ascii_digit() || b == b'-')
+    !s.is_empty() && s.len() <= MAX_DATE_LEN && s.bytes().all(|b| b.is_ascii_digit() || b == b'-')
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -69,7 +67,11 @@ pub struct ComplianceListEntityEntry {
     pub added_date: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub citation: String,
-    #[serde(default, rename = "entry_type", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "entry_type",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub entry_type: String,
 }
 
@@ -107,9 +109,17 @@ pub struct ComplianceListSnapshot {
     pub schema: u32,
     pub id: String,
     pub title: String,
-    #[serde(default, rename = "source_url", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "source_url",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub source_url: String,
-    #[serde(default, rename = "published", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "published",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub published_date: String,
     #[serde(rename = "retrieved")]
     pub retrieved_date: String,
@@ -256,9 +266,7 @@ impl ComplianceListSnapshot {
 
     /// True when bundled metadata is complete enough to ship.
     pub fn bundled_metadata_ok(&self) -> bool {
-        !self.source_url.is_empty()
-            && !self.retrieved_date.is_empty()
-            && !self.licence.is_empty()
+        !self.source_url.is_empty() && !self.retrieved_date.is_empty() && !self.licence.is_empty()
     }
 
     /// True when `today` is later than `retrieved_date` plus `cadence_days`.

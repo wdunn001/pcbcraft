@@ -389,7 +389,8 @@ pub(crate) fn invoke_session(
         let s = session
             .lock()
             .map_err(|_| "session unavailable after internal failure".to_string())?;
-        return pcbcraft_engine::library::search_parts(session.config(), args, Some(&s.project)).map(text_result);
+        return pcbcraft_engine::library::search_parts(session.config(), args, Some(&s.project))
+            .map(text_result);
     }
     if [
         "design.recents",
@@ -521,7 +522,7 @@ pub(crate) fn invoke_session(
                         .trim();
                     if stamp.is_empty() || stamp.len() > 64 {
                         return Err(
-                            "creation_date must be a non-empty ISO 8601 UTC timestamp".into(),
+                            "creation_date must be a non-empty ISO 8601 UTC timestamp".into()
                         );
                     }
                     pcbcraft_io::gerber_files_at(&s.project, stamp)?
@@ -584,10 +585,7 @@ pub(crate) fn invoke_session(
             let loader = pcbcraft_io::project_step_loader(&s.project, Some(base));
             let export = pcbcraft_io::step_board_with_models(&s.project, &loader)
                 .map_err(|e| e.to_string())?;
-            pcbcraft_io::atomic_write(
-                &base.join("board.step"),
-                export.text.as_bytes(),
-            )?;
+            pcbcraft_io::atomic_write(&base.join("board.step"), export.text.as_bytes())?;
             json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
         }
         "solidcraft.write" => {
@@ -1919,8 +1917,8 @@ mod tests {
             &json!({"path": path, "creation_date": stamp}),
         );
         assert_eq!(stamped_export.get("isError"), Some(&json!(false)));
-        let stamped = std::fs::read(directory.path().join("pcb-job.gbrjob"))
-            .map_err(|e| e.to_string())?;
+        let stamped =
+            std::fs::read(directory.path().join("pcb-job.gbrjob")).map_err(|e| e.to_string())?;
         assert!(
             stamped.windows(stamp.len()).any(|w| w == stamp.as_bytes()),
             "creation_date is written into the job file"
@@ -3119,7 +3117,10 @@ mod tests {
             }),
         );
         assert_eq!(parts.get("isError"), Some(&json!(false)));
-        assert_eq!(parts.pointer("/structuredContent/kind"), Some(&json!("parts")));
+        assert_eq!(
+            parts.pointer("/structuredContent/kind"),
+            Some(&json!("parts"))
+        );
         assert_eq!(
             parts
                 .pointer("/structuredContent/table/differing_rows")

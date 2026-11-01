@@ -216,11 +216,7 @@ fn place_online_keeps_the_cached_model_on_the_placed_footprint() -> Result<(), E
     let mut params = place_params("layout", 10.0, 10.0)?;
     params["model"] = json!({"path": "/data/cache/part.step"});
     s.execute("library.place_online", params, None)?;
-    let c = s
-        .project
-        .components
-        .last()
-        .ok_or_else(missing)?;
+    let c = s.project.components.last().ok_or_else(missing)?;
     let path = c
         .library_footprint
         .as_ref()

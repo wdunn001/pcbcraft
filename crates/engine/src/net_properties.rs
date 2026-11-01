@@ -21,21 +21,28 @@ const CLASS_PROPERTY_KEYS: &[&str] = &[
 ];
 
 pub fn class_property_params_touch(params: &Value) -> bool {
-    CLASS_PROPERTY_KEYS.iter().any(|key| params.get(key).is_some())
+    CLASS_PROPERTY_KEYS
+        .iter()
+        .any(|key| params.get(key).is_some())
 }
 
 fn missing() -> Error {
     Error::Invalid("object not found".into())
 }
 
-fn optional_f64(params: &Value, key: &str, validate: fn(f64) -> Result<(), String>) -> Result<Option<Option<f64>>, Error> {
+fn optional_f64(
+    params: &Value,
+    key: &str,
+    validate: fn(f64) -> Result<(), String>,
+) -> Result<Option<Option<f64>>, Error> {
     match params.get(key) {
         None => Ok(None),
         Some(Value::Null) => Ok(Some(None)),
         Some(v) => {
-            let n = v.as_f64().filter(|x| x.is_finite()).ok_or_else(|| {
-                Error::Invalid(format!("{key} must be a finite number or null"))
-            })?;
+            let n = v
+                .as_f64()
+                .filter(|x| x.is_finite())
+                .ok_or_else(|| Error::Invalid(format!("{key} must be a finite number or null")))?;
             validate(n).map_err(Error::Invalid)?;
             Ok(Some(Some(n)))
         }
@@ -58,7 +65,10 @@ fn optional_string(
     }
 }
 
-fn optional_reference_layers(params: &Value, key: &str) -> Result<Option<Option<Vec<String>>>, Error> {
+fn optional_reference_layers(
+    params: &Value,
+    key: &str,
+) -> Result<Option<Option<Vec<String>>>, Error> {
     match params.get(key) {
         None => Ok(None),
         Some(Value::Null) => Ok(Some(None)),
@@ -96,17 +106,18 @@ pub fn set_net_properties(p: &mut Project, params: &Value) -> Result<Value, Erro
         .and_then(Value::as_u64)
         .ok_or_else(|| Error::Invalid("id is required".into()))?;
     let impedance_target = optional_f64(params, "impedance_target", validate_impedance_target)?;
-    let impedance_tolerance_pct =
-        optional_f64(params, "impedance_tolerance_pct", validate_impedance_tolerance_pct)?;
+    let impedance_tolerance_pct = optional_f64(
+        params,
+        "impedance_tolerance_pct",
+        validate_impedance_tolerance_pct,
+    )?;
     let line_structure = optional_string(params, "line_structure", validate_line_structure)?;
     let reference_layers = optional_reference_layers(params, "reference_layers")?;
     let current = optional_f64(params, "current", validate_current)?;
-    let temperature_rise =
-        optional_f64(params, "temperature_rise", validate_temperature_rise)?;
+    let temperature_rise = optional_f64(params, "temperature_rise", validate_temperature_rise)?;
     let working_voltage = optional_f64(params, "working_voltage", validate_working_voltage)?;
     let insulation = optional_string(params, "insulation", validate_insulation)?;
-    let return_path_rule =
-        optional_string(params, "return_path_rule", validate_return_path_rule)?;
+    let return_path_rule = optional_string(params, "return_path_rule", validate_return_path_rule)?;
     if impedance_target.is_none()
         && impedance_tolerance_pct.is_none()
         && line_structure.is_none()
@@ -117,16 +128,14 @@ pub fn set_net_properties(p: &mut Project, params: &Value) -> Result<Value, Erro
         && insulation.is_none()
         && return_path_rule.is_none()
     {
-        return Err(Error::Invalid("give at least one property to change".into()));
+        return Err(Error::Invalid(
+            "give at least one property to change".into(),
+        ));
     }
     if let Some(Some(layers)) = &reference_layers {
         validate_reference_layers(p, layers).map_err(Error::Invalid)?;
     }
-    let net = p
-        .nets
-        .iter_mut()
-        .find(|n| n.id == id)
-        .ok_or_else(missing)?;
+    let net = p.nets.iter_mut().find(|n| n.id == id).ok_or_else(missing)?;
     apply_net_properties(
         net,
         impedance_target,
@@ -181,17 +190,18 @@ pub fn apply_class_property_updates(
     params: &Value,
 ) -> Result<bool, Error> {
     let impedance_target = optional_f64(params, "impedance_target", validate_impedance_target)?;
-    let impedance_tolerance_pct =
-        optional_f64(params, "impedance_tolerance_pct", validate_impedance_tolerance_pct)?;
+    let impedance_tolerance_pct = optional_f64(
+        params,
+        "impedance_tolerance_pct",
+        validate_impedance_tolerance_pct,
+    )?;
     let line_structure = optional_string(params, "line_structure", validate_line_structure)?;
     let reference_layers = optional_reference_layers(params, "reference_layers")?;
     let current = optional_f64(params, "current", validate_current)?;
-    let temperature_rise =
-        optional_f64(params, "temperature_rise", validate_temperature_rise)?;
+    let temperature_rise = optional_f64(params, "temperature_rise", validate_temperature_rise)?;
     let working_voltage = optional_f64(params, "working_voltage", validate_working_voltage)?;
     let insulation = optional_string(params, "insulation", validate_insulation)?;
-    let return_path_rule =
-        optional_string(params, "return_path_rule", validate_return_path_rule)?;
+    let return_path_rule = optional_string(params, "return_path_rule", validate_return_path_rule)?;
     let touched = impedance_target.is_some()
         || impedance_tolerance_pct.is_some()
         || line_structure.is_some()

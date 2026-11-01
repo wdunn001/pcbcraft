@@ -1,8 +1,8 @@
 //! Oracle tests for copper rubout hatch paths (issue 202).
 use pcbcraft_doc::{Footprint, Layer, Net, Pad, Project};
 use pcbcraft_geom::{
-    Point, Ring, polygon_boundary_distance, polygon_difference, polygon_offset, polygon_union,
-    segment_distance, OffsetJoin,
+    OffsetJoin, Point, Ring, polygon_boundary_distance, polygon_difference, polygon_offset,
+    polygon_union, segment_distance,
 };
 use pcbcraft_io::{
     CamMirrorAxis, CncProfile, IsolationOptions, RubRegion, Side, Spindle, Tool,
@@ -88,13 +88,7 @@ fn rubout_hatch_stays_clear_of_pad_and_covers_the_region() -> Result<(), String>
             alignment_holes: false,
         },
     )?;
-    let paths = rubout_paths(
-        &p,
-        Side::Top,
-        &region,
-        &keep,
-        isolation_tool().diameter_mm,
-    )?;
+    let paths = rubout_paths(&p, Side::Top, &region, &keep, isolation_tool().diameter_mm)?;
     assert!(!paths.is_empty());
     let pad = pad_ring(&p);
     let half = region.tool.diameter_mm / 2.0;
@@ -200,14 +194,8 @@ fn rubout_tool_smaller_than_isolation_is_refused() {
         stepover_pct: 50,
         angle_deg: 0.0,
     };
-    let err = rubout_paths(
-        &p,
-        Side::Top,
-        &region,
-        &[],
-        rubout_tool().diameter_mm,
-    )
-    .err()
-    .unwrap_or_default();
+    let err = rubout_paths(&p, Side::Top, &region, &[], rubout_tool().diameter_mm)
+        .err()
+        .unwrap_or_default();
     assert!(err.contains("smaller than the isolation tool"));
 }

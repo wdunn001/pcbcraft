@@ -1,6 +1,4 @@
-use pcbcraft_doc::{
-    Footprint, Net, Pad, Project, Via, ViaCovering, component_template,
-};
+use pcbcraft_doc::{Footprint, Net, Pad, Project, Via, ViaCovering, component_template};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintPad;
 use pcbcraft_rules::drc;
@@ -66,16 +64,12 @@ fn via_in_pad_board(covering: ViaCovering) -> Result<Project, String> {
 fn a_via_inside_a_pad_must_be_filled_and_capped() -> Result<(), String> {
     let bad = via_in_pad_board(ViaCovering::Tented)?;
     assert!(
-        drc(&bad)
-            .iter()
-            .any(|f| f.code == "via_in_pad_not_capped"),
+        drc(&bad).iter().any(|f| f.code == "via_in_pad_not_capped"),
         "tented via in pad is flagged"
     );
     let good = via_in_pad_board(ViaCovering::FilledCapped)?;
     assert!(
-        !drc(&good)
-            .iter()
-            .any(|f| f.code == "via_in_pad_not_capped"),
+        !drc(&good).iter().any(|f| f.code == "via_in_pad_not_capped"),
         "filled and capped clears the finding"
     );
     Ok(())

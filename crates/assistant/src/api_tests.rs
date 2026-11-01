@@ -2,15 +2,15 @@
 
 use crate::api::*;
 use crate::backend::{
-    ChatBackend, Event, HttpFn, HttpRequest, HttpResponse, HttpStreamPart, PromptPart, StartContext,
-    ToolStatus, deliver_streamed_body,
+    ChatBackend, Event, HttpFn, HttpRequest, HttpResponse, HttpStreamPart, PromptPart,
+    StartContext, ToolStatus, deliver_streamed_body,
 };
 use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
+use pcbcraft_clock::Instant;
 use serde_json::{Value, json};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
-use pcbcraft_clock::Instant;
 use std::time::Duration;
 
 type Log = Arc<Mutex<Vec<HttpRequest>>>;
@@ -696,7 +696,9 @@ fn streaming_openai_text(text: &str) -> HttpFn {
             return Ok(HttpResponse::ok(b"{\"data\":[]}".to_vec()));
         }
         let Some(out) = &r.stream_out else {
-            return Ok(HttpResponse::ok(openai_text(&text).to_string().into_bytes()));
+            return Ok(HttpResponse::ok(
+                openai_text(&text).to_string().into_bytes(),
+            ));
         };
         let first = format!(
             "data: {{\"choices\":[{{\"delta\":{{\"content\":{}}}}}]}}\n\n",
@@ -750,7 +752,9 @@ fn slow_openai_stream() -> HttpFn {
             return Ok(HttpResponse::ok(b"{\"data\":[]}".to_vec()));
         }
         let Some(out) = &r.stream_out else {
-            return Ok(HttpResponse::ok(openai_text("late").to_string().into_bytes()));
+            return Ok(HttpResponse::ok(
+                openai_text("late").to_string().into_bytes(),
+            ));
         };
         let chunk = b"data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n";
         out.send(Ok(HttpStreamPart::Chunk(chunk.to_vec())))

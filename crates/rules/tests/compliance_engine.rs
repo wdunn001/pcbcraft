@@ -9,13 +9,9 @@ fn demo_project() -> Project {
         rule_sets: vec!["synthetic_demo".into()],
         ..ComplianceProjectSettings::default()
     };
-    let mut c = pcbcraft_doc::component_template(
-        "ic",
-        1,
-        "U1".into(),
-        pcbcraft_geom::Point::default(),
-    )
-    .expect("template");
+    let mut c =
+        pcbcraft_doc::component_template("ic", 1, "U1".into(), pcbcraft_geom::Point::default())
+            .expect("template");
     c.fields.push(pcbcraft_doc::ComponentField {
         key: "Manufacturer".into(),
         value: "Synthetic Entity Alpha".into(),
@@ -123,7 +119,11 @@ fn origin_unverified_without_country() {
     assert_eq!(origin.state, "unverified");
 
     let mut with_country = demo_project();
-    let part = with_country.components.iter_mut().find(|c| c.id == 2).expect("R1");
+    let part = with_country
+        .components
+        .iter_mut()
+        .find(|c| c.id == 2)
+        .expect("R1");
     part.compliance.country_of_origin = Some(CountryOfOrigin {
         code: "xx".into(),
         basis: String::new(),

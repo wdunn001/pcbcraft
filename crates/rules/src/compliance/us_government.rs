@@ -1,6 +1,6 @@
-use super::entity_match::{match_entity_name, EntityMatchConfidence};
+use super::entity_match::{EntityMatchConfidence, match_entity_name};
 use super::list_load::load_bundled_list;
-use super::ruleset::{load_rule_set, ComplianceRuleSpec};
+use super::ruleset::{ComplianceRuleSpec, load_rule_set};
 use super::{ComplianceFinding, EVAL_DAY};
 use pcbcraft_doc::{Component, PartRole, Project};
 
@@ -23,14 +23,20 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
     if !set.description.is_empty() {
         for finding in &mut out {
             if finding.state == "hit" || finding.state == "possible" {
-                finding.message.push_str(" Affiliation and substantial-component questions remain legal judgements.");
+                finding.message.push_str(
+                    " Affiliation and substantial-component questions remain legal judgements.",
+                );
             }
         }
     }
     out
 }
 
-pub(super) fn entity_list_rule(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
+pub(super) fn entity_list_rule(
+    project: &Project,
+    rule: &ComplianceRuleSpec,
+    out: &mut Vec<ComplianceFinding>,
+) {
     let Ok(snapshot) = load_bundled_list(&rule.list) else {
         return;
     };
@@ -251,7 +257,14 @@ fn push_unverified(
     component: &Component,
     message: &str,
 ) {
-    push_finding(out, rule, component, "unverified", message, "No list match; data missing.");
+    push_finding(
+        out,
+        rule,
+        component,
+        "unverified",
+        message,
+        "No list match; data missing.",
+    );
 }
 
 fn push_finding(

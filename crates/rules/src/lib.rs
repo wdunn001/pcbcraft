@@ -1,9 +1,9 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
 use pcbcraft_doc::{
-    ArtKind, ArtShape, Board, Component, DiffPair, FabRules, Footprint, NetClass, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
-    PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
-    PanelSeparation, Project, VALIDATION_CHORD_ERROR, Via, ViaKind, panel_layout,
-    panel_score_lines,
+    ArtKind, ArtShape, Board, Component, DiffPair, FabRules, Footprint, Id, Layer, NetClass,
+    PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM,
+    PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad, PanelSeparation, Project,
+    VALIDATION_CHORD_ERROR, Via, ViaKind, panel_layout, panel_score_lines,
 };
 use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use serde::Serialize;
@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod acute;
 mod companion;
+pub mod compliance;
 mod courtyard;
 mod decoupling;
 mod diffpair_impedance;
@@ -23,10 +24,9 @@ mod peripheral;
 mod return_path;
 mod silk;
 mod stub;
+pub mod testpoint;
 mod track_radius;
 mod width_advice;
-pub mod compliance;
-pub mod testpoint;
 
 pub use companion::{companion_findings, companion_findings_for_rules};
 pub use width_advice::{WidthAdvice, width_advice, width_advice_on_layer};
@@ -1063,11 +1063,7 @@ fn esd_device_far_findings(project: &Project) -> Vec<Finding> {
     }
     let limit = project.esd_max_distance_mm;
     let mut result = vec![];
-    for connector in project
-        .components
-        .iter()
-        .filter(|c| c.kind == "connector")
-    {
+    for connector in project.components.iter().filter(|c| c.kind == "connector") {
         let Some(conn_fp) = component_footprint(project, connector.id) else {
             continue;
         };
@@ -1075,9 +1071,11 @@ fn esd_device_far_findings(project: &Project) -> Vec<Finding> {
             let Some(net) = pin.net else {
                 continue;
             };
-            if !project.components.iter().any(|c| {
-                is_tvs(c) && c.pins.iter().any(|p| p.net == Some(net))
-            }) {
+            if !project
+                .components
+                .iter()
+                .any(|c| is_tvs(c) && c.pins.iter().any(|p| p.net == Some(net)))
+            {
                 continue;
             }
             let Some(conn_pad) = conn_fp.pad_position(&pin.number) else {
@@ -1117,14 +1115,12 @@ fn esd_device_far_findings(project: &Project) -> Vec<Finding> {
     result
 }
 
-
 fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
     project
         .no_connects
         .iter()
         .any(|f| f.pin.component == component && f.pin.pin == pin)
 }
-          
 
 fn net_has_power_driver(project: &Project, net: Id) -> bool {
     if project
@@ -1143,7 +1139,6 @@ fn net_has_power_driver(project: &Project, net: Id) -> bool {
             .any(|p| p.net == Some(net) && p.electrical_type == "power_out")
     })
 }
-
 
 fn net_has_pullup_to_power(project: &Project, net: Id) -> bool {
     project.components.iter().any(|c| {
@@ -1181,8 +1176,6 @@ fn net_has_schematic_wiring(project: &Project, net: Id) -> bool {
     }
     project.ports.iter().any(|p| p.net == net)
 }
-
-
 
 fn net_needs_power_not_driven(
     project: &Project,
@@ -2896,7 +2889,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymbol, LayerRecord, Net, NoConnectFlag, Pad, Pin, PinRef, Track, Via, component_template,
+        Component, CopperZone, FabRules, Footprint, Label, LayerRecord, LibraryFootprint,
+        LibrarySymbol, Net, NoConnectFlag, Pad, Pin, PinRef, Track, Via, component_template,
     };
     use pcbcraft_library::{Drill, FootprintDefinition, FootprintPad, SymbolDefinition};
 
@@ -3084,7 +3078,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         }
         p
     }
-  
+
     fn test_copper(id: Id, point: Point, layer: Layer, net: Id, pad: bool) -> Copper {
         Copper {
             id,
@@ -3104,26 +3098,21 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             cutouts: vec![],
         }
     }
-    fn esd_placed_fixture(
-        connector_x: f64,
-        tvs_x: f64,
-        enable: bool,
-    ) -> Result<Project, String> {
+    fn esd_placed_fixture(connector_x: f64, tvs_x: f64, enable: bool) -> Result<Project, String> {
         let mut p = Project::default();
         p.esd_max_distance_mm = 10.0;
         if enable {
-            p.rule_severity.insert(
-                "esd_device_far_from_connector".into(),
-                "warning".into(),
-            );
+            p.rule_severity
+                .insert("esd_device_far_from_connector".into(), "warning".into());
         }
         p.nets.push(Net {
             id: 1,
             name: "SIG".into(),
             ..Default::default()
         });
-        let mut connector = component_template("connector", 2, "J1".into(), Point::new(connector_x, 0.0))
-            .ok_or("connector template missing")?;
+        let mut connector =
+            component_template("connector", 2, "J1".into(), Point::new(connector_x, 0.0))
+                .ok_or("connector template missing")?;
         connector.pins[0].net = Some(1);
         p.components.push(connector);
         let mut tvs = component_template("tvs", 3, "D1".into(), Point::new(tvs_x, 0.0))
@@ -3183,27 +3172,33 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
     fn erc_reports_esd_device_far_from_connector_when_placed() -> Result<(), String> {
         let p = esd_placed_fixture(0.0, 25.0, true)?;
         p.validate()?;
-        assert!(erc(&p)
-            .iter()
-            .any(|f| f.code == "esd_device_far_from_connector"));
+        assert!(
+            erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
         Ok(())
     }
     #[test]
     fn erc_clears_esd_device_when_close() -> Result<(), String> {
         let p = esd_placed_fixture(0.0, 3.0, true)?;
         p.validate()?;
-        assert!(!erc(&p)
-            .iter()
-            .any(|f| f.code == "esd_device_far_from_connector"));
+        assert!(
+            !erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
         Ok(())
     }
     #[test]
     fn erc_esd_off_by_default() -> Result<(), String> {
         let p = esd_placed_fixture(0.0, 25.0, false)?;
         p.validate()?;
-        assert!(!erc(&p)
-            .iter()
-            .any(|f| f.code == "esd_device_far_from_connector"));
+        assert!(
+            !erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
         Ok(())
     }
     #[test]
@@ -3211,12 +3206,14 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         let mut p = esd_placed_fixture(0.0, 25.0, true)?;
         p.board.footprints.clear();
         p.validate()?;
-        assert!(!erc(&p)
-            .iter()
-            .any(|f| f.code == "esd_device_far_from_connector"));
+        assert!(
+            !erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
         Ok(())
     }
-  
+
     #[test]
     fn erc_suppresses_unassigned_pin_warnings_for_no_connect_flags() -> Result<(), String> {
         let mut p = Project::default();
@@ -3247,7 +3244,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
         Ok(())
     }
-  
+
     fn pin_on_net(
         p: &mut Project,
         component: Id,
@@ -3277,7 +3274,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         }
         Ok(())
     }
-  
+
     #[test]
     fn erc_flags_two_outputs_on_one_net_and_undriven_input() -> Result<(), String> {
         let mut p = Project::default();
@@ -3326,7 +3323,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
-  
+
     #[test]
     fn erc_power_input_fed_by_power_output_is_clean() -> Result<(), String> {
         let mut p = Project::default();
@@ -3359,7 +3356,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
-  
+
     #[test]
     fn erc_reports_undriven_power_input_once() -> Result<(), String> {
         let mut p = Project::default();
@@ -3399,7 +3396,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
-  
+
     #[test]
     fn erc_power_not_driven_cleared_by_connector_pin() -> Result<(), String> {
         let mut p = Project::default();
@@ -3425,7 +3422,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
-  
+
     #[test]
     fn erc_power_not_driven_exclusion_hides_the_single_finding() -> Result<(), String> {
         let mut p = Project::default();
@@ -3453,7 +3450,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
         );
         Ok(())
     }
-  
+
     #[test]
     fn erc_reports_missing_decoupling_without_cap_on_power_net() -> Result<(), String> {
         let mut p = Project::default();
@@ -6300,7 +6297,12 @@ mod pour_tests {
         });
     }
 
-    fn class_with_limit(p: &mut Project, class_id: Id, net: Id, max_vias: u32) -> Result<(), String> {
+    fn class_with_limit(
+        p: &mut Project,
+        class_id: Id,
+        net: Id,
+        max_vias: u32,
+    ) -> Result<(), String> {
         p.net_classes.push(NetClass {
             id: class_id,
             name: "USB".into(),
@@ -6408,11 +6410,7 @@ mod pour_tests {
         assert_eq!(findings.len(), 1);
         via_on(&mut p, 104, 3, 18.0, 20.0);
         p.validate()?;
-        assert!(
-            drc(&p)
-                .iter()
-                .all(|f| f.code != "diffpair_via_count")
-        );
+        assert!(drc(&p).iter().all(|f| f.code != "diffpair_via_count"));
         Ok(())
     }
 
@@ -6425,7 +6423,7 @@ mod pour_tests {
         Ok(())
     }
 
-#[test]
+    #[test]
     fn finding_hint_serializes_only_when_present() -> Result<(), String> {
         use serde_json::{json, to_value};
         let with_hint = Finding {

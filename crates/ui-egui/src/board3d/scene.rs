@@ -1,7 +1,7 @@
 //! Culls and level-of-detail choices before rasterisation.
 
-use pcbcraft_io::{BoardMesh, MeshPart, PartKind};
 use super::{Basis, NEAR, V, dot, flip, sub};
+use pcbcraft_io::{BoardMesh, MeshPart, PartKind};
 
 /// Screen-space size below which a body draws as its bounding box.
 const LOD_BOX_PX: f64 = 6.0;
@@ -131,15 +131,7 @@ fn body_drawable<'a>(
     })
 }
 
-fn body_lod(
-    min: V,
-    max: V,
-    basis: &Basis,
-    focal: f64,
-    cx: f64,
-    cy: f64,
-    ss: usize,
-) -> Lod {
+fn body_lod(min: V, max: V, basis: &Basis, focal: f64, cx: f64, cy: f64, ss: usize) -> Lod {
     let size = projected_size(min, max, basis, focal, cx, cy) * ss as f64;
     if size < LOD_BOX_PX {
         Lod::Box

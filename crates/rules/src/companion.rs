@@ -4,7 +4,7 @@
 //! the same intent when the project has no persisted rules from a profile.
 
 use crate::Finding;
-use pcbcraft_doc::{parse_companion_value, CompanionRule, Component, Id, Project};
+use pcbcraft_doc::{CompanionRule, Component, Id, Project, parse_companion_value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 const MAX_BFS_DEPTH: usize = 32;
@@ -850,9 +850,11 @@ mod tests {
             vec![pin("1", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_series_resistor"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_series_resistor")
+        );
         p.components.push(part(
             12,
             "R1",
@@ -861,9 +863,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_series_resistor"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_series_resistor")
+        );
         Ok(())
     }
 
@@ -887,9 +891,11 @@ mod tests {
             vec![pin("1", Some(1), "passive")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_cc_pulldown"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_cc_pulldown")
+        );
         p.components.push(part(
             11,
             "R1",
@@ -898,9 +904,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_cc_pulldown"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_cc_pulldown")
+        );
         Ok(())
     }
 
@@ -916,9 +924,11 @@ mod tests {
             vec![pin("1", Some(1), "open_collector")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_pullup"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_pullup")
+        );
         p.components.push(part(
             11,
             "R1",
@@ -927,9 +937,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_pullup"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_pullup")
+        );
         Ok(())
     }
 
@@ -945,9 +957,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_bus_termination"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_bus_termination")
+        );
         p.components.push(part(
             11,
             "R1",
@@ -956,9 +970,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_bus_termination"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_bus_termination")
+        );
         Ok(())
     }
 
@@ -974,9 +990,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_flyback_diode"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_flyback_diode")
+        );
         p.components.push(part(
             11,
             "D1",
@@ -985,9 +1003,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_flyback_diode"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_flyback_diode")
+        );
         Ok(())
     }
 
@@ -1017,9 +1037,11 @@ mod tests {
             vec![pin("1", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_tvs"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_tvs")
+        );
         p.components.insert(
             1,
             part(
@@ -1032,9 +1054,11 @@ mod tests {
         );
         p.components.retain(|c| c.id != 11);
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_tvs"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_tvs")
+        );
         Ok(())
     }
 
@@ -1057,9 +1081,11 @@ mod tests {
             vec![pin("1", Some(2), "power_in")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_fuse"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_fuse")
+        );
         p.components.push(part(
             13,
             "F1",
@@ -1068,9 +1094,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_fuse"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_fuse")
+        );
         Ok(())
     }
 
@@ -1094,9 +1122,11 @@ mod tests {
             vec![pin("1", Some(1), "power_in")],
         ));
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_decoupling"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_decoupling")
+        );
         p.components.push(part(
             11,
             "C1",
@@ -1105,9 +1135,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_decoupling"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_decoupling")
+        );
         Ok(())
     }
 
@@ -1148,9 +1180,11 @@ mod tests {
             finding_code: Some("missing_series_resistor".into()),
         });
         p.validate()?;
-        assert!(companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_series_resistor"));
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_series_resistor")
+        );
         p.nets.push(net(2, "CUSTOM_GND"));
         p.components.push(part(
             10,
@@ -1160,9 +1194,11 @@ mod tests {
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
-        assert!(!companion_findings(&p)
-            .iter()
-            .any(|f| f.code == "missing_series_resistor"));
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_series_resistor")
+        );
         Ok(())
     }
 }

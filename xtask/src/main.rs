@@ -337,12 +337,7 @@ fn wasm() -> Result<(), String> {
     cargo(&args)?;
 
     let conf = root()?.join("clippy-wasm");
-    let mut clippy_args = vec![
-        "clippy",
-        "--locked",
-        "--target",
-        "wasm32-unknown-unknown",
-    ];
+    let mut clippy_args = vec!["clippy", "--locked", "--target", "wasm32-unknown-unknown"];
     for package in WASM_PACKAGES {
         clippy_args.extend(["-p", package, "--lib"]);
     }
@@ -369,12 +364,7 @@ fn wasm() -> Result<(), String> {
     }
     if !web.join("node_modules/playwright").is_dir() {
         run_env_in(&web, "npm", &["ci", "--no-audit", "--no-fund"], &[])?;
-        run_env_in(
-            &web,
-            "npx",
-            &["playwright", "install", "chromium"],
-            &[],
-        )?;
+        run_env_in(&web, "npx", &["playwright", "install", "chromium"], &[])?;
     }
     run_env_in(&web, "node", &["scripts/smoke-first-frame.mjs"], &[])?;
     Ok(())
@@ -816,7 +806,7 @@ fn run() -> Result<(), String> {
         "showcase" => showcase::run(&root()?)?,
         "status-data" => status_data::run(args.get(1..).unwrap_or(&[]), &root()?)?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
-"bless-parity" => {
+        "bless-parity" => {
             run_env(
                 "cargo",
                 &["test", "-p", "pcbcraft-engine", "--test", "parity"],

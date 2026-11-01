@@ -728,8 +728,8 @@ mod tests {
             include_in_bom: true,
             include_in_placement: true,
             sheet: 0,
-sourcing: Default::default(),
-        compliance: Default::default(),
+            sourcing: Default::default(),
+            compliance: Default::default(),
             instance: Default::default(),
             part: None,
             prototype: Default::default(),
@@ -750,8 +750,7 @@ sourcing: Default::default(),
                 castellated: None,
                 geometry: Default::default(),
             }],
-        
-});
+        });
         p
     }
 

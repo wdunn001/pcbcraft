@@ -229,7 +229,10 @@ impl DatasheetCache {
     }
 
     /// Platform folder for datasheet files, sibling to the online library cache.
-    pub fn default_cache_dir_with(get: &dyn Fn(&str) -> Option<String>, os: &str) -> Option<PathBuf> {
+    pub fn default_cache_dir_with(
+        get: &dyn Fn(&str) -> Option<String>,
+        os: &str,
+    ) -> Option<PathBuf> {
         crate::cad_cache::default_cache_dir_with(get, os).map(|p| {
             p.parent()
                 .map(|parent| parent.join("datasheets"))
@@ -242,7 +245,13 @@ impl DatasheetCache {
         Self::default_cache_dir_with(&|n| std::env::var(n).ok(), std::env::consts::OS)
     }
 
-    fn store(&self, url: &str, bytes: &[u8], etag: &str, fetched_at: u64) -> Result<ProjectDatasheetRef, DatasheetError> {
+    fn store(
+        &self,
+        url: &str,
+        bytes: &[u8],
+        etag: &str,
+        fetched_at: u64,
+    ) -> Result<ProjectDatasheetRef, DatasheetError> {
         if bytes.len() > MAX_PDF_BYTES {
             return Err(bad("the file is too large to keep"));
         }
@@ -261,7 +270,8 @@ impl DatasheetCache {
             let dir = file_dir(root, &hash);
             fs::create_dir_all(&dir).map_err(io_err)?;
             write_atomic(&pdf_path(root, &hash), bytes).map_err(io_err)?;
-            let meta_json = serde_json::to_vec(&meta).map_err(|e| bad(&format!("metadata encode failed: {e}")))?;
+            let meta_json = serde_json::to_vec(&meta)
+                .map_err(|e| bad(&format!("metadata encode failed: {e}")))?;
             write_atomic(&meta_path(root, &hash), &meta_json).map_err(io_err)?;
             let link_parent = root.join("urls");
             fs::create_dir_all(&link_parent).map_err(io_err)?;
@@ -272,10 +282,13 @@ impl DatasheetCache {
             self.evict_disk(root);
         } else {
             let mut m = self.memory.lock().map_err(|_| bad("cache is busy"))?;
-            if let Some(old) = m.by_hash.insert(hash.clone(), MemoryEntry {
-                bytes: bytes.to_vec(),
-                meta: meta.clone(),
-            }) {
+            if let Some(old) = m.by_hash.insert(
+                hash.clone(),
+                MemoryEntry {
+                    bytes: bytes.to_vec(),
+                    meta: meta.clone(),
+                },
+            ) {
                 m.bytes = m.bytes.saturating_sub(old.bytes.len());
             }
             m.bytes += bytes.len();
@@ -333,11 +346,12 @@ impl DatasheetCache {
     }
 
     /// Read a cached PDF by URL without network.
-    pub fn open_url(&self, raw_url: &str) -> Result<(ProjectDatasheetRef, Vec<u8>), DatasheetError> {
+    pub fn open_url(
+        &self,
+        raw_url: &str,
+    ) -> Result<(ProjectDatasheetRef, Vec<u8>), DatasheetError> {
         let url = accept_datasheet_url(raw_url)?;
-        let meta = self
-            .meta_for_url(&url)?
-            .ok_or(DatasheetError::NotCached)?;
+        let meta = self.meta_for_url(&url)?.ok_or(DatasheetError::NotCached)?;
         let bytes = self.open_hash(&meta.content_sha256)?;
         touch_disk(self.root.as_deref(), &meta.content_sha256);
         Ok((
@@ -384,11 +398,15 @@ impl DatasheetCache {
     }
 
     /// Copy a user-chosen local PDF into the cache. The project ref URL is empty.
-    pub fn import_local_file(&self, path: &Path) -> Result<(ProjectDatasheetRef, Vec<u8>), DatasheetError> {
+    pub fn import_local_file(
+        &self,
+        path: &Path,
+    ) -> Result<(ProjectDatasheetRef, Vec<u8>), DatasheetError> {
         if !path.is_absolute() {
             return Err(bad("choose a full path to the file"));
         }
-        let meta = fs::metadata(path).map_err(|e| DatasheetError::Unavailable(format!("could not read the file: {e}")))?;
+        let meta = fs::metadata(path)
+            .map_err(|e| DatasheetError::Unavailable(format!("could not read the file: {e}")))?;
         if !meta.is_file() {
             return Err(bad("that path is not a file"));
         }
@@ -396,7 +414,8 @@ impl DatasheetCache {
         if len > MAX_PDF_BYTES as u64 {
             return Err(bad("the file is too large to keep"));
         }
-        let bytes = fs::read(path).map_err(|e| DatasheetError::Unavailable(format!("could not read the file: {e}")))?;
+        let bytes = fs::read(path)
+            .map_err(|e| DatasheetError::Unavailable(format!("could not read the file: {e}")))?;
         let reference = self.store("", &bytes, "", now_secs())?;
         Ok((reference, bytes))
     }
@@ -431,12 +450,15 @@ impl DatasheetCache {
             let Ok(hash_bytes) = fs::read(&link) else {
                 return Ok(None);
             };
-            let hash = String::from_utf8_lossy(&hash_bytes).trim().to_ascii_lowercase();
+            let hash = String::from_utf8_lossy(&hash_bytes)
+                .trim()
+                .to_ascii_lowercase();
             check_sha256(&hash)?;
             let Ok(text) = fs::read_to_string(meta_path(root, &hash)) else {
                 return Ok(None);
             };
-            let meta: StoredMeta = serde_json::from_str(&text).map_err(|_| bad("cache metadata is damaged"))?;
+            let meta: StoredMeta =
+                serde_json::from_str(&text).map_err(|_| bad("cache metadata is damaged"))?;
             if meta.content_sha256 != hash {
                 return Ok(None);
             }

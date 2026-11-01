@@ -64,8 +64,18 @@ fn group_lines(doc: &TextDocument) -> Result<Vec<LineGroup>, String> {
     all.sort_by(|a, b| {
         a.page_index
             .cmp(&b.page_index)
-            .then(a.rect.y0.partial_cmp(&b.rect.y0).unwrap_or(std::cmp::Ordering::Equal))
-            .then(a.rect.x0.partial_cmp(&b.rect.x0).unwrap_or(std::cmp::Ordering::Equal))
+            .then(
+                a.rect
+                    .y0
+                    .partial_cmp(&b.rect.y0)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+            .then(
+                a.rect
+                    .x0
+                    .partial_cmp(&b.rect.x0)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
     });
     let mut out: Vec<LineGroup> = Vec::new();
     let mut current: Vec<TextCell> = Vec::new();
@@ -229,7 +239,11 @@ fn split_value_unit(cols: &[&str]) -> (String, String) {
         return (cols[0].to_owned(), String::new());
     }
     let unit = cols.last().copied().unwrap_or("");
-    if unit.len() <= 6 && unit.chars().all(|c| c.is_ascii_alphabetic() || c == '%' || c == '°') {
+    if unit.len() <= 6
+        && unit
+            .chars()
+            .all(|c| c.is_ascii_alphabetic() || c == '%' || c == '°')
+    {
         let value = cols[..cols.len() - 1].join(" ");
         (value, unit.to_owned())
     } else {

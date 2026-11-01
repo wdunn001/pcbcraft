@@ -114,9 +114,7 @@ fn levenshtein(a: &[u8], b: &[u8]) -> usize {
         cur[0] = i + 1;
         for (j, &byte_b) in b.iter().enumerate() {
             let cost = if byte_a == byte_b { 0 } else { 1 };
-            cur[j + 1] = (prev[j + 1] + 1)
-                .min(cur[j] + 1)
-                .min(prev[j] + cost);
+            cur[j + 1] = (prev[j + 1] + 1).min(cur[j] + 1).min(prev[j] + cost);
         }
         std::mem::swap(&mut prev, &mut cur);
     }

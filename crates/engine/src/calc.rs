@@ -1,16 +1,16 @@
 //! Design calculator read commands backed by `pcbcraft-calc` (#174).
 use super::*;
+use pcbcraft_calc::Error as CalcError;
 use pcbcraft_calc::basic::{VoltageDivider, voltage_divider};
 use pcbcraft_calc::copper::{
     CopperLayer, TraceMethod, TraceWidth, ViaCurrent, trace_width, via_current_resistance,
 };
 use pcbcraft_calc::impedance::{
-    CoplanarWaveguide, DifferentialPair, EmbeddedMicrostrip, Microstrip, Stripline, coplanar_waveguide,
-    differential_pair, embedded_microstrip, microstrip, stripline,
+    CoplanarWaveguide, DifferentialPair, EmbeddedMicrostrip, Microstrip, Stripline,
+    coplanar_waveguide, differential_pair, embedded_microstrip, microstrip, stripline,
 };
 use pcbcraft_calc::meta;
 use pcbcraft_calc::utilities::{LengthUnit, UnitConvert, unit_converter};
-use pcbcraft_calc::Error as CalcError;
 
 const DEFAULT_COPPER_MM: f64 = 0.035;
 
@@ -27,7 +27,8 @@ fn r4(v: f64) -> f64 {
 }
 
 fn meta_block(id: &str) -> Result<Value, Error> {
-    let m = meta::calculator(id).ok_or_else(|| Error::Invalid(format!("unknown calculator {id}")))?;
+    let m =
+        meta::calculator(id).ok_or_else(|| Error::Invalid(format!("unknown calculator {id}")))?;
     Ok(json!({
         "id": m.id,
         "name": m.name,
@@ -67,7 +68,9 @@ fn parse_method(name: &str) -> Result<TraceMethod, Error> {
         "auto" => Ok(TraceMethod::Auto),
         "ipc2152" => Ok(TraceMethod::Ipc2152),
         "ipc2221" => Ok(TraceMethod::Ipc2221),
-        _ => Err(Error::Invalid("method must be auto, ipc2152 or ipc2221".into())),
+        _ => Err(Error::Invalid(
+            "method must be auto, ipc2152 or ipc2221".into(),
+        )),
     }
 }
 
@@ -303,11 +306,17 @@ pub(super) fn run(p: &Project, command: &str, params: &Value) -> Option<Result<V
         "calc.impedance" => impedance_cmd(p, params),
         "calc.divider" => divider_cmd(params),
         "calc.convert" => convert_cmd(params),
-        _ => Err(Error::Invalid(format!("unknown calculator command: {command}"))),
+        _ => Err(Error::Invalid(format!(
+            "unknown calculator command: {command}"
+        ))),
     })
 }
 
-pub(super) fn run_mut(p: &mut Project, command: &str, params: &Value) -> Option<Result<Value, Error>> {
+pub(super) fn run_mut(
+    p: &mut Project,
+    command: &str,
+    params: &Value,
+) -> Option<Result<Value, Error>> {
     if command != "calc.apply" {
         return None;
     }
@@ -346,7 +355,9 @@ fn track_width_cmd(params: &Value) -> Result<Value, Error> {
     }
     let mut notes: Vec<String> = Vec::new();
     if out.scaled_from_1oz {
-        notes.push("IPC-2152 table is for 1 oz copper; width scaled by 1/oz as an approximation".into());
+        notes.push(
+            "IPC-2152 table is for 1 oz copper; width scaled by 1/oz as an approximation".into(),
+        );
     }
     if a.layer == "internal" {
         notes.push("Internal layers use the IPC-2221 halved-current constant; a nearby plane may behave differently".into());
@@ -417,9 +428,9 @@ fn impedance_cmd(p: &Project, params: &Value) -> Result<Value, Error> {
             }))
         }
         "embedded_microstrip" => {
-            let width = a.width.ok_or_else(|| {
-                Error::Invalid("embedded microstrip needs a width".into())
-            })?;
+            let width = a
+                .width
+                .ok_or_else(|| Error::Invalid("embedded microstrip needs a width".into()))?;
             let cover = a.cover.unwrap_or(0.0);
             let out = embedded_microstrip(EmbeddedMicrostrip {
                 width,
@@ -439,7 +450,9 @@ fn impedance_cmd(p: &Project, params: &Value) -> Result<Value, Error> {
             }))
         }
         "stripline" => {
-            let width = a.width.ok_or_else(|| Error::Invalid("stripline needs a width".into()))?;
+            let width = a
+                .width
+                .ok_or_else(|| Error::Invalid("stripline needs a width".into()))?;
             let spacing = a.spacing.unwrap_or(p.board.thickness);
             if let Some(map) = stack.as_object_mut() {
                 map.insert("spacing_mm".into(), json!(r3(spacing)));
@@ -460,8 +473,12 @@ fn impedance_cmd(p: &Project, params: &Value) -> Result<Value, Error> {
             }))
         }
         "coplanar" => {
-            let width = a.width.ok_or_else(|| Error::Invalid("coplanar needs a width".into()))?;
-            let gap = a.gap.ok_or_else(|| Error::Invalid("coplanar needs a gap".into()))?;
+            let width = a
+                .width
+                .ok_or_else(|| Error::Invalid("coplanar needs a width".into()))?;
+            let gap = a
+                .gap
+                .ok_or_else(|| Error::Invalid("coplanar needs a gap".into()))?;
             let out = coplanar_waveguide(CoplanarWaveguide {
                 width,
                 gap,
@@ -482,10 +499,12 @@ fn impedance_cmd(p: &Project, params: &Value) -> Result<Value, Error> {
             }))
         }
         "differential" => {
-            let width = a.width.ok_or_else(|| {
-                Error::Invalid("differential pair needs a width".into())
-            })?;
-            let gap = a.gap.ok_or_else(|| Error::Invalid("differential pair needs a gap".into()))?;
+            let width = a
+                .width
+                .ok_or_else(|| Error::Invalid("differential pair needs a width".into()))?;
+            let gap = a
+                .gap
+                .ok_or_else(|| Error::Invalid("differential pair needs a gap".into()))?;
             let out = differential_pair(DifferentialPair {
                 width,
                 gap,
@@ -507,7 +526,8 @@ fn impedance_cmd(p: &Project, params: &Value) -> Result<Value, Error> {
             }))
         }
         _ => Err(Error::Invalid(
-            "geometry must be microstrip, embedded_microstrip, stripline, coplanar or differential".into(),
+            "geometry must be microstrip, embedded_microstrip, stripline, coplanar or differential"
+                .into(),
         )),
     }
 }
@@ -593,9 +613,9 @@ fn apply_cmd_mut(p: &mut Project, params: &Value) -> Result<Value, Error> {
             Ok(json!({"kind": "track_width", "class": a.class, "width_mm": r4(width)}))
         }
         "via" => {
-            let drill = a.drill.ok_or_else(|| {
-                Error::Invalid("via apply needs a drill diameter".into())
-            })?;
+            let drill = a
+                .drill
+                .ok_or_else(|| Error::Invalid("via apply needs a drill diameter".into()))?;
             if !drill.is_finite() || drill <= 0.0 || drill > 10.0 {
                 return Err(Error::Invalid(
                     "drill must be between 0 and 10 millimetres".into(),

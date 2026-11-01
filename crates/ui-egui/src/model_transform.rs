@@ -111,8 +111,7 @@ pub(super) fn footprint_model_transform_panel(
 
     let offset_changed = triple_row(ui, &t!("library.model_transform.offset"), &mut offset, "mm");
     let scale_changed = triple_row(ui, &t!("library.model_transform.scale"), &mut scale, "");
-    let rotate_changed =
-        triple_row(ui, &t!("library.model_transform.rotate"), &mut rotate, "°");
+    let rotate_changed = triple_row(ui, &t!("library.model_transform.rotate"), &mut rotate, "°");
 
     if offset_changed || scale_changed || rotate_changed {
         run_transform(

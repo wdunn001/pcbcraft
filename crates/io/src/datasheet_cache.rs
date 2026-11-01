@@ -43,7 +43,10 @@ pub fn fetch_datasheet_cache(
     let mut hasher = Sha256::new();
     hasher.update(&body);
     let digest = hasher.finalize();
-    let sha256 = digest.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let sha256 = digest
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
     let dir = cache_dir()?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{sha256}.pdf"));

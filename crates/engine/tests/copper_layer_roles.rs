@@ -37,15 +37,13 @@ fn inner_copper_roles_record_list_undo_and_refuse_outer_layers() -> T {
         .cloned()
         .unwrap_or_default();
     assert!(
-        list.iter().any(|r| {
-            r["layer"] == "In1.Cu" && r["role"] == "ground"
-        }),
+        list.iter()
+            .any(|r| { r["layer"] == "In1.Cu" && r["role"] == "ground" }),
         "In1 is ground: {list:?}"
     );
     assert!(
-        list.iter().any(|r| {
-            r["layer"] == "In2.Cu" && r["role"] == "power"
-        }),
+        list.iter()
+            .any(|r| { r["layer"] == "In2.Cu" && r["role"] == "power" }),
         "In2 is power: {list:?}"
     );
     assert!(
@@ -69,7 +67,11 @@ fn inner_copper_roles_record_list_undo_and_refuse_outer_layers() -> T {
     );
     s.undo()?;
     assert_eq!(
-        s.project.board.copper_layer_roles.get(1).and_then(|r| r.as_deref()),
+        s.project
+            .board
+            .copper_layer_roles
+            .get(1)
+            .and_then(|r| r.as_deref()),
         Some("ground")
     );
     Ok(())
@@ -99,11 +101,13 @@ fn plane_roles_move_with_stackup_reorder() -> T {
         .cloned()
         .unwrap_or_default();
     assert!(
-        list.iter().any(|r| r["layer"] == "In1.Cu" && r["role"] == "power"),
+        list.iter()
+            .any(|r| r["layer"] == "In1.Cu" && r["role"] == "power"),
         "roles swap with the copper rows: {list:?}"
     );
     assert!(
-        list.iter().any(|r| r["layer"] == "In2.Cu" && r["role"] == "ground"),
+        list.iter()
+            .any(|r| r["layer"] == "In2.Cu" && r["role"] == "ground"),
         "roles swap with the copper rows: {list:?}"
     );
     Ok(())

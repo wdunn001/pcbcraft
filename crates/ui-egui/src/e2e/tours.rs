@@ -1,9 +1,9 @@
 //! Tour anchors (#772), Help > Tours listing (#769).
 
-use super::super::*;
 use super::super::authoring;
 use super::super::bottom_sheet::SheetTab;
 use super::super::tour::{self, anchor, data};
+use super::super::*;
 use super::support::*;
 
 #[test]

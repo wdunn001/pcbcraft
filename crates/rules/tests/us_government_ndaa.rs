@@ -25,7 +25,12 @@ fn sample_project() -> Project {
     project
 }
 
-fn component(id: u64, reference: &str, manufacturer: Option<&str>, compliance: Option<Compliance>) -> Component {
+fn component(
+    id: u64,
+    reference: &str,
+    manufacturer: Option<&str>,
+    compliance: Option<Compliance>,
+) -> Component {
     let mut fields = Vec::new();
     if let Some(m) = manufacturer {
         fields.push(ComponentField {
@@ -59,18 +64,12 @@ fn component(id: u64, reference: &str, manufacturer: Option<&str>, compliance: O
 #[test]
 fn a_newcomer_sees_a_listed_maker_flagged_on_the_us_government_rule_set() {
     let mut project = sample_project();
-    project.components.push(component(
-        1,
-        "U1",
-        Some("Orion Telecom Demo"),
-        None,
-    ));
-    project.components.push(component(
-        2,
-        "U2",
-        Some("Synthetic Near Match Ech"),
-        None,
-    ));
+    project
+        .components
+        .push(component(1, "U1", Some("Orion Telecom Demo"), None));
+    project
+        .components
+        .push(component(2, "U2", Some("Synthetic Near Match Ech"), None));
     project.components.push(component(3, "U3", None, None));
     project.components.push(component(
         4,
@@ -136,5 +135,9 @@ fn a_newcomer_sees_a_listed_maker_flagged_on_the_us_government_rule_set() {
         .iter()
         .find(|f| f.objects == vec![5] && f.state == "hit")
         .expect("recorded silicon vendor on memory part can hit the list");
-    assert!(silicon_hit.evidence.contains("Synthetic Semiconductor Vendor Delta"));
+    assert!(
+        silicon_hit
+            .evidence
+            .contains("Synthetic Semiconductor Vendor Delta")
+    );
 }

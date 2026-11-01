@@ -746,12 +746,11 @@ impl App {
                 || finds(query, &d.name)
                 || d.keywords.to_lowercase().contains(query)
                 || d.set.to_lowercase().contains(query);
-            let tagged = self.dock.tag.as_ref().is_none_or(|t| {
-                d.keywords
-                    .to_lowercase()
-                    .split_whitespace()
-                    .any(|w| w == t)
-            });
+            let tagged = self
+                .dock
+                .tag
+                .as_ref()
+                .is_none_or(|t| d.keywords.to_lowercase().split_whitespace().any(|w| w == t));
             let kind_ok =
                 self.kind_allows(&category_name("", &format!("{} {}", d.keywords, d.name)));
             if matches && tagged && kind_ok {
@@ -772,10 +771,7 @@ impl App {
         if !self.dock.hide_built_in && self.dock.tag.is_none() {
             for t in TEMPLATES {
                 let kind_ok = self.kind_allows(&category_name("", t.kind));
-                if kind_ok
-                    && (query.is_empty()
-                        || finds(query, t.label)
-                        || t.kind.contains(query))
+                if kind_ok && (query.is_empty() || finds(query, t.label) || t.kind.contains(query))
                 {
                     cards.push(Card::BuiltIn(t.kind, t.label));
                 }
@@ -2269,8 +2265,9 @@ impl App {
         };
         let sku = part.sku.clone();
         let fetch_3d = self.preferences.fetch_open_library_3d;
-        let reply =
-            spawn_read(ctx, move || library_online::import_open(&source, &sku, fetch_3d));
+        let reply = spawn_read(ctx, move || {
+            library_online::import_open(&source, &sku, fetch_3d)
+        });
         self.dock.pending = Some(Pending {
             intent: Intent::Online {
                 target: target.to_owned(),

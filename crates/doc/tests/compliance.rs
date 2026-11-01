@@ -60,7 +60,10 @@ fn compliance_fields_round_trip_in_project_json() -> Result<(), String> {
     let json = serde_json::to_string(&project).map_err(|e| e.to_string())?;
     let back: Project = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     back.validate()?;
-    assert_eq!(back.components[0].compliance.role, Some(PartRole::FlightController));
+    assert_eq!(
+        back.components[0].compliance.role,
+        Some(PartRole::FlightController)
+    );
     Ok(())
 }
 

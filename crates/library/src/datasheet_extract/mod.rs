@@ -43,10 +43,7 @@ impl DatasheetTableExtractor for DefaultDatasheetTableExtractor {
         #[cfg(not(feature = "datasheet-sidecar"))]
         {
             let _ = pdf_bytes;
-            Err(
-                "PDF table extraction needs the datasheet-sidecar feature or a TextDocument"
-                    .into(),
-            )
+            Err("PDF table extraction needs the datasheet-sidecar feature or a TextDocument".into())
         }
     }
 }

@@ -187,8 +187,8 @@ pub struct PublisherSignature {
 impl PublicationManifest {
     /// Parse and validate structural bounds on a manifest value.
     pub fn from_json(text: &str) -> Result<Self, String> {
-        let manifest: Self =
-            serde_json::from_str(text).map_err(|e| format!("publication.json is not valid JSON: {e}"))?;
+        let manifest: Self = serde_json::from_str(text)
+            .map_err(|e| format!("publication.json is not valid JSON: {e}"))?;
         manifest.validate_bounds()?;
         Ok(manifest)
     }
@@ -244,10 +244,7 @@ impl PublicationManifest {
             return Err("bom_summary exceeds the line limit".into());
         }
         if self.bundle_root_hash.len() != 64
-            || !self
-                .bundle_root_hash
-                .chars()
-                .all(|c| c.is_ascii_hexdigit())
+            || !self.bundle_root_hash.chars().all(|c| c.is_ascii_hexdigit())
         {
             return Err("bundle_root_hash must be 64 lowercase hex digits".into());
         }
@@ -255,9 +252,7 @@ impl PublicationManifest {
             if file.path.is_empty() || file.path.len() > 255 {
                 return Err("each file path must be 1 to 255 bytes".into());
             }
-            if file.sha256.len() != 64
-                || !file.sha256.chars().all(|c| c.is_ascii_hexdigit())
-            {
+            if file.sha256.len() != 64 || !file.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
                 return Err(format!("{} has an invalid sha256 field", file.path));
             }
         }

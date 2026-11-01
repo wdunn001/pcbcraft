@@ -37,10 +37,7 @@ fn user_source() -> DeclarationSource {
 fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
     let p = sample_project();
     let bare = compliance_check(&p);
-    let unverified: Vec<_> = bare
-        .iter()
-        .filter(|f| f.state == "unverified")
-        .collect();
+    let unverified: Vec<_> = bare.iter().filter(|f| f.state == "unverified").collect();
     assert!(
         unverified.len() >= 3,
         "missing declarations should surface grouped unverified rows: {:?}",
@@ -52,7 +49,10 @@ fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
     );
 
     let mut declared = sample_project();
-    set_compliance(&mut declared, 1, Compliance {
+    set_compliance(
+        &mut declared,
+        1,
+        Compliance {
             declarations: vec![
                 Declaration {
                     regime: "eu.rohs".into(),
@@ -77,7 +77,8 @@ fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
                 },
             ],
             ..Compliance::default()
-        });
+        },
+    );
     let clean = compliance_check(&declared);
     assert!(
         !clean.iter().any(|f| f.state == "unverified"),
@@ -86,7 +87,10 @@ fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
     );
 
     let mut stale = sample_project();
-    set_compliance(&mut stale, 1, Compliance {
+    set_compliance(
+        &mut stale,
+        1,
+        Compliance {
             declarations: vec![Declaration {
                 regime: "eu.rohs".into(),
                 status: DeclarationStatus::DeclaredExempt,
@@ -95,7 +99,8 @@ fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
                 as_of: "2026-03-01".into(),
             }],
             ..Compliance::default()
-        });
+        },
+    );
     let stale_findings = compliance_check(&stale);
     assert!(
         stale_findings.iter().any(|f| f.state == "stale"),
@@ -125,7 +130,10 @@ fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
     );
 
     let mut reach_hit = sample_project();
-    set_compliance(&mut reach_hit, 1, Compliance {
+    set_compliance(
+        &mut reach_hit,
+        1,
+        Compliance {
             declarations: vec![Declaration {
                 regime: "eu.reach.svhc".into(),
                 status: DeclarationStatus::DeclaredCompliant,
@@ -140,10 +148,13 @@ fn a_newcomer_checks_a_board_against_the_eu_market_rule_set() {
                 note: Default::default(),
             }],
             ..Compliance::default()
-        });
+        },
+    );
     let reach = compliance_check(&reach_hit);
     assert!(
-        reach.iter().any(|f| f.code == "reach_article_33" && f.state == "hit"),
+        reach
+            .iter()
+            .any(|f| f.code == "reach_article_33" && f.state == "hit"),
         "SVHC above 0.1% should Article 33 finding: {:?}",
         reach
     );
@@ -163,15 +174,22 @@ fn bundled_list_metadata_is_present() {
 #[test]
 fn compliance_project_round_trips() {
     let mut p = sample_project();
-    set_compliance(&mut p, 1, Compliance {
-        role: Some(PartRole::Battery),
-        ..Compliance::default()
-    });
+    set_compliance(
+        &mut p,
+        1,
+        Compliance {
+            role: Some(PartRole::Battery),
+            ..Compliance::default()
+        },
+    );
     let json = serde_json::to_string(&p).expect("serialize");
     let back: Project = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(back.compliance_settings.rule_sets, vec!["eu_market"]);
     assert_eq!(
-        back.components.iter().find(|c| c.id == 1).and_then(|c| c.compliance.role),
+        back.components
+            .iter()
+            .find(|c| c.id == 1)
+            .and_then(|c| c.compliance.role),
         Some(PartRole::Battery)
     );
 }

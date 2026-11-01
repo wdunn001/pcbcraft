@@ -142,9 +142,24 @@ impl Part {
 impl Model3dRef {
     pub fn validate(&self) -> Result<(), Error> {
         match self {
-            Self::Step { path, offset, scale, rotate }
-            | Self::Wrl { path, offset, scale, rotate }
-            | Self::Gltf { path, offset, scale, rotate } => {
+            Self::Step {
+                path,
+                offset,
+                scale,
+                rotate,
+            }
+            | Self::Wrl {
+                path,
+                offset,
+                scale,
+                rotate,
+            }
+            | Self::Gltf {
+                path,
+                offset,
+                scale,
+                rotate,
+            } => {
                 text(path)?;
                 if path.is_empty() || path.len() > 1024 {
                     return Err(bad("model path invalid"));

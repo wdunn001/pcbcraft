@@ -1,8 +1,8 @@
 mod support;
 
-use pcbcraft_publication::{stage0_from_manifest_and_files, stage0_from_zip, CheckVerdict};
-use support::{good_part_bundle_zip, manifest_for_files, sample_symbol_bytes};
+use pcbcraft_publication::{CheckVerdict, stage0_from_manifest_and_files, stage0_from_zip};
 use std::collections::BTreeMap;
+use support::{good_part_bundle_zip, manifest_for_files, sample_symbol_bytes};
 
 #[test]
 fn good_part_bundle_passes_stage0() -> Result<(), String> {
@@ -29,10 +29,12 @@ fn bad_hash_fails_files_rule() -> Result<(), String> {
         &files,
     );
     assert!(!report.passes());
-    assert!(report
-        .failure_reasons()
-        .iter()
-        .any(|line| line.contains("files")));
+    assert!(
+        report
+            .failure_reasons()
+            .iter()
+            .any(|line| line.contains("files"))
+    );
     Ok(())
 }
 
@@ -49,10 +51,12 @@ fn traversal_path_fails_paths_rule() -> Result<(), String> {
         &files,
     );
     assert!(!report.passes());
-    assert!(report
-        .failure_reasons()
-        .iter()
-        .any(|line| line.contains("paths")));
+    assert!(
+        report
+            .failure_reasons()
+            .iter()
+            .any(|line| line.contains("paths"))
+    );
     Ok(())
 }
 
@@ -69,10 +73,12 @@ fn disallowed_licence_fails_licence_rule() -> Result<(), String> {
         &files,
     );
     assert!(!report.passes());
-    assert!(report
-        .failure_reasons()
-        .iter()
-        .any(|line| line.contains("licence")));
+    assert!(
+        report
+            .failure_reasons()
+            .iter()
+            .any(|line| line.contains("licence"))
+    );
     Ok(())
 }
 
@@ -81,11 +87,13 @@ fn incompatible_lineage_fails_lineage_rule() -> Result<(), String> {
     let mut files = BTreeMap::new();
     files.insert("device.kicad_sym".into(), sample_symbol_bytes());
     let mut manifest = manifest_for_files(&files);
-    manifest.derived_from.push(pcbcraft_publication::LineageEntry {
-        parent_id: "upstream".into(),
-        relation: pcbcraft_publication::LineageRelation::Fork,
-        parent_licence: "GPL-3.0-only".into(),
-    });
+    manifest
+        .derived_from
+        .push(pcbcraft_publication::LineageEntry {
+            parent_id: "upstream".into(),
+            relation: pcbcraft_publication::LineageRelation::Fork,
+            parent_licence: "GPL-3.0-only".into(),
+        });
     manifest.licences.software = "MIT".into();
     let json = manifest.to_json_pretty()?;
     files.insert("publication.json".into(), json.into_bytes());
@@ -94,10 +102,12 @@ fn incompatible_lineage_fails_lineage_rule() -> Result<(), String> {
         &files,
     );
     assert!(!report.passes());
-    assert!(report
-        .failure_reasons()
-        .iter()
-        .any(|line| line.contains("lineage")));
+    assert!(
+        report
+            .failure_reasons()
+            .iter()
+            .any(|line| line.contains("lineage"))
+    );
     Ok(())
 }
 
@@ -114,10 +124,12 @@ fn http_homepage_fails_urls_rule() -> Result<(), String> {
         &files,
     );
     assert!(!report.passes());
-    assert!(report
-        .failure_reasons()
-        .iter()
-        .any(|line| line.contains("urls")));
+    assert!(
+        report
+            .failure_reasons()
+            .iter()
+            .any(|line| line.contains("urls"))
+    );
     Ok(())
 }
 
@@ -127,7 +139,10 @@ fn zip_bomb_entry_cap_flags_archive_limits() -> Result<(), String> {
     for i in 0..600usize {
         entries.push((format!("f{i}.txt"), vec![b'x'; 16]));
     }
-    entries.push(("publication.json".into(), br#"{"schema_version":1}"#.to_vec()));
+    entries.push((
+        "publication.json".into(),
+        br#"{"schema_version":1}"#.to_vec(),
+    ));
     let zip = pcbcraft_io::zip_entries(&entries)?;
     let report = stage0_from_zip(&zip);
     assert!(!report.passes());
@@ -144,7 +159,8 @@ fn huge_preview_media_mismatch_fails_media_type() -> Result<(), String> {
     manifest.files[0].media_type = "application/json".into();
     manifest.files[0].role = "preview".into();
     manifest.files[0].format = "png".into();
-    manifest.files[0].sha256 = pcbcraft_publication::sha256_hex(files.get("preview.png").ok_or("missing")?);
+    manifest.files[0].sha256 =
+        pcbcraft_publication::sha256_hex(files.get("preview.png").ok_or("missing")?);
     manifest.files[0].size = files["preview.png"].len() as u64;
     let pairs: Vec<(String, String)> = manifest
         .files
@@ -159,10 +175,12 @@ fn huge_preview_media_mismatch_fails_media_type() -> Result<(), String> {
         &files,
     );
     assert!(!report.passes());
-    assert!(report
-        .failure_reasons()
-        .iter()
-        .any(|line| line.contains("media_type")));
+    assert!(
+        report
+            .failure_reasons()
+            .iter()
+            .any(|line| line.contains("media_type"))
+    );
     Ok(())
 }
 
@@ -197,9 +215,10 @@ fn near_duplicate_size_flags_human_queue() -> Result<(), String> {
         std::str::from_utf8(files.get("publication.json").ok_or("missing")?).map_err(|_| "utf8")?,
         &files,
     );
-    let flagged = report.results.iter().any(|r| {
-        r.rule == "near_duplicate" && matches!(r.verdict, CheckVerdict::Flag(_))
-    });
+    let flagged = report
+        .results
+        .iter()
+        .any(|r| r.rule == "near_duplicate" && matches!(r.verdict, CheckVerdict::Flag(_)));
     assert!(flagged);
     Ok(())
 }

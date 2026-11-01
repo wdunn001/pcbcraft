@@ -1,6 +1,6 @@
 //! 3D software renderer benchmark for large boards (issue 721).
 
-use pcbcraft_io::{bench_project_600_parts, board_mesh, MeshLayers};
+use pcbcraft_io::{MeshLayers, bench_project_600_parts, board_mesh};
 use std::time::Instant;
 
 const BASELINE_MS: u64 = 9000;

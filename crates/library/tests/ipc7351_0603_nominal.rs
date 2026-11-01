@@ -1,6 +1,6 @@
 use pcbcraft_library::{
-    generate_footprint, generate_footprint_from_key, LandPatternDensity, LandPatternParams,
-    PackageFamily, PackageKey,
+    LandPatternDensity, LandPatternParams, PackageFamily, PackageKey, generate_footprint,
+    generate_footprint_from_key,
 };
 
 const TOL: f64 = 0.01;

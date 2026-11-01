@@ -24,13 +24,13 @@ use crate::cam::{CncProfile, isolation_gcode, isolation_options_from_value};
 use crate::machine_profile::builtin_machine_profile;
 use crate::snapmaker::{snapmaker_cnc_profile, snapmaker_files, snapmaker_settings};
 use crate::{
-PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, compliance_report_markdown, drill_chart_csv, dxf_board,
-    gencad_text, gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text,
+    ComplianceReportOptions, GerberArcOptions, PACKAGE_CREATION_DATE, PlacementOptions, bom_csv,
+    bundled_placement_flavours, cmp_text, compliance_report_markdown, drill_chart_csv, dxf_board,
+    fab_drawing_pdf, gencad_text, gerber_files, gerber_files_with_options, hpgl_plot,
+    hyperlynx_csv, idf_board, idf_library, impedance_table_csv, ipc356_netlist, ipc2581_text,
     netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
-    postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, testpoints_csv,
-    vrml_board, impedance_table_csv, fab_drawing_pdf, si_net_results_csv, spice_netlist, touchstone_text,
-    ComplianceReportOptions, idf_library, gerber_files_with_options,
-    GerberArcOptions, PACKAGE_CREATION_DATE
+    postscript, report_text, si_net_results_csv, specctra_dsn, spice_netlist, stackup_text,
+    stats_text, step_board, svg, testpoints_csv, touchstone_text, vrml_board,
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -209,8 +209,7 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
     let path = artifact.path.as_str();
     if path == "gerber/" || path.starts_with("gerber/") {
         let opts = GerberArcOptions::default_for(p, &artifact.settings);
-        let (files, _report) =
-            gerber_files_with_options(p, PACKAGE_CREATION_DATE, opts)?;
+        let (files, _report) = gerber_files_with_options(p, PACKAGE_CREATION_DATE, opts)?;
         if path == "gerber/" {
             return Ok(GeneratedOutput::Files(files));
         }
@@ -259,7 +258,7 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
         "board-stackup.txt" => text_output(stackup_text(p)?),
         "board-stats.csv" => text_output(stats_text(p)?),
-"board.step" => text_output(step_board(p)?),
+        "board.step" => text_output(step_board(p)?),
         "pcb.dsn" => text_output(specctra_dsn(p)?),
         "test.brd" => text_output(ipc356_netlist(p)?),
         "testpoints.csv" => text_output(testpoints_csv(p)?),
@@ -271,9 +270,10 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
         "board-stackup.txt" => text_output(stackup_text(p)?),
         "board-stats.csv" => text_output(stats_text(p)?),
-        "compliance-report.md" => {
-            text_output(compliance_report_markdown(p, &ComplianceReportOptions::default())?)
-        }
+        "compliance-report.md" => text_output(compliance_report_markdown(
+            p,
+            &ComplianceReportOptions::default(),
+        )?),
         "schematic.cir" => text_output(spice_netlist(p)?),
         "si-net-results.csv" => text_output(si_net_results_csv(p)?),
         "impedance-table.csv" => text_output(impedance_table_csv(p)?),

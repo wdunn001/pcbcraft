@@ -1,11 +1,11 @@
 //! CI: generated fixtures render, search, and document-wide lookup.
 
+use hayro::RenderCache;
+use hayro::hayro_interpret::InterpreterCache;
 use pcbcraft_datasheet::{
     Document, Selection, find, fixtures, open, page_size, render_page, search_document,
     selected_text, text_layer,
 };
-use hayro::RenderCache;
-use hayro::hayro_interpret::InterpreterCache;
 
 #[test]
 fn fixtures_render_and_search() {

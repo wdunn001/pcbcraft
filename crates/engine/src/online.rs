@@ -277,8 +277,7 @@ fn place_command(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value
             locked: None,
             side: None,
             pads,
-        
-});
+        });
         Some(fid)
     } else {
         None

@@ -167,14 +167,7 @@ pub const PARTS: &[Part] = &[
         0.1,
         "Battery test point",
     ),
-    part(
-        "TP2",
-        "TP_PAD",
-        "3V3",
-        "Test_Pad",
-        0.1,
-        "Supply test point",
-    ),
+    part("TP2", "TP_PAD", "3V3", "Test_Pad", 0.1, "Supply test point"),
     // Compute page.
     part(
         "U3",

@@ -289,11 +289,7 @@ impl App {
                 "Front",
                 "Move this wire to the front copper layer.",
             ),
-            (
-                bottom,
-                "Back",
-                "Move this wire to the back copper layer.",
-            ),
+            (bottom, "Back", "Move this wire to the back copper layer."),
         ]
         .into_iter()
         .filter(|(layer, ..)| *layer != current)

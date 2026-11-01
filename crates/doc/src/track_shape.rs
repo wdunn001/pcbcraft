@@ -23,9 +23,7 @@ pub enum TrackArcExport {
     #[default]
     TrueArc,
     /// Replace each arc with short chords within a tolerance.
-    FlattenChords {
-        max_chord_error_mm: f64,
-    },
+    FlattenChords { max_chord_error_mm: f64 },
 }
 
 impl TrackArcExport {
@@ -35,11 +33,11 @@ impl TrackArcExport {
     pub fn valid(self) -> bool {
         match self {
             Self::TrueArc => true,
-            Self::FlattenChords {
-                max_chord_error_mm,
-            } => max_chord_error_mm.is_finite()
-                && max_chord_error_mm > 0.0
-                && max_chord_error_mm <= 1.0,
+            Self::FlattenChords { max_chord_error_mm } => {
+                max_chord_error_mm.is_finite()
+                    && max_chord_error_mm > 0.0
+                    && max_chord_error_mm <= 1.0
+            }
         }
     }
 }
@@ -62,13 +60,17 @@ mod tests {
     #[test]
     fn track_arc_export_validates_chord_tolerance() {
         assert!(TrackArcExport::TrueArc.valid());
-        assert!(TrackArcExport::FlattenChords {
-            max_chord_error_mm: 0.01
-        }
-        .valid());
-        assert!(!TrackArcExport::FlattenChords {
-            max_chord_error_mm: 0.0
-        }
-        .valid());
+        assert!(
+            TrackArcExport::FlattenChords {
+                max_chord_error_mm: 0.01
+            }
+            .valid()
+        );
+        assert!(
+            !TrackArcExport::FlattenChords {
+                max_chord_error_mm: 0.0
+            }
+            .valid()
+        );
     }
 }

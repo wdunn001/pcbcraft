@@ -25,8 +25,8 @@
 //!
 //! # Do not
 //! - Use the GPU or any thread; it runs in headless tests and the browser build.
-use super::{Basis, FOV_TAN, NEAR, V, cross, dot, flip, sub, unit};
 use super::scene::{Drawable, box_corners, box_indices, prepare};
+use super::{Basis, FOV_TAN, NEAR, V, cross, dot, flip, sub, unit};
 use pcbcraft_io::{BoardMesh, MeshPart, PartKind, apply_matrix};
 
 /// What to draw and how, besides the camera.
@@ -248,13 +248,19 @@ fn surface(
         PartKind::MaskTop | PartKind::MaskBottom => plastic(mats.mask, 0.62),
         PartKind::SilkTop | PartKind::SilkBottom => plastic(mats.silk, 0.63),
         PartKind::Lead => Surface {
-            albedo: part.color.or_else(|| part.prototype.as_ref().and_then(|p| p.color)).map_or(mats.tin, lin3f),
+            albedo: part
+                .color
+                .or_else(|| part.prototype.as_ref().and_then(|p| p.color))
+                .map_or(mats.tin, lin3f),
             metal: 1.0,
             rough: 0.44,
         },
         PartKind::Body => {
             let family = part.family.as_deref().unwrap_or("");
-            let colour = part.color.or_else(|| part.prototype.as_ref().and_then(|p| p.color)).map(lin3f);
+            let colour = part
+                .color
+                .or_else(|| part.prototype.as_ref().and_then(|p| p.color))
+                .map(lin3f);
             match family {
                 "radial" if n[2] > 0.9 || n[2] < -0.9 => Surface {
                     albedo: colour.unwrap_or(mats.tin),
@@ -397,7 +403,11 @@ pub(super) fn render(
                 let (Some(proto), Some(m)) = (&part.prototype, &part.instance) else {
                     continue;
                 };
-                owned_positions = proto.positions.iter().map(|p| apply_matrix(m, *p)).collect();
+                owned_positions = proto
+                    .positions
+                    .iter()
+                    .map(|p| apply_matrix(m, *p))
+                    .collect();
                 (part, &owned_positions[..], &proto.indices[..index_len])
             }
             Drawable::Box { part, min, max } => {

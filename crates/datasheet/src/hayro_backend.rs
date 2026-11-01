@@ -29,8 +29,8 @@ pub struct HayroDocument {
 
 impl HayroDocument {
     pub fn open(bytes: &[u8]) -> Result<Self, OpenError> {
-        let pdf = Pdf::new(Arc::new(bytes.to_vec()))
-            .map_err(|e| OpenError::Message(format!("{e:?}")))?;
+        let pdf =
+            Pdf::new(Arc::new(bytes.to_vec())).map_err(|e| OpenError::Message(format!("{e:?}")))?;
         Ok(Self {
             pdf,
             settings: InterpreterSettings::default(),
@@ -62,7 +62,9 @@ impl HayroDocument {
         let full_w = image.width();
         let full_h = image.height();
         if tile.x >= full_w || tile.y >= full_h {
-            return Err(RenderError::Failed("The tile lies outside the page.".into()));
+            return Err(RenderError::Failed(
+                "The tile lies outside the page.".into(),
+            ));
         }
         let w = tile.width.min(full_w - tile.x);
         let h = tile.height.min(full_h - tile.y);

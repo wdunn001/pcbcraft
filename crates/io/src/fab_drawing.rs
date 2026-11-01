@@ -1,7 +1,7 @@
 //! Fabrication drawing PDF: outline, stackup, drill chart, impedance and notes.
 use pcbcraft_doc::{Layer, Project};
-use pcbcraft_geom::impedance as imp;
 use pcbcraft_geom::Point;
+use pcbcraft_geom::impedance as imp;
 use std::collections::BTreeSet;
 
 use crate::{drill_chart_csv, pdf_bytes_from_ops, stackup_text};
@@ -21,8 +21,20 @@ pub fn fab_drawing_pdf(p: &Project) -> Result<Vec<u8>, String> {
     let mut y = 540.0;
     y = write_section(p, &mut sheet, y, "Layer stackup", stackup_section_lines(p)?)?;
     y = write_section(p, &mut sheet, y, "Drill chart", drill_section_lines(p)?)?;
-    y = write_section(p, &mut sheet, y, "Controlled impedance", impedance_section_lines(p)?)?;
-    y = write_section(p, &mut sheet, y, "Fabrication notes", notes_section_lines(p)?)?;
+    y = write_section(
+        p,
+        &mut sheet,
+        y,
+        "Controlled impedance",
+        impedance_section_lines(p)?,
+    )?;
+    y = write_section(
+        p,
+        &mut sheet,
+        y,
+        "Fabrication notes",
+        notes_section_lines(p)?,
+    )?;
     y = write_section(p, &mut sheet, y, "Board class", board_class_lines(p)?)?;
     let _ = write_section(
         p,
@@ -178,7 +190,11 @@ fn impedance_section_lines(p: &Project) -> Result<Vec<String>, String> {
             && seen_pairs.insert(pair.name.clone())
             && let Some(c) = imp::coupled_microstrip(width, pair.gap, height, er)
         {
-            line.push_str(&format!(", pair {} Zdiff {:.2} ohm", pair.name, round2(c.z_diff())));
+            line.push_str(&format!(
+                ", pair {} Zdiff {:.2} ohm",
+                pair.name,
+                round2(c.z_diff())
+            ));
         }
         lines.push(line);
     }
@@ -237,7 +253,10 @@ fn meta_or_page<'a>(p: &'a Project, key: &str, page: &'a str) -> Option<&'a str>
     if !page.is_empty() {
         return Some(page);
     }
-    p.meta.get(key).map(|s| s.as_str()).filter(|s| !s.is_empty())
+    p.meta
+        .get(key)
+        .map(|s| s.as_str())
+        .filter(|s| !s.is_empty())
 }
 
 fn revision_block_lines(p: &Project) -> Vec<String> {
@@ -245,8 +264,7 @@ fn revision_block_lines(p: &Project) -> Vec<String> {
     let mut lines = vec![
         format!(
             "Title: {}",
-            meta_or_page(p, "title", page.title.as_str())
-                .unwrap_or(project_title(p))
+            meta_or_page(p, "title", page.title.as_str()).unwrap_or(project_title(p))
         ),
         format!(
             "Revision: {}",
@@ -286,7 +304,12 @@ fn board_edge(p: &Project) -> Vec<Point> {
 fn draw_outline_panel(p: &Project, sheet: &mut FabSheet) -> Result<(), String> {
     let edge = board_edge(p);
     let (min_x, max_x, min_y, max_y) = edge.iter().fold(
-        (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY),
+        (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ),
         |(min_x, max_x, min_y, max_y), pt| {
             (
                 min_x.min(pt.x),
@@ -303,12 +326,8 @@ fn draw_outline_panel(p: &Project, sheet: &mut FabSheet) -> Result<(), String> {
     let x0 = 40.0;
     let y0 = 280.0;
     let scale = (panel_w / design_w).min(panel_h / design_h);
-    let map = |pt: Point| -> (f64, f64) {
-        (
-            x0 + (pt.x - min_x) * scale,
-            y0 + (pt.y - min_y) * scale,
-        )
-    };
+    let map =
+        |pt: Point| -> (f64, f64) { (x0 + (pt.x - min_x) * scale, y0 + (pt.y - min_y) * scale) };
     sheet.text(x0, y0 + panel_h + 14.0, 10.0, "Board outline")?;
     let mut pts: Vec<(f64, f64)> = edge.iter().map(|p| map(*p)).collect();
     if pts.len() >= 2 {
@@ -322,11 +341,7 @@ fn draw_outline_panel(p: &Project, sheet: &mut FabSheet) -> Result<(), String> {
         }
     }
     for h in &p.board.holes {
-        let center = if h.is_slot() {
-            h.center()
-        } else {
-            h.position
-        };
+        let center = if h.is_slot() { h.center() } else { h.position };
         let (cx, cy) = map(center);
         let r = (h.diameter * scale * 0.5).max(1.0);
         sheet.circle(cx, cy, r, INK, false)?;
@@ -400,7 +415,13 @@ impl FabSheet {
             if stroke { "RG" } else { "rg" }
         ))
     }
-    fn polyline(&mut self, points: &[(f64, f64)], w: f64, rgb: [f64; 3], fill: bool) -> Result<(), String> {
+    fn polyline(
+        &mut self,
+        points: &[(f64, f64)],
+        w: f64,
+        rgb: [f64; 3],
+        fill: bool,
+    ) -> Result<(), String> {
         if points.len() < 2 {
             return Ok(());
         }
@@ -414,7 +435,14 @@ impl FabSheet {
         }
         self.op(if fill { "B" } else { "S" })
     }
-    fn circle(&mut self, cx: f64, cy: f64, r: f64, rgb: [f64; 3], fill: bool) -> Result<(), String> {
+    fn circle(
+        &mut self,
+        cx: f64,
+        cy: f64,
+        r: f64,
+        rgb: [f64; 3],
+        fill: bool,
+    ) -> Result<(), String> {
         const C: f64 = 0.552_284_749_8;
         self.color(rgb, true)?;
         self.color(rgb, false)?;
@@ -500,9 +528,15 @@ mod tests {
         project.validate()?;
         let pdf = fab_drawing_pdf(&project)?;
         let text = String::from_utf8(pdf).map_err(|_| "PDF uses ASCII")?;
-        assert!(text.contains("L1,copper,0.035"), "stackup row is extractable");
+        assert!(
+            text.contains("L1,copper,0.035"),
+            "stackup row is extractable"
+        );
         assert!(text.contains("T1,0.300"), "drill chart row is extractable");
-        assert!(text.contains("Revision block"), "revision heading is present");
+        assert!(
+            text.contains("Revision block"),
+            "revision heading is present"
+        );
         assert!(text.contains("Revision: B"), "revision value is present");
         assert!(text.contains("SIG"), "impedance line names the net");
         Ok(())
@@ -515,7 +549,10 @@ mod tests {
         let pdf = fab_drawing_pdf(&project)?;
         let text = String::from_utf8(pdf).map_err(|_| "PDF uses ASCII")?;
         assert!(!text.contains("Layer stackup"), "empty stackup is omitted");
-        assert!(!text.contains("Drill chart"), "empty drill chart is omitted");
+        assert!(
+            !text.contains("Drill chart"),
+            "empty drill chart is omitted"
+        );
         assert!(text.contains("Revision block"), "revision block stays");
         Ok(())
     }

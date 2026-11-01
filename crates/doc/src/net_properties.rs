@@ -49,7 +49,10 @@ pub fn validate_line_structure(value: &str) -> Result<(), String> {
     if in_set(value, LINE_STRUCTURES) {
         Ok(())
     } else {
-        Err("line structure must be stripline, microstrip, microstrip_mask, coplanar or broadside".into())
+        Err(
+            "line structure must be stripline, microstrip, microstrip_mask, coplanar or broadside"
+                .into(),
+        )
     }
 }
 
@@ -207,8 +210,7 @@ impl Project {
         if let Some(insulation) = net.insulation.as_deref() {
             Some(insulation)
         } else {
-            self.net_class(net.id)
-                .and_then(|c| c.insulation.as_deref())
+            self.net_class(net.id).and_then(|c| c.insulation.as_deref())
         }
     }
 

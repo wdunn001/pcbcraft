@@ -194,7 +194,9 @@ fn check_piece(piece: &str, label: &str) -> Result<(), String> {
         || piece.len() > 256
         || piece == "."
         || piece.contains("..")
-        || piece.chars().any(|c| c.is_control() || matches!(c, '/' | '\\'))
+        || piece
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '/' | '\\'))
     {
         return Err(format!("{label} has an unusable path piece"));
     }
@@ -471,8 +473,7 @@ pub fn rebuild_site(registry_root: &Path) -> Result<CatalogueDocument, String> {
         catalogue_sha256: catalogue_hash,
         ..registry
     };
-    let registry_text =
-        serde_json::to_string_pretty(&updated).map_err(|e| e.to_string())?;
+    let registry_text = serde_json::to_string_pretty(&updated).map_err(|e| e.to_string())?;
     atomic_write(manifest_path.as_path(), registry_text.as_bytes())?;
     Ok(catalogue)
 }
@@ -656,7 +657,12 @@ pub fn merge_catalogues(
     out.sort_by(|a, b| {
         a.id.cmp(&b.id)
             .then_with(|| a.version.cmp(&b.version))
-            .then_with(|| a.origin.as_ref().map(|o| &o.instance_id).cmp(&b.origin.as_ref().map(|o| &o.instance_id)))
+            .then_with(|| {
+                a.origin
+                    .as_ref()
+                    .map(|o| &o.instance_id)
+                    .cmp(&b.origin.as_ref().map(|o| &o.instance_id))
+            })
     });
     out
 }
@@ -669,10 +675,8 @@ mod tests {
     struct TempDir(PathBuf);
     impl TempDir {
         fn new() -> Result<Self, String> {
-            let path = std::env::temp_dir().join(format!(
-                "pcbcraft-registry-test-{}",
-                std::process::id()
-            ));
+            let path =
+                std::env::temp_dir().join(format!("pcbcraft-registry-test-{}", std::process::id()));
             let _ = fs::remove_dir_all(&path);
             fs::create_dir_all(&path).map_err(|e| e.to_string())?;
             Ok(Self(path))
@@ -734,13 +738,10 @@ mod tests {
             .open(&file)
             .map_err(|e| e.to_string())?;
         handle.write_all(b"x").map_err(|e| e.to_string())?;
-        assert!(verify_publication_dir(
-            &registry
-                .join(PUBLICATIONS_DIR)
-                .join("demo-r")
-                .join("1.0.0")
-        )
-        .is_err());
+        assert!(
+            verify_publication_dir(&registry.join(PUBLICATIONS_DIR).join("demo-r").join("1.0.0"))
+                .is_err()
+        );
         Ok(())
     }
 }

@@ -341,7 +341,7 @@ impl App {
                 });
             },
         );
-if self
+        if self
             .project
             .board
             .footprints

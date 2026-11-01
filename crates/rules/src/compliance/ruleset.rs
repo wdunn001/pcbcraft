@@ -115,7 +115,10 @@ fn default_warning() -> String {
 pub fn load_rule_set(toml_text: &str) -> Result<ComplianceRuleSet, String> {
     let set: ComplianceRuleSet = toml::from_str(toml_text).map_err(|e| e.to_string())?;
     if set.schema != 1 {
-        return Err(format!("unsupported compliance ruleset schema {}", set.schema));
+        return Err(format!(
+            "unsupported compliance ruleset schema {}",
+            set.schema
+        ));
     }
     if set.id.is_empty() {
         return Err("ruleset id is required".into());

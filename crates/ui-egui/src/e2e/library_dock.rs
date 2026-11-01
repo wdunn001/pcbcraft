@@ -37,8 +37,7 @@ fn library_view_strip(ctx: &egui::Context, app: &App) -> Result<Rect, String> {
     let control = audit::controls(ctx, app)
         .into_iter()
         .find(|c| {
-            c.id
-                .as_deref()
+            c.id.as_deref()
                 .is_some_and(|id| id.starts_with("radiobutton:Show"))
         })
         .ok_or("library view switch is not on screen")?;
@@ -174,12 +173,7 @@ fn the_library_view_switch_fits_a_narrow_aside() -> Result<(), String> {
     app.region().left_tab = "library".to_owned();
     let ctx = egui::Context::default();
     for width in [320.0_f32, 380.0] {
-        let output = frame_sized(
-            &ctx,
-            &mut app,
-            egui::Vec2::new(width, 640.0),
-            vec![],
-        );
+        let output = frame_sized(&ctx, &mut app, egui::Vec2::new(width, 640.0), vec![]);
         let strip = library_view_strip(&ctx, &app)?;
         assert!(
             strip.max.x <= width + 1.0,

@@ -43,7 +43,11 @@ impl ParamBody {
 }
 
 fn chip_mesh(key: &PackageKey) -> TriangleMesh {
-    let h = if key.height_mm > 0.0 { key.height_mm } else { 0.55 };
+    let h = if key.height_mm > 0.0 {
+        key.height_mm
+    } else {
+        0.55
+    };
     box_prism(key.body_length_mm, key.body_width_mm, h)
 }
 
@@ -59,18 +63,30 @@ fn gull_mesh(key: &PackageKey) -> TriangleMesh {
 }
 
 fn qfn_mesh(key: &PackageKey) -> TriangleMesh {
-    let h = if key.height_mm > 0.0 { key.height_mm } else { 0.9 };
+    let h = if key.height_mm > 0.0 {
+        key.height_mm
+    } else {
+        0.9
+    };
     box_prism(key.body_length_mm.max(3.0), key.body_width_mm.max(3.0), h)
 }
 
 fn dip_mesh(key: &PackageKey) -> TriangleMesh {
-    let h = if key.height_mm > 0.0 { key.height_mm } else { 3.3 };
+    let h = if key.height_mm > 0.0 {
+        key.height_mm
+    } else {
+        3.3
+    };
     box_prism(key.body_width_mm.max(6.0), key.body_length_mm.max(8.0), h)
 }
 
 fn cylinder_mesh(key: &PackageKey) -> TriangleMesh {
     let r = key.body_width_mm.max(2.0) / 2.0;
-    let h = if key.height_mm > 0.0 { key.height_mm } else { 5.0 };
+    let h = if key.height_mm > 0.0 {
+        key.height_mm
+    } else {
+        5.0
+    };
     let segments = 12;
     let mut vertices = Vec::with_capacity(segments * 2);
     for i in 0..segments {
@@ -91,7 +107,10 @@ fn cylinder_mesh(key: &PackageKey) -> TriangleMesh {
         triangles.push([a, b, d]);
         triangles.push([a, d, c]);
     }
-    TriangleMesh { vertices, triangles }
+    TriangleMesh {
+        vertices,
+        triangles,
+    }
 }
 
 fn box_mesh(key: &PackageKey, default_h: f64) -> TriangleMesh {
@@ -129,5 +148,8 @@ fn box_prism(lx: f64, ly: f64, lz: f64) -> TriangleMesh {
         [3, 7, 4],
         [3, 4, 0],
     ];
-    TriangleMesh { vertices, triangles }
+    TriangleMesh {
+        vertices,
+        triangles,
+    }
 }

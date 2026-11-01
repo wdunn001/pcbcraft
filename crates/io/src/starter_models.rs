@@ -57,7 +57,11 @@ pub fn resolve_path(
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn resolve_path(path: &str, _footprint_name: Option<&str>, _cache_root: &Path) -> Result<PathBuf, String> {
+pub fn resolve_path(
+    path: &str,
+    _footprint_name: Option<&str>,
+    _cache_root: &Path,
+) -> Result<PathBuf, String> {
     let _ = path;
     Err("Starter 3D models resolve in the desktop app.".into())
 }

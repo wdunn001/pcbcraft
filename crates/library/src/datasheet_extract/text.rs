@@ -47,7 +47,10 @@ pub fn cells_from_char_boxes(
         .collect()
 }
 
-pub(crate) fn source_of_cells(cells: &[TextCell], quote: &str) -> Result<DatasheetSourceRecord, String> {
+pub(crate) fn source_of_cells(
+    cells: &[TextCell],
+    quote: &str,
+) -> Result<DatasheetSourceRecord, String> {
     let first = cells.first().ok_or("empty cell group")?;
     let mut rect = first.rect;
     for c in cells.iter().skip(1) {

@@ -382,12 +382,7 @@ fn draw_assembly(
     } else {
         draw_lbl::ASSEMBLY_TOP_TITLE
     };
-    simple_title_block(
-        page,
-        p,
-        Point::new(bmax.x + 6.0, bmin.y),
-        title,
-    )?;
+    simple_title_block(page, p, Point::new(bmax.x + 6.0, bmin.y), title)?;
     Ok(())
 }
 
@@ -432,13 +427,7 @@ impl SvgPage {
 }
 
 impl DrawPage for SvgPage {
-    fn path(
-        &mut self,
-        points: &[Point],
-        rgb: [f64; 3],
-        w: f64,
-        fill: bool,
-    ) -> Result<(), String> {
+    fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String> {
         self.ops += 1;
         if self.ops > PDF_MAX_OPS {
             return Err("the drawing is too complex for one SVG page".into());

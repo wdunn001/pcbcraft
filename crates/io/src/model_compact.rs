@@ -174,9 +174,9 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
         positions,
         indices,
         color,
-    body_colors: Default::default(),
-    triangle_materials: vec![],
-    authored_colors: vec![],
+        body_colors: Default::default(),
+        triangle_materials: vec![],
+        authored_colors: vec![],
     })
 }
 
@@ -197,12 +197,14 @@ pub fn encode_compact_base64(
     source_digest: &str,
 ) -> Result<String, ModelError> {
     use base64::Engine;
-    Ok(base64::engine::general_purpose::STANDARD.encode(encode_compact(
-        model,
-        loader_version,
-        step_tolerance_mm,
-        source_digest,
-    )?))
+    Ok(
+        base64::engine::general_purpose::STANDARD.encode(encode_compact(
+            model,
+            loader_version,
+            step_tolerance_mm,
+            source_digest,
+        )?),
+    )
 }
 
 #[cfg(test)]

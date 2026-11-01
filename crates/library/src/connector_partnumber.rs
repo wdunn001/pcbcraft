@@ -661,8 +661,8 @@ mod tests {
             let built = build(spec, &options).map_err(|e| format!("random build: {e:?}"))?;
             let parsed = parse(&set, &built.0).map_err(|e| format!("random parse: {e:?}"))?;
             assert_eq!(parsed.values, options.0);
-            let rebuilt = build(spec, &BuildOptions(parsed.values))
-                .map_err(|e| format!("rebuild: {e:?}"))?;
+            let rebuilt =
+                build(spec, &BuildOptions(parsed.values)).map_err(|e| format!("rebuild: {e:?}"))?;
             assert_eq!(rebuilt.0, built.0);
         }
         Ok(())
@@ -693,10 +693,12 @@ mod tests {
         )?;
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].field, "plating");
-        assert!(errors[0]
-            .valid_values
-            .iter()
-            .any(|v| v == "L" || v == "F" || v == "G"));
+        assert!(
+            errors[0]
+                .valid_values
+                .iter()
+                .any(|v| v == "L" || v == "F" || v == "G")
+        );
         Ok(())
     }
 

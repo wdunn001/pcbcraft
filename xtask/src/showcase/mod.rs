@@ -476,7 +476,7 @@ pub fn build(g: &mut Gen) -> Res<()> {
     }
     // The other units of the microcontroller sit on their own spots of the page.
     let u3 = g.id_of("U3")?;
-g.cmd(
+    g.cmd(
         "component.move",
         json!({"id": u3, "unit": 2, "position": {"x": 195.58, "y": 81.28}}),
     )?;
@@ -848,5 +848,4 @@ mod tests {
         assert!(problems.is_empty(), "label problems: {problems:?}");
         Ok(())
     }
-
 }

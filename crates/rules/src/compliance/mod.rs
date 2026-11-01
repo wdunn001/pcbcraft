@@ -15,9 +15,9 @@ mod entity_match;
 mod eu_market;
 mod evaluate;
 mod export_trade;
-mod lists;
 mod list_load;
 mod list_snapshot;
+mod lists;
 mod responsible_sourcing;
 mod ruleset;
 mod us_government;
@@ -33,14 +33,10 @@ pub use export_trade::{
 pub use list_load::{list_from_toml, load_bundled_list, load_list_snapshot};
 pub use list_snapshot::{EntityListEntry, EntityListSnapshot, bundled_list_tokens, normalize_name};
 pub use responsible_sourcing::RESPONSIBLE_SOURCING_RULE_SET;
-pub use ruleset::{
-    ComplianceRuleSet, ComplianceRuleSpec, bundled_export_and_trade, load_rule_set,
-};
+pub use ruleset::{ComplianceRuleSet, ComplianceRuleSpec, bundled_export_and_trade, load_rule_set};
 pub use us_government::US_GOVERNMENT_NDAA_RULE_SET;
 
-use pcbcraft_doc::{
-    Component, Declaration, DeclarationStatus, Project, date_le, valid_date,
-};
+use pcbcraft_doc::{Component, Declaration, DeclarationStatus, Project, date_le, valid_date};
 use serde::Serialize;
 
 const SYNTHETIC_DEMO_RULE_SET: &str =
@@ -62,7 +58,12 @@ pub struct ComplianceFinding {
 }
 
 /// A finding that reports a failure to load a rule set.
-pub(crate) fn load_failure(id: &str, what: &str, severity: &str, error: String) -> ComplianceFinding {
+pub(crate) fn load_failure(
+    id: &str,
+    what: &str,
+    severity: &str,
+    error: String,
+) -> ComplianceFinding {
     ComplianceFinding {
         code: format!("{id}_load"),
         state: "hit".into(),

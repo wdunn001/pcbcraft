@@ -1,6 +1,4 @@
-use pcbcraft_library::{
-    generate_footprint, LandPatternDensity, LandPatternParams, PackageKey,
-};
+use pcbcraft_library::{LandPatternDensity, LandPatternParams, PackageKey, generate_footprint};
 
 #[test]
 fn soic8_package_key_from_generated_footprint() -> Result<(), String> {

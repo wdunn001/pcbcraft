@@ -1,6 +1,6 @@
 //! Betaflight-style board target export and reverse pin-map check.
 use pcbcraft_doc::Project;
-use pcbcraft_doc::firmware_design::{load_firmware_context, FirmwareContext};
+use pcbcraft_doc::firmware_design::{FirmwareContext, load_firmware_context};
 use std::collections::BTreeMap;
 
 /// Files written for export kind `firmware_target`.
@@ -102,7 +102,10 @@ fn board_manifest_json(ctx: &FirmwareContext) -> Result<String, String> {
 }
 
 /// Compare an existing config.h pin map with the schematic firmware design.
-pub fn firmware_config_compare(project: &Project, config_text: &str) -> Result<Vec<String>, String> {
+pub fn firmware_config_compare(
+    project: &Project,
+    config_text: &str,
+) -> Result<Vec<String>, String> {
     let ctx = load_firmware_context(project)?;
     let parsed = parse_defines(config_text);
     let mut mismatches = vec![];
@@ -144,10 +147,7 @@ fn parse_defines(text: &str) -> BTreeMap<String, String> {
             }
             continue;
         };
-        out.insert(
-            name.to_string(),
-            value.trim_matches('"').trim().to_string(),
-        );
+        out.insert(name.to_string(), value.trim_matches('"').trim().to_string());
     }
     out
 }

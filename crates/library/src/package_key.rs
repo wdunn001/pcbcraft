@@ -101,10 +101,7 @@ impl PackageKey {
 fn courtyard_extents(fp: &FootprintDefinition) -> (Option<f64>, Option<f64>) {
     for g in &fp.graphics {
         if let Graphic::Rectangle {
-            start,
-            end,
-            layer,
-            ..
+            start, end, layer, ..
         } = g
             && layer == "pcbcraft.courtyard"
         {
@@ -212,12 +209,7 @@ fn classify(
         ));
     }
     if pin_count >= 8 && span_y > span_x && on_top == 0 && on_bottom == 0 {
-        return Ok((
-            PackageFamily::Dip,
-            span_y,
-            span_x.max(6.0),
-            span_y,
-        ));
+        return Ok((PackageFamily::Dip, span_y, span_x.max(6.0), span_y));
     }
     if pin_count >= 4 && sides == 1 {
         return Ok((

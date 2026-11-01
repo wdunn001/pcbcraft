@@ -401,7 +401,8 @@ fn tool_hint(tool: &Tool) -> String {
         }
         Tool::Wire(None) => t!("board.tool_hint.lmb_pick_the_first_pin", common = common),
         Tool::Wire(Some(_)) => {
-            "Click empty space for bends, another pin or wire to finish. Escape cancels.".to_string()
+            "Click empty space for bends, another pin or wire to finish. Escape cancels."
+                .to_string()
                 + &common
         }
         Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local) => {
@@ -2106,8 +2107,7 @@ impl App {
             first_launch_done: self.preferences.tour_first_launch_done,
             tab_changed_at,
         };
-        self.tour
-            .sync_triggers(view, pcbcraft_clock::instant_now());
+        self.tour.sync_triggers(view, pcbcraft_clock::instant_now());
     }
     fn tour_panel_hints(&mut self, ui: &mut egui::Ui) {
         let ids: Vec<String> = self.tour.hint_tours().map(|m| m.id.clone()).collect();
@@ -2439,8 +2439,7 @@ impl App {
         if !page(tab) && !page(self.tab) {
             self.needs_fit = true;
         }
-        self.tour
-            .note_tab_change(pcbcraft_clock::instant_now());
+        self.tour.note_tab_change(pcbcraft_clock::instant_now());
         self.tab = tab;
         self.tool = Tool::Select;
         self.drag = None;
@@ -7989,11 +7988,7 @@ impl App {
                     self.page_left = ui.max_rect().left();
                     if let Some(workspace) = workspace::workspace_for(self.tab) {
                         let canvas_id = format!("canvas.{}", workspace.id());
-                        tour::anchor::anchor_rect(
-                            ui,
-                            &canvas_id,
-                            ui.available_rect_before_wrap(),
-                        );
+                        tour::anchor::anchor_rect(ui, &canvas_id, ui.available_rect_before_wrap());
                         workspace.center(self, ui);
                     } else {
                         match self.tab {

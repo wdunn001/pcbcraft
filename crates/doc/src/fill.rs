@@ -621,9 +621,10 @@ pub fn pad_exports_on_layer(
     if !project.remove_unused_inner_pads_enabled() || project.copper_layer_is_end(layer) {
         return true;
     }
-    let through = pad.geometry.as_ref().is_some_and(|g| {
-        g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu")
-    });
+    let through = pad
+        .geometry
+        .as_ref()
+        .is_some_and(|g| g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu"));
     if !through {
         return true;
     }

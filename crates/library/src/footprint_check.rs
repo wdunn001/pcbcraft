@@ -302,10 +302,7 @@ fn check_courtyard_grid(def: &FootprintDefinition, findings: &mut Vec<FootprintF
 /// - Include silk or fab bounds; courtyard layer only.
 pub fn courtyard_half_extents(def: &FootprintDefinition) -> Option<(f64, f64)> {
     let (min, max) = courtyard_rectangle(def)?;
-    Some((
-        min.x.abs().max(max.x.abs()),
-        min.y.abs().max(max.y.abs()),
-    ))
+    Some((min.x.abs().max(max.x.abs()), min.y.abs().max(max.y.abs())))
 }
 
 fn courtyard_rectangle(def: &FootprintDefinition) -> Option<(Point, Point)> {
@@ -836,7 +833,7 @@ mod tests {
                 cad_part: None,
                 raw_source: "(offset (xyz 25.4 0 0))".into(),
                 body_id: None,
-            embedded: String::new(),
+                embedded: String::new(),
             }),
             rules: None,
             box_body: None,

@@ -1,4 +1,4 @@
-use pcbcraft_doc::{Component, ComponentField, Sourcing, MAX_SOURCING_TEXT};
+use pcbcraft_doc::{Component, ComponentField, MAX_SOURCING_TEXT, Sourcing};
 use pcbcraft_library::listing::Lifecycle;
 
 #[test]
@@ -23,10 +23,7 @@ fn an_old_component_with_free_form_fields_loads_unchanged() {
 fn moisture_level_outside_one_to_six_is_rejected() {
     let mut s = Sourcing::default();
     s.moisture_level = Some(7);
-    assert!(
-        s.validate().is_err(),
-        "level 7 is refused"
-    );
+    assert!(s.validate().is_err(), "level 7 is refused");
     s.moisture_level = Some(0);
     assert!(s.validate().is_err(), "level 0 is refused");
 }

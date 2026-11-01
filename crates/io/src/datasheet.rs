@@ -11,8 +11,8 @@
 //! # Dependencies
 //! - crates/library/src/datasheet.rs
 use pcbcraft_library::datasheet::{
-    accept_datasheet_url, DatasheetError, DatasheetTransport, FetchAnswer, MAX_PDF_BYTES,
-    MAX_REDIRECTS,
+    DatasheetError, DatasheetTransport, FetchAnswer, MAX_PDF_BYTES, MAX_REDIRECTS,
+    accept_datasheet_url,
 };
 use std::io::Read;
 use std::time::Duration;
@@ -66,7 +66,9 @@ impl HttpDatasheetTransport {
             .into_reader()
             .take(MAX_PDF_BYTES as u64 + 1)
             .read_to_end(&mut body)
-            .map_err(|_| DatasheetError::Unavailable("the connection broke before the answer arrived".into()))?;
+            .map_err(|_| {
+                DatasheetError::Unavailable("the connection broke before the answer arrived".into())
+            })?;
         if body.len() > MAX_PDF_BYTES {
             return Err(too_big());
         }
@@ -141,9 +143,9 @@ impl DatasheetTransport for HttpDatasheetTransport {
 fn transport_error(e: &ureq::Error) -> DatasheetError {
     match e {
         ureq::Error::Transport(t) => match t.kind() {
-            ureq::ErrorKind::Io => DatasheetError::Unavailable(
-                "the host took too long to answer".into(),
-            ),
+            ureq::ErrorKind::Io => {
+                DatasheetError::Unavailable("the host took too long to answer".into())
+            }
             ureq::ErrorKind::Dns | ureq::ErrorKind::ConnectionFailed => {
                 DatasheetError::Offline("no connection to the host".into())
             }
@@ -263,10 +265,7 @@ mod tests {
         let err = cache
             .fetch_url(&transport, &url(&server, "/big.pdf"), false)
             .err();
-        assert!(
-            matches!(err, Some(DatasheetError::Invalid(_))),
-            "{err:?}"
-        );
+        assert!(matches!(err, Some(DatasheetError::Invalid(_))), "{err:?}");
         Ok(())
     }
 
@@ -287,7 +286,10 @@ mod tests {
 
     #[test]
     fn fetch_stops_a_redirect_loop() -> TestResult {
-        let server = serve(vec![status("302 Found", "Location: /loop.pdf\r\n"); MAX_REDIRECTS + 2])?;
+        let server = serve(vec![
+            status("302 Found", "Location: /loop.pdf\r\n");
+            MAX_REDIRECTS + 2
+        ])?;
         let cache = DatasheetCache::in_memory();
         let transport = HttpDatasheetTransport::new();
         let err = cache
@@ -330,7 +332,10 @@ mod tests {
         assert_eq!(bytes, again);
         let seen = server.seen.lock().map_err(|_| "poisoned")?;
         assert_eq!(seen.len(), 2);
-        let second_req = seen.get(1).ok_or("missing second request")?.to_ascii_lowercase();
+        let second_req = seen
+            .get(1)
+            .ok_or("missing second request")?
+            .to_ascii_lowercase();
         assert!(second_req.contains("if-none-match"));
         Ok(())
     }

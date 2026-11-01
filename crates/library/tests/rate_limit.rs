@@ -32,12 +32,15 @@ fn cached_answer_makes_no_http_call() -> Result<(), SourceError> {
         }
         fn search(&self, _q: &str) -> Result<Vec<PartResult>, SourceError> {
             self.hits.fetch_add(1, Ordering::SeqCst);
-            let _ = self.http.call(&HttpRequest {
-                method: "GET".into(),
-                url: "https://example.invalid/".into(),
-                headers: Default::default(),
-                body: Vec::new(),
-            }).map_err(|e| SourceError::Unavailable(e.to_string()))?;
+            let _ = self
+                .http
+                .call(&HttpRequest {
+                    method: "GET".into(),
+                    url: "https://example.invalid/".into(),
+                    headers: Default::default(),
+                    body: Vec::new(),
+                })
+                .map_err(|e| SourceError::Unavailable(e.to_string()))?;
             Ok(vec![])
         }
         fn fetch(&self, m: &str) -> Result<PartResult, SourceError> {

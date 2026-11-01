@@ -127,7 +127,10 @@ mod tests {
             "forgetting again is a no-op"
         );
         clear_recent_paths(config);
-        assert!(load_recent_paths(config).is_empty(), "clearing empties the list");
+        assert!(
+            load_recent_paths(config).is_empty(),
+            "clearing empties the list"
+        );
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }

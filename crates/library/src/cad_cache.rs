@@ -18,8 +18,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Largest single file the cache stores: 8 MiB.
@@ -563,7 +563,7 @@ fn stored_files(dir: &Path) -> Vec<StoredFile> {
 
 fn touch(path: &Path) {
     if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
-let _ = f.set_modified(crate::wall_clock::system_time_now());
+        let _ = f.set_modified(crate::wall_clock::system_time_now());
     }
 }
 

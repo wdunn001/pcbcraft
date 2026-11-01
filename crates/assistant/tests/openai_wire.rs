@@ -10,9 +10,7 @@ use pcbcraft_assistant::{
 use serde_json::json;
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
-use support::{
-    FakeServer, Reply, assert_request_shape, execute_wire_name, first_tool_name,
-};
+use support::{FakeServer, Reply, assert_request_shape, execute_wire_name, first_tool_name};
 
 fn cfg(url: &str, key: Option<&str>) -> ApiConfig {
     ApiConfig {
@@ -256,7 +254,8 @@ fn a_500_is_a_plain_endpoint_error_sentence() -> Result<(), String> {
 
 #[test]
 fn a_reply_cut_off_mid_body_ends_the_turn_with_a_plain_error() -> Result<(), String> {
-    let full = json!({"choices": [{"message": {"role": "assistant", "content": "half"}}]}).to_string();
+    let full =
+        json!({"choices": [{"message": {"role": "assistant", "content": "half"}}]}).to_string();
     let srv = FakeServer::start(vec![Reply::cut(&full, full.len() / 2)])?;
     let mut b = start(&srv, None, host())?;
     let events = run_until(&mut b, ended)?;
@@ -284,9 +283,7 @@ fn a_finished_turn_is_saved_and_loads_back_the_same() -> Result<(), String> {
     let mut b = start(&srv, None, host())?;
     let events = run_until(&mut b, ended)?;
     let mut transcript = pcbcraft_assistant::Transcript::default();
-    transcript.push(pcbcraft_assistant::Item::User {
-        text: "go".into(),
-    });
+    transcript.push(pcbcraft_assistant::Item::User { text: "go".into() });
     for e in events {
         transcript.on_event(e);
     }
@@ -299,9 +296,9 @@ fn a_finished_turn_is_saved_and_loads_back_the_same() -> Result<(), String> {
     let (loaded, skipped) = pcbcraft_assistant::load_transcript(&path);
     assert_eq!(skipped, 0);
     assert_eq!(loaded.len(), transcript.items.len());
-    assert!(
-        loaded.iter().any(|i| matches!(i, pcbcraft_assistant::Item::Assistant { text } if text == "saved line"))
-    );
+    assert!(loaded.iter().any(
+        |i| matches!(i, pcbcraft_assistant::Item::Assistant { text } if text == "saved line")
+    ));
     let _ = std::fs::remove_file(&path);
     Ok(())
 }

@@ -23,6 +23,7 @@ pub const PARTS_TABLE_SUGGESTED_KEYS: &[&str] = &[MANUFACTURER, MPN, DESCRIPTION
 /// True when `key` is a standard sourcing column name or `Supplier:<name>`.
 pub fn is_standard_sourcing_key(key: &str) -> bool {
     STANDARD_SOURCING_KEYS.contains(&key)
-        || key.strip_prefix(SUPPLIER_KEY_PREFIX)
+        || key
+            .strip_prefix(SUPPLIER_KEY_PREFIX)
             .is_some_and(|name| !name.trim().is_empty())
 }

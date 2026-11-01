@@ -1,7 +1,7 @@
 use super::*;
 use pcbcraft_library::{
-    load_symbol_footprint_files, part_from_library_bundle, verify_part, FootprintSource,
-    Model3dRef, MpnSource, PackageKey, Part, VerifyContext,
+    FootprintSource, Model3dRef, MpnSource, PackageKey, Part, VerifyContext,
+    load_symbol_footprint_files, part_from_library_bundle, verify_part,
 };
 use serde::Deserialize;
 
@@ -217,13 +217,17 @@ pub(super) fn run(
 fn part_add(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> {
     let mut a: PartPayload = parse(params)?;
     if a.part.id != 0 {
-        return Err(Error::Invalid("part.add assigns the id; leave id at zero".into()));
+        return Err(Error::Invalid(
+            "part.add assigns the id; leave id at zero".into(),
+        ));
     }
     if p.library.parts.len() >= pcbcraft_library::MAX_PARTS {
         return Err(Error::Invalid("project library part limit reached".into()));
     }
     a.part.id = allocate(next)?;
-    a.part.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+    a.part
+        .validate()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
     if p.library.parts.iter().any(|x| x.mpn == a.part.mpn) {
         return Err(Error::Invalid("duplicate part MPN".into()));
     }
@@ -238,7 +242,9 @@ fn part_set(p: &mut Project, params: &Value) -> Result<Value, Error> {
     if a.part.id == 0 {
         return Err(Error::Invalid("part.set requires a non-zero id".into()));
     }
-    a.part.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+    a.part
+        .validate()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
     let slot = p
         .library
         .parts
@@ -330,14 +336,15 @@ fn part_import(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, 
     if a.symbol_path.len() > 4096 || a.footprint_path.len() > 4096 {
         return Err(Error::Invalid("path too long".into()));
     }
-    let (symbol, footprint) = load_symbol_footprint_files(
-        &a.symbol_path,
-        &a.symbol_name,
-        &a.footprint_path,
-    )
-    .map_err(|e| Error::Invalid(e))?;
-    symbol.validate().map_err(|e| Error::Invalid(e.to_string()))?;
-    footprint.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+    let (symbol, footprint) =
+        load_symbol_footprint_files(&a.symbol_path, &a.symbol_name, &a.footprint_path)
+            .map_err(|e| Error::Invalid(e))?;
+    symbol
+        .validate()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+    footprint
+        .validate()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
     upsert_symbol_footprint(p, &symbol, &footprint, a.notice.as_deref());
     let id = allocate(next)?;
     let mut attribution = vec![];
@@ -443,10 +450,9 @@ fn part_fetch_datasheet(p: &mut Project, params: &Value) -> Result<Value, Error>
     #[cfg(not(target_arch = "wasm32"))]
     {
         bounded("distributor", &a.distributor, 48)?;
-        let headers = pcbcraft_io::auth_headers_for_distributor(&a.distributor)
-            .map_err(Error::Invalid)?;
-        let hash = pcbcraft_io::fetch_datasheet_cache(&a.url, &headers)
-            .map_err(Error::Invalid)?;
+        let headers =
+            pcbcraft_io::auth_headers_for_distributor(&a.distributor).map_err(Error::Invalid)?;
+        let hash = pcbcraft_io::fetch_datasheet_cache(&a.url, &headers).map_err(Error::Invalid)?;
         let part = p
             .library
             .parts
@@ -502,8 +508,7 @@ fn part_clear_distributor_credential(params: &Value) -> Result<Value, Error> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        pcbcraft_io::clear_distributor_credential(&a.distributor)
-            .map_err(Error::Invalid)?;
+        pcbcraft_io::clear_distributor_credential(&a.distributor).map_err(Error::Invalid)?;
         Ok(json!({}))
     }
 }

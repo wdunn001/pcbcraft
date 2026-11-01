@@ -74,7 +74,6 @@ pub enum DrillFunction {
     BackDrill,
 }
 
-
 #[derive(Clone, Copy)]
 pub(crate) struct DrillHit {
     /// Copper span (upper, lower layer index) of a blind or buried via.
@@ -209,7 +208,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                     d_um,
                     span_um,
                     plated: g.pad_type == "thru_hole",
-via: None,
+                    via: None,
                     span: through,
                     function: if g.pad_type == "thru_hole" {
                         DrillFunction::ComponentPad
@@ -1042,11 +1041,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         .filter(|h| h.plated && h.via_span.is_none())
         .collect();
     let unplated: Vec<DrillHit> = hits.iter().copied().filter(|h| !h.plated).collect();
-    let tolerance = p
-        .board
-        .machining
-        .as_ref()
-        .and_then(|m| m.drill_tolerance);
+    let tolerance = p.board.machining.as_ref().and_then(|m| m.drill_tolerance);
 
     let edge_plated = p
         .board

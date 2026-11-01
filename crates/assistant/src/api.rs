@@ -13,8 +13,8 @@ use crate::backend::{
     ToolStatus,
 };
 use crate::prompt::SYSTEM_NOTE;
-use crate::stream::StreamParser;
 use crate::retrieval::{self, MODEL_TOOL_NAME};
+use crate::stream::StreamParser;
 use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
 use serde_json::{Value, json};

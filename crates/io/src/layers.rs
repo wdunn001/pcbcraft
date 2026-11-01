@@ -187,8 +187,7 @@ fn push_zone(shapes: &mut Vec<Shape>, zone: &CopperZone, p: &Project) {
 
 fn push_track(shapes: &mut Vec<Shape>, track: &Track, p: &Project) {
     if let Some(arc) = track.curve() {
-        let centerline =
-            pcbcraft_doc::arc_polyline(&arc, crate::DEFAULT_MAX_DEVIATION_MM);
+        let centerline = pcbcraft_doc::arc_polyline(&arc, crate::DEFAULT_MAX_DEVIATION_MM);
         let mut points: Vec<Point> = centerline
             .into_iter()
             .map(|pt| fabrication_point(p, pt))
@@ -924,7 +923,7 @@ mod tests {
                 },
             }),
             fields: vec![],
-        compliance: Default::default(),
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
             part: None,

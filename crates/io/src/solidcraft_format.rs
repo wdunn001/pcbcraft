@@ -144,14 +144,16 @@ pub fn read_solidcraft(bytes: &[u8]) -> Result<SolidcraftDesign, String> {
     if bytes.starts_with(b"PK\x03\x04") {
         read_solidcraft_container(bytes)
     } else {
-        let text = std::str::from_utf8(bytes).map_err(|_| "design file is not UTF-8 JSON".to_string())?;
+        let text =
+            std::str::from_utf8(bytes).map_err(|_| "design file is not UTF-8 JSON".to_string())?;
         read_solidcraft_json(text)
     }
 }
 
 /// Read a plain JSON design.
 pub fn read_solidcraft_json(text: &str) -> Result<SolidcraftDesign, String> {
-    let design: SolidcraftDesign = serde_json::from_str(text).map_err(|e| format!("design JSON is invalid: {e}"))?;
+    let design: SolidcraftDesign =
+        serde_json::from_str(text).map_err(|e| format!("design JSON is invalid: {e}"))?;
     validate_design(&design)?;
     Ok(design)
 }
@@ -200,7 +202,8 @@ pub fn write_solidcraft_container(design: &SolidcraftDesign) -> Result<Vec<u8>, 
     let mut blobs: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     externalize_meshes(&mut doc, &mut blobs)?;
     let document = serde_json::to_vec_pretty(&doc).map_err(|e| e.to_string())?;
-    let container = serde_json::to_vec(&json!({"format": CONTAINER_VERSION})).map_err(|e| e.to_string())?;
+    let container =
+        serde_json::to_vec(&json!({"format": CONTAINER_VERSION})).map_err(|e| e.to_string())?;
     let mut files: Vec<(String, Vec<u8>)> = vec![
         (CONTAINER_ENTRY.to_string(), container),
         (DOCUMENT_ENTRY.to_string(), document),
@@ -286,14 +289,20 @@ fn strip_mesh_blob_fields(value: &mut Value) {
     }
 }
 
-fn externalize_meshes(design: &mut SolidcraftDesign, blobs: &mut BTreeMap<String, Vec<u8>>) -> Result<(), String> {
+fn externalize_meshes(
+    design: &mut SolidcraftDesign,
+    blobs: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<(), String> {
     for feature in &mut design.features {
         externalize_feature_meshes(feature, blobs)?;
     }
     Ok(())
 }
 
-fn externalize_feature_meshes(feature: &mut Value, blobs: &mut BTreeMap<String, Vec<u8>>) -> Result<(), String> {
+fn externalize_feature_meshes(
+    feature: &mut Value,
+    blobs: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<(), String> {
     let Some(obj) = feature.as_object_mut() else {
         return Ok(());
     };
@@ -304,8 +313,16 @@ fn externalize_feature_meshes(feature: &mut Value, blobs: &mut BTreeMap<String, 
         let Some(mesh_obj) = mesh.as_object_mut() else {
             continue;
         };
-        let positions = mesh_obj.get("positions").and_then(Value::as_array).cloned().unwrap_or_default();
-        let triangles = mesh_obj.get("triangles").and_then(Value::as_array).cloned().unwrap_or_default();
+        let positions = mesh_obj
+            .get("positions")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let triangles = mesh_obj
+            .get("triangles")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         if positions.is_empty() && triangles.is_empty() {
             continue;
         }
@@ -319,14 +336,20 @@ fn externalize_feature_meshes(feature: &mut Value, blobs: &mut BTreeMap<String, 
     Ok(())
 }
 
-fn hydrate_meshes(design: &mut SolidcraftDesign, entries: &BTreeMap<String, Vec<u8>>) -> Result<(), String> {
+fn hydrate_meshes(
+    design: &mut SolidcraftDesign,
+    entries: &BTreeMap<String, Vec<u8>>,
+) -> Result<(), String> {
     for feature in &mut design.features {
         hydrate_feature_meshes(feature, entries)?;
     }
     Ok(())
 }
 
-fn hydrate_feature_meshes(feature: &mut Value, entries: &BTreeMap<String, Vec<u8>>) -> Result<(), String> {
+fn hydrate_feature_meshes(
+    feature: &mut Value,
+    entries: &BTreeMap<String, Vec<u8>>,
+) -> Result<(), String> {
     let Some(obj) = feature.as_object_mut() else {
         return Ok(());
     };
@@ -358,7 +381,9 @@ fn hydrate_feature_meshes(feature: &mut Value, entries: &BTreeMap<String, Vec<u8
 fn encode_mesh(positions: &[Value], triangles: &[Value]) -> Result<Vec<u8>, String> {
     let mut pos = Vec::with_capacity(positions.len());
     for v in positions {
-        let n = v.as_f64().ok_or_else(|| "mesh position is not a number".to_string())?;
+        let n = v
+            .as_f64()
+            .ok_or_else(|| "mesh position is not a number".to_string())?;
         if !n.is_finite() || n.abs() > 1e9 {
             return Err("mesh position is out of range".to_string());
         }
@@ -420,13 +445,21 @@ fn decode_mesh(bytes: &[u8]) -> Result<(Vec<Value>, Vec<Value>), String> {
     let mut positions = Vec::with_capacity(positions_len);
     let mut at = 24;
     for _ in 0..positions_len {
-        let value = f64::from_le_bytes(bytes[at..at + 8].try_into().map_err(|_| "truncated mesh blob")?);
+        let value = f64::from_le_bytes(
+            bytes[at..at + 8]
+                .try_into()
+                .map_err(|_| "truncated mesh blob")?,
+        );
         at += 8;
         positions.push(json!(value));
     }
     let mut triangles = Vec::with_capacity(triangles_len);
     for _ in 0..triangles_len {
-        let value = u32::from_le_bytes(bytes[at..at + 4].try_into().map_err(|_| "truncated mesh blob")?);
+        let value = u32::from_le_bytes(
+            bytes[at..at + 4]
+                .try_into()
+                .map_err(|_| "truncated mesh blob")?,
+        );
         at += 4;
         triangles.push(json!(value));
     }
@@ -437,7 +470,9 @@ fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
     let slice = bytes
         .get(offset..offset + 8)
         .ok_or_else(|| "truncated mesh blob".to_string())?;
-    Ok(u64::from_le_bytes(slice.try_into().map_err(|_| "truncated mesh blob")?))
+    Ok(u64::from_le_bytes(
+        slice.try_into().map_err(|_| "truncated mesh blob")?,
+    ))
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -450,7 +485,11 @@ fn blob_name(bytes: &[u8], extension: &str) -> String {
 
 fn verify_blob_path(path: &str, extension: &str) -> Result<(), String> {
     let hash = blob_hash_from_path(path, extension)?;
-    if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+    if hash.len() != 64
+        || !hash
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
         return Err("invalid blob reference".to_string());
     }
     Ok(())
@@ -468,11 +507,15 @@ fn read_stored_zip(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
         .windows(22)
         .rposition(|w| w.starts_with(b"PK\x05\x06"))
         .ok_or_else(|| "not a container: no archive directory".to_string())?;
-    let read_u16 = |at: usize| -> Result<u16, String> {
-        Ok(u16::from_le_bytes([bytes[at], bytes[at + 1]]))
-    };
+    let read_u16 =
+        |at: usize| -> Result<u16, String> { Ok(u16::from_le_bytes([bytes[at], bytes[at + 1]])) };
     let read_u32 = |at: usize| -> Result<u32, String> {
-        Ok(u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]))
+        Ok(u32::from_le_bytes([
+            bytes[at],
+            bytes[at + 1],
+            bytes[at + 2],
+            bytes[at + 3],
+        ]))
     };
     let entries = read_u16(eocd + 10)? as usize;
     if entries > MAX_CONTAINER_ENTRIES {
@@ -510,11 +553,15 @@ fn read_stored_zip(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
             return Err("corrupt archive directory entry".to_string());
         }
         let name_bytes = &bytes[at + 46..at + 46 + name_len];
-        let name = std::str::from_utf8(name_bytes).map_err(|_| "archive entry name is not UTF-8".to_string())?;
+        let name = std::str::from_utf8(name_bytes)
+            .map_err(|_| "archive entry name is not UTF-8".to_string())?;
         if !entry_name_safe(name) {
             return Err("duplicate or invalid archive entry".to_string());
         }
-        if names.insert(name.to_string(), (size, crc, local_at)).is_some() {
+        if names
+            .insert(name.to_string(), (size, crc, local_at))
+            .is_some()
+        {
             return Err("duplicate or invalid archive entry".to_string());
         }
         expanded = expanded
@@ -563,7 +610,9 @@ fn entry_name_safe(name: &str) -> bool {
     if name.is_empty()
         || name.starts_with('/')
         || name.contains('\\')
-        || name.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+        || name
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
     {
         return false;
     }
@@ -581,10 +630,7 @@ mod tests {
             format: format_string(SUPPORTED_FORMAT),
             name: "demo".into(),
             units: "mm".into(),
-            metadata: BTreeMap::from([(
-                "com.example.unknown".into(),
-                json!({"note": "keep me"}),
-            )]),
+            metadata: BTreeMap::from([("com.example.unknown".into(), json!({"note": "keep me"}))]),
             params: vec![],
             features: vec![json!({
                 "id": 1,
@@ -649,12 +695,8 @@ mod tests {
             .cloned()
             .ok_or("no mesh blob")?;
         entries.get_mut(&name).ok_or("no mesh blob")?[0] ^= 0x01;
-        let zip = crate::zip_entries(
-            &entries
-                .into_iter()
-                .map(|(k, v)| (k, v))
-                .collect::<Vec<_>>(),
-        )?;
+        let zip =
+            crate::zip_entries(&entries.into_iter().map(|(k, v)| (k, v)).collect::<Vec<_>>())?;
         assert!(
             read_solidcraft_container(&zip).is_err(),
             "a wrong blob hash is refused"

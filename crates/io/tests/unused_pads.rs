@@ -6,9 +6,7 @@ use pcbcraft_library::{Drill, FootprintPad};
 use std::collections::BTreeMap;
 
 fn flashes(text: &str) -> usize {
-    text.lines()
-        .filter(|line| line.contains("D03*"))
-        .count()
+    text.lines().filter(|line| line.contains("D03*")).count()
 }
 
 fn flashes_per_aperture(text: &str) -> BTreeMap<u32, usize> {

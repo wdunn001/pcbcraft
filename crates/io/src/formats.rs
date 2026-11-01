@@ -34,7 +34,6 @@ pub enum Scope {
     Parts,
 }
 
-
 /// Which way a format can go.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
@@ -108,7 +107,7 @@ pub enum OptionKind {
     Variant,
     /// The columns of a bill of materials.
     Columns,
-/// The vendor flavours of a bill of materials ([`crate::bom_profiles()`]).
+    /// The vendor flavours of a bill of materials ([`crate::bom_profiles()`]).
     Flavour,
 }
 
@@ -890,8 +889,6 @@ pub fn listed(direction: Direction, scope: Scope) -> Vec<&'static FormatSpec> {
         .filter(|f| f.scope == scope && f.directions().contains(&direction))
         .collect()
 }
-
-
 
 /// Formats of one dialog grouped under their headings, in the order the groups first appear.
 pub fn grouped(direction: Direction, scope: Scope) -> Vec<(Group, Vec<&'static FormatSpec>)> {

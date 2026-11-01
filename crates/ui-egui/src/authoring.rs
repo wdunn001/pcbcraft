@@ -1371,13 +1371,8 @@ impl App {
         match result {
             Ok(_) => {
                 self.refresh();
-                self.library.editor.notice = Some(
-                    t!(
-                        "library.project_library.export_done",
-                        path = path
-                    )
-                    .into(),
-                );
+                self.library.editor.notice =
+                    Some(t!("library.project_library.export_done", path = path).into());
             }
             Err(e) => self.library.editor.notice = Some(e),
         }
@@ -1479,9 +1474,11 @@ impl App {
         ui.heading(t!("library.project_library.symbols"));
         ui.horizontal(|ui| {
             ui.label(t!("library.project_library.symbol_export_path"));
-            ui.add(crate::targets::text_field(&mut self.library.editor.export_symbol_path))
-                .named(&t!("library.project_library.symbol_export_path"))
-                .on_hover_text(t!("library.project_library.symbol_export_path.tip"));
+            ui.add(crate::targets::text_field(
+                &mut self.library.editor.export_symbol_path,
+            ))
+            .named(&t!("library.project_library.symbol_export_path"))
+            .on_hover_text(t!("library.project_library.symbol_export_path.tip"));
             let export_selected = !self.library.editor.selected_symbols.is_empty();
             if ui
                 .add_enabled(
@@ -1505,15 +1502,14 @@ impl App {
         ui.add_space(4.0);
         for def in self.project.library.symbols.clone() {
             ui.horizontal_wrapped(|ui| {
-                let mut selected = self
-                    .library
-                    .editor
-                    .selected_symbols
-                    .contains(&def.name);
+                let mut selected = self.library.editor.selected_symbols.contains(&def.name);
                 ui.checkbox(&mut selected, "")
                     .on_hover_text(t!("library.project_library.select_for_export.tip"));
                 if selected {
-                    self.library.editor.selected_symbols.insert(def.name.clone());
+                    self.library
+                        .editor
+                        .selected_symbols
+                        .insert(def.name.clone());
                 } else {
                     self.library.editor.selected_symbols.remove(&def.name);
                 }
@@ -1601,11 +1597,7 @@ impl App {
         self.refresh_footprint_quality();
         for def in self.project.library.footprints.clone() {
             ui.horizontal_wrapped(|ui| {
-                let mut selected = self
-                    .library
-                    .editor
-                    .selected_footprints
-                    .contains(&def.name);
+                let mut selected = self.library.editor.selected_footprints.contains(&def.name);
                 ui.checkbox(&mut selected, "")
                     .on_hover_text(t!("library.project_library.select_for_export.tip"));
                 if selected {
@@ -1614,10 +1606,7 @@ impl App {
                         .selected_footprints
                         .insert(def.name.clone());
                 } else {
-                    self.library
-                        .editor
-                        .selected_footprints
-                        .remove(&def.name);
+                    self.library.editor.selected_footprints.remove(&def.name);
                 }
                 ui.strong(&def.name);
                 ui.label(t!("library.project_library.len_pads", len = def.pads.len()));

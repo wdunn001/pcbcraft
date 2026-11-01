@@ -276,7 +276,9 @@ mod tests {
             let mut cur = 0usize;
             let mut got = 0.0;
             frame(&ctx, vec![], |ui| {
-                got = tab_bar(ui, "t", &mut cur, &items(), size, None).rect.height();
+                got = tab_bar(ui, "t", &mut cur, &items(), size, None)
+                    .rect
+                    .height();
             });
             assert_eq!(got, h, "{size:?}");
         }

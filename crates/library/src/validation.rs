@@ -272,12 +272,10 @@ impl FootprintDefinition {
                 || !m.offset.iter().all(|v| scalar(*v))
                 || !m.rotate.iter().all(|v| scalar(*v))
                 || !m.scale.iter().all(|v| scalar(*v) && *v > 0.0)
-                || m
-                    .cad_part
+                || m.cad_part
                     .as_ref()
                     .is_some_and(|s| s.is_empty() || s.len() > 128)
-                || m
-                    .body_id
+                || m.body_id
                     .as_ref()
                     .is_some_and(|s| s.is_empty() || s.len() > 128)
             {

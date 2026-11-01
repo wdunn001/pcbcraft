@@ -3,9 +3,7 @@ use pcbcraft_engine::{Error, Session};
 use serde_json::json;
 
 fn width(result: &serde_json::Value) -> f64 {
-    result["result"]["width_mm"]
-        .as_f64()
-        .expect("width_mm")
+    result["result"]["width_mm"].as_f64().expect("width_mm")
 }
 
 #[test]
@@ -18,10 +16,7 @@ fn track_width_matches_ipc2152_table_for_two_amps() -> Result<(), Error> {
     )?;
     let w = width(&out);
     assert!((w - 0.762).abs() < 0.001, "expected 0.762 mm, got {w}");
-    assert_eq!(
-        out["result"]["method_used"].as_str(),
-        Some("ipc2152")
-    );
+    assert_eq!(out["result"]["method_used"].as_str(), Some("ipc2152"));
     Ok(())
 }
 
@@ -47,7 +42,10 @@ fn apply_track_width_updates_net_class_default() -> Result<(), Error> {
         .find(|c| c.id == class)
         .map(|c| c.width)
         .expect("Power class");
-    assert!((w - 0.762).abs() < 0.01, "Power class width should reflect 2 A at 10 K");
+    assert!(
+        (w - 0.762).abs() < 0.01,
+        "Power class width should reflect 2 A at 10 K"
+    );
     Ok(())
 }
 

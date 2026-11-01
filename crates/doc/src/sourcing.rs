@@ -114,7 +114,11 @@ impl PartAlternate {
         if self.manufacturer.trim().is_empty() || self.mpn.trim().is_empty() {
             return Err("an alternate needs a manufacturer and a part number".into());
         }
-        bounded("alternate manufacturer", &self.manufacturer, MAX_SOURCING_TEXT)?;
+        bounded(
+            "alternate manufacturer",
+            &self.manufacturer,
+            MAX_SOURCING_TEXT,
+        )?;
         bounded("alternate part number", &self.mpn, MAX_SOURCING_TEXT)?;
         Ok(())
     }
@@ -172,7 +176,9 @@ impl Sourcing {
             }
         }
         if self.alternates.len() > MAX_ALTERNATES {
-            return Err(format!("a component lists at most {MAX_ALTERNATES} alternates"));
+            return Err(format!(
+                "a component lists at most {MAX_ALTERNATES} alternates"
+            ));
         }
         for alt in &self.alternates {
             alt.validate()?;

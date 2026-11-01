@@ -1,8 +1,8 @@
 mod support;
 
-use pcbcraft_publication::{PublicationManifest, PUBLICATION_SCHEMA_V1};
-use support::{good_part_bundle_zip, manifest_for_files, sample_symbol_bytes};
+use pcbcraft_publication::{PUBLICATION_SCHEMA_V1, PublicationManifest};
 use std::collections::BTreeMap;
+use support::{good_part_bundle_zip, manifest_for_files, sample_symbol_bytes};
 
 #[test]
 fn manifest_round_trips_through_json() -> Result<(), String> {

@@ -468,7 +468,7 @@ fn warm_cache_sends_if_none_match() {
     let _ = std::fs::create_dir_all(&tmp_dir);
     let cache_path = tmp_dir.join("site/src/data/status-cache.json");
     let _ = std::fs::create_dir_all(cache_path.parent().unwrap());
-    
+
     let cache_content = serde_json::json!({
         "issues_etag": "W/\"test-etag-123\"",
         "last_full": "2026-10-29T23:00:00Z"
@@ -514,12 +514,24 @@ fn old_stale_snapshot_fails_the_run() {
     let age = snapshot_age_days(old_date);
 
     // The age should be Some value >= 7 (since today is Oct 30, 2026)
-    assert!(age.is_some(), "snapshot_age_days should return Some for a valid date");
-    assert!(age.unwrap() >= 7, "snapshot from Oct 15 should be >= 7 days old");
+    assert!(
+        age.is_some(),
+        "snapshot_age_days should return Some for a valid date"
+    );
+    assert!(
+        age.unwrap() >= 7,
+        "snapshot from Oct 15 should be >= 7 days old"
+    );
 
     // Test a recent date (should be < 7 days)
     let recent_date = "2026-10-29T23:00:00Z";
     let recent_age = snapshot_age_days(recent_date);
-    assert!(recent_age.is_some(), "snapshot_age_days should return Some for a recent date");
-    assert!(recent_age.unwrap() < 7, "snapshot from yesterday should be < 7 days old");
+    assert!(
+        recent_age.is_some(),
+        "snapshot_age_days should return Some for a recent date"
+    );
+    assert!(
+        recent_age.unwrap() < 7,
+        "snapshot from yesterday should be < 7 days old"
+    );
 }

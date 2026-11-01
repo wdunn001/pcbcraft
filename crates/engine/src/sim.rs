@@ -138,17 +138,16 @@ fn build_netlist(p: &Project) -> Result<BuiltNetlist, String> {
             continue;
         };
         let model = model.trim();
-        if model.is_empty() || model.eq_ignore_ascii_case("ignore") || model.eq_ignore_ascii_case("D")
+        if model.is_empty()
+            || model.eq_ignore_ascii_case("ignore")
+            || model.eq_ignore_ascii_case("D")
         {
             continue;
         }
         if model.eq_ignore_ascii_case("C") || model.eq_ignore_ascii_case("L") {
             continue;
         }
-        if !matches!(
-            model.to_ascii_uppercase().as_str(),
-            "R" | "V" | "I"
-        ) {
+        if !matches!(model.to_ascii_uppercase().as_str(), "R" | "V" | "I") {
             return Err(format!(
                 "{} has sim.model \"{model}\", which must be R, V, I, C, L, D or ignore",
                 comp.reference
@@ -177,7 +176,9 @@ fn build_netlist(p: &Project) -> Result<BuiltNetlist, String> {
                     .iter()
                     .find(|n| n.id == net)
                     .map(|n| n.name.clone())
-                    .ok_or_else(|| format!("{} pin {} is on an unknown net", comp.reference, pin.number))?;
+                    .ok_or_else(|| {
+                        format!("{} pin {} is on an unknown net", comp.reference, pin.number)
+                    })?;
                 pending.push((net, name));
             }
         }
@@ -210,9 +211,7 @@ fn build_netlist(p: &Project) -> Result<BuiltNetlist, String> {
             .field("sim.value")
             .or_else(|| Some(comp.value.as_str()).filter(|v| !v.is_empty()))
             .ok_or_else(|| format!("{} needs a value for sim.model {upper}", comp.reference))?;
-        let value = parse_value(value_text).map_err(|e| {
-            format!("{}: {e}", comp.reference)
-        })?;
+        let value = parse_value(value_text).map_err(|e| format!("{}: {e}", comp.reference))?;
         let node_a = node_index(p, &node_by_net, ground.id, comp, "1")?;
         let node_b = node_index(p, &node_by_net, ground.id, comp, "2")?;
         let element = match upper.as_str() {
@@ -266,10 +265,7 @@ fn pick_ground(p: &Project) -> Result<GroundChoice, String> {
         };
         let net_name = net_name.trim();
         if net_name.is_empty() {
-            return Err(format!(
-                "{} has an empty sim.ground field",
-                comp.reference
-            ));
+            return Err(format!("{} has an empty sim.ground field", comp.reference));
         }
         let Some(net) = p.nets.iter().find(|n| n.name == net_name) else {
             return Err(format!(
@@ -319,25 +315,28 @@ fn node_index(
         .find(|q| q.number == pin)
         .ok_or_else(|| format!("{} has no pin {pin}", comp.reference))?;
     let Some(net) = pin.net else {
-        return Err(format!("{} pin {} is not on a net", comp.reference, pin.number));
+        return Err(format!(
+            "{} pin {} is not on a net",
+            comp.reference, pin.number
+        ));
     };
     if net == ground {
         return Ok(0);
     }
-    map.get(&net)
-        .map(|n| n.index)
-        .ok_or_else(|| {
-            p.nets
-                .iter()
-                .find(|n| n.id == net)
-                .map(|n| {
-                    format!(
-                        "net {} is not in the solved circuit; connect it to a stamped part",
-                        n.name
-                    )
-                })
-                .unwrap_or_else(|| format!("{} pin {} is on an unknown net", comp.reference, pin.number))
-        })
+    map.get(&net).map(|n| n.index).ok_or_else(|| {
+        p.nets
+            .iter()
+            .find(|n| n.id == net)
+            .map(|n| {
+                format!(
+                    "net {} is not in the solved circuit; connect it to a stamped part",
+                    n.name
+                )
+            })
+            .unwrap_or_else(|| {
+                format!("{} pin {} is on an unknown net", comp.reference, pin.number)
+            })
+    })
 }
 
 #[cfg(test)]
@@ -379,11 +378,7 @@ mod tests {
             ]}),
             None,
         )?;
-        for (reference, model, value) in [
-            ("V1", "V", "10"),
-            ("R1", "R", "1k"),
-            ("R2", "R", "1k"),
-        ] {
+        for (reference, model, value) in [("V1", "V", "10"), ("R1", "R", "1k"), ("R2", "R", "1k")] {
             s.execute(
                 "component.field",
                 json!({"reference":reference,"key":"sim.model","value":model}),

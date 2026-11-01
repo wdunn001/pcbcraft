@@ -1,11 +1,11 @@
 //! Headless tour replay in CI (#774) and Help > Tours listing (#769).
 
-use super::super::tour::data::{self, Step, Tour};
-use super::super::tour::{anchor, layout, replay, playback::TourState};
 use super::super::Tab;
-use super::support::*;
-use super::super::*;
 use super::super::authoring;
+use super::super::tour::data::{self, Step, Tour};
+use super::super::tour::{anchor, layout, playback::TourState, replay};
+use super::super::*;
+use super::support::*;
 use egui::{Color32, Rect, Stroke, StrokeKind, Vec2};
 use pcbcraft_text::lookup;
 
@@ -121,12 +121,10 @@ fn replay_one_tour(tour: &Tour, profile: Profile) -> Result<(), String> {
     let count = tour.steps.len();
     while app.tour_playback().is_some() {
         let index = app.tour_playback().unwrap().step;
-        let step = tour.steps.get(index).ok_or_else(|| {
-            format!(
-                "tour `{}`: step index {index} out of range",
-                tour.id
-            )
-        })?;
+        let step = tour
+            .steps
+            .get(index)
+            .ok_or_else(|| format!("tour `{}`: step index {index} out of range", tour.id))?;
         paint_step(&ctx, &mut app, tour, step, index, count, profile)?;
         if index + 1 >= count {
             app.tour_complete();
@@ -186,9 +184,8 @@ fn paint_step(
         label("card must stay inside the window")
     );
     if step.target != "none" {
-        let anchor_rect = anchor_rect.ok_or_else(|| {
-            label(&format!("anchor `{}` was not registered", step.target))
-        })?;
+        let anchor_rect = anchor_rect
+            .ok_or_else(|| label(&format!("anchor `{}` was not registered", step.target)))?;
         let hole = layout
             .hole
             .ok_or_else(|| label("expected a spotlight hole"))?;

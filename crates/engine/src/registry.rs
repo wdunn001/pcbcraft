@@ -7,9 +7,9 @@
 //! # Dependencies
 //! - crates/library/src/static_registry.rs
 use pcbcraft_library::static_registry::{
-    PublishInput, build_catalogue, install_publication, merge_catalogues, publish_to_folder,
-    read_instance_feed, read_sources_index, rebuild_site, verify_publication_dir,
-    verify_registry_manifest, catalogue_with_origin,
+    PublishInput, build_catalogue, catalogue_with_origin, install_publication, merge_catalogues,
+    publish_to_folder, read_instance_feed, read_sources_index, rebuild_site,
+    verify_publication_dir, verify_registry_manifest,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -50,12 +50,7 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
         "registry.install" => {
             let root = Path::new(text(args, "registry")?);
             let dest = Path::new(text(args, "dest")?);
-            let files = install_publication(
-                root,
-                text(args, "id")?,
-                text(args, "version")?,
-                dest,
-            )?;
+            let files = install_publication(root, text(args, "id")?, text(args, "version")?, dest)?;
             Ok(json!({"files": files}))
         }
         "registry.instance_items" => instance_items(args),
@@ -74,11 +69,9 @@ fn publish(args: &Value) -> Result<Value, String> {
         let b64 = value
             .as_str()
             .ok_or("each file value must be a base64 string")?;
-        let bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            b64.as_bytes(),
-        )
-        .map_err(|_| format!("{path} is not valid base64"))?;
+        let bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64.as_bytes())
+                .map_err(|_| format!("{path} is not valid base64"))?;
         files.insert(path.clone(), bytes);
     }
     let tags: Vec<String> = args

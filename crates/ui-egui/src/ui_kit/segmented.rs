@@ -131,10 +131,7 @@ fn next_enabled(current: usize, items: &[Segment<'_>], step: i32) -> usize {
     if enabled.is_empty() {
         return current.min(items.len().saturating_sub(1));
     }
-    let pos = enabled
-        .iter()
-        .position(|&i| i == current)
-        .unwrap_or(0);
+    let pos = enabled.iter().position(|&i| i == current).unwrap_or(0);
     let next = if step >= 0 {
         enabled[(pos + 1).min(enabled.len() - 1)]
     } else {
@@ -223,8 +220,7 @@ pub fn segmented_styled(
         }
     }
     let panel_width = ui.max_rect().width();
-    let icons_only = panel_width < ICON_ONLY_BREAK
-        && items.iter().all(|s| s.icon.is_some());
+    let icons_only = panel_width < ICON_ONLY_BREAK && items.iter().all(|s| s.icon.is_some());
     let total = if style.full_width {
         ui.available_width()
     } else {
@@ -232,10 +228,8 @@ pub fn segmented_styled(
         w.iter().sum::<f32>() + 2.0 * TRACK_PADDING
     };
     let id = group_id(ui, &salt);
-    let (track, _track_slot) = ui.allocate_exact_size(
-        Vec2::new(total.max(0.0), TRACK_HEIGHT),
-        Sense::hover(),
-    );
+    let (track, _track_slot) =
+        ui.allocate_exact_size(Vec2::new(total.max(0.0), TRACK_HEIGHT), Sense::hover());
     let w = widths(ui, items, *selected, icons_only, panel_width, track.width());
     let mut rects = Vec::with_capacity(count);
     let mut x = track.min.x + TRACK_PADDING;
@@ -246,7 +240,11 @@ pub fn segmented_styled(
         ));
         x += width;
     }
-    let mut outer = ui.interact(track, id, Sense::click().union(Sense::focusable_noninteractive()));
+    let mut outer = ui.interact(
+        track,
+        id,
+        Sense::click().union(Sense::focusable_noninteractive()),
+    );
     let group_label = style
         .group_name
         .map(str::to_owned)
@@ -306,10 +304,7 @@ pub fn segmented_styled(
     if outer.clicked() {
         if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
             for (i, rect) in rects.iter().enumerate() {
-                if rect.contains(pos)
-                    && items[i].disabled.is_none()
-                    && i != *selected
-                {
+                if rect.contains(pos) && items[i].disabled.is_none() && i != *selected {
                     *selected = i;
                     outer.mark_changed();
                     break;
@@ -471,13 +466,9 @@ mod tests {
             track = draw(ui, &mut selected, &mut changed)
         });
         let target = pos2(track.max.x - 20.0, track.center().y);
-        frame(
-            &ctx,
-            crate::ui_kit::testing::click(target),
-            |ui| {
-                draw(ui, &mut selected, &mut changed);
-            },
-        );
+        frame(&ctx, crate::ui_kit::testing::click(target), |ui| {
+            draw(ui, &mut selected, &mut changed);
+        });
         assert_eq!(selected, 2);
         assert!(changed);
         Ok(())

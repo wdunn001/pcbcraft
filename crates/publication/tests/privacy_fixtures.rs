@@ -1,6 +1,6 @@
 use base64::Engine as _;
 use pcbcraft_publication::{
-    scan, scan_privacy_text, BundleFile, PrivacyOptions, PublicationScanInput, ScanOutcome,
+    BundleFile, PrivacyOptions, PublicationScanInput, ScanOutcome, scan, scan_privacy_text,
 };
 use std::fs;
 
@@ -47,9 +47,9 @@ fn planted_secrets_are_all_caught() {
         path: "planted/preview.jpg".into(),
         role: "preview".into(),
         text: None,
-        bytes_base64: Some(base64::engine::general_purpose::STANDARD.encode(
-            b"\xff\xd8\xff Exif\0\0metadata",
-        )),
+        bytes_base64: Some(
+            base64::engine::general_purpose::STANDARD.encode(b"\xff\xd8\xff Exif\0\0metadata"),
+        ),
     });
     input.files.push(BundleFile {
         path: "scripts/run.sh".into(),

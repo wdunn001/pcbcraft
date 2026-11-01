@@ -69,7 +69,11 @@ pub struct CoverageReport {
 
 pub fn component_is_test_point(c: &Component) -> bool {
     if let Some(sym) = &c.library_symbol {
-        if sym.definition.description.eq_ignore_ascii_case("test point") {
+        if sym
+            .definition
+            .description
+            .eq_ignore_ascii_case("test point")
+        {
             return true;
         }
         if sym.definition.reference == "TP" {

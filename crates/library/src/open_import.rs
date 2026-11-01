@@ -18,7 +18,7 @@
 //! - Write to a project; the caller runs `library.place_online` with the result.
 use crate::cad::{CadKind, CadRef, CadSource};
 use crate::online_import::{footprint_ref_from_field, import_footprint_only, import_part};
-use crate::open_library::{OpenLibrarySource, FOOTPRINT_SKU_PREFIX};
+use crate::open_library::{FOOTPRINT_SKU_PREFIX, OpenLibrarySource};
 use crate::read_symbols;
 use crate::sources::SourceError;
 use serde_json::Value;

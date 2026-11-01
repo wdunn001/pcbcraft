@@ -3,12 +3,11 @@ use pcbcraft_library::listing::{Lifecycle, ListingSource, PartListing};
 use serde_json::json;
 
 fn add_resistor(s: &mut Session) -> Result<u64, Error> {
-    let id = s
-        .execute(
-            "component.add",
-            json!({"kind":"resistor","position":{"x":10,"y":10}}),
-            None,
-        )?["result"]["id"]
+    let id = s.execute(
+        "component.add",
+        json!({"kind":"resistor","position":{"x":10,"y":10}}),
+        None,
+    )?["result"]["id"]
         .as_u64()
         .ok_or_else(|| Error::Invalid("missing id".into()))?;
     Ok(id)

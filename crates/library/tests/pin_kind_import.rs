@@ -1,5 +1,5 @@
-use pcbcraft_library::pin_kind_from_library_string;
 use pcbcraft_library::PinKind;
+use pcbcraft_library::pin_kind_from_library_string;
 
 #[test]
 fn known_library_strings_map_to_kinds() {

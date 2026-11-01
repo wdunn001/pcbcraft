@@ -207,7 +207,7 @@ mod tests {
             raw_source: String::new(),
             unsupported: vec![],
             box_body: None,
-        retained: vec![],
+            retained: vec![],
         }
     }
 

@@ -633,7 +633,7 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
-        compliance: Default::default(),
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
             part: None,

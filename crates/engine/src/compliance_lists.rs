@@ -93,8 +93,7 @@ fn write_installed(snapshot: &pcbcraft_doc::ComplianceListSnapshot) -> Result<()
     let dir = lists_dir()?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let text = compliance_list_to_toml(snapshot)?;
-    pcbcraft_io::atomic_write(&list_path(&snapshot.id)?, text.as_bytes())
-        .map_err(|e| e.to_string())
+    pcbcraft_io::atomic_write(&list_path(&snapshot.id)?, text.as_bytes()).map_err(|e| e.to_string())
 }
 
 #[derive(Deserialize)]

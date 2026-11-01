@@ -159,10 +159,7 @@ fn every_stackup_row_appears_once_with_its_function() -> Result<(), String> {
             row.name
         );
         assert!(
-            text.contains(&format!(
-                "<StackupLayer layerOrGroupRef=\"{}\"",
-                row.name
-            )),
+            text.contains(&format!("<StackupLayer layerOrGroupRef=\"{}\"", row.name)),
             "stackup lists {}",
             row.name
         );

@@ -85,21 +85,20 @@ pub fn compare_table(parts: &[ComparePartInput], quantity: u32) -> Result<Compar
     }
     let labels: Vec<String> = parts.iter().map(part_label).collect();
     let mut table: Vec<(String, Vec<Option<String>>)> = key_parameter_rows(parts);
-    let each =
-        |f: &dyn Fn(&ComparePartInput) -> Option<String>| -> Vec<Option<String>> {
-            parts.iter().map(f).collect()
-        };
+    let each = |f: &dyn Fn(&ComparePartInput) -> Option<String>| -> Vec<Option<String>> {
+        parts.iter().map(f).collect()
+    };
     table.push(("Lifecycle".into(), each(&lifecycle_cell)));
-    table.push((
-        "RoHS".into(),
-        each(&|p| flag_cell(p.listing.rohs)),
-    ));
+    table.push(("RoHS".into(), each(&|p| flag_cell(p.listing.rohs))));
     table.push(("REACH".into(), each(&|p| flag_cell(p.reach))));
     table.push((
         format!("Price at {quantity}"),
         each(&|p| unit_price_cell(&p.listing, quantity)),
     ));
-    table.push(("Stock".into(), each(&|p| p.listing.stock.map(|n| n.to_string()))));
+    table.push((
+        "Stock".into(),
+        each(&|p| p.listing.stock.map(|n| n.to_string())),
+    ));
     table.push((
         "Datasheet".into(),
         each(&|p| p.listing.datasheet_url.clone()),
@@ -175,9 +174,7 @@ fn key_parameters(part: &ComparePartInput) -> Vec<(String, Option<String>)> {
         ("Pin count".into(), part.pins.map(|n| n.to_string())),
         (
             "Value".into(),
-            l.value
-                .zip(l.value_unit)
-                .map(|(v, u)| format_si(v, u)),
+            l.value.zip(l.value_unit).map(|(v, u)| format_si(v, u)),
         ),
         (
             "Tolerance".into(),
@@ -222,7 +219,8 @@ fn flag_cell(v: Option<bool>) -> Option<String> {
 }
 
 fn unit_price_cell(listing: &PartListing, quantity: u32) -> Option<String> {
-    unit_price_at(&listing.price_breaks, quantity).map(|(price, currency)| price_text(price, &currency))
+    unit_price_at(&listing.price_breaks, quantity)
+        .map(|(price, currency)| price_text(price, &currency))
 }
 
 /// Best unit price at `quantity` from one supplier's breaks.
@@ -379,7 +377,10 @@ mod tests {
         let table = compare_table(std::slice::from_ref(&part), 1000);
         assert!(table.is_err(), "one part is below the minimum");
         let table = compare_table(
-            &[sample_part("A", "1206", 0.1, 5), sample_part("B", "1206", 0.2, 5)],
+            &[
+                sample_part("A", "1206", 0.1, 5),
+                sample_part("B", "1206", 0.2, 5),
+            ],
             1000,
         )
         .expect("valid table");
@@ -397,7 +398,10 @@ mod tests {
             .map(|i| sample_part(&format!("P{i}"), "1206", 0.1, 5))
             .collect();
         assert!(compare_table(&many, 1).is_err());
-        let pair = [sample_part("A", "1206", 0.1, 5), sample_part("B", "1206", 0.1, 5)];
+        let pair = [
+            sample_part("A", "1206", 0.1, 5),
+            sample_part("B", "1206", 0.1, 5),
+        ];
         assert!(compare_table(&pair, 50).is_err());
     }
 }

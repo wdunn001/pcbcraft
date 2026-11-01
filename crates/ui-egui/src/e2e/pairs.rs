@@ -139,7 +139,10 @@ fn a_newcomer_routes_a_pair_in_one_drag() -> Result<(), String> {
 #[test]
 fn a_newcomer_sees_a_pair_bend_at_45_degrees_by_default() -> Result<(), String> {
     let (mut app, from, to) = pair_board(false)?;
-    assert!(app.preferences.chamfer_corners, "45 degree corners start on");
+    assert!(
+        app.preferences.chamfer_corners,
+        "45 degree corners start on"
+    );
     drag_pair(&mut app, from, to)?;
     let tracks = &app.project.board.tracks;
     assert!(!tracks.is_empty(), "the pair was routed: {}", app.message);

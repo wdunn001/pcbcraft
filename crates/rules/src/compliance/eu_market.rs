@@ -57,7 +57,11 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
     out
 }
 
-fn declaration_required(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
+fn declaration_required(
+    project: &Project,
+    rule: &ComplianceRuleSpec,
+    out: &mut Vec<ComplianceFinding>,
+) {
     for component in &project.components {
         let mut msg = if rule.message_unverified.is_empty() {
             "No declaration is recorded for this rule.".to_string()
@@ -128,8 +132,12 @@ fn declaration_fresh(
         }
         if rule.list == "reach_svhc_candidate" {
             let Some(list) = reach else { continue };
-            if list_version_stale(&decl.detail, &list.version, &list.retrieved_date, &decl.as_of)
-            {
+            if list_version_stale(
+                &decl.detail,
+                &list.version,
+                &list.retrieved_date,
+                &decl.as_of,
+            ) {
                 push_stale(
                     out,
                     rule,
@@ -196,7 +204,11 @@ fn board_finish(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<Comp
     );
 }
 
-fn classification_report(project: &Project, rule: &ComplianceRuleSpec, out: &mut Vec<ComplianceFinding>) {
+fn classification_report(
+    project: &Project,
+    rule: &ComplianceRuleSpec,
+    out: &mut Vec<ComplianceFinding>,
+) {
     for component in &project.components {
         let Some(role) = component.compliance.role else {
             continue;

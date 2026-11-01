@@ -1,5 +1,5 @@
 //! Extract the first STEP file from a vendor parts archive dropped on import.
-use crate::model_load::{ModelError, MAX_MODEL_BYTES};
+use crate::model_load::{MAX_MODEL_BYTES, ModelError};
 
 const MAX_ZIP_BYTES: usize = MAX_MODEL_BYTES;
 
@@ -67,7 +67,9 @@ pub fn first_step_from_vendor_zip(bytes: &[u8]) -> Result<(String, Vec<u8>), Mod
             }
             let data_at = local_at + 30 + local_name + local_extra;
             if data_at + size > bytes.len() {
-                return Err(bad("the vendor archive entry runs past the end of the file"));
+                return Err(bad(
+                    "the vendor archive entry runs past the end of the file",
+                ));
             }
             total += size as u64;
             if total > MAX_ZIP_BYTES as u64 {

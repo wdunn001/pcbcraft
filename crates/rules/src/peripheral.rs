@@ -1,13 +1,19 @@
 //! MCU pin-mux and peripheral conflict checks from the firmware design record.
+use pcbcraft_doc::firmware_design::{FirmwareContext, load_firmware_context};
 use pcbcraft_doc::{Id, Project};
-use pcbcraft_doc::firmware_design::{load_firmware_context, FirmwareContext};
-use pcbcraft_library::mcu_record::{function_instance, McuPin};
+use pcbcraft_library::mcu_record::{McuPin, function_instance};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::Finding;
 
 fn net_name(project: &Project, net: Option<Id>) -> Option<String> {
-    net.and_then(|id| project.nets.iter().find(|n| n.id == id).map(|n| n.name.clone()))
+    net.and_then(|id| {
+        project
+            .nets
+            .iter()
+            .find(|n| n.id == id)
+            .map(|n| n.name.clone())
+    })
 }
 
 fn pin_on_net(project: &Project, component_id: Id, pin_ref: &str) -> Option<Id> {
@@ -105,9 +111,7 @@ fn check_instance_conflicts(ctx: &FirmwareContext, project: &Project, out: &mut 
                 "error",
                 format!(
                     "nets claim {} on {} and {} at once",
-                    signal,
-                    pins[0],
-                    pins[1]
+                    signal, pins[0], pins[1]
                 ),
                 vec![id],
             );
@@ -116,7 +120,10 @@ fn check_instance_conflicts(ctx: &FirmwareContext, project: &Project, out: &mut 
     let mut by_instance: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for assign in &ctx.design.assignment {
         if let Some(inst) = function_instance(&ctx.mcu, &assign.function) {
-            by_instance.entry(inst).or_default().insert(assign.pin.clone());
+            by_instance
+                .entry(inst)
+                .or_default()
+                .insert(assign.pin.clone());
         }
     }
     for (inst, pins) in by_instance {

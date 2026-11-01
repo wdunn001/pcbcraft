@@ -1,12 +1,13 @@
 //! Canonical project data. No UI or protocol dependencies.
 mod backdrill;
 pub use backdrill::{BACKDRILL_MAX_MM, BackDrill, BackDrillFrom};
-mod component_kind;
 mod compliance;
 mod compliance_list;
+mod component_kind;
 mod drawing_frame;
 mod export_trade;
 mod fab;
+mod interface_profile;
 mod layer_names;
 mod machine_profile;
 mod material;
@@ -14,30 +15,29 @@ mod net_members;
 mod net_properties;
 mod outline;
 mod package_def;
-mod interface_profile;
-mod sheet_instances;
-mod track_shape;
-mod vendor_handoff;
 mod panel;
 mod placement_machine;
+mod sheet_instances;
 mod sourcing;
+mod track_shape;
+mod vendor_handoff;
 mod via_protection;
-pub use component_kind::{
-    COMPONENT_KIND_SLUGS, DECOUPLING_EXCLUDED_KINDS, allowed_kinds_message,
-    assign_kind_from_library, is_ic_like_kind, is_valid_component_kind, kind_matches,
-    parse_component_kind, validate_component_kinds,
-};
 pub use compliance::{
     Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings,
     CountryOfOrigin, Declaration, DeclarationSource, DeclarationSourceKind, DeclarationStatus,
     DeclaredSubstance, MAX_ALIASES, MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_MARKETS,
     MAX_COMPLIANCE_MUTE_REASON, MAX_COMPLIANCE_MUTES, MAX_COMPLIANCE_RULE_SETS,
     MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURER_NAME, MAX_MANUFACTURERS,
-    MAX_SUBSTANCES, ManufacturerRecord, MineralsReportOnFile, OriginInterpretation, PartRole, RadioGrant,
-    RadioGrantKind, apply_listing_declarations, date_le, normalize_manufacturer_name,
+    MAX_SUBSTANCES, ManufacturerRecord, MineralsReportOnFile, OriginInterpretation, PartRole,
+    RadioGrant, RadioGrantKind, apply_listing_declarations, date_le, normalize_manufacturer_name,
     part_role_text, valid_date,
 };
 pub use compliance_list::*;
+pub use component_kind::{
+    COMPONENT_KIND_SLUGS, DECOUPLING_EXCLUDED_KINDS, allowed_kinds_message,
+    assign_kind_from_library, is_ic_like_kind, is_valid_component_kind, kind_matches,
+    parse_component_kind, validate_component_kinds,
+};
 pub use drawing_frame::{
     DrawingFrame, MAX_LOGO_TEXT, MAX_TITLE_BLOCK_FIELDS, MAX_TITLE_BLOCK_LABEL,
     MAX_TITLE_BLOCK_TEMPLATE, PAGE_SIZES, TitleBlockField, known_page_size, page_size_mm,
@@ -47,29 +47,15 @@ pub use export_trade::{ExportTradeSettings, MAX_HTS_PREFIX, MAX_TARIFF_ROWS, Tar
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
 pub use interface_profile::*;
 pub use layer_names::LayerNaming;
-pub use sheet_instances::{
-    MAX_INSTANCE_NAME, MAX_REFERENCE_OFFSET, MAX_SHEET_INSTANCES, SheetInstance, allocate_id,
-    collapse_instance, expand_instance, reference_with_offset, validate_sheet_instances,
-};
-pub use track_shape::{
-    DEFAULT_CORNER_RADIUS_WIDTH_FACTOR, TEARDROPS_DEFAULT_CLASS3, TrackArcExport,
-    TrackCornerFillet, arc_chord_count, flatten_arc, net_class_corner_radius, track_corner_fillet,
-};
-pub use vendor_handoff::{
-    MarketplaceSettings, VENDOR_HANDOFF_SCHEMA_VERSION, VendorAdapterDescriptor,
-    VendorAdapterMode, VendorHandoffInstanceCapabilities, VendorHandoffModuleSettings,
-    VendorQuoteFileEntry, VendorQuoteHandoffManifest, VendorQuoteSettings,
-    fixture_upload_adapter,
-};
 pub use machine_profile::*;
 pub use material::{MATERIALS, Material, material};
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub use net_properties::{
     IMPEDANCE_TARGET_MAX_OHM, IMPEDANCE_TARGET_MIN_OHM, IMPEDANCE_TOLERANCE_MAX_PCT,
-    INSULATION_CLASSES, LINE_STRUCTURES, MAX_REFERENCE_LAYERS, RETURN_PATH_RULES,
-    validate_current, validate_impedance_target, validate_impedance_tolerance_pct,
-    validate_insulation, validate_line_structure, validate_reference_layers,
-    validate_return_path_rule, validate_temperature_rise, validate_working_voltage,
+    INSULATION_CLASSES, LINE_STRUCTURES, MAX_REFERENCE_LAYERS, RETURN_PATH_RULES, validate_current,
+    validate_impedance_target, validate_impedance_tolerance_pct, validate_insulation,
+    validate_line_structure, validate_reference_layers, validate_return_path_rule,
+    validate_temperature_rise, validate_working_voltage,
 };
 pub use outline::{
     MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_chord_worst_error, arc_polyline, arc_sagitta,
@@ -84,9 +70,22 @@ pub use panel::{
     panel_layout, panel_layout_from_grid, panel_layout_with_settings,
 };
 pub use placement_machine::*;
+pub use sheet_instances::{
+    MAX_INSTANCE_NAME, MAX_REFERENCE_OFFSET, MAX_SHEET_INSTANCES, SheetInstance, allocate_id,
+    collapse_instance, expand_instance, reference_with_offset, validate_sheet_instances,
+};
 pub use sourcing::{
     MAX_ALTERNATES, MAX_SOURCING_TEXT, MAX_SOURCING_URL, MAX_SUPPLIER_URL, MAX_SUPPLIERS,
     PartAlternate, SUPPLIER_KEY_PREFIX, Sourcing, SupplierPart, lifecycle_text, packaging_text,
+};
+pub use track_shape::{
+    DEFAULT_CORNER_RADIUS_WIDTH_FACTOR, TEARDROPS_DEFAULT_CLASS3, TrackArcExport,
+    TrackCornerFillet, arc_chord_count, flatten_arc, net_class_corner_radius, track_corner_fillet,
+};
+pub use vendor_handoff::{
+    MarketplaceSettings, VENDOR_HANDOFF_SCHEMA_VERSION, VendorAdapterDescriptor, VendorAdapterMode,
+    VendorHandoffInstanceCapabilities, VendorHandoffModuleSettings, VendorQuoteFileEntry,
+    VendorQuoteHandoffManifest, VendorQuoteSettings, fixture_upload_adapter,
 };
 pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
 /// Verbatim interchange subtrees kept for export when the native model has no
@@ -2553,13 +2552,15 @@ impl Artifact {
         if !matches!(side, "top" | "bottom" | "both") {
             return false;
         }
-        let layout = obj.get("layout").and_then(|v| v.as_str()).unwrap_or("native");
+        let layout = obj
+            .get("layout")
+            .and_then(|v| v.as_str())
+            .unwrap_or("native");
         if !matches!(layout, "native" | "import") {
             return false;
         }
         if obj.get("variant").is_some_and(|v| {
-            !v.is_string()
-                || v.as_str().is_none_or(|s| s.is_empty() || s.len() > 64)
+            !v.is_string() || v.as_str().is_none_or(|s| s.is_empty() || s.len() > 64)
         }) {
             return false;
         }
@@ -2632,7 +2633,7 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
         "hpgl" => ("package", "board.hpgl"),
         "stackup" => ("package", "board-stackup.txt"),
         "stats" => ("package", "board-stats.csv"),
-"vrml" => ("package", "board.wrl"),
+        "vrml" => ("package", "board.wrl"),
         "step" => ("package", "board.step"),
         "dsn" => ("package", "pcb.dsn"),
         "ipc356" => ("package", "test.brd"),
@@ -2772,7 +2773,10 @@ pub struct EnclosureBounds {
 }
 impl EnclosureBounds {
     pub fn valid(&self) -> bool {
-        self.min.iter().chain(self.max.iter()).all(|v| v.is_finite())
+        self.min
+            .iter()
+            .chain(self.max.iter())
+            .all(|v| v.is_finite())
             && self.min[0] <= self.max[0]
             && self.min[1] <= self.max[1]
             && self.min[2] <= self.max[2]
@@ -3421,11 +3425,7 @@ impl ConformalCoatKeepout {
     }
     /// Side word for a Gerber FileFunction attribute.
     pub fn gerber_side(&self) -> &'static str {
-        if self.side == "bottom" {
-            "Bot"
-        } else {
-            "Top"
-        }
+        if self.side == "bottom" { "Bot" } else { "Top" }
     }
     /// Side words for human-readable export notes.
     pub fn side_label(&self) -> &'static str {
@@ -3595,9 +3595,16 @@ impl BoardEnclosure {
                 .as_ref()
                 .is_none_or(|p| !p.trim().is_empty() && p.len() <= 1024)
             && self.offset.iter().all(|v| v.is_finite() && v.abs() <= 1e6)
-            && self.rotate.iter().all(|v| v.is_finite() && v.abs() <= 360.0)
-            && self.scale.iter().all(|v| v.is_finite() && *v > 0.0 && *v <= 100.0)
-            && self.opacity.is_finite() && (0.0..=1.0).contains(&self.opacity)
+            && self
+                .rotate
+                .iter()
+                .all(|v| v.is_finite() && v.abs() <= 360.0)
+            && self
+                .scale
+                .iter()
+                .all(|v| v.is_finite() && *v > 0.0 && *v <= 100.0)
+            && self.opacity.is_finite()
+            && (0.0..=1.0).contains(&self.opacity)
     }
 }
 
@@ -4387,7 +4394,9 @@ impl ProjectLibrary {
                 return Err("part substitute keys must be 1 to 128 bytes".into());
             }
             if !self.symbols.iter().any(|s| s.name == *name) {
-                return Err(format!("no library symbol named {name} for substitute record"));
+                return Err(format!(
+                    "no library symbol named {name} for substitute record"
+                ));
             }
             subs.validate()?;
             for alt in &subs.alternates {
@@ -4609,7 +4618,10 @@ impl CompanionRule {
             && !self.required_kind.trim().is_empty()
             && self.required_kind.len() <= 32
             && self.net_patterns.len() <= 16
-            && self.net_patterns.iter().all(|p| !p.is_empty() && p.len() <= 64)
+            && self
+                .net_patterns
+                .iter()
+                .all(|p| !p.is_empty() && p.len() <= 64)
             && self
                 .value_min
                 .as_ref()
@@ -5010,7 +5022,9 @@ impl Project {
             .rules
             .as_ref()
             .and_then(|r| r.remove_unused_inner_pads)
-            .unwrap_or_else(|| FabRules::remove_unused_inner_pads_default(self.copper_layer_count()))
+            .unwrap_or_else(|| {
+                FabRules::remove_unused_inner_pads_default(self.copper_layer_count())
+            })
     }
     /// Top and bottom copper layers always keep through-hole and via pads.
     pub fn copper_layer_is_end(&self, layer: Layer) -> bool {
@@ -5251,7 +5265,12 @@ impl Project {
     fn trim_copper_layer_roles(&mut self) {
         let count = self.copper_layer_count() as usize;
         self.board.copper_layer_roles.truncate(count);
-        while self.board.copper_layer_roles.last().is_some_and(|r| r.is_none()) {
+        while self
+            .board
+            .copper_layer_roles
+            .last()
+            .is_some_and(|r| r.is_none())
+        {
             self.board.copper_layer_roles.pop();
         }
     }
@@ -5283,9 +5302,7 @@ impl Project {
             return Err("layer is not on this board".into());
         }
         if self.board.copper_layer_roles.len() <= i {
-            self.board
-                .copper_layer_roles
-                .resize(i + 1, None);
+            self.board.copper_layer_roles.resize(i + 1, None);
         }
         self.board.copper_layer_roles[i] = if role == "signal" {
             None
@@ -5990,8 +6007,7 @@ impl Project {
                 || n.length_tolerance
                     .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
-                || n
-                    .max_length
+                || n.max_length
                     .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
                 || n.current
                     .is_some_and(|i| !i.is_finite() || !(0.001..=100.0).contains(&i))
@@ -6029,8 +6045,7 @@ impl Project {
                 || c.length_tolerance
                     .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
-                || c
-                    .max_length
+                || c.max_length
                     .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
                 || c.max_stub
                     .is_some_and(|s| !s.is_finite() || !(0.0..=100.0).contains(&s))
@@ -6217,13 +6232,7 @@ impl Project {
             }
         }
         if let Some(c) = &self.board.conformal_coat_keepout {
-            if !c.valid()
-                || !self
-                    .board
-                    .user_layers
-                    .iter()
-                    .any(|l| l.id == c.layer)
-            {
+            if !c.valid() || !self.board.user_layers.iter().any(|l| l.id == c.layer) {
                 return Err(
                     "conformal coat keep-out needs a known drawn layer, plot name, side and polarity"
                         .into(),
@@ -6282,9 +6291,7 @@ impl Project {
                     .iter()
                     .find(|profile| profile.id == *machine_id)
                     .ok_or_else(|| {
-                        format!(
-                            "placement_yy1 artifact names unknown machine profile {machine_id}"
-                        )
+                        format!("placement_yy1 artifact names unknown machine profile {machine_id}")
                     })?;
                 if profile.kind != "pick_place" {
                     return Err(
@@ -6493,8 +6500,8 @@ impl Project {
             if c.fields.len() > 32 {
                 return Err("a component carries at most 32 fields".into());
             }
-c.sourcing.validate()?;
-c.compliance.validate()?;
+            c.sourcing.validate()?;
+            c.compliance.validate()?;
             let mut field_keys: BTreeSet<&str> = BTreeSet::new();
             let mut field_keys: BTreeSet<&str> = BTreeSet::new();
             for f in &c.fields {

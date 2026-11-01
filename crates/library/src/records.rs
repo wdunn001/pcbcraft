@@ -5,9 +5,7 @@
 //! Dependencies: `listing.rs` and `sources.rs` for distributor answers;
 //! `cad_cache::content_hash` for stable ids.
 use crate::cad_cache::content_hash;
-use crate::listing::{
-    Category, Lifecycle, ListingSource, PartListing, Unit, listing_from_result,
-};
+use crate::listing::{Category, Lifecycle, ListingSource, PartListing, Unit, listing_from_result};
 use crate::sources::{PartResult, PriceBreak};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -180,7 +178,9 @@ pub fn component_from_links(
     if value.trim().is_empty() {
         record.parameters.remove("value");
     } else {
-        record.parameters.insert("value".into(), value.trim().to_string());
+        record
+            .parameters
+            .insert("value".into(), value.trim().to_string());
     }
     let hash = component_content_hash(&record);
     record.content_hash = hash.clone();
@@ -273,9 +273,7 @@ pub fn listing_from_orderable(
         power_w: None,
         stock: latest.and_then(|s| s.stock),
         stock_at: latest.map(|s| s.at),
-        price_breaks: latest
-            .map(|s| s.price_breaks.clone())
-            .unwrap_or_default(),
+        price_breaks: latest.map(|s| s.price_breaks.clone()).unwrap_or_default(),
         min_order_qty: None,
         order_multiple: None,
         packaging: None,
@@ -285,7 +283,8 @@ pub fn listing_from_orderable(
         reach: None,
         halogen_free: None,
         moisture_level: None,
-        datasheet_url: (!orderable.datasheet_url.is_empty()).then(|| orderable.datasheet_url.clone()),
+        datasheet_url: (!orderable.datasheet_url.is_empty())
+            .then(|| orderable.datasheet_url.clone()),
         symbol: component.symbol.clone(),
         footprint: component.footprints.first().cloned(),
         model3d: component.model.clone(),
@@ -395,7 +394,8 @@ pub fn upsert_component(
     record: ComponentRecord,
 ) -> Result<(), String> {
     validate_component(&record)?;
-    if part_components.len() >= MAX_PART_RECORDS && !part_components.iter().any(|c| c.id == record.id)
+    if part_components.len() >= MAX_PART_RECORDS
+        && !part_components.iter().any(|c| c.id == record.id)
     {
         return Err("project library part component limit reached".into());
     }

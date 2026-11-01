@@ -169,9 +169,7 @@ fn scan_exchange(exchange: &Exchange, scale: f64) -> Result<EnclosureScan, Strin
         }
     }
     let notice = (hidden_face_count > 0).then(|| {
-        format!(
-            "{hidden_face_count} faces not shown; add a glTF or OBJ export for the picture"
-        )
+        format!("{hidden_face_count} faces not shown; add a glTF or OBJ export for the picture")
     });
     Ok(EnclosureScan {
         bounds: ScanBounds { min, max },
@@ -364,11 +362,7 @@ fn walk_edge_loop(
             push_vertex(&mut ring, point);
         }
     }
-    if ring.len() >= 3 {
-        Some(ring)
-    } else {
-        None
-    }
+    if ring.len() >= 3 { Some(ring) } else { None }
 }
 
 fn push_vertex(ring: &mut Vec<[f64; 3]>, point: [f64; 3]) {
@@ -448,10 +442,7 @@ mod tests {
     #[test]
     fn enclosure_scan_reads_bounds_and_named_datums() -> Result<(), String> {
         let text = String::from_utf8_lossy(&read_fixture("box.step")).into_owned();
-        let bytes = inject_before_endsec(
-            text,
-            "#200=CARTESIAN_POINT('Mount_A',(5.0,5.0,0.0));\n",
-        );
+        let bytes = inject_before_endsec(text, "#200=CARTESIAN_POINT('Mount_A',(5.0,5.0,0.0));\n");
         let scan = read_enclosure_step(&bytes)?;
         assert!((scan.bounds.min[0] - 0.0).abs() < 1e-6);
         assert!((scan.bounds.max[0] - 10.0).abs() < 1e-6);

@@ -7,28 +7,36 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::{Component, Path};
-pub mod assembly_profiles;
-mod drill_table;
 mod assembly_drawing;
+pub mod assembly_profiles;
 mod backdrill;
+mod bitmap_trace;
 mod board_edge;
 mod board_import;
+mod board_mesh;
+mod board_mesh_bench;
 mod bom_flavour;
 mod bom_sheet;
 mod bring_up;
 mod companion_cad;
 mod datasheet;
 mod drawing_frame;
+mod drill_table;
 mod enclosure;
+pub mod export_package;
 mod firmware_target;
+pub mod formats;
 mod gerber_fidelity;
 mod gerber_pour;
+pub mod gerber_preset;
 mod mesh_material;
 mod migrate;
 mod model_preview;
 mod model_vendor_zip;
 mod parametric_body;
 mod placement_flavour;
+#[cfg(feature = "plugin-firmware-target")]
+pub mod plugins;
 mod solidcraft;
 mod solidcraft_enclosure;
 mod solidcraft_format;
@@ -36,118 +44,148 @@ mod solidcraft_model;
 mod starter_models;
 mod stencil;
 mod stencil_laser;
-pub mod formats;
-pub mod gerber_preset;
-pub mod export_package;
-#[cfg(feature = "plugin-firmware-target")]
-pub mod plugins;
-mod bitmap_trace;
-mod board_mesh;
-mod board_mesh_bench;
 pub use board_mesh_bench::bench_project_600_parts;
+mod compliance_list;
 mod datasheet_cache;
-mod distributor_credentials;
-mod param_body_step;
 mod diff;
-mod schematic_import;
+mod distributor_credentials;
 mod drawn;
 mod export_validate;
 mod fab_drawing;
 mod fab_export;
 mod generate;
-mod layer_file;
 mod gerber;
 mod gerber_arc;
 mod gerber_job;
 mod idf;
+mod import_cache;
+mod interface_profile;
+mod ipc2581_export;
 mod laser;
+mod layer_file;
 mod layers;
 mod library_render;
-mod interface_profile;
 mod machine_profile;
-mod ipc2581_export;
-mod compliance_list;
-mod import_cache;
+mod model_align;
 mod model_cache;
 mod model_compact;
-mod model_align;
 mod model_load;
 mod model_resolve;
 mod neoden_yy1;
 mod package;
-mod registry;
 mod panel_export;
-mod schematic_sim;
-mod si_export;
+mod param_body_step;
 pub mod part_bodies;
 mod part_model;
 mod plot_read;
-mod step_merge;
 mod raster;
+mod registry;
+mod schematic_import;
+mod schematic_sim;
+mod si_export;
+mod step_merge;
 mod step_read;
 pub use part_bodies::part_boxes;
 mod uv_print;
 mod vrml_read;
+pub use bitmap_trace::{
+    MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
+    decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
+};
 /// Bitmap trace constants, options, and functions for converting images to polygon traces.
 /// # Dependencies
 /// - crates/io/src/bitmap_trace.rs
-pub use schematic_import::{import_summary, read_schematic_interchange, read_schematic_interchange_path};
-pub use bitmap_trace::{MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons, decode_embedded_png, decode_png, embedded_bytes, read_png_base64};
+pub use schematic_import::{
+    import_summary, read_schematic_interchange, read_schematic_interchange_path,
+};
 mod cam;
 mod cam_drill;
 mod cam_shapes;
 mod compliance_report;
 mod snapmaker;
-pub use migrate::{CURRENT_VERSION, migrate, read_project};
-pub use datasheet_cache::{DatasheetCacheResult, fetch_datasheet_cache};
-pub use board_import::{ImportCounts, ImportReport, read_board_interchange, read_board_interchange_report, read_board_interchange_with_rules};
-pub use gerber_job::{gerber_job, gerber_zip, with_fixed_clock};
-pub use placement_flavour::{AngleRange, BottomRotation, ColumnField, DnpRule, PlacementColumn, PlacementFlavour, PlacementOptions, PlacementOrigin, PlacementOutput, PlacementUnits, RotationOffset, bundled_placement_flavours, flavour_rotation, placement_flavour_from_toml, placement_flavoured};
-pub use export_package::{PackageOutput, availability, build_package, bundled_packages, find_package};
-pub use model_compact::{decode_compact, decode_compact_base64, encode_compact, encode_compact_base64, source_digest};
-pub use model_vendor_zip::first_step_from_vendor_zip;
-pub use step_read::STEP_TOLERANCE_MM;
-pub use companion_cad::{COMPANION_METADATA_KEY, COMPANION_SCHEMA, companion_cache_token, content_sha256_hex, is_companion_project_path, model_reference, resolve_step_bytes, write_board_sink, write_footprint_body};
-pub use drawn::{DrawnLayerPlots, conformal_coat_assembly_note, conformal_coat_keepout_gerber, drawn_layer_plots};
-pub use stencil::{AreaRatioWarning, StencilManifest, StencilOptions, area_ratio_warnings, paste_gerber_files, stencil_cut_svg, stencil_files, stencil_manifest_text, stencil_options_from_settings, validate_stencil_options};
-pub use bom_sheet::{BomSheetParams, BomSheetRow, bom_sheet_generic_csv, bom_sheet_rows};
-pub use drawing_frame::{DrawingFrameLayout, MappedDrawPage, content_plot_transform, draw_drawing_frame, drawing_frame_layout, drawing_frame_svg_fragment, render_framed_view, resolve_meta_template, uses_drawing_frame};
-pub use bring_up::{bring_up_export_files, bring_up_plan_csv, bring_up_plan_markdown};
-pub use interface_profile::{interface_profile_content_hash, interface_profile_from_toml, interface_profile_to_toml};
-pub use firmware_target::{firmware_config_compare, firmware_target_files};
-pub use solidcraft_enclosure::{DEFAULT_ENCLOSURE_OPACITY, EnclosureBody, append_enclosure_parts, attach_enclosure_file, enclosure_bytes, solidcraft_has_board_export_frame, solidcraft_scene, solidcraft_scene_with_placement};
-pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, neoden_yy1_from_artifact_settings, placement_neoden_yy1};
-pub use stencil_laser::{LaserBoardCutOptions, StencilPlotOptions, laser_board_cut_dxf, laser_board_cut_svg, stencil_aperture_rings, stencil_plot_dxf, stencil_plot_svg};
-pub use bom_flavour::{BomColumn, BomLimits, BomProfile, BomTable, DERIVED_TOKENS, ExportOptions, MissingField, PART_FIELDS, PartField, bom_profile, bom_profiles, default_bom_profile, default_export_values, limit_notes, parse_bom_flavours, profile_of, render_bom, table_from_items};
-pub use model_resolve::{resolve_library_path, resolve_model_path};
-pub use mesh_material::{MaterialClass, classify_model_color, linear_to_srgb_byte, parametric_body_material, srgb_channel_to_linear, srgb_to_linear};
-pub use drill_table::{DRILL_TABLE_HEADER, DrillRow, SpanKind, drill_table, drill_table_lines};
-pub use fab_export::{DrillFunction, via_mask_opening, via_mask_opening_on_face};
-pub use starter_models::{cache_subdir, materialize, resolve_path};
-pub use board_edge::{DxfOutlineSource, dxf_import_outline};
 /// Assembly house profiles for centroid files and Gerber component layers.
 /// # Dependencies
 /// - crates/io/src/assembly_profiles.rs
-pub use assembly_profiles::{AssemblyPlacementProfile, BottomRotationPolicy, PlacementField, PlacementRow, export_rotation, gerber_component_layers, placement_rows, placement_text_with_profile};
-/// 3D board mesh types and functions for generating mesh representations of PCBs.
-/// # Dependencies
-/// - crates/io/src/board_mesh.rs
-pub use model_align::{AutoAlignResult, COARSE_ALIGN_MM, auto_align_model, model_lead_points, shift_mesh, test_chip_mesh};
-pub use board_mesh::{BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup, ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, board_mesh_with_dir, model_matrix, with_models};
-pub use cam::{CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions, MirrorAxis as CamMirrorAxis, RubRegion, Side, Spindle, Tool, isolation_gcode, isolation_options_from_value, isolation_paths, isolation_toolpaths, rubout_paths};
-pub use cam_drill::{CamProfile, CutDirection, Dialect as DrillDialect, DrillHit, DrillOptions, DrillOrder, DrillTool, OutlineCompensation, OutlineOptions, Tabs, Tool as DrillMillTool, ToolChange, drill_gcode, drill_tools, outline_gcode};
+pub use assembly_profiles::{
+    AssemblyPlacementProfile, BottomRotationPolicy, PlacementField, PlacementRow, export_rotation,
+    gerber_component_layers, placement_rows, placement_text_with_profile,
+};
+pub use board_edge::{DxfOutlineSource, dxf_import_outline};
+pub use board_import::{
+    ImportCounts, ImportReport, read_board_interchange, read_board_interchange_report,
+    read_board_interchange_with_rules,
+};
+pub use board_mesh::{
+    BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
+    ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh,
+    board_mesh_with_dir, model_matrix, with_models,
+};
+pub use bom_flavour::{
+    BomColumn, BomLimits, BomProfile, BomTable, DERIVED_TOKENS, ExportOptions, MissingField,
+    PART_FIELDS, PartField, bom_profile, bom_profiles, default_bom_profile, default_export_values,
+    limit_notes, parse_bom_flavours, profile_of, render_bom, table_from_items,
+};
+pub use bom_sheet::{BomSheetParams, BomSheetRow, bom_sheet_generic_csv, bom_sheet_rows};
+pub use bring_up::{bring_up_export_files, bring_up_plan_csv, bring_up_plan_markdown};
+pub use cam::{
+    CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
+    MirrorAxis as CamMirrorAxis, RubRegion, Side, Spindle, Tool, isolation_gcode,
+    isolation_options_from_value, isolation_paths, isolation_toolpaths, rubout_paths,
+};
+pub use cam_drill::{
+    CamProfile, CutDirection, Dialect as DrillDialect, DrillHit, DrillOptions, DrillOrder,
+    DrillTool, OutlineCompensation, OutlineOptions, Tabs, Tool as DrillMillTool, ToolChange,
+    drill_gcode, drill_tools, outline_gcode,
+};
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
-pub use compliance_report::{ComplianceReportFormat, ComplianceReportOptions, RuleSetLine, SnapshotLine, WaiverLine, compliance_report_bytes, compliance_report_markdown};
+pub use companion_cad::{
+    COMPANION_METADATA_KEY, COMPANION_SCHEMA, companion_cache_token, content_sha256_hex,
+    is_companion_project_path, model_reference, resolve_step_bytes, write_board_sink,
+    write_footprint_body,
+};
+pub use compliance_list::{
+    EntityMatch, EntityMatchConfidence, ListUpdateSummary, builtin_compliance_list,
+    builtin_compliance_list_ids, bundled_list_name_tokens, collect_snapshot_tokens,
+    compliance_list_from_toml, compliance_list_to_toml, diff_compliance_lists, match_entity_name,
+    normalize_compliance_name, snapshot_staleness_note,
+};
+pub use compliance_report::{
+    ComplianceReportFormat, ComplianceReportOptions, RuleSetLine, SnapshotLine, WaiverLine,
+    compliance_report_bytes, compliance_report_markdown,
+};
+#[cfg(not(target_arch = "wasm32"))]
+pub use datasheet::HttpDatasheetTransport;
+pub use datasheet_cache::{DatasheetCacheResult, fetch_datasheet_cache};
 pub use diff::{DesignChange, DesignDiff, project_diff};
+pub use distributor_credentials::{
+    auth_headers_for_distributor, clear_distributor_credential, set_distributor_credential,
+};
+pub use drawing_frame::{
+    DrawingFrameLayout, MappedDrawPage, content_plot_transform, draw_drawing_frame,
+    drawing_frame_layout, drawing_frame_svg_fragment, render_framed_view, resolve_meta_template,
+    uses_drawing_frame,
+};
+pub use drawn::{
+    DrawnLayerPlots, conformal_coat_assembly_note, conformal_coat_keepout_gerber, drawn_layer_plots,
+};
+pub use drill_table::{DRILL_TABLE_HEADER, DrillRow, SpanKind, drill_table, drill_table_lines};
 /// Functions for generating layer plots from drawn graphics.
 /// # Dependencies
 /// - crates/io/src/drawn.rs
-pub use enclosure::{EnclosureScan, PlanarFace, ScannedDatum, ScanBounds, read_enclosure_step};
-#[cfg(not(target_arch = "wasm32"))]
-pub use datasheet::HttpDatasheetTransport;
-pub use export_validate::{stored_zip_entry, stored_zip_entry_names, validate_fabrication_package_file, validate_ipc2581_document, validate_odb_package};
+pub use enclosure::{EnclosureScan, PlanarFace, ScanBounds, ScannedDatum, read_enclosure_step};
+pub use export_package::{
+    PackageOutput, availability, build_package, bundled_packages, find_package,
+};
+pub use export_validate::{
+    stored_zip_entry, stored_zip_entry_names, validate_fabrication_package_file,
+    validate_ipc2581_document, validate_odb_package,
+};
 pub use fab_drawing::fab_drawing_pdf;
-pub use generate::{GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated};
+pub use fab_export::{DrillFunction, via_mask_opening, via_mask_opening_on_face};
+pub use firmware_target::{firmware_config_compare, firmware_target_files};
+pub use generate::{
+    GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
+};
 use gerber::coordinate;
 /// Gerber file generation for copper and silk layers.
 /// # Dependencies
@@ -156,60 +194,146 @@ pub use gerber::{gerber_copper, gerber_silk};
 /// Gerber job file generation and zipping.
 /// # Dependencies
 /// - crates/io/src/gerber_job.rs
-pub use gerber_arc::{GerberArcOptions, GerberArcReport, DEFAULT_MAX_DEVIATION_MM, validate_gerber_arc};
+pub use gerber_arc::{
+    DEFAULT_MAX_DEVIATION_MM, GerberArcOptions, GerberArcReport, validate_gerber_arc,
+};
+pub use gerber_job::{gerber_job, gerber_zip, with_fixed_clock};
 /// Re-export of the RGBA image type from the image crate for use by callers.
 pub use image::RgbaImage;
+pub use import_cache::{ImportCache, default_import_cache_dir};
+pub use interface_profile::{
+    interface_profile_content_hash, interface_profile_from_toml, interface_profile_to_toml,
+};
 /// Laser marking job types, profiles, and export functions.
 /// # Dependencies
 /// - crates/io/src/laser.rs
-pub use laser::{LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile, laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg, laser_job_validate_work_area, laser_job_work_area_mm};
+pub use laser::{
+    LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile,
+    laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
+    laser_job_validate_work_area, laser_job_work_area_mm,
+};
 /// Layer shape types and functions for extracting shapes from project layers.
 /// # Dependencies
 /// - crates/io/src/layers.rs
-pub use layers::{FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts, drill_centers, fab_layer_from_name, fabrication_point, gerber_copper_counts, layer_shapes, legend_shapes};
+pub use layers::{
+    FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
+    drill_centers, fab_layer_from_name, fabrication_point, gerber_copper_counts, layer_shapes,
+    legend_shapes,
+};
 use library_render::*;
-pub use compliance_list::{EntityMatch, EntityMatchConfidence, ListUpdateSummary, builtin_compliance_list, builtin_compliance_list_ids, bundled_list_name_tokens, collect_snapshot_tokens, compliance_list_from_toml, compliance_list_to_toml, diff_compliance_lists, match_entity_name, normalize_compliance_name, snapshot_staleness_note};
-pub use machine_profile::{builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml, machine_profile_to_toml};
-pub use import_cache::{default_import_cache_dir, ImportCache};
+pub use machine_profile::{
+    builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
+    machine_profile_to_toml,
+};
+pub use mesh_material::{
+    MaterialClass, classify_model_color, linear_to_srgb_byte, parametric_body_material,
+    srgb_channel_to_linear, srgb_to_linear,
+};
+pub use migrate::{CURRENT_VERSION, migrate, read_project};
+/// 3D board mesh types and functions for generating mesh representations of PCBs.
+/// # Dependencies
+/// - crates/io/src/board_mesh.rs
+pub use model_align::{
+    AutoAlignResult, COARSE_ALIGN_MM, auto_align_model, model_lead_points, shift_mesh,
+    test_chip_mesh,
+};
 pub use model_cache::ModelCache;
-pub use model_load::{LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES, ModelCacheKey, ModelError, SharedModel, companion_model_cache_key, load_model, load_model_with_part, model_cache_key, model_extension_supported};
+pub use model_compact::{
+    decode_compact, decode_compact_base64, encode_compact, encode_compact_base64, source_digest,
+};
+pub use model_load::{
+    LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
+    ModelCacheKey, ModelError, SharedModel, companion_model_cache_key, load_model,
+    load_model_with_part, model_cache_key, model_extension_supported,
+};
 pub use model_preview::{MODEL_PREVIEW_SIZE, ModelPreviewOptions, preview_loaded_model};
+pub use model_resolve::{resolve_library_path, resolve_model_path};
+pub use model_vendor_zip::first_step_from_vendor_zip;
+pub use neoden_yy1::{
+    NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, neoden_yy1_from_artifact_settings,
+    placement_neoden_yy1,
+};
 /// Package file constants, types, and functions for creating package archives.
 /// # Dependencies
 /// - crates/io/src/package.rs
-pub use package::{MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest, package_zip};
-pub use registry::{build_catalogue, generate_index_html, rebuild_site, verify_registry_manifest};
+pub use package::{
+    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
+    package_zip,
+};
 /// Panel fabrication file and placement text generation.
 /// # Dependencies
 /// - crates/io/src/panel_export.rs
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
-pub use distributor_credentials::{auth_headers_for_distributor, clear_distributor_credential, set_distributor_credential};
 pub use param_body_step::step_param_body;
 pub use part_model::gltf_bounds;
 pub use pcbcraft_doc::Layer;
+pub use placement_flavour::{
+    AngleRange, BottomRotation, ColumnField, DnpRule, PlacementColumn, PlacementFlavour,
+    PlacementOptions, PlacementOrigin, PlacementOutput, PlacementUnits, RotationOffset,
+    bundled_placement_flavours, flavour_rotation, placement_flavour_from_toml, placement_flavoured,
+};
 /// Plot file reading types and functions for parsing Gerber and Excellon files.
 /// # Dependencies
 /// - crates/io/src/plot_read.rs
-pub use plot_read::{MAX_PLOT_ZIP_BYTES, PlotAperture, PlotDrillHit, PlotDrillTool, PlotFlash, PlotHint, PlotLayer, PlotLayerKind, PlotPackage, PlotStroke, count_flashes_and_draws, distance_mm, layer_bounds, load_plot_folder, load_plot_zip, parse_excellon_drill, parse_gerber_layer, parse_xnc_drill};
+pub use plot_read::{
+    MAX_PLOT_ZIP_BYTES, PlotAperture, PlotDrillHit, PlotDrillTool, PlotFlash, PlotHint, PlotLayer,
+    PlotLayerKind, PlotPackage, PlotStroke, count_flashes_and_draws, distance_mm, layer_bounds,
+    load_plot_folder, load_plot_zip, parse_excellon_drill, parse_gerber_layer, parse_xnc_drill,
+};
 /// Rasterization types and functions for converting vector shapes to raster images.
 /// # Dependencies
 /// - crates/io/src/raster.rs
-pub use raster::{Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks, layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg, rasterize_shapes};
-pub use snapmaker::{SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize, snapmaker_settings, spindle_percent, spindle_percent_for_tool};
-/// SolidCraft design subset reader and writer (plain JSON and stored ZIP containers).
-/// # Dependencies
-/// - crates/io/src/solidcraft_format.rs
-pub use solidcraft_format::{CONTAINER_VERSION, MAX_CONTAINER_ENTRIES, MAX_CONTAINER_EXPANDED, SUPPORTED_FORMAT, SolidcraftAppearances, SolidcraftComponent, SolidcraftDesign, SolidcraftOccurrence, read_solidcraft, read_solidcraft_container, read_solidcraft_json, write_solidcraft_container, write_solidcraft_json};
+pub use raster::{
+    Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
+    layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg, rasterize_shapes,
+};
+pub use registry::{build_catalogue, generate_index_html, rebuild_site, verify_registry_manifest};
+pub use schematic_sim::{SchematicNetlist, build_schematic_netlist, spice_netlist};
+pub use si_export::{impedance_table_csv, si_net_results_csv, touchstone_text};
+pub use snapmaker::{
+    SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
+    snapmaker_settings, spindle_percent, spindle_percent_for_tool,
+};
 /// SolidCraft board export and interchange test helpers.
 /// # Dependencies
 /// - crates/io/src/solidcraft/mod.rs
-pub use solidcraft::{SOLIDCRAFT_FORMAT, SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA, Bounds, PartSnapshot, SolidcraftLayers, bounds_close, design_as_value, designs_equal, part_snapshots, solidcraft_board, solidcraft_counts, transforms_close};
+pub use solidcraft::{
+    Bounds, PartSnapshot, SOLIDCRAFT_FORMAT, SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA,
+    SolidcraftLayers, bounds_close, design_as_value, designs_equal, part_snapshots,
+    solidcraft_board, solidcraft_counts, transforms_close,
+};
+pub use solidcraft_enclosure::{
+    DEFAULT_ENCLOSURE_OPACITY, EnclosureBody, append_enclosure_parts, attach_enclosure_file,
+    enclosure_bytes, solidcraft_has_board_export_frame, solidcraft_scene,
+    solidcraft_scene_with_placement,
+};
+/// SolidCraft design subset reader and writer (plain JSON and stored ZIP containers).
+/// # Dependencies
+/// - crates/io/src/solidcraft_format.rs
+pub use solidcraft_format::{
+    CONTAINER_VERSION, MAX_CONTAINER_ENTRIES, MAX_CONTAINER_EXPANDED, SUPPORTED_FORMAT,
+    SolidcraftAppearances, SolidcraftComponent, SolidcraftDesign, SolidcraftOccurrence,
+    read_solidcraft, read_solidcraft_container, read_solidcraft_json, write_solidcraft_container,
+    write_solidcraft_json,
+};
+pub use starter_models::{cache_subdir, materialize, resolve_path};
+pub use stencil::{
+    AreaRatioWarning, StencilManifest, StencilOptions, area_ratio_warnings, paste_gerber_files,
+    stencil_cut_svg, stencil_files, stencil_manifest_text, stencil_options_from_settings,
+    validate_stencil_options,
+};
+pub use stencil_laser::{
+    LaserBoardCutOptions, StencilPlotOptions, laser_board_cut_dxf, laser_board_cut_svg,
+    stencil_aperture_rings, stencil_plot_dxf, stencil_plot_svg,
+};
+pub use step_read::STEP_TOLERANCE_MM;
 /// UV printing types, profiles, and job file generation functions.
 /// # Dependencies
 /// - crates/io/src/uv_print.rs
-pub use uv_print::{UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer, eufymake_e1_profile, uv_print_artwork, write_uv_print_job_files};
-pub use schematic_sim::{SchematicNetlist, build_schematic_netlist, spice_netlist};
-pub use si_export::{impedance_table_csv, si_net_results_csv, touchstone_text};
+pub use uv_print::{
+    UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer,
+    eufymake_e1_profile, uv_print_artwork, write_uv_print_job_files,
+};
 
 /// Maximum size in bytes for project files, 8 MiB.
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
@@ -2224,8 +2348,7 @@ pub fn step_board_with_models(
     doc.add("PRODUCT('BOARD','pcbcraft board','',('Mechanical Design'))")?;
     doc.add("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#1,.NOT_KNOWN.)")?;
     doc.add("PRODUCT_CONTEXT('',#1,'mechanical')")?;
-    let board_product_definition =
-        doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
+    let board_product_definition = doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
     doc.add("PRODUCT_DEFINITION_SHAPE('','',#4)")?;
     let shape = doc.add("SHAPE_REPRESENTATION('board',(#14,#15),#7)")?;
     doc.add("(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#16))GLOBAL_UNIT_ASSIGNED_CONTEXT((#8,#9,#10))REPRESENTATION_CONTEXT('','',''))")?;
@@ -2257,12 +2380,10 @@ pub fn step_board_with_models(
         p.components.iter().map(|c| (c.id, c)).collect();
     for body in part_bodies::part_boxes(p) {
         let mut placed_vendor = false;
-        if let Some(fp) = p
-            .board
-            .footprints
-            .iter()
-            .find(|f| refs.get(&f.component).is_some_and(|c| c.reference == body.name))
-        {
+        if let Some(fp) = p.board.footprints.iter().find(|f| {
+            refs.get(&f.component)
+                .is_some_and(|c| c.reference == body.name)
+        }) {
             if let Some(model) = refs
                 .get(&fp.component)
                 .and_then(|c| c.library_footprint.as_ref())
@@ -2911,11 +3032,7 @@ fn excellon_drill_file(
             .or_default()
             .push((hit.x, hit.y, hit.ux, hit.uy));
     }
-    let (drill_header, drill_prec) = if inch {
-        ("INCH", 4)
-    } else {
-        ("METRIC", 3)
-    };
+    let (drill_header, drill_prec) = if inch { ("INCH", 4) } else { ("METRIC", 3) };
     let mut drill = format!("M48\n{drill_header}\n");
     let tool_keys: Vec<_> = drills.keys().copied().collect();
     if tool_keys.len() > 99 {
@@ -3005,7 +3122,8 @@ pub fn gerber_files_with_budget(
     max_ops: usize,
 ) -> Result<(BTreeMap<String, String>, Vec<String>), String> {
     let opts = GerberArcOptions::default_for(p, &serde_json::Value::Null);
-    gerber_files_core(p, creation, opts, max_ops).map(|(files, _report, warnings)| (files, warnings))
+    gerber_files_core(p, creation, opts, max_ops)
+        .map(|(files, _report, warnings)| (files, warnings))
 }
 
 fn gerber_files_core(
@@ -3501,9 +3619,7 @@ fn gerber_files_core(
             for i in 0..points.len() {
                 let a = points[i];
                 let b = points[(i + 1) % points.len()];
-                if let Some(arc) =
-                    pcbcraft_doc::segment_arc(points, &p.board.outline_arcs, i)
-                {
+                if let Some(arc) = pcbcraft_doc::segment_arc(points, &p.board.outline_arcs, i) {
                     let clockwise = arc.sweep < 0.0;
                     outline.arc_stroke(
                         edge_code,
@@ -3522,21 +3638,16 @@ fn gerber_files_core(
             }
         } else {
             for i in 0..points.len() {
-                if let Some(arc) =
-                    pcbcraft_doc::segment_arc(points, &p.board.outline_arcs, i)
-                {
+                if let Some(arc) = pcbcraft_doc::segment_arc(points, &p.board.outline_arcs, i) {
                     let worst = gerber_arc::flatten_arc_worst(&arc, opts.max_deviation);
                     report.record_flattened(worst);
                 }
             }
-            let flat: Vec<(f64, f64)> = pcbcraft_doc::flatten_outline(
-                points,
-                &p.board.outline_arcs,
-                opts.max_deviation,
-            )
-            .into_iter()
-            .map(|pt| (pt.x, pt.y))
-            .collect();
+            let flat: Vec<(f64, f64)> =
+                pcbcraft_doc::flatten_outline(points, &p.board.outline_arcs, opts.max_deviation)
+                    .into_iter()
+                    .map(|pt| (pt.x, pt.y))
+                    .collect();
             outline.stroke(edge_code, &flat, true)?;
         }
     } else {
@@ -3700,10 +3811,7 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
             continue;
         }
         let footprint = component_footprint_export(c, variant);
-        let values: Vec<String> = columns
-            .iter()
-            .map(|(key, _)| c.bom_value(key))
-            .collect();
+        let values: Vec<String> = columns.iter().map(|(key, _)| c.bom_value(key)).collect();
         groups
             .entry((c.value.clone(), c.kind.clone(), footprint, values))
             .or_default()
@@ -3905,7 +4013,7 @@ fn xml_escape(value: &str) -> String {
 /// Write a single-file IPC-2581C assembly exchange document with stackup,
 /// layers, drill spans, padstacks, profile, logical nets and copper.
 pub fn ipc2581_text(p: &Project) -> Result<String, String> {
-p.validate()?;
+    p.validate()?;
     const MAX_ELEMENTS: usize = 50_000;
     let mut elements = 0usize;
     let mut count = |n: usize| -> Result<(), String> {
@@ -6025,10 +6133,11 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                     t.end.y
                 ),
                 Some(arc) => {
-                    let line: Vec<String> = pcbcraft_doc::arc_polyline(&arc, arc_opts.max_deviation)
-                        .into_iter()
-                        .map(|pt| format!("L {} {}", pt.x, pt.y))
-                        .collect();
+                    let line: Vec<String> =
+                        pcbcraft_doc::arc_polyline(&arc, arc_opts.max_deviation)
+                            .into_iter()
+                            .map(|pt| format!("L {} {}", pt.x, pt.y))
+                            .collect();
                     format!("M {} {} {}", t.start.x, t.start.y, line.join(" "))
                 }
                 None => format!("M {} {} L {} {}", t.start.x, t.start.y, t.end.x, t.end.y),
@@ -7696,9 +7805,7 @@ pub fn export_library_definitions(
         }
         "footprint" => {
             let mut files = Vec::new();
-            if names.len() == 1
-                && path.extension().and_then(|e| e.to_str()) == Some("kicad_mod")
-            {
+            if names.len() == 1 && path.extension().and_then(|e| e.to_str()) == Some("kicad_mod") {
                 let name = &names[0];
                 let item = library
                     .footprints
@@ -7716,7 +7823,10 @@ pub fn export_library_definitions(
                 return Ok(serde_json::json!({"path": path.to_string_lossy(), "files": files}));
             }
             if path.exists() && !path.is_dir() {
-                return Err("footprint export needs a folder path unless writing one .kicad_mod file".into());
+                return Err(
+                    "footprint export needs a folder path unless writing one .kicad_mod file"
+                        .into(),
+                );
             }
             std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
             for name in names {
@@ -8212,9 +8322,8 @@ pub fn step_footprint_package(
     def.validate()
         .map_err(|e| format!("The footprint could not be exported: {e}"))?;
     let height = height_mm.clamp(0.05, 100.0);
-    let ring = footprint_package_ring(def).ok_or_else(|| {
-        "The footprint has no pads, so it has nothing to extrude.".to_string()
-    })?;
+    let ring = footprint_package_ring(def)
+        .ok_or_else(|| "The footprint has no pads, so it has nothing to extrude.".to_string())?;
     let mut doc = StepDoc::new();
     doc.add("PRODUCT('PACKAGE','pcbcraft footprint','',('Mechanical Design'))")?;
     doc.add("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#1,.NOT_KNOWN.)")?;
@@ -8268,14 +8377,8 @@ fn footprint_package_ring(def: &pcbcraft_library::FootprintDefinition) -> Option
     for pad in &def.pads {
         let hw = pad.size.x / 2.0;
         let hh = pad.size.y / 2.0;
-        lo = Point::new(
-            lo.x.min(pad.position.x - hw),
-            lo.y.min(pad.position.y - hh),
-        );
-        hi = Point::new(
-            hi.x.max(pad.position.x + hw),
-            hi.y.max(pad.position.y + hh),
-        );
+        lo = Point::new(lo.x.min(pad.position.x - hw), lo.y.min(pad.position.y - hh));
+        hi = Point::new(hi.x.max(pad.position.x + hw), hi.y.max(pad.position.y + hh));
     }
     ((hi.x - lo.x) > 1e-6 && (hi.y - lo.y) > 1e-6).then(|| {
         vec![
@@ -8865,7 +8968,7 @@ mod tests {
             units: vec![],
             library_footprint: None,
             fields: vec![],
-        compliance: Default::default(),
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
             library_symbol: Default::default(),
@@ -9767,7 +9870,7 @@ mod tests {
                 library: "Resistor_SMD".into(),
                 definition: Default::default(),
             }),
-        compliance: Default::default(),
+            compliance: Default::default(),
             fields: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
@@ -10489,7 +10592,7 @@ mod tests {
                     retained: Default::default(),
                 },
             }),
-        compliance: Default::default(),
+            compliance: Default::default(),
             fields: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
@@ -10609,7 +10712,8 @@ mod tests {
         );
         let drill = &files["pcb-Plated.drl"];
         assert!(
-            drill.contains("; #@! TF.FileFunction,Plated,1,2,PTH\n") && drill.contains("M48\nMETRIC\n"),
+            drill.contains("; #@! TF.FileFunction,Plated,1,2,PTH\n")
+                && drill.contains("M48\nMETRIC\n"),
             "plated drill uses XNC headers: {drill}"
         );
         assert!(drill.contains("T01C0.300\n"), "via drill tool");
@@ -10750,7 +10854,7 @@ mod tests {
                         retained: Default::default(),
                     },
                 }),
-            compliance: Default::default(),
+                compliance: Default::default(),
                 fields: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
@@ -10773,7 +10877,10 @@ mod tests {
             drill.contains("G00X30.000Y10.150\nM15\nG01X30.000Y9.850\nM16\n"),
             "a rotated footprint rotates its slot"
         );
-        assert!(!drill.contains("G85"), "oval pads never use G85 spans: {drill}");
+        assert!(
+            !drill.contains("G85"),
+            "oval pads never use G85 spans: {drill}"
+        );
         assert!(drill.ends_with("M30\n"));
         Ok(())
     }
@@ -10860,7 +10967,7 @@ mod tests {
                     },
                 }),
                 fields: vec![],
-            compliance: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 part: None,
@@ -10973,7 +11080,7 @@ mod tests {
                 ],
                 library_symbol: None,
                 fields: vec![],
-            compliance: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 library_footprint: Default::default(),
@@ -11089,7 +11196,7 @@ mod tests {
                     },
                 }),
                 fields: vec![],
-            compliance: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 part: None,
@@ -11256,7 +11363,7 @@ mod tests {
                     },
                 }),
                 fields: vec![],
-            compliance: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 part: None,
@@ -11566,7 +11673,7 @@ mod tests {
                 },
             }),
             fields: vec![],
-        compliance: Default::default(),
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
             part: None,
@@ -11611,7 +11718,7 @@ mod tests {
                 },
             }),
             fields: vec![],
-        compliance: Default::default(),
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
             part: None,
@@ -11903,7 +12010,7 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
-            compliance: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 part: None,
@@ -12245,8 +12352,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
-            sourcing: Default::default(),
-            compliance: Default::default(),
+                sourcing: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 part: None,
@@ -12525,8 +12632,7 @@ mod tests {
             arcs: false,
             max_deviation: 0.01,
         };
-        let (files, report) =
-            gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
+        let (files, report) = gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
         let copper = &files["pcb-F.Cu.gbr"];
         assert!(
             !copper.contains("G02*") && !copper.contains("G03*"),
@@ -12558,8 +12664,7 @@ mod tests {
         });
         project.validate()?;
         let opts = GerberArcOptions::default_for(&project, &serde_json::Value::Null);
-        let (files, report) =
-            gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
+        let (files, report) = gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
         let copper = &files["pcb-F.Cu.gbr"];
         assert!(copper.contains("G75*") && copper.contains("G02*"));
         assert_eq!(report.arcs_written, 1);
@@ -12569,7 +12674,8 @@ mod tests {
     }
 
     #[test]
-    fn a_newcomer_exports_a_curved_board_and_reads_a_report_of_arcs_written() -> Result<(), String> {
+    fn a_newcomer_exports_a_curved_board_and_reads_a_report_of_arcs_written() -> Result<(), String>
+    {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
             id: 1,
@@ -12588,8 +12694,7 @@ mod tests {
         });
         project.validate()?;
         let opts = GerberArcOptions::default_for(&project, &serde_json::Value::Null);
-        let (files, report) =
-            gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
+        let (files, report) = gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
         assert!(files["gerber-arc-report.txt"].contains("arcs written: 1"));
         assert_eq!(report.arcs_written, 1);
         Ok(())
@@ -12916,7 +13021,7 @@ mod tests {
                         "".into()
                     },
                 }],
-            compliance: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 part: None,
@@ -13031,11 +13136,11 @@ mod tests {
             ],
             None,
         )?;
+        assert!(text.contains("RC0603"), "typed MPN in bom.csv: {text}");
         assert!(
-            text.contains("RC0603"),
-            "typed MPN in bom.csv: {text}"
+            text.contains("Yageo"),
+            "typed manufacturer in bom.csv: {text}"
         );
-        assert!(text.contains("Yageo"), "typed manufacturer in bom.csv: {text}");
         assert!(
             text.contains("Digi-Key: 311-ND"),
             "supplier list in bom.csv: {text}"
@@ -13092,7 +13197,7 @@ mod tests {
                     value: "0.1W".into(),
                 },
             ],
-        compliance: Default::default(),
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
             part: None,
@@ -13110,9 +13215,7 @@ mod tests {
         project.validate()?;
         let text = bom_csv(&project, &[], None)?;
         assert!(
-            text.starts_with(
-                "Reference,Value,Footprint,MPN,Manufacturer,Quantity,Rating\n"
-            ),
+            text.starts_with("Reference,Value,Footprint,MPN,Manufacturer,Quantity,Rating\n"),
             "recorded columns print under their labels, falling back to the key"
         );
         assert!(
@@ -13166,7 +13269,7 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
-            compliance: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 part: None,
@@ -13184,9 +13287,7 @@ mod tests {
         project.validate()?;
         let plain = bom_csv(&project, &[], None)?;
         assert!(
-            plain.contains("starter pads")
-                && plain.contains("R1, R2")
-                && !plain.contains("R_0603"),
+            plain.contains("starter pads") && plain.contains("R1, R2") && !plain.contains("R_0603"),
             "the plain bill lists both parts with the placed footprint"
         );
         let slim = bom_csv(&project, &[], Some("Slim"))?;
@@ -13493,7 +13594,7 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
-            compliance: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 kind: Default::default(),
@@ -13666,7 +13767,7 @@ mod tests {
                     },
                 }),
                 fields: vec![],
-            compliance: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 part: None,
@@ -13821,7 +13922,7 @@ mod tests {
                 },
             }),
             fields: vec![],
-        compliance: Default::default(),
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
             part: None,
@@ -14002,7 +14103,7 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
-            compliance: Default::default(),
+                compliance: Default::default(),
                 include_in_bom: true,
                 include_in_placement: true,
                 part: None,
@@ -14099,7 +14200,7 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
-        compliance: Default::default(),
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
             part: None,
@@ -14552,7 +14653,7 @@ mod tests {
             }),
             library_footprint: None,
             fields: vec![],
-        compliance: Default::default(),
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
             part: None,
@@ -15859,7 +15960,7 @@ mod tests {
                 },
             }),
             fields: vec![],
-        compliance: Default::default(),
+            compliance: Default::default(),
             include_in_bom: true,
             include_in_placement: true,
             part: None,
@@ -16333,8 +16434,8 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn a_project_saved_with_index_derived_bottom_name_opens_on_the_same_layer(
-    ) -> Result<(), String> {
+    fn a_project_saved_with_index_derived_bottom_name_opens_on_the_same_layer() -> Result<(), String>
+    {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
             id: 1,
@@ -16366,10 +16467,8 @@ mod tests {
         });
         let raw = serde_json::to_string(&project).map_err(|e| e.to_string())?;
         let loaded = {
-            let root: serde_json::Value =
-                serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-            let mut p: Project =
-                serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
+            let root: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+            let mut p: Project = serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
             layer_file::read_stackup_copper_names(&mut p, &root)?;
             p
         };
@@ -16551,9 +16650,10 @@ mod tests {
 
     #[test]
     fn schematic_import_flat_matches_golden_json() -> Result<(), String> {
-        let text =
-            std::fs::read_to_string(schematic_fixture_dir().join("schematic_import_flat.kicad_sch"))
-                .map_err(|e| e.to_string())?;
+        let text = std::fs::read_to_string(
+            schematic_fixture_dir().join("schematic_import_flat.kicad_sch"),
+        )
+        .map_err(|e| e.to_string())?;
         let project = read_schematic_interchange(&text)?;
         let snapshot = schematic_snapshot(&project);
         let golden = load_schematic_golden("schematic_import_flat.golden.json")?;
@@ -16640,7 +16740,9 @@ mod tests {
             schematic_fixture_dir().join("schematic_import_legacy.kicad_sch"),
         )
         .map_err(|e| format!("legacy fixture missing: {e}"))?;
-        let err = read_schematic_interchange(&text).err().ok_or("legacy schematic should be refused")?;
+        let err = read_schematic_interchange(&text)
+            .err()
+            .ok_or("legacy schematic should be refused")?;
         if !err.contains("embedded symbol definitions") {
             return Err(format!("legacy file should be refused plainly: {err}"));
         }

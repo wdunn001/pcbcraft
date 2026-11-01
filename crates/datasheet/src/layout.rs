@@ -32,17 +32,11 @@ pub fn page_offsets(heights: &[f32]) -> Vec<f32> {
 
 /// Total scroll height for the given page pixel heights.
 pub fn scroll_height(heights: &[f32]) -> f32 {
-    page_offsets(heights).last().copied().unwrap_or(0.0)
-        + heights.last().copied().unwrap_or(0.0)
+    page_offsets(heights).last().copied().unwrap_or(0.0) + heights.last().copied().unwrap_or(0.0)
 }
 
 /// Page indices intersecting a vertical viewport in pixel space.
-pub fn visible_pages(
-    scroll_y: f32,
-    viewport_h: f32,
-    heights: &[f32],
-    neighbour: u32,
-) -> Vec<u32> {
+pub fn visible_pages(scroll_y: f32, viewport_h: f32, heights: &[f32], neighbour: u32) -> Vec<u32> {
     if heights.is_empty() {
         return Vec::new();
     }
@@ -93,6 +87,9 @@ mod tests {
             let y = step as f32 * 400.0;
             rendered += visible_pages(y, 600.0, &heights, 1).len() as u32;
         }
-        assert!(rendered < 200, "expected lazy window, got {rendered} page visits");
+        assert!(
+            rendered < 200,
+            "expected lazy window, got {rendered} page visits"
+        );
     }
 }

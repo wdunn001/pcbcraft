@@ -2,7 +2,7 @@
 mod ipc2581_assembly;
 
 use crate::board_mesh::{COPPER_THICKNESS, MASK_THICKNESS, SILK_THICKNESS};
-use ipc2581_assembly::{collect_enterprises, AssemblyMeta};
+use ipc2581_assembly::{AssemblyMeta, collect_enterprises};
 use pcbcraft_doc::{Layer, LayerRecord, Project, Track};
 use pcbcraft_geom::Point as GeomPoint;
 use std::collections::{BTreeMap, BTreeSet};
@@ -53,9 +53,7 @@ impl Writer {
         let assembly = AssemblyMeta::plan(p);
         let enterprises = collect_enterprises(p, &assembly);
         self.push("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")?;
-        self.push(&format!(
-            "<IPC-2581 revision=\"C\" xmlns=\"{NS}\">\n"
-        ))?;
+        self.push(&format!("<IPC-2581 revision=\"C\" xmlns=\"{NS}\">\n"))?;
         self.write_content(&assembly)?;
         self.write_logistic_header(&enterprises)?;
         self.write_history_record(p)?;
@@ -92,7 +90,10 @@ impl Writer {
         Ok(())
     }
 
-    fn write_logistic_header(&mut self, enterprises: &BTreeMap<String, String>) -> Result<(), String> {
+    fn write_logistic_header(
+        &mut self,
+        enterprises: &BTreeMap<String, String>,
+    ) -> Result<(), String> {
         self.push("<LogisticHeader>\n")?;
         self.push("<Role id=\"Owner\" roleFunction=\"OWNER\"/>\n")?;
         self.push("<Enterprise id=\"PCBCraft\" name=\"PCBCraft\" code=\"PCBCraft\"/>\n")?;
@@ -104,9 +105,7 @@ impl Writer {
                 xml_escape(id)
             ))?;
         }
-        self.push(
-            "<Person name=\"Exporter\" enterpriseRef=\"PCBCraft\" roleRef=\"Owner\"/>\n",
-        )?;
+        self.push("<Person name=\"Exporter\" enterpriseRef=\"PCBCraft\" roleRef=\"Owner\"/>\n")?;
         self.push("</LogisticHeader>\n")?;
         Ok(())
     }
@@ -320,18 +319,13 @@ impl Writer {
                     return Err("pin references an unknown net".into());
                 };
                 let entry = (c.reference.clone(), pin.number.clone());
-                pins.entry(net_name.clone())
-                    .or_default()
-                    .push(entry);
+                pins.entry(net_name.clone()).or_default().push(entry);
             }
         }
         for (name, mut list) in pins {
             list.sort();
             list.dedup();
-            self.push(&format!(
-                "<LogicalNet name=\"{}\">\n",
-                xml_escape(&name)
-            ))?;
+            self.push(&format!("<LogicalNet name=\"{}\">\n", xml_escape(&name)))?;
             for (reference, pin) in list {
                 self.push(&format!(
                     "<PinRef componentRef=\"{}\" pin=\"{}\"/>\n",
@@ -361,10 +355,7 @@ impl Writer {
             self.push(&format!("<PhyNet name=\"{}\">\n", xml_escape(&name)))?;
             for track in tracks {
                 let layer_name = p.layer_name(track.layer);
-                for (i, (x, y, node)) in track_phy_points(track)
-                    .into_iter()
-                    .enumerate()
-                {
+                for (i, (x, y, node)) in track_phy_points(track).into_iter().enumerate() {
                     let _ = i;
                     self.push(&format!(
                         "<PhyNetPoint x=\"{x:.6}\" y=\"{y:.6}\" layerRef=\"{}\" netNode=\"{node}\" exposure=\"EXPOSED\">\n",
@@ -383,12 +374,7 @@ impl Writer {
     fn write_copper_features(&mut self, p: &Project, row: &LayerRecord) -> Result<(), String> {
         let layer = p.resolve_copper_layer(&row.name)?;
         let names: BTreeMap<u64, String> = p.nets.iter().map(|n| (n.id, n.name.clone())).collect();
-        let tracks: Vec<&Track> = p
-            .board
-            .tracks
-            .iter()
-            .filter(|t| t.layer == layer)
-            .collect();
+        let tracks: Vec<&Track> = p.board.tracks.iter().filter(|t| t.layer == layer).collect();
         if tracks.is_empty() {
             return Ok(());
         }
@@ -433,8 +419,7 @@ impl Writer {
         } else {
             self.push(&format!(
                 "<PolyStepSegment x=\"{:.6}\" y=\"{:.6}\"/>\n",
-                track.end.x,
-                track.end.y
+                track.end.x, track.end.y
             ))?;
         }
         self.push("<LineDescRef id=\"trace\"/>\n")?;
@@ -503,8 +488,7 @@ fn drill_span_layers(p: &Project) -> Result<Vec<DrillSpanLayer>, String> {
     if spans.is_empty() && (!p.board.holes.is_empty() || p.board.vias.is_empty()) {
         let top = p.layer_name(Layer::Front);
         let bottom = p.layer_name(
-            Layer::from_index(p.copper_layer_count().saturating_sub(1))
-                .unwrap_or(Layer::Back),
+            Layer::from_index(p.copper_layer_count().saturating_sub(1)).unwrap_or(Layer::Back),
         );
         spans.insert((top, bottom));
     }
@@ -521,11 +505,7 @@ fn drill_span_layers(p: &Project) -> Result<Vec<DrillSpanLayer>, String> {
 }
 
 fn drill_layer_name(from: &str, to: &str) -> String {
-    format!(
-        "DRILL_{}_{}",
-        from.replace('.', "_"),
-        to.replace('.', "_")
-    )
+    format!("DRILL_{}_{}", from.replace('.', "_"), to.replace('.', "_"))
 }
 
 fn stackup_rows(p: &Project) -> Vec<LayerRecord> {
@@ -538,8 +518,7 @@ fn stackup_rows(p: &Project) -> Vec<LayerRecord> {
 fn synthesized_stackup(p: &Project) -> Vec<LayerRecord> {
     let copper = p.copper_layer_count().max(2);
     let gaps = (copper - 1).max(1) as f64;
-    let dielectric =
-        ((p.board.thickness - COPPER_THICKNESS * copper as f64) / gaps).max(0.0);
+    let dielectric = ((p.board.thickness - COPPER_THICKNESS * copper as f64) / gaps).max(0.0);
     let mut rows = Vec::new();
     rows.push(LayerRecord {
         name: "F.SilkS".into(),

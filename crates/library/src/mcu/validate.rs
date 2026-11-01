@@ -1,8 +1,9 @@
 //! Deterministic validation for MCU pin-mux documents.
 use super::schema::{
-    BootStrap, McuDocument, McuPackage, McuPeripheral, McuProvenance, DEFAULT_MAX_AF, MAX_AF_PER_PIN,
-    MAX_DMA_REQUESTS, MAX_ID_BYTES, MAX_NAME_BYTES, MAX_PACKAGE_PINS, MAX_PACKAGES, MAX_PERIPHERALS,
-    MAX_PERIPHERAL_SIGNALS, MAX_PINS, MAX_TEXT_BYTES, MAX_TIMER_CHANNELS, MCU_SCHEMA,
+    BootStrap, DEFAULT_MAX_AF, MAX_AF_PER_PIN, MAX_DMA_REQUESTS, MAX_ID_BYTES, MAX_NAME_BYTES,
+    MAX_PACKAGE_PINS, MAX_PACKAGES, MAX_PERIPHERAL_SIGNALS, MAX_PERIPHERALS, MAX_PINS,
+    MAX_TEXT_BYTES, MAX_TIMER_CHANNELS, MCU_SCHEMA, McuDocument, McuPackage, McuPeripheral,
+    McuProvenance,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -147,10 +148,7 @@ fn validate_pin_signal(
     Ok(())
 }
 
-fn validate_package_pins(
-    package: &McuPackage,
-    pin_names: &BTreeSet<&str>,
-) -> Result<(), String> {
+fn validate_package_pins(package: &McuPackage, pin_names: &BTreeSet<&str>) -> Result<(), String> {
     bounded_id("package.id", &package.id)?;
     bounded_name("package.name", &package.name)?;
     if package.pins.len() > MAX_PACKAGE_PINS {
@@ -175,10 +173,7 @@ fn validate_package_pins(
     Ok(())
 }
 
-fn validate_pin_not_in_package(
-    packages: &[McuPackage],
-    pin_name: &str,
-) -> Result<(), String> {
+fn validate_pin_not_in_package(packages: &[McuPackage], pin_name: &str) -> Result<(), String> {
     let listed = packages
         .iter()
         .any(|pkg| pkg.pins.iter().any(|p| p == pin_name));

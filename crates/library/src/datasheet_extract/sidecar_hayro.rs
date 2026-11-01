@@ -2,6 +2,10 @@
 
 use std::sync::Arc;
 
+use super::parse::extract_from_text_document;
+use super::provenance::DatasheetRect;
+use super::text::{TextCell, TextDocument, TextPage};
+use super::types::DatasheetExtractBundle;
 use hayro::hayro_interpret::font::{Glyph, GlyphRun};
 use hayro::hayro_interpret::{
     BlendMode, ClipPath, Context, Device, DrawMode, DrawProps, Image, ImageDrawProps,
@@ -10,10 +14,6 @@ use hayro::hayro_interpret::{
 use hayro::hayro_syntax::Pdf;
 use hayro::hayro_syntax::page::Page;
 use hayro::kurbo::{Affine, BezPath, Rect, Shape};
-use super::parse::extract_from_text_document;
-use super::text::{TextCell, TextDocument, TextPage};
-use super::types::DatasheetExtractBundle;
-use super::provenance::DatasheetRect;
 
 struct CharBox {
     ch: char,

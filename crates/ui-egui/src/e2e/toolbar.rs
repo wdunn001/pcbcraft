@@ -61,7 +61,11 @@ fn a_newcomer_switches_the_route_tool_between_45_and_90_corners() -> Result<(), 
 
 /// Press the 45 (true) or 90 (false) choice of the Corners control while Route
 /// is active: the two choices read the same to the gate, so go by their place.
-pub(crate) fn tap_toolbar_corner(ctx: &egui::Context, app: &mut App, chamfer: bool) -> Result<(), String> {
+pub(crate) fn tap_toolbar_corner(
+    ctx: &egui::Context,
+    app: &mut App,
+    chamfer: bool,
+) -> Result<(), String> {
     let mut found: Vec<_> = super::audit::controls(ctx, app)
         .into_iter()
         .filter(|c| c.id.as_deref() == Some("radiobutton:#") && c.rect.center().y < 120.0)

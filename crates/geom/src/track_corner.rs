@@ -117,11 +117,8 @@ pub fn arc_chord_points(arc: &Arc, max_error: f64, max_chords: usize) -> Vec<Poi
             ((arc.sweep.abs() / step).ceil() as usize).clamp(1, max_chords)
         }
     };
-    (0..=n)
-        .map(|k| arc.point_at(k as f64 / n as f64))
-        .collect()
+    (0..=n).map(|k| arc.point_at(k as f64 / n as f64)).collect()
 }
-
 
 /// Default corner radius as a multiple of track width when no radius is given.
 pub const DEFAULT_CORNER_RADIUS_WIDTH_FACTOR: f64 = 3.0;
@@ -192,10 +189,8 @@ pub fn arc_chord_count(arc: &Arc, max_error: f64) -> usize {
     if !step.is_finite() || step <= 0.0 {
         return MAX_ARC_CHORDS;
     }
-    ((arc.sweep.abs() / step).ceil() as usize)
-        .clamp(1, MAX_ARC_CHORDS)
+    ((arc.sweep.abs() / step).ceil() as usize).clamp(1, MAX_ARC_CHORDS)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -231,7 +226,11 @@ mod tests {
         let Some(fillet) = track_fillet(corner, away_a, away_b, 1.0, 1.0, 2.0) else {
             return Err("fillet");
         };
-        assert!((fillet.radius - 0.5).abs() < 1e-9, "radius {}", fillet.radius);
+        assert!(
+            (fillet.radius - 0.5).abs() < 1e-9,
+            "radius {}",
+            fillet.radius
+        );
         assert!((fillet.tangent_a.x - 9.5).abs() < 1e-9);
         assert!((fillet.tangent_b.y - 10.5).abs() < 1e-9);
         Ok(())

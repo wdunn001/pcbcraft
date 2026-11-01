@@ -44,7 +44,9 @@ impl Default for StencilOptions {
     }
 }
 
-pub fn stencil_options_from_settings(settings: &serde_json::Value) -> Result<StencilOptions, String> {
+pub fn stencil_options_from_settings(
+    settings: &serde_json::Value,
+) -> Result<StencilOptions, String> {
     if settings.is_null() {
         return Ok(StencilOptions::default());
     }
@@ -168,7 +170,10 @@ fn polygon_perimeter(points: &[Point]) -> f64 {
         .sum()
 }
 
-pub fn area_ratio_warnings(p: &Project, options: &StencilOptions) -> Result<Vec<AreaRatioWarning>, String> {
+pub fn area_ratio_warnings(
+    p: &Project,
+    options: &StencilOptions,
+) -> Result<Vec<AreaRatioWarning>, String> {
     p.validate()?;
     validate_stencil_options(options)?;
     let mut warnings = Vec::new();
@@ -206,9 +211,7 @@ pub fn area_ratio_warnings(p: &Project, options: &StencilOptions) -> Result<Vec<
             }
         }
     }
-    warnings.sort_by(|a, b| {
-        (&a.reference, &a.pad, &a.side).cmp(&(&b.reference, &b.pad, &b.side))
-    });
+    warnings.sort_by(|a, b| (&a.reference, &a.pad, &a.side).cmp(&(&b.reference, &b.pad, &b.side)));
     Ok(warnings)
 }
 
@@ -299,12 +302,11 @@ pub fn stencil_cut_svg(p: &Project, options: &StencilOptions) -> Result<String, 
     let width = (max.x - min.x).max(0.001);
     let height = (max.y - min.y).max(0.001);
     let mut body = String::new();
-    body.push_str("<g id=\"paste-openings\" fill=\"none\" stroke=\"black\" stroke-width=\"0.05\">\n");
+    body.push_str(
+        "<g id=\"paste-openings\" fill=\"none\" stroke=\"black\" stroke-width=\"0.05\">\n",
+    );
     for ring in &rings {
-        body.push_str(&format!(
-            "<path d=\"{}\"/>\n",
-            ring_to_svg_path(ring)
-        ));
+        body.push_str(&format!("<path d=\"{}\"/>\n", ring_to_svg_path(ring)));
     }
     body.push_str("</g>\n");
     Ok(format!(
@@ -336,7 +338,10 @@ pub fn stencil_manifest_text(
 }
 
 /// All files in a stencil package keyed by relative name.
-pub fn stencil_files(p: &Project, options: &StencilOptions) -> Result<BTreeMap<String, String>, String> {
+pub fn stencil_files(
+    p: &Project,
+    options: &StencilOptions,
+) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     validate_stencil_options(options)?;
     let mut map = BTreeMap::new();

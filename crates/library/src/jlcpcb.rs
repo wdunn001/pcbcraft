@@ -7,8 +7,8 @@ use crate::source_errors::map_auth_or_permission;
 use crate::source_hosts;
 use crate::source_sign::jlcpcb_authorization;
 use crate::sources::{
-    Attribution, PartResult, PartSource, PriceBreak, SetupCard, SourceError, check_query,
-    DEFAULT_CACHE_SECS,
+    Attribution, DEFAULT_CACHE_SECS, PartResult, PartSource, PriceBreak, SetupCard, SourceError,
+    check_query,
 };
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};

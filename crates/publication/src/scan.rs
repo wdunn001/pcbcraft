@@ -115,7 +115,12 @@ pub fn scan(input: &PublicationScanInput) -> PublicationScanResult {
         );
     }
 
-    push_split(check_datasheet_refs(&input.datasheets), &mut hard, &mut queue, &mut notes);
+    push_split(
+        check_datasheet_refs(&input.datasheets),
+        &mut hard,
+        &mut queue,
+        &mut notes,
+    );
     push_split(
         compliance_notes(&input.compliance),
         &mut hard,
@@ -130,8 +135,7 @@ pub fn scan(input: &PublicationScanInput) -> PublicationScanResult {
                 path: file.path.clone(),
                 line: None,
                 column: None,
-                detail: "executable or script file types are refused in publication bundles"
-                    .into(),
+                detail: "executable or script file types are refused in publication bundles".into(),
                 action: "remove_and_retry",
             });
             continue;

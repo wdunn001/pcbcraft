@@ -414,9 +414,7 @@ impl PartSearchIndex {
     /// Refuse an out-of-bounds or contradictory query.
     pub fn validate_query(query: &PartSearchQuery) -> Result<(), String> {
         if query.need.len() > MAX_NEED_BYTES {
-            return Err(format!(
-                "need text may be at most {MAX_NEED_BYTES} bytes"
-            ));
+            return Err(format!("need text may be at most {MAX_NEED_BYTES} bytes"));
         }
         if query.tags.len() > MAX_REQUIRED_TAGS {
             return Err(format!(
@@ -437,7 +435,11 @@ impl PartSearchIndex {
     }
 
     /// Rank parts for a need. Returns at most `limit` hits (1 to 100).
-    pub fn search(&self, query: &PartSearchQuery, limit: usize) -> Result<Vec<PartSearchHit>, String> {
+    pub fn search(
+        &self,
+        query: &PartSearchQuery,
+        limit: usize,
+    ) -> Result<Vec<PartSearchHit>, String> {
         Self::validate_query(query)?;
         if limit == 0 || limit > 100 {
             return Err("limit must be an integer from 1 to 100".into());
@@ -503,15 +505,16 @@ impl PartSearchIndex {
                     reasons.push(MatchReason::Text {
                         token: token.clone(),
                     });
-                } else if entry.tags.contains(token) || entry.tags.contains(&format!("free:{token}"))
+                } else if entry.tags.contains(token)
+                    || entry.tags.contains(&format!("free:{token}"))
                 {
-                    reasons.push(MatchReason::Tag {
-                        tag: token.clone(),
-                    });
-                } else if entry.tags.iter().any(|t| t.ends_with(token) || t.contains(token)) {
-                    reasons.push(MatchReason::Tag {
-                        tag: token.clone(),
-                    });
+                    reasons.push(MatchReason::Tag { tag: token.clone() });
+                } else if entry
+                    .tags
+                    .iter()
+                    .any(|t| t.ends_with(token) || t.contains(token))
+                {
+                    reasons.push(MatchReason::Tag { tag: token.clone() });
                 }
             }
             let text_score = text_hits as f32 / query_len;
@@ -521,10 +524,7 @@ impl PartSearchIndex {
                 .filter(|t| {
                     entry.tags.contains(*t)
                         || entry.tags.contains(&format!("free:{t}"))
-                        || entry
-                            .tags
-                            .iter()
-                            .any(|tag| tag.contains(t.as_str()))
+                        || entry.tags.iter().any(|tag| tag.contains(t.as_str()))
                 })
                 .count();
             let tag_score = tag_hits as f32 / query_len;
@@ -556,11 +556,9 @@ impl PartSearchIndex {
             }
         }
 
-        scored.sort_by(|a, b| {
-            match b.score.partial_cmp(&a.score) {
-                Some(std::cmp::Ordering::Equal) | None => a.listing.mpn.cmp(&b.listing.mpn),
-                Some(ord) => ord,
-            }
+        scored.sort_by(|a, b| match b.score.partial_cmp(&a.score) {
+            Some(std::cmp::Ordering::Equal) | None => a.listing.mpn.cmp(&b.listing.mpn),
+            Some(ord) => ord,
         });
         scored.truncate(limit);
         Ok(scored)
@@ -662,7 +660,10 @@ mod tests {
             ..Default::default()
         };
         let hits = index.search(&query, 5).expect("search");
-        assert_eq!(hits.first().map(|h| h.listing.mpn.as_str()), Some("LDO-3V3"));
+        assert_eq!(
+            hits.first().map(|h| h.listing.mpn.as_str()),
+            Some("LDO-3V3")
+        );
         assert!(hits[0].score >= hits.get(1).map(|h| h.score).unwrap_or(0.0));
     }
 

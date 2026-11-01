@@ -63,18 +63,12 @@ fn place_card(screen: Rect, anchor: Rect, placement: &str, size: Vec2) -> Rect {
 
 fn card_above(_screen: Rect, anchor: Rect, size: Vec2) -> Rect {
     let y = anchor.min.y - GAP - size.y;
-    Rect::from_min_size(
-        Pos2::new(anchor.center().x - size.x * 0.5, y),
-        size,
-    )
+    Rect::from_min_size(Pos2::new(anchor.center().x - size.x * 0.5, y), size)
 }
 
 fn card_below(_screen: Rect, anchor: Rect, size: Vec2) -> Rect {
     let y = anchor.max.y + GAP;
-    Rect::from_min_size(
-        Pos2::new(anchor.center().x - size.x * 0.5, y),
-        size,
-    )
+    Rect::from_min_size(Pos2::new(anchor.center().x - size.x * 0.5, y), size)
 }
 
 fn card_left(_screen: Rect, anchor: Rect, size: Vec2) -> Rect {

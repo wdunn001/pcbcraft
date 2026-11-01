@@ -4,8 +4,8 @@
 //! No network calls here.
 
 use crate::listing::{
-    halogen_from, lifecycle_from, listing_from_result, moisture_level_from, reach_from, rohs_from,
-    Lifecycle, PartListing,
+    Lifecycle, PartListing, halogen_from, lifecycle_from, listing_from_result, moisture_level_from,
+    reach_from, rohs_from,
 };
 use crate::sources::PartResult;
 use serde_json::Value;
@@ -38,11 +38,7 @@ fn some_url(text: &str) -> Option<String> {
 pub fn listing_from_mouser(result: &PartResult, record: &Value) -> PartListing {
     let mut attrs = BTreeMap::new();
     push_attr(&mut attrs, "RoHS", &text_field(record, &["ROHSStatus"]));
-    push_attr(
-        &mut attrs,
-        "REACH",
-        &text_field(record, &["REACH-SVHC"]),
-    );
+    push_attr(&mut attrs, "REACH", &text_field(record, &["REACH-SVHC"]));
     push_attr(
         &mut attrs,
         "ProductCompliance",

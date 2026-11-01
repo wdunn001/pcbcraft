@@ -54,9 +54,9 @@ fn power_nets(project: &Project) -> BTreeMap<Id, PowerKind> {
     for pin in project.components.iter().flat_map(|c| c.pins.iter()) {
         if pin.electrical_type == "power_in" || pin.electrical_type == "power_out" {
             if let Some(net) = pin.net.filter(|n| *n != 0) {
-                found
-                    .entry(net)
-                    .or_insert_with(|| power_kind(project.net_name(net)).unwrap_or(PowerKind::Rail));
+                found.entry(net).or_insert_with(|| {
+                    power_kind(project.net_name(net)).unwrap_or(PowerKind::Rail)
+                });
             }
         }
     }
@@ -70,7 +70,10 @@ fn expected_voltage_v(name: &str, kind: PowerKind) -> String {
     let n = name.trim().to_ascii_uppercase();
     let n = n.trim_start_matches('+');
     if let Some(stripped) = n.strip_suffix('V') {
-        let digits: String = stripped.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
+        let digits: String = stripped
+            .chars()
+            .filter(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
         if digits.contains('.') {
             return digits;
         }
@@ -105,14 +108,15 @@ fn is_header_component(c: &Component) -> bool {
         text.push_str(&fp.definition.name);
     }
     let upper = text.to_ascii_uppercase();
-    ["HEADER", "CONN", "SWD", "TAG-CONNECT", "DEBUG", "JTAG"].iter().any(|k| upper.contains(k))
+    ["HEADER", "CONN", "SWD", "TAG-CONNECT", "DEBUG", "JTAG"]
+        .iter()
+        .any(|k| upper.contains(k))
 }
 
 fn sensor_note(c: &Component) -> Option<String> {
     let blob = format!("{} {}", c.value, c.reference).to_ascii_uppercase();
     const KEYS: &[&str] = &[
-        "IMU", "MPU", "BMI", "ICM", "BMP", "MS5611", "LIS3", "LSM", "QMC", "MAG", "BARO",
-        "SENSOR",
+        "IMU", "MPU", "BMI", "ICM", "BMP", "MS5611", "LIS3", "LSM", "QMC", "MAG", "BARO", "SENSOR",
     ];
     if KEYS.iter().any(|k| blob.contains(k)) {
         Some(format!(
@@ -277,11 +281,7 @@ pub fn bring_up_plan_markdown(project: &Project) -> Result<String, String> {
     let rails = power_nets(project);
     let pins = header_pins(project);
     let pairs = continuity_pairs(project);
-    let sensors: Vec<String> = project
-        .components
-        .iter()
-        .filter_map(sensor_note)
-        .collect();
+    let sensors: Vec<String> = project.components.iter().filter_map(sensor_note).collect();
     let mut out = format!("# Bring-up plan for {}\n\n", plan_title(project));
     write_rails(&mut out, project, &rails);
     write_headers(&mut out, &pins);
@@ -322,15 +322,15 @@ pub fn bring_up_plan_csv(project: &Project) -> Result<String, String> {
         ));
     }
     for (a, b) in &pairs {
-        out.push_str(&format!(
-            "continuity,{},{},,\n",
-            csv_cell(a),
-            csv_cell(b)
-        ));
+        out.push_str(&format!("continuity,{},{},,\n", csv_cell(a), csv_cell(b)));
     }
     for c in &project.components {
         if let Some(note) = sensor_note(c) {
-            out.push_str(&format!("sensor,{},{},,\n", csv_cell(&c.reference), csv_cell(&note)));
+            out.push_str(&format!(
+                "sensor,{},{},,\n",
+                csv_cell(&c.reference),
+                csv_cell(&note)
+            ));
         }
     }
     for net in &report.uncovered {
@@ -349,10 +349,7 @@ pub fn bring_up_plan_csv(project: &Project) -> Result<String, String> {
 /// Both bring-up files for a fabrication export job.
 pub fn bring_up_export_files(project: &Project) -> Result<BTreeMap<String, String>, String> {
     let mut files = BTreeMap::new();
-    files.insert(
-        "bring-up-plan.md".into(),
-        bring_up_plan_markdown(project)?,
-    );
+    files.insert("bring-up-plan.md".into(), bring_up_plan_markdown(project)?);
     files.insert("bring-up-plan.csv".into(), bring_up_plan_csv(project)?);
     Ok(files)
 }

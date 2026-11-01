@@ -1,4 +1,4 @@
-use pcbcraft_publication::{design_licence, licence_table, LicenceVerdict};
+use pcbcraft_publication::{LicenceVerdict, design_licence, licence_table};
 
 #[test]
 fn licence_pair_table_has_every_cell() {
@@ -10,10 +10,7 @@ fn licence_pair_table_has_every_cell() {
             .get(design)
             .unwrap_or_else(|| panic!("missing design row {design}"));
         for part in &table.licences {
-            assert!(
-                row.contains_key(part),
-                "missing cell {design} x {part}"
-            );
+            assert!(row.contains_key(part), "missing cell {design} x {part}");
             let _ = design_licence(&table, design, part);
         }
     }

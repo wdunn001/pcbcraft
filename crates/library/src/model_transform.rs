@@ -58,8 +58,8 @@ mod tests {
             rotate: [0.0, 0.0, 0.0],
             raw_source: String::new(),
             cad_part: None,
-        body_id: None,
-        embedded: String::new(),
+            body_id: None,
+            embedded: String::new(),
         }
     }
 

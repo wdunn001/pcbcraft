@@ -17,10 +17,8 @@
 //! # Do not
 //! - Do not link SolidCraft crates; only the documented subset is read.
 
-use crate::model_load::{
-    LoadedModel, MAX_MODEL_FACES, MAX_MODEL_VERTICES, ModelError,
-};
-use crate::solidcraft_format::{read_solidcraft, SolidcraftDesign};
+use crate::model_load::{LoadedModel, MAX_MODEL_FACES, MAX_MODEL_VERTICES, ModelError};
+use crate::solidcraft_format::{SolidcraftDesign, read_solidcraft};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -109,7 +107,9 @@ fn resolve_component(design: &SolidcraftDesign, cad_part: Option<&str>) -> Resul
             .find(|c| c.name == name)
             .map(|c| c.id)
             .ok_or_else(|| {
-                ModelError(format!("The SolidCraft file has no component named {name}."))
+                ModelError(format!(
+                    "The SolidCraft file has no component named {name}."
+                ))
             })
     } else {
         Ok(root_component_id(design))
@@ -220,9 +220,15 @@ fn push_one_mesh(
     let before = out.positions.len();
     for chunk in positions.as_chunks::<3>().0 {
         let p = [
-            chunk[0].as_f64().ok_or_else(|| ModelError("A mesh position is not a number.".into()))?,
-            chunk[1].as_f64().ok_or_else(|| ModelError("A mesh position is not a number.".into()))?,
-            chunk[2].as_f64().ok_or_else(|| ModelError("A mesh position is not a number.".into()))?,
+            chunk[0]
+                .as_f64()
+                .ok_or_else(|| ModelError("A mesh position is not a number.".into()))?,
+            chunk[1]
+                .as_f64()
+                .ok_or_else(|| ModelError("A mesh position is not a number.".into()))?,
+            chunk[2]
+                .as_f64()
+                .ok_or_else(|| ModelError("A mesh position is not a number.".into()))?,
         ];
         if !p.iter().all(|v| v.is_finite()) {
             return err("A mesh position is not finite.");
@@ -241,8 +247,8 @@ fn push_one_mesh(
             let n = tri[i]
                 .as_u64()
                 .ok_or_else(|| ModelError("A mesh index is not an integer.".into()))?;
-            *slot = u32::try_from(n)
-                .map_err(|_| ModelError("A mesh index is too large.".into()))?;
+            *slot =
+                u32::try_from(n).map_err(|_| ModelError("A mesh index is too large.".into()))?;
             if *slot as usize >= vert_count {
                 return err("The model has a face that points past its vertices.");
             }
@@ -252,7 +258,8 @@ fn push_one_mesh(
                 "The model has more than {MAX_MODEL_FACES} faces, over the limit."
             ));
         }
-        out.indices.extend_from_slice(&[base + idx[0], base + idx[1], base + idx[2]]);
+        out.indices
+            .extend_from_slice(&[base + idx[0], base + idx[1], base + idx[2]]);
     }
     if let Some(c) = color {
         out.body_colors.push(c);
@@ -277,8 +284,7 @@ fn merge_loaded(
     }
     let base = out.positions.len() as u32;
     out.positions.extend_from_slice(&loaded.positions);
-    out.indices
-        .extend(loaded.indices.iter().map(|i| base + i));
+    out.indices.extend(loaded.indices.iter().map(|i| base + i));
     let c = color.or(loaded.color);
     if let Some(c) = c {
         out.body_colors.push(c);
@@ -323,12 +329,15 @@ fn try_display_preview(
     let Some(meta) = entries.get(DISPLAY_PREVIEW_JSON) else {
         return Ok(());
     };
-    let meta: Value =
-        serde_json::from_slice(meta).map_err(|_| ModelError("The display preview metadata is invalid.".into()))?;
+    let meta: Value = serde_json::from_slice(meta)
+        .map_err(|_| ModelError("The display preview metadata is invalid.".into()))?;
     let Some(bodies) = meta.get("bodies").and_then(Value::as_array) else {
         return Ok(());
     };
-    let bin = entries.get(DISPLAY_PREVIEW_BIN).map(Vec::as_slice).unwrap_or(&[]);
+    let bin = entries
+        .get(DISPLAY_PREVIEW_BIN)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
     for body in bodies {
         let comp = body.get("component").and_then(Value::as_u64);
         if comp.is_some_and(|id| id != component_id) {
@@ -347,8 +356,16 @@ fn try_display_preview(
             let end = start.saturating_add(len);
             let slice = bin.get(start..end).unwrap_or(&[]);
             if let Ok((positions, triangles)) = decode_preview_mesh(slice) {
-                let mesh = json_mesh(&positions, &triangles, body.get("name").and_then(Value::as_str));
-                push_one_mesh(&mesh, out, appearance_color(body, body.get("name").and_then(Value::as_str)))?;
+                let mesh = json_mesh(
+                    &positions,
+                    &triangles,
+                    body.get("name").and_then(Value::as_str),
+                );
+                push_one_mesh(
+                    &mesh,
+                    out,
+                    appearance_color(body, body.get("name").and_then(Value::as_str)),
+                )?;
             }
         }
     }
@@ -368,8 +385,10 @@ fn decode_preview_mesh(bytes: &[u8]) -> Result<(Vec<f64>, Vec<u32>), String> {
     if bytes.get(..8) != Some(MAGIC.as_slice()) {
         return Err("unsupported preview mesh".into());
     }
-    let positions_len = u64::from_le_bytes(bytes[8..16].try_into().map_err(|_| "truncated")?) as usize;
-    let triangles_len = u64::from_le_bytes(bytes[16..24].try_into().map_err(|_| "truncated")?) as usize;
+    let positions_len =
+        u64::from_le_bytes(bytes[8..16].try_into().map_err(|_| "truncated")?) as usize;
+    let triangles_len =
+        u64::from_le_bytes(bytes[16..24].try_into().map_err(|_| "truncated")?) as usize;
     let mut at = 24;
     let mut positions = Vec::with_capacity(positions_len);
     for _ in 0..positions_len {
@@ -400,12 +419,12 @@ fn err<T>(s: impl Into<String>) -> Result<T, ModelError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     use crate::solidcraft_format::{
-        SolidcraftAppearances, SolidcraftComponent, SolidcraftDesign, SUPPORTED_FORMAT,
+        SUPPORTED_FORMAT, SolidcraftAppearances, SolidcraftComponent, SolidcraftDesign,
         write_solidcraft_json,
     };
     use serde_json::json;
+    use std::collections::BTreeMap;
 
     type Check = Result<(), String>;
 
@@ -492,8 +511,7 @@ mod tests {
         });
         design.features[1]["component"] = json!(5);
         let text = write_solidcraft_json(&design)?;
-        let m = load_solidcraft_model(text.as_bytes(), Some("Child"))
-            .map_err(|e| e.to_string())?;
+        let m = load_solidcraft_model(text.as_bytes(), Some("Child")).map_err(|e| e.to_string())?;
         assert_eq!(m.indices.len(), 3, "one triangle on the child");
         assert_eq!(m.positions.len(), 3);
         Ok(())
@@ -519,10 +537,18 @@ mod tests {
         let v2 = write_solidcraft_json(&design2)?;
         let key2 = solidcraft_cache_token(v2.as_bytes(), None);
         assert_ne!(key1, key2, "content hash changes when the file changes");
-        assert_eq!(model.offset, [2.0, 0.0, 0.0], "alignment stays on the footprint");
+        assert_eq!(
+            model.offset,
+            [2.0, 0.0, 0.0],
+            "alignment stays on the footprint"
+        );
         assert_eq!(model.rotate[2], 45.0);
         let _ = load_solidcraft_model(v2.as_bytes(), None).map_err(|e| e.to_string())?;
-        assert_eq!(model.offset, [2.0, 0.0, 0.0], "reload does not move the footprint transform");
+        assert_eq!(
+            model.offset,
+            [2.0, 0.0, 0.0],
+            "reload does not move the footprint transform"
+        );
         Ok(())
     }
 }

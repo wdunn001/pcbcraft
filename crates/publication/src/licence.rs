@@ -118,9 +118,7 @@ pub fn bundled_part(
         LicenceVerdict::Review => out.push(ScanOutcome::HumanQueue {
             rule: "licence_review",
             path: part_id.into(),
-            detail: format!(
-                "licence pair `{design}` + `{part_licence}` needs a human decision"
-            ),
+            detail: format!("licence pair `{design}` + `{part_licence}` needs a human decision"),
         }),
     }
     out

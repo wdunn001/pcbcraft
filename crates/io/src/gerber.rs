@@ -16,9 +16,7 @@
 //! side file mirrors x about the board origin.
 use crate::board_mesh::{graphic_layer, map_ring, pad_sides, thin_polyline};
 use crate::gerber_fidelity::{attach_gerber_md5, smd_aperture_function};
-use pcbcraft_doc::fill::{
-    pad_exports_on_layer, plated_item_connected_on_layer, PlatedConnectKind,
-};
+use pcbcraft_doc::fill::{PlatedConnectKind, pad_exports_on_layer, plated_item_connected_on_layer};
 use pcbcraft_doc::{Footprint, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::PadShape;
@@ -285,7 +283,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             if pad
                 .geometry
                 .as_ref()
-.is_some_and(|g| g.pad_type == "unplated")
+                .is_some_and(|g| g.pad_type == "unplated")
             {
                 continue;
             }
@@ -695,7 +693,7 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         }
     }
     for v in &p.board.vias {
-let top = layer == Layer::Front;
+        let top = layer == Layer::Front;
         // A via keeps its mask opening only on a face it leaves open.
         if !crate::fab_export::via_mask_opening_on_face(v, &p.board, top) {
             continue;
@@ -748,11 +746,7 @@ fn gerber_paste_layer(
             };
             let opening = pad_opening(f, pad, margin, mirror_x)?;
             let code = sheet.define(opening, "SMDPad,CuDef")?;
-            let at = if mirror_bottom {
-                mirror(at, layer)
-            } else {
-                at
-            };
+            let at = if mirror_bottom { mirror(at, layer) } else { at };
             sheet.flash(code, at)?;
         }
     }

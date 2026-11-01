@@ -32,7 +32,10 @@ impl<T> ReviewedField<T> {
     }
 }
 
-pub fn set_decision<T>(field: &mut ReviewedField<T>, decision: ReviewDecision) -> Result<(), String> {
+pub fn set_decision<T>(
+    field: &mut ReviewedField<T>,
+    decision: ReviewDecision,
+) -> Result<(), String> {
     if decision == ReviewDecision::Edited && field.edited.is_none() {
         return Err("edited decision requires an edited value".into());
     }

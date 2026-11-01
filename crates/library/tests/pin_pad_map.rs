@@ -254,8 +254,14 @@ fn remapping_by_pick_moves_pad_between_pins() -> Result<(), String> {
     let (symbol, footprint) = qfn_symbol_and_footprint()?;
     let mut map = auto_fill(&symbol, &footprint);
     map.assign_pad_to_pin("1", "2");
-    assert!(map.pads_for_pin("1").is_some_and(|p| p.contains(&"2".to_string())));
-    assert!(map.pads_for_pin("2").is_none_or(|p| !p.contains(&"2".to_string())));
+    assert!(
+        map.pads_for_pin("1")
+            .is_some_and(|p| p.contains(&"2".to_string()))
+    );
+    assert!(
+        map.pads_for_pin("2")
+            .is_none_or(|p| !p.contains(&"2".to_string()))
+    );
     Ok(())
 }
 
@@ -315,7 +321,9 @@ fn validate_part_names_pin_and_pad_in_findings() -> Result<(), String> {
     }
     let bad = validate_part(&symbol, &footprint, &bad_map, &fields);
     assert!(
-        bad.findings.iter().any(|f| f.pin.is_some() || f.pad.is_some()),
+        bad.findings
+            .iter()
+            .any(|f| f.pin.is_some() || f.pad.is_some()),
         "{:?}",
         bad.findings
     );

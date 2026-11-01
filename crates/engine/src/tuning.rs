@@ -567,8 +567,7 @@ fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Tr
             width: original.width,
             layer: original.layer,
             arc,
-        
-});
+        });
     }
     Ok(out)
 }
@@ -611,11 +610,7 @@ fn diff_pair_by_ref<'a>(
             .ok_or_else(missing),
         (Some(id), Some(name)) => {
             let by_id = p.board.diff_pairs.iter().find(|pair| pair.id == id);
-            let by_name = p
-                .board
-                .diff_pairs
-                .iter()
-                .find(|pair| pair.name == name);
+            let by_name = p.board.diff_pairs.iter().find(|pair| pair.name == name);
             match (by_id, by_name) {
                 (Some(a), Some(b)) if a.id == b.id => Ok(a),
                 _ => Err(Error::Invalid(
@@ -639,10 +634,7 @@ fn partner_center_on_layer(p: &Project, net: Id, layer: Layer) -> Option<Point> 
         .iter()
         .filter(|t| t.net == net && t.layer == layer)
     {
-        let mid = Point::new(
-            (t.start.x + t.end.x) / 2.0,
-            (t.start.y + t.end.y) / 2.0,
-        );
+        let mid = Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0);
         sum_x += mid.x;
         sum_y += mid.y;
         count += 1;
@@ -970,9 +962,7 @@ fn tune_skew(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
     if partner_center_on_layer(p, net_p, layer).is_none()
         && partner_center_on_layer(p, net_n, layer).is_none()
     {
-        return Err(refuse(
-            "both nets need routed copper on the chosen layer",
-        ));
+        return Err(refuse("both nets need routed copper on the chosen layer"));
     }
     let fit_tolerance = tolerance.clamp(0.01, 0.1);
     let mut bump_ids: Vec<Id> = vec![];
@@ -980,9 +970,7 @@ fn tune_skew(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
     let mut passes = 0usize;
     while (net_length(p, net_p) - net_length(p, net_n)).abs() > tolerance + 1e-9 {
         if passes >= MAX_SKEW_MEANDERS {
-            return Err(refuse(
-                "skew tuning stopped after too many meander passes",
-            ));
+            return Err(refuse("skew tuning stopped after too many meander passes"));
         }
         let len_p_now = net_length(p, net_p);
         let len_n_now = net_length(p, net_n);
@@ -992,9 +980,8 @@ fn tune_skew(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
             (net_n, net_p)
         };
         let target = len_p_now.max(len_n_now) - tolerance;
-        let (_, track) = pick_longest_straight_track(p, short_net, layer).ok_or_else(|| {
-            refuse("the shorter net needs a straight track on the chosen layer")
-        })?;
+        let (_, track) = pick_longest_straight_track(p, short_net, layer)
+            .ok_or_else(|| refuse("the shorter net needs a straight track on the chosen layer"))?;
         let partner_center = partner_center_on_layer(p, partner_net, layer)
             .ok_or_else(|| refuse("the partner net needs routed copper on the chosen layer"))?;
         let side = side_away_from_partner(&track, partner_center)?;

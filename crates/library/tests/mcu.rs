@@ -1,5 +1,5 @@
 use pcbcraft_library::mcu::{
-    import_mcu_bundle_json, load_builtin, parse_and_validate_mcu, validate_mcu, MCU_FILE_SUFFIX,
+    MCU_FILE_SUFFIX, import_mcu_bundle_json, load_builtin, parse_and_validate_mcu, validate_mcu,
 };
 
 #[test]
@@ -28,10 +28,7 @@ fn a_newcomer_is_refused_when_a_pin_is_missing_from_the_package_table() {
         }],
     });
     let err = validate_mcu(&doc).expect_err("orphan pin must fail");
-    assert!(
-        err.contains("PZ99"),
-        "error must name the pin, got {err}"
-    );
+    assert!(err.contains("PZ99"), "error must name the pin, got {err}");
 }
 
 #[test]

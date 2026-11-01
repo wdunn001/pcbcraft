@@ -379,7 +379,10 @@ fn parse_ipv4(bytes: &[u8], start: usize) -> Option<(usize, usize, u8, u8, u8, u
             if i == part_start || idx == 4 {
                 return None;
             }
-            let n: u16 = std::str::from_utf8(&bytes[part_start..i]).ok()?.parse().ok()?;
+            let n: u16 = std::str::from_utf8(&bytes[part_start..i])
+                .ok()?
+                .parse()
+                .ok()?;
             if n > 255 {
                 return None;
             }
@@ -398,10 +401,7 @@ fn parse_ipv4(bytes: &[u8], start: usize) -> Option<(usize, usize, u8, u8, u8, u
 }
 
 fn is_private_ipv4(a: u8, b: u8, _c: u8, _d: u8) -> bool {
-    a == 10
-        || a == 127
-        || (a == 192 && b == 168)
-        || (a == 172 && (16..=31).contains(&b))
+    a == 10 || a == 127 || (a == 192 && b == 168) || (a == 172 && (16..=31).contains(&b))
 }
 
 fn contains_subsequence(hay: &[u8], needle: &[u8]) -> bool {
@@ -410,6 +410,5 @@ fn contains_subsequence(hay: &[u8], needle: &[u8]) -> bool {
 
 fn find_ascii(hay: &[u8], needle: &str) -> Option<usize> {
     let needle = needle.as_bytes();
-    hay.windows(needle.len())
-        .position(|w| w == needle)
+    hay.windows(needle.len()).position(|w| w == needle)
 }

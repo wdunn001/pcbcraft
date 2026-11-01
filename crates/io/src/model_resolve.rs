@@ -25,7 +25,10 @@ fn path_is_absolute(path: &str) -> bool {
     p.is_absolute()
         || (cfg!(windows)
             && path.as_bytes().get(1) == Some(&b':')
-            && path.as_bytes().first().is_some_and(|b| b.is_ascii_alphabetic()))
+            && path
+                .as_bytes()
+                .first()
+                .is_some_and(|b| b.is_ascii_alphabetic()))
 }
 
 /// Drop a legacy `${…_3DMODEL_DIR}/` prefix so the tail can join a library folder.

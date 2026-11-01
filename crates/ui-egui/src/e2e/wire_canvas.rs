@@ -92,7 +92,10 @@ fn a_newcomer_tees_into_a_wire_and_gets_a_junction() -> Result<(), String> {
     let at = screen_of(&app, tee);
     click(&ctx, &mut app, at, Modifiers::NONE);
     assert!(
-        app.project.labels.iter().any(|l| l.kind == "junction" && l.position.distance(tee) < 0.05),
+        app.project
+            .labels
+            .iter()
+            .any(|l| l.kind == "junction" && l.position.distance(tee) < 0.05),
         "a junction dot marks the tee: {}",
         app.message
     );
@@ -123,7 +126,10 @@ fn a_newcomer_names_a_bus_and_breaks_out_one_member() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], Modifiers::NONE);
     app.refresh();
     assert!(
-        app.project.labels.iter().any(|l| l.kind == "bus" && l.text == "ADDR*4"),
+        app.project
+            .labels
+            .iter()
+            .any(|l| l.kind == "bus" && l.text == "ADDR*4"),
         "the bus is named on the sheet: {}",
         app.message
     );
@@ -132,9 +138,10 @@ fn a_newcomer_names_a_bus_and_breaks_out_one_member() -> Result<(), String> {
     let at = screen_of(&app, mid);
     click(&ctx, &mut app, at, Modifiers::NONE);
     assert!(
-        app.project.labels.iter().any(|l| {
-            l.kind == "label" && app.project.net_name(l.net).starts_with("ADDR")
-        }),
+        app.project
+            .labels
+            .iter()
+            .any(|l| { l.kind == "label" && app.project.net_name(l.net).starts_with("ADDR") }),
         "one member net is labelled at the bus: {}",
         app.message
     );

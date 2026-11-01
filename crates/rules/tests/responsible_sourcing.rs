@@ -49,14 +49,20 @@ fn a_newcomer_sees_which_suppliers_owe_a_minerals_report() {
         .iter()
         .filter(|f| f.rule == "minerals_report_on_file")
         .collect();
-    assert_eq!(minerals.len(), 1, "only Beta Supply lacks a CMRT on file: {findings:?}");
+    assert_eq!(
+        minerals.len(),
+        1,
+        "only Beta Supply lacks a CMRT on file: {findings:?}"
+    );
     assert!(
         minerals[0].evidence.contains("Beta Supply"),
         "finding names the manufacturer: {}",
         minerals[0].evidence
     );
     assert!(
-        minerals.iter().all(|f| f.severity == "warning" || f.severity == "info"),
+        minerals
+            .iter()
+            .all(|f| f.severity == "warning" || f.severity == "info"),
         "severity stays at information or warning"
     );
     assert!(
@@ -70,7 +76,10 @@ fn a_listed_prop65_substance_cites_the_bundled_snapshot() {
     let mut p = Project::default();
     p.compliance_settings.rule_sets = vec!["responsible_sourcing".into()];
     p.components.push(part(1, "C1", "Example Co"));
-    set_compliance(&mut p, 1, Compliance {
+    set_compliance(
+        &mut p,
+        1,
+        Compliance {
             substances: vec![DeclaredSubstance {
                 name: "Lead".into(),
                 cas: "7439-92-1".into(),
@@ -78,7 +87,8 @@ fn a_listed_prop65_substance_cites_the_bundled_snapshot() {
                 note: Default::default(),
             }],
             ..Compliance::default()
-        });
+        },
+    );
 
     let findings = compliance_check(&p);
     let prop65: Vec<_> = findings
@@ -99,7 +109,10 @@ fn fluoropolymer_parts_surface_unknown_pfas_status_as_information() {
     let mut p = Project::default();
     p.compliance_settings.rule_sets = vec!["responsible_sourcing".into()];
     p.components.push(part(1, "W1", "Wire Co"));
-    set_compliance(&mut p, 1, Compliance {
+    set_compliance(
+        &mut p,
+        1,
+        Compliance {
             role: Some(PartRole::Fluoropolymer),
             declarations: vec![Declaration {
                 regime: "us.tsca.pfas".into(),
@@ -114,7 +127,8 @@ fn fluoropolymer_parts_surface_unknown_pfas_status_as_information() {
                 as_of: String::new(),
             }],
             ..Compliance::default()
-        });
+        },
+    );
 
     let findings = compliance_check(&p);
     let pfas: Vec<_> = findings

@@ -533,7 +533,9 @@ mod tests {
             match request.method {
                 "GET" => {
                     assert_eq!(request.url, "http://localhost:11434/api/version");
-                    Ok(crate::backend::HttpResponse::ok(br#"{"version":"0.0"}"#.to_vec()))
+                    Ok(crate::backend::HttpResponse::ok(
+                        br#"{"version":"0.0"}"#.to_vec(),
+                    ))
                 }
                 "POST" => {
                     assert_eq!(request.url, "http://localhost:11434/api/show");
@@ -542,7 +544,9 @@ mod tests {
                             .unwrap(),
                         json!({"model":"chat:4b"})
                     );
-                    Ok(crate::backend::HttpResponse::ok(br#"{"capabilities":["completion"]}"#.to_vec()))
+                    Ok(crate::backend::HttpResponse::ok(
+                        br#"{"capabilities":["completion"]}"#.to_vec(),
+                    ))
                 }
                 _ => Err("unexpected HTTP method".into()),
             }

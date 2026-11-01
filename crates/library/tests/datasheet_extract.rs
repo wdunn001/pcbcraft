@@ -1,9 +1,9 @@
+use pcbcraft_geom::Point;
 use pcbcraft_library::datasheet_extract::{
     DatasheetExtractBundle, ReviewDecision, TextDocument, TextTableExtractor,
     apply_patch_to_symbol, build_part_patch, extract_from_text_document, set_decision,
 };
 use pcbcraft_library::{SymbolDefinition, SymbolPin};
-use pcbcraft_geom::Point;
 
 fn fixture_doc() -> Result<TextDocument, String> {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -52,10 +52,8 @@ fn fixture_yields_ratings_and_ordering_with_provenance() -> Result<(), String> {
 fn trait_extracts_from_text_document() -> Result<(), String> {
     let doc = fixture_doc()?;
     let extractor = TextTableExtractor { document: doc };
-    let bundle = pcbcraft_library::datasheet_extract::DatasheetTableExtractor::extract(
-        &extractor,
-        &[],
-    )?;
+    let bundle =
+        pcbcraft_library::datasheet_extract::DatasheetTableExtractor::extract(&extractor, &[])?;
     assert_eq!(bundle.pin_table.len(), 2);
     Ok(())
 }

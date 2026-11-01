@@ -123,7 +123,13 @@ impl App {
                 let segments: Vec<Segment<'_>> = labels
                     .iter()
                     .zip(&tips)
-                    .map(|(label, tip)| Segment { label, tip, count: Default::default(), disabled: Default::default(), icon: Default::default(), })
+                    .map(|(label, tip)| Segment {
+                        label,
+                        tip,
+                        count: Default::default(),
+                        disabled: Default::default(),
+                        icon: Default::default(),
+                    })
                     .collect();
                 segmented(
                     ui,

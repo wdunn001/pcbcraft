@@ -34,10 +34,10 @@ pub use datasheet::{DatasheetRef, check_datasheet_refs, check_embedded_datasheet
 pub use licence::{
     LicenceVerdict, bundled_part, design_licence, is_restricted_source, licence_table,
 };
-pub use privacy::{PrivacyOptions, scan_privacy_text, scan_privacy_bytes};
+pub use privacy::{PrivacyOptions, scan_privacy_bytes, scan_privacy_text};
 pub use scan::{
-    BundleFile, BundledPart, PublicationScanInput, PublicationScanResult, ScanOutcome,
-    ScanRequest, scan,
+    BundleFile, BundledPart, PublicationScanInput, PublicationScanResult, ScanOutcome, ScanRequest,
+    scan,
 };
 
 pub use check::{

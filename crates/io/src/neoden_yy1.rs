@@ -88,14 +88,20 @@ pub fn neoden_yy1_from_artifact_settings(
     if !pcbcraft_doc::Artifact::placement_yy1_settings_valid(settings) {
         return Err("placement_yy1 artifact settings are invalid".into());
     }
-    let obj = settings.as_object().ok_or("placement_yy1 settings must be an object")?;
+    let obj = settings
+        .as_object()
+        .ok_or("placement_yy1 settings must be an object")?;
     let side = match obj.get("side").and_then(|v| v.as_str()).unwrap_or("top") {
         "top" => YySide::Top,
         "bottom" => YySide::Bottom,
         "both" => YySide::Both,
         _ => return Err("side must be top, bottom or both".into()),
     };
-    let layout = match obj.get("layout").and_then(|v| v.as_str()).unwrap_or("native") {
+    let layout = match obj
+        .get("layout")
+        .and_then(|v| v.as_str())
+        .unwrap_or("native")
+    {
         "native" => YyLayout::Native,
         "import" => YyLayout::Import,
         _ => return Err("layout must be native or import".into()),
@@ -597,8 +603,7 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad(pad_kind.0, pad_kind.1)],
-        
-});
+        });
     }
 
     /// Flip a placed part to the bottom the way the `footprint.flip` command

@@ -382,11 +382,7 @@ fn a_newcomer_adds_a_second_page_and_carries_a_net_across() -> Result<(), String
     super::support::tap_strip(&ctx, &mut app, "icon:tool-port")?;
     app.canvas_click(Point::new(45.0, 45.0), app.schematic.zoom);
     assert_eq!(
-        app.project
-            .nets
-            .iter()
-            .filter(|n| n.name == "SDA")
-            .count(),
+        app.project.nets.iter().filter(|n| n.name == "SDA").count(),
         1,
         "both ports share one connection"
     );
@@ -437,7 +433,11 @@ fn a_newcomer_opens_a_child_page_from_its_box() -> Result<(), String> {
         labels.iter().any(|t| t.contains("Page 1")),
         "the child box shows the page name on Main: {labels:?}"
     );
-    app.schematic_double_click(inside, app.schematic.zoom, crate::tool_modifiers::Held::default());
+    app.schematic_double_click(
+        inside,
+        app.schematic.zoom,
+        crate::tool_modifiers::Held::default(),
+    );
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.schematic_page(),

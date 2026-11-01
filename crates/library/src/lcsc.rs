@@ -7,8 +7,8 @@ use crate::source_errors::map_auth_or_permission;
 use crate::source_hosts;
 use crate::source_sign::lcsc_signature;
 use crate::sources::{
-    Attribution, PartResult, PartSource, PriceBreak, SetupCard, SourceError, check_query,
-    DEFAULT_CACHE_SECS,
+    Attribution, DEFAULT_CACHE_SECS, PartResult, PartSource, PriceBreak, SetupCard, SourceError,
+    check_query,
 };
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
@@ -126,9 +126,9 @@ impl LcscSource {
         }
         if !envelope.success || envelope.code != 200 {
             return Err(SourceError::Unavailable(
-                envelope.message.unwrap_or_else(|| {
-                    "the LCSC search failed".into()
-                }),
+                envelope
+                    .message
+                    .unwrap_or_else(|| "the LCSC search failed".into()),
             ));
         }
         let now = self.clock.now_secs();
@@ -269,7 +269,10 @@ fn part_from_product(p: ProductJson, retrieved_at: u64) -> Option<PartResult> {
         if p.product_code.is_empty() {
             String::new()
         } else {
-            format!("https://www.lcsc.com/product-detail/{}.html", p.product_code)
+            format!(
+                "https://www.lcsc.com/product-detail/{}.html",
+                p.product_code
+            )
         }
     } else {
         p.product_url

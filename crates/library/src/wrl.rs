@@ -49,7 +49,9 @@ fn parse_coordinate_block(text: &str) -> Result<Vec<f64>, String> {
         .find(marker)
         .ok_or_else(|| "WRL missing point coordinate block".to_string())?;
     let rest = &text[start + marker.len()..];
-    let end = rest.find(']').ok_or_else(|| "WRL coordinate block unclosed".to_string())?;
+    let end = rest
+        .find(']')
+        .ok_or_else(|| "WRL coordinate block unclosed".to_string())?;
     parse_floats(rest[..end].as_ref())
 }
 

@@ -7,8 +7,7 @@ use std::collections::BTreeSet;
 
 pub const RESPONSIBLE_SOURCING_RULE_SET: &str =
     include_str!("../../data/compliance/rulesets/responsible_sourcing.toml");
-const PROP65_LIST: &str =
-    include_str!("../../data/compliance/lists/prop65_chemicals_fixture.toml");
+const PROP65_LIST: &str = include_str!("../../data/compliance/lists/prop65_chemicals_fixture.toml");
 
 const EVAL_DAY: &str = "2026-03-28";
 
@@ -143,7 +142,9 @@ fn manufacturer_minerals_report(
             "unverified",
             &rule.severity_unverified,
             &message,
-            &format!("Manufacturer {name} is on the bill of materials without a current {required_template} template on file."),
+            &format!(
+                "Manufacturer {name} is on the bill of materials without a current {required_template} template on file."
+            ),
         );
     }
 }
@@ -261,9 +262,11 @@ fn listed_substance(
             continue;
         }
         for substance in &component.compliance.substances {
-            let Some(entry) = list.substances.iter().find(|e| {
-                substance_matches(substance, &e.name, &e.cas)
-            }) else {
+            let Some(entry) = list
+                .substances
+                .iter()
+                .find(|e| substance_matches(substance, &e.name, &e.cas))
+            else {
                 continue;
             };
             let evidence = format!(

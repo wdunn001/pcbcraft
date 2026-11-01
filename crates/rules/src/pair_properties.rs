@@ -90,8 +90,8 @@ pub(crate) fn pair_property_findings(project: &Project, pair: &DiffPair) -> Vec<
     let mut out = Vec::new();
     let tracks = &project.board.tracks;
     if let Some(limit) = pair.skew_limit_mm {
-        let skew = (net_routed_length(tracks, pair.net_p) - net_routed_length(tracks, pair.net_n))
-            .abs();
+        let skew =
+            (net_routed_length(tracks, pair.net_p) - net_routed_length(tracks, pair.net_n)).abs();
         if skew > limit + 1e-9 {
             out.push(Finding {
                 code: "pair_skew_exceeded",

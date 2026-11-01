@@ -4,7 +4,7 @@ mod terms_generated {
     include!(concat!(env!("OUT_DIR"), "/terms.rs"));
 }
 
-pub use terms_generated::{Term, TERMS};
+pub use terms_generated::{TERMS, Term};
 
 /// One glossary row ranked for a query.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,10 +106,7 @@ pub fn search_glossary(query: &str, limit: usize) -> Vec<GlossaryHit> {
     if limit == 0 {
         return Vec::new();
     }
-    let mut hits: Vec<GlossaryHit> = TERMS
-        .iter()
-        .filter_map(|t| rank_term(query, t))
-        .collect();
+    let mut hits: Vec<GlossaryHit> = TERMS.iter().filter_map(|t| rank_term(query, t)).collect();
     hits.sort_by(|a, b| {
         a.rank
             .cmp(&b.rank)

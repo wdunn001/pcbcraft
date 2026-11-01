@@ -120,8 +120,7 @@ fn stack_sample(project: &Project, layer: Layer) -> Option<StackSample> {
             }
             let reference = format!(
                 "{} and {}",
-                project.board.layer_records[a].name,
-                project.board.layer_records[b].name
+                project.board.layer_records[a].name, project.board.layer_records[b].name
             );
             Some(StackSample {
                 height,
@@ -247,13 +246,10 @@ fn segment_impedance(
             Some((coupled.z_diff(), sample))
         }
         (_, Some(_)) => None,
-        (Geometry::Stripline { .. }, None) => imp::stripline(
-            track.width,
-            sample.height,
-            sample.copper,
-            sample.er,
-        )
-        .map(|z| (z, sample.clone())),
+        (Geometry::Stripline { .. }, None) => {
+            imp::stripline(track.width, sample.height, sample.copper, sample.er)
+                .map(|z| (z, sample.clone()))
+        }
         (_, None) => imp::microstrip(track.width, sample.height, sample.copper, sample.er)
             .map(|m| (m.ohms, sample.clone())),
     }

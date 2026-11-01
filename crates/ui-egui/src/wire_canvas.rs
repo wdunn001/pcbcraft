@@ -6,7 +6,7 @@ use egui;
 use pcbcraft_doc::{Id, PinRef};
 use pcbcraft_geom::Point;
 use pcbcraft_geom::point_segment;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Which schematic label tool is armed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,7 +52,11 @@ impl App {
         let at = snap(pos);
         if let Tool::Wire(Some(_)) = &self.tool {
             if let Some(anchor) = self.wire_route.last().copied() {
-                if self.edit.live.contains(crate::tool_modifiers::ModAction::ConstrainAngle) {
+                if self
+                    .edit
+                    .live
+                    .contains(crate::tool_modifiers::ModAction::ConstrainAngle)
+                {
                     let (x, y) =
                         crate::tool_modifiers::constrain_angle((anchor.x, anchor.y), (at.x, at.y));
                     return Point::new(x, y);
@@ -134,10 +138,7 @@ impl App {
             points.push(end_pos);
         }
         if points.len() == 2 && start != end {
-            self.run(
-                "wire.connect",
-                json!({"from": start, "to": end}),
-            );
+            self.run("wire.connect", json!({"from": start, "to": end}));
             self.clear_wire_draft();
             self.tool = Tool::Select;
             return;
@@ -266,17 +267,27 @@ impl App {
             if w.net.is_some() {
                 continue;
             }
-            let on = w.points.windows(2).any(|pair| point_segment(pos, pair[0], pair[1]) <= reach);
+            let on = w
+                .points
+                .windows(2)
+                .any(|pair| point_segment(pos, pair[0], pair[1]) <= reach);
             if !on {
                 continue;
             }
             let head = w.points.first().copied()?;
-            let bus_label = self.project.labels.iter().find(|l| {
-                l.kind == "bus" && l.position.distance(head) < 0.05
-            })?;
+            let bus_label = self
+                .project
+                .labels
+                .iter()
+                .find(|l| l.kind == "bus" && l.position.distance(head) < 0.05)?;
             let (stem, _count) = parse_bus_notation(&bus_label.text)?;
             let name = format!("{stem}0");
-            return self.project.nets.iter().find(|n| n.name == name).map(|n| n.id);
+            return self
+                .project
+                .nets
+                .iter()
+                .find(|n| n.name == name)
+                .map(|n| n.id);
         }
         None
     }
@@ -358,7 +369,11 @@ impl App {
                     {
                         apply_new = true;
                     }
-                    if ui.button("Cancel").on_hover_text("Drop the wire.").clicked() {
+                    if ui
+                        .button("Cancel")
+                        .on_hover_text("Drop the wire.")
+                        .clicked()
+                    {
                         keep = false;
                     }
                 });

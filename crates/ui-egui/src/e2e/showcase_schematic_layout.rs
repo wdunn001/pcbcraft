@@ -35,12 +35,7 @@ fn a_newcomer_sees_a_clean_schematic_layout() -> Result<(), String> {
     }
 
     // Verify schematic pages are named correctly
-    let sheet_names: Vec<String> = app
-        .project
-        .sheets
-        .iter()
-        .map(|s| s.name.clone())
-        .collect();
+    let sheet_names: Vec<String> = app.project.sheets.iter().map(|s| s.name.clone()).collect();
     assert!(
         sheet_names.contains(&"Compute".to_string()),
         "Compute sheet is missing"

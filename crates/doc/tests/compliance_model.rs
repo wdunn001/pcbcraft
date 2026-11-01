@@ -1,8 +1,8 @@
 use pcbcraft_doc::{
-    Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings, CountryOfOrigin,
-    Declaration, DeclarationSource, DeclarationSourceKind, DeclarationStatus, ManufacturerRecord,
-    PartRole, Project, Sourcing, apply_listing_declarations, normalize_manufacturer_name,
-    MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS,
+    Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings,
+    CountryOfOrigin, Declaration, DeclarationSource, DeclarationSourceKind, DeclarationStatus,
+    MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, ManufacturerRecord, PartRole, Project, Sourcing,
+    apply_listing_declarations, normalize_manufacturer_name,
 };
 
 #[test]
@@ -58,7 +58,10 @@ fn compliance_round_trips_and_old_files_load_without_compliance_fields() -> Resu
     let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
     assert!(text.contains("\"flight_controller\"") && text.contains("\"declared_compliant\""));
     let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    assert_eq!(back.components[0].compliance.role, Some(PartRole::FlightController));
+    assert_eq!(
+        back.components[0].compliance.role,
+        Some(PartRole::FlightController)
+    );
     let mut value: serde_json::Value = serde_json::to_value(&p).map_err(|e| e.to_string())?;
     let comp = value["components"][0]
         .as_object_mut()
@@ -129,7 +132,8 @@ fn manufacturer_alias_normalisation_resolves_names() -> Result<(), String> {
 }
 
 #[test]
-fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -> Result<(), String> {
+fn quick_sourcing_flags_become_declarations_without_overriding_explicit_ones() -> Result<(), String>
+{
     let mut c = pcbcraft_doc::Component {
         id: 1,
         reference: "R1".into(),
@@ -231,7 +235,10 @@ fn compliance_settings_and_mutes_round_trip() -> Result<(), String> {
     p.validate()?;
     let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
     let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    assert_eq!(back.compliance_settings.org_role, Some(ComplianceOrgRole::Buyer));
+    assert_eq!(
+        back.compliance_settings.org_role,
+        Some(ComplianceOrgRole::Buyer)
+    );
     assert_eq!(back.compliance_mutes[0].reason, "prototype waiver");
     Ok(())
 }

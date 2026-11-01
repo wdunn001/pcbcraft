@@ -102,8 +102,7 @@ fn sample_two_pads_track() -> Project {
         }],
         locked: None,
         side: None,
-    
-};
+    };
     let mut fp2 = fp1.clone();
     fp2.id = 11;
     fp2.component = 202;
@@ -120,8 +119,7 @@ fn sample_two_pads_track() -> Project {
         width: 0.4,
         layer: Layer::Front,
         arc: None,
-    
-});
+    });
     p.board.tracks.push(Track {
         preserved: pcbcraft_doc::PreservedSource::default(),
         id: 21,
@@ -131,8 +129,7 @@ fn sample_two_pads_track() -> Project {
         width: 0.4,
         layer: Layer::Back,
         arc: None,
-    
-});
+    });
     p
 }
 

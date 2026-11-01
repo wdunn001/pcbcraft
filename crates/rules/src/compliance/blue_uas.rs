@@ -11,9 +11,7 @@ use super::lists::{
     framework_entry, parse_covered_countries, parse_framework, parse_radio_bands,
 };
 use super::{ComplianceFinding, ComplianceRuleSpec, load_failure, load_rule_set};
-use pcbcraft_doc::{
-    Component, DeclarationStatus, OriginInterpretation, PartRole, Project,
-};
+use pcbcraft_doc::{Component, DeclarationStatus, OriginInterpretation, PartRole, Project};
 
 pub const BLUE_UAS_STYLE_DRONE_RULE_SET: &str =
     include_str!("../../data/compliance/rulesets/blue_uas_style_drone.toml");
@@ -41,11 +39,25 @@ fn bundled_lists() -> Result<Lists, String> {
 pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
     let set = match load_rule_set(BLUE_UAS_STYLE_DRONE_RULE_SET) {
         Ok(s) => s,
-        Err(e) => return vec![load_failure("blue_uas_style_drone", "Blue UAS-style", "error", e)],
+        Err(e) => {
+            return vec![load_failure(
+                "blue_uas_style_drone",
+                "Blue UAS-style",
+                "error",
+                e,
+            )];
+        }
     };
     let lists = match bundled_lists() {
         Ok(l) => l,
-        Err(e) => return vec![load_failure("blue_uas_style_drone", "Blue UAS-style list", "error", e)],
+        Err(e) => {
+            return vec![load_failure(
+                "blue_uas_style_drone",
+                "Blue UAS-style list",
+                "error",
+                e,
+            )];
+        }
     };
     let interpretation = if set.interpretation.default == "silicon" {
         OriginInterpretation::Silicon
@@ -57,7 +69,15 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
         let role = component.compliance.role.unwrap_or(PartRole::Other);
         for rule in &set.rules {
             match rule.kind.as_str() {
-                "origin" => origin(project, component, rule, role, interpretation, &lists, &mut out),
+                "origin" => origin(
+                    project,
+                    component,
+                    rule,
+                    role,
+                    interpretation,
+                    &lists,
+                    &mut out,
+                ),
                 "declaration_required" => declaration(component, rule, role, &mut out),
                 "classification_report" if !rule.framework_list.is_empty() => {
                     framework(component, rule, role, &lists, &mut out);
@@ -88,7 +108,11 @@ pub fn evaluate(project: &Project) -> Vec<ComplianceFinding> {
 }
 
 fn role_matches(rule: &ComplianceRuleSpec, role: PartRole) -> bool {
-    rule.roles.is_empty() || rule.roles.iter().any(|r| r.eq_ignore_ascii_case(role.token()))
+    rule.roles.is_empty()
+        || rule
+            .roles
+            .iter()
+            .any(|r| r.eq_ignore_ascii_case(role.token()))
 }
 
 fn maker_country(project: &Project, component: &Component) -> Option<String> {
@@ -153,7 +177,13 @@ fn origin(
     if !parts.is_empty() {
         push(out, rule, component, "hit", &parts.join(" "));
     } else if origin_code.is_none() && maker.is_none() {
-        push(out, rule, component, "unverified", "Origin and maker country are not declared.");
+        push(
+            out,
+            rule,
+            component,
+            "unverified",
+            "Origin and maker country are not declared.",
+        );
     } else {
         push(
             out,
@@ -191,7 +221,10 @@ fn declaration(
                 rule,
                 component,
                 "hit",
-                &format!("Declaration {} marked noncompliant dated {}.", d.regime, d.as_of),
+                &format!(
+                    "Declaration {} marked noncompliant dated {}.",
+                    d.regime, d.as_of
+                ),
             ),
             DeclarationStatus::NotApplicable => push(
                 out,
@@ -260,7 +293,13 @@ fn radio_band(
     }
     let compliance = &component.compliance;
     if compliance.radio_bands_mhz.is_empty() {
-        push(out, rule, component, "unverified", "Radio centre frequency is not declared.");
+        push(
+            out,
+            rule,
+            component,
+            "unverified",
+            "Radio centre frequency is not declared.",
+        );
         return;
     }
     let markets = &project.compliance_settings.target_markets;

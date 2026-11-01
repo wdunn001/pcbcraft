@@ -6,13 +6,13 @@
 //! `crates/library/src/listing_adapters.rs` for the symbol adapters.
 use crate::user_config::UserConfig;
 use pcbcraft_library::listing::{ListingSource, PartFilter, PartListing};
-use pcbcraft_library::part_search::{
-    PartSearchIndex, PartSearchQuery, DEFAULT_SEARCH_LIMIT, MAX_INDEX_PARTS,
-};
-use std::collections::BTreeMap;
 use pcbcraft_library::listing_adapters::listings_from_symbols;
+use pcbcraft_library::part_search::{
+    DEFAULT_SEARCH_LIMIT, MAX_INDEX_PARTS, PartSearchIndex, PartSearchQuery,
+};
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -267,7 +267,11 @@ fn valid_role(role: &str) -> Result<(), String> {
 }
 
 /// Point a registered library folder at the personal or shared save target.
-pub fn set_source_role(config: &UserConfig, path: &str, role: Option<&str>) -> Result<Value, String> {
+pub fn set_source_role(
+    config: &UserConfig,
+    path: &str,
+    role: Option<&str>,
+) -> Result<Value, String> {
     let path = path.trim();
     if path.is_empty() {
         return Err("provide the folder path to mark".into());
@@ -595,18 +599,14 @@ pub fn compare(
 }
 
 fn compare_part_listings(args: &Value) -> Result<Value, String> {
-    let parts: Vec<pcbcraft_library::listing_compare::ComparePartInput> =
-        match args.get("parts") {
-            None => return Err("missing parts".into()),
-            Some(Value::Array(a)) => a
-                .iter()
-                .map(|v| {
-                    serde_json::from_value(v.clone())
-                        .map_err(|e| format!("parts: {e}"))
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-            Some(_) => return Err("parts must be an array".into()),
-        };
+    let parts: Vec<pcbcraft_library::listing_compare::ComparePartInput> = match args.get("parts") {
+        None => return Err("missing parts".into()),
+        Some(Value::Array(a)) => a
+            .iter()
+            .map(|v| serde_json::from_value(v.clone()).map_err(|e| format!("parts: {e}")))
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => return Err("parts must be an array".into()),
+    };
     let quantity = match args.get("quantity") {
         None => 1,
         Some(v) => v
@@ -880,10 +880,7 @@ pub fn list_over(
 fn search_query_args(args: &Value) -> Result<(PartSearchQuery, usize, Vec<PartListing>), String> {
     let need = match args.get("need") {
         None => String::new(),
-        Some(v) => v
-            .as_str()
-            .ok_or("need must be a string")?
-            .to_string(),
+        Some(v) => v.as_str().ok_or("need must be a string")?.to_string(),
     };
     let tags: Vec<String> = match args.get("tags") {
         None => vec![],
@@ -1128,7 +1125,12 @@ mod tests {
     fn parts_search_rejects_bad_limits() {
         for limit in [json!(0), json!(101), json!("5")] {
             assert!(
-                read_tool(&UserConfig::detached(), "parts.search", &json!({"need":"regulator","limit":limit})).is_err(),
+                read_tool(
+                    &UserConfig::detached(),
+                    "parts.search",
+                    &json!({"need":"regulator","limit":limit})
+                )
+                .is_err(),
                 "limit {limit} must be refused"
             );
         }
@@ -1312,8 +1314,9 @@ mod tests {
                 }
             })
         };
-        let out = read_tool(&UserConfig::detached(), 
-"library.compare",
+        let out = read_tool(
+            &UserConfig::detached(),
+            "library.compare",
             &json!({
                 "kind": "parts",
                 "parts": [listing("A", "1206", 5), listing("B", "0603", 9)],
@@ -1328,16 +1331,18 @@ mod tests {
             .ok_or("package row missing")?;
         assert_eq!(package["differs"], true);
         assert!(
-            read_tool(&UserConfig::detached(), 
-"library.compare",
+            read_tool(
+                &UserConfig::detached(),
+                "library.compare",
                 &json!({"kind":"parts","parts":[listing("A","1206",5)]})
             )
             .is_err(),
             "one part is below the minimum"
         );
         assert!(
-            read_tool(&UserConfig::detached(), 
-"library.compare",
+            read_tool(
+                &UserConfig::detached(),
+                "library.compare",
                 &json!({"kind":"parts","parts":[
                     listing("A","1206",5),
                     listing("B","1206",5),
@@ -1375,8 +1380,12 @@ mod tests {
             "a missing path is refused"
         );
         assert!(
-            read_tool(&UserConfig::detached(), "library.set_source_role", &json!({}))
-                .is_err_and(|error| error.contains("path")),
+            read_tool(
+                &UserConfig::detached(),
+                "library.set_source_role",
+                &json!({})
+            )
+            .is_err_and(|error| error.contains("path")),
             "role changes need a path"
         );
         Ok(())
@@ -1498,8 +1507,9 @@ mod tests {
 
     #[test]
     fn samtec_manufacturer_page_query_returns_the_product_url() -> Result<(), String> {
-        let out = read_tool(&UserConfig::detached(), 
-"library.samtec.manufacturer_page",
+        let out = read_tool(
+            &UserConfig::detached(),
+            "library.samtec.manufacturer_page",
             &json!({"mpn":"TSW-103-07-G-S"}),
         )?;
         assert_eq!(out["url"], "https://www.samtec.com/products/tsw-103-07-g-s");

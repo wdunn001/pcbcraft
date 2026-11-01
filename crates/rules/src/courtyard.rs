@@ -338,8 +338,7 @@ mod tests {
                 castellated: None,
                 geometry: None,
             }],
-        
-});
+        });
     }
     fn found(p: &Project) -> Vec<Finding> {
         drc(p)

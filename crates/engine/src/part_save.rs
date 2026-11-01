@@ -211,7 +211,11 @@ fn resolve_from_library(p: &Project, name: &str) -> Result<ResolvedPart, Error> 
         .cloned()
         .ok_or_else(|| Error::Invalid("symbol is not in the project library".into()))?;
     let footprint = footprint_from_project(p, &symbol);
-    let existing = p.library.part_sidecars.iter().find(|part| part.symbol == name);
+    let existing = p
+        .library
+        .part_sidecars
+        .iter()
+        .find(|part| part.symbol == name);
     Ok(ResolvedPart {
         symbol,
         footprint,
@@ -266,7 +270,9 @@ fn save_to_project(
     } else {
         p.library.part_sidecars.push(sidecar.clone());
     }
-    p.library.part_sidecars.sort_by(|a, b| a.symbol.cmp(&b.symbol));
+    p.library
+        .part_sidecars
+        .sort_by(|a, b| a.symbol.cmp(&b.symbol));
     p.library.validate().map_err(Error::Invalid)?;
     Ok(json!({
         "target": "project",

@@ -473,7 +473,9 @@ impl Compliance {
             origin.validate()?;
         }
         if self.declarations.len() > MAX_DECLARATIONS {
-            return Err(format!("a part carries at most {MAX_DECLARATIONS} declarations"));
+            return Err(format!(
+                "a part carries at most {MAX_DECLARATIONS} declarations"
+            ));
         }
         let mut regimes = BTreeSet::new();
         for d in &self.declarations {
@@ -499,7 +501,9 @@ impl ManufacturerRecord {
             return Err("manufacturer name must be 1 to 128 bytes".into());
         }
         if self.aliases.len() > MAX_ALIASES {
-            return Err(format!("a manufacturer lists at most {MAX_ALIASES} aliases"));
+            return Err(format!(
+                "a manufacturer lists at most {MAX_ALIASES} aliases"
+            ));
         }
         for alias in &self.aliases {
             if alias.trim().is_empty() || alias.len() > MAX_MANUFACTURER_NAME {
@@ -515,7 +519,10 @@ impl ManufacturerRecord {
         }
         if let Some(report) = &self.minerals_report {
             if !report.valid() {
-                return Err("minerals report needs template cmrt or emrt, a version and a valid date".into());
+                return Err(
+                    "minerals report needs template cmrt or emrt, a version and a valid date"
+                        .into(),
+                );
             }
         }
         Ok(())
@@ -553,7 +560,9 @@ impl Project {
             for alias in &record.aliases {
                 let alias_key = normalize_manufacturer_name(alias);
                 if alias_key.is_empty() || alias_key == key || !alias_keys.insert(alias_key) {
-                    return Err("manufacturer aliases must be unique and differ from the name".into());
+                    return Err(
+                        "manufacturer aliases must be unique and differ from the name".into(),
+                    );
                 }
             }
         }
@@ -604,11 +613,9 @@ impl Project {
     pub fn upsert_manufacturer(&mut self, record: ManufacturerRecord) -> Result<bool, String> {
         record.validate()?;
         self.validate_manufacturers_insert(&record)?;
-        if let Some(existing) = self
-            .manufacturers
-            .iter_mut()
-            .find(|r| normalize_manufacturer_name(&r.name) == normalize_manufacturer_name(&record.name))
-        {
+        if let Some(existing) = self.manufacturers.iter_mut().find(|r| {
+            normalize_manufacturer_name(&r.name) == normalize_manufacturer_name(&record.name)
+        }) {
             *existing = record;
             return Ok(true);
         }
@@ -691,7 +698,10 @@ impl Component {
     pub fn compliance_bom_value(&self, key: &str) -> Option<String> {
         let c = &self.compliance;
         match key {
-            "Country of origin" => c.country_of_origin.as_ref().map(|o| o.code.to_ascii_uppercase()),
+            "Country of origin" => c
+                .country_of_origin
+                .as_ref()
+                .map(|o| o.code.to_ascii_uppercase()),
             "Country of origin basis" => c
                 .country_of_origin
                 .as_ref()
@@ -784,7 +794,9 @@ impl Compliance {
             return self.validate();
         }
         if self.declarations.len() >= MAX_DECLARATIONS {
-            return Err(format!("a part carries at most {MAX_DECLARATIONS} declarations"));
+            return Err(format!(
+                "a part carries at most {MAX_DECLARATIONS} declarations"
+            ));
         }
         self.declarations.push(declaration);
         self.validate()

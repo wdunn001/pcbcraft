@@ -70,7 +70,11 @@ fn start_bridge_and_forward_carry_ping_and_tool_calls_on_one_connection_each() -
     let address = free_loopback_port()?;
     start_bridge(hub, &address)?;
 
-    let ping = forward(&address, &json!({"jsonrpc":"2.0","id":7,"method":"ping"}), None)?;
+    let ping = forward(
+        &address,
+        &json!({"jsonrpc":"2.0","id":7,"method":"ping"}),
+        None,
+    )?;
     assert_eq!(ping["jsonrpc"], "2.0");
     assert_eq!(ping["id"], 7);
     assert_eq!(ping["result"], json!({}));
@@ -108,7 +112,12 @@ fn the_bridge_returns_parse_error_when_the_client_sends_invalid_json() -> Result
 fn forward_fails_when_nothing_is_listening_on_the_loopback_port() -> Result<(), String> {
     let address = free_loopback_port()?;
     assert!(
-        forward(&address, &json!({"jsonrpc":"2.0","id":1,"method":"ping"}), None).is_err(),
+        forward(
+            &address,
+            &json!({"jsonrpc":"2.0","id":1,"method":"ping"}),
+            None
+        )
+        .is_err(),
         "closed port {address}"
     );
     Ok(())

@@ -1,6 +1,6 @@
 use pcbcraft_library::{
-    generate_footprint, part_from_library_bundle, verify_part, LandPatternDensity,
-    LandPatternParams, Model3dRef, ParamBody, PinKind, PinSpec, VerifyContext,
+    LandPatternDensity, LandPatternParams, Model3dRef, ParamBody, PinKind, PinSpec, VerifyContext,
+    generate_footprint, part_from_library_bundle, verify_part,
 };
 
 #[test]

@@ -583,7 +583,9 @@ fn apply_model_transform(
     }
     if let Some(preset) = &a.preset {
         if a.offset.is_some() || a.scale.is_some() || a.rotate.is_some() {
-            return Err(Error::Invalid("preset cannot mix with explicit transforms".into()));
+            return Err(Error::Invalid(
+                "preset cannot mix with explicit transforms".into(),
+            ));
         }
         match preset.as_str() {
             "rotate_90" => pcbcraft_library::model_rotate_z_90(model),
@@ -718,9 +720,10 @@ pub(super) fn run(
                 .iter_mut()
                 .find(|s| s.name == a.name)
                 .ok_or_else(missing)?;
-            let model = def.model.as_mut().ok_or_else(|| {
-                Error::Invalid("footprint has no 3D model to transform".into())
-            })?;
+            let model = def
+                .model
+                .as_mut()
+                .ok_or_else(|| Error::Invalid("footprint has no 3D model to transform".into()))?;
             apply_model_transform(model, &a)?;
             let model = model.clone();
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
@@ -749,7 +752,9 @@ pub(super) fn run(
         "library.footprint.export_companion_cad" => {
             let a: CompanionExportParams = parse(params)?;
             if a.directory.is_empty() || a.directory.len() > 1024 {
-                return Err(Error::Invalid("export directory must be 1 to 1024 bytes".into()));
+                return Err(Error::Invalid(
+                    "export directory must be 1 to 1024 bytes".into(),
+                ));
             }
             let def = p
                 .library
@@ -758,7 +763,9 @@ pub(super) fn run(
                 .find(|s| s.name == a.name)
                 .ok_or_else(missing)?
                 .clone();
-            let height = a.height_mm.unwrap_or(pcbcraft_io::part_bodies::DEFAULT_BODY_HEIGHT_MM);
+            let height = a
+                .height_mm
+                .unwrap_or(pcbcraft_io::part_bodies::DEFAULT_BODY_HEIGHT_MM);
             let body_id = def
                 .model
                 .as_ref()
@@ -794,13 +801,9 @@ pub(super) fn run(
                     "the model path must name a companion CAD project file".into(),
                 ));
             }
-            let body_id = a
-                .body_id
-                .clone()
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    Error::Invalid("a stable body id is required for companion CAD models".into())
-                })?;
+            let body_id = a.body_id.clone().filter(|s| !s.is_empty()).ok_or_else(|| {
+                Error::Invalid("a stable body id is required for companion CAD models".into())
+            })?;
             let cad_part = a.cad_part.clone().filter(|s| !s.is_empty());
             let path = a.path.clone();
             let model = pcbcraft_io::model_reference(&path, &body_id, cad_part.as_deref());
@@ -825,9 +828,7 @@ pub(super) fn run(
                 .model
                 .as_ref()
                 .filter(|m| pcbcraft_io::is_companion_project_path(&m.path))
-                .ok_or_else(|| {
-                    Error::Invalid("this footprint has no companion CAD model".into())
-                })?
+                .ok_or_else(|| Error::Invalid("this footprint has no companion CAD model".into()))?
                 .path
                 .clone();
             Ok(json!({"name": a.name, "path": path, "reload": true}))
@@ -1311,9 +1312,7 @@ pub(super) fn run(
                         )
                     })?;
                     if footprint.is_empty() || footprint.len() > 128 {
-                        return Err(Error::Invalid(
-                            "footprint must be 1 to 128 bytes".into(),
-                        ));
+                        return Err(Error::Invalid("footprint must be 1 to 128 bytes".into()));
                     }
                     let def = p
                         .library
@@ -2956,8 +2955,7 @@ pub(super) fn run(
                     locked: None,
                     side: None,
                     pads,
-                
-});
+                });
                 out["footprint"] = json!(footprint_id);
             }
             Ok(out)
@@ -3346,8 +3344,7 @@ fn mirror_footprint(footprint: &mut FootprintDefinition) -> Result<(usize, usize
 #[cfg(not(target_arch = "wasm32"))]
 fn open_companion_project(path: &str) -> Result<(), String> {
     use std::process::Command;
-    let program = std::env::var("PCBCRAFT_COMPANION_CAD")
-        .unwrap_or_else(|_| "solidcraft".into());
+    let program = std::env::var("PCBCRAFT_COMPANION_CAD").unwrap_or_else(|_| "solidcraft".into());
     Command::new(&program)
         .arg(path)
         .spawn()

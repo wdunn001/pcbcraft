@@ -1,8 +1,8 @@
 //! Small, bounded planar geometry. Units are millimetres.
 pub mod impedance;
 pub mod meander;
-pub mod track_corner;
 mod overlay;
+pub mod track_corner;
 use serde::{Deserialize, Serialize};
 
 pub use overlay::{OffsetJoin, Ring, polygon_difference, polygon_offset, polygon_union};

@@ -1,6 +1,6 @@
 //! Bill of materials, component instances and approved vendor list for IPC-2581C (issue #661).
 
-use super::{sanitize_id, xml_escape, Writer};
+use super::{Writer, sanitize_id, xml_escape};
 use pcbcraft_doc::{Component, Footprint, Layer, Project};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -28,7 +28,10 @@ impl AssemblyMeta {
 }
 
 impl Writer {
-    pub(super) fn write_content_assembly_refs(&mut self, meta: &AssemblyMeta) -> Result<(), String> {
+    pub(super) fn write_content_assembly_refs(
+        &mut self,
+        meta: &AssemblyMeta,
+    ) -> Result<(), String> {
         if meta.write_bom {
             self.push(&format!("<BomRef name=\"{BOM_NAME}\"/>\n"))?;
         }
@@ -38,7 +41,11 @@ impl Writer {
         Ok(())
     }
 
-    pub(super) fn write_assembly_root(&mut self, p: &Project, meta: &AssemblyMeta) -> Result<(), String> {
+    pub(super) fn write_assembly_root(
+        &mut self,
+        p: &Project,
+        meta: &AssemblyMeta,
+    ) -> Result<(), String> {
         if meta.write_bom {
             self.write_bom(p)?;
         }
@@ -48,7 +55,11 @@ impl Writer {
         Ok(())
     }
 
-    pub(super) fn write_step_assembly(&mut self, p: &Project, meta: &AssemblyMeta) -> Result<(), String> {
+    pub(super) fn write_step_assembly(
+        &mut self,
+        p: &Project,
+        meta: &AssemblyMeta,
+    ) -> Result<(), String> {
         if !meta.write_bom {
             return Ok(());
         }
@@ -189,7 +200,13 @@ impl Writer {
     }
 
     fn write_avl(&mut self, p: &Project) -> Result<(), String> {
-        let mut enterprises = collect_enterprises(p, &AssemblyMeta { write_bom: true, write_avl: true });
+        let mut enterprises = collect_enterprises(
+            p,
+            &AssemblyMeta {
+                write_bom: true,
+                write_avl: true,
+            },
+        );
         let refs: BTreeMap<u64, &Component> = p.components.iter().map(|c| (c.id, c)).collect();
         let mut items: BTreeMap<String, AvlFacts> = BTreeMap::new();
         for f in &p.board.footprints {
@@ -286,7 +303,9 @@ impl Writer {
         id: &str,
         name: &str,
     ) -> Result<(), String> {
-        enterprises.entry(id.to_string()).or_insert_with(|| name.to_string());
+        enterprises
+            .entry(id.to_string())
+            .or_insert_with(|| name.to_string());
         Ok(())
     }
 }
@@ -311,7 +330,8 @@ pub(super) fn collect_enterprises(p: &Project, meta: &AssemblyMeta) -> BTreeMap<
         }
         if !component_manufacturer(c).is_empty() {
             let id = enterprise_id(component_manufacturer(c));
-            out.entry(id).or_insert_with(|| component_manufacturer(c).to_string());
+            out.entry(id)
+                .or_insert_with(|| component_manufacturer(c).to_string());
         }
         for (supplier, _) in supplier_part_numbers(c) {
             let id = enterprise_id(&supplier);
@@ -435,9 +455,11 @@ fn placed_mount(f: &Footprint) -> Option<&'static str> {
     });
     if tht {
         Some("THMT")
-    } else if f.pads.iter().any(|pad| {
-        pad.geometry.as_ref().is_some_and(|g| g.pad_type == "smd")
-    }) {
+    } else if f
+        .pads
+        .iter()
+        .any(|pad| pad.geometry.as_ref().is_some_and(|g| g.pad_type == "smd"))
+    {
         Some("SMT")
     } else if f.pads.is_empty() {
         None
@@ -450,11 +472,7 @@ fn export_rotation(p: &Project, f: &Footprint) -> f64 {
     let back = f.board_side() == Layer::Back;
     let mut rotation = f.rotation;
     if back {
-        if let Some(profile) = p
-            .machine_profiles
-            .iter()
-            .find(|m| m.kind == "pick_place")
-        {
+        if let Some(profile) = p.machine_profiles.iter().find(|m| m.kind == "pick_place") {
             if profile.output.mirror_bottom {
                 rotation = -rotation;
             }

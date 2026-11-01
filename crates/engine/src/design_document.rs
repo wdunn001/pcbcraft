@@ -39,9 +39,7 @@ pub fn is_dirty(
     if saved_revision != Some(revision) {
         return true;
     }
-    path.is_empty()
-        && saved_revision.is_none()
-        && (revision > 0 || project_nonempty)
+    path.is_empty() && saved_revision.is_none() && (revision > 0 || project_nonempty)
 }
 
 /// Workbench view tab for one open design (mirrors the desktop `Tab` without UI deps).

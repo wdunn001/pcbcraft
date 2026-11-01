@@ -50,7 +50,6 @@ const MAX_LENGTH_MM: f64 = 10_000.0;
 const MIN_SKEW_PS: f64 = 0.0;
 const MAX_SKEW_PS: f64 = 1_000_000.0;
 
-
 fn valid_slug(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= MAX_PROFILE_ID

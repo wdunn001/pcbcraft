@@ -68,10 +68,7 @@ pub(crate) enum Visibility {
     /// A physical layer group (`side:top`, `side:bottom`, `inner:n`); path is in the string.
     LayerGroup(String),
     /// One sub-layer row inside a group (tracks, pads, zones, silk, text).
-    SubLayer {
-        side: String,
-        sub: SubLayer,
-    },
+    SubLayer { side: String, sub: SubLayer },
     /// A machine layer the designer drew; the document stores its flag.
     Art(Id),
     /// A fixed row of one schematic page (`symbols`, `power`, `drawing` or
@@ -889,11 +886,7 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             out.push(sub_row(
                 key,
                 "zones",
-                if front {
-                    "zones:front"
-                } else {
-                    "zones:back"
-                },
+                if front { "zones:front" } else { "zones:back" },
                 SubLayer::Zones.label().into(),
                 sw,
                 Visibility::SubLayer {
@@ -1998,9 +1991,7 @@ fn stored_visible(env: &Env, ctl: &LayerControls) -> bool {
     match &ctl.visibility {
         Visibility::Canvas(name) => !layer_visibility::hidden_contains_legacy(env.hidden, name),
         Visibility::LayerGroup(side) => layer_visibility::group_stored(env.hidden, side),
-        Visibility::SubLayer { side, sub } => {
-            layer_visibility::sub_stored(env.hidden, side, *sub)
-        }
+        Visibility::SubLayer { side, sub } => layer_visibility::sub_stored(env.hidden, side, *sub),
         Visibility::Art(id) => env
             .project
             .board
@@ -2431,10 +2422,7 @@ fn paint_row(
         || view.selected_key.as_deref() == Some(r.key.as_str());
     let searching = !view.query.trim().is_empty();
     let expanded = view.expanded.contains(&r.key) || searching;
-    let stored_off = r
-        .controls
-        .as_ref()
-        .is_some_and(|c| !stored_visible(env, c));
+    let stored_off = r.controls.as_ref().is_some_and(|c| !stored_visible(env, c));
     let drawn_off = r
         .controls
         .as_ref()
@@ -2568,9 +2556,10 @@ fn paint_row(
         );
         if eye.clicked() && can_hide {
             match &ctl.visibility {
-                Visibility::Canvas(name) => {
-                    actions.push(Action::SetShown { name, on: stored_off })
-                }
+                Visibility::Canvas(name) => actions.push(Action::SetShown {
+                    name,
+                    on: stored_off,
+                }),
                 Visibility::LayerGroup(side) => actions.push(Action::SetLayerGroup {
                     side: side.clone(),
                     on: stored_off,
@@ -3673,17 +3662,15 @@ fn keyboard(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], actions: &
             let off = !stored_visible(env, &ctl);
             match ctl.visibility {
                 Visibility::Canvas(name) => actions.push(Action::SetShown { name, on: off }),
-                Visibility::LayerGroup(side) => actions.push(Action::SetLayerGroup { side, on: off }),
+                Visibility::LayerGroup(side) => {
+                    actions.push(Action::SetLayerGroup { side, on: off })
+                }
                 Visibility::SubLayer { side, sub } => {
                     actions.push(Action::SetSubLayer { side, sub, on: off });
                 }
                 Visibility::Art(layer) => actions.push(Action::SetArtShown { layer, on: off }),
                 Visibility::Page(page, row) => {
-                    actions.push(Action::SetPageRowShown {
-                        page,
-                        row,
-                        on: off,
-                    });
+                    actions.push(Action::SetPageRowShown { page, row, on: off });
                 }
                 Visibility::None => {}
             }
@@ -3766,7 +3753,11 @@ impl crate::App {
                 }
                 Action::SelectKey(_) => self.select(None),
                 Action::SetShown { name, on } => {
-                    layer_visibility::set_legacy_canvas(&mut self.preferences.hidden_layers, name, on);
+                    layer_visibility::set_legacy_canvas(
+                        &mut self.preferences.hidden_layers,
+                        name,
+                        on,
+                    );
                 }
                 Action::SetLayerGroup { side, on } => {
                     layer_visibility::set_group_stored(

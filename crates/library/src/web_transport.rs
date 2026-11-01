@@ -19,11 +19,11 @@
 //! - apps/pcbcraft-web/src/browser_fetch.rs (the one `Dispatch` that talks to the browser)
 use crate::cad::MAX_FILE_BYTES;
 use crate::open_library::{FetchError, Fetcher};
+use pcbcraft_clock::Instant;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use pcbcraft_clock::Instant;
 
 /// Requests the browser may have out at once.
 pub const MAX_IN_FLIGHT: usize = 2;

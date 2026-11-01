@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::canvas::snap;
-use crate::tool_modifiers::Held;
 use crate::fonts;
+use crate::tool_modifiers::Held;
 use crate::ui_kit::{
     form_row::{FormWidth, form_row},
     section::section,
@@ -203,7 +203,11 @@ impl App {
                 FontId::proportional(11.0),
                 sc.text,
             );
-            let ports: Vec<_> = p.ports.iter().filter(|port| port.sheet == sheet.id).collect();
+            let ports: Vec<_> = p
+                .ports
+                .iter()
+                .filter(|port| port.sheet == sheet.id)
+                .collect();
             for (i, port) in ports.iter().enumerate() {
                 let at = Point::new(entry.x + 3.0, entry.y + 8.0 + (i as f64) * 5.08);
                 painter.text(

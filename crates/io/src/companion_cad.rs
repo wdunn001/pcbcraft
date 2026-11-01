@@ -277,10 +277,7 @@ pub fn write_board_sink(
     std::fs::write(&step_path, step_text.as_bytes())
         .map_err(|_| "The board STEP file could not be written.".to_string())?;
     let mut bodies: Map<String, Value> = Map::new();
-    bodies.insert(
-        "Board".into(),
-        json!({"kind": "board", "body_id": "board"}),
-    );
+    bodies.insert("Board".into(), json!({"kind": "board", "body_id": "board"}));
     for fp in &project.board.footprints {
         let reference = project
             .component(fp.component)

@@ -271,8 +271,22 @@ impl State {
             };
             let page_w = page_width_px(size, scale);
             let page_h = page_height_px(size, scale);
-            let full_w = page_width_px(size, if scale > PREVIEW_SCALE { scale } else { PREVIEW_SCALE });
-            let full_h = page_height_px(size, if scale > PREVIEW_SCALE { scale } else { PREVIEW_SCALE });
+            let full_w = page_width_px(
+                size,
+                if scale > PREVIEW_SCALE {
+                    scale
+                } else {
+                    PREVIEW_SCALE
+                },
+            );
+            let full_h = page_height_px(
+                size,
+                if scale > PREVIEW_SCALE {
+                    scale
+                } else {
+                    PREVIEW_SCALE
+                },
+            );
             let (cols, rows) = tile_grid(full_w as u32, full_h as u32);
             for row in 0..rows {
                 for col in 0..cols {
@@ -356,12 +370,8 @@ impl State {
             }
         });
         if !self.source.is_empty() {
-            ui.label(
-                egui::RichText::new(&self.source)
-                    .small()
-                    .color(muted),
-            )
-            .on_hover_text(t!("library.datasheet_reader.source.tip"));
+            ui.label(egui::RichText::new(&self.source).small().color(muted))
+                .on_hover_text(t!("library.datasheet_reader.source.tip"));
         }
         if !self.status.is_empty() {
             ui.label(&self.status);
@@ -460,8 +470,19 @@ fn tile_for(key: TileKey, page_w: f32, page_h: f32, scale: f32) -> Option<TileRe
     })
 }
 
-fn paint_page(ui: &mut Ui, rect: Rect, page: u32, textures: &HashMap<TileKey, TextureHandle>, accent: Color32) {
-    ui.painter().rect_stroke(rect, 0.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Inside);
+fn paint_page(
+    ui: &mut Ui,
+    rect: Rect,
+    page: u32,
+    textures: &HashMap<TileKey, TextureHandle>,
+    accent: Color32,
+) {
+    ui.painter().rect_stroke(
+        rect,
+        0.0,
+        egui::Stroke::new(1.0, accent),
+        egui::StrokeKind::Inside,
+    );
     let (cols, rows) = tile_grid(rect.width() as u32, rect.height() as u32);
     for row in 0..rows {
         for col in 0..cols {

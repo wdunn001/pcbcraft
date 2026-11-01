@@ -18,10 +18,10 @@
 //! Limits are explicit: [`BoardMesh::warnings`] says what was skipped and why.
 #[path = "board_mesh_bench.rs"]
 mod board_mesh_bench;
-pub use board_mesh_bench::bench_project_600_parts;
 use crate::mesh_material::{MaterialClass, parametric_body_material};
-use crate::parametric_body::ParametricBody;
 use crate::model_load::LoadedModel;
+use crate::parametric_body::ParametricBody;
+pub use board_mesh_bench::bench_project_600_parts;
 use pcbcraft_doc::{ArtKind, ArtShape, Component, Footprint, Id, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::Model3D;
@@ -991,13 +991,34 @@ fn build_parametric_prototype(
         extrude(&mut b, &solid.ring, solid.z0, solid.z1, compound, warnings)?;
     }
     for solid in &body.leads {
-        extrude(&mut b, &solid.ring, solid.z0, solid.z1, MaterialClass::TinLead, warnings)?;
+        extrude(
+            &mut b,
+            &solid.ring,
+            solid.z0,
+            solid.z1,
+            MaterialClass::TinLead,
+            warnings,
+        )?;
     }
     for solid in &body.pins {
-        extrude(&mut b, &solid.ring, solid.z0, solid.z1, MaterialClass::TinLead, warnings)?;
+        extrude(
+            &mut b,
+            &solid.ring,
+            solid.z0,
+            solid.z1,
+            MaterialClass::TinLead,
+            warnings,
+        )?;
     }
     for solid in [&body.pin1_chamfer, &body.polarity].into_iter().flatten() {
-        extrude(&mut b, &solid.ring, solid.z0, solid.z1, MaterialClass::Marking, warnings)?;
+        extrude(
+            &mut b,
+            &solid.ring,
+            solid.z0,
+            solid.z1,
+            MaterialClass::Marking,
+            warnings,
+        )?;
     }
     Ok(BodyPrototype {
         positions: b.part.positions,
@@ -1058,15 +1079,14 @@ pub fn with_models(
         match lookup(model) {
             ModelLookup::Loading => notes.push((id, ModelStatus::Loading)),
             ModelLookup::Failed(reason) => notes.push((id, ModelStatus::Failed(reason))),
-ModelLookup::Ready(m) => {
+            ModelLookup::Ready(m) => {
                 let proto = file_prototypes
                     .entry(model.path.clone())
                     .or_insert_with(|| {
                         Arc::new(BodyPrototype {
                             positions: m.positions.clone(),
                             indices: m.indices.clone(),
-                            shell_triangles: u32::try_from(m.indices.len() / 3)
-                                .unwrap_or(u32::MAX),
+                            shell_triangles: u32::try_from(m.indices.len() / 3).unwrap_or(u32::MAX),
                             color: m.color,
                             materials: m.triangle_materials.clone(),
                             authored_colors: m.authored_colors.clone(),
@@ -1558,7 +1578,8 @@ pub fn board_mesh_with_dir(
             let proto = match parametric_prototypes.get(&key) {
                 Some(p) => p.clone(),
                 None => {
-                    let built = build_parametric_prototype(&body, bottom, &mut budget, &mut warnings)?;
+                    let built =
+                        build_parametric_prototype(&body, bottom, &mut budget, &mut warnings)?;
                     let arc = Arc::new(built);
                     parametric_prototypes.insert(key, Arc::clone(&arc));
                     arc
@@ -1936,7 +1957,7 @@ mod tests {
             include_in_bom: true,
             include_in_placement: true,
             sheet: 0,
-instance: None,
+            instance: None,
             prototype: None,
             compliance: Default::default(),
             fields: Default::default(),
@@ -2003,8 +2024,8 @@ instance: None,
                 model: Some(ModelPlacement {
                     path: "missing/box.step".into(),
                     matrix: [
-                        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
-                        0.0, 1.0,
+                        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+                        1.0,
                     ],
                     loaded: false,
                     preloaded: Some(std::sync::Arc::new(loaded)),
@@ -2105,12 +2126,7 @@ instance: None,
     fn every_triangle_has_a_material_id() -> Check {
         let mesh = board_mesh(&resistor_project(), MeshLayers::default())?;
         for part in &mesh.parts {
-            assert_eq!(
-                part.materials.len(),
-                part.triangle_count(),
-                "{}",
-                part.name
-            );
+            assert_eq!(part.materials.len(), part.triangle_count(), "{}", part.name);
         }
         Ok(())
     }
@@ -2319,9 +2335,12 @@ instance: None,
             .filter(|p| p.kind == PartKind::Body)
             .count();
         assert_eq!(bodies, 600);
-        assert!(mesh.parts.iter().filter(|p| p.kind == PartKind::Body).all(
-            |p| p.prototype.is_some() && p.instance.is_some()
-        ));
+        assert!(
+            mesh.parts
+                .iter()
+                .filter(|p| p.kind == PartKind::Body)
+                .all(|p| p.prototype.is_some() && p.instance.is_some())
+        );
         Ok(())
     }
 

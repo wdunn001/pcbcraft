@@ -257,8 +257,7 @@ mod tests {
                 castellated: None,
                 geometry: None,
             }],
-        
-});
+        });
         p
     }
     fn add_silk_line(p: &mut Project, y: f64) {

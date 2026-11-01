@@ -16,9 +16,7 @@
 //! # Do not
 //! - Embed timestamps or host names in the output.
 
-use pcbcraft_doc::{
-    Component, Declaration, DeclarationStatus, DeclarationSourceKind, Project,
-};
+use pcbcraft_doc::{Component, Declaration, DeclarationSourceKind, DeclarationStatus, Project};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Most rule set ids named in one export.
@@ -52,7 +50,9 @@ impl ComplianceReportFormat {
             "markdown" | "md" => Ok(Self::Markdown),
             "html" | "htm" => Ok(Self::Html),
             "pdf" => Ok(Self::Pdf),
-            other => Err(format!("compliance report format must be csv, markdown, html or pdf, not {other}")),
+            other => Err(format!(
+                "compliance report format must be csv, markdown, html or pdf, not {other}"
+            )),
         }
     }
 
@@ -102,20 +102,26 @@ pub struct ComplianceReportOptions {
 impl ComplianceReportOptions {
     pub fn validate(&self) -> Result<(), String> {
         if self.rule_sets.len() > MAX_RULE_SETS {
-            return Err(format!("a compliance report names at most {MAX_RULE_SETS} rule sets"));
+            return Err(format!(
+                "a compliance report names at most {MAX_RULE_SETS} rule sets"
+            ));
         }
         for rs in &self.rule_sets {
             bounded("rule set id", &rs.id, 64)?;
             bounded("rule set version", &rs.version, 64)?;
         }
         if self.regimes.len() > MAX_REGIMES {
-            return Err(format!("a compliance report lists at most {MAX_REGIMES} regimes"));
+            return Err(format!(
+                "a compliance report lists at most {MAX_REGIMES} regimes"
+            ));
         }
         for regime in &self.regimes {
             bounded("regime", regime, 256)?;
         }
         if self.snapshots.len() > MAX_SNAPSHOTS {
-            return Err(format!("a compliance report lists at most {MAX_SNAPSHOTS} snapshots"));
+            return Err(format!(
+                "a compliance report lists at most {MAX_SNAPSHOTS} snapshots"
+            ));
         }
         for snap in &self.snapshots {
             bounded("snapshot id", &snap.id, 128)?;
@@ -124,7 +130,9 @@ impl ComplianceReportOptions {
             bounded("snapshot source", &snap.source, 512)?;
         }
         if self.waivers.len() > MAX_WAIVERS {
-            return Err(format!("a compliance report lists at most {MAX_WAIVERS} waivers"));
+            return Err(format!(
+                "a compliance report lists at most {MAX_WAIVERS} waivers"
+            ));
         }
         for w in &self.waivers {
             bounded("waiver rule", &w.rule, 128)?;
@@ -137,7 +145,9 @@ impl ComplianceReportOptions {
 
 fn bounded(label: &str, text: &str, max: usize) -> Result<(), String> {
     if text.len() > max || text.chars().any(char::is_control) {
-        return Err(format!("{label} must be at most {max} bytes without control characters"));
+        return Err(format!(
+            "{label} must be at most {max} bytes without control characters"
+        ));
     }
     Ok(())
 }
@@ -249,10 +259,7 @@ struct MatrixRow {
     cells: Vec<String>,
 }
 
-fn build_matrix(
-    p: &Project,
-    regimes: &[String],
-) -> Result<Vec<MatrixRow>, String> {
+fn build_matrix(p: &Project, regimes: &[String]) -> Result<Vec<MatrixRow>, String> {
     let mut rows = Vec::new();
     let mut parts = 0usize;
     let mut refs: Vec<&Component> = p.components.iter().filter(|c| c.in_bom()).collect();
@@ -260,7 +267,9 @@ fn build_matrix(
     for c in refs {
         parts += 1;
         if parts > MAX_REPORT_PARTS {
-            return Err(format!("compliance report exceeds {MAX_REPORT_PARTS} parts"));
+            return Err(format!(
+                "compliance report exceeds {MAX_REPORT_PARTS} parts"
+            ));
         }
         let cells: Vec<String> = regimes.iter().map(|r| regime_cell(c, r)).collect();
         rows.push(MatrixRow {
@@ -327,10 +336,7 @@ struct SupplierBlock {
     lines: Vec<String>,
 }
 
-fn build_supplier_questions(
-    p: &Project,
-    regimes: &[String],
-) -> Result<Vec<SupplierBlock>, String> {
+fn build_supplier_questions(p: &Project, regimes: &[String]) -> Result<Vec<SupplierBlock>, String> {
     let mut by_maker: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for c in p.components.iter().filter(|c| c.in_bom()) {
         let maker = manufacturer_of(c);
@@ -509,19 +515,13 @@ fn render_csv(
 ) -> String {
     let mut out = String::new();
     out.push_str("section,key,value\n");
-    out.push_str(&format!(
-        "project,name,{}\n",
-        csv_cell(&project_title(p))
-    ));
+    out.push_str(&format!("project,name,{}\n", csv_cell(&project_title(p))));
     out.push_str(&format!(
         "project,revision,{}\n",
         csv_cell(&project_revision(p))
     ));
     for rs in &options.rule_sets {
-        out.push_str(&format!(
-            "rule_set,id,{}\n",
-            csv_cell(rs.id.trim())
-        ));
+        out.push_str(&format!("rule_set,id,{}\n", csv_cell(rs.id.trim())));
         out.push_str(&format!(
             "rule_set,version,{}\n",
             csv_cell(rs.version.trim())
@@ -612,25 +612,12 @@ pub fn compliance_report_bytes(
     let matrix = build_matrix(p, &regimes)?;
     let evidence = build_evidence(p)?;
     let suppliers = build_supplier_questions(p, &regimes)?;
-    let markdown = render_markdown(
-        p,
-        options,
-        &regimes,
-        &matrix,
-        &evidence,
-        &suppliers,
-    );
+    let markdown = render_markdown(p, options, &regimes, &matrix, &evidence, &suppliers);
     match format {
         ComplianceReportFormat::Markdown => Ok(markdown.into_bytes()),
-        ComplianceReportFormat::Csv => Ok(render_csv(
-            p,
-            options,
-            &regimes,
-            &matrix,
-            &evidence,
-            &suppliers,
-        )
-        .into_bytes()),
+        ComplianceReportFormat::Csv => {
+            Ok(render_csv(p, options, &regimes, &matrix, &evidence, &suppliers).into_bytes())
+        }
         ComplianceReportFormat::Html => Ok(render_html(&markdown).into_bytes()),
         ComplianceReportFormat::Pdf => crate::pdf_plain_text_document(&markdown),
     }
@@ -648,12 +635,7 @@ pub fn compliance_report_markdown(
     let evidence = build_evidence(p)?;
     let suppliers = build_supplier_questions(p, &regimes)?;
     Ok(render_markdown(
-        p,
-        options,
-        &regimes,
-        &matrix,
-        &evidence,
-        &suppliers,
+        p, options, &regimes, &matrix, &evidence, &suppliers,
     ))
 }
 

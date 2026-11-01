@@ -76,10 +76,11 @@ pub fn preview_loaded_model(model: &LoadedModel, opts: &ModelPreviewOptions) -> 
     let cx = w as f64 / 2.0;
     let cy = h as f64 / 2.0;
     let light = normalize([0.4, -0.3, 0.85]);
-    let base = model
-        .color
-        .map(|c| [c[0], c[1], c[2]])
-        .unwrap_or([FILL[0] as f32 / 255.0, FILL[1] as f32 / 255.0, FILL[2] as f32 / 255.0]);
+    let base = model.color.map(|c| [c[0], c[1], c[2]]).unwrap_or([
+        FILL[0] as f32 / 255.0,
+        FILL[1] as f32 / 255.0,
+        FILL[2] as f32 / 255.0,
+    ]);
     let mut depth = vec![f64::INFINITY; (w * h) as usize];
     let mut shaded = vec![BG; (w * h) as usize];
     let mut tri = 0;
@@ -209,10 +210,7 @@ mod tests {
         let model = load_model("wedge.gltf", WEDGE).map_err(|e| e.0)?;
         let img = preview_loaded_model(&model, &ModelPreviewOptions::default());
         assert_eq!(img.width(), MODEL_PREVIEW_SIZE);
-        let lit = img
-            .pixels()
-            .filter(|p| p.0 != BG)
-            .count();
+        let lit = img.pixels().filter(|p| p.0 != BG).count();
         assert!(lit > 400, "expected painted pixels, got {lit}");
         Ok(())
     }

@@ -68,11 +68,7 @@ pub fn classify_model_color(c: [f32; 3]) -> (MaterialClass, [f32; 3]) {
     let max = c[0].max(c[1]).max(c[2]);
     let min = c[0].min(c[1]).min(c[2]);
     let lum = (max + min) * 0.5;
-    let sat = if max <= 1e-6 {
-        0.0
-    } else {
-        (max - min) / max
-    };
+    let sat = if max <= 1e-6 { 0.0 } else { (max - min) / max };
     if lum < 0.12 {
         return (MaterialClass::MouldCompound, c);
     }

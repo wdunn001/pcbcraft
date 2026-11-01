@@ -1017,12 +1017,7 @@ fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
     let (shared, mut app, ctx) = authoring::tests::editor("symbol-editor")?;
     authoring::tests::clear_symbol_draft(&mut app);
     type_into(&ctx, &mut app, "textinput:Name", "EditedExportSymbol")?;
-    type_into(
-        &ctx,
-        &mut app,
-        "textinput:Default value",
-        "CustomValue",
-    )?;
+    type_into(&ctx, &mut app, "textinput:Default value", "CustomValue")?;
     authoring::tests::tap(&ctx, &mut app, "Save symbol to project library")?;
     {
         let session = shared.lock().map_err(|_| "session unavailable")?;
@@ -1042,12 +1037,7 @@ fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
         std::process::id()
     ));
     let export_path = export_file.to_string_lossy().into_owned();
-    type_into(
-        &ctx,
-        &mut app,
-        "textinput:Symbol export file",
-        &export_path,
-    )?;
+    type_into(&ctx, &mut app, "textinput:Symbol export file", &export_path)?;
     authoring::tests::tap(&ctx, &mut app, "Export")?;
     assert!(
         export_file.exists(),

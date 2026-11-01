@@ -19,8 +19,7 @@ fn an_old_net_loads_without_the_new_properties() -> T {
         .keys()
         .collect();
     assert!(
-        keys.iter()
-            .all(|k| matches!(k.as_str(), "id" | "name")),
+        keys.iter().all(|k| matches!(k.as_str(), "id" | "name")),
         "new fields leaked into an old-shape net: {keys:?}"
     );
     Ok(())

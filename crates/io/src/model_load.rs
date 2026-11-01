@@ -213,7 +213,11 @@ pub fn load_model_with_part(
 }
 
 /// Cache key for SolidCraft models from file content, not modification time.
-pub fn model_cache_key_solidcraft(path: &str, bytes: &[u8], cad_part: Option<&str>) -> ModelCacheKey {
+pub fn model_cache_key_solidcraft(
+    path: &str,
+    bytes: &[u8],
+    cad_part: Option<&str>,
+) -> ModelCacheKey {
     let token = crate::solidcraft_model::solidcraft_cache_token(bytes, cad_part);
     ModelCacheKey {
         path: format!("{path}#{token}"),

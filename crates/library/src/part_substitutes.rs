@@ -188,7 +188,9 @@ impl PartSubstitutes {
         if let Some(footprint) = footprint.filter(|s| !s.is_empty()) {
             bounded("footprint", footprint, MAX_SUBSTITUTE_TEXT)?;
             if !footprint_exists(footprint) {
-                return Err(format!("no footprint named {footprint} in the project library"));
+                return Err(format!(
+                    "no footprint named {footprint} in the project library"
+                ));
             }
         }
         if !symbol_exists(symbol) {
@@ -242,8 +244,7 @@ pub fn sidecar_path_for_symbol(symbol_library_path: &Path) -> PathBuf {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or(file_name);
-    symbol_library_path
-        .with_file_name(format!("{stem}{PART_SIDECAR_SUFFIX}"))
+    symbol_library_path.with_file_name(format!("{stem}{PART_SIDECAR_SUFFIX}"))
 }
 
 /// Read a sidecar file from disk.

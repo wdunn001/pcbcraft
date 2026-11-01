@@ -150,12 +150,7 @@ impl BenchBasis {
 }
 
 /// Headless render entry for performance tests.
-pub fn bench_render(
-    mesh: &BoardMesh,
-    basis: &BenchBasis,
-    w: usize,
-    h: usize,
-) -> egui::ColorImage {
+pub fn bench_render(mesh: &BoardMesh, basis: &BenchBasis, w: usize, h: usize) -> egui::ColorImage {
     raster::render(
         mesh,
         basis.inner(),
@@ -715,12 +710,7 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &mut Env<'_>) -> O
 ///
 /// # Do not
 /// - Pick or select here; a one-part view has nothing to pick.
-pub(crate) fn viewport(
-    view: &mut View3d,
-    ui: &mut egui::Ui,
-    env: &mut Env<'_>,
-    size: egui::Vec2,
-) {
+pub(crate) fn viewport(view: &mut View3d, ui: &mut egui::Ui, env: &mut Env<'_>, size: egui::Vec2) {
     view.refresh(env);
     if view.models.pending() > 0 {
         ui.ctx()

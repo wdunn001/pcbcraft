@@ -48,7 +48,11 @@ fn rewrite_copper_strings(value: &mut Value, project: &Project) {
     }
 }
 
-fn read_board_copper_names(board: &mut Board, project: &Project, value: &Value) -> Result<(), String> {
+fn read_board_copper_names(
+    board: &mut Board,
+    project: &Project,
+    value: &Value,
+) -> Result<(), String> {
     if let Some(items) = value.get("tracks").and_then(Value::as_array) {
         for (track, raw) in board.tracks.iter_mut().zip(items.iter()) {
             track.layer = required_layer(project, raw.get("layer"))?;

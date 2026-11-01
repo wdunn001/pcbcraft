@@ -35,7 +35,11 @@ fn texts(output: &egui::FullOutput) -> Vec<(String, f32, f32, f32)> {
         .collect()
 }
 
-pub(crate) fn centre_of(output: &egui::FullOutput, label: &str, left_of: f32) -> Option<egui::Pos2> {
+pub(crate) fn centre_of(
+    output: &egui::FullOutput,
+    label: &str,
+    left_of: f32,
+) -> Option<egui::Pos2> {
     output.shapes.iter().find_map(|shape| match &shape.shape {
         egui::Shape::Text(t) if t.galley.text() == label && t.pos.x < left_of => {
             Some(t.pos + t.galley.size() / 2.0)
