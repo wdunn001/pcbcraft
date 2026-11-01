@@ -200,6 +200,10 @@ jobs:
         with:
           shared-key: wasm
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The browser smoke runs under node; the runner image does not ship it.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
       # Checks the wasm packages, wasm clippy, a trunk release build with hashed
       # file names, and the headless browser first-frame smoke.
       - run: cargo xtask wasm
