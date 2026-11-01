@@ -270,14 +270,15 @@ fn class_pattern_matches_glob_oracle() {
 }
 
 #[test]
-fn parse_builtin_returns_embedded_toml_or_unknown_error() {
+fn parse_builtin_returns_embedded_toml_or_unknown_error() -> Result<(), String> {
     use pcbcraft_engine::profiles::parse_builtin;
-    let usb = parse_builtin("usb2").expect("usb2 is built in");
-    let doc: toml::Value = toml::from_str(usb).expect("embedded TOML parses");
+    let usb = parse_builtin("usb2").map_err(|e| format!("{}: {e:?}", "usb2 is built in"))?;
+    let doc: toml::Value = toml::from_str(usb).map_err(|e| format!("{}: {e:?}", "embedded TOML parses"))?;
     assert_eq!(doc["schema"].as_integer(), Some(1));
     assert_eq!(doc["profile"]["id"].as_str(), Some("usb2"));
-    let err = parse_builtin("not-a-profile").unwrap_err();
+    let err = parse_builtin("not-a-profile").err().ok_or("expected an error")?;
     assert!(err.contains("unknown profile"));
+    Ok(())
 }
 
 #[test]

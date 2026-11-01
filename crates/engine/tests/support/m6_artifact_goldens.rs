@@ -47,10 +47,7 @@ fn generated_to_golden(output: &GeneratedOutput) -> String {
             names.sort();
             let mut out = String::new();
             for name in names {
-                let body = match map.get(name).map(String::as_str) {
-                    Some(text) => text,
-                    None => "",
-                };
+                let body = map.get(name).map(String::as_str).unwrap_or_default();
                 out.push_str(&format!("=== {name} ===\n{body}"));
                 if !body.ends_with('\n') {
                     out.push('\n');
