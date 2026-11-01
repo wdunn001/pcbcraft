@@ -368,9 +368,15 @@ placement = "auto"
 
     #[test]
     fn missing_tip_keys_are_rejected() -> Result<(), String> {
-        let text = good_tour_toml().replace("menu.help.shortcuts", "menu.help");
+        // A key that exists in the catalog but has no `.tip` beside it.
+        let mut keys = fixture_catalog_keys();
+        keys.insert("tour.validator-fixture.untipped".into());
+        let text =
+            good_tour_toml().replace("menu.help.shortcuts", "tour.validator-fixture.untipped");
         let doc = parse_toml(&text)?;
-        let err = validate_fixture(&doc).err().ok_or("missing tip")?;
+        let err = validate_with_catalog(&doc, &keys)
+            .err()
+            .ok_or("missing tip")?;
         assert!(
             err.contains(".tip"),
             "expected missing tip error, got {err}"

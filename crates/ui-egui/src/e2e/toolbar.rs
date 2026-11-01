@@ -60,36 +60,15 @@ fn a_newcomer_switches_the_route_tool_between_45_and_90_corners() -> Result<(), 
 }
 
 /// Press the 45 (true) or 90 (false) choice of the Corners control while Route
-/// is active: the two choices read the same to the gate, so go by their place.
+/// is active.
 pub(crate) fn tap_toolbar_corner(
     ctx: &egui::Context,
     app: &mut App,
     chamfer: bool,
 ) -> Result<(), String> {
-    let mut found: Vec<_> = super::audit::controls(ctx, app)
-        .into_iter()
-        .filter(|c| c.id.as_deref() == Some("radiobutton:#") && c.rect.center().y < 120.0)
-        .collect();
-    found.sort_by(|a, b| a.rect.center().x.total_cmp(&b.rect.center().x));
-    let pick = if chamfer { found.first() } else { found.last() }
-        .ok_or("the Corners switch is not on the tool bar")?;
-    let pos = pick.rect.center();
-    for pressed in [true, false] {
-        frame(
-            ctx,
-            app,
-            vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
+    // The options follow the tool, so let the bar redraw for it first.
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    tap_segment(ctx, app, "Corners", 0.0, 120.0, usize::from(!chamfer), 2)?;
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     Ok(())
 }

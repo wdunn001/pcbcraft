@@ -272,7 +272,14 @@ impl App {
         fetcher: Box<dyn Fetcher>,
         cache_dir: Option<std::path::PathBuf>,
     ) {
-        let cache = match cache_dir.or_else(default_cache_dir) {
+        // The test suite keeps its cache in memory so it never writes the
+        // user's cache folder.
+        let fallback = if cfg!(test) {
+            None
+        } else {
+            default_cache_dir()
+        };
+        let cache = match cache_dir.or(fallback) {
             Some(dir) => CadCache::open(&dir),
             None => CadCache::in_memory(),
         };

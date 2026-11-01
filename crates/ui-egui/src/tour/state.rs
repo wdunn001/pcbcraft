@@ -270,6 +270,10 @@ impl Controller {
     }
 
     pub fn sync_triggers(&mut self, view: ShellView<'_>, now: Instant) {
+        if !view.offer_tours && self.session.active_id.is_none() {
+            // Turning offers off withdraws the one already on screen.
+            self.session.pending = None;
+        }
         if self.session.active_id.is_some() || self.session.pending.is_some() {
             return;
         }
@@ -306,7 +310,9 @@ impl Controller {
                     if meta.workspace != ws || !self.session.visits.contains(&ws) {
                         continue;
                     }
-                    if self.session.chip_dismissed.contains(&meta.id) {
+                    if self.session.chip_dismissed.contains(&meta.id)
+                        || self.session.version_chip_shown.contains(&meta.id)
+                    {
                         continue;
                     }
                     if tour_finished(view.progress.get(&meta.id), meta.version) {

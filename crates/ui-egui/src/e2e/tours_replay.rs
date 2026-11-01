@@ -174,7 +174,7 @@ fn paint_step(
             card.left_top() + Vec2::new(12.0, 12.0),
             egui::Align2::LEFT_TOP,
             text,
-            egui::FontId::proportional(14.0),
+            crate::fonts::Role::Body.font(),
             Color32::WHITE,
         );
     });

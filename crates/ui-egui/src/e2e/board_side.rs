@@ -35,7 +35,7 @@ fn a_newcomer_flips_a_part_to_the_bottom() -> Result<(), String> {
         "on the top no pad is drawn in the bottom colour"
     );
     // Side is a Top | Bottom control in the Position section of Properties.
-    tap_properties(&ctx, &mut app, "radiobutton:Bottom")?;
+    tap_properties_segment(&ctx, &mut app, "Side", 1, 2)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let side = app
@@ -63,7 +63,7 @@ fn a_newcomer_flips_a_part_to_the_bottom() -> Result<(), String> {
         placement.lines().any(|l| l.contains(",B,")),
         "the placement file lists the part as bottom: {placement}"
     );
-    tap_properties(&ctx, &mut app, "radiobutton:Top")?;
+    tap_properties_segment(&ctx, &mut app, "Side", 0, 2)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert_eq!(
