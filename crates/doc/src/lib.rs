@@ -3007,7 +3007,7 @@ pub const LAYER_KINDS: [&str; 18] = [
     "finish",
 ];
 /// Layer functions a record may state.
-pub const LAYER_FUNCTIONS: [&str; 18] = [
+pub const LAYER_FUNCTIONS: [&str; 21] = [
     "signal",
     "plane",
     "mixed",
