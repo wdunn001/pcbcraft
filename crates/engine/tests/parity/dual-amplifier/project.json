@@ -886,42 +886,55 @@
   "nets": [
     {
       "id": 49,
-      "name": "OUT_A",
-      "target_length": null,
-      "length_tolerance": null
+      "name": "OUT_A"
     },
     {
       "id": 50,
-      "name": "OUT_B",
-      "target_length": null,
-      "length_tolerance": null
+      "name": "OUT_B"
     },
     {
       "id": 51,
-      "name": "IN_A",
-      "target_length": null,
-      "length_tolerance": null
+      "name": "IN_A"
     },
     {
       "id": 52,
-      "name": "IN_B",
-      "target_length": null,
-      "length_tolerance": null
+      "name": "IN_B"
     },
     {
       "id": 53,
-      "name": "VCC",
-      "target_length": null,
-      "length_tolerance": null
+      "name": "VCC"
     },
     {
       "id": 54,
-      "name": "GND",
-      "target_length": null,
-      "length_tolerance": null
+      "name": "GND"
     }
   ],
   "net_classes": [],
+  "drawing_frame": {
+    "show_zones": true,
+    "fields": [
+      {
+        "label": "Title",
+        "template": "${title}"
+      },
+      {
+        "label": "Revision",
+        "template": "${revision}"
+      },
+      {
+        "label": "Company",
+        "template": "${company}"
+      },
+      {
+        "label": "Date",
+        "template": "${date}"
+      },
+      {
+        "label": "Design",
+        "template": "${name}"
+      }
+    ]
+  },
   "panel": {
     "enabled": false,
     "columns": 1,
@@ -2411,7 +2424,8 @@
         "raw_source": "(footprint \"DIP-8_W7.62mm\"\n\t(version 20260206)\n\t(generator \"kicad-footprint-generator\")\n\t(layer \"F.Cu\")\n\t(descr \"8-lead though-hole mounted DIP package, row spacing 7.62mm (300 mils)\")\n\t(tags \"THT DIP DIL PDIP 2.54mm 7.62mm 300mil\")\n\t(property \"Reference\" \"REF**\"\n\t\t(at 3.81 -2.33 0)\n\t\t(layer \"F.SilkS\")\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1 1)\n\t\t\t\t(thickness 0.15)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Value\" \"DIP-8_W7.62mm\"\n\t\t(at 3.81 9.95 0)\n\t\t(layer \"F.Fab\")\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1 1)\n\t\t\t\t(thickness 0.15)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"KiLib_Generator\" \"package/DIP/legacy\"\n\t\t(at 0 0 0)\n\t\t(layer \"F.SilkS\")\n\t\t(hide yes)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1 1)\n\t\t\t\t(thickness 0.15)\n\t\t\t)\n\t\t)\n\t)\n\t(attr through_hole)\n\t(duplicate_pad_numbers_are_jumpers no)\n\t(fp_line\n\t\t(start 1.16 -1.33)\n\t\t(end 1.16 8.95)\n\t\t(stroke\n\t\t\t(width 0.12)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.SilkS\")\n\t)\n\t(fp_line\n\t\t(start 1.16 8.95)\n\t\t(end 6.46 8.95)\n\t\t(stroke\n\t\t\t(width 0.12)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.SilkS\")\n\t)\n\t(fp_line\n\t\t(start 2.81 -1.33)\n\t\t(end 1.16 -1.33)\n\t\t(stroke\n\t\t\t(width 0.12)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.SilkS\")\n\t)\n\t(fp_line\n\t\t(start 6.46 -1.33)\n\t\t(end 4.81 -1.33)\n\t\t(stroke\n\t\t\t(width 0.12)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.SilkS\")\n\t)\n\t(fp_line\n\t\t(start 6.46 8.95)\n\t\t(end 6.46 -1.33)\n\t\t(stroke\n\t\t\t(width 0.12)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.SilkS\")\n\t)\n\t(fp_arc\n\t\t(start 4.81 -1.33)\n\t\t(mid 3.81 -0.33)\n\t\t(end 2.81 -1.33)\n\t\t(stroke\n\t\t\t(width 0.12)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.SilkS\")\n\t)\n\t(fp_rect\n\t\t(start -1.06 -1.52)\n\t\t(end 8.67 9.14)\n\t\t(stroke\n\t\t\t(width 0.05)\n\t\t\t(type solid)\n\t\t)\n\t\t(fill no)\n\t\t(layer \"F.CrtYd\")\n\t)\n\t(fp_line\n\t\t(start 0.635 -0.27)\n\t\t(end 1.635 -1.27)\n\t\t(stroke\n\t\t\t(width 0.1)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.Fab\")\n\t)\n\t(fp_line\n\t\t(start 0.635 8.89)\n\t\t(end 0.635 -0.27)\n\t\t(stroke\n\t\t\t(width 0.1)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.Fab\")\n\t)\n\t(fp_line\n\t\t(start 1.635 -1.27)\n\t\t(end 6.985 -1.27)\n\t\t(stroke\n\t\t\t(width 0.1)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.Fab\")\n\t)\n\t(fp_line\n\t\t(start 6.985 -1.27)\n\t\t(end 6.985 8.89)\n\t\t(stroke\n\t\t\t(width 0.1)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.Fab\")\n\t)\n\t(fp_line\n\t\t(start 6.985 8.89)\n\t\t(end 0.635 8.89)\n\t\t(stroke\n\t\t\t(width 0.1)\n\t\t\t(type solid)\n\t\t)\n\t\t(layer \"F.Fab\")\n\t)\n\t(fp_text user \"${REFERENCE}\"\n\t\t(at 3.81 3.81 90)\n\t\t(layer \"F.Fab\")\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1 1)\n\t\t\t\t(thickness 0.15)\n\t\t\t)\n\t\t)\n\t)\n\t(pad \"1\" thru_hole roundrect\n\t\t(at 0 0)\n\t\t(size 1.6 1.6)\n\t\t(drill 0.8)\n\t\t(layers \"*.Cu\" \"*.Mask\")\n\t\t(remove_unused_layers no)\n\t\t(roundrect_rratio 0.15625)\n\t)\n\t(pad \"2\" thru_hole circle\n\t\t(at 0 2.54)\n\t\t(size 1.6 1.6)\n\t\t(drill 0.8)\n\t\t(layers \"*.Cu\" \"*.Mask\")\n\t\t(remove_unused_layers no)\n\t)\n\t(pad \"3\" thru_hole circle\n\t\t(at 0 5.08)\n\t\t(size 1.6 1.6)\n\t\t(drill 0.8)\n\t\t(layers \"*.Cu\" \"*.Mask\")\n\t\t(remove_unused_layers no)\n\t)\n\t(pad \"4\" thru_hole circle\n\t\t(at 0 7.62)\n\t\t(size 1.6 1.6)\n\t\t(drill 0.8)\n\t\t(layers \"*.Cu\" \"*.Mask\")\n\t\t(remove_unused_layers no)\n\t)\n\t(pad \"5\" thru_hole circle\n\t\t(at 7.62 7.62)\n\t\t(size 1.6 1.6)\n\t\t(drill 0.8)\n\t\t(layers \"*.Cu\" \"*.Mask\")\n\t\t(remove_unused_layers no)\n\t)\n\t(pad \"6\" thru_hole circle\n\t\t(at 7.62 5.08)\n\t\t(size 1.6 1.6)\n\t\t(drill 0.8)\n\t\t(layers \"*.Cu\" \"*.Mask\")\n\t\t(remove_unused_layers no)\n\t)\n\t(pad \"7\" thru_hole circle\n\t\t(at 7.62 2.54)\n\t\t(size 1.6 1.6)\n\t\t(drill 0.8)\n\t\t(layers \"*.Cu\" \"*.Mask\")\n\t\t(remove_unused_layers no)\n\t)\n\t(pad \"8\" thru_hole circle\n\t\t(at 7.62 0)\n\t\t(size 1.6 1.6)\n\t\t(drill 0.8)\n\t\t(layers \"*.Cu\" \"*.Mask\")\n\t\t(remove_unused_layers no)\n\t)\n\t(point\n\t\t(at 3.81 3.81)\n\t\t(size 1.27)\n\t\t(layer \"F.Fab\")\n\t)\n\t(embedded_fonts no)\n\t(model \"${KICAD10_3DMODEL_DIR}/Package_DIP.3dshapes/DIP-8_W7.62mm.step\"\n\t\t(offset\n\t\t\t(xyz 0 0 0)\n\t\t)\n\t\t(scale\n\t\t\t(xyz 1 1 1)\n\t\t)\n\t\t(rotate\n\t\t\t(xyz 0 0 0)\n\t\t)\n\t)\n)",
         "unsupported": []
       }
-    ]
+    ],
+    "parts": []
   },
   "auto_sync": true
 }

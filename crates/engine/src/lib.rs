@@ -43666,15 +43666,24 @@ mod tests {
                 if on_inner {
                     pad.diameter = 1.6;
                 }
+                // Pad 1 is a plated hole, the only placeable pad with copper on
+                // the inner layers; pad 2 stays a front surface-mount pad.
                 let geometry = pcbcraft_library::FootprintPad {
                     number: pad.number.clone(),
-                    pad_type: "smd".into(),
+                    pad_type: if on_inner { "thru_hole" } else { "smd" }.into(),
                     shape: "circle".into(),
                     position: pad.offset,
                     rotation: 0.0,
                     size: Point::new(pad.diameter, pad.diameter),
-                    layers: vec![if on_inner { "In1.Cu" } else { "F.Cu" }.into()],
-                    drill: None,
+                    layers: if on_inner {
+                        vec!["*.Cu".into(), "*.Mask".into()]
+                    } else {
+                        vec!["F.Cu".into()]
+                    },
+                    drill: on_inner.then(|| pcbcraft_library::Drill {
+                        size: Point::new(0.8, 0.8),
+                        offset: Point::default(),
+                    }),
                     roundrect_ratio: None,
                     chamfer: None,
                     polygon: vec![],
