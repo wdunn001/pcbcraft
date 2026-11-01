@@ -3473,9 +3473,7 @@ impl App {
                                         egui::RichText::new(t!("setup.wizard.heading")).size(14.0),
                                     ),
                                 )
-                                .on_hover_text(
-                                    t!("setup.wizard.reopen.tip"),
-                                )
+                                .on_hover_text(t!("setup.wizard.reopen.tip"))
                                 .clicked()
                             {
                                 self.open_setup_wizard();
@@ -4920,9 +4918,7 @@ impl App {
         self.stackup_section(ui);
         if ui
             .button(t!("setup.wizard.open"))
-            .on_hover_text(
-                t!("setup.wizard.open.tip"),
-            )
+            .on_hover_text(t!("setup.wizard.open.tip"))
             .clicked()
         {
             self.open_setup_wizard();
