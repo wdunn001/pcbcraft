@@ -6,8 +6,10 @@ type T = Result<(), String>;
 
 #[test]
 fn an_old_net_loads_without_the_new_properties() -> T {
-    let raw = r#"{"nets":[{"id":1,"name":"SIG"}],"net_classes":[]}"#;
-    let p: Project = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+    // An old file: the usual project document whose net carries only an id and a name.
+    let mut doc = serde_json::to_value(Project::default()).map_err(|e| e.to_string())?;
+    doc["nets"] = serde_json::json!([{"id":1,"name":"SIG"}]);
+    let p: Project = serde_json::from_value(doc).map_err(|e| e.to_string())?;
     assert_eq!(p.nets.len(), 1);
     let net = &p.nets[0];
     assert!(net.impedance_target.is_none());

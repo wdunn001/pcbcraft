@@ -233,7 +233,7 @@ fn unit_word(word: &str) -> Option<Unit> {
         "f" | "farad" | "farads" => Unit::Farad,
         "h" | "henry" | "henries" => Unit::Henry,
         "hz" | "hertz" => Unit::Hertz,
-        "v" | "volt" | "volts" => Unit::Volt,
+        "v" | "volt" | "volts" | "vac" | "vdc" => Unit::Volt,
         "a" | "amp" | "amps" | "ampere" | "amperes" => Unit::Ampere,
         "w" | "watt" | "watts" => Unit::Watt,
         _ => return None,
@@ -745,12 +745,13 @@ pub fn rohs_from(text: &str) -> Option<bool> {
 /// Read a REACH answer from distributor text.
 pub fn reach_from(text: &str) -> Option<bool> {
     let t = text.trim().to_lowercase();
-    if t.contains("svhc") && (t.contains("no") || t.contains("none") || t.contains("free")) {
+    if (t.contains("svhc") && (t.contains("no") || t.contains("none") || t.contains("free")))
+        || t.contains("unaffected")
+        || (t.contains("compliant") && !t.contains("non"))
+    {
         Some(true)
     } else if t.contains("affected") || t.contains("contains") {
         Some(false)
-    } else if t.contains("unaffected") || t.contains("compliant") {
-        Some(true)
     } else {
         None
     }

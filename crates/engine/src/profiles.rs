@@ -88,6 +88,7 @@ pub fn manifest_slugs() -> &'static [&'static str] {
         "power-12v",
         "analog-audio",
         "rf-50ohm",
+        "component-kinds",
     ]
 }
 

@@ -319,6 +319,8 @@ fn validate_part_names_pin_and_pad_in_findings() -> Result<(), String> {
     for row in &mut bad_map.rows {
         row.pads.retain(|p| p != &ep_label);
     }
+    // The exposed pad is a plain electrical pad here, so leaving it unmapped is a finding.
+    bad_map.set_pad_role(&ep_label, PadRole::Electrical);
     let bad = validate_part(&symbol, &footprint, &bad_map, &fields);
     assert!(
         bad.findings

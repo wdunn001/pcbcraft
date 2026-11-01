@@ -82,7 +82,11 @@ fn parse_index_block(text: &str) -> Option<Vec<[u32; 3]>> {
 
 fn parse_floats(body: &str) -> Result<Vec<f64>, String> {
     let mut out = Vec::new();
-    for token in body.split_whitespace() {
+    // VRML separates numbers with whitespace or commas.
+    for token in body
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|t| !t.is_empty())
+    {
         if let Ok(v) = token.parse::<f64>()
             && v.is_finite()
         {

@@ -77,7 +77,10 @@ fn labeled_pair(obj: &Value, key: &str) -> Result<String, SourceError> {
     let text = pair[1]
         .as_str()
         .ok_or_else(|| invalid(format!("{key} text must be a string")))?;
-    check_text(key, text)?;
+    // A base part leaves its manufacturer or value blank; only bad text is refused.
+    if !text.is_empty() {
+        check_text(key, text)?;
+    }
     Ok(text.to_owned())
 }
 

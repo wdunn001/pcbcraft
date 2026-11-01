@@ -149,7 +149,14 @@ pub fn snap_point(
         if d > radius {
             continue;
         }
-        if best.as_ref().is_none_or(|(bd, _, _)| d < *bd) {
+        // On a tie a pad centre wins over the origin or an edge point.
+        let better = best.as_ref().is_none_or(|(bd, _, bk)| {
+            d < *bd - 1e-12
+                || ((d - *bd).abs() <= 1e-12
+                    && t.kind == SnapTargetKind::PadCentre
+                    && *bk != SnapTargetKind::PadCentre)
+        });
+        if better {
             best = Some((d, t.position, t.kind));
         }
     }

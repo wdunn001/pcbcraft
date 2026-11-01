@@ -200,6 +200,9 @@ pub fn placement_rows(p: &Project) -> Result<Vec<PlacementRow>, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
+        if !c.in_placement() {
+            continue;
+        }
         let bottom = f.board_side() == Layer::Back;
         rows.push(PlacementRow {
             mount: mount_type_label(f),

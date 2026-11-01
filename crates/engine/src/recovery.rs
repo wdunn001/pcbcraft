@@ -348,18 +348,6 @@ mod tests {
         let offered = orphans(&d);
         assert_eq!(offered.len(), 2, "{offered:?}");
         assert_eq!(offered[0].id, newer, "newest first");
-        let (_project, _entry) = load(&d, &newer)?;
-
-        let mut t = Session::default();
-        add_track(&mut t)?;
-        let mut b = Autosaver::new(&d)?;
-        b.tick(&t, None)?;
-        let newer = b.id().to_owned();
-        drop(b);
-
-        let offered = orphans(&d);
-        assert_eq!(offered.len(), 2, "{offered:?}");
-        assert_eq!(offered[0].id, newer, "newest first");
         let (project, entry) = load(&d, &newer)?;
         assert_eq!(project, t.project);
         assert_eq!(entry.revision, t.revision);

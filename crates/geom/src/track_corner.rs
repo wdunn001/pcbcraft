@@ -214,7 +214,8 @@ mod tests {
         };
         assert!((arc.radius - 2.0).abs() < 1e-9);
         assert!((arc.sweep.abs() - FRAC_PI_2).abs() < 1e-9);
-        assert!((arc.length() - PI / 2.0).abs() < 1e-6);
+        // A quarter turn of radius 2 is half of pi times 2.
+        assert!((arc.length() - PI).abs() < 1e-6);
         Ok(())
     }
 
