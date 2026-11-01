@@ -383,7 +383,7 @@ mod stencil_tests {
         let mut p = Project::default();
         let pad = pcbcraft_doc::Pad {
             number: "1".into(),
-            diameter: 1.0,
+            diameter: 0.8,
             offset: Point::default(),
             geometry: Some(pcbcraft_library::FootprintPad {
                 number: "1".into(),

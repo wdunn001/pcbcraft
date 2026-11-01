@@ -64,23 +64,52 @@ pub fn model_lead_points(mesh: &LoadedModel) -> Vec<[f64; 3]> {
     if bottom.len() < 4 {
         return Vec::new();
     }
+    // Bottom vertices of one terminal land in neighbouring grid cells, so the
+    // occupied cells are merged with their neighbours into connected groups.
     let cell = 0.25_f64;
-    let mut buckets: std::collections::BTreeMap<(i32, i32), (f64, f64, f64, u32)> =
+    let mut cells: std::collections::BTreeMap<(i32, i32), Vec<[f64; 3]>> =
         std::collections::BTreeMap::new();
     for p in &bottom {
         let key = ((p[0] / cell).floor() as i32, (p[1] / cell).floor() as i32);
-        let e = buckets.entry(key).or_insert((0.0, 0.0, 0.0, 0));
-        e.0 += p[0];
-        e.1 += p[1];
-        e.2 += p[2];
-        e.3 += 1;
+        cells.entry(key).or_default().push(*p);
     }
-    let mut clusters: Vec<[f64; 3]> = buckets
-        .into_values()
-        .filter(|(_, _, _, n)| *n >= 3)
-        .map(|(sx, sy, sz, n)| {
-            let n = n as f64;
-            [sx / n, sy / n, sz / n]
+    let keys: Vec<(i32, i32)> = cells.keys().copied().collect();
+    let mut group_of: std::collections::BTreeMap<(i32, i32), usize> =
+        std::collections::BTreeMap::new();
+    let mut groups: Vec<Vec<[f64; 3]>> = Vec::new();
+    for start in keys {
+        if group_of.contains_key(&start) {
+            continue;
+        }
+        let index = groups.len();
+        groups.push(Vec::new());
+        let mut stack = vec![start];
+        group_of.insert(start, index);
+        while let Some(key) = stack.pop() {
+            groups[index].extend_from_slice(&cells[&key]);
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    let next = (key.0 + dx, key.1 + dy);
+                    if cells.contains_key(&next) && !group_of.contains_key(&next) {
+                        group_of.insert(next, index);
+                        stack.push(next);
+                    }
+                }
+            }
+        }
+    }
+    let mut clusters: Vec<[f64; 3]> = groups
+        .into_iter()
+        .filter(|g| g.len() >= 3)
+        .map(|g| {
+            let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+            for p in &g {
+                for axis in 0..3 {
+                    lo[axis] = lo[axis].min(p[axis]);
+                    hi[axis] = hi[axis].max(p[axis]);
+                }
+            }
+            [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, lo[2]]
         })
         .collect();
     clusters.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
@@ -227,7 +256,7 @@ pub fn shift_mesh(mesh: &LoadedModel, dx: f64, dy: f64, dz: f64) -> LoadedModel 
 
 /// A simple two-terminal chip mesh: body plus two bottom pads for alignment tests.
 pub fn test_chip_mesh(pitch: f64) -> LoadedModel {
-    let hw = pitch / 2.0 + 0.2;
+    let hw = pitch / 2.0;
     let body_z = 0.5;
     let mut positions = Vec::new();
     let mut push_box = |cx: f64, cy: f64, w: f64, h: f64, z0: f64, z1: f64| {

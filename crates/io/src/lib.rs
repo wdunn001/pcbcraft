@@ -3980,7 +3980,11 @@ pub fn parts_table_csv_layout(p: &Project, variant: Option<&str>) -> Result<Stri
             Some(footprint) => footprint.definition.name.clone(),
             None => c.kind.clone(),
         };
-        let side = pcbcraft_doc::footprint_assembly_side(f);
+        let side = if f.board_side() == pcbcraft_doc::Layer::Back {
+            "back"
+        } else {
+            "front"
+        };
         let locked = if f.locked.unwrap_or(false) {
             "true"
         } else {
@@ -16486,8 +16490,8 @@ mod tests {
         let first = std::fs::read(&path).map_err(|e| e.to_string())?;
         let text = String::from_utf8(first.clone()).map_err(|e| e.to_string())?;
         assert!(
-            text.contains("\"layer\": \"L6\""),
-            "bottom copper uses the recorded stackup name"
+            text.contains("\"layer\": \"B.Cu\""),
+            "bottom copper takes the bottom name of the stackup"
         );
         assert!(
             !text.contains("In5.Cu"),

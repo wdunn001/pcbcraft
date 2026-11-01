@@ -45,7 +45,7 @@ pub fn stencil_aperture_rings(
                 continue;
             };
             let ring = scaled_pad_ring(pad, fp, position, scale)?;
-            if polygon_is_simple(&ring) {
+            if ring_is_simple(&ring) {
                 rings.push(ring);
             }
         }
@@ -180,22 +180,28 @@ pub fn laser_board_cut_dxf(p: &Project, options: &LaserBoardCutOptions) -> Resul
     Ok(w.finish())
 }
 
+/// Whether a ring is simple. The rings here repeat their first point as the
+/// closing vertex; the simplicity test wants the open ring.
+fn ring_is_simple(ring: &[Point]) -> bool {
+    let open = match ring.split_last() {
+        Some((last, rest)) if rest.first() == Some(last) => rest,
+        _ => ring,
+    };
+    polygon_is_simple(open)
+}
+
 fn board_cut_rings(p: &Project, kerf_offset_mm: f64) -> Result<Vec<Vec<Point>>, String> {
     let outline = board_outline_ring(p);
     let offset = crate::cam_drill::offset_ring(&outline, kerf_offset_mm);
     // The offset ring repeats its first point as the closing vertex; the
     // simplicity test wants the open ring.
-    let open = match offset.split_last() {
-        Some((last, rest)) if rest.first() == Some(last) => rest,
-        _ => offset.as_slice(),
-    };
-    if !polygon_is_simple(open) {
+    if !ring_is_simple(&offset) {
         return Err("board outline with kerf offset is not a simple ring".into());
     }
     let mut rings = vec![offset];
     for cutout in &p.board.cutouts {
         let hole = circle_ring(cutout.center, cutout.radius + kerf_offset_mm);
-        if polygon_is_simple(&hole) {
+        if ring_is_simple(&hole) {
             rings.push(hole);
         }
     }

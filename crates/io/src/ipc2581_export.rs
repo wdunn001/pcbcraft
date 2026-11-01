@@ -369,7 +369,12 @@ impl Writer {
         }
         self.push("<PhyNetGroup name=\"copper\">\n")?;
         for (name, tracks) in by_net {
-            self.push(&format!("<PhyNet name=\"{}\">\n", xml_escape(&name)))?;
+            // Physical and logical nets share one key space in the schema, so
+            // the physical net carries the layer group in its name.
+            self.push(&format!(
+                "<PhyNet name=\"{}\">\n",
+                xml_escape(&format!("{name}@copper"))
+            ))?;
             for track in tracks {
                 let layer_name = p.layer_name(track.layer);
                 for (i, (x, y, node)) in track_phy_points(track).into_iter().enumerate() {
@@ -410,7 +415,9 @@ impl Writer {
         for (net, list) in by_net {
             self.push(&format!("<Set net=\"{}\">\n", xml_escape(&net)))?;
             for track in list {
+                self.push("<Features>\n")?;
                 self.write_track_polyline(track)?;
+                self.push("</Features>\n")?;
             }
             self.push("</Set>\n")?;
         }
