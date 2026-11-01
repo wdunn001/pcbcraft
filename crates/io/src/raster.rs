@@ -212,16 +212,15 @@ fn draw_stroke(
         .collect();
     let radius = width_mm * f64::from(opts.dpi) / 25.4 / 2.0;
     let color = ink(pol);
-    let segments = pts.len().saturating_sub(1);
+    // A closed ring joins its last point back to its first.
+    let segments = if closed {
+        pts.len()
+    } else {
+        pts.len().saturating_sub(1)
+    };
     for i in 0..segments {
         let a = pts[i];
-        let b = if closed && i + 1 == segments {
-            pts[0]
-        } else if i + 1 < pts.len() {
-            pts[i + 1]
-        } else {
-            a
-        };
+        let b = pts[(i + 1) % pts.len()];
         line_grey(img, a, b, radius.max(0.5), color);
     }
 }
