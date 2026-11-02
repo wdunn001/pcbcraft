@@ -219,6 +219,49 @@ fn a_newcomer_sees_the_same_finding_counts_everywhere() -> Result<(), String> {
     Ok(())
 }
 
+/// The showcase example opens to a status strip that reads no errors and no
+/// warnings, and the findings variant reads exactly its one error and two
+/// warnings. The numbers come from the same set the strip paints.
+#[test]
+fn the_showcase_status_strip_reads_zero_and_the_variant_reads_its_three() -> Result<(), String> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples");
+    for (file, want) in [
+        ("showcase.pcbcraft", (0, 0)),
+        ("showcase-with-findings.pcbcraft", (1, 2)),
+    ] {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        open_example(&mut app, &dir.join(file))?;
+        let set = app.findings();
+        let listed: Vec<String> = set
+            .visible(SeverityFilter::All)
+            .map(|r| r.code.clone())
+            .collect();
+        assert_eq!(
+            set.counts().strip(),
+            want,
+            "{file}: strip numbers {listed:?}"
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let errors = app.catalog.plural("board.footer.errors", want.0 as u64);
+        let warnings = app.catalog.plural("board.footer.warnings", want.1 as u64);
+        assert!(
+            paints_text(&ctx, &mut app, &errors)?,
+            "{file}: strip says {errors}"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, &warnings)?,
+            "{file}: strip says {warnings}"
+        );
+    }
+    Ok(())
+}
+
 /// `--tab checks` lands on Layout with the Findings sheet expanded.
 #[test]
 fn the_checks_start_option_opens_layout_with_the_sheet() -> Result<(), String> {

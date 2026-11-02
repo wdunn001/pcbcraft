@@ -8,7 +8,9 @@ use std::collections::BTreeSet;
 const SILK_PAD_CLEARANCE_MM: f64 = 0.2;
 const GRID_MM: f64 = 0.01;
 const MM_PER_INCH: f64 = 25.4;
-const COURTYARD_LAYER: &str = "pcbcraft.courtyard";
+/// Layers a courtyard rectangle may be drawn on: the native one and the
+/// front and back courtyard layers of imported footprints.
+const COURTYARD_LAYERS: [&str; 3] = ["pcbcraft.courtyard", "F.CrtYd", "B.CrtYd"];
 const SILK_LAYER: &str = "F.SilkS";
 const FAB_LAYER: &str = "F.Fab";
 const REFDES_LAYER: &str = "F.Fab";
@@ -50,6 +52,25 @@ pub struct FootprintFinding {
     pub severity: FindingSeverity,
     pub message: String,
     pub hint: String,
+}
+
+/// Whether `layer` is a courtyard layer. The one predicate every courtyard
+/// reader shares, so a footprint drawn on any of the three layers is seen by
+/// the library checks, the overlap check and the 3D alignment alike.
+///
+/// # Rules
+/// - `pcbcraft.courtyard`, `F.CrtYd` and `B.CrtYd` are courtyard layers.
+///
+/// # Do not
+/// - Compare layer names to a courtyard literal anywhere else.
+pub fn is_courtyard_layer(layer: &str) -> bool {
+    COURTYARD_LAYERS.contains(&layer)
+}
+
+/// Whether a courtyard layer is on the back of the board (`B.CrtYd`);
+/// `None` when `layer` is not a courtyard layer.
+pub fn courtyard_layer_is_back(layer: &str) -> Option<bool> {
+    is_courtyard_layer(layer).then(|| layer == "B.CrtYd")
 }
 
 /// Run library-quality checks on a footprint definition.
@@ -247,7 +268,7 @@ fn check_courtyard(def: &FootprintDefinition, findings: &mut Vec<FootprintFindin
             findings,
             "lib_courtyard_missing",
             FindingSeverity::Error,
-            "No courtyard rectangle is drawn on the pcbcraft.courtyard layer",
+            "No courtyard rectangle is drawn on a courtyard layer",
             "Generate or draw a courtyard that encloses all pads and the body outline",
         );
         return;
@@ -293,7 +314,7 @@ fn check_courtyard_grid(def: &FootprintDefinition, findings: &mut Vec<FootprintF
 /// Half width and half height of the courtyard rectangle in millimetres, when one is drawn.
 ///
 /// # Rules
-/// - Uses the `pcbcraft.courtyard` rectangle when present.
+/// - Uses the courtyard rectangle (any courtyard layer) when present.
 ///
 /// # Dependencies
 /// - crates/library/src/footprint_check.rs `courtyard_rectangle`
@@ -312,7 +333,7 @@ fn courtyard_rectangle(def: &FootprintDefinition) -> Option<(Point, Point)> {
             start, end, layer, ..
         } = graphic
         {
-            if layer == COURTYARD_LAYER {
+            if is_courtyard_layer(layer) {
                 let min = Point::new(start.x.min(end.x), start.y.min(end.y));
                 let max = Point::new(start.x.max(end.x), start.y.max(end.y));
                 return Some((min, max));
@@ -339,7 +360,7 @@ fn required_courtyard_bounds(def: &FootprintDefinition) -> (Point, Point) {
     for graphic in &def.graphics {
         if matches!(
             graphic,
-            Graphic::Rectangle { layer, .. } if layer == COURTYARD_LAYER
+            Graphic::Rectangle { layer, .. } if is_courtyard_layer(layer)
         ) {
             continue;
         }
@@ -587,6 +608,11 @@ fn check_smd_layers(def: &FootprintDefinition, findings: &mut Vec<FootprintFindi
         if has_mask && has_paste {
             continue;
         }
+        // A lone round or custom-shaped pad with a mask opening and no paste
+        // is a test point: it takes a probe, not solder.
+        if has_mask && def.pads.len() == 1 && matches!(pad.shape.as_str(), "circle" | "custom") {
+            continue;
+        }
         push(
             findings,
             "lib_smd_pad_missing_mask_or_paste",
@@ -626,7 +652,9 @@ fn check_refdes_text(def: &FootprintDefinition, findings: &mut Vec<FootprintFind
 
 fn check_model(def: &FootprintDefinition, findings: &mut Vec<FootprintFinding>) {
     let smd = !def.pads.is_empty() && def.pads.iter().all(|p| p.pad_type == "smd");
-    if smd && def.model.is_none() {
+    // An explicit box body is the body the 3D view and the exports use, so
+    // it stands in for an attached model.
+    if smd && def.model.is_none() && def.box_body.is_none() {
         push(
             findings,
             "lib_model_missing",
@@ -796,6 +824,104 @@ mod tests {
             polygon: vec![],
             raw_source: String::new(),
         }
+    }
+
+    fn bare(pads: Vec<FootprintPad>, graphics: Vec<Graphic>) -> FootprintDefinition {
+        FootprintDefinition {
+            name: "RESC2012X70N".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads,
+            graphics,
+            model: None,
+            rules: None,
+            box_body: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+            retained: vec![],
+        }
+    }
+
+    fn courtyard_on(layer: &str) -> Graphic {
+        Graphic::Rectangle {
+            start: Point::new(-1.75, -0.75),
+            end: Point::new(0.75, 0.75),
+            width: 0.05,
+            fill: String::new(),
+            layer: layer.into(),
+        }
+    }
+
+    #[test]
+    fn courtyard_on_any_courtyard_layer_is_seen() {
+        for layer in ["pcbcraft.courtyard", "F.CrtYd", "B.CrtYd"] {
+            let def = bare(vec![minimal_smd_pad()], vec![courtyard_on(layer)]);
+            let codes: Vec<_> = check_footprint(&def).into_iter().map(|f| f.code).collect();
+            assert!(
+                !codes.iter().any(|c| c == "lib_courtyard_missing"),
+                "{layer}: {codes:?}"
+            );
+        }
+        let def = bare(vec![minimal_smd_pad()], vec![courtyard_on("F.Fab")]);
+        assert!(
+            check_footprint(&def)
+                .iter()
+                .any(|f| f.code == "lib_courtyard_missing")
+        );
+    }
+
+    #[test]
+    fn courtyard_layer_predicate_matches_the_sides() {
+        assert_eq!(courtyard_layer_is_back("pcbcraft.courtyard"), Some(false));
+        assert_eq!(courtyard_layer_is_back("F.CrtYd"), Some(false));
+        assert_eq!(courtyard_layer_is_back("B.CrtYd"), Some(true));
+        assert_eq!(courtyard_layer_is_back("F.Fab"), None);
+    }
+
+    #[test]
+    fn a_box_body_satisfies_the_model_check() {
+        let mut def = bare(vec![minimal_smd_pad()], vec![]);
+        assert!(
+            check_footprint(&def)
+                .iter()
+                .any(|f| f.code == "lib_model_missing")
+        );
+        def.box_body = Some(crate::FootprintBoxBody {
+            width: 1.0,
+            depth: 0.5,
+            height: 0.5,
+        });
+        assert!(
+            !check_footprint(&def)
+                .iter()
+                .any(|f| f.code == "lib_model_missing")
+        );
+    }
+
+    #[test]
+    fn a_lone_round_test_point_needs_no_paste_but_still_needs_mask() {
+        let mut pad = minimal_smd_pad();
+        pad.shape = "circle".into();
+        pad.layers = vec!["F.Cu".into(), "F.Mask".into()];
+        let def = bare(vec![pad.clone()], vec![]);
+        let missing = |d: &FootprintDefinition| {
+            check_footprint(d)
+                .iter()
+                .any(|f| f.code == "lib_smd_pad_missing_mask_or_paste")
+        };
+        assert!(!missing(&def), "test point without paste is fine");
+        pad.layers = vec!["F.Cu".into()];
+        assert!(missing(&bare(vec![pad.clone()], vec![])), "no mask is not");
+        let mut two = minimal_smd_pad();
+        two.number = "2".into();
+        two.shape = "circle".into();
+        two.layers = vec!["F.Cu".into(), "F.Mask".into()];
+        let mut one = two.clone();
+        one.number = "1".into();
+        assert!(
+            missing(&bare(vec![one, two], vec![])),
+            "two pads are not test points"
+        );
     }
 
     #[test]
