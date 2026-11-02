@@ -83,15 +83,35 @@ jobs:
           npm run check
           npm run test:links
           npm run test:csp
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        if: steps.target.outputs.configured == 'true'
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         if: steps.target.outputs.configured == 'true'
         with:
-          toolchain: stable
+          toolchain: 1.99.1
           targets: wasm32-unknown-unknown
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         if: steps.target.outputs.configured == 'true'
         with:
           tool: trunk
+      # Trunk downloads wasm-opt into its tool cache on first use, and that
+      # download times out now and then. Restore the cache instead; the key is
+      # the version pinned in apps/pcbcraft-web/Trunk.toml.
+      - name: Read the pinned wasm-opt version
+        id: wasm-opt
+        if: steps.target.outputs.configured == 'true'
+        run: echo "version=$(sed -n 's/^wasm_opt *= *"\(.*\)"/\1/p' apps/pcbcraft-web/Trunk.toml)" >> "$GITHUB_OUTPUT"
+      - name: Restore the trunk tool cache
+        if: steps.target.outputs.configured == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trunk
+          key: trunk-tools-${{ runner.os }}-${{ steps.wasm-opt.outputs.version }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: steps.target.outputs.configured == 'true'
         with:
