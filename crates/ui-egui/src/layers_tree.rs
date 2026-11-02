@@ -3586,6 +3586,9 @@ pub(crate) fn explain(tab: TreeTab, r: &Row) -> String {
     if r.page.is_some() {
         return t!("tree.explain.page");
     }
+    if r.kind == RowKind::Divider {
+        return t!("tree.explain.divider");
+    }
     match (head, last) {
         (_, "layer:symbols") => t!("tree.explain.symbols"),
         (_, "layer:power") => t!("tree.explain.power"),
