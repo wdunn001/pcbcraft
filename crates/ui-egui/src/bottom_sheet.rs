@@ -440,7 +440,7 @@ impl App {
             return;
         }
         if let Some(id) = row.objects.first().copied() {
-            self.change_tab(if row.key == "erc" {
+            self.change_tab(if row.key == "erc" || row.key == "peripheral" {
                 Tab::Schematic
             } else {
                 Tab::Pcb

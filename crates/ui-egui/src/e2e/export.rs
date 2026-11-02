@@ -351,11 +351,27 @@ fn a_newcomer_gets_a_bring_up_checklist_for_the_board() -> Result<(), String> {
         md.contains("Bring-up plan") && md.contains("Power rails"),
         "the markdown checklist covers rails: {md}"
     );
+    assert!(
+        md.contains("Programming and debug headers"),
+        "the markdown checklist names the header pins: {md}"
+    );
+    assert!(
+        md.contains("Continuity pairs"),
+        "the markdown checklist names the continuity pairs: {md}"
+    );
+    assert!(
+        md.contains("Nets without a probe pad"),
+        "the markdown checklist names nets with no probe pad: {md}"
+    );
     let csv =
         std::fs::read_to_string(dir.path().join("bring-up-plan.csv")).map_err(|e| e.to_string())?;
     assert!(
         csv.contains("SECTION") && csv.contains("rail"),
         "the csv mirrors the plan: {csv}"
+    );
+    assert!(
+        csv.contains("header"),
+        "the csv lists the header pins: {csv}"
     );
     Ok(())
 }

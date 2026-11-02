@@ -8,3 +8,8 @@
 filehash = true
 pattern_preload = ""
 pattern_script = """<script type="module" src="{base}pcbcraft-start.js" data-pcbcraft-bindings="{base}{js}" data-pcbcraft-wasm="{base}{wasm}"></script>"""
+
+# Trunk downloads wasm-opt (binaryen) on first use. CI keeps the download in the
+# tool cache (see docs/ci.md), keyed on this version, so bump both together.
+[tools]
+wasm_opt = "version_131"
