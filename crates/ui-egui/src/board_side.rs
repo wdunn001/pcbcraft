@@ -362,7 +362,7 @@ impl App {
     /// - `known` is the footprint list before the command; only newer ids flip.
     /// - Does nothing unless the active routing layer is the bottom.
     pub(crate) fn adopt_active_layer(&mut self, known: &std::collections::BTreeSet<Id>) {
-        if self.route_layer != Layer::Back {
+        if !self.route_on_bottom() {
             return;
         }
         let fresh: Vec<Id> = self

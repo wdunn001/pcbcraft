@@ -540,7 +540,7 @@ impl App {
             let layer = self
                 .pours
                 .keepout_layer_only
-                .then(|| json!(self.route_layer));
+                .then(|| self.route_layer_param());
             if let Some(params) = keepout_params(from, crate::canvas::snap(pos), layer) {
                 self.run("rules.area_add", params);
                 self.tool = Tool::Select;

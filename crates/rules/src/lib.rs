@@ -4375,6 +4375,87 @@ mod tests {
         Ok(())
     }
 
+    /// A four-layer board with two plated through-hole pads of one net at
+    /// x 10 and x 30, and nothing routed between them.
+    fn two_through_hole_pads() -> Project {
+        let mut p = four_layer_project();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let pad_geom = thru_hole_pad_geometry();
+        for (id, x) in [(2, 10.0), (3, 30.0)] {
+            if let Some(mut c) =
+                component_template("resistor", id, format!("R{id}"), Point::new(x, 10.0))
+            {
+                c.pins.truncate(1);
+                for pin in &mut c.pins {
+                    pin.net = Some(1);
+                }
+                c.library_footprint = Some(LibraryFootprint {
+                    library: "test".into(),
+                    definition: FootprintDefinition {
+                        name: "TH".into(),
+                        pads: vec![pad_geom.clone()],
+                        ..Default::default()
+                    },
+                });
+                p.components.push(c);
+            }
+            p.board.footprints.push(Footprint {
+                id: id + 10,
+                component: id,
+                position: Point::new(x, 10.0),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: 1.6,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: Some(pad_geom.clone()),
+                }],
+                preserved: Default::default(),
+            });
+        }
+        p
+    }
+
+    #[test]
+    fn a_track_on_any_copper_layer_of_four_touches_plated_through_hole_pads() -> Result<(), String>
+    {
+        for index in 0..4u8 {
+            let mut p = two_through_hole_pads();
+            assert_eq!(airwires(&p).len(), 1, "nothing routed yet");
+            let layer = Layer::from_index(index).map_err(|e| e.to_string())?;
+            p.board.tracks.push(Track {
+                id: 20,
+                net: 1,
+                start: Point::new(10.0, 10.0),
+                end: Point::new(30.0, 10.0),
+                width: 0.25,
+                layer,
+                arc: None,
+                preserved: Default::default(),
+            });
+            p.validate()?;
+            assert!(
+                airwires(&p).is_empty(),
+                "a track on copper layer {} joins the two plated pads",
+                index + 1
+            );
+            assert!(
+                !drc(&p).iter().any(|f| f.code == "unrouted"),
+                "the checks report no unrouted net when layer {} carries the track",
+                index + 1
+            );
+        }
+        Ok(())
+    }
+
     #[test]
     fn inner_track_clearance_finding_on_same_layer_only() -> Result<(), String> {
         let mut p = four_layer_project();
