@@ -39,6 +39,7 @@ pub(super) enum CanvasAct {
     Duplicate,
     Rotate,
     ToggleLock,
+    FlipSide,
     Delete,
     ExportBom,
     ExportBomSelection,
@@ -209,6 +210,34 @@ impl App {
                             .icon(glyph::ROTATE)
                             .shortcut("R")
                             .enabled_if(!locked, tip)
+                            .into(),
+                    );
+                }
+                if footprint && self.tab == Tab::Pcb {
+                    let on_bottom = self
+                        .project
+                        .footprint(id)
+                        .is_some_and(|fp| fp.board_side() == Layer::Back);
+                    let (label, tip) = if locked {
+                        (
+                            t!("board.inspector.flip_to_bottom"),
+                            "This part is locked. Unlock it first.".to_string(),
+                        )
+                    } else if on_bottom {
+                        (
+                            t!("board.inspector.flip_to_top"),
+                            t!("board.inspector.flip_to_top.tip"),
+                        )
+                    } else {
+                        (
+                            t!("board.inspector.flip_to_bottom"),
+                            t!("board.inspector.flip_to_bottom.tip"),
+                        )
+                    };
+                    object.push(
+                        Item::new(CanvasAct::FlipSide, label, tip)
+                            .icon(glyph::ROTATE)
+                            .enabled_if(!locked, "This part is locked. Unlock it first.")
                             .into(),
                     );
                 }
@@ -468,6 +497,11 @@ impl App {
                 }
             }
             (CanvasAct::Rotate, _) => self.rotate(),
+            (CanvasAct::FlipSide, _) => {
+                if let Some(id) = id {
+                    self.run("footprint.flip", json!({"id": id}));
+                }
+            }
             (CanvasAct::ToggleLock, _) => {
                 if let Some(id) = id {
                     let locked = self

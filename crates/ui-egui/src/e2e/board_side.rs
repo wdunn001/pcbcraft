@@ -170,3 +170,41 @@ fn a_newcomer_drops_a_part_onto_the_bottom_layer() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_flips_a_part_from_its_right_click_menu() -> Result<(), String> {
+    let (mut app, ctx) = open_practice_board()?;
+    let at = app
+        .project
+        .object_position(10)
+        .ok_or("the practice part has no position")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let screen = pcb_screen(&app, at);
+    super::board::right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Flip to bottom")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.footprint(10).map(|f| f.board_side()),
+        Some(pcbcraft_doc::Layer::Back),
+        "the menu row puts the part on the bottom: {}",
+        app.message
+    );
+    let placement = pcbcraft_io::placement_text(&app.project)?;
+    assert!(
+        placement.lines().any(|l| l.contains(",B,")),
+        "the placement file lists the part as bottom: {placement}"
+    );
+    super::board::right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Flip to top")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.footprint(10).map(|f| f.board_side()),
+        Some(pcbcraft_doc::Layer::Front),
+        "the same row now reads Flip to top and brings the part back"
+    );
+    Ok(())
+}
