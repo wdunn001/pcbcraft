@@ -463,7 +463,10 @@ fn a_newcomer_opens_an_interchange_board_file() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "Import")?;
     authoring::tests::tap(&ctx, &mut app, "Board interchange file")?;
     assert!(app.edit.dialog.open, "the Import dialog opens");
-    assert_eq!(app.edit.dialog.format, "board_interchange", "on the Board interchange file");
+    assert_eq!(
+        app.edit.dialog.format, "board_interchange",
+        "on the Board interchange file"
+    );
 
     // Set the file path.
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -476,12 +479,18 @@ fn a_newcomer_opens_an_interchange_board_file() -> Result<(), String> {
 
     // Verify the board was imported.
     let parts_after = app.project.components.len();
-    assert!(parts_after > parts_before, "the imported board has more parts than the sample");
+    assert!(
+        parts_after > parts_before,
+        "the imported board has more parts than the sample"
+    );
 
     // Verify undo restores the prior design.
     app.tool_call("undo", json!({}));
     let parts_after_undo = app.project.components.len();
-    assert_eq!(parts_after_undo, parts_before, "undo restores the prior design");
+    assert_eq!(
+        parts_after_undo, parts_before,
+        "undo restores the prior design"
+    );
 
     Ok(())
 }
