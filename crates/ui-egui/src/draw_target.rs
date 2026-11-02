@@ -13,7 +13,7 @@
 
 use crate::canvas::snap;
 use crate::{App, DrawShape};
-use pcbcraft_doc::{Id, Layer};
+use pcbcraft_doc::{ArtKind, Id, Layer};
 use pcbcraft_geom::Point;
 use pcbcraft_text::t;
 use serde_json::json;
@@ -155,6 +155,154 @@ impl App {
                     |l| l.name.clone(),
                 ),
         }
+    }
+
+    /// The plain-word purpose of the current target and one sentence on what
+    /// a figure drawn there becomes.
+    ///
+    /// Why: a person arming Line should know, before the first click, whether
+    /// they are drawing copper, ink, a cut or a reference mark.
+    ///
+    /// # Rules
+    /// - The purpose is the layer's kind, read from the document; it is never
+    ///   a per-shape setting.
+    /// - Returns `(purpose, sentence)`, both from the string catalog.
+    ///
+    /// # Dependencies
+    /// - crates/doc/src/lib.rs (ArtKind and the user layer list)
+    /// - crates/text/strings/en.txt (the `draw.purpose.*` strings)
+    ///
+    /// # Do not
+    /// - Edit the project here.
+    pub(crate) fn draw_purpose(&self) -> (String, String) {
+        let side_word = |side: Side| match side {
+            Side::Top => t!("draw.side.top"),
+            Side::Bottom => t!("draw.side.bottom"),
+        };
+        match self.current_target() {
+            Target::Copper(_) => (t!("draw.purpose.copper"), t!("draw.purpose.copper.about")),
+            Target::Silk(side) => (
+                t!("draw.purpose.silk"),
+                t!("draw.purpose.silk.about", side = side_word(side)),
+            ),
+            Target::Mask(side) => (
+                t!("draw.purpose.mask"),
+                t!("draw.purpose.mask.about", side = side_word(side)),
+            ),
+            Target::Paste(_) => (t!("draw.purpose.paste"), t!("draw.purpose.paste.about")),
+            Target::Edge => (t!("draw.purpose.edge"), t!("draw.purpose.edge.about")),
+            Target::User(id) => {
+                let kind = self
+                    .project
+                    .board
+                    .user_layers
+                    .iter()
+                    .find(|l| l.id == id)
+                    .map(|l| l.kind);
+                match kind {
+                    Some(ArtKind::Cut) => (t!("draw.purpose.cut"), t!("draw.purpose.cut.about")),
+                    Some(ArtKind::Perforation) => (
+                        t!("draw.purpose.perforation"),
+                        t!("draw.purpose.perforation.about"),
+                    ),
+                    Some(ArtKind::Silk) => (
+                        t!("draw.purpose.art_silk"),
+                        t!("draw.purpose.art_silk.about"),
+                    ),
+                    Some(ArtKind::Mask) => (
+                        t!("draw.purpose.art_mask"),
+                        t!("draw.purpose.art_mask.about"),
+                    ),
+                    Some(ArtKind::Other) => {
+                        (t!("draw.purpose.other"), t!("draw.purpose.other.about"))
+                    }
+                    None => (t!("draw.purpose.none"), t!("draw.purpose.none.about")),
+                }
+            }
+        }
+    }
+
+    /// The one line the status bar shows while a Draw tool is armed: the shape,
+    /// the layer, its purpose, and the next click.
+    ///
+    /// # Rules
+    /// - Falls back to the plain tool hint for every tool but Draw shape.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/lib.rs (tool_hint for the other tools)
+    pub(crate) fn status_hint(&self) -> String {
+        if !matches!(self.tool, crate::Tool::DrawLayer) {
+            return crate::tool_hint(&self.tool);
+        }
+        let (purpose, _) = self.draw_purpose();
+        let layer = self.target_label();
+        match (self.draw_shape(), self.art_start.is_some()) {
+            (DrawShape::Line, false) => {
+                t!("draw.hint.line_start", layer = layer, purpose = purpose)
+            }
+            (DrawShape::Line, true) => t!("draw.hint.line_end", layer = layer, purpose = purpose),
+            (DrawShape::Rect, false) => t!("draw.hint.box_start", layer = layer, purpose = purpose),
+            (DrawShape::Rect, true) => t!("draw.hint.box_end", layer = layer, purpose = purpose),
+            (DrawShape::Circle, false) => {
+                t!("draw.hint.circle_start", layer = layer, purpose = purpose)
+            }
+            (DrawShape::Circle, true) => {
+                t!("draw.hint.circle_end", layer = layer, purpose = purpose)
+            }
+            (DrawShape::Poly, _) => t!("draw.hint.outline", layer = layer, purpose = purpose),
+            (DrawShape::Words, _) => t!("draw.hint.words", layer = layer, purpose = purpose),
+        }
+    }
+
+    /// The "Drawing on" chip: the layer, its purpose and what a figure
+    /// there becomes. Shown at the top of the Draw shape options.
+    ///
+    /// # Rules
+    /// - Every target gets a chip, so the old "pick a layer" sentence only
+    ///   appears for a user layer that no longer exists.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/lib.rs (draw_tool_options calls this)
+    pub(crate) fn draw_on_chip(&self, ui: &mut egui::Ui) {
+        let (purpose, about) = self.draw_purpose();
+        ui.label(egui::RichText::new(t!("draw.on.title")).small())
+            .on_hover_text(t!("draw.on.title.tip"));
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new(self.target_label()).strong())
+                .on_hover_text(t!("board.draw_tool_options.new_figures_land_on_this.tip"));
+            ui.label(purpose).on_hover_text(t!("draw.on.purpose.tip"));
+        });
+        ui.label(about).on_hover_text(t!("draw.on.about.tip"));
+    }
+
+    /// The live size of the figure being drawn, for the canvas readout:
+    /// length and angle for a line, width and height for a box, radius for
+    /// a circle. None until the first click.
+    ///
+    /// # Rules
+    /// - Pure: reads the pending start and the snapped cursor only.
+    pub(crate) fn draw_readout(&self, at: Point) -> Option<String> {
+        let start = self.art_start?;
+        Some(match self.draw_shape() {
+            DrawShape::Line => {
+                let angle = (at.y - start.y).atan2(at.x - start.x).to_degrees();
+                t!(
+                    "draw.readout.line",
+                    length = format!("{:.2}", start.distance(at)),
+                    angle = format!("{:.0}", angle)
+                )
+            }
+            DrawShape::Rect => t!(
+                "draw.readout.box",
+                w = format!("{:.2}", (at.x - start.x).abs()),
+                h = format!("{:.2}", (at.y - start.y).abs())
+            ),
+            DrawShape::Circle => t!(
+                "draw.readout.circle",
+                r = format!("{:.2}", start.distance(at))
+            ),
+            DrawShape::Poly | DrawShape::Words => return None,
+        })
     }
 
     /// The shape the Draw tools make on the current target: a line on the

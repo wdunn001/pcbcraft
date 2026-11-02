@@ -335,24 +335,20 @@ fn supplier_of_key(key: &str) -> Option<String> {
 pub const SUPPLIER_KEY_PREFIX: &str = "Supplier:";
 
 impl Component {
-    /// Copy matching free-form fields into the typed record, leaving the originals alone.
-    ///
-    /// Why: files written before the typed fields hold `MPN`, `Manufacturer`,
-    /// `Description` and keys like `Digi-Key PN` as free-form text; tools read the typed
-    /// record.
-    ///
+    /// Copy matching free-form fields into the typed record.
+    /// Files written before the typed fields hold MPN, Manufacturer
+    /// and supplier keys as free-form text. This copies them into
+    /// the typed record on load.
     /// # Rules
-    /// - Keys match ignoring case, spaces, dashes and dots (`Mfr Part Number` is an MPN).
-    /// - A typed value that is already set is kept; so is an existing supplier of that name.
-    /// - A value that fails the bounds is left in the free-form field only.
-    /// - Safe to run twice; the second run changes nothing.
-    ///
+    /// - Keys match ignoring case, spaces, dashes and dots.
+    /// - A typed value that is already set is kept.
+    /// - Safe to run twice.
     /// # Dependencies
-    /// - `crates/io/src/generate.rs` `migrate_loaded_project` and `crates/engine/src/lib.rs`
-    ///   `Session::replace` call it through [`Project::adopt_free_form_sourcing`].
-    ///
+    /// - crates/io/src/generate.rs migrate_loaded_project and
+    ///   crates/engine/src/lib.rs Session::replace call it through
+    ///   Project::adopt_free_form_sourcing.
     /// # Do not
-    /// - Delete or edit `fields`.
+    /// - Delete or edit fields.
     pub fn adopt_free_form_sourcing(&mut self) {
         let mut next = self.sourcing.clone();
         for f in &self.fields {
