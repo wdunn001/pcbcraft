@@ -43,6 +43,7 @@ mod outline_arcs;
 mod pads;
 mod pairs;
 mod part_listing;
+mod parts_table;
 mod pnp_machine;
 mod pours;
 mod project_settings;

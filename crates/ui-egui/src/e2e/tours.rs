@@ -111,6 +111,7 @@ fn prepare_for_target(app: &mut App, target: &str) {
                 "findings" => app.open_sheet(SheetTab::Findings),
                 "output" => app.open_sheet(SheetTab::Output),
                 "console" => app.open_sheet(SheetTab::Console),
+                "parts" => app.open_sheet(SheetTab::Parts),
                 id => app.region().left_tab = id.to_owned(),
             }
         }

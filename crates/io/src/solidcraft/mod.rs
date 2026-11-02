@@ -1,8 +1,8 @@
 //! SolidCraft board export and interchange test helpers.
 //!
-//! Context: SolidCraft is the owner's mechanical CAD app. PCBCraft keeps a small reader and
-//! writer for the subset needed to move board and component 3D between the two tools. Model
-//! space is millimetres, Z up, right-handed, the same frame as [`crate::BoardMesh`].
+//! Context: SolidCraft is the owner's mechanical CAD app. PCBCraft keeps a small reader
+//! and writer for the subset needed to move board and component 3D between the two tools.
+//! Model space is millimetres, Z up, right-handed, the same frame as [`crate::BoardMesh`].
 //!
 //! # What survives exchange
 //! - Reference designators, values, footprint names and model paths (under [`SOLIDCRAFT_METADATA_KEY`])
