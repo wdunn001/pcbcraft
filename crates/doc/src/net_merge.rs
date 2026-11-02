@@ -23,9 +23,13 @@ use serde::Serialize;
 /// - Keep a merged id around: those nets no longer exist.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct NetMerge {
+    /// The shared name, trimmed.
     pub name: String,
+    /// Id of the net that stayed.
     pub kept: Id,
+    /// Ids of the nets folded into it.
     pub merged: Vec<Id>,
+    /// Component pins that moved onto the kept net.
     pub pins: usize,
 }
 
