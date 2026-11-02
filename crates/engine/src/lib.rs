@@ -39555,6 +39555,11 @@ mod tests {
 
     #[test]
     fn copper_plot_artifact_goes_stale_after_edit_and_clears_on_regenerate() -> Result<(), Error> {
+        // The plot carries its creation time; pin the clock so the staleness check never sees a tick.
+        pcbcraft_io::with_fixed_clock(1_800_000_000, copper_plot_stale_body)
+    }
+
+    fn copper_plot_stale_body() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let directory =
             std::env::temp_dir().join(format!("pcbcraft-artifact-stale-{}", std::process::id()));

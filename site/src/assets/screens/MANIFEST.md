@@ -6,7 +6,7 @@ Every image is a crop of a real capture of the PCBCraft app (cargo xtask screens
 | Image | Capture | Size (px) |
 |---|---|---|
 | hero-layout | layout-sheet | 1920 x 1240 |
-| home-schematic | schematic | 1260 x 788 |
+| home-schematic | schematic | 1160 x 790 |
 | home-layout | layout | 1260 x 788 |
 | layout-routed | showcase-layout | 1250 x 830 |
 | home-libraries | layout-library | 960 x 600 |

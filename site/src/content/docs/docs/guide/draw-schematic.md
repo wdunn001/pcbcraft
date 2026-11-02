@@ -14,12 +14,10 @@ Open the sample with `cargo run -p pcbcraft -- --sample` and stay on the **Schem
 ## Pick a tool
 
 1. Look at the tool strip under the tabs.
-2. The tools are **Select**, **Move**, **Place part**, **Wire**, **No connect** and **Measure**.
+2. The tools are **Select**, **Move**, **Place part**, **Wire**, **Label**, **Power**, **Bus**, **No connect**, **Port** and **Measure**.
 3. Hover a tool to read what it does. The active tool is outlined.
 
-   ![The schematic tool strip. Select is active. Move, Place part, Wire, No connect and Measure follow, then the pick filters Parts, Copper, Graphics and Text.](../../../../assets/guide/schematic-tools.png)
-
-4. The buttons **Parts**, **Copper**, **Graphics** and **Text** decide what a click may pick up. Turn one off to leave that kind alone.
+   ![The schematic tool strip. Select is active. Move, Place part, Wire, Label, Power, Bus, No connect, Port and Measure follow.](../../../../assets/guide/schematic-tools.png)
 
 Press **Esc** at any time to go back to Select.
 

@@ -30,10 +30,10 @@ If you run the app without `--sample`, the Start screen opens first. Pick **Work
 ## Read the top of the window
 
 1. Look at the menus at the top left: File, Edit, View and Help.
-2. Look at the row below them. The tabs are Files, Library, Schematic, Layout and Manufacture.
+2. Look at the row below them. The tabs are Files, Schematic, Layout, Manufacture and Library.
 3. Click **Layout** to see the board.
 
-   ![The top of the window. The menus are File, Edit, View and Help. The tabs are Files, Library, Schematic, Layout and Manufacture, and Schematic is selected.](../../../../assets/guide/start-tabs.png)
+   ![The top of the window. The menus are File, Edit, View and Help. The tabs are Files, Schematic, Layout, Manufacture and Library, and Schematic is selected.](../../../../assets/guide/start-tabs.png)
 
 The board is 60 by 40 mm and holds the same three parts. Dashed lines join the pads that must be connected. No copper is drawn yet. Use **Schematic** to go back.
 
