@@ -1,0 +1,82 @@
+---
+// Download: where to get PCBCraft. Links go to the GitHub Releases page and the source tree.
+// Rules: copy follows docs/ci.md and README.md; nothing here names a file that a release does not
+// attach. The browser build is the app deployed under demo/, linked here, not an Astro page.
+import MarketingLayout from '../../layouts/MarketingLayout.astro';
+import { REPO_URL, url } from '../../lib/site';
+---
+
+<MarketingLayout title="Download" description="Get PCBCraft from GitHub Releases, build it from source, or run it in the browser.">
+  <section class="head">
+    <div class="wrap">
+      <p class="eyebrow">Download</p>
+      <h1>Get PCBCraft</h1>
+      <p class="lede">Take a build from GitHub Releases, build it from source with Rust, or try the browser build first.</p>
+    </div>
+  </section>
+  <section class="wrap cols">
+    <div class="card">
+      <h2>Releases</h2>
+      <p>Tagged releases attach the desktop packages for Linux, Windows and macOS, the web build, the source archives and a checksum file. Nightly builds are published as GitHub pre-releases; they never replace the latest tagged release.</p>
+      <p class="btns">
+        <a class="btn primary" href={`${REPO_URL}/releases/latest`} rel="noopener">Latest release</a>
+        <a class="btn ghost" href={`${REPO_URL}/releases`} rel="noopener">All releases and pre-releases</a>
+      </p>
+    </div>
+    <div class="card">
+      <h2>Build from source</h2>
+      <p>You need a Rust toolchain. The last command opens the sample board.</p>
+      <pre class="code" tabindex="0"><code>git clone https://github.com/wdunn001/pcbcraft.git
+cd pcbcraft
+cargo run -p pcbcraft -- --sample</code></pre>
+      <p>The <a href={url('docs/guide/getting-started/')}>getting started guide</a> walks through the first run.</p>
+    </div>
+    <div class="card">
+      <h2>In the browser</h2>
+      <p>The web build runs the same editor in a browser tab, with no install.</p>
+      <p class="btns"><a class="btn primary" href={url('demo/')}>Try it in the browser</a></p>
+    </div>
+  </section>
+  <section class="wrap note">
+    <p>Code is MIT OR Apache-2.0. Each release lists its checksums in <code>SHA256SUMS</code>. See the <a href={url('license/')}>license page</a> for the PCBCraft name and logo.</p>
+  </section>
+</MarketingLayout>
+
+<style>
+  .head {
+    padding: 3.5rem 0 2rem;
+  }
+  .cols {
+    display: grid;
+    gap: 1.4rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  }
+  .card {
+    padding: 1.5rem;
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-line);
+    border-radius: 8px;
+  }
+  .card h2 {
+    margin-top: 0;
+  }
+  .btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+  }
+  .code {
+    margin: 0 0 1rem;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    color: var(--pc-text);
+    background: var(--pc-bg);
+    border: 1px solid var(--pc-edge);
+    border-radius: 8px;
+    font: 0.85rem/1.7 var(--pc-font-mono);
+  }
+  .note {
+    padding-top: 2rem;
+    color: var(--pc-muted);
+  }
+</style>
