@@ -62,7 +62,7 @@ part declarations and supplier questions; it is not a product certification.
 ## Export
 
 RS-274X Gerber (front/back copper, outline with cutouts), Excellon (including
-plated/unplated split and oval slots), solder mask and paste, drill map,
+plated/unplated split and oval slots), solder mask and paste, stencil SVG with pad apertures, drill map,
 fabrication readme, netlist, BOM CSV, DXF, pick-and-place. Silkscreen layers
 are not written yet. PNG and SVG previews; plot report CSVs. Native project
 is `.pcbcraft`.
