@@ -180,7 +180,12 @@ impl App {
                 .zip(&tips)
                 .map(|(l, tip)| Segment::text(l, tip))
                 .collect();
-            segmented(ui, "machine-kind-filter", &mut self.libws.machines.kind, &items);
+            segmented(
+                ui,
+                "machine-kind-filter",
+                &mut self.libws.machines.kind,
+                &items,
+            );
             let labels = [
                 t!("libws.machines.filter.all_sources"),
                 t!("libws.machines.source.built_in"),
@@ -320,9 +325,17 @@ impl App {
                     egui::RichText::new(format!(
                         "{} \u{b7} {}",
                         kind.replace('_', " "),
-                        t!("libws.machines.work_area",
-                            x = c.pointer("/work_area/x").and_then(Value::as_f64).unwrap_or(0.0),
-                            y = c.pointer("/work_area/y").and_then(Value::as_f64).unwrap_or(0.0))
+                        t!(
+                            "libws.machines.work_area",
+                            x = c
+                                .pointer("/work_area/x")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(0.0),
+                            y = c
+                                .pointer("/work_area/y")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(0.0)
+                        )
                     ))
                     .color(muted),
                 );
@@ -551,7 +564,9 @@ impl App {
                     params["name"] = json!(name);
                 }
                 if form.from == 0 {
-                    let Some((id, _)) = pickable.get(form.library_pick.min(pickable.len().saturating_sub(1))) else {
+                    let Some((id, _)) =
+                        pickable.get(form.library_pick.min(pickable.len().saturating_sub(1)))
+                    else {
                         return;
                     };
                     params["based_on"] = json!(id);

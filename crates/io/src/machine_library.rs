@@ -191,7 +191,10 @@ pub fn blank_machine(kind: &str, id: &str, name: &str) -> Result<MachineProfile,
     let dialect = match kind {
         "laser_galvo" | "laser_gantry" => "laser_job",
         "cnc_mill" | "pick_place" | "uv_printer" => "",
-        _ => return Err("a machine kind must be pick_place, laser_galvo, laser_gantry, cnc_mill or uv_printer".into()),
+        _ => return Err(
+            "a machine kind must be pick_place, laser_galvo, laser_gantry, cnc_mill or uv_printer"
+                .into(),
+        ),
     };
     let mut machine = MachineProfile {
         id: id.to_owned(),
@@ -352,20 +355,32 @@ mod tests {
     fn a_project_copy_is_behind_when_the_library_version_is_higher() -> Result<(), String> {
         let built = first_of_kind("pick_place")?;
         let copy = built.clone();
-        assert_eq!(copy_state(&copy, &[built.clone()]), CopyState::Same);
+        assert_eq!(
+            copy_state(&copy, std::slice::from_ref(&built)),
+            CopyState::Same
+        );
         let mut newer = built.clone();
         newer.version = built.version + 1;
         assert_eq!(copy_state(&copy, &[newer]), CopyState::LibraryNewer);
         let mut edited = built.clone();
         edited.notes = "changed".into();
-        assert_eq!(copy_state(&edited, &[built.clone()]), CopyState::Edited);
+        assert_eq!(
+            copy_state(&edited, std::slice::from_ref(&built)),
+            CopyState::Edited
+        );
         assert_eq!(copy_state(&copy, &[]), CopyState::ProjectOnly);
         Ok(())
     }
 
     #[test]
     fn blank_machines_of_each_kind_are_valid() -> Result<(), String> {
-        for kind in ["pick_place", "laser_galvo", "laser_gantry", "cnc_mill", "uv_printer"] {
+        for kind in [
+            "pick_place",
+            "laser_galvo",
+            "laser_gantry",
+            "cnc_mill",
+            "uv_printer",
+        ] {
             blank_machine(kind, "blank", "Blank")?;
         }
         assert!(blank_machine("oven", "blank", "Blank").is_err());

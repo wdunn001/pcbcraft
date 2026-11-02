@@ -10,7 +10,8 @@ use pcbcraft_engine::{Session, user_config::UserConfig};
 use serde_json::{Value, json};
 
 fn session(tag: &str) -> (Session, std::path::PathBuf) {
-    let folder = std::env::temp_dir().join(format!("pcbcraft-machines-{}-{tag}", std::process::id()));
+    let folder =
+        std::env::temp_dir().join(format!("pcbcraft-machines-{}-{tag}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
     let mut s = Session::default();
     s.config = UserConfig::in_folder(&folder);
@@ -40,7 +41,11 @@ fn built_in_machines_are_listed_as_ordinary_cards() -> Result<(), String> {
         );
     }
     let revision = s.revision;
-    run(&mut s, "machine.library_list", json!({"kind": "pick_place"}))?;
+    run(
+        &mut s,
+        "machine.library_list",
+        json!({"kind": "pick_place"}),
+    )?;
     assert_eq!(s.revision, revision, "listing is not an edit");
     let _ = std::fs::remove_dir_all(folder);
     Ok(())
@@ -50,7 +55,11 @@ fn built_in_machines_are_listed_as_ordinary_cards() -> Result<(), String> {
 fn a_hidden_built_in_leaves_the_list_but_never_the_files() -> Result<(), String> {
     let (mut s, folder) = session("hide");
     run(&mut s, "machine.library_hide", json!({"id": "neoden-yy1"}))?;
-    assert!(!cards(&mut s, json!({}))?.iter().any(|c| c["id"] == "neoden-yy1"));
+    assert!(
+        !cards(&mut s, json!({}))?
+            .iter()
+            .any(|c| c["id"] == "neoden-yy1")
+    );
     let shown = cards(&mut s, json!({"include_hidden": true}))?;
     assert!(
         shown
@@ -58,16 +67,32 @@ fn a_hidden_built_in_leaves_the_list_but_never_the_files() -> Result<(), String>
             .any(|c| c["id"] == "neoden-yy1" && c["hidden"] == true)
     );
     assert!(
-        run(&mut s, "machine.library_remove", json!({"id": "neoden-yy1"})).is_err(),
+        run(
+            &mut s,
+            "machine.library_remove",
+            json!({"id": "neoden-yy1"})
+        )
+        .is_err(),
         "a built-in machine cannot be deleted"
     );
-    assert!(run(&mut s, "machine.library_hide", json!({"id": "nothing-here"})).is_err());
+    assert!(
+        run(
+            &mut s,
+            "machine.library_hide",
+            json!({"id": "nothing-here"})
+        )
+        .is_err()
+    );
     run(
         &mut s,
         "machine.library_hide",
         json!({"id": "neoden-yy1", "hidden": false}),
     )?;
-    assert!(cards(&mut s, json!({}))?.iter().any(|c| c["id"] == "neoden-yy1"));
+    assert!(
+        cards(&mut s, json!({}))?
+            .iter()
+            .any(|c| c["id"] == "neoden-yy1")
+    );
     let _ = std::fs::remove_dir_all(folder);
     Ok(())
 }
@@ -102,7 +127,10 @@ fn duplicate_remembers_its_source_and_keeps_the_built_in_unchanged() -> Result<(
         .iter()
         .find(|m| m.id == "my-placer")
         .ok_or("the copy is on the project")?;
-    assert_eq!(copy.based_on.as_ref().map(|b| b.id.as_str()), Some("neoden-yy1"));
+    assert_eq!(
+        copy.based_on.as_ref().map(|b| b.id.as_str()),
+        Some("neoden-yy1")
+    );
     assert!(folder.join("machines").join("my-placer.toml").is_file());
     let mine = cards(&mut s, json!({"scope": "mine"}))?;
     assert_eq!(mine.len(), 1);
@@ -134,7 +162,8 @@ fn a_project_copy_stays_put_until_it_is_updated_from_the_library() -> Result<(),
     let mut newer = pcbcraft_io::machine_profile_from_toml(&text)?;
     newer.version += 1;
     newer.notes = "Re-measured.".into();
-    std::fs::write(&file, pcbcraft_io::machine_profile_to_toml(&newer)?).map_err(|e| e.to_string())?;
+    std::fs::write(&file, pcbcraft_io::machine_profile_to_toml(&newer)?)
+        .map_err(|e| e.to_string())?;
     let card = cards(&mut s, json!({"scope": "mine"}))?
         .into_iter()
         .next()
@@ -146,15 +175,27 @@ fn a_project_copy_stays_put_until_it_is_updated_from_the_library() -> Result<(),
         .iter()
         .find(|m| m.id == "shop-mill")
         .map(|m| m.notes.clone());
-    assert_ne!(before.as_deref(), Some("Re-measured."), "the copy did not move");
-    let answer = run(&mut s, "machine.update_from_library", json!({"id": "shop-mill"}))?;
+    assert_ne!(
+        before.as_deref(),
+        Some("Re-measured."),
+        "the copy did not move"
+    );
+    let answer = run(
+        &mut s,
+        "machine.update_from_library",
+        json!({"id": "shop-mill"}),
+    )?;
     assert!(
         answer["changed"]
             .as_array()
             .is_some_and(|c| c.iter().any(|k| k == "notes")),
         "{answer}"
     );
-    let after = s.project.machine_profiles.iter().find(|m| m.id == "shop-mill");
+    let after = s
+        .project
+        .machine_profiles
+        .iter()
+        .find(|m| m.id == "shop-mill");
     assert_eq!(after.map(|m| m.notes.as_str()), Some("Re-measured."));
     let _ = std::fs::remove_dir_all(folder);
     Ok(())
@@ -166,7 +207,11 @@ fn install_copies_once_and_a_machine_with_an_unknown_dialect_is_refused() -> Res
     run(&mut s, "machine.install", json!({"id": "neoden-yy1"}))?;
     assert!(run(&mut s, "machine.install", json!({"id": "neoden-yy1"})).is_err());
     assert!(run(&mut s, "machine.install", json!({"id": "no-such"})).is_err());
-    run(&mut s, "machine.add", json!({"kind": "pick_place", "name": "Odd placer"}))?;
+    run(
+        &mut s,
+        "machine.add",
+        json!({"kind": "pick_place", "name": "Odd placer"}),
+    )?;
     let dir = folder.join("out");
     let refusal = run(
         &mut s,
@@ -181,7 +226,10 @@ fn install_copies_once_and_a_machine_with_an_unknown_dialect_is_refused() -> Res
         "placement_yy1.export",
         json!({"machine": "neoden-yy1", "directory": dir.to_string_lossy(), "side": "both", "layout": "native"}),
     )?;
-    assert!(dir.join("Top.csv").is_file(), "the old command name still works");
+    assert!(
+        dir.join("Top.csv").is_file(),
+        "the old command name still works"
+    );
     let _ = std::fs::remove_dir_all(folder);
     Ok(())
 }
@@ -190,7 +238,8 @@ fn install_copies_once_and_a_machine_with_an_unknown_dialect_is_refused() -> Res
 fn old_project_files_load_with_machine_defaults() -> Result<(), String> {
     // A machine stored by an older program has none of the library fields.
     let text = std::fs::read_to_string(
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../machine-profiles/neoden-yy1.toml"),
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../machine-profiles/neoden-yy1.toml"),
     )
     .map_err(|e| e.to_string())?;
     let old: String = text

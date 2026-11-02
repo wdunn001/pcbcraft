@@ -674,9 +674,7 @@ impl MachineProfile {
             || self.schema_version > 1000
             || self.version > 1_000_000
         {
-            return Err(
-                "machine profile source, date or version is outside its limit".into(),
-            );
+            return Err("machine profile source, date or version is outside its limit".into());
         }
         if let Some(from) = &self.based_on
             && (!from.id.is_empty() && !valid_slug(&from.id))

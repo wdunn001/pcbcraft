@@ -89,8 +89,7 @@ fn a_newcomer_sees_built_in_machines_as_ordinary_library_cards() -> Result<(), S
 /// A newcomer adds their placer from a built-in card, picks it for the pick and place
 /// output in Manufacture and writes the file.
 #[test]
-fn a_newcomer_adds_their_placer_from_a_built_in_and_picks_it_for_an_output() -> Result<(), String>
-{
+fn a_newcomer_adds_their_placer_from_a_built_in_and_picks_it_for_an_output() -> Result<(), String> {
     let (ctx, mut app, folder) = library_app()?;
     let out = folder.join("out");
     app.make_dir = out.to_string_lossy().into_owned();
@@ -144,7 +143,10 @@ fn a_newcomer_duplicates_a_machine_and_changes_a_nozzle() -> Result<(), String> 
         "the copy remembers where it came from"
     );
     assert!(
-        folder.join("machines").join("neoden-yy1-copy.toml").is_file(),
+        folder
+            .join("machines")
+            .join("neoden-yy1-copy.toml")
+            .is_file(),
         "the copy is kept in the person's machines"
     );
     app.change_tab(Tab::PlotFiles);
@@ -239,7 +241,12 @@ fn a_newcomer_adds_a_blank_machine_from_the_add_machine_window() -> Result<(), S
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "NeoDen YY1")?;
     authoring::tests::tap(&ctx, &mut app, "Blank machine")?;
-    type_into(&ctx, &mut app, "textinput:Name of the new machine", "Bench mill")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Name of the new machine",
+        "Bench mill",
+    )?;
     tap_id(&ctx, &mut app, "checkbox:Keep in my machines")?;
     tap_id(&ctx, &mut app, "combobox:Kind of machine")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
