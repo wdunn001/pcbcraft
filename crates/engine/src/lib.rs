@@ -4226,6 +4226,7 @@ struct LockParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `component.set_in_bom`: include or exclude a component from the bill of materials.
@@ -4246,6 +4247,7 @@ struct ComponentInBomParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `component.set_in_placement`: include or exclude a component from the placement file.
@@ -4266,6 +4268,7 @@ struct ComponentInPlacementParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `board.set_clearance`: set the default clearance for the board.
@@ -4400,6 +4403,7 @@ fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `component.assign_footprint`: assign a footprint to a component.
@@ -4420,6 +4424,7 @@ struct AssignFootprint {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `pattern.assign`: assign a pattern to an object.
@@ -4440,6 +4445,7 @@ struct AssignPatternParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `library.refresh_symbol`: refresh a library symbol from its source file.
@@ -4461,6 +4467,7 @@ struct RefreshSymbolParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `library.refresh_footprint`: refresh a library footprint from its source file.
@@ -4482,6 +4489,7 @@ struct RefreshFootprintParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `table.assign`: assign rows to a table.
@@ -4509,6 +4517,7 @@ struct AssignTableRow {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `object.assign_file`: attach a file reference to an object.
@@ -4873,6 +4882,7 @@ fn assign_to(
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `object.move`: move an object to a new position.
@@ -4896,6 +4906,7 @@ struct Move {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `object.rotate`: rotate an object by a given angle.
@@ -4918,6 +4929,7 @@ struct Rotate {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `component.set_value`: set a component value.
@@ -4938,6 +4950,7 @@ struct ValueParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `component.set_kind`: set a component kind.
@@ -4959,6 +4972,7 @@ struct SetKindParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `net.rename`: rename a net.
@@ -4978,6 +4992,7 @@ struct Name {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `object.set_meta`: set a metadata key-value pair on an object.
@@ -4999,6 +5014,7 @@ struct MetaParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `parameter.set`: set a design parameter value.
@@ -5021,6 +5037,7 @@ struct ParameterSetParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `parameter.remove`: remove a design parameter.
@@ -5042,6 +5059,7 @@ struct ParameterRemoveParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `project.set_unit`: set the project unit system.
@@ -5061,6 +5079,7 @@ struct ProjectSetUnitParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `project.set_auto_sync`: enable or disable automatic board sync.
@@ -5080,6 +5099,7 @@ struct ProjectSetAutoSyncParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `archive.path`: set the archive file path.
@@ -5099,6 +5119,7 @@ struct ArchivePathParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `project.import`: import a project from a file.
@@ -5120,6 +5141,7 @@ struct ProjectImportParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `laser.export`: export a laser engraving job file.
@@ -5164,6 +5186,7 @@ fn laser_job_isolation_default() -> f64 {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `object.get_meta`: get a metadata value by key.
@@ -5183,6 +5206,7 @@ struct MetaKeyParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `project.replace`: search and replace text across the project.
@@ -5212,6 +5236,7 @@ fn replace_all_scope() -> String {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `net.connect`: connect pins to a net.
@@ -5233,6 +5258,7 @@ struct Connect {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `track.set_net`: assign a net to a track or via.
@@ -5283,6 +5309,7 @@ struct DrawnWireParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `wire.place_tee`: place a T-connection on an existing wire.
@@ -5304,6 +5331,7 @@ struct WirePlaceTeeParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Parameters of `wire.place`: place a new wire segment.
