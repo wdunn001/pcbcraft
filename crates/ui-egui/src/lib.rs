@@ -7453,7 +7453,7 @@ impl App {
                         status_item(
                             ui,
                             None,
-                            &tool_hint(&self.tool),
+                            &self.status_hint(),
                             &t!("status.message.tip"),
                             false,
                         );
@@ -7947,16 +7947,7 @@ impl App {
             return;
         }
         if matches!(self.tool, Tool::DrawLayer) {
-            use draw_target::Target;
-            let on_user = matches!(self.current_target(), Target::User(_));
-            let layer_tip = t!("board.draw_tool_options.new_figures_land_on_this.tip");
-            if on_user {
-                ui.label(self.target_label())
-                    .on_hover_text(layer_tip.clone());
-            } else {
-                ui.label(t!("board.canvas_click.pick_or_make_a_layer"))
-                    .on_hover_text(t!("tree.add_layer.tip"));
-            }
+            self.draw_on_chip(ui);
             ui.horizontal(|ui| {
                 for (shape, label, tip) in [
                     (
