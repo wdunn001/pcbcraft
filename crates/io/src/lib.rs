@@ -3935,7 +3935,7 @@ fn gerber_files_core(
     }
     let hits = project_drill_hits(p)?;
     let origin = p.board.drill_origin;
-    let drill = excellon_drill_file(&hits, origin, inch, scale, None)?;
+    let _drill = excellon_drill_file(&hits, origin, inch, scale, None)?;
     let plated_drill = excellon_drill_file(&hits, origin, inch, scale, Some(true))?;
     let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false))?;
     let drill_map = fab_export::drill_map_plot(p)?;
@@ -3981,8 +3981,7 @@ fn gerber_files_core(
         outline.finish(creation, "board outline", "Profile,NP", "Positive", true),
     );
     files.insert("pcb-DrillMap.gbr".into(), drill_map);
-    files.insert("pcb-Drill.drl".into(), drill);
-    files.insert("pcb-Plated.drl".into(), plated_drill.clone());
+    files.insert("pcb-PTH.drl".into(), plated_drill.clone());
     files.insert("pcb-NPTH.drl".into(), npth_drill.clone());
     for (name, text) in drawn::gerber_layer_files(p)? {
         files.insert(name, text);
@@ -3996,7 +3995,7 @@ fn gerber_files_core(
         "pcb-B.Mask.gbr",
         "pcb-F.Paste.gbr",
         "pcb-B.Paste.gbr",
-        "pcb-Plated.drl",
+        "pcb-PTH.drl",
         "pcb-NPTH.drl",
     ] {
         if let Some(text) = extras.get(key) {
@@ -4011,8 +4010,8 @@ fn gerber_files_core(
     if !files.contains_key("pcb-NPTH.drl") {
         files.insert("pcb-NPTH.drl".into(), npth_drill);
     }
-    if !files.contains_key("pcb-Plated.drl") {
-        files.insert("pcb-Plated.drl".into(), plated_drill);
+    if !files.contains_key("pcb-PTH.drl") {
+        files.insert("pcb-PTH.drl".into(), plated_drill);
     }
     for (name, text) in gerber_fidelity::mask_stack_gerber_files(p)? {
         files.insert(name, text);
@@ -10467,7 +10466,7 @@ mod tests {
             back.contains("C,0.020000*%"),
             "a 0.508 mm track is a 0.02 inch flash: {back}"
         );
-        let drill = &files["pcb-Plated.drl"];
+        let drill = &files["pcb-PTH.drl"];
         assert!(
             drill.starts_with("M48\nPlated,1,2,PTH\nFMAT,2\nINCH,TZ\n"),
             "the drill header declares inches: {drill}"
@@ -10696,7 +10695,7 @@ mod tests {
                 "pcb-F.Paste.gbr",
                 "pcb-F.SilkS.gbr",
                 "pcb-NPTH.drl",
-                "pcb-Plated.drl",
+                "pcb-PTH.drl",
                 "pcb-job.gbrjob",
             ]
         );
@@ -12682,7 +12681,7 @@ mod tests {
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
         let files = gerber_files(&project)?;
-        let drill = &files["pcb-Plated.drl"];
+        let drill = &files["pcb-PTH.drl"];
         assert!(
             drill.contains("X10.000Y10.000\n"),
             "drill coordinates are measured from the recorded origin"
@@ -12699,7 +12698,7 @@ mod tests {
         project.board.drill_origin = Point::new(-5.0, 0.0);
         let files = gerber_files(&project)?;
         assert!(
-            files["pcb-Plated.drl"].contains("X35.000Y20.000\n"),
+            files["pcb-PTH.drl"].contains("X35.000Y20.000\n"),
             "a negative origin shifts the other way"
         );
         Ok(())
@@ -15473,7 +15472,7 @@ mod tests {
     fn gerber_files_footprint_unplated_pegs_export_only_to_npth_drill() -> Result<(), String> {
         let project = peg_footprint_project()?;
         let files = gerber_files(&project)?;
-        let plated = &files["pcb-Plated.drl"];
+        let plated = &files["pcb-PTH.drl"];
         let npth = &files["pcb-NPTH.drl"];
         assert!(
             plated.contains("T1C0.800\n"),
@@ -15607,7 +15606,7 @@ mod tests {
         });
         project.validate()?;
         let files = gerber_files(&project)?;
-        let plated = &files["pcb-Plated.drl"];
+        let plated = &files["pcb-PTH.drl"];
         let npth = &files["pcb-NPTH.drl"];
         assert!(plated.contains("T1C0.300\n") && !plated.contains("T1C3.000\n"));
         assert!(npth.contains("T1C3.000\n") && !npth.contains("0.300"));
@@ -15643,7 +15642,7 @@ mod tests {
         });
         project.validate()?;
         let files = gerber_files(&project)?;
-        let plated = &files["pcb-Plated.drl"];
+        let plated = &files["pcb-PTH.drl"];
         let npth = &files["pcb-NPTH.drl"];
         for text in [plated.as_str(), npth.as_str()] {
             assert!(text.contains("FMAT,2\n"));
@@ -16267,7 +16266,7 @@ mod tests {
         assert!(blind.contains("Plated,1,2,Blind"));
         assert!(buried.contains("Plated,3,4,Buried"));
         let through = files
-            .get("pcb-Plated.drl")
+            .get("pcb-PTH.drl")
             .ok_or("through drill file missing")?;
         assert!(through.contains("Plated,1,6,PTH") || through.contains("PTH"));
         assert_eq!(
@@ -16446,7 +16445,7 @@ mod tests {
             ViaCovering::Tented,
             Some(ViaCovering::Plugged),
         )?)?;
-        let drill = &files["pcb-Plated.drl"];
+        let drill = &files["pcb-PTH.drl"];
         assert!(
             drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ib\n"),
             "{drill}"
