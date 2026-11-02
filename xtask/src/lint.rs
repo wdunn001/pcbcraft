@@ -163,21 +163,13 @@ fn scan_dir(path: &Path, problems: &mut Vec<String>) {
         };
         if ft.is_dir() {
             scan_dir(&entry.path(), problems);
-        } else if name.ends_with(".rs") {
-            match std::fs::read_to_string(&entry.path()) {
-                Ok(text) => {
-                    for (i, line) in text.lines().enumerate() {
-                        if line.starts_with("<<<<<<<") || line.starts_with(">>>>>>>") {
-                            problems.push(format!(
-                                "{}:{}: {}",
-                                entry.path().display(),
-                                i + 1,
-                                line
-                            ));
-                        }
-                    }
+        } else if name.ends_with(".rs")
+            && let Ok(text) = std::fs::read_to_string(entry.path())
+        {
+            for (i, line) in text.lines().enumerate() {
+                if line.starts_with("<<<<<<<") || line.starts_with(">>>>>>>") {
+                    problems.push(format!("{}:{}: {}", entry.path().display(), i + 1, line));
                 }
-                Err(_) => {}
             }
         }
     }
