@@ -107,18 +107,79 @@ pub fn conflict_markers(root: &Path) -> Result<(), String> {
     let output = Command::new("git")
         .current_dir(root)
         .args(["grep", "-nE", "^(<<<<<<<|>>>>>>>) "])
-        .output()
-        .map_err(|e| format!("git grep: {e}"))?;
-    match output.status.code() {
-        Some(1) => Ok(()),
-        Some(0) => Err(format!(
-            "committed conflict markers:\n{}",
-            String::from_utf8_lossy(&output.stdout)
+        .output();
+    match output {
+        Ok(o) if o.status.code() == Some(1) => Ok(()),
+        Ok(o) if o.status.code() == Some(0) => Err(format!(
+            "committed conflict markers:
+{}",
+            String::from_utf8_lossy(&o.stdout)
         )),
-        _ => Err(format!(
-            "git grep failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )),
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr).to_string();
+            if err.contains("not a git repository") || err.contains("fatal:") {
+                return manual_conflict_markers(root);
+            }
+            Err(format!("git grep failed: {}", err))
+        }
+        Err(_) => manual_conflict_markers(root),
+    }
+}
+
+fn manual_conflict_markers(root: &Path) -> Result<(), String> {
+    let mut problems = Vec::new();
+    scan_dir(root, &mut problems);
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "conflict markers found:
+{}",
+            problems.join(
+                "
+"
+            )
+        ))
+    }
+}
+
+fn scan_dir(path: &Path, problems: &mut Vec<String>) {
+    let entries = match std::fs::read_dir(path) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name == "target" {
+            continue;
+        }
+        let ft = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if ft.is_dir() {
+            scan_dir(&entry.path(), problems);
+        } else if name.ends_with(".rs") {
+            match std::fs::read_to_string(&entry.path()) {
+                Ok(text) => {
+                    for (i, line) in text.lines().enumerate() {
+                        if line.starts_with("<<<<<<<") || line.starts_with(">>>>>>>") {
+                            problems.push(format!(
+                                "{}:{}: {}",
+                                entry.path().display(),
+                                i + 1,
+                                line
+                            ));
+                        }
+                    }
+                }
+                Err(_) => {}
+            }
+        }
     }
 }
 
