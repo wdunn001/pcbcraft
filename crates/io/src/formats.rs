@@ -613,6 +613,21 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Exchange,
         Run::Engine("firmware.target.export"),
     ),
+    // Two rows, one per direction: the table keeps a format that is read apart from one that is written
+    // (a Parts row only comes in, an Output row only goes out), so Import lists one and Export as lists the other.
+    FormatSpec {
+        id: "board_interchange_out",
+        label: "Board interchange file",
+        tip: "The board in a text file other design tools can open. Covers a supported subset.",
+        extensions: &["kicad_pcb"],
+        scope: Scope::Output,
+        group: Group::Exchange,
+        open: None,
+        import: None,
+        export: Some(Run::Tool("export")),
+        options: &[],
+        common: false,
+    },
     FormatSpec {
         id: "board_interchange",
         label: "Board interchange file",
@@ -622,7 +637,7 @@ pub static FORMATS: &[FormatSpec] = &[
         group: Group::Exchange,
         open: None,
         import: Some(Run::Engine("project.import")),
-        export: Some(Run::Tool("export")),
+        export: None,
         options: &[],
         common: true,
     },
