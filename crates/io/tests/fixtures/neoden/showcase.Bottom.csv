@@ -11,5 +11,5 @@ NozzleChange,OFF,BeforeComponent,1,Head1,Drop,Station1,PickUp,Station1,
 ,,,,,,,,,,,,,
 Designator,Comment,Footprint,Mid X(mm),Mid Y(mm) ,Rotation,Head ,FeederNo,Mount Speed(%),Pick Height(mm),Place Height(mm),Mode,Skip
 R1,5.1k,0402,57.00,13.00,0.00,1,12,75,0.0,0.0,1,0
-U7,Switch,SOT-23-5,6.00,42.00,0.00,2,63,75,0.0,0.0,1,0
-SW3,User 2,Tact_4p5,51.00,26.20,180.00,1,56,60,0.0,0.0,1,0
+U7,Switch,SOT-23-5_N,6.00,43.00,0.00,2,63,75,0.0,0.0,1,0
+SW3,User 2,Tact_4p5_N,51.00,26.20,180.00,1,56,60,0.0,0.0,1,0

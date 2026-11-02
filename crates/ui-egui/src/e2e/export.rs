@@ -351,11 +351,27 @@ fn a_newcomer_gets_a_bring_up_checklist_for_the_board() -> Result<(), String> {
         md.contains("Bring-up plan") && md.contains("Power rails"),
         "the markdown checklist covers rails: {md}"
     );
+    assert!(
+        md.contains("Programming and debug headers"),
+        "the markdown checklist names the header pins: {md}"
+    );
+    assert!(
+        md.contains("Continuity pairs"),
+        "the markdown checklist names the continuity pairs: {md}"
+    );
+    assert!(
+        md.contains("Nets without a probe pad"),
+        "the markdown checklist names nets with no probe pad: {md}"
+    );
     let csv =
         std::fs::read_to_string(dir.path().join("bring-up-plan.csv")).map_err(|e| e.to_string())?;
     assert!(
         csv.contains("SECTION") && csv.contains("rail"),
         "the csv mirrors the plan: {csv}"
+    );
+    assert!(
+        csv.contains("header"),
+        "the csv lists the header pins: {csv}"
     );
     Ok(())
 }
@@ -439,5 +455,60 @@ fn a_newcomer_exports_a_fab_package_from_export() -> Result<(), String> {
         "Protel-style layer and drill names"
     );
     assert!(!app.edit.dialog.open, "the dialog closes after the export");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_an_interchange_board_file() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Pcb);
+    app.needs_fit = true;
+    let ctx = egui::Context::default();
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+
+    // Count parts before import.
+    let parts_before = app.project.components.len();
+
+    // Open the Import dialog.
+    authoring::tests::tap(&ctx, &mut app, "File")?;
+    authoring::tests::tap(&ctx, &mut app, "Import")?;
+    authoring::tests::tap(&ctx, &mut app, "Board interchange file")?;
+    assert!(app.edit.dialog.open, "the Import dialog opens");
+    assert_eq!(
+        app.edit.dialog.format, "board_interchange",
+        "on the Board interchange file"
+    );
+
+    // Set the file path.
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../io/tests/fixtures/board_import_simple_2layer.kicad_pcb");
+    app.edit.dialog.path = fixture.to_string_lossy().into_owned();
+
+    // Run the import.
+    authoring::tests::tap(&ctx, &mut app, "Import")?;
+    assert!(!app.edit.dialog.open, "the dialog closes after the import");
+
+    // Verify the board was imported.
+    let parts_after = app.project.components.len();
+    // The import replaces the open design with the file's board: the file holds one resistor, the sample three parts.
+    assert_eq!(
+        parts_after, 1,
+        "the design is now the file's board with its one resistor"
+    );
+    assert_ne!(parts_after, parts_before, "the sample design was replaced");
+
+    // Verify undo restores the prior design.
+    app.tool_call("undo", json!({}));
+    let parts_after_undo = app.project.components.len();
+    assert_eq!(
+        parts_after_undo, parts_before,
+        "undo restores the prior design"
+    );
+
     Ok(())
 }

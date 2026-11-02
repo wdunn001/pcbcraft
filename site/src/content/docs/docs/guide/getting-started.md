@@ -30,10 +30,10 @@ If you run the app without `--sample`, the Start screen opens first. Pick **Work
 ## Read the top of the window
 
 1. Look at the menus at the top left: File, Edit, View and Help.
-2. Look at the row below them. The tabs are Files, Schematic, Layout and Manufacture.
+2. Look at the row below them. The tabs are Files, Library, Schematic, Layout and Manufacture.
 3. Click **Layout** to see the board.
 
-   ![The top of the window. The menus are File, Edit, View and Help. The tabs are Files, Schematic, Layout and Manufacture, and Layout is selected.](../../../../assets/guide/start-tabs.png)
+   ![The top of the window. The menus are File, Edit, View and Help. The tabs are Files, Library, Schematic, Layout and Manufacture, and Schematic is selected.](../../../../assets/guide/start-tabs.png)
 
 The board is 60 by 40 mm and holds the same three parts. Dashed lines join the pads that must be connected. No copper is drawn yet. Use **Schematic** to go back.
 
@@ -43,7 +43,7 @@ The board is 60 by 40 mm and holds the same three parts. Dashed lines join the p
 2. Find the groups **Symbols**, **Parts** and **Nets**.
 3. Open **Parts** to see J1, R1 and D1. Open **Nets** to see GND, LED and VCC.
 
-   ![The Layers tree for the schematic. Symbols, Power ports, Drawing and Title block are listed with counts. Parts lists J1, R1 and D1. Nets lists GND, LED and VCC.](../../../../assets/guide/start-tree.png)
+   ![The Layers tree for the schematic. Symbols and Title block are listed with counts. Parts lists J1, R1 and D1. Nets lists GND, LED and VCC.](../../../../assets/guide/start-tree.png)
 
 Click a row to select that item on the drawing. The next pages show what each row can do.
 

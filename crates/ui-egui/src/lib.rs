@@ -11,6 +11,7 @@ mod assistant;
 mod authoring;
 pub mod board3d;
 mod board_side;
+mod board_visibility;
 mod bom_export;
 mod bottom_sheet;
 pub mod brand;
@@ -76,6 +77,7 @@ pub mod ui_kit;
 mod via_backdrill;
 mod via_covering;
 mod via_span;
+mod via_tool;
 mod wall_clock;
 mod wire_canvas;
 mod workspace;
@@ -652,7 +654,6 @@ use serde_json::{Value, json};
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
     Files,
-    Library,
     Schematic,
     Pcb,
     Board3d,
@@ -661,6 +662,7 @@ enum Tab {
     Settings,
     Libraries,
     PlotFiles,
+    Library,
 }
 /// What the board canvas draws at each pad centre.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -1133,6 +1135,8 @@ pub struct App {
     /// The unified Layers tree view state (left aside).
     tree: layers_tree::TreeView,
     focus_layer: Option<String>,
+    /// Tree path of the layer row that is picked and lit on the canvas; the rest dims.
+    layer_lit: Option<String>,
     make_dir: String,
     rule_draft: Option<(pcbcraft_doc::Id, f64, f64)>,
     class_pick: Option<String>,
@@ -1141,6 +1145,7 @@ pub struct App {
     swap_pick: Option<String>,
     swap_name: String,
     hole_diameter: f64,
+    via_tool: via_tool::ViaToolOptions,
     art_layer: Option<Id>,
     art_shape: DrawShape,
     art_start: Option<Point>,
@@ -1888,6 +1893,7 @@ impl App {
             home_path_focus: false,
             tree: layers_tree::TreeView::default(),
             focus_layer: None,
+            layer_lit: None,
             make_dir: String::new(),
             rule_draft: None,
             class_pick: None,
@@ -1896,6 +1902,7 @@ impl App {
             swap_pick: None,
             swap_name: String::new(),
             hole_diameter: 3.2,
+            via_tool: via_tool::ViaToolOptions::default(),
             art_layer: None,
             art_shape: DrawShape::Line,
             art_start: None,
@@ -3346,23 +3353,23 @@ impl App {
                 });
             });
     }
-    /// The tab row: Files, Library, Schematic, Layout and Manufacture, left-aligned
+    /// The tab row: Files, Schematic, Layout, Manufacture and Library, left-aligned
     /// with the active tab underlined. Rules, Checks and Settings are reached
     /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
         const TAB_ANCHORS: [&str; 5] = [
             "shell.tab.files",
-            "shell.tab.library",
             "shell.tab.schematic",
             "shell.tab.layout",
             "shell.tab.manufacture",
+            "shell.tab.library",
         ];
         let shown: [(Tab, String); 5] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
-            (Tab::Library, t!("docks.workbench_tabs.library")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
             (Tab::Pcb, t!("docks.workbench_tabs.layout")),
             (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
+            (Tab::Library, t!("docks.workbench_tabs.library")),
         ];
         let tokens = theme::tokens(ui.ctx());
         let labels: Vec<(Tab, String, String)> = shown
@@ -7037,6 +7044,11 @@ impl App {
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.draw_tool_options(ui));
                     }
+                    if matches!(self.tool, Tool::Via) {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.via_tool_options(ui));
+                    }
                     if matches!(self.tool, Tool::Port) {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
@@ -7733,6 +7745,8 @@ impl App {
             && library_ready
             && self.online_settled()
             && self.edit.dialog.script.ready()
+            // A staged dialog fades in; wait until it is fully drawn.
+            && (self.edit.dialog.script.show.is_none() || self.frames >= 30)
             && (self.tab != Tab::Files || self.files_home.settled(&self.files_listed()))
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));

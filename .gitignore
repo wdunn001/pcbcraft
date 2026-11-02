@@ -10,3 +10,6 @@ site/docs-preview/
 /site/src/data/status.json
 /site/src/data/status-snapshot.json
 node_modules/
+
+# Deploy target values (see site/.env.deploy.example)
+/site/.env.deploy

@@ -12,6 +12,8 @@ const site = process.env.SITE_URL || 'https://pcbcraft.net';
 const rawBase = process.env.SITE_BASE || '/';
 const base = rawBase === '/' ? '/' : `/${rawBase.replace(/^\/+|\/+$/g, '')}/`;
 
+const socialCard = new URL(`${base}social-card.png`, site).href;
+
 export default defineConfig({
   site,
   base,
@@ -25,6 +27,16 @@ export default defineConfig({
       title: 'PCBCraft',
       description: 'Documentation for PCBCraft, a schematic and board layout tool.',
       favicon: '/favicon.svg',
+      head: [
+        { tag: 'link', attrs: { rel: 'icon', href: `${base}favicon.ico`, sizes: '48x48' } },
+        { tag: 'link', attrs: { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` } },
+        { tag: 'meta', attrs: { property: 'og:image', content: socialCard } },
+        { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
+        { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
+        { tag: 'meta', attrs: { property: 'og:image:alt', content: 'The PCBCraft Layout tab showing a routed four-layer sensor board.' } },
+        { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
+        { tag: 'meta', attrs: { name: 'twitter:image', content: socialCard } },
+      ],
       defaultLocale: 'root',
       locales: { root: { label: 'English', lang: 'en' } },
       customCss: ['./src/styles/fonts.css', './src/styles/theme.css', './src/styles/docs.css'],

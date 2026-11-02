@@ -435,6 +435,10 @@ impl App {
             let (Some(a), Some(b)) = (point("from"), point("to")) else {
                 continue;
             };
+            let ends = |k: &str| wire.get(k).and_then(Value::as_u64).unwrap_or_default();
+            if !self.airwire_shown(ends("from_object"), ends("to_object")) {
+                continue;
+            }
             let (a, b) = (camera.screen(a, rect), camera.screen(b, rect));
             painter.extend(egui::Shape::dashed_line(
                 &[a, b],
