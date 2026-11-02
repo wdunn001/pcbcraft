@@ -25201,12 +25201,12 @@ mod tests {
             .ok_or_else(missing)?
             .pad_position("1")
             .ok_or_else(missing)?;
-        // Copper files use 4.6 integer words and the bottom film is mirrored
-        // about x=0, so the flipped pad appears at minus its x on that layer.
+        // Copper files use 4.6 integer words and keep design coordinates, so
+        // the flipped pad appears at its own x on the bottom layer.
         assert!(
             gerber["pcb-B.Cu.gbr"].lines().any(|l| l.ends_with("D03*")
-                && l.contains(&format!("X{}Y", (-centre.x * 1e6).round() as i64))),
-            "bottom copper carries the mirrored x"
+                && l.contains(&format!("X{}Y", (centre.x * 1e6).round() as i64))),
+            "bottom copper carries the design x"
         );
         assert!(
             !gerber["pcb-F.Cu.gbr"].lines().any(|l| l.ends_with("D03*")
