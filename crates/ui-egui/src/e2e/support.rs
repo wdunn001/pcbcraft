@@ -376,12 +376,11 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
         Some(icon) => match icon {
             "tool-select" => "Select",
             "tool-move" => "Move",
-            "tool-place-part" => "Place part",
-            "tool-wire" => "Wire",
             "tool-bus" => "Bus",
             "tool-label" => "Label",
             "tool-power" => "Power",
             "tool-noconnect" => "No connect",
+            "tool-port" => "Port",
             "tool-route" => "Route",
             "tool-via" => "Via",
             "tool-keepout" => "Keepout",
@@ -401,6 +400,21 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
         .to_owned(),
         None => id.split_once(':').map_or(id, |(_, label)| label).to_owned(),
     };
+    let in_add_menu = matches!(
+        id,
+        "icon:tool-label"
+            | "icon:tool-power"
+            | "icon:tool-bus"
+            | "icon:tool-port"
+            | "icon:tool-noconnect"
+            | "icon:tool-pad"
+    );
+    if in_add_menu && app.tab == Tab::Schematic {
+        // The schematic keeps these under the Add menu, opened by its button.
+        tap_strip(ctx, app, "icon:tool-add")?;
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+        return authoring::tests::tap(ctx, app, &label);
+    }
     authoring::tests::tap(ctx, app, "More")?;
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(ctx, app, &label)

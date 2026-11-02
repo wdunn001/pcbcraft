@@ -719,20 +719,25 @@ impl App {
             }
             Tool::Wire(None) => t!("board.canvas.wire_pick_first_pin"),
             Tool::Wire(Some(_)) => "Wire: click for bends, pin or existing wire to finish".into(),
-            Tool::SchematicLabel(_) => "Click where the label should sit".into(),
-            Tool::Bus => "Bus: click points along the path".into(),
+            Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local) => {
+                t!("schematic.add.hint_label")
+            }
+            Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power) => {
+                t!("schematic.add.hint_power")
+            }
+            Tool::Bus => t!("schematic.add.hint_bus"),
             Tool::Route(None) => t!("board.canvas.route_pick_first_pad"),
             Tool::Route(Some(_)) => t!("board.canvas.route_pick_second_pad"),
             Tool::Move => t!("board.canvas.move_click_to_place_selection"),
             Tool::Cutout => t!("board.canvas.cutout_click_to_place"),
             Tool::Hole => t!("board.canvas.mounting_hole_click_to_drill"),
             Tool::Keepout => t!("board.canvas.keepout_pick_corner"),
-            Tool::NoConnect => t!("board.canvas.no_connect_click_a_pin"),
+            Tool::NoConnect => t!("schematic.add.hint_no_connect"),
             Tool::Fiducial => t!("board.canvas.assembly_mark_click_a_clear"),
             Tool::DrawLayer => t!("board.canvas.draw_shape_pick_the_layer"),
             Tool::Measure => t!("board.canvas.measure_click_two_points"),
             Tool::Via => t!("board.canvas.via"),
-            Tool::Port => t!("schematic.port.canvas_hint"),
+            Tool::Port => t!("schematic.add.hint_port"),
             Tool::Pad => t!("board.canvas.pad_click_to_place"),
         };
         if !matches!(self.tool, Tool::Select) {

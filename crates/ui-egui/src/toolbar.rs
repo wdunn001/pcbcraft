@@ -26,8 +26,7 @@ use egui::{CornerRadius, Rect, Sense, Stroke, StrokeKind, Vec2, pos2};
 enum Act {
     Select,
     Move,
-    PlacePart,
-    Wire,
+    Add,
     NetLabel,
     PowerLabel,
     Bus,
@@ -55,6 +54,8 @@ struct Item {
     act: Act,
     /// A divider is drawn before this item.
     divider: bool,
+    /// Entries of the menu this item opens; empty for a plain tool.
+    menu: Vec<Item>,
 }
 
 const PAD: f32 = 10.0;
@@ -157,6 +158,7 @@ impl App {
                 armed,
                 act,
                 divider,
+                menu: Vec::new(),
             });
         };
         let pcb = self.tab == Tab::Pcb;
@@ -173,105 +175,30 @@ impl App {
             Act::Select,
             false,
         );
-        push(
-            "tool-move",
-            "move",
-            t!("board.tool_strip.move"),
-            self.tool_tip(
-                t!("board.tool_strip.move_tool_drop_the_selection"),
-                ToolKind::Move,
-                None,
-            ),
-            matches!(self.tool, Tool::Move),
-            Act::Move,
-            false,
-        );
-        if self.tab == Tab::Schematic {
+        if pcb {
             push(
-                "tool-place-part",
-                "part",
-                t!("library.browser.place_part"),
-                t!("library.browser.place_part.tip"),
-                self.palette,
-                Act::PlacePart,
-                true,
-            );
-            push(
-                "tool-wire",
-                "wire",
-                t!("board.tool_strip.wire"),
+                "tool-move",
+                "move",
+                t!("board.tool_strip.move"),
                 self.tool_tip(
-                    t!("board.tool_strip.wire_tool_click_two_pins"),
-                    ToolKind::Wire,
-                    Some(Hotkey::Wire),
-                ),
-                matches!(self.tool, Tool::Wire(_)),
-                Act::Wire,
-                false,
-            );
-            push(
-                "tool-label",
-                "label",
-                "Label".to_string(),
-                "Place a local net label on a wire or pin.".to_string(),
-                matches!(
-                    self.tool,
-                    Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local)
-                ),
-                Act::NetLabel,
-                false,
-            );
-            push(
-                "tool-power",
-                "power",
-                "Power".to_string(),
-                "Place a power port label on a wire or pin.".to_string(),
-                matches!(
-                    self.tool,
-                    Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power)
-                ),
-                Act::PowerLabel,
-                false,
-            );
-            push(
-                "tool-bus",
-                "bus",
-                "Bus".to_string(),
-                "Draw a named bus across two or more points.".to_string(),
-                matches!(self.tool, Tool::Bus),
-                Act::Bus,
-                false,
-            );
-            push(
-                "tool-noconnect",
-                "no-connect",
-                t!("board.tool_strip.no_connect"),
-                self.tool_tip(
-                    t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
-                    ToolKind::NoConnect,
+                    t!("board.tool_strip.move_tool_drop_the_selection"),
+                    ToolKind::Move,
                     None,
                 ),
-                matches!(self.tool, Tool::NoConnect),
-                Act::NoConnect,
+                matches!(self.tool, Tool::Move),
+                Act::Move,
                 false,
             );
+        }
+        if self.tab == Tab::Schematic {
             push(
-                "tool-port",
-                "port",
-                t!("schematic.port.tool"),
-                command_tip("schematic.place_port"),
-                matches!(self.tool, Tool::Port),
-                Act::Port,
+                "tool-add",
+                "part",
+                t!("toolbar.add"),
+                t!("toolbar.add.tip"),
                 false,
-            );
-            push(
-                "tool-pad",
-                "pad-smd",
-                t!("board.tool_strip.pad"),
-                self.tool_tip(t!("board.tool_strip.pad.tip"), ToolKind::Place, None),
-                matches!(self.tool, Tool::Pad),
-                Act::Pad,
-                false,
+                Act::Add,
+                true,
             );
         }
         if pcb {
@@ -423,15 +350,107 @@ impl App {
             Act::Measure,
             true,
         );
+        if self.tab == Tab::Schematic {
+            let menu = self.add_menu();
+            if let Some(item) = out.iter_mut().find(|i| i.act == Act::Add) {
+                item.armed = menu.iter().any(|m| m.armed);
+                item.menu = menu;
+            }
+        }
         out
+    }
+
+    /// The kinds the Add menu offers on the schematic, in menu order.
+    ///
+    /// # Rules
+    /// - Each entry arms the tool that places it; the tool then keeps placing until
+    ///   the person presses Esc or picks Select.
+    /// - Ids stay `tool-<kind>` so a story finds an entry by its name.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/tool_modifiers.rs (tool tips)
+    ///
+    /// # Do not
+    /// - Put a drawing tool here: wires start at a pin and parts come from the Library.
+    fn add_menu(&self) -> Vec<Item> {
+        use tool_modifiers::ToolKind;
+        let entry = |id, icon, label: String, tip: String, armed, act| Item {
+            id,
+            icon,
+            label,
+            tip,
+            armed,
+            act,
+            divider: false,
+            menu: Vec::new(),
+        };
+        vec![
+            entry(
+                "tool-label",
+                "label",
+                "Label".to_string(),
+                "Place a local net label on a wire or pin.".to_string(),
+                matches!(
+                    self.tool,
+                    Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local)
+                ),
+                Act::NetLabel,
+            ),
+            entry(
+                "tool-power",
+                "power",
+                "Power".to_string(),
+                "Place a power port label on a wire or pin.".to_string(),
+                matches!(
+                    self.tool,
+                    Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power)
+                ),
+                Act::PowerLabel,
+            ),
+            entry(
+                "tool-bus",
+                "bus",
+                "Bus".to_string(),
+                "Draw a named bus across two or more points.".to_string(),
+                matches!(self.tool, Tool::Bus),
+                Act::Bus,
+            ),
+            entry(
+                "tool-port",
+                "port",
+                t!("schematic.port.tool"),
+                command_tip("schematic.place_port"),
+                matches!(self.tool, Tool::Port),
+                Act::Port,
+            ),
+            entry(
+                "tool-noconnect",
+                "no-connect",
+                t!("board.tool_strip.no_connect"),
+                self.tool_tip(
+                    t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
+                    ToolKind::NoConnect,
+                    None,
+                ),
+                matches!(self.tool, Tool::NoConnect),
+                Act::NoConnect,
+            ),
+            entry(
+                "tool-pad",
+                "pad-smd",
+                t!("board.tool_strip.pad"),
+                self.tool_tip(t!("board.tool_strip.pad.tip"), ToolKind::Place, None),
+                matches!(self.tool, Tool::Pad),
+                Act::Pad,
+            ),
+        ]
     }
 
     fn toolbar_apply(&mut self, act: Act) {
         match act {
             Act::Select => self.tool = Tool::Select,
             Act::Move => self.tool = Tool::Move,
-            Act::PlacePart => self.open_part_search(),
-            Act::Wire => self.arm_wire_tool(),
+            Act::Add => {}
             Act::NetLabel => {
                 self.clear_wire_draft();
                 self.tool = Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local);
@@ -529,8 +548,27 @@ impl App {
                 let anchor = tour::anchor::tool_id(tool_ws, item.id);
                 tour::anchor::anchor(ui, &anchor, &r);
                 self.record_icon(item.id, r.rect);
-                if r.clicked() {
-                    action = Some(item.act);
+                if item.menu.is_empty() {
+                    if r.clicked() {
+                        action = Some(item.act);
+                    }
+                } else {
+                    egui::Popup::menu(&r).show(|ui| {
+                        ui.set_min_width(200.0);
+                        for entry in &item.menu {
+                            if ui
+                                .selectable_label(
+                                    entry.armed,
+                                    fonts::text(Role::Body, entry.label.clone()),
+                                )
+                                .on_hover_text(&entry.tip)
+                                .clicked()
+                            {
+                                action = Some(entry.act);
+                                ui.close();
+                            }
+                        }
+                    });
                 }
             }
             if shown < items.len() {
@@ -558,7 +596,14 @@ impl App {
                 let resp = resp.on_hover_text(t!("toolbar.more.tip"));
                 egui::Popup::menu(&resp).show(|ui| {
                     ui.set_min_width(200.0);
-                    for item in rest {
+                    let flat = rest.iter().flat_map(|i| {
+                        if i.menu.is_empty() {
+                            std::slice::from_ref(i).iter()
+                        } else {
+                            i.menu.iter()
+                        }
+                    });
+                    for item in flat {
                         let label = item.label.clone();
                         if ui
                             .selectable_label(item.armed, fonts::text(Role::Body, label))

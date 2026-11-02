@@ -116,12 +116,6 @@ fn a_newcomer_switches_the_left_aside_between_layers_and_library() -> Result<(),
     assert_eq!(app.region().left_tab, "library", "Library shows the parts");
     authoring::tests::tap(&ctx, &mut app, "Layers")?;
     assert_eq!(app.region().left_tab, "layers", "Layers comes back");
-    authoring::tests::tap(&ctx, &mut app, "Place part")?;
-    assert_eq!(
-        app.region().left_tab,
-        "library",
-        "Place part in the tool bar opens the Library tab"
-    );
     app.change_tab(Tab::PlotFiles);
     settled(&ctx, &mut app);
     assert!(

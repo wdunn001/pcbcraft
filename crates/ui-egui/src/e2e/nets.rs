@@ -623,7 +623,7 @@ fn a_newcomer_marks_an_unused_pin_so_no_one_asks_again() -> Result<(), String> {
     app.tab = Tab::Schematic;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "No connect")?;
+    tap_strip(&ctx, &mut app, "icon:tool-noconnect")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let spare = app
         .project

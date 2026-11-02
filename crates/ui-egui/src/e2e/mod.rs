@@ -46,6 +46,7 @@ mod pours;
 mod project_settings;
 mod route_drag;
 mod rules;
+mod schematic_add;
 mod schematic_pages;
 mod settings;
 mod sheet_rows;

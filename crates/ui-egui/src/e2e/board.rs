@@ -1617,8 +1617,10 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
 #[test]
 fn a_newcomer_wires_two_pins_and_measures() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Schematic);
-    tap_strip(&ctx, &mut app, "icon:tool-wire")?;
-    assert!(matches!(app.tool, Tool::Wire(_)), "Wire arms the wire tool");
+    assert!(
+        !on_screen(&ctx, &mut app, "icon:tool-wire"),
+        "the schematic strip has no Wire button; a pin starts a wire"
+    );
     tap_strip(&ctx, &mut app, "icon:tool-measure")?;
     assert!(matches!(app.tool, Tool::Measure), "Measure arms the ruler");
     Ok(())

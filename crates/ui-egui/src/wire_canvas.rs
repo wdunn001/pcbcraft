@@ -252,7 +252,6 @@ impl App {
             "label.place",
             json!({"kind": label_kind, "net": net, "position": {"x": at.x, "y": at.y}, "rotation": 0.0}),
         );
-        self.tool = Tool::Select;
     }
 
     fn bus_member_at(&self, pos: Point, zoom: f32) -> Option<Id> {

@@ -4150,20 +4150,14 @@ impl App {
                 self.workspace().left_body(self, &tab, ui);
             });
     }
-    /// Opens the Library tab with the part search focused.
-    fn open_part_search(&mut self) {
-        self.region().left_tab = "library".to_owned();
-        self.palette = true;
-        self.part_search_focus = true;
-    }
     /// The tab header of the left aside, from the workspace's `left_tabs`.
     ///
     /// # Rules
     /// A saved tab id the workspace no longer lists falls back to its first tab.
     ///
     /// # Do not
-    /// Add a Hide button or an Add part button here; Place part lives in
-    /// the Schematic tool bar.
+    /// Add a Hide button or an Add part button here; parts come from the
+    /// Library cards.
     fn left_aside_tabs(&mut self, ui: &mut egui::Ui) {
         let tabs = self.workspace().left_tabs();
         if !tabs.iter().any(|t| t.id == self.region().left_tab) {
