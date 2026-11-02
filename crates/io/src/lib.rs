@@ -189,7 +189,7 @@ pub use export_validate::{
     stored_zip_entry, stored_zip_entry_names, validate_fabrication_package_file,
     validate_ipc2581_document, validate_odb_package,
 };
-pub use fab_drawing::fab_drawing_pdf;
+pub use fab_drawing::{fab_drawing_pdf, fab_drawing_svg};
 pub use fab_export::{DrillFunction, via_mask_opening, via_mask_opening_on_face};
 pub use firmware_target::{firmware_config_compare, firmware_target_files};
 pub use generate::{
@@ -6123,8 +6123,11 @@ pub fn dxf_entities(text: &str) -> Result<Vec<DxfEntity>, String> {
 /// - Coordinates are in the project's native units (typically mm).
 pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
+    if assembly_drawing::view_is_assembly(view) {
+        return assembly_drawing::drawing_svg(p, view);
+    }
     if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
+        return Err("view must be pcb, schematic, assembly-top, or assembly-bottom".into());
     }
     let content_bounds = preview_bounds(p, view);
     let (min, max) = content_bounds;

@@ -45,6 +45,235 @@ pub fn fab_drawing_pdf(p: &Project) -> Result<Vec<u8>, String> {
     pdf_bytes_from_ops(sheet.ops, 842.0, 595.0)
 }
 
+/// One-page fabrication drawing as an SVG document with drill table and outline.
+pub fn fab_drawing_svg(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    let title = project_title(p);
+    let (bmin, bmax) = board_bounds(p);
+    let board_w = bmax.x - bmin.x;
+    let board_h = bmax.y - bmin.y;
+    let svg_w = 297.0;
+    let svg_h = 210.0;
+    let margin = 10.0;
+    let outline_x = margin + 5.0;
+    let outline_y = margin + 30.0;
+    let scale = 1.0;
+    let mut body = String::new();
+    body.push_str(&format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{svg_w}\" height=\"{svg_h}\" viewBox=\"0 0 {svg_w} {svg_h}\" font-family=\"sans-serif\">"
+    ));
+    body.push_str(&format!(
+        "<text x=\"10\" y=\"20\" font-size=\"14\">Fabrication drawing: {}</text>",
+        svg_escape(title)
+    ));
+    let transform = format!(
+        "<g transform=\"translate({}, {})\"",
+        num(outline_x),
+        num(outline_y)
+    );
+    body.push_str(&transform);
+    draw_svg_outline(p, &mut body, scale)?;
+    body.push_str("</g>");
+    body.push_str(&format!(
+        "<text x=\"10\" y=\"{}\" font-size=\"9\">Board outline</text>",
+        num(outline_y - 4.0)
+    ));
+    body.push_str(&format!(
+        "<text x=\"10\" y=\"{}\" font-size=\"9\">Width {:.3} mm</text>",
+        num(outline_y - 14.0),
+        board_w
+    ));
+    body.push_str(&format!(
+        "<text x=\"10\" y=\"{}\" font-size=\"9\">Height {:.3} mm</text>",
+        num(outline_y - 24.0),
+        board_h
+    ));
+    let table_x = margin + 100.0;
+    let table_y = margin + 30.0;
+    draw_svg_sections(p, &mut body, table_x, table_y)?;
+    body.push_str("</svg>");
+    Ok(body)
+}
+
+fn draw_svg_outline(p: &Project, body: &mut String, scale: f64) -> Result<(), String> {
+    let edge = board_edge(p);
+    if edge.len() >= 2 {
+        let pts: Vec<String> = edge
+            .iter()
+            .map(|pt| format!("{} {}", num(pt.x * scale), num(pt.y * scale)))
+            .collect();
+        body.push_str(&format!(
+            "<polygon points=\"{}\" fill=\"none\" stroke=\"#333\" stroke-width=\"0.15\"/>",
+            pts.join(" ")
+        ));
+    }
+    for v in &p.board.vias {
+        if v.drill > 0.0 {
+            let r = (v.drill * scale * 0.5).max(0.5);
+            body.push_str(&format!(
+                "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#333\"/>",
+                num(v.position.x * scale),
+                num(v.position.y * scale),
+                num(r)
+            ));
+        }
+    }
+    for h in &p.board.holes {
+        let center = if h.is_slot() { h.center() } else { h.position };
+        let r = (h.diameter * scale * 0.5).max(0.5);
+        body.push_str(&format!(
+            "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#666\"/>",
+            num(center.x * scale),
+            num(center.y * scale),
+            num(r)
+        ));
+    }
+    Ok(())
+}
+
+fn draw_svg_sections(p: &Project, body: &mut String, x: f64, y: f64) -> Result<(), String> {
+    let mut yy = y;
+    let stackup = stackup_section_lines(p)?;
+    if !stackup.is_empty() {
+        body.push_str(&format!(
+            "<text x=\"{}\" y=\"{}\" font-size=\"9\" font-weight=\"bold\">Layer stackup</text>",
+            num(x),
+            num(yy)
+        ));
+        yy += 4.0;
+        for line in &stackup {
+            body.push_str(&format!(
+                "<text x=\"{}\" y=\"{}\" font-size=\"8\">{}</text>",
+                num(x),
+                num(yy),
+                svg_escape(line)
+            ));
+            yy += 3.5;
+        }
+    }
+    yy += 3.0;
+    let drills = drill_section_lines(p)?;
+    if !drills.is_empty() {
+        body.push_str(&format!(
+            "<text x=\"{}\" y=\"{}\" font-size=\"9\" font-weight=\"bold\">Drill chart</text>",
+            num(x),
+            num(yy)
+        ));
+        yy += 4.0;
+        for line in &drills {
+            body.push_str(&format!(
+                "<text x=\"{}\" y=\"{}\" font-size=\"8\">{}</text>",
+                num(x),
+                num(yy),
+                svg_escape(line)
+            ));
+            yy += 3.5;
+        }
+    }
+    yy += 3.0;
+    let imp_lines = impedance_section_lines(p)?;
+    if !imp_lines.is_empty() {
+        body.push_str(&format!(
+            "<text x=\"{}\" y=\"{}\" font-size=\"9\" font-weight=\"bold\">Controlled impedance</text>",
+            num(x),
+            num(yy)
+        ));
+        yy += 4.0;
+        for line in &imp_lines {
+            body.push_str(&format!(
+                "<text x=\"{}\" y=\"{}\" font-size=\"8\">{}</text>",
+                num(x),
+                num(yy),
+                svg_escape(line)
+            ));
+            yy += 3.5;
+        }
+    }
+    yy += 3.0;
+    let notes = notes_section_lines(p)?;
+    if !notes.is_empty() {
+        body.push_str(&format!(
+            "<text x=\"{}\" y=\"{}\" font-size=\"9\" font-weight=\"bold\">Fabrication notes</text>",
+            num(x),
+            num(yy)
+        ));
+        yy += 4.0;
+        for line in &notes {
+            body.push_str(&format!(
+                "<text x=\"{}\" y=\"{}\" font-size=\"8\">{}</text>",
+                num(x),
+                num(yy),
+                svg_escape(line)
+            ));
+            yy += 3.5;
+        }
+    }
+    yy += 3.0;
+    let classes = board_class_lines(p)?;
+    if !classes.is_empty() {
+        body.push_str(&format!(
+            "<text x=\"{}\" y=\"{}\" font-size=\"9\" font-weight=\"bold\">Board class</text>",
+            num(x),
+            num(yy)
+        ));
+        yy += 4.0;
+        for line in &classes {
+            body.push_str(&format!(
+                "<text x=\"{}\" y=\"{}\" font-size=\"8\">{}</text>",
+                num(x),
+                num(yy),
+                svg_escape(line)
+            ));
+            yy += 3.5;
+        }
+    }
+    yy += 3.0;
+    let revision = revision_block_lines(p);
+    body.push_str(&format!(
+        "<text x=\"{}\" y=\"{}\" font-size=\"9\" font-weight=\"bold\">Revision block</text>",
+        num(x),
+        num(yy)
+    ));
+    yy += 4.0;
+    for line in &revision {
+        body.push_str(&format!(
+            "<text x=\"{}\" y=\"{}\" font-size=\"8\">{}</text>",
+            num(x),
+            num(yy),
+            svg_escape(line)
+        ));
+        yy += 3.5;
+    }
+    Ok(())
+}
+
+fn board_bounds(p: &Project) -> (Point, Point) {
+    let edge = board_edge(p);
+    let mut min = Point::new(f64::INFINITY, f64::INFINITY);
+    let mut max = Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for pt in edge {
+        min.x = min.x.min(pt.x);
+        min.y = min.y.min(pt.y);
+        max.x = max.x.max(pt.x);
+        max.y = max.y.max(pt.y);
+    }
+    if !min.x.is_finite() {
+        return (Point::default(), Point::new(p.board.width, p.board.height));
+    }
+    (min, max)
+}
+
+fn num(v: f64) -> String {
+    format!("{:.3}", v + 0.0)
+}
+
+fn svg_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 fn project_title(p: &Project) -> &str {
     if p.name.trim().is_empty() {
         "untitled board"
