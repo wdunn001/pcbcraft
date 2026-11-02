@@ -11,6 +11,7 @@ mod assistant;
 mod authoring;
 pub mod board3d;
 mod board_side;
+mod board_visibility;
 mod bom_export;
 mod bottom_sheet;
 pub mod brand;
@@ -1134,6 +1135,8 @@ pub struct App {
     /// The unified Layers tree view state (left aside).
     tree: layers_tree::TreeView,
     focus_layer: Option<String>,
+    /// Tree path of the layer row that is picked and lit on the canvas; the rest dims.
+    layer_lit: Option<String>,
     make_dir: String,
     rule_draft: Option<(pcbcraft_doc::Id, f64, f64)>,
     class_pick: Option<String>,
@@ -1890,6 +1893,7 @@ impl App {
             home_path_focus: false,
             tree: layers_tree::TreeView::default(),
             focus_layer: None,
+            layer_lit: None,
             make_dir: String::new(),
             rule_draft: None,
             class_pick: None,
