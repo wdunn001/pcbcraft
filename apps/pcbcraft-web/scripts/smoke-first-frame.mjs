@@ -1,6 +1,9 @@
 // Serves the trunk dist/ folder, loads the page in headless Chromium with WebGPU
 // enabled, and fails on any console panic (including "time not implemented").
 // Run from apps/pcbcraft-web after trunk build: node scripts/smoke-first-frame.mjs
+// The server sends the policy the host sends for the demo (scripts from the page's own origin
+// and wasm, no inline script), so an inline loader fails here as it would in production.
+// SMOKE_BASE=/demo/ serves the folder under that path, for a build made with --public-url /demo/.
 import http from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, extname } from 'node:path';
@@ -26,9 +29,18 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
 };
 
+const rawBase = process.env.SMOKE_BASE || '/';
+const base = `/${rawBase.replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/');
+
 const server = http.createServer((req, res) => {
   const path = decodeURIComponent(req.url.split(/[?#]/)[0]);
-  let file = join(dist, path === '/' ? 'index.html' : path.replace(/^\//, ''));
+  if (!path.startsWith(base)) {
+    res.writeHead(404);
+    res.end('outside base');
+    return;
+  }
+  const rel = path.slice(base.length);
+  let file = join(dist, rel === '' ? 'index.html' : rel);
   if (existsSync(file) && statSync(file).isDirectory()) {
     file = join(file, 'index.html');
   }
@@ -39,6 +51,7 @@ const server = http.createServer((req, res) => {
   }
   res.writeHead(200, {
     'Content-Type': MIME[extname(file)] || 'application/octet-stream',
+    'Content-Security-Policy': "script-src 'self' 'wasm-unsafe-eval'",
   });
   res.end(readFileSync(file));
 });
@@ -81,13 +94,24 @@ page.on('console', (msg) => {
   }
 });
 
-await page.goto(`${origin}/`, { waitUntil: 'networkidle', timeout: 120_000 });
+let wasmLoaded = false;
+page.on('response', (res) => {
+  if (res.url().endsWith('.wasm') && res.ok()) {
+    wasmLoaded = true;
+  }
+});
+
+await page.goto(`${origin}${base}`, { waitUntil: 'networkidle', timeout: 120_000 });
 await page.waitForTimeout(8_000);
 
 const needsWebGpu = await page.locator('#needs-webgpu').isVisible();
 const canvasHidden = await page.locator('#pcbcraft').evaluate((el) => el.hidden);
 if (needsWebGpu || canvasHidden) {
   failures.push('the WebGPU notice appeared or the canvas stayed hidden after load');
+}
+
+if (!wasmLoaded) {
+  failures.push('the wasm module was never loaded');
 }
 
 await browser.close();

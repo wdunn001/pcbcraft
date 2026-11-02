@@ -142,10 +142,11 @@
   status: browser
   evidence: [command:component.set_sourcing, command:component.set_supplier]
 - area: libraries
-name: Library tab
+  name: Library tab
   summary: Read a part's details, cached prices, 3D model and sources in one tab, compare parts side by side and edit their symbols, footprints and model alignment; also import symbols and footprints from files on disk into the project library.
   status: available
   evidence: [test:a_newcomer_opens_the_library_tab_and_reads_a_parts_details, test:a_newcomer_compares_two_parts_and_sees_their_differences, command:library.import_symbol_file, command:library.import_footprint_file]
+- area: libraries
   name: Import library files
   summary: Read symbols and footprints from files on disk into the project library.
   status: desktop
@@ -177,7 +178,7 @@ name: Library tab
   summary: Find shorts, clearance problems, unrouted nets and more, grouped by check.
   status: browser
   key: true
-  evidence: [mcp:checks, test:a_newcomer_sees_findings_grouped_by_check]
+  evidence: [mcp:checks, test:a_newcomer_sees_findings_as_rows_in_the_bottom_sheet]
 - area: rules
   name: Fabrication presets
   summary: Apply a named fabrication capability preset to the board rules in one undo step.
@@ -230,7 +231,7 @@ name: Library tab
   summary: Click a part, or choose it from a list, and see its properties.
   status: browser
   key: true
-  evidence: [test:a_newcomer_clicks_a_part_in_3d_and_sees_its_properties, test:a_newcomer_picks_a_part_from_the_3d_list]
+  evidence: [test:a_newcomer_clicks_a_part_in_3d_and_sees_its_properties, test:a_newcomer_picks_a_part_from_the_layers_tree_in_3d]
 - area: view3d
   name: Board mesh and STEP file
   summary: Read the board as a triangle mesh, or write a STEP file of the outline and pads.
@@ -307,7 +308,7 @@ name: Library tab
   summary: Write a placement file and feeder sheet for a pick and place machine profile.
   status: desktop
   key: true
-  evidence: [command:placement_yy1.export, kind:placement_yy1]
+  evidence: [command:placement_yy1.export]
 - area: machines
   name: Import drawings and images
   summary: Bring in DXF or SVG drawings as board graphics, or trace a PNG into outlines.

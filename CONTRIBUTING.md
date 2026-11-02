@@ -286,18 +286,6 @@ Integrators verify pull requests and merge them into `main`, so `main` is always
 1. Watch `gh pr list -R wdunn001/pcbcraft --state open` for pull requests with green CI. Workers do not need to ask.
 2. Verify the pull request: it merges cleanly, the report is complete, the Definition of Done is ticked and the rules in section 5 hold. Wait until the pull request's "CI result" check is green (`main` has no required checks, so do not use `--auto`: it merges at once). Then merge it with a merge commit, never a squash or a rebase of `main`:
    ```sh
-Verdict: approved for integration
-   ```
-   or `Verdict: changes requested` followed by the list. The worker fixes and pushes; the reviewer reviews again.
-5. The reviewer does not merge and does not change the status tag.
-
-### Integrator
-
-Integrators verify pull requests and merge them into `main`, so `main` is always the integrated build.
-
-1. Watch `gh pr list -R wdunn001/pcbcraft --state open` for pull requests with green CI. Workers do not need to ask.
-2. Verify the pull request: it merges cleanly, the report is complete, the Definition of Done is ticked and the rules in section 5 hold. Wait until the pull request's "CI result" check is green (`main` has no required checks, so do not use `--auto`: it merges at once). Then merge it with a merge commit, never a squash or a rebase of `main`:
-   ```sh
    git checkout main && git pull --ff-only origin main
    git merge --no-ff feat-<slug>
    gh pr merge N -R wdunn001/pcbcraft --merge
