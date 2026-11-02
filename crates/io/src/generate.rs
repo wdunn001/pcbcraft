@@ -1,17 +1,15 @@
 //! Artifact generation dispatch and content hashing.
 //!
-//! Turns an `Artifact` record into bytes by calling the existing writers in
-//! this crate, and hashes the result so the engine can tell a stale output
-//! from a current one. Pure functions except `write_generated`, which is the
-//! only place here that touches disk.
+//! Turns an `Artifact` into bytes via the writers in this crate, and hashes
+//! the result for staleness checks. All pure except `write_generated`, the
+//! only disk access here.
 //!
 //! # Rules
-//! - Kinds without a writer return a plain refusal naming the tracking issue.
-//! - Artifact paths and generated file names never escape the output folder.
+//! - Kinds without a writer return a refusal naming the tracking issue.
+//! - Artifact paths never escape the output folder.
 //!
 //! # Dependencies
 //! - `crates/doc/src/lib.rs` for `Artifact`, `Project` and the kind list.
-//! - `crates/io/src/lib.rs` for the writers and `atomic_write`.
 //!
 //! # Do not
 //! - Add a per-kind branch in the engine; new kinds are added to `generate`.

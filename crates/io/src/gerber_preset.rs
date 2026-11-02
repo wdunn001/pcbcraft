@@ -1,38 +1,18 @@
-//! Gerber naming presets and drill options: the fabrication bundle written
-//! under the file names and drill style a chosen recipient expects.
-//!
-//! Context: issue #225, child of the export packages epic (#214). A preset is
-//! data, a table of file-name patterns; it never changes what a file holds.
-//! The bundle is built once by `gerber_files_at` under the project's own
-//! `pcb-*` names, then this module adds the inner copper layers, rewrites the
-//! drill files when the options ask for another drill style, and renames every
-//! file. Because renaming is the last step, the X2 `FileFunction` attribute of
-//! every file is exactly the one the plotter wrote.
+//! Gerber naming presets and drill options. A preset is data, a table of
+//! file-name patterns that never changes file content.
 //!
 //! # Rules
-//! - A preset names every file role once. A role maps to one file name, and
-//!   `gerber_files_with` refuses a bundle in which two roles share a name.
-//! - Every copper layer of the board gets exactly one file, top to bottom, with
-//!   the layer number in its name.
-//! - `drill_files` is `split` (plated and non-plated apart) or `merged` (one
-//!   file for both). Blind and buried spans keep their own files in both.
-//! - A drill file written with the default options is the one `gerber_files_at`
-//!   wrote. Any other option rewrites it from the same hole list, so the holes
-//!   are the same and only the encoding differs.
-//! - Coordinates with a zero-suppression mode are fixed-point with the stated
-//!   digits; `read_drill_file` reads every mode back.
+//! - A preset names every file role once. `gerber_files_with` refuses duplicate names.
+//! - Every copper layer gets exactly one file with the layer number in its name.
+//! - `drill_files` is `split` or `merged`. Blind and buried spans keep their own files.
 //!
 //! # Dependencies
 //! - crates/io/src/lib.rs `gerber_files_at`, `project_drill_hits`
 //! - crates/io/src/gerber.rs `gerber_copper`
 //! - crates/io/src/gerber_job.rs `gerber_job_at`
-//! - crates/io/src/fab_export.rs `fab_readme_text`
-//! - crates/doc/src/lib.rs `Project::copper_layer_count`
 //!
 //! # Do not
 //! - Edit the text of a Gerber file here; only its name changes.
-//! - Name another vendor or tool in a label or tip; a preset is named for its
-//!   file style.
 use crate::{ProjectDrillHit, fab_export, gerber, gerber_job, project_drill_hits};
 use pcbcraft_doc::{Layer, Project};
 use pcbcraft_geom::Point;
@@ -446,16 +426,13 @@ pub fn preview_names(preset: NamingPreset, stem: &str, copper: u8, merged: bool)
 
 /// The fabrication bundle under a naming preset and drill options.
 ///
-/// Why: the same recipe goes to fabs that read different file names and drill
-/// styles. The files are those of `gerber_files_at`, plus one Gerber file for
-/// each inner copper layer, so every copper layer of a 4 or 6 layer board is
-/// in the bundle.
+/// The files are those of `gerber_files_at`, plus one Gerber file for each
+/// inner copper layer. Every copper layer of a 4 or 6 layer board is included.
 ///
 /// # Rules
 /// - Runs `validate` on the options first.
-/// - Drops the job file, the readme or the drill map when the options say so.
-/// - The job file and the readme list the new names.
-/// - Refuses a bundle in which two files would share a name.
+/// - Drops the job file, readme or drill map when the options say so.
+/// - Refuses a bundle with duplicate file names.
 ///
 /// # Dependencies
 /// - crates/io/src/gerber.rs, crates/io/src/gerber_job.rs

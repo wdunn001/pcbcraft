@@ -2,18 +2,15 @@
 //! package.
 //!
 //! Field names follow the Ucamco Gerber job file specification, revision
-//! 2020.08. `Header` and `GeneralSpecs` are section 4.2, `DesignRules` is 4.3,
-//! `FilesAttributes` is 4.4 and `MaterialStackup` is 4.5. Each
-//! `FilesAttributes` entry carries `Path`, `FileFunction` and `FilePolarity`,
-//! and the file function values are the ones the specification defines:
-//! `Copper,L1,Top` for a copper layer, `Profile,NP` for the board outline and
-//! `Plated,1,2,PTH` for a plated drill file.
+//! 2020.08. Each `FilesAttributes` entry carries `Path`, `FileFunction` and
+//! `FilePolarity`, using the specification values: `Copper,L1,Top` for a
+//! copper layer, `Profile,NP` for the outline, `Plated,1,2,PTH` for a plated
+//! drill file.
 //!
-//! Nothing in the manifest is typed by hand. Every entry is read back from the
-//! file it describes: the `%TF.FileFunction` and `%TF.FilePolarity` attributes
-//! of a Gerber file, or, for a file written before those attributes existed,
-//! the description PCBCraft stamps into its `G04` comment. A layer added to the
-//! package therefore appears in the manifest with no other change.
+//! Nothing is typed by hand. Every entry is read from the file it describes:
+//! the `%TF.FileFunction` and `%TF.FilePolarity` attributes, or, for older
+//! files, the `G04` comment. A layer added to the package appears in the
+//! manifest with no other change.
 use crate::{COPPER_THICKNESS, MASK_THICKNESS, SILK_THICKNESS};
 use pcbcraft_doc::Project;
 use serde_json::{Value, json};
