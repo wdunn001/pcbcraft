@@ -318,6 +318,11 @@ fn files_payload_to_golden(body: &Value) -> Result<String, String> {
 }
 
 pub fn run_reference_board_m6_artifact_goldens() -> Result<(), String> {
+    // Outputs carry a creation time; pin the clock so the two generations never straddle a second.
+    pcbcraft_io::with_fixed_clock(1_800_000_000, run_reference_board_goldens_pinned)
+}
+
+fn run_reference_board_goldens_pinned() -> Result<(), String> {
     let owners = kind_owners()?;
     let mut session = reference_board_session()?;
     let seeded = seed_artifacts(&mut session)?;

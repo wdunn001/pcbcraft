@@ -96,6 +96,24 @@ opt-level = 3
 lto = "thin"
 strip = true
 
+# The browser bundle, picked by `data-cargo-profile-release` on the rust link in
+# apps/pcbcraft-web/index.html. The desktop release keeps `release` above. Size matters
+# in the browser (the wasm is downloaded on first visit), so this profile trades some
+# speed for code size: one codegen unit and fat LTO let the linker drop and merge more.
+# It compiles slower than `release`, so pull request CI builds `wasm-quick` instead.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# The bundle the pull request job builds to prove that the app compiles for wasm32 and starts.
+# No LTO and no size tuning: cheaper to compile, never shipped.
+[profile.wasm-quick]
+inherits = "release"
+lto = false
+
 # ipc2581 0.3.3 pins quick-xml 0.39, which RUSTSEC-2026-0194 and RUSTSEC-2026-0195
 # flag. The crate uses quick-xml in one place (`escape::escape` in types/avl.rs), so
 # this copy of 0.3.3 only raises that requirement to 0.41. Drop it when ipc2581
