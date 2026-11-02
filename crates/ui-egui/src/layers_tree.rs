@@ -58,6 +58,7 @@ pub(crate) enum RowKind {
     Label,
     Wire,
     Shape,
+    Divider,
 }
 
 /// How a row's eye reaches the drawing.
@@ -1619,6 +1620,40 @@ pub(crate) fn rows(env: &Env, view: &mut TreeView) -> std::rc::Rc<Vec<Row>> {
     for top in children(env, "") {
         walk(env, view, top, 0, 0, &mut out);
     }
+    if env.tab == TreeTab::Schematic {
+        let comp_pos = out.iter().position(|r| r.key == "components");
+        if let Some(pos) = comp_pos {
+            let pages_before = out[..pos].iter().any(|r| r.page.is_some());
+            let parts_after = pos < out.len();
+            if pages_before && parts_after {
+                out.insert(
+                    pos,
+                    Row {
+                        key: "page-divider".to_owned(),
+                        depth: 0,
+                        level: 0,
+                        kind: RowKind::Divider,
+                        label: String::new(),
+                        sub: String::new(),
+                        count: String::new(),
+                        mono: false,
+                        dim: false,
+                        expandable: false,
+                        select: None,
+                        marks: false,
+                        controls: None,
+                        swatch: None,
+                        round: false,
+                        net: None,
+                        target: None,
+                        stack: None,
+                        page: None,
+                        sheet_row: None,
+                    },
+                );
+            }
+        }
+    }
     let out = std::rc::Rc::new(out);
     view.cache = Some((sig, std::rc::Rc::clone(&out)));
     out
@@ -1977,6 +2012,7 @@ fn glyph_for(kind: RowKind) -> Glyph {
         RowKind::Label => Glyph::Label,
         RowKind::Wire => Glyph::Wire,
         RowKind::Shape => Glyph::Graphic,
+        RowKind::Divider => Glyph::Outline,
     }
 }
 
@@ -2408,6 +2444,17 @@ fn paint_row(
 ) -> bool {
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, ROW_HEIGHT), Sense::hover());
+    if r.kind == RowKind::Divider {
+        let y = rect.top() + rect.height() / 2.0;
+        ui.painter().line_segment(
+            [
+                Pos2::new(rect.left() + PAD, y),
+                Pos2::new(rect.right() - PAD, y),
+            ],
+            Stroke::new(1.0, colours.muted),
+        );
+        return false;
+    }
     let id = egui::Id::new(("layers-tree-row", &r.key));
     let resp = ui.interact(rect, id, Sense::click());
     if view.focus_pending.as_deref() == Some(r.key.as_str()) {
@@ -3538,6 +3585,9 @@ pub(crate) fn explain(tab: TreeTab, r: &Row) -> String {
     let head = last.split(':').next().unwrap_or(last);
     if r.page.is_some() {
         return t!("tree.explain.page");
+    }
+    if r.kind == RowKind::Divider {
+        return t!("tree.explain.divider");
     }
     match (head, last) {
         (_, "layer:symbols") => t!("tree.explain.symbols"),

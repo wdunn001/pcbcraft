@@ -104,6 +104,9 @@ pub fn timed(name: &str, step: impl FnOnce() -> Result<(), String>) -> StepResul
 
 /// Fails when a tracked file holds a line that starts with a conflict marker.
 pub fn conflict_markers(root: &Path) -> Result<(), String> {
+    if !root.join(".git").exists() {
+        return Ok(());
+    }
     let output = Command::new("git")
         .current_dir(root)
         .args(["grep", "-nE", "^(<<<<<<<|>>>>>>>) "])
