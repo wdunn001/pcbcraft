@@ -1316,7 +1316,7 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
     let mut out = Vec::new();
     match segs.as_slice() {
         [""] => {
-            let mut sheets: Vec<(Id, String)> = vec![(0, t!("tree.sheet.first"))];
+            let mut sheets: Vec<(Id, String)> = vec![(0, crate::pages::page_label(project, 0))];
             sheets.extend(project.sheets.iter().map(|s| (s.id, s.name.clone())));
             for (id, name) in sheets {
                 let n = sheet_rows(env, id).len();
@@ -2218,7 +2218,7 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
 /// - Add a kind here before it has a typed rename command.
 fn rename_for(env: &Env, r: &Row) -> Option<(RenameFor, String)> {
     if let Some(id) = r.page {
-        return (id != 0).then(|| (RenameFor::Page(id), r.label.clone()));
+        return Some((RenameFor::Page(id), r.label.clone()));
     }
     if let Some(name) = &r.stack {
         return Some((RenameFor::Layer(name.clone()), name.clone()));
@@ -3071,7 +3071,6 @@ fn row_menu_entries(
                 t!("schematic.pages.rename.tip"),
             )
             .icon(glyph::RENAME)
-            .enabled_if(named, why.clone())
             .into(),
         );
         object.push(

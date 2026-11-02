@@ -1953,7 +1953,7 @@ impl App {
                 false,
             );
         }
-        let outlines = sheet::hit_outlines(p, rect, camera, &kinds);
+        let outlines = sheet::hit_outlines(p, page, rect, camera, &kinds);
         sheet::hover_outline(painter, &outlines, sc.select);
         if p.components.iter().all(|c| c.sheet != page) {
             painter.text(

@@ -1064,7 +1064,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "schematic.rename_sheet",
             "Rename a schematic page, including the root page 0; the new name must differ from every other page name",
             schema(
-                json!({"id":id_schema(),"name":{"type":"string"}}),
+                json!({"id":{"type":"integer","minimum":0},"name":{"type":"string"}}),
                 &["id", "name"],
             ),
         ),

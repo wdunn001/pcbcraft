@@ -7,8 +7,9 @@
 //! (`layers_tree.rs`) and the tab strip both call the methods here, so a page
 //! is added, renamed and removed the same way from every place.
 //!
-//! Local rules: page 0 is the Main page. It is not in `Project::sheets`, so it
-//! can be neither renamed nor removed. The row stays a single function
+//! Local rules: page 0 is the first page. It is not in `Project::sheets`, so
+//! it cannot be removed; its name lives in `Project::root_sheet_name` and
+//! `page_label` is the one place any page name is read. The row stays a single function
 //! (`page_switcher`) so the Schematic tool strip can host it later. The strip
 //! has a plus tab instead of Add, Rename and Remove buttons; those actions
 //! live in the tab's right-click menu, in Properties, and on F2.
@@ -26,6 +27,39 @@ enum PageAct {
 /// Egui memory key for the page tab being renamed in place: `(page id, text so far)`.
 fn rename_key() -> egui::Id {
     egui::Id::new("schematic-page-tab-rename")
+}
+
+/// The one name of page `id`, shown in the tab strip, the title block, the
+/// Layers tree, the map and Properties.
+///
+/// Why: a page used to be called one thing in the tab and another in the
+/// tree and the title block. Every surface asks here instead.
+///
+/// # Rules
+/// - Page 0 is the first page: its name is `Project::root_sheet_name`, or
+///   Main when none was set. Other pages use their own `Sheet::name`.
+/// - Total: an unknown id gives an empty name.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs (`Project::root_sheet_name`, `Project::sheets`)
+/// - crates/text/strings/en.txt (`schematic.pages.root`)
+///
+/// # Do not
+/// - Build a page name anywhere else.
+pub(crate) fn page_label(project: &Project, id: Id) -> String {
+    if id == 0 {
+        return project
+            .root_sheet_name
+            .clone()
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| t!("schematic.pages.root"));
+    }
+    project
+        .sheets
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| s.name.clone())
+        .unwrap_or_default()
 }
 
 /// What a finished inline name edit asks for.
@@ -97,7 +131,7 @@ impl App {
     fn page_menu(page: Id) -> Vec<crate::ui_kit::menu::Entry<PageAct>> {
         use crate::ui_kit::menu::{Item, Menu};
         use crate::ui_kit::{icons as kit, menu_icons as glyph};
-        let named = page != 0;
+        let removable = page != 0;
         let why = t!("schematic.pages.main.tip");
         Menu::new()
             .group([Item::new(
@@ -106,7 +140,6 @@ impl App {
                 t!("schematic.pages.rename.tip"),
             )
             .icon(glyph::RENAME)
-            .enabled_if(named, why.clone())
             .into()])
             .group([Item::new(
                 PageAct::Add,
@@ -122,7 +155,7 @@ impl App {
                     t!("schematic.pages.remove.tip"),
                 )
                 .icon(glyph::TRASH)
-                .enabled_if(named, why),
+                .enabled_if(removable, why),
             )
             .entries()
     }
@@ -182,7 +215,7 @@ impl App {
     /// # Do not
     /// Pick the name in a caller; two surfaces would number pages differently.
     pub(crate) fn add_page(&mut self) {
-        let taken: Vec<String> = std::iter::once(t!("schematic.pages.root"))
+        let taken: Vec<String> = std::iter::once(self.page_name(0))
             .chain(self.project.sheets.iter().map(|s| s.name.clone()))
             .collect();
         let mut number = taken.len();
@@ -193,31 +226,25 @@ impl App {
             number += 1;
         }
         let name = t!("schematic.pages.new_name", number = number);
-        let parent_page = self.schematic_page();
-        let entry = schematic_port::default_sheet_entry(&self.project, parent_page);
         let before = self.project.sheets.len();
         self.tool_call("schematic.new_sheet", json!({"name": name}));
         if self.project.sheets.len() > before
             && let Some(sheet) = self.project.sheets.last()
         {
-            let id = sheet.id;
-            let _ = self.tool_call(
-                "schematic.set_sheet_parent",
-                json!({"id": id, "parent": parent_page, "entry": {"x": entry.x, "y": entry.y}}),
-            );
-            self.show_page(id);
+            self.show_page(sheet.id);
         }
     }
 
-    /// Rename page `id`. The Main page, an empty name and an unchanged name do nothing.
+    /// Rename page `id`. The first page keeps its name in `root_sheet_name`.
+    /// An empty name and an unchanged name do nothing.
     ///
     /// # Dependencies
     /// `../../engine/src/lib.rs` (`schematic.rename_sheet` refuses a name that
     /// another page already has and reports it in the status line).
     pub(crate) fn rename_page(&mut self, id: Id, name: &str) {
         let name = name.trim();
-        let current = self.project.sheets.iter().find(|s| s.id == id);
-        if id == 0 || name.is_empty() || current.is_none_or(|s| s.name == name) {
+        let exists = id == 0 || self.project.sheets.iter().any(|s| s.id == id);
+        if !exists || name.is_empty() || self.page_name(id) == name {
             return;
         }
         self.tool_call("schematic.rename_sheet", json!({"id": id, "name": name}));
@@ -245,16 +272,11 @@ impl App {
     }
 
     /// The name page `id` shows in tabs and Properties.
+    ///
+    /// # Dependencies
+    /// `page_label`, the one place a page name is decided.
     pub(crate) fn page_name(&self, id: Id) -> String {
-        if id == 0 {
-            return t!("schematic.pages.root");
-        }
-        self.project
-            .sheets
-            .iter()
-            .find(|s| s.id == id)
-            .map(|s| s.name.clone())
-            .unwrap_or_default()
+        page_label(&self.project, id)
     }
 
     /// The Properties card of a page: its name (edit to rename), how many
@@ -311,7 +333,7 @@ impl App {
                     None,
                     None,
                     |ui| {
-                        if id == 0 || preview {
+                        if preview {
                             let muted = theme::tokens(ui.ctx()).text;
                             ui.label(fonts::text(fonts::Role::Body, &name).color(muted));
                             return;
@@ -401,7 +423,7 @@ impl App {
             .highlight_net
             .map(|net| self.project.net_pages(net))
             .unwrap_or_default();
-        let mut pages: Vec<(Id, String)> = vec![(0, t!("schematic.pages.root"))];
+        let mut pages: Vec<(Id, String)> = vec![(0, self.page_name(0))];
         pages.extend(self.project.sheets.iter().map(|s| (s.id, s.name.clone())));
         let mut rename: Option<(Id, String)> = ui.data(|d| d.get_temp(rename_key()));
         let mut go = None;
@@ -483,13 +505,9 @@ impl App {
             return;
         }
         if let Some(id) = start_rename {
-            if id == 0 {
-                self.message = t!("schematic.pages.main.tip");
-            } else {
-                let edit = (id, self.page_name(id));
-                ui.data_mut(|d| d.insert_temp(rename_key(), edit.clone()));
-                rename = Some(edit);
-            }
+            let edit = (id, self.page_name(id));
+            ui.data_mut(|d| d.insert_temp(rename_key(), edit.clone()));
+            rename = Some(edit);
         }
         match (finished, rename) {
             (Some((id, text, done)), _) => {

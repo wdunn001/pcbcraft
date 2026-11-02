@@ -2,7 +2,7 @@
 
 use crate::canvas::snap;
 use crate::{App, Tab, Tool};
-use pcbcraft_doc::{Id, PinRef};
+use pcbcraft_doc::{DrawnWire, Id, PinRef};
 use pcbcraft_geom::Point;
 use pcbcraft_geom::point_segment;
 use serde_json::{Value, json};
@@ -215,10 +215,20 @@ impl App {
         self.wire_route.push(bend);
     }
 
+    /// The drawn wires that sit on schematic page `page`, so a pick or a snap
+    /// never reaches a wire of another page.
+    fn on_this_page_wires(&self, page: Id) -> impl Iterator<Item = &DrawnWire> {
+        self.project
+            .drawn_wires
+            .iter()
+            .filter(move |w| self.project.schematic_drawn_wire_page(w) == page)
+    }
+
     fn pick_wire_tee(&self, pos: Point, zoom: f32) -> Option<(Id, Point)> {
         let reach = 5.0 / zoom as f64;
         let mut best: Option<(Id, Point, f64)> = None;
-        for w in &self.project.drawn_wires {
+        let page = self.schematic_page();
+        for w in self.on_this_page_wires(page) {
             for pair in w.points.windows(2) {
                 let dist = point_segment(pos, pair[0], pair[1]);
                 if dist > reach {
@@ -256,7 +266,7 @@ impl App {
 
     fn bus_member_at(&self, pos: Point, zoom: f32) -> Option<Id> {
         let reach = 5.0 / zoom as f64;
-        for w in &self.project.drawn_wires {
+        for w in self.on_this_page_wires(self.schematic_page()) {
             if w.net.is_some() {
                 continue;
             }
@@ -290,7 +300,7 @@ impl App {
             return self.project.pin(&pin)?.net;
         }
         let reach = 5.0 / zoom as f64;
-        for w in &self.project.drawn_wires {
+        for w in self.on_this_page_wires(self.schematic_page()) {
             for pair in w.points.windows(2) {
                 if point_segment(pos, pair[0], pair[1]) <= reach {
                     return w.net;

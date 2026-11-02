@@ -56,7 +56,7 @@ fn a_newcomer_picks_each_row_of_the_schematic_tree() -> Result<(), String> {
         "the last part row selects its part on the drawing: {}",
         app.message
     );
-    let missing = press_each(&ctx, &mut app, &["button:Sheet #"]);
+    let missing = press_each(&ctx, &mut app, &["button:Main"]);
     assert!(missing.is_empty(), "rows not in the tree: {missing:?}");
     assert_eq!(
         app.tree.selected_key.as_deref(),
@@ -113,7 +113,7 @@ fn a_newcomer_opens_and_closes_the_branches_of_the_schematic_tree() -> Result<()
             &format!("button:Collapse {branch}"),
         )?;
     }
-    for branch in ["Nets", "Parts", "Sheet #"] {
+    for branch in ["Nets", "Parts", "Main"] {
         flips_to(
             &ctx,
             &mut app,
