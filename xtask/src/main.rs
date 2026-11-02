@@ -289,7 +289,7 @@ fn test() -> Result<(), String> {
     // Exports stamp the creation time to the second, so tests that compare two
     // exports fail when the clock ticks between them. A fixed source date, the
     // standard reproducible-build setting, makes every test run see one time.
-    let pinned = [("SOURCE_DATE_EPOCH", "1800000000")];
+    let pinned = [("SOURCE_DATE_EPOCH", "1700000000")];
     if has_cargo_subcommand("nextest") {
         run_env(
             "cargo",
