@@ -2,9 +2,9 @@
 //! named command on a cloned project, then validation and revision rules apply.
 //!
 //! # Rules
-//! - Command handlers live in `run_command`; read a struct's doc block for the
-//!   rules that arm enforces.
-//! - Global invariants (revision, undo, validation) live in AGENTS.md.
+//! - A command is a string id plus JSON params; inputs are bounded and an invalid batch leaves state untouched.
+//! - No handler opens a dialog; the UI, the CLI and MCP all call the same ids.
+//! - A stale revision check rejects the command with `Error::Stale`; command handlers live in `run_command`.
 //!
 //! # Dependencies
 //! - crates/doc/src/lib.rs
@@ -64,6 +64,14 @@ use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, VecDeque};
+/// Error returned by engine commands.
+///
+/// # Rules
+/// - `Invalid` holds a human-readable message for input and validation failures.
+/// - `Stale` carries the expected and current revision when a revision check fails.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (command handlers)
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
@@ -76,6 +84,14 @@ impl From<String> for Error {
         Self::Invalid(s)
     }
 }
+/// One engine command: the id and its JSON parameters.
+///
+/// # Rules
+/// - `command` is the string id listed in `commands()`.
+/// - `params` is bounded by the command's input schema; unknown fields are rejected.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`commands()`, `run_command`)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Command {
@@ -83,6 +99,14 @@ pub struct Command {
     #[serde(default)]
     pub params: Value,
 }
+/// One registered command: its id, description and JSON input schema.
+///
+/// # Rules
+/// - `id` is the string the client sends; it must match a handler.
+/// - `input_schema` is a JSON Schema object that bounds the command params.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`commands()`)
 #[derive(Clone, Debug, Serialize)]
 pub struct CommandSpec {
     pub id: &'static str,
@@ -111,6 +135,34 @@ fn pin_schema() -> Value {
         &["component", "pin"],
     )
 }
+/// Every command the engine accepts: id, description and JSON input schema.
+///
+/// # Rules
+/// - A command is a string id plus JSON params; inputs are bounded and an invalid batch leaves state untouched.
+/// - No handler opens a dialog; the UI, the CLI and MCP all call the same ids.
+///
+/// # Implementations
+/// - crates/engine/src/lib.rs (`run_command`, `run_command_part_1` through `run_command_part_23`)
+/// - crates/engine/src/authoring.rs
+/// - crates/engine/src/online.rs
+/// - crates/engine/src/tuning.rs
+/// - crates/engine/src/via_protection.rs
+/// - crates/engine/src/backdrill.rs
+/// - crates/engine/src/part.rs
+/// - crates/engine/src/part_save.rs
+/// - crates/engine/src/calc.rs
+/// - crates/engine/src/teardrop.rs
+/// - crates/engine/src/images.rs
+/// - crates/engine/src/packages.rs
+/// - crates/engine/src/outline.rs
+/// - crates/engine/src/datasheet_annotations.rs
+/// - crates/engine/src/snapmaker.rs
+/// - crates/engine/src/layout.rs
+/// - crates/engine/src/publication.rs
+/// - crates/engine/src/sim.rs
+///
+/// # Do not
+/// - Add an id here without a handler in one of the listed files.
 pub fn commands() -> Vec<CommandSpec> {
     let entries = [
         (
