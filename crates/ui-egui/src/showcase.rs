@@ -36,8 +36,12 @@ impl App {
     /// # Do not
     /// - Keep the temporary file open; it is only read once.
     pub(crate) fn open_showcase(&mut self) -> bool {
+        // One file per call: stories share a process, and two of them writing one path
+        // let a reader see a half-written file.
+        static OPENED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let serial = OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "pcbcraft-showcase-sensor-node-{}.pcbcraft",
+            "pcbcraft-showcase-sensor-node-{}-{serial}.pcbcraft",
             std::process::id()
         ));
         if let Err(error) = std::fs::write(&path, SHOWCASE) {
