@@ -50,7 +50,10 @@ fn collect_net_ids(fragment: &SelectionFragment) -> BTreeSet<Id> {
         nets.insert(track.net);
     }
     for via in &fragment.vias {
-        nets.insert(via.net);
+        // A via with no net (net 0) has no net record to carry.
+        if via.net != 0 {
+            nets.insert(via.net);
+        }
     }
     for zone in &fragment.zones {
         nets.insert(zone.net);
@@ -240,7 +243,9 @@ fn referenced_net_ids(p: &Project, id: Id, kind: &ObjectSlot) -> BTreeSet<Id> {
             }
         }
         ObjectSlot::Via => {
-            if let Some(v) = p.board.vias.iter().find(|v| v.id == id) {
+            if let Some(v) = p.board.vias.iter().find(|v| v.id == id)
+                && v.net != 0
+            {
                 nets.insert(v.net);
             }
         }
@@ -592,7 +597,9 @@ pub fn paste(
     for mut via in fragment.vias {
         let old = via.id;
         via.id = remap(old)?;
-        via.net = remap_net(via.net)?;
+        if via.net != 0 {
+            via.net = remap_net(via.net)?;
+        }
         via.position = shift_point(via.position, offset)?;
         p.board.vias.push(via);
     }
