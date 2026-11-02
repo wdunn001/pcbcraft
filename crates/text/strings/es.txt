@@ -370,3 +370,7 @@ tour.e2e_resume.list = Recorrido Layout (prueba)
 tour.e2e_resume.list.tip = Fixture headless para progreso de recorridos.
 tour.e2e_resume.chip = Recorrido: Layout ({steps} pasos)
 tour.e2e_resume.chip.tip = Etiqueta chip de fixture story.
+
+# picking a layer row
+tree.layer_hint = {name}: {tracks} pistas, {pads} pads, {silk} elementos de serigrafía, {vias} vías visibles; lo demás está atenuado. Haz clic otra vez para borrarlo.
+tree.layer_hint_clear = Resaltado de capa borrado; todo se muestra con toda su fuerza.

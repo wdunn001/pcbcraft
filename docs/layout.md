@@ -30,3 +30,7 @@ The wirelength functions live in `crates/engine/src/wirelength.rs` (`hpwl`, `rat
 ## rules.decoupling_set and missing_decoupling
 
 `rules.decoupling_set {"max_distance_mm": 3.0, "suggested_value": "100 nF"}` (at least one field; distance 0.1 to 50 mm) stores the settings on the project. The `missing_decoupling` check then reports, for each power input pin of a part that is not a capacitor, either no capacitor on the net, or the nearest placed capacitor being farther than the distance (pad centre to pad centre). Ground-named nets are skipped. The finding names the part, pin, net and the value to add. Severity follows `rules.severity` like every code (default warning).
+
+## Hiding and picking a layer
+
+The eye on a layer row hides everything that belongs to that layer: its tracks, zones, pads, part outlines and courtyards, reference and value labels, text, drawn board shapes, the vias that only reach hidden layers, and the ratsnest lines whose ends are all on hidden layers. A part mounted on a hidden side goes as one thing. Click the name of a layer row to pick it: its elements stay at full strength, everything else dims, and the hint says what the layer holds ("Top copper: 6 tracks, 3 pads, 6 silkscreen items, 2 vias shown"). Click the name again to clear it. Only the arrow opens or closes a layer row. The focus button still dims everything else without picking the row.

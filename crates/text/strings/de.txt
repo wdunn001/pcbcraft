@@ -1576,3 +1576,7 @@ tour.e2e_resume.list = Layout-Rundgang (Test)
 tour.e2e_resume.list.tip = Headless-Fixture für Tour-Fortschritt.
 tour.e2e_resume.chip = Tour: Layout ({steps} Schritte)
 tour.e2e_resume.chip.tip = Story-Fixture-Chip.
+
+# picking a layer row
+tree.layer_hint = {name}: {tracks} Leiterbahnen, {pads} Pads, {silk} Bestückungsdruck-Teile, {vias} Vias sichtbar; alles andere ist abgedunkelt. Zum Aufheben erneut klicken.
+tree.layer_hint_clear = Hervorhebung der Lage aufgehoben; alles wird in voller Stärke gezeigt.

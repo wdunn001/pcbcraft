@@ -3354,3 +3354,7 @@ tour.e2e_resume.list = Layout walkthrough (test)
 tour.e2e_resume.list.tip = Headless story fixture for tour progress.
 tour.e2e_resume.chip = Tour: Layout ({steps} steps)
 tour.e2e_resume.chip.tip = Story fixture chip label.
+
+# picking a layer row
+tree.layer_hint = {name}: {tracks} tracks, {pads} pads, {silk} silkscreen items, {vias} vias shown; everything else is dimmed. Click again to clear.
+tree.layer_hint_clear = Layer highlight cleared; everything is shown at full strength.
