@@ -1,3 +1,15 @@
+//! Symbol and footprint authoring: the canvas, property editing and the
+//! footprint wizard. The engine receives the finished definition, never the
+//! half-built draft.
+//!
+//! # Rules
+//! - The editor builds a `Draft` and only writes it to the project on Save.
+//! - Pad and pin counts are validated against the crate limits.
+//!
+//! # Dependencies
+//! - crates/library/src/lib.rs
+//! - crates/ui-egui/src/footprint_wizard.rs
+//!
 use super::*;
 use crate::a11y::Named;
 use egui::{Pos2, Sense};
@@ -12,11 +24,15 @@ use std::collections::BTreeSet;
 /// Placing a footprint still stops at 64 pads until the placement limit is lifted.
 const PAD_LIST_LIMIT: usize = 1600;
 
+/// A half-built symbol or footprint, kept until the editor writes it.
+
 #[derive(Clone)]
 pub(super) enum Draft {
     Symbol(SymbolDefinition),
     Footprint(FootprintDefinition),
 }
+
+/// The tool active in the library editor.
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum LibraryTool {
@@ -38,6 +54,8 @@ enum LibraryPick {
     SymbolGraphic(usize),
     FootprintGraphic(usize),
 }
+
+/// The symbol and footprint editor state, including the canvas camera.
 
 pub(super) struct Editor {
     pub mode: u8,
@@ -104,6 +122,8 @@ impl Editor {
         "F.SilkS"
     }
 }
+/// Create an editor for the tab named, loading the first library item if needed.
+
 pub(super) fn initial_editor(tab: Option<&str>, project: &Project) -> Editor {
     match tab {
         Some("project-library") => Editor {
@@ -148,6 +168,8 @@ fn rectangle(layer: &str) -> Graphic {
         layer: layer.into(),
     }
 }
+/// A blank symbol with one unnamed pin, ready for editing.
+
 pub(super) fn new_symbol() -> SymbolDefinition {
     SymbolDefinition {
         name: "NewSymbol".into(),
@@ -205,6 +227,8 @@ pub(crate) fn new_pad(number: &str, x: f64) -> FootprintPad {
         raw_source: String::new(),
     }
 }
+/// A blank footprint with one pad, ready for editing.
+
 pub(super) fn new_footprint() -> FootprintDefinition {
     FootprintDefinition {
         name: "NewFootprint".into(),

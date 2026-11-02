@@ -1,8 +1,21 @@
+//! The project library browser and search. Local files and remote results
+//! appear as cards; the preview pane shows the selected part.
+//!
+//! # Rules
+//! - Every request runs on a worker thread; the UI never blocks.
+//! - Search results are limited to 100 items per request.
+//!
+//! # Dependencies
+//! - crates/engine/src/library.rs
+//! - crates/library/src/lib.rs
+//!
 use super::*;
 use crate::a11y::Named;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 
 #[derive(Default)]
+/// The library browser state: search, results and the preview pane.
+
 pub(super) struct Browser {
     /// The settings folder library requests read the source list from.
     pub(super) config: pcbcraft_engine::user_config::UserConfig,
@@ -111,6 +124,8 @@ impl Browser {
 /// True when a result entry should appear under a typed filter: an empty
 /// filter shows everything, otherwise the name or the description must
 /// contain the filter, ignoring case.
+/// True when the library entry name matches the search filter.
+
 pub(super) fn entry_matches(item: &Value, filter: &str) -> bool {
     let filter = filter.trim().to_lowercase();
     filter.is_empty()
@@ -125,6 +140,8 @@ pub(super) fn entry_matches(item: &Value, filter: &str) -> bool {
 }
 /// The source a catalog entry came from; entries written before sources were
 /// tagged read as the installed collections.
+/// The folder name a library entry came from, or an empty string.
+
 pub(super) fn entry_source(item: &Value) -> String {
     item.get("source")
         .and_then(Value::as_str)
@@ -133,6 +150,8 @@ pub(super) fn entry_source(item: &Value) -> String {
         .to_owned()
 }
 /// Every distinct source among the listed collections, each named once, sorted.
+/// The unique folder names across all library entries.
+
 pub(super) fn distinct_sources(items: &[Value]) -> Vec<String> {
     let mut names: Vec<String> = items.iter().map(entry_source).collect();
     names.sort();
@@ -536,6 +555,8 @@ impl App {
     }
 }
 
+/// Convert a library part to screen paths for the preview canvas.
+
 pub(super) fn library_geometry_paths(
     symbol: Option<&SymbolDefinition>,
     footprint: Option<&FootprintDefinition>,
@@ -587,6 +608,8 @@ pub(super) fn library_geometry_paths(
     paths
 }
 
+/// The smallest bounding box around the preview geometry.
+
 pub(super) fn library_paths_extent(paths: &[Vec<Point>]) -> (Point, Point) {
     let min = paths
         .iter()
@@ -609,6 +632,8 @@ pub(super) fn library_paths_extent(paths: &[Vec<Point>]) -> (Point, Point) {
         (Point::default(), Point::new(2.0, 2.0))
     }
 }
+
+/// The smallest bounding box around the preview geometry.
 
 pub(super) fn library_paths_bounds(paths: &[Vec<Point>]) -> (Point, Point) {
     let min = paths
@@ -633,6 +658,8 @@ pub(super) fn library_paths_bounds(paths: &[Vec<Point>]) -> (Point, Point) {
         (Point::new(-4.0, -4.0), Point::new(4.0, 4.0))
     }
 }
+
+/// Draw the preview geometry onto the library preview canvas.
 
 pub(super) fn paint_library_paths(
     painter: &egui::Painter,
