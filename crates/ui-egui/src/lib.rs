@@ -106,6 +106,89 @@ const EMPTY_NETS: &str = "empty.nets";
 const EMPTY_BOARD: &str = "empty.board";
 const EMPTY_CHECKS: &str = "empty.checks";
 
+/// Widest an entry tile on the start screen grows, in points.
+const START_TILE_MAX: f32 = 520.0;
+
+/// Width shared by every start screen tile: the column's room less a gutter,
+/// capped at [`START_TILE_MAX`] so a wide window keeps one tidy column.
+fn start_tile_width(available: f32) -> f32 {
+    (available - 32.0).clamp(120.0, START_TILE_MAX)
+}
+
+fn start_tile_key() -> egui::Id {
+    egui::Id::new("start-screen-tile-rects")
+}
+
+/// Remember a tile's rectangle for this frame so a story can compare widths.
+fn record_start_tile(ctx: &egui::Context, rect: Rect) {
+    ctx.data_mut(|d| {
+        let mut rects: Vec<Rect> = d.get_temp(start_tile_key()).unwrap_or_default();
+        rects.push(rect);
+        d.insert_temp(start_tile_key(), rects);
+    });
+}
+
+/// One start screen entry: a clickable tile of width `width`, the title on its
+/// own line and the description below it, both wrapped to the tile.
+///
+/// Why: laying the description beside the title in a fixed-size button left the
+/// title whatever width remained, so a long description wrapped the title one
+/// letter per line. A column gives the title the whole tile.
+fn start_tile(
+    ui: &mut egui::Ui,
+    width: f32,
+    title: &str,
+    description: Option<&str>,
+    muted: Color32,
+    tip: &str,
+) -> egui::Response {
+    let pad = Vec2::new(12.0, 10.0);
+    let inner = width - 2.0 * pad.x;
+    let centred = |text: &str, font: FontId, color: Color32| {
+        let mut job = egui::text::LayoutJob::simple(text.to_owned(), font, color, inner);
+        job.halign = egui::Align::Center;
+        ui.painter().layout_job(job)
+    };
+    let mut title_font = egui::TextStyle::Button.resolve(ui.style());
+    title_font.size = 16.0;
+    let small_font = egui::TextStyle::Small.resolve(ui.style());
+    let title_color = ui.visuals().widgets.inactive.fg_stroke.color;
+    let title_galley = centred(title, title_font, title_color);
+    let desc_galley = description.map(|d| centred(d, small_font, muted));
+    let mut height = title_galley.size().y + 2.0 * pad.y;
+    if let Some(g) = &desc_galley {
+        height += g.size().y + 4.0;
+    }
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(width, height.max(64.0)), egui::Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, title));
+    let visuals = *ui.style().interact(&response);
+    ui.painter().rect(
+        rect,
+        visuals.corner_radius,
+        visuals.weak_bg_fill,
+        visuals.bg_stroke,
+        egui::StrokeKind::Inside,
+    );
+    let mut total = title_galley.size().y;
+    if let Some(g) = &desc_galley {
+        total += g.size().y + 4.0;
+    }
+    let mut y = rect.center().y - total / 2.0;
+    let x = rect.center().x;
+    let title_h = title_galley.size().y;
+    let title_dx = title_galley.rect.center().x;
+    ui.painter()
+        .galley(egui::pos2(x - title_dx, y), title_galley, title_color);
+    y += title_h + 4.0;
+    if let Some(g) = desc_galley {
+        let dx = g.rect.center().x;
+        ui.painter().galley(egui::pos2(x - dx, y), g, muted);
+    }
+    record_start_tile(ui.ctx(), rect);
+    response.on_hover_text(tip)
+}
+
 /// Render the empty-state line for catalog key `key` in the small muted style.
 fn empty_state(ui: &mut egui::Ui, key: &str, muted: egui::Color32) {
     ui.label(
@@ -3437,6 +3520,8 @@ impl App {
         }
     }
     fn start_home(&mut self, ui: &mut egui::Ui) {
+        ui.ctx()
+            .data_mut(|d| d.remove_temp::<Vec<Rect>>(start_tile_key()));
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(self.surface()))
             .show(ui, |ui| {
@@ -3461,139 +3546,140 @@ impl App {
                                 .color(self.muted()),
                             );
                             ui.add_space(24.0);
-                            let home_btn = [300.0, 64.0];
-                            if ui
-                                .add_sized(
-                                    home_btn,
-                                    egui::Button::new((
-                                        egui::RichText::new(t!("dialogs.start_home.new_design"))
-                                            .size(16.0)
-                                            .strong(),
-                                        egui::RichText::new(t!(
-                                            "dialogs.start_home.begin_with_a_blank_page"
-                                        ))
-                                        .small()
-                                        .color(self.muted()),
-                                    )),
-                                )
-                                .on_hover_text(t!("dialogs.start_home.begin_with_a_blank_page.tip"))
-                                .clicked()
+                            // Every tile is one column of the same width, so a title
+                            // never shares a line with its description and never
+                            // gets squeezed by it.
+                            let tile_w = start_tile_width(ui.available_width());
+                            let muted = self.muted();
+                            if start_tile(
+                                ui,
+                                tile_w,
+                                &t!("dialogs.start_home.new_design"),
+                                Some(&t!("dialogs.start_home.begin_with_a_blank_page")),
+                                muted,
+                                &t!("dialogs.start_home.begin_with_a_blank_page.tip"),
+                            )
+                            .clicked()
                             {
                                 self.tool_call("new_design", json!({}));
                                 self.select(None);
                                 self.home_open = false;
                             }
                             ui.add_space(6.0);
-                            if ui
-                                .add_sized(
-                                    home_btn,
-                                    egui::Button::new(
-                                        egui::RichText::new(t!("setup.wizard.heading")).size(14.0),
-                                    ),
-                                )
-                                .on_hover_text(t!("setup.wizard.reopen.tip"))
-                                .clicked()
+                            if start_tile(
+                                ui,
+                                tile_w,
+                                &t!("setup.wizard.heading"),
+                                None,
+                                muted,
+                                &t!("setup.wizard.reopen.tip"),
+                            )
+                            .clicked()
                             {
                                 self.open_setup_wizard();
                                 self.home_open = false;
                             }
                             ui.add_space(6.0);
-                            if ui
-                                .add_sized(
-                                    home_btn,
-                                    egui::Button::new((
-                                        egui::RichText::new(t!(
-                                            "dialogs.start_home.worked_example"
-                                        ))
-                                        .size(16.0)
-                                        .strong(),
-                                        egui::RichText::new(t!(
-                                            "dialogs.start_home.a_small_battery_resistor_and"
-                                        ))
-                                        .small()
-                                        .color(self.muted()),
-                                    )),
-                                )
-                                .on_hover_text(t!(
-                                    "dialogs.start_home.a_small_battery_resistor_and.tip"
-                                ))
-                                .clicked()
+                            if start_tile(
+                                ui,
+                                tile_w,
+                                &t!("dialogs.start_home.worked_example"),
+                                Some(&t!("dialogs.start_home.a_small_battery_resistor_and")),
+                                muted,
+                                &t!("dialogs.start_home.a_small_battery_resistor_and.tip"),
+                            )
+                            .clicked()
                             {
                                 self.tool_call("sample_design", json!({}));
                                 self.home_open = false;
                             }
                             ui.add_space(6.0);
-                            if ui
-                                .add_sized(
-                                    home_btn,
-                                    egui::Button::new((
-                                        egui::RichText::new(t!(
-                                            "dialogs.start_home.showcase_board"
-                                        ))
-                                        .size(16.0)
-                                        .strong(),
-                                        egui::RichText::new(t!(
-                                            "dialogs.start_home.a_four_layer_sensor_node_with"
-                                        ))
-                                        .small()
-                                        .color(self.muted()),
-                                    )),
-                                )
-                                .on_hover_text(t!(
-                                    "dialogs.start_home.a_four_layer_sensor_node_with.tip"
-                                ))
-                                .clicked()
+                            if start_tile(
+                                ui,
+                                tile_w,
+                                &t!("dialogs.start_home.showcase_board"),
+                                Some(&t!("dialogs.start_home.a_four_layer_sensor_node_with")),
+                                muted,
+                                &t!("dialogs.start_home.a_four_layer_sensor_node_with.tip"),
+                            )
+                            .clicked()
                                 && self.open_showcase()
                             {
                                 self.home_open = false;
                             }
                             ui.add_space(6.0);
-                            if ui
-                                .add_sized(
-                                    home_btn,
-                                    egui::Button::new((
-                                        egui::RichText::new(t!(
-                                            "dialogs.start_home.open_a_design_file"
-                                        ))
-                                        .size(16.0)
-                                        .strong(),
-                                        egui::RichText::new(t!(
-                                            "dialogs.start_home.type_a_path_or_pick"
-                                        ))
-                                        .small()
-                                        .color(self.muted()),
-                                    )),
-                                )
-                                .on_hover_text(t!("dialogs.start_home.type_a_path_or_pick.tip"))
-                                .clicked()
-                            {
-                                self.home_path_focus = true;
-                            }
-                            ui.add_space(6.0);
-                            ui.horizontal_wrapped(|ui| {
-                                let path_box = ui
-                                    .add(
-                                        crate::targets::text_field(&mut self.path)
-                                            .hint_text(t!("dialogs.start_home.design_file_path"))
-                                            .desired_width(ui.available_width().min(240.0)),
-                                    )
-                                    .named("design file path")
-                                    .on_hover_text(t!("dialogs.start_home.design_file_path.tip"));
-                                if self.home_path_focus {
-                                    path_box.request_focus();
-                                    self.home_path_focus = false;
-                                }
-                                if ui
-                                    .button(t!("dialogs.start_home.open"))
-                                    .on_hover_text(t!("dialogs.start_home.open.tip"))
-                                    .clicked()
-                                {
-                                    self.tool_call("open", json!({"path": self.path}));
-                                    if self.message.starts_with("open") {
-                                        self.home_open = false;
-                                    }
-                                }
-                            });
+                            // The Open tile holds its own path box and button.
+                            let pad = 12.0;
+                            let inner_w = tile_w - 2.0 * pad;
+                            let open_tile = egui::Frame::new()
+                                .fill(ui.visuals().widgets.inactive.weak_bg_fill)
+                                .stroke(ui.visuals().widgets.inactive.bg_stroke)
+                                .corner_radius(ui.visuals().widgets.inactive.corner_radius)
+                                .inner_margin(egui::Margin::same(
+                                    (pad - ui.visuals().widgets.inactive.bg_stroke.width) as i8,
+                                ))
+                                .show(ui, |ui| {
+                                    ui.set_width(inner_w);
+                                    ui.vertical_centered(|ui| {
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(t!(
+                                                    "dialogs.start_home.open_a_design_file"
+                                                ))
+                                                .size(16.0)
+                                                .strong(),
+                                            )
+                                            .wrap(),
+                                        );
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(t!(
+                                                    "dialogs.start_home.type_a_path_or_pick"
+                                                ))
+                                                .small()
+                                                .color(muted),
+                                            )
+                                            .wrap(),
+                                        );
+                                    });
+                                    ui.add_space(6.0);
+                                    ui.horizontal_wrapped(|ui| {
+                                        let path_box = ui
+                                            .add(
+                                                crate::targets::text_field(&mut self.path)
+                                                    .hint_text(t!(
+                                                        "dialogs.start_home.design_file_path"
+                                                    ))
+                                                    .desired_width(if inner_w < 170.0 {
+                                                        inner_w
+                                                    } else {
+                                                        inner_w - 80.0
+                                                    }),
+                                            )
+                                            .named("design file path")
+                                            .on_hover_text(t!(
+                                                "dialogs.start_home.design_file_path.tip"
+                                            ));
+                                        if self.home_path_focus {
+                                            path_box.request_focus();
+                                            self.home_path_focus = false;
+                                        }
+                                        if ui
+                                            .button(t!("dialogs.start_home.open"))
+                                            .on_hover_text(t!("dialogs.start_home.open.tip"))
+                                            .clicked()
+                                        {
+                                            self.tool_call("open", json!({"path": self.path}));
+                                            if self.message.starts_with("open") {
+                                                self.home_open = false;
+                                            }
+                                        }
+                                    });
+                                });
+                            record_start_tile(ui.ctx(), open_tile.response.rect);
+                            open_tile
+                                .response
+                                .on_hover_text(t!("dialogs.start_home.type_a_path_or_pick.tip"));
                             if !self.recent_designs.is_empty() {
                                 ui.add_space(18.0);
                                 ui.label(
