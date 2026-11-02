@@ -228,7 +228,7 @@ Menu panel: `panel` fill, 1 px `edge` border, radius 4, items 28 high with 12 px
 - Import and Export submenus list Recent (up to five, remembering the format and its options), then Common, then More…. Every entry opens the same dialog; a specific entry opens it preconfigured. The format lists come from the one format registry in `crates/io/src/formats.rs`, so never add a menu item per format. Packages (named multi-format bundles for a vendor or fab) are a group inside Export.
 - Project settings, Close project.
 
-**Edit menu:** Undo, Redo, Cut, Copy, Paste, Delete, Renumber parts, Update layout from schematic, Preferences.
+**Edit menu:** Undo, Redo, Cut, Copy, Paste, Delete, Renumber parts, Rules and checks (Ctrl+Shift+R), Update layout from schematic, Preferences.
 
 ## 9. Companion app alignment
 

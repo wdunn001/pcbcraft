@@ -422,7 +422,7 @@ impl App {
 
     /// Selects the first object a finding names, on the sheet or board that
     /// the finding belongs to.
-    fn show_finding(&mut self, row: &Row) {
+    pub(crate) fn show_finding(&mut self, row: &Row) {
         if let Some(name) = &row.footprint {
             if let Some(def) = self
                 .project
@@ -450,7 +450,7 @@ impl App {
     }
 
     /// Asks the check to leave the box around this finding's objects alone.
-    fn mute_area(&mut self, row: &Row) {
+    pub(crate) fn mute_area(&mut self, row: &Row) {
         let spots: Vec<Point> = row
             .objects
             .iter()

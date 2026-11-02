@@ -58,6 +58,7 @@ mod project_settings;
 mod properties;
 mod reference_panel;
 mod route_drag;
+mod rules_dialog;
 mod rules_fab;
 mod schematic_port;
 mod setup_wizard;
@@ -1323,6 +1324,8 @@ pub struct App {
     sync_behind: Option<(u64, bool)>,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
+    /// The Rules and checks window, opened from the Edit menu.
+    rules_dialog: rules_dialog::State,
     setup_wizard: setup_wizard::State,
     /// Left edge of the central page, so tests can check text keeps its margin.
     page_left: f32,
@@ -2082,6 +2085,7 @@ impl App {
             pinned_view: None,
             sync_behind: None,
             renumber_open: false,
+            rules_dialog: rules_dialog::State::default(),
             setup_wizard: setup_wizard::State::default(),
             active_page: 0,
             power_pick: std::collections::BTreeMap::new(),
@@ -2176,6 +2180,7 @@ impl App {
             || self.command_open
             || self.compare_open
             || self.renumber_open
+            || self.rules_dialog.open
             || self.edit.dialog.open
             || self.edit.dialog.preview_open
     }
@@ -3287,6 +3292,9 @@ impl App {
             KeyAction::ToggleAssistant => {
                 self.assistant_toggle();
             }
+            KeyAction::RulesAndChecks => {
+                self.open_rules_dialog();
+            }
             KeyAction::MinimapPeek => {
                 self.minimap.key_held = matches!(self.tab, Tab::Pcb | Tab::Schematic);
             }
@@ -3846,6 +3854,14 @@ impl App {
                 .clicked()
             {
                 self.change_tab(Tab::Settings);
+                ui.close();
+            }
+            if ui
+                .button(t!("menu.edit.rules_checks"))
+                .on_hover_text(t!("menu.edit.rules_checks.tip"))
+                .clicked()
+            {
+                self.open_rules_dialog();
                 ui.close();
             }
             if ui
@@ -8092,6 +8108,7 @@ impl App {
         self.header(ui);
         self.footer(ui);
         self.renumber_window(&ctx);
+        self.rules_dialog_window(&ctx);
         self.recovery_window(ui);
         self.setup_wizard_window(&ctx);
         if self.home_open {
