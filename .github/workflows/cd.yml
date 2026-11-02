@@ -82,6 +82,7 @@ jobs:
         run: |
           npm run test:contrast
           npm run test:features
+          npm run test:docs-map
           npm run check
           npm run test:links
           npm run test:csp

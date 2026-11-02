@@ -11,9 +11,8 @@ use serde_json::Value;
 
 /// Drag one end of track `id` to `position`, keeping the other end fixed.
 ///
-/// The segment is taken out and its net, width and layer are routed from the
-/// fixed end to the new spot as 45-degree copper; shove mode may push other
-/// nets' tracks aside. An error leaves the caller's project as it was.
+/// Re-routes the segment as 45-degree copper. Shove mode may push other nets.
+/// An error leaves the project unchanged.
 ///
 /// # Rules
 /// - `Orthogonal` is not a drag mode: it has no obstacle checks.
