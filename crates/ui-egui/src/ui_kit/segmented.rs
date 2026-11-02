@@ -1,11 +1,9 @@
-//! Segmented control: two to four mutually exclusive options that change a
-//! setting or a view (Top and Bottom, mm and mil, 45, 90 and Free).
+//! Segmented control: two to four mutually exclusive options (Top/Bottom, mm/mil).
 //!
 //! Context: design system 5.4. A raised track with a 1 px edge border holds the
-//! items; the selected item is copper with dark text. It is not navigation; page
-//! sections use `./tab_bar.rs`.
-//! Local rules: one tab stop for the whole group; arrow keys move the selection
-//! while the track has focus, like a radio group.
+//! items. The selected item is copper with dark text. Page sections use `tab_bar`.
+//! Local rules: one tab stop for the group. Arrow keys move the selection while
+//! the track has focus.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/theme.rs

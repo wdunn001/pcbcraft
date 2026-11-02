@@ -1,11 +1,10 @@
 //! Tab bar in three sizes: tab nav, aside and page tabs, and sheet tabs.
 //!
-//! Context: design system 5.5. The tab itself is `craft_ui::tabs::Tab` (the shared
-//! component that gives each tab the Tab role and a selected state); this file
-//! adds the design's sizes, colours, copper bar, optional icon and count badge, and
-//! arrow-key movement between tabs.
-//! Local rules: irrelevant tabs are not passed in, never shown disabled. Active
-//! text is 600 and carries a 2 px copper bar inset from the bottom corners.
+//! Context: design system 5.5. The tab itself is `craft_ui::tabs::Tab`. This file
+//! adds the design's sizes, colours, copper bar, icon and badge, and arrow-key
+//! movement.
+//! Local rules: irrelevant tabs are not passed in. Active text is 600 with a 2 px
+//! copper bar inset from the bottom corners.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/theme.rs
@@ -118,16 +117,13 @@ fn tab_width(ui: &Ui, item: &TabItem<'_>, size: TabSize) -> f32 {
 
 /// A bar of tabs; `current` is the index of the active one.
 ///
-/// Why: every region with sub-views (work areas, asides, the bottom sheet) uses
-/// the same bar, so tabs look and behave the same everywhere.
+/// Why: every region with sub-views uses the same bar.
 ///
 /// # Rules
-/// - Returns the bar response; `changed()` is true on the frame the active tab moves.
-/// - Left and right arrows, Home and End move the active tab while a tab has focus. The work-area
-///   nav (`TabSize::Nav`) wraps at the ends, so Right on the last tab opens the first; the other
-///   bars stop at their ends.
-/// - A `current` past the last tab means none is active (the page is not one of the tabs), so
-///   a press on any tab, the last included, still counts as a change.
+/// - Returns the bar response; `changed()` is true when the active tab moves.
+/// - Arrow keys and Home/End move the active tab while it has focus. The nav bar
+///   (`TabSize::Nav`) wraps at the ends. Other bars stop.
+/// - A `current` past the last tab means none is active. Any press counts as a change.
 ///
 /// # Dependencies
 /// - crates/ui-egui/src/ui_kit/chip.rs (badge painting)
