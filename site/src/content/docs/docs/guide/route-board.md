@@ -18,10 +18,9 @@ Open the sample with `cargo run -p pcbcraft -- --sample`. Click the **Layout** t
 
    ![The board on the Layout tab. J1, R1 and D1 sit on a 60 by 40 mm outline. Dashed lines labelled VCC, LED and GND join their pads.](../../../../assets/guide/board-unrouted.png)
 
-## Pick the layer and the corners
+## Pick the layer
 
-1. In the Layers tree, find **Copper** under **Layer 1 · Top**. It carries the **Active** tag, so new tracks go on the top side.
-2. Look at the **Corners** switch at the right end of the tool strip. **45** cuts corners at 45 degrees. **90** keeps them square.
+1. In the Layers tree, find **Tracks** under **Layer 1 · Top**. It carries the **Active** tag, so new tracks go on the top side.
 
 The status strip shows the active layer, for example Layer 1 of 2 · Top copper. On the **Preferences** page the **Route on** entry also picks Top or Bottom.
 
