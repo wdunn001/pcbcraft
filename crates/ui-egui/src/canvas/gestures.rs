@@ -958,28 +958,6 @@ impl App {
         (amount, 0.0, plan.zoom_scale)
     }
 
-    /// Via tool click: put a via on the net of the track or pad under the pointer.
-    pub(crate) fn place_via_click(&mut self, pos: Point, zoom: f32) {
-        let net = match self.hit_at(pos, zoom) {
-            Hit::TrackSegment(id) | Hit::TrackEnd(id, _) => self
-                .project
-                .board
-                .tracks
-                .iter()
-                .find(|t| t.id == id)
-                .map(|t| t.net),
-            Hit::Pad(f, pad) => self
-                .project
-                .footprint(f)
-                .and_then(|fp| fp.pads.iter().find(|p| p.number == pad).and_then(|p| p.net)),
-            _ => None,
-        };
-        match net {
-            Some(net) => self.run("via.place", json!({"net": net, "position": snap(pos)})),
-            None => self.message = t!("modifier.via.pick_net"),
-        }
-    }
-
     /// Arm the tool a hotkey names.
     pub(crate) fn arm_hotkey(&mut self, hotkey: tm::Hotkey) {
         match hotkey {

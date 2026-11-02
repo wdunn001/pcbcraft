@@ -1580,3 +1580,30 @@ tour.e2e_resume.chip.tip = Story-Fixture-Chip.
 # picking a layer row
 tree.layer_hint = {name}: {tracks} Leiterbahnen, {pads} Pads, {silk} Bestückungsdruck-Teile, {vias} Vias sichtbar; alles andere ist abgedunkelt. Zum Aufheben erneut klicken.
 tree.layer_hint_clear = Hervorhebung der Lage aufgehoben; alles wird in voller Stärke gezeigt.
+
+# via tool options and messages
+via_tool.net = Netz
+via_tool.net.tip = Das Netz für ein Via auf freier Platine. Eine Leiterbahn oder ein Pad unter dem Zeiger hat immer Vorrang; Auto lässt das Via ohne Netz.
+via_tool.net_auto = Automatisch vom Zeiger
+via_tool.type = Via-Art
+via_tool.type.tip = Durchkontaktiert reicht durch beide Außenlagen. Blind hat ein Ende auf einer Außenlage. Vergraben bleibt innen. Nur Arten, die diese Platine erlaubt, sind wählbar.
+via_tool.type_through = Durchgehend
+via_tool.type_blind = Blind
+via_tool.type_buried = Vergraben
+via_tool.span = Lagen
+via_tool.span.tip = Die Kupferlagen, die dieses Via verbindet. Nur von der Platine erlaubte Bereiche stehen zur Wahl.
+via_tool.size = Größe
+via_tool.size.tip = Äußerer Pad-Durchmesser. Startet mit der Netzklasse oder den Fertigungsregeln.
+via_tool.drill = Bohrung
+via_tool.drill.tip = Durchmesser der Bohrung. Startet mit der Netzklasse oder den Fertigungsregeln.
+via_tool.use_rule_size = Regelgrößen verwenden
+via_tool.use_rule_size.tip = Die hier eingegebene Größe und Bohrung verwerfen und wieder Netzklasse oder Fertigungsregeln folgen.
+via_tool.snap = Am Raster einrasten
+via_tool.snap.tip = Das Via auf den nächsten Rasterpunkt setzen.
+via_tool.placed = Via auf {net} bei {x}, {y} gesetzt
+via_tool.placed_no_net = Via ohne Netz bei {x}, {y} gesetzt; weisen Sie ihm in den Eigenschaften ein Netz zu
+via_tool.ghost_no_net = kein Netz
+via_tool.refuse_outside = Kein Via bei {x}, {y}: außerhalb der Platinenkontur. Klicken Sie in die Platine.
+via_tool.refuse_edge = Hier kein Via: es braucht {gap} mm zwischen Mitte und Platinenkante.
+via_tool.refuse_ring = Kein Via in dieser Größe: der Kupferring misst {have} mm, verlangt sind {need} mm. Pad größer oder Bohrung kleiner machen.
+via_tool.refuse_clearance = Hier kein Via: anderes Kupfer liegt näher als die verlangten {need} mm.

@@ -1407,10 +1407,10 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "via.place",
-            "Place a plated via on an existing net. It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
+            "Place a plated via on an existing net, or on no net when net is left out or 0 (the checks report it until it is assigned). It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
             schema(
                 json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"},"from_layer":{"type":"string","description":"upper copper layer of the span, for example F.Cu or In1.Cu; default is the top layer"},"to_layer":{"type":"string","description":"lower copper layer of the span; default is the bottom layer"}}),
-                &["net", "position"],
+                &["position"],
             ),
         ),
         (
@@ -3338,6 +3338,14 @@ fn parse<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, Error> {
     serde_json::from_value(v.clone()).map_err(|e| Error::Invalid(e.to_string()))
 }
 
+/// Split a help query into lowercase tokens for matching.
+///
+/// # Rules
+/// - Whitespace separates tokens.
+/// - Empty tokens are discarded.
+///
+/// # Do not
+/// - Call on strings that will be matched case-sensitively.
 fn help_query_tokens(query: &str) -> Vec<String> {
     query
         .split_whitespace()
@@ -3346,11 +3354,26 @@ fn help_query_tokens(query: &str) -> Vec<String> {
         .collect()
 }
 
+/// Check if all query tokens appear in the target string.
+///
+/// # Rules
+/// - Matching is case-insensitive.
+/// - All tokens must be found, not just one.
 fn help_all_tokens_in(haystack: &str, toks: &[String]) -> bool {
     let h = haystack.to_ascii_lowercase();
     toks.iter().all(|t| h.contains(t.as_str()))
 }
 
+/// Rank a command spec against a help query.
+///
+/// # Rules
+/// - Exact id match ranks highest (0).
+/// - Prefix match ranks next (2).
+/// - Token match in id ranks next (4).
+/// - Token match in description ranks lowest (5).
+///
+/// # Do not
+/// - Call with an empty query string.
 fn help_rank_command(query: &str, spec: &CommandSpec) -> Option<(&'static str, u8)> {
     let q = query.trim();
     if q.is_empty() {
@@ -3377,6 +3400,13 @@ fn help_rank_command(query: &str, spec: &CommandSpec) -> Option<(&'static str, u
     None
 }
 
+/// Look up a command description by id in the spec list.
+///
+/// # Rules
+/// - Returns an empty string when the id is not found.
+///
+/// # Do not
+/// - Use for error handling; use find() directly if missing matters.
 fn help_command_description<'a>(specs: &'a [CommandSpec], id: &str) -> &'a str {
     specs
         .iter()
@@ -3385,6 +3415,15 @@ fn help_command_description<'a>(specs: &'a [CommandSpec], id: &str) -> &'a str {
         .unwrap_or("")
 }
 
+/// Search the glossary and command list, returning ranked JSON hits.
+///
+/// # Rules
+/// - Combines glossary term matches and command id/description matches.
+/// - Results are deduplicated by kind and id.
+/// - Returns at most `limit` hits.
+///
+/// # Dependencies
+/// - crates/calc/src/lib.rs (search_glossary)
 fn help_glossary_json(query: &str, limit: usize) -> Value {
     let specs = commands();
     let mut rows: Vec<(u8, Value)> = Vec::new();
@@ -3466,6 +3505,13 @@ fn help_glossary_json(query: &str, limit: usize) -> Value {
     json!({"hits": hits, "count": hits.len()})
 }
 
+/// Retrieve a single glossary term by id and return it as JSON.
+///
+/// # Rules
+/// - Returns an error when the id is not found.
+///
+/// # Dependencies
+/// - crates/calc/src/lib.rs (term_by_id)
 fn help_term_json(id: &str) -> Result<Value, Error> {
     let Some(t) = pcbcraft_calc::term_by_id(id) else {
         return Err(Error::Invalid(format!("unknown glossary id {id}")));
@@ -3752,6 +3798,13 @@ fn render_kind(
     Ok(out)
 }
 
+/// Build a JSON finding object for rule checks.
+///
+/// # Rules
+/// - The hint field is only included when provided.
+///
+/// # Do not
+/// - Call for findings that should be filtered by exclusion rules.
 fn check_finding_json(
     code: &str,
     severity: &str,
@@ -3933,6 +3986,14 @@ fn height_findings(p: &Project) -> Vec<Value> {
     out
 }
 
+/// Check if a component has no valid height field.
+///
+/// # Rules
+/// - Returns true when the height field is missing or invalid.
+/// - Valid heights are 0.05 to 100.0 mm.
+///
+/// # Do not
+/// - Use to validate the height value itself.
 fn component_uses_default_body_height(p: &Project, component_id: Id) -> bool {
     let Some(component) = p.component(component_id) else {
         return true;
@@ -3948,6 +4009,14 @@ fn component_uses_default_body_height(p: &Project, component_id: Id) -> bool {
     )
 }
 
+/// Import a netlist into the project, validating pin references.
+///
+/// # Rules
+/// - Validates all pin references before making changes.
+/// - Errors if any pin already belongs to a different net.
+///
+/// # Do not
+/// - Call with unvalidated input from external sources.
 fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Result<Value, Error> {
     if a.nets.is_empty() || a.nets.len() > 256 {
         return Err(Error::Invalid("netlist must hold 1 to 256 nets".into()));
@@ -4055,6 +4124,14 @@ pub(crate) fn allocate(next: &mut Id) -> Result<Id, Error> {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `component.add`: place a new component on the board.
+///
+/// # Rules
+/// - `kind` must be `component`, `footprint`, or `schematic`.
+/// - Position must be within board bounds.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 struct Add {
     kind: String,
     position: Point,
@@ -4065,6 +4142,14 @@ struct Add {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Parameters of `library.place`: place a component from a library file.
+///
+/// # Rules
+/// - `path` must be a valid library file path.
+/// - `symbol` must exist in the library.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 struct PlaceLibrary {
     path: String,
     symbol: String,
@@ -4134,18 +4219,39 @@ struct LockParams {
     id: Id,
     locked: bool,
 }
+/// Parameters of `component.set_in_bom`: include or exclude a component from the bill of materials.
+///
+/// # Rules
+/// - The component id must exist on the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentInBomParams {
     id: Id,
     in_bom: bool,
 }
+/// Parameters of `component.set_in_placement`: include or exclude a component from the placement file.
+///
+/// # Rules
+/// - The component id must exist on the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentInPlacementParams {
     id: Id,
     in_placement: bool,
 }
+/// Parameters of `board.set_clearance`: set the default board clearance distance.
+///
+/// # Rules
+/// - Clearance is a positive distance in millimetres.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BoardClearanceParams {
@@ -4266,30 +4372,65 @@ fn translate_object(p: &mut Project, id: Id, dx: f64, dy: f64) -> Result<(), Err
 fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
     project.is_locked(id)
 }
+/// Parameters of `footprint.assign`: assign a footprint library file to a part.
+///
+/// # Rules
+/// - The part id must exist; the path must resolve to a valid footprint file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignFootprint {
     id: Id,
     path: String,
 }
+/// Parameters of `footprint.assign_pattern`: assign a footprint pattern to multiple parts.
+///
+/// # Rules
+/// - The pattern string must match at least one part; the path must resolve to a valid footprint file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignPatternParams {
     pattern: String,
     path: String,
 }
+/// Parameters of `symbol.refresh`: reload a component symbol from its library source.
+///
+/// # Rules
+/// - The component id must exist and reference a library symbol.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RefreshSymbolParams {
     path: String,
     symbol: String,
 }
+/// Parameters of `footprint.refresh`: reload a footprint from its library source.
+///
+/// # Rules
+/// - The footprint id must exist and reference a library footprint.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RefreshFootprintParams {
     library: Option<String>,
     name: Option<String>,
 }
+/// Parameters of `table.assign`: assign a spreadsheet to a part for parameter synchronization.
+///
+/// # Rules
+/// - The part id must exist; the path must resolve to a valid spreadsheet file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignTableParams {
@@ -4302,6 +4443,13 @@ struct AssignTableRow {
     reference: String,
     path: String,
 }
+/// Parameters of `file.assign`: attach a file reference to a part or footprint.
+///
+/// # Rules
+/// - The id must exist; the path must resolve to a valid file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignFileParams {
@@ -4434,6 +4582,13 @@ fn component_pads(c: &Component) -> Vec<Pad> {
     }
 }
 
+/// Find the rightmost x coordinate of the board outline.
+///
+/// # Rules
+/// - Returns the board width when no outline is set.
+///
+/// # Do not
+/// - Use to check if a point is inside the board.
 fn board_outline_max_x(board: &pcbcraft_doc::Board) -> f64 {
     if let Some(outline) = &board.outline {
         outline.iter().map(|p| p.x).fold(0.0_f64, |a, b| a.max(b))
@@ -4442,6 +4597,14 @@ fn board_outline_max_x(board: &pcbcraft_doc::Board) -> f64 {
     }
 }
 
+/// Sync board footprints from schematic components, staging new ones.
+///
+/// # Rules
+/// - Removes footprints whose components no longer exist.
+/// - New footprints are placed in a staging area to the right of the board.
+///
+/// # Do not
+/// - Call with unvalidated component data.
 fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Error> {
     let live: Vec<Id> = p.components.iter().map(|c| c.id).collect();
     p.board.footprints.retain(|f| live.contains(&f.component));
@@ -4484,6 +4647,13 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
     )
 }
 
+/// Check if a command should trigger board synchronization.
+///
+/// # Rules
+/// - Returns true for commands that change component or net connectivity.
+///
+/// # Do not
+/// - Use to determine if a command modifies the board.
 fn command_triggers_board_sync(command: &str) -> bool {
     matches!(
         command,
@@ -4628,6 +4798,14 @@ fn assign_to(
     }
     Some(())
 }
+/// Parameters of `object.move`: move an object to an absolute position.
+///
+/// # Rules
+/// - The id must exist; the position must be in range; locked objects are refused.
+/// - Unit index is 0-based and must be valid for multi-unit components.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Move {
@@ -4635,6 +4813,14 @@ struct Move {
     position: Point,
     unit: Option<u32>,
 }
+/// Parameters of `object.rotate`: rotate an object by a given number of degrees.
+///
+/// # Rules
+/// - The id must exist; degrees is a finite number; locked objects are refused.
+/// - Unit index is 0-based and must be valid for multi-unit components.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Rotate {
@@ -4642,29 +4828,64 @@ struct Rotate {
     degrees: f64,
     unit: Option<u32>,
 }
+/// Parameters of `object.set_value`: set the value field of a component, track, via, or text.
+///
+/// # Rules
+/// - The id must exist; the value is a plain string with no length limit.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ValueParams {
     id: Id,
     value: String,
 }
+/// Parameters of `object.set_kind`: change the kind of a track, via, or wire.
+///
+/// # Rules
+/// - The id must exist; the kind must be valid for the object type.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetKindParams {
     id: Id,
     kind: String,
 }
+/// Parameters of `object.set_name`: set the name field of a component, net, or layer.
+///
+/// # Rules
+/// - The id must exist; the name is a plain string with no length limit.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Name {
     name: String,
 }
+/// Parameters of `object.set_meta`: set a metadata field on a project object.
+///
+/// # Rules
+/// - The id must exist; the key is 1 to 64 bytes; the value is a JSON value.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MetaParams {
     key: String,
     value: String,
 }
+/// Parameters of `parameter.set`: set a design parameter on a component, track, or via.
+///
+/// # Rules
+/// - The id must exist; the key is 1 to 64 bytes; the value is a JSON value.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ParameterSetParams {
@@ -4673,6 +4894,13 @@ struct ParameterSetParams {
     #[serde(default)]
     note: Option<String>,
 }
+/// Parameters of `parameter.remove`: remove a design parameter from a component, track, or via.
+///
+/// # Rules
+/// - The id must exist; the key is 1 to 64 bytes.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ParameterRemoveParams {
@@ -4680,27 +4908,62 @@ struct ParameterRemoveParams {
     #[serde(default)]
     unbind: bool,
 }
+/// Parameters of `project.set_unit`: set the project measurement unit system.
+///
+/// # Rules
+/// - Unit must be `mm` or `inches`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectSetUnitParams {
     unit: String,
 }
+/// Parameters of `project.set_auto_sync`: enable or disable automatic project synchronization.
+///
+/// # Rules
+/// - No validation; the flag is stored directly.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectSetAutoSyncParams {
     auto_sync: bool,
 }
+/// Parameters of `project.archive_path`: set the path for project archive backups.
+///
+/// # Rules
+/// - The path must be writable and resolvable.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArchivePathParams {
     path: String,
 }
+/// Parameters of `project.import`: import a project from a file or URL.
+///
+/// # Rules
+/// - The path or URL must resolve to a valid project file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectImportParams {
     path: String,
     format: String,
 }
+/// Parameters of `export.laser_job`: export the board as a laser cutting job.
+///
+/// # Rules
+/// - The output path must be writable; the board must have a valid outline.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LaserJobExportParams {
@@ -4721,17 +4984,33 @@ struct LaserJobExportParams {
     #[serde(default)]
     path: Option<String>,
 }
+/// Default laser job mirror axis: y.
 fn laser_job_mirror_default() -> String {
     "y".into()
 }
+/// Default laser job isolation width in mm.
 fn laser_job_isolation_default() -> f64 {
     0.05
 }
+/// Parameters of `object.meta_key`: get or list metadata keys on a project object.
+///
+/// # Rules
+/// - The id must exist; the key is optional for listing all keys.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MetaKeyParams {
     key: String,
 }
+/// Parameters of `component.replace`: replace a component with a different part number.
+///
+/// # Rules
+/// - The id must exist; the new part number must resolve to a valid component definition.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReplaceParams {
@@ -4746,12 +5025,26 @@ struct ReplaceParams {
 fn replace_all_scope() -> String {
     "all".into()
 }
+/// Parameters of `wire.connect`: create a wire connection between two endpoints.
+///
+/// # Rules
+/// - Both endpoints must be valid pad or point references; the net must exist or be creatable.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Connect {
     net: Id,
     pins: Vec<PinRef>,
 }
+/// Parameters of `copper.net`: assign a copper pour or plane to a net.
+///
+/// # Rules
+/// - The id must exist; the net name must be valid.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CopperNetParams {
@@ -4787,12 +5080,26 @@ struct DrawnWireParams {
     points: Vec<Point>,
     net: Option<Id>,
 }
+/// Parameters of `wire.place_tee`: place a T-junction on an existing wire.
+///
+/// # Rules
+/// - The wire id must exist; the position must be on the wire segment.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WirePlaceTeeParams {
     wire: Id,
     at: Point,
 }
+/// Parameters of `wire.place`: place a new wire segment between two points.
+///
+/// # Rules
+/// - Both points must be in range; the net must exist or be creatable.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WirePlaceParams {
@@ -4806,6 +5113,13 @@ struct WirePlaceParams {
     #[serde(default)]
     junction: Option<bool>,
 }
+/// Parameters of `barcode.place`: place a barcode on the board.
+///
+/// # Rules
+/// - The position must be in range; the value must be a valid barcode string.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BarcodeParams {
@@ -5276,6 +5590,8 @@ struct RepeatLayoutParams {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaParams {
+    /// Net the via joins; 0 or absent places a via with no net.
+    #[serde(default)]
     net: Id,
     position: Point,
     #[serde(default)]
@@ -17208,7 +17524,7 @@ fn run_command_part_13(
         }
         "via.place" => {
             let a: ViaParams = parse(params)?;
-            if !p.nets.iter().any(|n| n.id == a.net) {
+            if a.net != 0 && !p.nets.iter().any(|n| n.id == a.net) {
                 return Err(missing());
             }
             if !a.position.valid() {
@@ -21230,6 +21546,7 @@ fn run_command_part_20(
             });
             Ok(json!({"id":id}))
         }
+        // Move a circular board cutout to a new position.
         "board.cutout.move" => {
             let a: CutoutMoveParams = parse(params)?;
             if !a.center.valid() {
@@ -21253,6 +21570,7 @@ fn run_command_part_20(
             cutout.center = a.center;
             Ok(json!({"id":a.id,"center":a.center}))
         }
+        // Resize a circular board cutout.
         "board.cutout.resize" => {
             let a: CutoutSizeParams = parse(params)?;
             if !a.radius.is_finite() || a.radius <= 0.0 || a.radius > 1000.0 {
@@ -21278,6 +21596,7 @@ fn run_command_part_20(
             cutout.radius = a.radius;
             Ok(json!({"id":a.id,"radius":a.radius}))
         }
+        // Move a footprint to a new position.
         "footprint.move" => {
             let a: Move = parse(params)?;
             if a.unit.is_some() {
@@ -21298,6 +21617,7 @@ fn run_command_part_20(
                 .position = a.position;
             Ok(json!({"id":a.id}))
         }
+        // Rotate a footprint around its centre.
         "footprint.rotate" => {
             let a: Rotate = parse(params)?;
             if a.unit.is_some() {
@@ -21321,6 +21641,7 @@ fn run_command_part_20(
                 .rotation = a.degrees.rem_euclid(360.0);
             Ok(json!({"id":a.id}))
         }
+        // Change the pad shape or size of a footprint.
         "footprint.set_pad" => {
             let a: PadSetParams = parse(params)?;
             if a.offset.is_none() && a.diameter.is_none() {
@@ -21368,6 +21689,7 @@ fn run_command_part_20(
             }
             Ok(json!({"id": a.id, "pad": a.pad}))
         }
+        // Set castellated edge pads on a footprint.
         "footprint.set_castellated" => {
             let a: PadCastellateParams = parse(params)?;
             if a.pad.is_empty() || a.pad.len() > 32 {
@@ -21383,6 +21705,7 @@ fn run_command_part_20(
             pad.castellated = a.on.then_some(true);
             Ok(json!({"id": a.id, "pad": a.pad, "castellated": a.on}))
         }
+        // Align a footprint to a board edge.
         "footprint.dock_edge" => {
             let a: DockEdgeParams = parse(params)?;
             if footprint_locked(p, a.id) {
@@ -21471,6 +21794,7 @@ fn run_command_part_21(
 ) -> Result<Value, Error> {
     let _ = (&config, &next, &record_revision, &mutating);
     match command {
+        // Lock or unlock a footprint in place.
         "footprint.set_locked" => {
             let a: LockParams = parse(params)?;
             let footprint = p
@@ -21482,6 +21806,7 @@ fn run_command_part_21(
             footprint.locked = a.locked.then_some(true);
             Ok(json!({"id": a.id, "locked": a.locked}))
         }
+        // Create a grid of footprints from one source.
         "footprint.array" => {
             let a: ArrayParams = parse(params)?;
             if a.columns == 0
@@ -21750,6 +22075,7 @@ fn run_command_part_21(
                 "vias": copied_vias,
             }))
         }
+        // Add a straight copper track.
         "track.add" => {
             let a: TrackParams = parse(params)?;
             let layer = command_layer(p, params, a.layer)?;
@@ -21820,6 +22146,7 @@ fn run_command_part_21(
             track.arc = Some(a.mid);
             Ok(json!({"id": a.id, "arc": a.mid, "length": track.length()}))
         }
+        // Straighten a track at a via.
         "track.straighten" => {
             let a: IdParams = parse(params)?;
             let track = p
@@ -21833,6 +22160,7 @@ fn run_command_part_21(
             }
             Ok(json!({"id": a.id, "length": track.length()}))
         }
+        // Split a track at a point.
         "track.split" => {
             let a: SplitParams = parse(params)?;
             if !a.at.valid() {
@@ -21873,6 +22201,7 @@ fn run_command_part_21(
             });
             Ok(json!({"id":id,"kept":a.id}))
         }
+        // Chamfer a track corner.
         "track.chamfer" => {
             let a: ChamferParams = parse(params)?;
             if !a.size.is_finite() || a.size <= 0.0 {
@@ -22000,6 +22329,7 @@ fn run_command_part_22(
     let _ = (&config, &next, &record_revision, &mutating);
     match command {
         "track.round_corners" => track_round::run(p, next, parse(params)?),
+        // Move a track point.
         "track.move" => {
             let a: DeltaParams = parse(params)?;
             let track = p
@@ -22020,6 +22350,7 @@ fn run_command_part_22(
                 .map(|m| Point::new(m.x + a.delta.x, m.y + a.delta.y));
             Ok(json!({"id": a.id}))
         }
+        // Route a track between two points.
         "track.route" => {
             let a: Route = parse(params)?;
             let start_layer = command_layer(p, params, a.layer)?;
@@ -22225,6 +22556,7 @@ fn run_command_part_22(
                 "width": width,
             }))
         }
+        // Mirror a footprint across an axis.
         "footprint.mirror" => {
             let a: MirrorParams = parse(params)?;
             if footprint_locked(p, a.id) {
@@ -22282,6 +22614,7 @@ fn run_command_part_22(
             }
             Ok(json!({"id": a.id, "axis": a.axis}))
         }
+        // Flip a footprint to the other side.
         "footprint.flip" => {
             let a: FlipParams = parse(params)?;
             if footprint_locked(p, a.id) {
@@ -22345,6 +22678,7 @@ fn run_command_part_22(
             }
             Ok(json!({"id": a.id, "side": footprint.board_side().name()}))
         }
+        // Align or distribute objects.
         "align.distribute" => {
             let a: AlignParams = parse(params)?;
             let mode = a.mode.as_str();
@@ -22496,6 +22830,7 @@ fn run_command_part_22(
             }
             Ok(json!({"aligned": seen.len(), "mode": mode}))
         }
+        // Snap objects to a grid.
         "object.snap" => {
             let a: SnapParams = parse(params)?;
             if a.ids.is_empty() || a.ids.len() > 128 {
@@ -22579,6 +22914,7 @@ fn run_command_part_23(
 ) -> Result<Value, Error> {
     let _ = (&config, &next, &record_revision, &mutating);
     match command {
+        // Nudge an object a small distance.
         "object.nudge" => {
             let a: NudgeParams = parse(params)?;
             if !a.dx.is_finite() || !a.dy.is_finite() || a.dx.abs() > 1000.0 || a.dy.abs() > 1000.0
@@ -22591,6 +22927,7 @@ fn run_command_part_23(
             translate_object(p, a.id, a.dx, a.dy)?;
             Ok(json!({"id": a.id}))
         }
+        // Duplicate an object.
         "object.duplicate" => {
             let a: DuplicateParams = parse(params)?;
             if a.ids.is_empty() || a.ids.len() > 64 {
@@ -22654,6 +22991,7 @@ fn run_command_part_23(
             let text = selection_clip::copy_text(p, &a.ids, a.context.as_deref())?;
             Ok(json!({"text": text}))
         }
+        // Paste copied objects.
         "selection.paste" => {
             let a: SelectionPasteParams = parse(params)?;
             if a.text.is_empty() || a.text.len() > 524_288 {
@@ -22667,6 +23005,7 @@ fn run_command_part_23(
                 .collect::<serde_json::Map<String, Value>>();
             Ok(json!({"count": count, "ids": Value::Object(map)}))
         }
+        // Delete an object.
         "object.delete" => {
             let a: Object = parse(params)?;
             if !p.ids().any(|id| id == a.id) {
@@ -22831,6 +23170,7 @@ fn run_command_part_23(
                 "position": *moved,
             }))
         }
+        // Drag a track point.
         "track.drag" => {
             let a: TrackDragParams = parse(params)?;
             route::drag(
@@ -22879,6 +23219,7 @@ fn run_command_part_23(
             via.drill = drill;
             Ok(json!({"id":a.id,"diameter":via.diameter,"drill":via.drill}))
         }
+        // Place a text annotation.
         "text.place" => {
             let a: TextPlaceParams = parse(params)?;
             let layer = command_layer(p, params, a.layer)?;
@@ -22910,6 +23251,7 @@ fn run_command_part_23(
             });
             Ok(json!({"id":id}))
         }
+        // Move a text annotation.
         "text.move" => {
             let a: TextMoveParams = parse(params)?;
             if !a.position.x.is_finite() || !a.position.y.is_finite() {
@@ -22924,6 +23266,7 @@ fn run_command_part_23(
             text.position = a.position;
             Ok(json!({"id":a.id,"position":a.position}))
         }
+        // Set text content or style.
         "text.set" => {
             let a: TextSetParams = parse(params)?;
             if a.text.is_none() && a.size.is_none() && a.layer.is_none() && a.rotation.is_none() {
@@ -22985,6 +23328,7 @@ fn run_command_part_23(
                 json!({"id":text.id,"text":text.text,"size":text.size,"layer":text.layer,"rotation":text.rotation}),
             )
         }
+        // Rotate a text annotation.
         "text.rotate" => {
             let a: TextRotateParams = parse(params)?;
             if !a.degrees.is_finite() || a.degrees.abs() > 360_000.0 {
@@ -22999,6 +23343,7 @@ fn run_command_part_23(
             text.rotation = a.degrees;
             Ok(json!({"id":text.id,"rotation":text.rotation}))
         }
+        // Bind text to an object.
         "text.bind" => {
             let a: TextBindParams = parse(params)?;
             if let Some(bound) = a.component
@@ -23015,6 +23360,7 @@ fn run_command_part_23(
             text.component = a.component;
             Ok(json!({"id":text.id,"component":text.component}))
         }
+        // Expand a text annotation.
         "text.expand" => {
             let a: TextExpandParams = parse(params)?;
             if let Some(id) = a.id
@@ -23705,6 +24051,46 @@ mod tests {
             .ok_or_else(missing)?;
         assert_eq!(label.kind, "global", "undo restores the kind");
         assert_eq!(label.net, b);
+        Ok(())
+    }
+    #[test]
+    fn via_place_without_a_net_makes_a_net_less_via_that_validates_and_undoes() -> Result<(), Error>
+    {
+        let mut s = Session::default();
+        s.execute(
+            "via.place",
+            json!({"position":{"x":10.0,"y":10.0},"diameter":0.8,"drill":0.4}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias.len(), 1);
+        assert_eq!(s.project.board.vias[0].net, 0);
+        assert!(s.project.validate().is_ok());
+        assert!(
+            pcbcraft_rules::drc(&s.project)
+                .iter()
+                .any(|f| f.code == "unassigned_via"),
+            "the checks mention the net-less via"
+        );
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let via = s.project.board.vias[0].id;
+        s.execute("copper.set_net", json!({"id":via,"net":net}), None)?;
+        assert_eq!(s.project.board.vias[0].net, net);
+        assert!(
+            !pcbcraft_rules::drc(&s.project)
+                .iter()
+                .any(|f| f.code == "unassigned_via")
+        );
+        assert!(
+            s.execute(
+                "via.place",
+                json!({"net":9999,"position":{"x":1.0,"y":1.0},"diameter":0.8}),
+                None
+            )
+            .is_err(),
+            "an unknown net is still refused"
+        );
         Ok(())
     }
     #[test]

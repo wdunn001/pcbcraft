@@ -860,6 +860,80 @@ fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result
 }
 
 #[test]
+fn a_newcomer_sees_library_after_manufacture_in_the_tab_bar() -> Result<(), String> {
+    use super::super::tour::anchor;
+    let (ctx, mut app) = practice_app();
+    let order = [
+        ("shell.tab.files", Tab::Files),
+        ("shell.tab.schematic", Tab::Schematic),
+        ("shell.tab.layout", Tab::Pcb),
+        ("shell.tab.manufacture", Tab::PlotFiles),
+        ("shell.tab.library", Tab::Library),
+    ];
+    let mut row: Vec<(&str, f32)> = Vec::new();
+    for (id, _) in order {
+        let rect = anchor::lookup(&ctx, id).ok_or_else(|| format!("no tab `{id}` in the row"))?;
+        row.push((id, rect.center().x));
+    }
+    let mut left_to_right = row.clone();
+    left_to_right.sort_by(|a, b| a.1.total_cmp(&b.1));
+    let read: Vec<&str> = left_to_right.iter().map(|(id, _)| *id).collect();
+    let want: Vec<&str> = order.iter().map(|(id, _)| *id).collect();
+    assert_eq!(
+        read, want,
+        "the tab row reads Files, Schematic, Layout, Manufacture, Library"
+    );
+    // Click each tab from the far end back, so every click is a real change.
+    for (id, tab) in order.iter().rev() {
+        let at = anchor::lookup(&ctx, id).ok_or_else(|| format!("no tab `{id}`"))?;
+        tap_at(&ctx, &mut app, at.center())?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.tab, *tab,
+            "clicking `{id}` opens its page: {}",
+            app.message
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_cycles_the_tabs_with_the_keyboard_and_wraps_library_to_files() -> Result<(), String> {
+    let (ctx, mut app) = practice_app();
+    tab_to(&ctx, &mut app, "Manufacture")?;
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Space)],
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(
+        app.tab,
+        Tab::PlotFiles,
+        "Space opens Manufacture: {}",
+        app.message
+    );
+    let steps = [
+        (egui::Key::ArrowRight, Tab::Library),
+        (egui::Key::ArrowRight, Tab::Files),
+        (egui::Key::ArrowRight, Tab::Schematic),
+        (egui::Key::ArrowLeft, Tab::Files),
+        (egui::Key::ArrowLeft, Tab::Library),
+        (egui::Key::ArrowLeft, Tab::PlotFiles),
+    ];
+    for (arrow, want) in steps {
+        frame(&ctx, &mut app, vec![key(arrow)], egui::Modifiers::NONE);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.tab, want,
+            "{arrow:?} moves to {want:?}: {}",
+            app.message
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_switches_view_with_the_keyboard_only() -> Result<(), String> {
     let (ctx, mut app) = practice_app();
     tab_to(&ctx, &mut app, "Layout")?;

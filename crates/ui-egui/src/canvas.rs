@@ -1,3 +1,20 @@
+//! Canvas drawing and interaction for the PCB and schematic tabs.
+//!
+//! Owns world-to-screen conversion, selection, picking, the floating view
+//! controls, and the per-layer paint pass. The engine receives only commands;
+//! this module decides what the user sees and what they clicked.
+//!
+//! # Rules
+//! - All drawing uses mm world coordinates; conversion to pixels happens in one place.
+//! - Selection and picking return ids, never raw geometry.
+//! - The canvas never mutates the project; it emits commands through the engine.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs
+//! - crates/geom/src/lib.rs
+//! - crates/ui-egui/src/lib.rs
+//! - crates/ui-egui/src/arrange.rs
+//!
 use super::*;
 use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Id, Layer, PinRef, Project};
@@ -20,10 +37,37 @@ pub(crate) fn hex_colour(text: &str) -> Option<Color32> {
     Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
 }
 
+/// Check whether a schematic object belongs to a given page.
+///
+/// Used to filter which objects appear when the user views a specific
+/// schematic page, so the canvas only shows relevant geometry.
+///
+/// # Rules
+/// - Returns false for objects on other pages or board objects.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// # Do not
+/// - Call from the board paint path; this is schematic-only.
 fn on_page(p: &Project, page: Id, object: Id) -> bool {
     p.on_schematic_page(page, object)
 }
 
+/// Target of a right-click context menu on the canvas.
+///
+/// Identifies what object the user clicked so the menu can offer
+/// relevant actions such as delete, edit, or inspect.
+///
+/// # Rules
+/// - Carries only the minimum data needed to identify the target.
+/// - The menu builder reads this and emits the appropriate commands.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// # Do not
+/// - Add fields beyond id and type; that data is in the project.
 pub(super) enum CanvasMenuKind {
     Empty,
     Pin(PinRef),
@@ -32,6 +76,22 @@ pub(super) enum CanvasMenuKind {
     Object(Id),
 }
 
+/// Compute the world-space bounding box for a selected object.
+///
+/// Used to draw the selection outline and to size the selection
+/// handles. Returns None for objects with no extent, such as
+/// empty or deleted ids.
+///
+/// # Rules
+/// - Returns the tightest box that contains the object.
+/// - Works for components, tracks, vias, and schematic objects.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+/// - crates/geom/src/lib.rs
+///
+/// # Do not
+/// - Call repeatedly in the paint loop; cache the result per frame.
 pub(crate) fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Point)> {
     if let Some(c) = project.component(id) {
         let p = c.position;
@@ -136,6 +196,21 @@ fn spotlight(lit: Option<Id>, net: Option<Id>, base: Color32, hot: Color32) -> C
     }
 }
 
+/// Snap a world position to the nearest grid point.
+///
+/// Used during interactive placement so the user can align objects
+/// to the grid. Grid snap is always applied unless snap is
+/// suspended by the user.
+///
+/// # Rules
+/// - Snaps to a 0.5mm grid.
+/// - Returns the snapped point.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+///
+/// # Do not
+/// - Snap during paint; this is an interaction helper only.
 pub(crate) fn snap(p: Point) -> Point {
     // Held keys that suspend snap (see tool_modifiers) leave the point as it is.
     if crate::tool_modifiers::snap_suspended() {
@@ -143,6 +218,20 @@ pub(crate) fn snap(p: Point) -> Point {
     }
     Point::new((p.x * 2.0).round() / 2.0, (p.y * 2.0).round() / 2.0)
 }
+/// Fill a closed polygon on the canvas with a solid colour.
+///
+/// Used for copper pours, board outline fills, and schematic
+/// fill regions. The polygon must be closed and non-self-intersecting.
+///
+/// # Rules
+/// - Points are in screen space, not world space.
+/// - The caller is responsible for transforming world coordinates.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+///
+/// # Do not
+/// - Use for strokes; use `stroke` for line segments.
 fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: Rect) {
     let points = if points.first() == points.last() {
         &points[..points.len().saturating_sub(1)]
@@ -713,6 +802,9 @@ impl App {
                     );
                 }
                 Tool::Keepout => self.paint_keepout_ghost(&painter, rect, camera, snapped),
+                Tool::Via if self.tab == Tab::Pcb => {
+                    self.paint_via_ghost(&painter, rect, camera, pos)
+                }
                 Tool::Hole => {
                     painter.circle_stroke(
                         camera.screen(snapped, rect),
@@ -2829,7 +2921,7 @@ mod tests {
 }
 
 /// Shortest distance from a point to a straight segment, in millimetres.
-fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
+pub(crate) fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
     let dx = to.x - from.x;
     let dy = to.y - from.y;
     let span = dx * dx + dy * dy;

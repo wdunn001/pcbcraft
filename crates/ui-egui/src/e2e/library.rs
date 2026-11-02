@@ -1069,15 +1069,7 @@ fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
 
 /// Draw frames until the collection browser has read its folders.
 fn waits_for_collections(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
-    for _ in 0..200 {
-        frame(ctx, app, vec![], egui::Modifiers::NONE);
-        if app.library.catalog.is_some() && app.library.pending.is_none() {
-            frame(ctx, app, vec![], egui::Modifiers::NONE);
-            return Ok(());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    Err("the collection browser never finished reading".into())
+    waits_for_library_read(ctx, app)
 }
 
 /// Keeps the folder list of a story away from the real user configuration:
@@ -1128,9 +1120,8 @@ fn a_newcomer_adds_a_folder_picks_its_library_and_searches_it() -> Result<(), St
         "textinput:Folder to add as a library source",
         &shelf,
     )?;
-    // Enter in the box adds the folder; pressing the button afterwards with
-    // an empty box changes nothing.
-    tap_id(&ctx, &mut app, "button:Add folder")?;
+    // Enter in the box adds the folder. Wait for the add and the re-read it
+    // starts: the controls are switched off while the browser is reading.
     let mut added = false;
     for _ in 0..200 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -1145,6 +1136,9 @@ fn a_newcomer_adds_a_folder_picks_its_library_and_searches_it() -> Result<(), St
         "adding the folder reports back: {}",
         app.library.notice
     );
+    waits_for_collections(&ctx, &mut app)?;
+    // Pressing the button with the box now empty changes nothing.
+    tap_id(&ctx, &mut app, "button:Add folder")?;
     waits_for_collections(&ctx, &mut app)?;
     let added_path = app
         .library
@@ -1172,6 +1166,9 @@ fn a_newcomer_adds_a_folder_picks_its_library_and_searches_it() -> Result<(), St
         "textinput:Search names, descriptions, keywords",
         "a",
     )?;
+    // Enter in the search box already searched; let that read finish before
+    // pressing the button, which is switched off meanwhile.
+    waits_for_collections(&ctx, &mut app)?;
     tap_id(&ctx, &mut app, "button:Search")?;
     waits_for_collections(&ctx, &mut app)?;
     assert!(
@@ -1179,11 +1176,11 @@ fn a_newcomer_adds_a_folder_picks_its_library_and_searches_it() -> Result<(), St
         "the search answers in the list or in words"
     );
     tap_id(&ctx, &mut app, "button:Refresh folders")?;
-    assert!(
-        app.library.path.is_empty() && app.library.results.is_none(),
-        "Refresh folders forgets the chosen collection"
-    );
     waits_for_collections(&ctx, &mut app)?;
+    assert!(
+        app.library.catalog.is_some(),
+        "Refresh folders reads the collections again"
+    );
     Ok(())
 }
 

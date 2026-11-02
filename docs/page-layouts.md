@@ -9,7 +9,7 @@ Each tab owns its regions through the `Workspace` trait in `crates/ui-egui/src/w
 ## 1. Shell
 
 - Menu bar: brand mark and name, then File, Edit, View, Help. Nothing else (no project title, no Save and Undo buttons, no version; those are menu items and Help, About).
-- Tab nav: Files, Library, Schematic, Layout, Manufacture. These are work areas only; settings and one-off dialogs are not places you work in. The active tab has a 2 px copper bar.
+- Tab nav: Files, Schematic, Layout, Manufacture, Library. These are work areas only; settings and one-off dialogs are not places you work in. The active tab has a 2 px copper bar.
 - Tool bar: one row, changes per tab (listed per page). No layer drop-down and no selection-filter chips on any tab; the layer is picked in the Layers tree and picking is limited by locking rows. Buttons centre their icon and label.
 - Status bar: document state left; error and warning counts (a click opens the bottom sheet on Findings), cursor X Y, units and zoom right. Nothing else.
 - Bottom sheet: Findings (Run checks, severity filter, rows), Output (progress and results of the last run), Console (developer detail lives here). Collapsed it is a 36 px tab strip with a count.
@@ -50,8 +50,8 @@ A CAM and outputs workspace. Tool bar: Generate all (primary), Add output, Panel
 
 ## 4. Region relevance
 
-| Region | Files | Library | Schematic | Layout (2D and 3D) | Manufacture |
+| Region | Files | Schematic | Layout (2D and 3D) | Manufacture | Library |
 | --- | --- | --- | --- | --- | --- |
-| Left aside | File actions | Part browser | Layers or Library | Layers or Library | Outputs or Machines |
-| Right aside | Project properties | Part properties | Part properties | Part properties | Output properties |
-| Bottom sheet | collapsed | collapsed | collapsed | Findings open | Output log |
+| Left aside | File actions | Layers or Library | Layers or Library | Outputs or Machines | Part browser |
+| Right aside | Project properties | Part properties | Part properties | Output properties | Part properties |
+| Bottom sheet | collapsed | collapsed | Findings open | Output log | collapsed |
