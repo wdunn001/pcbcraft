@@ -1,17 +1,10 @@
 //! Pick and place planning: which nozzle, feeder, speed and heights each surface-mount
-//! part gets on a `pick_place` machine profile, from rules, with per-part overrides.
-//!
-//! Context: a pick and place machine cares which nozzle picks which part. The profile
-//! holds the nozzle set and a table of rules (package, size, body height to nozzle);
-//! a part may override any value through typed component properties named
-//! "Placement nozzle", "Placement feeder", "Placement speed", "Placement pick height",
-//! "Placement place height" and "Placement skip".
+//! part gets from rules and per-part overrides.
 //!
 //! # Rules
-//! - Pure planning from a `Project` and a `PickPlaceSection`; no file or UI code.
+//! - Pure planning from a Project and a PickPlaceSection; no file or UI code.
 //! - An override beats the rule; a rule beats the profile default.
 //! - Through-hole parts are never planned.
-//! - Problems are plain sentences naming the part or the machine limit.
 //!
 //! # Dependencies
 //! - crates/doc/src/machine_profile.rs (`PickPlaceSection`, `PlacementRuleRow`)
@@ -19,7 +12,6 @@
 //!
 //! # Do not
 //! - Write a file here; crates/io/src/neoden_yy1.rs writes the machine job.
-//! - Guess a nozzle that the profile does not list.
 
 use crate::{
     Component, Footprint, Id, Layer, PickPlaceSection, PlacementRuleRow, Project, Variant,
