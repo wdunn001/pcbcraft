@@ -1,11 +1,10 @@
 //! Collapsible section: the GENERAL / POSITION / PINS headers of the Properties aside.
 //!
-//! Context: design system 5.6 and the Layout mockup. A 32 high header strip with a
-//! chevron and an uppercase 11 pt caption, a 1 px `line` rule above, and a body that
-//! opens and closes. Open state lives in egui memory under the section's id, so a
-//! section keeps its state while the selection changes.
-//! Local rules: the header is a single focusable target with a tooltip and an
-//! accessible name; the body gets 12 pt side padding.
+//! Context: design system 5.6 and the Layout mockup. A 32 high header with chevron,
+//! uppercase caption and a `line` rule above. The body opens and closes. Open state
+//! lives in egui memory under the section's id.
+//! Local rules: the header is one focusable target with tooltip and accessible name.
+//! The body gets 12 pt side padding.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/theme.rs

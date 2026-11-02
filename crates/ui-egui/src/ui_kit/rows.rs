@@ -1,10 +1,9 @@
-//! List row, tree row and finding row: the repeating rows of lists, trees and checks.
+//! List, tree and finding rows: the repeating rows of lists, trees and checks.
 //!
-//! Context: design system 5.7 and 5.8. Rows paint their own background (hover on
-//! `raised`, selected copper tint with a 3 px copper bar), a 55 percent `line`
-//! divider, and lay content out through small closures or fixed cells.
-//! Local rules: state is shown by shape and text as well as colour (eye icon plus a
-//! dimmed row, warning triangle plus words); row heights are 36, 28 and 48.
+//! Context: design system 5.7 and 5.8. Rows paint their own background, a 55
+//! percent `line` divider, and lay content out through closures or fixed cells.
+//! Local rules: state shows by shape and text as well as colour. Row heights are
+//! 36, 28 and 48.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/theme.rs
