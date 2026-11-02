@@ -51,6 +51,7 @@ mod rules;
 mod rules_dialog;
 mod schematic_add;
 mod schematic_pages;
+mod selection;
 mod settings;
 mod sheet_rows;
 mod shell;

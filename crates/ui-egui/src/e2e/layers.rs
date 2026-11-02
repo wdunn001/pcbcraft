@@ -698,6 +698,8 @@ fn a_newcomer_sees_where_the_last_page_ends() -> Result<(), String> {
         hidden: &hidden,
         focus: None,
         selected: None,
+        subject: None,
+        relations: None,
         target: crate::draw_target::Target::Copper(pcbcraft_doc::Layer::Front),
         revision: 1,
         parts_selected: 0,

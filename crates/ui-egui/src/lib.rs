@@ -33,6 +33,7 @@ mod hover_affordance;
 mod icons;
 mod impedance_panel;
 mod keymap;
+mod layer_record_panel;
 mod layer_visibility;
 mod layers_tree;
 mod library;
@@ -61,6 +62,7 @@ mod route_drag;
 mod rules_dialog;
 mod rules_fab;
 mod schematic_port;
+mod selection;
 mod setup_wizard;
 mod sheet_rows;
 mod showcase;
@@ -1197,6 +1199,10 @@ pub struct App {
     tab: Tab,
     tool: Tool,
     selected: Option<Id>,
+    /// The one selection value; `selected` and `tree.selected_key` project it (`selection.rs`).
+    subject: selection::Selection,
+    /// The pair `(selected, selected_key)` last projected from `subject`.
+    subject_seen: (Option<Id>, Option<String>),
     edit: editing::EditState,
     view3d: board3d::View3d,
     highlight_net: Option<Id>,
@@ -1967,6 +1973,8 @@ impl App {
             },
             tool: Tool::Select,
             selected: None,
+            subject: selection::Selection::Empty,
+            subject_seen: (None, None),
             edit: editing::EditState::default(),
             view3d: board3d::View3d::for_config(&config),
             highlight_net: None,
@@ -2495,7 +2503,53 @@ impl App {
         if id.is_some() {
             self.outline_ui.clear_pick();
         }
+        self.adopt_legacy_selection();
         self.load_properties();
+    }
+    /// Make `sel` the one selection and project it onto the older fields.
+    ///
+    /// Why: the tree, the canvas, Properties and Manufacture all read the same value.
+    ///
+    /// # Rules
+    /// - A net also lights its copper (`highlight_net`); leaving a net clears that light.
+    /// - Picking a layer lights it on the canvas, as a click on its tree row does.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/selection.rs (the value and its rules)
+    ///
+    /// # Do not
+    /// - Write `selected` or `tree.selected_key` for a new selection; call this.
+    pub(crate) fn select_subject(&mut self, sel: selection::Selection) {
+        let was_net = match self.subject {
+            selection::Selection::Net(n) => Some(n),
+            _ => None,
+        };
+        let key = sel.legacy_key(self.tree.selected_key.as_deref());
+        self.selected = sel.object();
+        self.edit.extra.clear();
+        self.selected_unit = 1;
+        if self.selected.is_some() {
+            self.outline_ui.clear_pick();
+        }
+        self.tree.selected_key = key;
+        match &sel {
+            selection::Selection::Net(n) => self.highlight_net = Some(*n),
+            _ if was_net.is_some() && self.highlight_net == was_net => self.highlight_net = None,
+            _ => {}
+        }
+        self.subject_seen = (self.selected, self.tree.selected_key.clone());
+        self.subject = sel;
+        self.load_properties();
+    }
+    /// Turn a write to `selected` or `tree.selected_key` into the new value.
+    ///
+    /// Why: older code still sets those two fields; this keeps `subject` equal to them.
+    pub(crate) fn adopt_legacy_selection(&mut self) {
+        let now = (self.selected, self.tree.selected_key.clone());
+        if now != self.subject_seen {
+            self.subject = selection::Selection::from_legacy(now.0, now.1.as_deref());
+            self.subject_seen = now;
+        }
     }
     fn load_properties(&mut self) {
         if let Some(id) = self.selected {
@@ -8078,6 +8132,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        self.adopt_legacy_selection();
         self.tour_tick();
         icons::install(&ctx);
         a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
