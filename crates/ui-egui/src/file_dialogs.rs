@@ -541,6 +541,9 @@ impl App {
             return false;
         };
         let mut params = json!({"path": path});
+        if f.id == "board_interchange" {
+            params["format"] = json!("board");
+        }
         for o in f.options {
             if let (Some(param), OptionKind::Bool { default }) = (o.param, o.kind) {
                 let on = d.values.get(o.label).map_or(default, |v| v == "true");

@@ -11,6 +11,7 @@ mod assistant;
 mod authoring;
 pub mod board3d;
 mod board_side;
+mod board_visibility;
 mod bom_export;
 mod bottom_sheet;
 pub mod brand;
@@ -77,6 +78,7 @@ pub mod ui_kit;
 mod via_backdrill;
 mod via_covering;
 mod via_span;
+mod via_tool;
 mod wall_clock;
 mod wire_canvas;
 mod workspace;
@@ -1136,6 +1138,8 @@ pub struct App {
     /// The unified Layers tree view state (left aside).
     tree: layers_tree::TreeView,
     focus_layer: Option<String>,
+    /// Tree path of the layer row that is picked and lit on the canvas; the rest dims.
+    layer_lit: Option<String>,
     make_dir: String,
     rule_draft: Option<(pcbcraft_doc::Id, f64, f64)>,
     class_pick: Option<String>,
@@ -1145,6 +1149,7 @@ pub struct App {
     swap_name: String,
     hole_diameter: f64,
     pad_draft: pad_tool::PadFields,
+    via_tool: via_tool::ViaToolOptions,
     art_layer: Option<Id>,
     art_shape: DrawShape,
     art_start: Option<Point>,
@@ -1892,6 +1897,7 @@ impl App {
             home_path_focus: false,
             tree: layers_tree::TreeView::default(),
             focus_layer: None,
+            layer_lit: None,
             make_dir: String::new(),
             rule_draft: None,
             class_pick: None,
@@ -1901,6 +1907,7 @@ impl App {
             swap_name: String::new(),
             hole_diameter: 3.2,
             pad_draft: pad_tool::PadFields::default(),
+            via_tool: via_tool::ViaToolOptions::default(),
             art_layer: None,
             art_shape: DrawShape::Line,
             art_start: None,
@@ -7046,6 +7053,11 @@ impl App {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.pad_tool_options(ui));
+                    }
+                    if matches!(self.tool, Tool::Via) {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.via_tool_options(ui));
                     }
                     if matches!(self.tool, Tool::Port) {
                         egui::Frame::NONE

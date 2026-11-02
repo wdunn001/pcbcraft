@@ -806,6 +806,9 @@ impl App {
                     self.paint_pad_ghost(&painter, rect, camera, snapped);
                 }
                 Tool::Keepout => self.paint_keepout_ghost(&painter, rect, camera, snapped),
+                Tool::Via if self.tab == Tab::Pcb => {
+                    self.paint_via_ghost(&painter, rect, camera, pos)
+                }
                 Tool::Hole => {
                     painter.circle_stroke(
                         camera.screen(snapped, rect),
@@ -2242,7 +2245,12 @@ impl App {
         };
         self.paint_board_body(painter, rect, camera, p);
         underlay::paint(painter, rect, camera, p, "pcb");
-        for fid in &p.board.fiducials {
+        for fid in p
+            .board
+            .fiducials
+            .iter()
+            .filter(|f| self.layer_group_shown(f.layer))
+        {
             let center = camera.screen(fid.position, rect);
             let radius = ((fid.diameter / 2.0) as f32 * camera.zoom).max(1.5);
             let color = if fid.layer == Layer::Front {
@@ -2314,7 +2322,7 @@ impl App {
                 self.colours().canvas.back
             };
             let rgb = [zone_colour.r(), zone_colour.g(), zone_colour.b()];
-            let far = stack.copper_alpha(z.layer);
+            let far = stack.copper_alpha(z.layer) * self.lit_alpha(z.layer);
             let fill = if self.selected == Some(z.id) {
                 self.accent().linear_multiply(0.35)
             } else {
@@ -2363,15 +2371,15 @@ impl App {
                         self.accent()
                     } else if t.layer == Layer::Front {
                         self.copper(Some(t.net), self.colours().canvas.front)
-                            .linear_multiply(stack.copper_alpha(t.layer))
+                            .linear_multiply(stack.copper_alpha(t.layer) * self.lit_alpha(t.layer))
                     } else {
                         self.copper(Some(t.net), self.colours().canvas.back)
-                            .linear_multiply(stack.copper_alpha(t.layer))
+                            .linear_multiply(stack.copper_alpha(t.layer) * self.lit_alpha(t.layer))
                     },
                 ),
             );
         }
-        for v in p.board.vias.iter().filter(|_| self.layer_shown("Vias")) {
+        for v in p.board.vias.iter().filter(|v| self.via_shown(v)) {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
             let through = (0..copper_count)
@@ -2420,9 +2428,11 @@ impl App {
                 );
             }
         }
-        for f in stack.far_to_near(p.board.footprints.iter(), |f| {
-            crate::stack_view::mount_copper(copper_count, f.board_side())
-        }) {
+        for f in stack.far_to_near(
+            p.board.footprints.iter().filter(|f| self.part_shown(f)),
+            |f| crate::stack_view::mount_copper(copper_count, f.board_side()),
+        ) {
+            let lit = self.lit_alpha(self.mount_layer(f));
             let on_bottom = f.board_side() != Layer::Front;
             let mount = crate::stack_view::mount_copper(copper_count, f.board_side());
             let pad_alpha = stack.copper_alpha(mount);
@@ -2458,7 +2468,7 @@ impl App {
             } else if let Some(kind) = self.compare_tint.get(&f.component).copied() {
                 self.compare_kind_color(kind)
             } else {
-                art.silk.linear_multiply(silk_fade)
+                art.silk.linear_multiply(silk_fade * lit)
             };
             let boxes = Self::footprint_boxes(f, rect, camera);
             if let Some(library) = p
@@ -2469,7 +2479,7 @@ impl App {
                     .definition
                     .graphics
                     .iter()
-                    .filter(|_| sub_on(f.board_side(), crate::layer_visibility::SubLayer::Silk))
+                    .filter(|_| self.part_artwork_shown(f))
                 {
                     if matches!(g,pcbcraft_library::Graphic::Text {text,..} if text=="REF**" || text=="%R" || text=="${REFERENCE}" || text=="${VALUE}" || text==&library.definition.name)
                     {
@@ -2484,24 +2494,20 @@ impl App {
                     };
                     self.paint_graphic(painter, rect, camera, g, (f.position, f.rotation), color);
                 }
-            } else if let Some((silk, _)) = &boxes {
+            } else if let Some((silk, _)) = boxes.as_ref().filter(|_| self.part_artwork_shown(f)) {
                 painter.add(egui::Shape::closed_line(
                     silk.clone(),
                     Stroke::new(1.5, color),
                 ));
             }
-            if let Some((_, courtyard)) = &boxes {
+            if let Some((_, courtyard)) = boxes.as_ref().filter(|_| self.part_artwork_shown(f)) {
                 layout_art::dashed_closed(
                     painter,
                     courtyard,
-                    Stroke::new(1.0, art.courtyard.gamma_multiply(0.6)),
+                    Stroke::new(1.0, art.courtyard.gamma_multiply(0.6 * lit)),
                 );
             }
-            for pad in f
-                .pads
-                .iter()
-                .filter(|_| sub_on(f.board_side(), crate::layer_visibility::SubLayer::Pads))
-            {
+            for pad in f.pads.iter().filter(|_| self.part_pads_shown(f)) {
                 {
                     let pos = f.pad_world_position(pad);
                     let center = camera.screen(pos, rect);
@@ -2523,7 +2529,7 @@ impl App {
                                     art.top_copper
                                 },
                             )
-                            .linear_multiply(pad_alpha),
+                            .linear_multiply(pad_alpha * lit),
                         ));
                     }
                     let hole = pad.drill_outline_points();
@@ -2577,7 +2583,7 @@ impl App {
                     }
                 }
             }
-            if sub_on(f.board_side(), crate::layer_visibility::SubLayer::Silk)
+            if self.part_labels_shown(f)
                 && let Some(c) = p.component(f.component)
             {
                 let (above, below) = boxes.as_ref().map_or((reference_at, value_at), |(_, y)| {
@@ -2591,14 +2597,14 @@ impl App {
                     Align2::CENTER_BOTTOM,
                     &c.reference,
                     FontId::proportional(13.0),
-                    art.text.linear_multiply(stack.silk_alpha(on_bottom)),
+                    art.text.linear_multiply(stack.silk_alpha(on_bottom) * lit),
                 );
                 painter.text(
                     below,
                     Align2::CENTER_TOP,
                     &c.value,
                     FontId::proportional(10.5),
-                    art.muted.linear_multiply(stack.silk_alpha(on_bottom)),
+                    art.muted.linear_multiply(stack.silk_alpha(on_bottom) * lit),
                 );
             }
             if self.selected == Some(f.id)
@@ -2930,7 +2936,7 @@ mod tests {
 }
 
 /// Shortest distance from a point to a straight segment, in millimetres.
-fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
+pub(crate) fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
     let dx = to.x - from.x;
     let dy = to.y - from.y;
     let span = dx * dx + dy * dy;

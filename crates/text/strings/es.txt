@@ -94,8 +94,8 @@ cmp.count.one = {count} componente
 cmp.count.other = {count} componentes
 
 # Tool modifiers (#796)
-board.tool_hint.lmb_via = Haz clic en una pista o pad para poner una vía en su red.{common}
-board.canvas.via = Vía: haz clic en una pista o pad
+board.tool_hint.lmb_via = Haz clic en cualquier punto de la placa para soltar una vía. Toma la red bajo el cursor o, si no hay, la elegida en las opciones.{common}
+board.canvas.via = Vía: haz clic en cualquier punto de la placa
 board.footer.via = Colocar vía
 modifier.rename.title = Renombrar red
 modifier.rename.field.tip = El nombre nuevo de esta red. Los nombres deben ser únicos.
@@ -104,7 +104,6 @@ modifier.rename.ok.tip = Renombra la red en todos los sitios donde aparece.
 modifier.rename.cancel = Cancelar
 modifier.rename.cancel.tip = Cierra esta ventana y conserva el nombre anterior.
 modifier.pick_under.message = Objeto {number} de {count} bajo el puntero
-modifier.via.pick_net = Haz clic en una pista o pad con red, para que la vía se una a ella.
 modifier.effect.select_add = añadir a la selección
 modifier.effect.select_toggle = alternar en la selección
 modifier.effect.pick_under = elegir lo de debajo
@@ -370,3 +369,34 @@ tour.e2e_resume.list = Recorrido Layout (prueba)
 tour.e2e_resume.list.tip = Fixture headless para progreso de recorridos.
 tour.e2e_resume.chip = Recorrido: Layout ({steps} pasos)
 tour.e2e_resume.chip.tip = Etiqueta chip de fixture story.
+
+# picking a layer row
+tree.layer_hint = {name}: {tracks} pistas, {pads} pads, {silk} elementos de serigrafía, {vias} vías visibles; lo demás está atenuado. Haz clic otra vez para borrarlo.
+tree.layer_hint_clear = Resaltado de capa borrado; todo se muestra con toda su fuerza.
+
+# via tool options and messages
+via_tool.net = Red
+via_tool.net.tip = La red de una vía puesta en la placa libre. Una pista o pad bajo el cursor siempre gana; Auto deja la vía sin red.
+via_tool.net_auto = Auto según el cursor
+via_tool.type = Tipo de vía
+via_tool.type.tip = Pasante llega a las dos capas exteriores. Ciega tiene un extremo en una capa exterior. Enterrada queda dentro. Solo se pueden elegir los tipos que permite esta placa.
+via_tool.type_through = Pasante
+via_tool.type_blind = Ciega
+via_tool.type_buried = Enterrada
+via_tool.span = Capas
+via_tool.span.tip = Las capas de cobre que une esta vía. Solo se listan los tramos que permite la placa.
+via_tool.size = Tamaño
+via_tool.size.tip = Diámetro exterior del pad. Parte de la clase de red o de las reglas de fabricación.
+via_tool.drill = Taladro
+via_tool.drill.tip = Diámetro del agujero taladrado. Parte de la clase de red o de las reglas de fabricación.
+via_tool.use_rule_size = Usar tamaños de las reglas
+via_tool.use_rule_size.tip = Olvidar el tamaño y el taladro escritos aquí y volver a seguir la clase de red o las reglas de fabricación.
+via_tool.snap = Ajustar a la cuadrícula
+via_tool.snap.tip = Poner la vía en el punto de cuadrícula más cercano.
+via_tool.placed = Vía puesta en {net} en {x}, {y}
+via_tool.placed_no_net = Vía puesta sin red en {x}, {y}; asígnale una red en Propiedades
+via_tool.ghost_no_net = sin red
+via_tool.refuse_outside = Sin vía en {x}, {y}: está fuera del contorno de la placa. Haz clic dentro de la placa.
+via_tool.refuse_edge = Sin vía aquí: necesita {gap} mm entre su centro y el borde de la placa.
+via_tool.refuse_ring = Sin vía de este tamaño: el anillo de cobre mide {have} mm y las reglas piden {need} mm. Agranda el pad o reduce el taladro.
+via_tool.refuse_clearance = Sin vía aquí: hay otro cobre más cerca de los {need} mm que piden las reglas.

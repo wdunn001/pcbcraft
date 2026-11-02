@@ -65,7 +65,9 @@ for (const theme of ['dark', 'light']) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   await page.goto(`${origin}${base}`, { waitUntil: 'networkidle' });
-  const labels = await page.locator('header nav[aria-label="Main"] a').allInnerTexts();
+  // The Try it link points at the browser app that the deploy step puts under demo/; it is not in dist.
+  const links = await page.locator('header nav[aria-label="Main"] a').evaluateAll((as) => as.map((a) => [a.innerText, a.getAttribute('href')]));
+  const labels = links.filter(([, href]) => !href.endsWith('/demo/')).map(([text]) => text);
   for (const label of labels) {
     await page.goto(`${origin}${base}`, { waitUntil: 'networkidle' });
     const resp = await Promise.all([page.waitForNavigation(), page.locator('header nav[aria-label="Main"] a', { hasText: label }).first().click()]);
