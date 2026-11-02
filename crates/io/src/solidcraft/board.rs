@@ -1,25 +1,19 @@
 //! Writer for SolidCraft design files: the board as a project of named, placed bodies.
 //!
-//! Context: SolidCraft is the owner's CAD app. A design there is a JSON document (or a ZIP
-//! container around the same document) with components, occurrences (one rigid placement
-//! each), embedded mesh bodies, appearances and a free metadata map. Model space is
-//! millimetres, Z up, right-handed, exactly the frame of [`crate::BoardMesh`], so no axis
-//! conversion happens here. The research note `research-solidcraft-interop.md` has the full
-//! mapping; this file is slice 1 (plain JSON, mesh bodies).
+//! Context: SolidCraft is the owner's CAD app. A design there is a JSON document with
+//! components, occurrences (one rigid placement each), embedded mesh bodies, appearances
+//! and a free metadata map. Model space is millimetres, Z up, right-handed, exactly the
+//! frame of [`crate::BoardMesh`], so no axis conversion happens here.
 //!
 //! # Rules
-//! - Written file format number is [`SOLIDCRAFT_FORMAT`], the oldest number that expresses
-//!   what this writer uses. Every newer SolidCraft upgrades it on open.
+//! - Written file format number is [`SOLIDCRAFT_FORMAT`]. Every newer SolidCraft upgrades it on open.
 //! - The board slab and any copper, mask and silk bodies live in the root component with
 //!   an identity placement. Each placed footprint is its own component named by its
-//!   reference designator, with one occurrence whose transform is the footprint frame
-//!   (position, rotation, bottom flip). Its mesh is stored in that frame, so moving the
-//!   occurrence in SolidCraft moves the part about its own origin.
-//! - Occurrence transforms are rigid. A loaded model's own offset, scale and turn are
+//!   reference designator, with one occurrence whose transform is the footprint frame.
+//! - Occurrence transforms are rigid. A loaded model's offset, scale and turn are
 //!   baked into the stored mesh, never into the occurrence.
-//! - Everything PCBCraft knows about a body is stored under the metadata key
-//!   [`SOLIDCRAFT_METADATA_KEY`] and keyed by body name, the identity SolidCraft itself uses
-//!   for appearances and materials. The reference designator is the match key on re-import.
+//! - Everything PCBCraft knows about a body is stored under [`SOLIDCRAFT_METADATA_KEY`]
+//!   and keyed by body name. The reference designator is the match key on re-import.
 //!
 //! # Dependencies
 //! - crates/io/src/board_mesh.rs for [`BoardMesh`], [`MeshPart`] and [`crate::model_matrix`].
@@ -53,10 +47,9 @@ pub struct SolidcraftLayers {
 
 /// Write the board as a SolidCraft design (plain JSON text).
 ///
-/// The board slab and every placed part are always written; `layers` adds copper, mask
+/// The board slab and every placed part are always written. `layers` adds copper, mask
 /// and silk as bodies. `mesh` should come from [`crate::board_mesh`], with
-/// [`crate::with_models`] applied when model files are available, so loaded models leave
-/// as their triangles and the rest as generated package bodies.
+/// [`crate::with_models`] applied when model files are available.
 ///
 /// # Rules
 /// - Fails with a plain sentence on non-finite or out-of-range coordinates and on indices

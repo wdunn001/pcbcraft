@@ -277,7 +277,7 @@ fn check_axis(
 /// Rewrites one generic G-code file as a Snapmaker file.
 ///
 /// Why: the machine rejects files without the header and spins at the wrong speed when
-/// handed RPM; the header numbers must come from the body that follows.
+/// handed RPM. The header numbers must come from the body that follows.
 ///
 /// # Rules
 /// Drops generator preamble, `M2`, `M5` and `M400` lines and adds the profile ones.
