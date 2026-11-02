@@ -1,5 +1,5 @@
-//! Machines tab: the machine profiles recorded on the project, and the built-in shop
-//! presets that can be copied onto it.
+//! Machines tab: the machine profiles recorded on the project, and the library machines
+//! that can be copied onto it.
 //!
 //! Context: the Manufacture page lists outputs and points here for the machines that
 //! make them. A profile is the work area, output dialect and per-process settings of one
@@ -10,11 +10,11 @@
 //!
 //! # Dependencies
 //! - crates/doc/src/machine_profile.rs (`MachineProfile`)
-//! - crates/io/src/machine_profile.rs (`builtin_machine_profile_ids`, `builtin_machine_profile`)
-//! - crates/engine/src/lib.rs (`machine.add`, `machine.set`, `machine.remove`)
+//! - crates/ui-egui/src/library_workspace/machines.rs (the library list)
+//! - crates/engine/src/lib.rs (`machine.install`, `machine.set`, `machine.remove`)
 //!
 //! # Do not
-//! - Invent machines; the preset list is the one compiled into the program.
+//! - Invent machines; the list is whatever the machine library holds.
 use super::{ghost, mm_spec, note, num, secondary};
 use crate::App;
 use crate::ui_kit::card::card;
@@ -23,22 +23,6 @@ use crate::ui_kit::select::select;
 use pcbcraft_doc::MachineProfile;
 use pcbcraft_text::t;
 use serde_json::{Value, json};
-use std::sync::OnceLock;
-
-/// The built-in presets as (id, display name), parsed once.
-fn presets() -> &'static [(String, String)] {
-    static PRESETS: OnceLock<Vec<(String, String)>> = OnceLock::new();
-    PRESETS.get_or_init(|| {
-        pcbcraft_io::builtin_machine_profile_ids()
-            .iter()
-            .filter_map(|id| {
-                pcbcraft_io::builtin_machine_profile(id)
-                    .ok()
-                    .map(|p| ((*id).to_owned(), p.name))
-            })
-            .collect()
-    })
-}
 
 /// The stored profile as JSON with one dotted field replaced.
 fn with_field(profile: &MachineProfile, path: &[&str], value: Value) -> Option<Value> {
@@ -97,9 +81,27 @@ impl App {
         }
     }
 
-    /// The preset picker and the Add button.
+    /// The library picker and the Add button.
+    ///
+    /// # Rules
+    /// - The list is the machine library (built-in and the person's own, hidden ones left out).
+    /// - Add runs `machine.install`, so the project keeps its own copy.
     fn settings_add_machine(&mut self, ui: &mut egui::Ui) {
-        let list = presets();
+        self.machine_lib_refresh();
+        let list: Vec<(String, String)> = self
+            .libws
+            .machines
+            .cards
+            .iter()
+            .filter(|c| c.get("source").and_then(Value::as_str) != Some("project"))
+            .filter(|c| c.get("hidden").and_then(Value::as_bool) != Some(true))
+            .filter_map(|c| {
+                Some((
+                    c.get("id")?.as_str()?.to_owned(),
+                    c.get("name")?.as_str()?.to_owned(),
+                ))
+            })
+            .collect();
         let labels: Vec<&str> = list.iter().map(|(_, n)| n.as_str()).collect();
         ui.horizontal(|ui| {
             if labels.is_empty() {
@@ -124,7 +126,8 @@ impl App {
                 t!("settings.project.machines.add.tip")
             };
             if secondary(ui, &t!("settings.project.machines.add"), &tip, !taken).clicked() {
-                self.settings_run("machine.add", json!({"preset": id}));
+                self.settings_run("machine.install", json!({"id": id}));
+                self.libws.machines.stale = true;
             }
         });
     }

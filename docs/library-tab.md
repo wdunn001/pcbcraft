@@ -59,3 +59,18 @@ generated body.
 - Rendering the datasheet PDF in the app (page navigation, zoom, search, selectable text).
 - Symbol and footprint canvases side by side on the Edit page; today one editor shows one at a time.
 - Auto-align of the model to the pads, and snapping.
+
+## Machines
+
+The Parts | Machines switch at the left of the Library tool bar changes the centre between the part pages and the machine library. The library holds every machine a person can use, shown as cards with a source badge:
+
+- Built in: ships with the program. A built-in machine can be hidden (Show hidden machines lists it again) but never changed or deleted. To change one, Duplicate it and edit the copy.
+- My machines: files in the `machines` folder beside the preferences, shared by every project on this computer.
+- This project: the copy a project keeps. A project always holds its own copy of each machine it uses, so its output does not change when the library does.
+
+Filters narrow the cards by kind (pick and place, laser, mill) and source, and a search box matches name, maker, model and id. A card offers Add to this project, Duplicate, Hide or Show (built in), Save to my machines (project copies), Remove (my machines) and, when the library machine has a newer version than the project copy, Update from library.
+
+Add machine opens a window to start from a library machine or a blank machine of one kind, name it, and choose whether it goes on the project and whether it is kept in My machines.
+
+In Manufacture, the Pick and place file row has a Machine dropdown fed by the library. Write job file is available when the machine's declared output dialect has a writer; it does not depend on a machine name. The commands behind all of this are `machine.library_list`, `machine.add`, `machine.install`, `machine.duplicate`, `machine.update_from_library`, `machine.library_save`, `machine.library_hide` and `machine.library_remove`; the job file command is `placement_job.export` (`placement_yy1.export` still works for one release).
+

@@ -261,6 +261,7 @@ impl Workspace for ManufactureWorkspace {
             "outputs" => {
                 ui.label(egui::RichText::new(t!("workspace.outputs_hint")).color(app.muted()));
                 app.bom_outputs_ui(ui);
+                app.placement_outputs_ui(ui);
             }
             "machines" => app.machines_left(ui),
             _ => {}

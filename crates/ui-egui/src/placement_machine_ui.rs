@@ -7,7 +7,7 @@
 //!
 //! # Rules
 //! - Every edit goes through an engine command: `component.field` for a part's
-//!   override, `machine.add` and `machine.set` for the profile, `placement_yy1.export`
+//!   override, `machine.add` and `machine.set` for the profile, `placement_job.export`
 //!   for the job file.
 //! - An empty override property means "use the rule"; the section shows which one is in force.
 //! - Every control has a tooltip from the catalog (`machines.*`, `props.placement.*`).
@@ -25,6 +25,7 @@ use crate::ui_kit::{
     form_row::{FormWidth, form_row, toggle_row},
     number_field::{NumberSpec, number_field},
     section::section,
+    select::select,
 };
 use pcbcraft_doc::{
     FIELD_FEEDER, FIELD_NOZZLE, FIELD_PICK_HEIGHT, FIELD_PLACE_HEIGHT, FIELD_SKIP, FIELD_SPEED,
@@ -371,33 +372,122 @@ impl App {
             }
         }
         ui.add_space(8.0);
-        ui.label(egui::RichText::new(t!("machines.built_in")).color(self.muted()));
-        for preset in pcbcraft_io::builtin_machine_profile_ids() {
-            if self
-                .project
-                .machine_profiles
-                .iter()
-                .any(|m| m.id == *preset)
-            {
-                continue;
-            }
-            let Ok(profile) = pcbcraft_io::builtin_machine_profile(preset) else {
-                continue;
-            };
-            if secondary_button(
-                ui,
-                None,
-                &t!("machines.add", name = profile.name),
-                &t!("machines.add.tip"),
-                Size::Small,
-                true,
-            )
-            .clicked()
-            {
-                self.run("machine.add", json!({"preset": preset}));
-                ui.data_mut(|d| d.insert_temp(egui::Id::new(SELECTED), (*preset).to_string()));
-            }
+        if secondary_button(
+            ui,
+            None,
+            &t!("machines.find_more"),
+            &t!("machines.find_more.tip"),
+            Size::Small,
+            true,
+        )
+        .clicked()
+        {
+            self.libws.machines.on = true;
+            self.libws.machines.stale = true;
+            self.change_tab(Tab::Library);
         }
+    }
+
+    /// The "Pick and place file" row of the Manufacture outputs list: a Machine dropdown
+    /// fed by the machine library, and Write job file for the chosen machine.
+    ///
+    /// # Rules
+    /// - The dropdown lists the pick and place machines of the library and the project; a
+    ///   library machine is copied onto the project when the file is written.
+    /// - Write job file is enabled only when the machine's declared dialect has a writer.
+    ///
+    /// # Dependencies
+    /// - crates/engine/src/machines.rs (`machine.library_list`, `machine.install`)
+    /// - crates/io/src/machine_library.rs (`has_placement_writer`)
+    pub(crate) fn placement_outputs_ui(&mut self, ui: &mut egui::Ui) {
+        self.machine_lib_refresh();
+        let muted = self.muted();
+        let machines: Vec<(String, String, bool, bool)> = self
+            .libws
+            .machines
+            .cards
+            .iter()
+            .filter(|c| c.get("kind").and_then(Value::as_str) == Some("pick_place"))
+            .filter(|c| c.get("hidden").and_then(Value::as_bool) != Some(true))
+            .filter_map(|c| {
+                Some((
+                    c.get("id")?.as_str()?.to_owned(),
+                    c.get("name")?.as_str()?.to_owned(),
+                    c.get("in_project").and_then(Value::as_bool) == Some(true),
+                    c.get("has_writer").and_then(Value::as_bool) == Some(true),
+                ))
+            })
+            .collect();
+        ui.add_space(8.0);
+        egui::Frame::NONE
+            .inner_margin(egui::Margin::symmetric(12, 0))
+            .show(ui, |ui| {
+                egui::Frame::group(ui.style())
+                    .inner_margin(egui::Margin::same(10))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(egui::RichText::new(t!("machines.output")).strong())
+                            .on_hover_text(t!("machines.output.tip"));
+                        if machines.is_empty() {
+                            ui.label(
+                                crate::fonts::caption(t!("machines.output.none")).color(muted),
+                            );
+                            return;
+                        }
+                        let mut pick = self
+                            .pnp_pick
+                            .as_ref()
+                            .and_then(|id| machines.iter().position(|m| m.0 == *id))
+                            .or_else(|| machines.iter().position(|m| m.2))
+                            .unwrap_or(0);
+                        let names: Vec<&str> = machines.iter().map(|m| m.1.as_str()).collect();
+                        ui.horizontal(|ui| {
+                            ui.label(t!("machines.output.machine"));
+                            select(
+                                ui,
+                                "pnp-output-machine",
+                                &mut pick,
+                                &names,
+                                &t!("machines.output.machine"),
+                                &t!("machines.output.machine.tip"),
+                                260.0,
+                            );
+                        });
+                        let (id, _, in_project, has_writer) = machines[pick].clone();
+                        self.pnp_pick = Some(id.clone());
+                        ui.add_space(4.0);
+                        let tip = if has_writer {
+                            t!("machines.write_job.tip")
+                        } else {
+                            t!("machines.write_job.no_writer")
+                        };
+                        if secondary_button(
+                            ui,
+                            None,
+                            &t!("machines.write_job"),
+                            &tip,
+                            Size::Normal,
+                            has_writer,
+                        )
+                        .clicked()
+                        {
+                            if !in_project {
+                                self.run("machine.install", json!({"id": id}));
+                                self.libws.machines.stale = true;
+                            }
+                            self.write_placement_job(&id);
+                        }
+                    });
+            });
+    }
+
+    /// Write the placement files of machine `id` to the output folder.
+    fn write_placement_job(&mut self, id: &str) {
+        let dir = std::path::Path::new(&self.make_directory()).join("pick-and-place");
+        self.run(
+            "placement_job.export",
+            json!({"machine": id, "directory": dir.to_string_lossy(), "side": "both", "layout": "native"}),
+        );
     }
 
     /// Centre view for the selected machine, or false when none is selected.
@@ -525,21 +615,23 @@ impl App {
             },
         );
         ui.add_space(8.0);
+        let has_writer = pcbcraft_io::has_placement_writer(&machine.output.dialect);
+        let tip = if has_writer {
+            t!("machines.write_job.tip")
+        } else {
+            t!("machines.write_job.no_writer")
+        };
         if secondary_button(
             ui,
             None,
             &t!("machines.write_job"),
-            &t!("machines.write_job.tip"),
+            &tip,
             Size::Normal,
-            machine.output.dialect == "neoden_yy1",
+            has_writer,
         )
         .clicked()
         {
-            let dir = std::path::Path::new(&self.make_directory()).join("pick-and-place");
-            self.run(
-                "placement_yy1.export",
-                json!({"machine": machine.id, "directory": dir.to_string_lossy(), "side": "both", "layout": "native"}),
-            );
+            self.write_placement_job(&machine.id);
         }
     }
 

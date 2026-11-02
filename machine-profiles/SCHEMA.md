@@ -1,6 +1,6 @@
 # Machine profile TOML schema
 
-Machine profiles describe shop equipment used by fabrication artifacts. Each file is one profile. Profiles are copied into a design with `machine.add` or imported with `machine.import`.
+Machine profiles describe shop equipment used by fabrication artifacts. Each file is one profile. Profiles are copied into a design with `machine.add` or `machine.install`, or imported with `machine.import`. Every `*.toml` file in this folder is a built-in machine; the build embeds the folder, so adding a file adds a machine.
 
 Each built-in preset file starts with `# Source:` and `# Retrieved:` comment lines that record where the numbers came from and when they were last checked.
 
@@ -14,6 +14,13 @@ Each built-in preset file starts with `# Source:` and `# Retrieved:` comment lin
 | `vendor` | string | Up to 128 bytes. |
 | `model` | string | Up to 128 bytes. |
 | `notes` | string | Optional free text, up to 4096 bytes. |
+| `schema_version` | integer | Version of this file layout. Defaults to 0 (unset). |
+| `version` | integer | Version of this machine. A project copy is behind the library when the library machine has a higher number. Defaults to 0 (unset). |
+| `source` | string | Where the numbers came from (a page, a manual). |
+| `retrieved` | string | Date the source was last checked. |
+| `based_on` | table | `id` and `version` of the machine this one was copied from. Set by Duplicate and Add machine. |
+
+All of these default, so older files still read. The `origin` of a machine (built in, mine, project) is set when it is loaded and is never written to a file.
 
 ## Work area
 
@@ -95,3 +102,4 @@ Tables `[uv_printer.print]`, `[uv_printer.artwork]`, `[uv_printer.limits]` with 
 | `snapmaker-2-a350t-200w-cnc` | mill |
 | `snapmaker-artisan-200w-cnc` | mill |
 | `commarker-b6-mopa` | laser galvo |
+| `commarker-b6-mopa-150` | laser galvo (150 mm lens only) |

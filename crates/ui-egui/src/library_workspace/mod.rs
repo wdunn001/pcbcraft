@@ -38,6 +38,7 @@ mod compare;
 mod datasheet;
 mod edit;
 pub(crate) mod facts;
+pub(crate) mod machines;
 mod model;
 mod overview;
 mod vendors;
@@ -107,6 +108,8 @@ pub(crate) struct State {
     pub(crate) draft_read: Option<edit::DraftRead>,
     /// True once the default place has been looked at for a recorded answer file.
     quotes_checked: bool,
+    /// The Machines view: filters, the list read from the engine and the Add machine form.
+    pub(crate) machines: machines::MachineLib,
 }
 
 impl Default for State {
@@ -127,6 +130,7 @@ impl Default for State {
             compare_qty: 1,
             draft_read: None,
             quotes_checked: false,
+            machines: machines::MachineLib::default(),
         }
     }
 }
@@ -384,6 +388,10 @@ impl App {
         ui.horizontal_centered(|ui| {
             ui.add_space(Self::PAGE_GUTTER);
             ui.spacing_mut().item_spacing.x = 8.0;
+            self.library_view_switch(ui);
+            if self.libws.machines.on {
+                return;
+            }
             if secondary_button(
                 ui,
                 None,
@@ -478,6 +486,10 @@ impl App {
     /// The centre of the Library tab: the open-part tabs, the part header, the page tabs and
     /// the page; or the empty state, or the compare table.
     pub(crate) fn library_center(&mut self, ui: &mut egui::Ui) {
+        if self.libws.machines.on {
+            self.library_machines_page(ui);
+            return;
+        }
         self.library_poll_draft();
         if self.libws.parts.is_empty() && self.libws.page != Page::Edit {
             ui.add_space(96.0);

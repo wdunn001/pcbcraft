@@ -26,6 +26,7 @@ mod gerber_export;
 mod images;
 mod layout;
 pub mod library;
+mod machines;
 mod net_properties;
 mod online;
 mod outline;
@@ -2630,12 +2631,17 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "machine.add",
-            "Copy a built-in shop machine preset or record a full machine profile on the design",
+            "Add a machine to the design: copy a library machine (preset), start from one (based_on, remembered), start a blank machine of a kind, or record a full machine profile. Can also keep it in the person's own machines",
             schema(
                 json!({
                     "preset":{"type":"string","minLength":1,"maxLength":64},
                     "id":{"type":"string","minLength":1,"maxLength":64},
-                    "profile":{"type":"object","maxProperties":256}
+                    "profile":{"type":"object","maxProperties":256},
+                    "kind":{"type":"string","enum":["pick_place","laser_galvo","laser_gantry","cnc_mill","uv_printer"]},
+                    "name":{"type":"string","minLength":1,"maxLength":128},
+                    "based_on":{"type":"string","minLength":1,"maxLength":64},
+                    "keep_in_my_machines":{"type":"boolean"},
+                    "add_to_project":{"type":"boolean"}
                 }),
                 &[],
             ),
@@ -2660,6 +2666,62 @@ pub fn commands() -> Vec<CommandSpec> {
             "machine.list",
             "List machine profile ids, names and kinds stored on the design",
             schema(json!({}), &[]),
+        ),
+        (
+            "machine.library_list",
+            "List the machine library: built-in machines, the person's own machines and the project's copies, with kind, source and whether a project copy is behind. Reads only",
+            schema(
+                json!({"scope":{"type":"string","enum":["all","built_in","mine","project"]},"kind":{"type":"string","enum":["pick_place","laser_galvo","laser_gantry","cnc_mill","uv_printer"]},"query":{"type":"string","maxLength":128},"include_hidden":{"type":"boolean"}}),
+                &[],
+            ),
+        ),
+        (
+            "machine.install",
+            "Copy one library machine (the person's own or a built-in one) onto the project under its own id",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id"],
+            ),
+        ),
+        (
+            "machine.duplicate",
+            "Copy any machine under a new name and id, remembering where it came from; optionally keep it in the person's own machines and add it to the project",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64},"name":{"type":"string","minLength":1,"maxLength":128},"new_id":{"type":"string","minLength":1,"maxLength":64},"keep_in_my_machines":{"type":"boolean"},"add_to_project":{"type":"boolean"}}),
+                &["id"],
+            ),
+        ),
+        (
+            "machine.update_from_library",
+            "Replace a project machine with the library machine it came from and return which parts changed. One undo step",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id"],
+            ),
+        ),
+        (
+            "machine.library_save",
+            "Save a project machine into the person's own machines folder so every project can use it",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id"],
+            ),
+        ),
+        (
+            "machine.library_hide",
+            "Hide or show a built-in machine in the library. A built-in machine is never deleted",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64},"hidden":{"type":"boolean"}}),
+                &["id"],
+            ),
+        ),
+        (
+            "machine.library_remove",
+            "Delete one machine from the person's own machines folder. A built-in machine cannot be deleted",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id"],
+            ),
         ),
         (
             "machine.import",
@@ -2718,8 +2780,23 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "placement_job.export",
+            "Write the placement job file for one or both sides and the feeder sheet into a folder, using the writer named by the file type of a pick and place machine recorded on the design. Reads the design and records nothing",
+            schema(
+                json!({
+                    "machine":{"type":"string","minLength":1,"maxLength":64},
+                    "directory":{"type":"string","minLength":1,"maxLength":4096},
+                    "side":{"type":"string","enum":["top","bottom","both"]},
+                    "layout":{"type":"string","enum":["native","import"]},
+                    "variant":{"type":"string","minLength":1,"maxLength":64},
+                    "include_dnp_as_skip":{"type":"boolean"}
+                }),
+                &["machine", "directory"],
+            ),
+        ),
+        (
             "placement_yy1.export",
-            "Write the NeoDen YY1 placement file for one or both sides and the feeder sheet into a folder, using a pick and place machine profile recorded on the design. Reads the design and records nothing",
+            "Old name of placement_job.export, kept for one release: write the placement job file for one or both sides and the feeder sheet into a folder. Reads the design and records nothing",
             schema(
                 json!({
                     "machine":{"type":"string","minLength":1,"maxLength":64},
@@ -5457,16 +5534,6 @@ fn default_uv_include_outline() -> bool {
 
 fn default_uv_include_fiducials() -> bool {
     true
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MachineAddParams {
-    #[serde(default)]
-    preset: Option<String>,
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    profile: Option<Value>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8816,7 +8883,8 @@ fn command_never_edits(command: &str) -> bool {
     matches!(
         command,
         "library.export" | "selection.copy_text" | "plugins.export" | "plugins.list" | "bom.export"
-    ) || collab::reads_the_design(command)
+    ) || machines::writes_folder_only(command)
+        || collab::reads_the_design(command)
 }
 
 fn missing() -> Error {
@@ -10824,12 +10892,20 @@ fn run_command(
         "output_job.add"
         | "output_job.remove"
         | "machine.add"
+        | "machine.install"
+        | "machine.duplicate"
+        | "machine.update_from_library"
+        | "machine.library_list"
+        | "machine.library_save"
+        | "machine.library_hide"
+        | "machine.library_remove"
         | "machine.set"
         | "machine.remove"
         | "machine.list"
         | "machine.import"
         | "machine.export"
         | "placement_yy1.export"
+        | "placement_job.export"
         | "output_job.run"
         | "output_job.package"
         | "artifact.add"
@@ -20806,48 +20882,16 @@ fn run_command_part_19(
             Ok(json!({"removed":a.name}))
         }
         "machine.add" => {
-            let a: MachineAddParams = parse(params)?;
-            let profile = if let Some(preset) = a.preset {
-                if preset.is_empty() || preset.len() > 64 {
-                    return Err(Error::Invalid(
-                        "built-in preset id must be 1 to 64 bytes".into(),
-                    ));
-                }
-                if a.profile.is_some() {
-                    return Err(Error::Invalid(
-                        "machine.add accepts either a preset or a profile object, not both".into(),
-                    ));
-                }
-                let mut profile =
-                    pcbcraft_io::builtin_machine_profile(&preset).map_err(Error::Invalid)?;
-                if let Some(id) = a.id {
-                    if id.is_empty() || id.len() > 64 {
-                        return Err(Error::Invalid(
-                            "machine profile id must be 1 to 64 bytes".into(),
-                        ));
-                    }
-                    profile.id = id;
-                }
-                profile
-            } else if let Some(body) = a.profile {
-                machine_profile_from_json(&body)?
-            } else {
-                return Err(Error::Invalid(
-                    "machine.add needs a preset id or a profile object".into(),
-                ));
-            };
-            if p.machine_profiles
-                .iter()
-                .any(|existing| existing.id == profile.id)
-            {
-                return Err(Error::Invalid(
-                    "a machine profile with that id already exists".into(),
-                ));
-            }
-            let id = profile.id.clone();
-            let replaced = upsert_machine_profile(&mut p.machine_profiles, profile)?;
-            Ok(json!({"id": id, "replaced": replaced}))
+            let a: machines::AddParams = parse(params)?;
+            machines::run_add(config, p, a)
         }
+        "machine.install"
+        | "machine.duplicate"
+        | "machine.update_from_library"
+        | "machine.library_list"
+        | "machine.library_save"
+        | "machine.library_hide"
+        | "machine.library_remove" => machines::run(config, p, command, params),
         "machine.set" => {
             let a: MachineSetParams = parse(params)?;
             let profile = machine_profile_from_json(&a.profile)?;
@@ -20922,7 +20966,7 @@ fn run_command_part_19(
                 .map_err(Error::Invalid)?;
             Ok(json!({"id": profile.id, "path": a.path, "bytes": text.len()}))
         }
-        "placement_yy1.export" => {
+        "placement_job.export" | "placement_yy1.export" => {
             let a: PlacementYy1Params = parse(params)?;
             if a.machine.is_empty() || a.machine.len() > 64 {
                 return Err(Error::Invalid("machine id must be 1 to 64 bytes".into()));
@@ -20959,8 +21003,8 @@ fn run_command_part_19(
                 variant: a.variant.clone(),
                 include_dnp_as_skip: a.include_dnp_as_skip,
             };
-            let out = pcbcraft_io::placement_neoden_yy1(p, side, machine, &options)
-                .map_err(Error::Invalid)?;
+            let out =
+                pcbcraft_io::placement_job(p, side, machine, &options).map_err(Error::Invalid)?;
             let dir = std::path::Path::new(&a.directory);
             std::fs::create_dir_all(dir).map_err(|e| Error::Invalid(e.to_string()))?;
             let mut written = Vec::new();
@@ -40044,7 +40088,7 @@ mod tests {
         let mut s = Session::sample()?;
         s.execute("machine.add", json!({"preset":"commarker-b6-mopa"}), None)?;
         for preset in pcbcraft_io::builtin_machine_profile_ids() {
-            if *preset != "commarker-b6-mopa" {
+            if preset != "commarker-b6-mopa" {
                 s.execute("machine.add", json!({"preset": preset}), None)?;
             }
         }

@@ -174,7 +174,9 @@ fn seed_spec(kind: &str) -> (String, Vec<String>, Value) {
         "drill_unplated" => ("drill-unplated.drl", vec![], json!({})),
         "drill_map" => ("board-drill-tools.csv", vec![], json!({})),
         "placement" => ("placement.txt", vec![], json!({})),
-        "placement_yy1" => ("yy1/", vec![], json!({"side": "top", "layout": "native"})),
+        "placement_job" | "placement_yy1" => {
+            ("yy1/", vec![], json!({"side": "top", "layout": "native"}))
+        }
         "conformal_coat_plot" => ("conformal-coat-keepout.gbr", vec![], json!({})),
         "bom" => ("bom.csv", vec![], json!({})),
         "assembly_drawing" => ("assembly/", vec![], json!({})),
@@ -228,7 +230,7 @@ fn seed_artifacts(session: &mut Session) -> Result<Vec<(String, Id)>, String> {
                         "layers": layers,
                         "settings": settings,
                         "path": path,
-                        "machine": if *kind == "placement_yy1" { json!("neoden-yy1") } else { Value::Null },
+                        "machine": if Artifact::is_placement_job_kind(kind) { json!("neoden-yy1") } else { Value::Null },
                     }),
                 }],
                 None,

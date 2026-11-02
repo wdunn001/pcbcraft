@@ -72,6 +72,7 @@ mod laser;
 mod layer_file;
 mod layers;
 mod library_render;
+mod machine_library;
 mod machine_profile;
 mod model_align;
 mod model_cache;
@@ -229,9 +230,13 @@ pub use layers::{
     legend_shapes,
 };
 use library_render::*;
+pub use machine_library::{
+    CopyState, blank_machine, copy_state, duplicate_machine, has_placement_writer,
+    library_machines, placement_job, resolve_machine_profile,
+};
 pub use machine_profile::{
-    builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
-    machine_profile_to_toml,
+    builtin_machine_profile, builtin_machine_profile_ids, builtin_machine_profiles,
+    machine_profile_from_toml, machine_profile_to_toml,
 };
 pub use mesh_material::{
     MaterialClass, MaterialDraw, MaterialLights, MaterialSurface, classify_model_color,

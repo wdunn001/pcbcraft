@@ -516,6 +516,24 @@ pub struct MachineProfile {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     /// Notes.
     pub notes: String,
+    /// Version of the file layout this machine was written in; 0 means not stated.
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub schema_version: u32,
+    /// Revision of this machine, raised by whoever maintains it; 0 means not stated.
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub version: u32,
+    /// Where the numbers came from, in plain words.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source: String,
+    /// The date the numbers were last checked against their source.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub retrieved: String,
+    /// The machine this one was copied from, with the version copied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub based_on: Option<MachineBasedOn>,
+    /// Where this copy was read from. Set on load; never stored in a file.
+    #[serde(skip)]
+    pub origin: MachineOrigin,
     /// Work area.
     pub work_area: WorkArea,
     /// Output.
@@ -532,6 +550,59 @@ pub struct MachineProfile {
     #[serde(default, skip_serializing_if = "UvPrinterSection::is_empty")]
     /// Uv printer.
     pub uv_printer: UvPrinterSection,
+}
+
+fn is_zero_count(n: &u32) -> bool {
+    *n == 0
+}
+
+/// Where a machine was read from.
+///
+/// # Rules
+/// - Set when a machine is loaded or copied; it is never written to a machine file.
+/// - A project copy is the default, so a profile read from a saved project is `Project`.
+/// - Two origins always compare equal, so a copy equals its source when the settings match.
+///
+/// # Dependencies
+/// - crates/io/src/machine_library.rs (sets it for built-in and user machines)
+///
+/// # Do not
+/// - Store it in a file or tell machines apart by it; match on it where it is shown.
+#[derive(Clone, Copy, Debug, Default)]
+pub enum MachineOrigin {
+    /// A copy kept in the project.
+    #[default]
+    Project,
+    /// A file shipped with the program.
+    BuiltIn,
+    /// A file in the person's own machine folder.
+    User,
+}
+
+impl PartialEq for MachineOrigin {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+/// The machine a profile was copied from, and which version of it.
+///
+/// # Rules
+/// - `version` is the source's `version` at the time of the copy; the library compares it
+///   with the source's current version to say a copy is behind.
+///
+/// # Dependencies
+/// - crates/io/src/machine_library.rs (reads it to find a copy that is behind)
+///
+/// # Do not
+/// - Point at a machine by name; only by id.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct MachineBasedOn {
+    /// Id of the source machine.
+    pub id: String,
+    /// Version of the source machine that was copied.
+    pub version: u32,
 }
 
 impl LaserSection {
@@ -597,6 +668,18 @@ impl MachineProfile {
         }
         if !bounded(&self.name, MAX_NAME_LEN) {
             return Err("machine profile name must be 1 to 128 bytes".into());
+        }
+        if !optional_bounded(&self.source, MAX_NOTES_LEN)
+            || !optional_bounded(&self.retrieved, MAX_SHORT)
+            || self.schema_version > 1000
+            || self.version > 1_000_000
+        {
+            return Err("machine profile source, date or version is outside its limit".into());
+        }
+        if let Some(from) = &self.based_on
+            && (!from.id.is_empty() && !valid_slug(&from.id))
+        {
+            return Err("the machine this one is based on needs a valid id".into());
         }
         if !optional_bounded(&self.vendor, MAX_VENDOR_LEN)
             || !optional_bounded(&self.model, MAX_MODEL_LEN)
@@ -893,6 +976,12 @@ mod tests {
             vendor: "Lab".into(),
             model: "X".into(),
             notes: String::new(),
+            schema_version: 0,
+            version: 0,
+            source: String::new(),
+            retrieved: String::new(),
+            based_on: None,
+            origin: MachineOrigin::default(),
             work_area: WorkArea {
                 y_with_quick_swap: None,
                 x: 150.0,
@@ -943,6 +1032,12 @@ mod tests {
             vendor: "Lab".into(),
             model: "Y".into(),
             notes: String::new(),
+            schema_version: 0,
+            version: 0,
+            source: String::new(),
+            retrieved: String::new(),
+            based_on: None,
+            origin: MachineOrigin::default(),
             work_area: WorkArea {
                 y_with_quick_swap: None,
                 x: 320.0,

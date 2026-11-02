@@ -2556,6 +2556,7 @@ pub const ARTIFACT_KINDS: &[&str] = &[
     "drill_unplated",
     "drill_map",
     "placement",
+    "placement_job",
     "placement_yy1",
     "bom",
     "assembly_drawing",
@@ -2604,8 +2605,21 @@ impl Artifact {
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     }
-    /// True when the `placement_yy1` settings object only uses known keys and
-    /// bounded values. Omitted keys use the same defaults as `placement_yy1.export`.
+    /// True for the two names of the pick and place job output.
+    ///
+    /// # Rules
+    /// - `placement_job` is the name to write; `placement_yy1` is its alias for one release.
+    ///
+    /// # Dependencies
+    /// - crates/io/src/generate.rs (writes both kinds the same way)
+    ///
+    /// # Do not
+    /// - Branch on the alias anywhere else; ask this instead.
+    pub fn is_placement_job_kind(kind: &str) -> bool {
+        matches!(kind, "placement_job" | "placement_yy1")
+    }
+    /// True when the placement job settings object only uses known keys and
+    /// bounded values. Omitted keys use the same defaults as `placement_job.export`.
     pub fn placement_yy1_settings_valid(settings: &serde_json::Value) -> bool {
         let Some(obj) = settings.as_object() else {
             return false;
@@ -2658,7 +2672,7 @@ impl Artifact {
                 .job
                 .as_ref()
                 .is_none_or(|j| !j.is_empty() && j.len() <= 64)
-            && (self.kind != "placement_yy1"
+            && (!Self::is_placement_job_kind(&self.kind)
                 || (self.machine.is_some()
                     && self.path.ends_with('/')
                     && Self::placement_yy1_settings_valid(&self.settings)))
@@ -6452,20 +6466,20 @@ impl Project {
             {
                 return Err("artifact job label must name an existing output job".into());
             }
-            if a.kind == "placement_yy1" {
+            if Artifact::is_placement_job_kind(&a.kind) {
                 let machine_id = a.machine.as_ref().ok_or_else(|| {
-                    "placement_yy1 artifacts must name a machine profile on the design".to_string()
+                    "placement job outputs must name a machine profile on the design".to_string()
                 })?;
                 let profile = self
                     .machine_profiles
                     .iter()
                     .find(|profile| profile.id == *machine_id)
                     .ok_or_else(|| {
-                        format!("placement_yy1 artifact names unknown machine profile {machine_id}")
+                        format!("placement job output names unknown machine profile {machine_id}")
                     })?;
                 if profile.kind != "pick_place" {
                     return Err(
-                        "placement_yy1 artifacts must use a pick and place machine profile".into(),
+                        "placement job outputs must use a pick and place machine profile".into(),
                     );
                 }
             }

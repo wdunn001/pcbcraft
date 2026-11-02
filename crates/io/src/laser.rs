@@ -94,10 +94,10 @@ pub fn laser_galvo_profile_for_export(
     project: &Project,
     profile_id: &str,
 ) -> Result<LaserGalvoProfile, String> {
-    if let Some(found) = project.machine_profiles.iter().find(|m| m.id == profile_id) {
-        return laser_galvo_from_machine(found);
+    match crate::resolve_machine_profile(&project.machine_profiles, &[], profile_id) {
+        Ok(found) => laser_galvo_from_machine(&found),
+        Err(_) => Err(format!("unknown laser galvo profile \"{profile_id}\"")),
     }
-    laser_galvo_builtin_profile(profile_id)
 }
 
 /// Resolve a built-in galvo preset by id without consulting a design.
@@ -105,16 +105,10 @@ pub fn laser_galvo_profile_for_export(
 /// # Dependencies
 /// - crates/io/src/machine_profile.rs
 pub fn laser_galvo_builtin_profile(profile_id: &str) -> Result<LaserGalvoProfile, String> {
-    if profile_id == "commarker-b6-mopa-150" {
-        let mut profile = commarker_b6_mopa_profile()?;
-        profile.id = "commarker-b6-mopa-150".into();
-        profile.fields.retain(|field| field.width_mm <= 150.0);
-        return Ok(profile);
+    match crate::builtin_machine_profile(profile_id) {
+        Ok(machine) => laser_galvo_from_machine(&machine),
+        Err(_) => Err(format!("unknown laser galvo profile \"{profile_id}\"")),
     }
-    if crate::builtin_machine_profile_ids().contains(&profile_id) {
-        return laser_galvo_from_machine(&crate::builtin_machine_profile(profile_id)?);
-    }
-    Err(format!("unknown laser galvo profile \"{profile_id}\""))
 }
 
 /// The ComMarker B6 MOPA preset as a galvo job profile.

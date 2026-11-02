@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::cam::{CncProfile, isolation_gcode, isolation_options_from_value};
-use crate::machine_profile::builtin_machine_profile;
+use crate::machine_library::resolve_machine_profile;
 use crate::snapmaker::{snapmaker_cnc_profile, snapmaker_files, snapmaker_settings};
 use crate::{
     ComplianceReportOptions, GerberArcOptions, PACKAGE_CREATION_DATE, PlacementOptions, bom_csv,
@@ -166,18 +166,18 @@ fn placement_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutpu
 }
 
 /// The pick and place files for the machine profile the artifact names.
-fn placement_yy1_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+fn placement_job_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
     let machine_id = artifact
         .machine
         .as_deref()
-        .ok_or("placement_yy1 artifacts must name a machine profile on the design")?;
+        .ok_or("placement_job artifacts must name a machine profile on the design")?;
     let profile = p
         .machine_profiles
         .iter()
         .find(|m| m.id == machine_id)
         .ok_or_else(|| format!("no machine profile named {machine_id} in the design"))?;
     let (side, options) = crate::neoden_yy1_from_artifact_settings(&artifact.settings)?;
-    let out = crate::placement_neoden_yy1(p, side, profile, &options)?;
+    let out = crate::placement_job(p, side, profile, &options)?;
     // The files are CSV text.
     Ok(GeneratedOutput::Files(
         out.files
@@ -205,7 +205,7 @@ fn copper_gerber_name(layer: &str) -> Option<&'static str> {
 fn isolation_gcode_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
     let opts = isolation_options_from_value(&artifact.settings)?;
     let files = if let Some(machine_id) = artifact.machine.as_deref() {
-        let profile = builtin_machine_profile(machine_id)?;
+        let profile = resolve_machine_profile(&p.machine_profiles, &[], machine_id)?;
         if profile.kind != "cnc_mill" {
             return Err(format!(
                 "machine profile {machine_id} is not a CNC mill profile"
@@ -361,7 +361,7 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
         "outline_gcode" => Err("outline gcode is not available yet; see issue #331".into()),
         "stencil" => Err("stencil output is not available yet; see issue #325".into()),
         "laser_path" => Err("laser path output is not available yet; see issue #358".into()),
-        "placement_yy1" => placement_yy1_artifact(p, artifact),
+        "placement_job" | "placement_yy1" => placement_job_artifact(p, artifact),
         "conformal_coat_plot" => {
             if p.board.conformal_coat_keepout.is_none() {
                 return Err(
