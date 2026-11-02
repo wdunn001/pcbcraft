@@ -466,12 +466,6 @@ fn wasm_bundle(args: &[String]) -> Result<(), String> {
         let built = run_env_in(&web, "trunk", &quick_args, &[]);
         let _ = std::fs::remove_file(&quick);
         built?;
-        // Trunk names the page after its source; the smoke and the deploy expect index.html.
-        std::fs::rename(
-            web.join("dist/index.quick.html"),
-            web.join("dist/index.html"),
-        )
-        .map_err(|e| format!("dist/index.quick.html: {e}"))?;
     }
 
     if !has_program("node") {
