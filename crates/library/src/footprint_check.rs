@@ -675,6 +675,15 @@ fn check_model(def: &FootprintDefinition, findings: &mut Vec<FootprintFinding>) 
             "Use the offset form in millimetres or the legacy at form in inches, not both mixed up",
         );
     }
+    if model_scale_looks_like_inches(model) {
+        push(
+            findings,
+            "lib_model_units_mismatch",
+            FindingSeverity::Error,
+            "The 3D model scale factor looks like an inch-to-millimetre conversion",
+            "Use a scale of 1.0 for models in millimetres; do not bake a unit conversion into the scale",
+        );
+    }
 }
 
 fn check_ipc_name_hint(def: &FootprintDefinition, findings: &mut Vec<FootprintFinding>) {
@@ -787,6 +796,18 @@ fn model_offset_looks_like_inches(model: &Model3D) -> bool {
         let inches = component / MM_PER_INCH;
         (inches - inches.round()).abs() < 0.02 && inches.abs() >= 1.0
     })
+}
+
+fn model_scale_looks_like_inches(model: &Model3D) -> bool {
+    if !model.raw_source.contains("(scale") {
+        return false;
+    }
+    let factor = model.scale[0];
+    if factor <= 0.0 {
+        return false;
+    }
+    let mm_per_inch = 25.4;
+    (factor - 1.0 / mm_per_inch).abs() < 0.001
 }
 
 fn ipc_land_pattern_name(name: &str) -> bool {

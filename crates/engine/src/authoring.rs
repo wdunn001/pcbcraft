@@ -39,6 +39,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
         ("library.footprint.generate","Build an IPC-style land pattern from a bounded family name and package parameters, then create or replace that footprint in the project library",schema(json!({"family":{"type":"string","enum":["chip_2terminal","sot","soic","tssop","ssop","msop","qfp","qfn","dfn","bga","lga","dip","header_single","header_double","radial","axial","sod","to_single"]},"density":{"type":"string","enum":["A","B","C"],"default":"B"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string"},"keywords":{"type":"string"},"pitch":{"type":"number"},"pin_count":{"type":"integer","minimum":1,"maximum":256},"body_x":{"type":"number"},"body_y":{"type":"number"},"body_z":{"type":"number"},"rows":{"type":"integer","minimum":2,"maximum":50},"cols":{"type":"integer","minimum":2,"maximum":50},"row_spacing":{"type":"number"},"terminal_width":{"type":"number"},"thermal":{"type":"boolean"}}),&["family","name"])),
         ("library.footprint.check","Read-only library-quality check on a project-library footprint by name or on an inline definition; returns structured findings",schema(json!({"name":{"type":"string"},"definition":{"type":"object"}}),&[])),
+        ("library.symbol.check","Read-only library-quality check on a project-library symbol by name or on an inline definition; returns structured findings",schema(json!({"name":{"type":"string"},"definition":{"type":"object"}}),&[])),
         ("library.footprint.pad_set","Add or replace one pad on a project-library footprint by its number, so custom packages gain exposed pads, thermal vias or extra terminals without rewriting the whole definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"object","description":"a full pad: number, shape, size, position, layers and optional drill, as library readers emit them"}}),&["name","pad"])),
         ("library.footprint.pad_remove","Remove one pad from a project-library footprint by its number; the footprint keeps at least one pad, and placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"}}),&["name","pad"])),
         ("library.footprint.pad_move","Slide one pad of a project-library footprint by an offset, as one undoable step, moving its copper and its drill together while size, shape and layers stay put, so a single pad landing in the wrong place can be nudged into position without rewriting the package; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"},"delta":point_schema()}),&["name","pad","delta"])),
@@ -171,6 +172,12 @@ struct CourtyardParams {
 struct FootprintCheckParams {
     name: Option<String>,
     definition: Option<FootprintDefinition>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SymbolCheckParams {
+    name: Option<String>,
+    definition: Option<SymbolDefinition>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1234,6 +1241,25 @@ pub(super) fn run(
             };
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             let findings = pcbcraft_library::check_footprint(&def);
+            Ok(json!({"findings": findings}))
+        }
+        "library.symbol.check" => {
+            let a: SymbolCheckParams = parse(params)?;
+            let def = if let Some(def) = a.definition {
+                def
+            } else if let Some(name) = a.name {
+                p.library
+                    .symbols
+                    .iter()
+                    .find(|s| s.name == name)
+                    .cloned()
+                    .ok_or_else(missing)?
+            } else {
+                return Err(Error::Invalid(
+                    "give a symbol name or an inline definition".into(),
+                ));
+            };
+            let findings = pcbcraft_library::check_symbol(&def);
             Ok(json!({"findings": findings}))
         }
         "library.footprint.generate_courtyard" => {

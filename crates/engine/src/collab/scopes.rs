@@ -35,6 +35,7 @@ pub(crate) fn reads_the_design(id: &str) -> bool {
             | "component.find"
             | "footprint.find"
             | "library.footprint.check"
+            | "library.symbol.check"
             | "rules.preset_list"
             | "artifact.export"
             | "artifact.generate"

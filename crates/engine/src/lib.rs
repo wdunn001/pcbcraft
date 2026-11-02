@@ -30776,6 +30776,53 @@ mod tests {
     }
 
     #[test]
+    fn symbol_check_unspecified_pin_type_fixture() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = pcbcraft_library::SymbolDefinition {
+            name: "U".into(),
+            reference: "U".into(),
+            value: "U".into(),
+            description: String::new(),
+            keywords: String::new(),
+            footprint: String::new(),
+            set: String::new(),
+            pins: vec![pcbcraft_library::SymbolPin {
+                number: "1".into(),
+                name: "IN".into(),
+                position: pcbcraft_geom::Point::new(0.0, 2.54),
+                angle: 0.0,
+                length: 2.54,
+                electrical_type: "unspecified".into(),
+                unit: 1,
+                body_style: 1,
+                graphical_style: "line".into(),
+                visible: true,
+            }],
+            graphics: vec![],
+            extends: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+            retained: vec![],
+        };
+        let out = s.execute(
+            "library.symbol.check",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let findings = out["result"]["findings"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            findings
+                .iter()
+                .any(|f| f["code"] == "lib_pin_type_unspecified"),
+            "unspecified pin fixture must report lib_pin_type_unspecified: {findings:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn pad_renumbering_follows_embedded_copies_and_refuses_collisions() -> Result<(), Error> {
         let mut s = Session::default();
         let definition = library::footprint(std::path::Path::new(&library_fixture(
