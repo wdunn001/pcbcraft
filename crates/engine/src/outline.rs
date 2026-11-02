@@ -8,8 +8,10 @@
 //! height follow the outline extent including arc bulges.
 //!
 //! # Dependencies
+//! - crates/engine/src/outline/shapes.rs
 //! - crates/doc/src/outline.rs
 //! - crates/geom/src/lib.rs#arc_through
+mod shapes;
 use super::*;
 use pcbcraft_doc::{
     flatten_outline, outline_area, outline_extent, outline_signed_area, segment_arc,
@@ -18,6 +20,14 @@ use pcbcraft_doc::{
 
 pub(super) fn commands() -> Vec<CommandSpec> {
     vec![
+        CommandSpec {
+            id: "board.set_shape",
+            description: "Replace the board outline with a preset shape: rectangle, rounded_rectangle, circle, ellipse, polygon, l_shape or chamfered_rectangle, sized in millimetres; the lower-left of the shape sits at the origin and cut-outs and holes stay where they are",
+            input_schema: schema(
+                json!({"kind":{"type":"string","enum":["rectangle","rounded_rectangle","circle","ellipse","polygon","l_shape","chamfered_rectangle"]},"width":{"type":"number","exclusiveMinimum":0,"maximum":2000},"height":{"type":"number","exclusiveMinimum":0,"maximum":2000},"diameter":{"type":"number","exclusiveMinimum":0,"maximum":2000,"description":"circle diameter, or the corner-to-corner width of a polygon"},"radius":{"type":"number","exclusiveMinimum":0,"maximum":2000,"description":"corner radius of a rounded rectangle"},"sides":{"type":"integer","minimum":3,"maximum":60},"notch_width":{"type":"number","exclusiveMinimum":0,"maximum":2000},"notch_height":{"type":"number","exclusiveMinimum":0,"maximum":2000},"chamfer":{"type":"number","exclusiveMinimum":0,"maximum":2000,"description":"corner cut length of a chamfered rectangle"}}),
+                &["kind"],
+            ),
+        },
         CommandSpec {
             id: "board.outline_set_arc",
             description: "Bend one board outline segment into a circular arc, given by a point the arc passes through, or by a radius and a side (convex bulges outward, concave inward); the outline stays closed and a crossing or half-turn arc is refused",
@@ -45,6 +55,19 @@ pub(super) fn commands() -> Vec<CommandSpec> {
     ]
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetShape {
+    kind: String,
+    width: Option<f64>,
+    height: Option<f64>,
+    diameter: Option<f64>,
+    radius: Option<f64>,
+    sides: Option<usize>,
+    notch_width: Option<f64>,
+    notch_height: Option<f64>,
+    chamfer: Option<f64>,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetArc {
@@ -82,6 +105,7 @@ pub(super) fn run(
         return None;
     }
     Some(match command {
+        "board.set_shape" => set_shape(p, params),
         "board.outline_set_arc" => set_arc(p, params),
         "board.outline_straighten" => straighten(p, params),
         _ => set_vertex(p, params),
@@ -192,6 +216,32 @@ fn segment_index(points: &[Point], segment: usize) -> Result<usize, Error> {
             points.len()
         )))
     }
+}
+
+/// `board.set_shape`: replace the outline with a preset shape.
+///
+/// # Rules
+/// - The ring is checked and written by `commit`, so a refused shape leaves the
+///   design untouched.
+/// - A plain rectangle is stored as a four vertex outline like any other shape.
+fn set_shape(p: &mut Project, params: &Value) -> Result<Value, Error> {
+    let a: SetShape = parse(params)?;
+    let sizes = shapes::Sizes {
+        width: a.width,
+        height: a.height,
+        diameter: a.diameter,
+        radius: a.radius,
+        sides: a.sides,
+        notch_width: a.notch_width,
+        notch_height: a.notch_height,
+        chamfer: a.chamfer,
+    };
+    let (points, arcs) = shapes::build(&a.kind, &sizes).map_err(Error::Invalid)?;
+    let mut result = commit(p, points, arcs)?;
+    if let Some(map) = result.as_object_mut() {
+        map.insert("kind".into(), json!(a.kind));
+    }
+    Ok(result)
 }
 
 /// `board.outline_set_arc`: bend one segment by midpoint or by radius and side.
@@ -465,6 +515,75 @@ mod tests {
         );
         s.execute("board.clear_outline", json!({}), None)?;
         assert!(s.project.board.outline_arcs.is_empty());
+        Ok(())
+    }
+
+    fn shape_area(s: &Session) -> f64 {
+        let b = &s.project.board;
+        let ring = flatten_outline(b.outline.as_deref().unwrap_or(&[]), &b.outline_arcs, 0.005);
+        outline_area(&ring)
+    }
+
+    #[test]
+    fn a_circle_shape_is_four_arcs_with_the_right_area() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "board.set_shape",
+            json!({"kind":"circle","diameter":40.0}),
+            None,
+        )?;
+        let b = &s.project.board;
+        assert_eq!(b.outline.as_ref().map(Vec::len), Some(4));
+        assert_eq!(b.outline_arcs.iter().flatten().count(), 4);
+        assert!((b.width - 40.0).abs() < 1e-6 && (b.height - 40.0).abs() < 1e-6);
+        let want = std::f64::consts::PI * 400.0;
+        assert!(
+            (shape_area(&s) - want).abs() / want < 0.001,
+            "area of a 40 mm disc"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_l_shape_loses_the_notch_area() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "board.set_shape",
+            json!({"kind":"l_shape","width":50.0,"height":30.0,"notch_width":20.0,"notch_height":10.0}),
+            None,
+        )?;
+        assert!((shape_area(&s) - (1500.0 - 200.0)).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn every_preset_builds_and_a_bad_size_leaves_the_design() -> Result<(), Error> {
+        let mut s = Session::default();
+        for params in [
+            json!({"kind":"rectangle","width":30.0,"height":20.0}),
+            json!({"kind":"rounded_rectangle","width":30.0,"height":20.0,"radius":4.0}),
+            json!({"kind":"ellipse","width":30.0,"height":20.0}),
+            json!({"kind":"polygon","diameter":30.0,"sides":6}),
+            json!({"kind":"chamfered_rectangle","width":30.0,"height":20.0,"chamfer":3.0}),
+        ] {
+            s.execute("board.set_shape", params.clone(), None)?;
+            assert!(shape_area(&s) > 100.0, "{params} has area");
+        }
+        let before = s.project.clone();
+        for bad in [
+            json!({"kind":"rounded_rectangle","width":30.0,"height":20.0,"radius":10.0}),
+            json!({"kind":"circle"}),
+            json!({"kind":"polygon","diameter":30.0,"sides":2}),
+            json!({"kind":"l_shape","width":10.0,"height":10.0,"notch_width":10.0,"notch_height":2.0}),
+            json!({"kind":"star","width":10.0}),
+            json!({"kind":"circle","diameter":1.0e9}),
+        ] {
+            assert!(
+                s.execute("board.set_shape", bad.clone(), None).is_err(),
+                "{bad} is refused"
+            );
+            assert_eq!(s.project, before, "{bad} left the design alone");
+        }
         Ok(())
     }
 }

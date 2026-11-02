@@ -9,6 +9,7 @@ mod assistant;
 mod audit;
 mod board;
 mod board3d;
+mod board_shape;
 mod board_side;
 mod bom_flavours;
 mod builds;
