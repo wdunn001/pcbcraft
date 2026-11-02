@@ -1,4 +1,33 @@
 //! Impedance estimates, length-match groups and the meander length tuner.
+//!
+//! This module provides commands for estimating trace impedance from the
+//! board stackup, declaring length-match groups for differential pairs and
+//! buses, and inserting serpentine meanders to equalize net lengths or close
+//! skew. It reads the board geometry and stackup but does not route or
+//! repurpose other copper.
+//!
+//! # Rules
+//!
+//! - Impedance uses the Hammerstad and Jensen 1980 microstrip model with
+//!   thickness correction; coupled pairs use the edge-coupled zero-thickness
+//!   model.
+//! - Length-match groups hold two to 256 distinct nets; DRC flags any group
+//!   whose routed lengths differ by more than its tolerance.
+//! - Meander tuning replaces one straight track at a time; it refuses curved
+//!   tracks, differential pair nets, and runs with no clear room.
+//! - All estimates count copper track length only; via barrels and pad
+//!   interiors are not included.
+//!
+//! # Dependencies
+//!
+//! - crates/geom/src/impedance.rs (closed-form impedance and width-solver functions)
+//! - crates/geom/src/meander.rs (serpentine shape generation and length accounting)
+//!
+//! # Do not
+//!
+//! - Do not route or rewire nets; only insert copper to add length.
+//! - Do not tune a differential pair side alone; use track.tune_skew instead.
+//! - Do not exceed fifteen dielectric heights of bump amplitude.
 use super::*;
 use pcbcraft_geom::impedance as imp;
 use pcbcraft_geom::meander::{self, Corner, Run, Seg};
@@ -9,6 +38,27 @@ const DEFAULT_COPPER_MM: f64 = 0.035;
 const VIA_NOTE: &str =
     "Lengths count copper tracks only; via barrels and pad interiors are not included.";
 
+/// Register the tuning commands with the engine command table.
+///
+/// Returns specs for seven commands: net.impedance (estimate single-ended
+/// and differential impedance), impedance.calc (pure calculator),
+/// board.set_length_group and board.remove_length_group (declare and remove
+/// length-match groups), net.length_groups (report group skew),
+/// track.tune_length (insert a serpentine to reach a target length), and
+/// track.tune_skew (close differential pair skew with serpentines).
+///
+/// # Rules
+///
+/// - Each spec carries an input schema that validates parameter ranges.
+/// - Descriptions are written for users, not implementers.
+///
+/// # Dependencies
+///
+/// - crates/engine/src/lib.rs (CommandSpec, schema, id_schema)
+///
+/// # Do not
+///
+/// - Do not add or remove command ids without updating the schema tests.
 pub(super) fn commands() -> Vec<CommandSpec> {
     vec![
         CommandSpec {
@@ -221,6 +271,26 @@ struct MeanderOpts {
 
 const MAX_SKEW_MEANDERS: usize = 32;
 
+/// Dispatch a tuning command to its handler.
+///
+/// Matches the command id against the seven tuning commands and calls the
+/// corresponding handler function. Returns None for ids this module does not
+/// own, so the engine can try other command modules.
+///
+/// # Rules
+///
+/// - The dispatcher never panics; handlers return Result<Value, Error>.
+/// - Handlers validate all inputs before mutating the project.
+///
+/// # Dependencies
+///
+/// - crates/engine/src/lib.rs (Project, Id, Value, Error)
+/// - crates/doc/src/lib.rs (length group state carried in Project.board)
+///
+/// # Do not
+///
+/// - Do not add or remove match arms without updating commands().
+/// - Do not mutate the project on error; roll back or return before writing.
 pub(super) fn run(
     p: &mut Project,
     next: &mut Id,
@@ -531,8 +601,27 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
     )
 }
 
-/// Remove a net from every length group, or swap it for another net, and
-/// drop groups left with fewer than two nets.
+/// Remove a net from all length-match groups, optionally replacing it.
+///
+/// When a net is deleted or its geometry changes significantly, this removes
+/// the stale reference from every length group. If a replacement net is given,
+/// it is substituted in its place. Groups left with fewer than two nets are
+/// dropped because they no longer serve a length-matching purpose.
+///
+/// # Rules
+///
+/// - The caller decides whether the net is removed or replaced; this function
+///   only updates the group membership.
+/// - Groups with fewer than two nets after the change are discarded.
+///
+/// # Dependencies
+///
+/// - crates/engine/src/lib.rs (Project, Id)
+/// - crates/doc/src/lib.rs (Project.board.length_groups)
+///
+/// # Do not
+///
+/// - Do not call this for transient routing changes that preserve net identity.
 pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
     for group in p.board.length_groups.iter_mut() {
         if !group.nets.contains(&net) {
