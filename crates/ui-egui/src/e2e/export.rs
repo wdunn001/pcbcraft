@@ -486,7 +486,7 @@ fn a_newcomer_opens_an_interchange_board_file() -> Result<(), String> {
 
     // Set the file path.
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../io/tests/fixtures/board_import_simple_2layer.kicad_pcb");
+        .join("../io/tests/fixtures/board_import_simple_2layer.kicad_pcb");
     app.edit.dialog.path = fixture.to_string_lossy().into_owned();
 
     // Run the import.
@@ -495,10 +495,12 @@ fn a_newcomer_opens_an_interchange_board_file() -> Result<(), String> {
 
     // Verify the board was imported.
     let parts_after = app.project.components.len();
-    assert!(
-        parts_after > parts_before,
-        "the imported board has more parts than the sample"
+    // The import replaces the open design with the file's board: the file holds one resistor, the sample three parts.
+    assert_eq!(
+        parts_after, 1,
+        "the design is now the file's board with its one resistor"
     );
+    assert_ne!(parts_after, parts_before, "the sample design was replaced");
 
     // Verify undo restores the prior design.
     app.tool_call("undo", json!({}));
