@@ -16,6 +16,7 @@
     "test:links": "node scripts/check-links.mjs",
     "test": "npm run test:contrast && npm run test:features && npm run check && npm run build && npm run test:links && npm run test:csp",
     "test:features": "node --test scripts/check-features.mjs",
+    "test:changelog": "node --test scripts/check-changelog.mjs",
     "test:csp": "node scripts/check-csp.mjs"
   },
   "dependencies": {

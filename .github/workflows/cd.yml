@@ -56,10 +56,12 @@ jobs:
             echo "configured=true" >> "$GITHUB_OUTPUT"
             echo "file=$file" >> "$GITHUB_OUTPUT"
           fi
+      # Full history: the changelog takes each entry's date from the git history of its change file.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.target.outputs.configured == 'true'
         with:
           ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Install window-system packages
         if: steps.target.outputs.configured == 'true'
@@ -180,6 +182,19 @@ jobs:
             echo "the Linux and Windows artifacts are not both present (documentation-only or expired run); nothing to publish"
             echo "have=false" >> "$GITHUB_OUTPUT"
           fi
+      # The notes list the change files added since the previous build, from the same reader the
+      # site changelog uses. The history is needed for each entry's date.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.run.outputs.have == 'true'
+        with:
+          ref: ${{ steps.run.outputs.sha }}
+          fetch-depth: 0
+          path: src
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.run.outputs.have == 'true'
+        with:
+          node-version: '22'
       - name: Download the binaries
         if: steps.run.outputs.have == 'true'
         env:
@@ -206,7 +221,15 @@ jobs:
           SHA: ${{ steps.run.outputs.sha }}
         run: |
           set -euo pipefail
+          # The previous notes name the commit they were built from; entries newer than it are listed.
+          prev=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body 2>/dev/null \
+            | sed -n 's/^Rolling build of main at \([0-9a-f]\{7,40\}\)\..*/\1/p' | head -n 1 || true)
+          since=()
+          if [ -n "$prev" ] && git -C src cat-file -e "$prev^{commit}" 2>/dev/null; then
+            since=(--since "$prev")
+          fi
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
-          printf 'Rolling build of main at %s. Replaced on every green merge; not a release.\n' "$SHA" > notes.md
+          printf 'Rolling build of main at %s. Replaced on every green merge; not a release.\n\n' "$SHA" > notes.md
+          node src/site/scripts/release-notes.mjs ${since[@]+"${since[@]}"} >> notes.md
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$SHA" --prerelease --latest=false \
             --title "PCBCraft main (rolling)" --notes-file notes.md out/*

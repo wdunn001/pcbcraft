@@ -61,6 +61,8 @@ const USAGE: &str = "usage: cargo xtask <command>
   i18n         [--write] localization gate: key parity, placeholders, literals, pseudo-locale, fonts
   coverage     [--bless] [--base REF] [--no-run] tests under cargo-llvm-cov, per-crate table, gate and ratchet
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
+  changeset    check | require | list: judge a pull request's change file, require one for product changes, or print them as JSON
+  changelog    [--version X] print the unreleased change files as a changelog section, or archive them
   showcase     regenerate the sample projects in examples/ from engine commands
 tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
@@ -920,6 +922,8 @@ fn run() -> Result<(), String> {
         }
         "layers" => layers()?,
         "lint" => lint_stage(args.get(1..).unwrap_or(&[]))?,
+        "changeset" => changeset::run_changeset(&root()?, args.get(1..).unwrap_or(&[]))?,
+        "changelog" => changeset::run_changelog(&root()?, args.get(1..).unwrap_or(&[]))?,
         "wasm-deps" => wasm_deps()?,
         "fmt" => fmt()?,
         "clippy" => clippy()?,
