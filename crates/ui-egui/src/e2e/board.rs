@@ -1673,3 +1673,113 @@ fn a_newcomer_touches_every_stackup_control() -> Result<(), String> {
     tap_id(&ctx, &mut app, "spinbutton:Thickness")?;
     Ok(())
 }
+
+fn click_at(p: egui::Pos2) -> Vec<egui::Event> {
+    vec![
+        egui::Event::PointerMoved(p),
+        egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        },
+        egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ]
+}
+
+#[test]
+fn a_newcomer_sees_what_they_are_drawing_on() -> Result<(), String> {
+    let (mut app, ctx) = sample_on(Tab::Pcb);
+    tap_strip(&ctx, &mut app, "button:Draw shape")?;
+    press_on(&ctx, &mut app, "side:top/silk", egui::Key::Enter);
+    assert!(
+        paints_text(&ctx, &mut app, "Drawing on")?,
+        "the options name the Drawing on chip while Draw shape is armed"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Printed in ink on the top side.")?,
+        "the chip says in one sentence what a figure on top silkscreen becomes"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Line on Top silkscreen (Silkscreen)")?,
+        "the status bar names the shape, the layer and its purpose before the first click"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_laser_cut_and_reads_it_in_the_chip() -> Result<(), String> {
+    let (mut app, ctx) = sample_on(Tab::Pcb);
+    app.tool_call(
+        "board.layer_add",
+        json!({"name":"Card Outline","kind":"cut"}),
+    );
+    app.refresh();
+    let layer = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.name == "Card Outline")
+        .map(|l| l.id)
+        .ok_or("the cut layer should be added")?;
+    tap_strip(&ctx, &mut app, "button:Draw shape")?;
+    app.tree.expanded.insert("user".to_owned());
+    press_on(
+        &ctx,
+        &mut app,
+        &format!("user/art:{layer}"),
+        egui::Key::Enter,
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Laser cut")?,
+        "the chip names the purpose of the cut layer"
+    );
+    assert!(
+        paints_text(
+            &ctx,
+            &mut app,
+            "The cutter follows these lines all the way through."
+        )?,
+        "the chip says what a cut layer does"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reads_the_length_while_drawing_a_line() -> Result<(), String> {
+    let (mut app, ctx) = sample_on(Tab::Pcb);
+    tap_strip(&ctx, &mut app, "button:Draw shape")?;
+    press_on(&ctx, &mut app, "side:top/silk", egui::Key::Enter);
+    authoring::tests::tap(&ctx, &mut app, "Line")?;
+    assert!(
+        !paints_text(&ctx, &mut app, " mm at ")?,
+        "no length is shown before the first click"
+    );
+    frame(
+        &ctx,
+        &mut app,
+        click_at(egui::pos2(660.0, 460.0)),
+        egui::Modifiers::NONE,
+    );
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(egui::pos2(760.0, 460.0))],
+        egui::Modifiers::NONE,
+    );
+    assert!(
+        paints_text(&ctx, &mut app, " mm at ")?,
+        "after the first click the length and angle follow the pointer"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "click to place the end")?,
+        "the status bar asks for the end point"
+    );
+    Ok(())
+}

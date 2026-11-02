@@ -894,6 +894,15 @@ impl App {
                             if let Some(start) = self.art_start {
                                 let a = camera.screen(start, rect);
                                 let b = camera.screen(snapped, rect);
+                                if let Some(reading) = self.draw_readout(snapped) {
+                                    painter.text(
+                                        b + Vec2::new(10.0, -14.0),
+                                        Align2::LEFT_BOTTOM,
+                                        reading,
+                                        FontId::monospace(11.0),
+                                        self.accent(),
+                                    );
+                                }
                                 match self.draw_shape() {
                                     DrawShape::Line => {
                                         painter.line_segment([a, b], stroke);
