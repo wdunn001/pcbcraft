@@ -1,22 +1,18 @@
 //! Via protection by face: the twelve protection types of the Gerber
 //! specification, derived from what each outer face of a via is given.
-//!
-//! A via keeps one `ViaCovering` for the top face and may carry a second for
-//! the bottom face. Nothing here is saved: the type is computed from those
-//! two coverings and from which faces the via's span reaches.
-//!
+//! A via keeps one ViaCovering for the top face and may carry a second for
+//! the bottom face. The type is computed from those coverings and from
+//! which faces the via span reaches.
 //! # Rules
-//! - The type names follow the Gerber specification: Ia, Ib, IIa, IIb, IIIa, IIIb, IVa, IVb, V, VI, VII and None.
-//! - The `a` forms protect one face, the `b` forms protect both. Types V, VI and VII treat the whole hole, so they have no `a` or `b` form.
-//! - A via that reaches no outer face has nothing to protect and reads as None.
-//!
+//! - The type names follow the Gerber specification: Ia, Ib, IIa, IIb,
+//!   IIIa, IIIb, IVa, IVb, V, VI, VII and None.
+//! - The a forms protect one face; the b forms protect both. Types V,
+//!   VI and VII treat the whole hole and have no a or b form.
+//! - A via that reaches no outer face reads as None.
 //! # Dependencies
-//! - `crates/doc/src/lib.rs` for `ViaCovering`, `Via`, `Project` and `Board`.
-//!
+//! - crates/doc/src/lib.rs for ViaCovering, Via, Project and Board.
 //! # Do not
 //! - Store the type; store the coverings and derive the type.
-//! - Rename a token: drill files and saved files depend on them.
-
 use crate::{Project, Via, ViaCovering};
 
 /// The protection type written on a drill tool: the twelve values of the
