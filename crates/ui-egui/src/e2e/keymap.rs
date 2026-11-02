@@ -1,5 +1,5 @@
 use super::super::*;
-use super::support::frame;
+use super::support::{frame, scrolled_to};
 use crate::keymap::KeyAction;
 use egui::Key;
 use serde_json::json;
@@ -17,19 +17,6 @@ fn painted_at(output: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
     found
 }
 
-fn painted_texts(output: &egui::FullOutput) -> Vec<String> {
-    let mut found = Vec::new();
-    for shape in &output.shapes {
-        if let egui::Shape::Text(text) = &shape.shape {
-            let s = text.galley.text().to_owned();
-            if !found.contains(&s) {
-                found.push(s);
-            }
-        }
-    }
-    found
-}
-
 /// Find the "Change" button that sits on the same row as the given chord label.
 fn change_button_for_chord(
     ctx: &egui::Context,
@@ -37,13 +24,8 @@ fn change_button_for_chord(
     output: &egui::FullOutput,
     chord: &str,
 ) -> Result<egui::Pos2, String> {
-    let chord_pos = painted_at(output, chord).ok_or_else(|| {
-        let texts = painted_texts(output);
-        format!(
-            "Chord label '{}' is not on screen; found: {:?}",
-            chord, texts
-        )
-    })?;
+    let chord_pos = painted_at(output, chord)
+        .ok_or_else(|| format!("Chord label '{}' is not on screen", chord))?;
     let all = super::audit::controls(ctx, app);
     let changes: Vec<_> = all
         .iter()
@@ -77,8 +59,9 @@ fn a_newcomer_rebinds_rotate_to_another_key() -> Result<(), String> {
     app.change_tab(Tab::Settings);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     super::support::tap_id(&ctx, &mut app, "button:Edit shortcuts…")?;
-    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    // Wait one more frame for the panel to fully render
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // Scroll to make the Rotate row visible
+    scrolled_to(&ctx, &mut app, "Rotate the hovered")?;
     let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let change_pos = change_button_for_chord(&ctx, &app, &output, "R")?;
     super::support::tap_at(&ctx, &mut app, change_pos)?;
