@@ -1,19 +1,16 @@
 //! The shared `Scope` that layout commands act on.
 //!
-//! Context: placement and report commands take one `scope` object instead of
-//! each inventing its own filter. Objects outside the scope are obstacles:
-//! they are read but never moved. Issue: layout work, fork issue 97.
+//! Commands take one `scope` object instead of each inventing its own filter.
+//! Objects outside the scope are obstacles: they are read but never moved.
 //!
-//! Local rules:
-//! - A scope names layers, nets, components or any mix. Each list that is
-//!   given narrows the scope (a part must match every list that is given).
-//! - An empty scope (all three lists empty) is refused. There is no implicit
-//!   whole board; to mean the whole board, list its layers.
-//! - `respect_locked` defaults to true: locked footprints are in scope for
-//!   reading but `Scope::may_move` says no.
+//! # Rules
+//! - A scope names layers, nets, components or any mix. Each list narrows the scope.
+//! - An empty scope is refused. List layers to mean the whole board.
+//! - `respect_locked` defaults to true: locked footprints are not moved.
 //! - Every list is capped at `MAX_ENTRIES`; named ids and layers must exist.
 //!
-//! Dependencies: `crates/doc/src/lib.rs` (`Project`, `Footprint`).
+//! # Dependencies
+//! - crates/doc/src/lib.rs (`Project`, `Footprint`)
 use super::Error;
 use pcbcraft_doc::{Footprint, Id, Project};
 use serde::{Deserialize, Serialize};
