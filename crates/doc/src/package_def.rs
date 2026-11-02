@@ -1,23 +1,16 @@
 //! Export package records: a package is data, not code.
 //!
-//! Context: issue #224, child of the export packages epic (#214). A package names the
-//! files one recipient asks for (a board maker, an assembler, a single-file exchange
-//! format) as a list of contents, each with a writer format, a few options and a file
-//! name template. The records ship as a bundled data file (`crates/io/data/packages.json`)
-//! and a project may save its own in `Project::packages`.
+//! A package names the files one recipient asks for as a list of contents.
+//! Each content holds a writer format, options and a file name template.
 //!
-//! Local rules:
-//! - Records carry no behaviour. Which `format` ids exist, and which are not written yet,
-//!   is decided in `crates/io/src/export_package.rs`.
-//! - A template is a relative file name with tokens in braces; it never holds a folder,
-//!   `..`, a drive or a dot-first name.
+//! # Rules
+//! - A template is a relative file name with tokens in braces that never holds a folder, .., a drive or a dot-first name.
 //!
 //! # Dependencies
 //! - crates/doc/src/lib.rs (`OUTPUT_KINDS`, `Project::validate`)
 //! - crates/io/src/export_package.rs (token values, writers)
-//!
 //! # Do not
-//! - Add a field a writer cannot honour; an option the writer does not know is refused there.
+//! - Add a field a writer cannot honour.
 use crate::OUTPUT_KINDS;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
