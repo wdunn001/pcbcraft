@@ -37,11 +37,8 @@ struct Yard {
 }
 
 fn side_of(layer: &str) -> Option<Layer> {
-    match layer {
-        "pcbcraft.courtyard" | "F.CrtYd" => Some(Layer::Front),
-        "B.CrtYd" => Some(Layer::Back),
-        _ => None,
-    }
+    pcbcraft_library::courtyard_layer_is_back(layer)
+        .map(|back| if back { Layer::Back } else { Layer::Front })
 }
 
 /// Which board side a courtyard graphic occupies once the footprint is placed.

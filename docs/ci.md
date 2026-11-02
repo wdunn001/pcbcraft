@@ -136,6 +136,8 @@ The nightly workflow captures the desktop UI; to do it locally:
 
 `cargo xtask screenshots --out target/screenshots`
 
+The site images come from the same captures. Run `xvfb-run -a -s "-screen 0 1920x1240x24" cargo xtask screenshots --bin target/release/pcbcraft --out target/shots`, then `cd site && npm ci && node scripts/make-screens.mjs --captures ../target/shots`. The crops are listed in `site/src/data/screens.json` and `site/src/data/guide-shots.json`; each run starts the app with an empty settings folder so the dark default theme and the standard layout are used.
+
 Views are listed in `VIEWS` in xtask/src/main.rs.
 
 ## Nightly (`nightly.yml`)
