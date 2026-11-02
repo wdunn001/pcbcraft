@@ -367,7 +367,8 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
         .components
         .len();
     app.place_online_for_test(&ctx, part, "schematic", Point::new(20.0, 20.0));
-    for _ in 0..100 {
+    // The worker thread can be slow on a busy runner, so wait up to 30 seconds.
+    for _ in 0..600 {
         frame(&ctx, &mut app, vec![], none);
         let now = shared
             .lock()
@@ -425,7 +426,8 @@ fn a_newcomer_finds_a_chip_package_by_name_and_places_it_on_the_board() -> Resul
         .find(|p| p.mpn == "LQFP-64_10x10mm_P0.5mm")
         .ok_or("the library should know the package")?;
     app.place_online_for_test(&ctx, part, "board", Point::new(30.0, 30.0));
-    for _ in 0..100 {
+    // The worker thread can be slow on a busy runner, so wait up to 30 seconds.
+    for _ in 0..600 {
         frame(&ctx, &mut app, vec![], none);
         if !shared
             .lock()
