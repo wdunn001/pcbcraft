@@ -247,6 +247,8 @@ PCBCraft pins the shared UI library of the companion CAD app. Anything that libr
 
 **Layout view card.** Floating at the top right of the Layout canvas: 2D | 3D, Top | Bottom, rotate 90 degrees left, rotate 90 degrees right, reset. Bottom is the flip: the view from below, mirrored, with reversed z-order. The rotate and reset buttons are icon buttons in the same style as the 3D controls. There is no "From below" button. The canvas paints layers in physical z-order from the viewer's side, with the active layer at full strength, layers above it semi-transparent and layers behind it dimmed.
 
+**Part menu: flip side.** Right-clicking a part on the Layout board offers one row that moves it to the other side of the board. It reads Flip to bottom on a top part and Flip to top on a bottom part, runs the same engine command as the Side control in Properties, and is disabled with a tooltip on a locked part.
+
 **Panel tabs.** The left aside keeps Layers | Library tabs on Schematic and Layout: the Library panel finds and places parts. The Library tab in the tab nav is a separate full workspace (part browser, datasheet reader, vendor prices, source editing, symbol and footprint editors, compare view).
 
 **Files tab.** Its own workspace: the left aside lists New, Open, Save, Save as, Import, Export, Project settings, Preferences and Close; the centre shows Recent projects. The Library never appears there.
