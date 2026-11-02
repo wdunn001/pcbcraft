@@ -31,6 +31,17 @@ The wirelength functions live in `crates/engine/src/wirelength.rs` (`hpwl`, `rat
 
 `rules.decoupling_set {"max_distance_mm": 3.0, "suggested_value": "100 nF"}` (at least one field; distance 0.1 to 50 mm) stores the settings on the project. The `missing_decoupling` check then reports, for each power input pin of a part that is not a capacitor, either no capacitor on the net, or the nearest placed capacitor being farther than the distance (pad centre to pad centre). Ground-named nets are skipped. The finding names the part, pin, net and the value to add. Severity follows `rules.severity` like every code (default warning).
 
+## pad.add, pad.edit and pad.remove
+
+These commands add, change and remove single copper pads from the canvases. The Layout Pad tool, Add pad in the right-click menu of a placed part and the Pad item of the Schematic strip send them.
+
+- `pad.add` with `position` makes a free pad: a one-pad part (kind `test_point`, reference `TP1`, `TP2` and so on) at that board position. With `schematic_position` the part also sits on that sheet, and a board position is optional; the board pad shows on the same net. With `footprint` it adds a pad to that placed part instead, at `offset` (local) or `position` (board), and the part gains a pin with the same number.
+- Options: `number`, `shape` (circle, rect, oval, roundrect), `width`, `height`, `drill`, `side` (top, bottom or through) and `net`. A surface pad has no drill; a through-hole pad needs one smaller than the copper.
+- `pad.edit` changes one pad of a placed part by its current number; the pin follows the number and the net. `release_net` takes the pad off its net.
+- `pad.remove` removes one pad and its pin. The only pad of a free pad part removes the part. Any other part keeps at least one pad.
+
+A free pad is an ordinary part, so clearance checks, net connectivity, Gerber, drill and placement output, undo and saving treat it like any other pad.
+
 ## Hiding and picking a layer
 
 The eye on a layer row hides everything that belongs to that layer: its tracks, zones, pads, part outlines and courtyards, reference and value labels, text, drawn board shapes, the vias that only reach hidden layers, and the ratsnest lines whose ends are all on hidden layers. A part mounted on a hidden side goes as one thing. Click the name of a layer row to pick it: its elements stay at full strength, everything else dims, and the hint says what the layer holds ("Top copper: 6 tracks, 3 pads, 6 silkscreen items, 2 vias shown"). Click the name again to clear it. Only the arrow opens or closes a layer row. The focus button still dims everything else without picking the row.

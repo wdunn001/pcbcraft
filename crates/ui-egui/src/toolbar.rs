@@ -41,6 +41,7 @@ enum Act {
     Cutout,
     Hole,
     Fiducial,
+    Pad,
     Measure,
 }
 
@@ -263,6 +264,15 @@ impl App {
                 Act::Port,
                 false,
             );
+            push(
+                "tool-pad",
+                "pad-smd",
+                t!("board.tool_strip.pad"),
+                self.tool_tip(t!("board.tool_strip.pad.tip"), ToolKind::Place, None),
+                matches!(self.tool, Tool::Pad),
+                Act::Pad,
+                false,
+            );
         }
         if pcb {
             push(
@@ -394,6 +404,15 @@ impl App {
                 Act::Fiducial,
                 false,
             );
+            push(
+                "tool-pad",
+                "pad-smd",
+                t!("board.tool_strip.pad"),
+                self.tool_tip(t!("board.tool_strip.pad.tip"), ToolKind::Place, None),
+                matches!(self.tool, Tool::Pad),
+                Act::Pad,
+                false,
+            );
         }
         push(
             "tool-measure",
@@ -449,6 +468,7 @@ impl App {
             Act::Cutout => self.tool = Tool::Cutout,
             Act::Hole => self.tool = Tool::Hole,
             Act::Fiducial => self.tool = Tool::Fiducial,
+            Act::Pad => self.tool = Tool::Pad,
             Act::Measure => self.arm_measure(),
         }
     }

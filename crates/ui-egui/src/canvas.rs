@@ -733,6 +733,7 @@ impl App {
             Tool::Measure => t!("board.canvas.measure_click_two_points"),
             Tool::Via => t!("board.canvas.via"),
             Tool::Port => t!("schematic.port.canvas_hint"),
+            Tool::Pad => t!("board.canvas.pad_click_to_place"),
         };
         if !matches!(self.tool, Tool::Select) {
             painter.text(
@@ -800,6 +801,9 @@ impl App {
                         (self.fiducial_diameter / 2.0) as f32 * camera.zoom,
                         Stroke::new(1.5, self.accent()),
                     );
+                }
+                Tool::Pad if self.tab == Tab::Pcb => {
+                    self.paint_pad_ghost(&painter, rect, camera, snapped);
                 }
                 Tool::Keepout => self.paint_keepout_ghost(&painter, rect, camera, snapped),
                 Tool::Via if self.tab == Tab::Pcb => {
@@ -1640,6 +1644,7 @@ impl App {
                 }
             }
             Tool::Port => self.place_hierarchy_port(pos),
+            Tool::Pad => self.place_pad_click(pos),
             Tool::Keepout => {}
             Tool::Hole => self.run(
                 "board.hole_place",
@@ -2111,6 +2116,16 @@ impl App {
                             text_colour,
                         );
                     }
+                }
+                "test_point" => {
+                    // A plain pad: a ring with a filled centre on a short lead.
+                    let radius = (1.6 * f64::from(camera.zoom)) as f32;
+                    painter.line_segment(
+                        [at(Point::new(-5.0, 0.0)), at(Point::new(-1.6, 0.0))],
+                        stroke,
+                    );
+                    painter.circle_stroke(at(Point::new(0.0, 0.0)), radius, stroke);
+                    painter.circle_filled(at(Point::new(0.0, 0.0)), radius * 0.45, color);
                 }
                 "connector" => {
                     painter.add(egui::Shape::closed_line(

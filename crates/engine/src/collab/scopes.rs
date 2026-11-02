@@ -245,6 +245,7 @@ fn always_board(command: &str) -> bool {
         || command.starts_with("artifact.")
         || command.starts_with("machine.")
         || command.starts_with("padstack.")
+        || command.starts_with("pad.")
         || command.starts_with("variant.")
         || command.starts_with("attached.")
         || command.starts_with("align.")

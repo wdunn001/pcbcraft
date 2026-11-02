@@ -394,6 +394,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
             "tool-cutout" => "Cutout",
             "tool-hole" => "Mounting hole",
             "tool-fiducial" => "Assembly mark",
+            "tool-pad" => "Pad",
             "tool-measure" => "Measure",
             other => return Err(format!("{other} has no known name")),
         }

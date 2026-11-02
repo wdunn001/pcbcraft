@@ -43,6 +43,7 @@ pub(super) enum CanvasAct {
     ExportBom,
     ExportBomSelection,
     ToggleBomExclude,
+    AddPad,
 }
 
 impl App {
@@ -158,6 +159,13 @@ impl App {
                         )
                         .icon(glyph::WIRE)
                         .into(),
+                        Item::new(
+                            CanvasAct::AddPad,
+                            t!("menu.add_pad"),
+                            t!("menu.add_pad.tip"),
+                        )
+                        .icon(glyph::DUPLICATE)
+                        .into(),
                         properties("Load this pad's package into the inspector."),
                     ])
                     .group([copy()]);
@@ -202,6 +210,18 @@ impl App {
                             .shortcut("R")
                             .enabled_if(!locked, tip)
                             .into(),
+                    );
+                }
+                if footprint && self.tab == Tab::Pcb {
+                    object.push(
+                        Item::new(
+                            CanvasAct::AddPad,
+                            t!("menu.add_pad"),
+                            t!("menu.add_pad.tip"),
+                        )
+                        .icon(glyph::DUPLICATE)
+                        .enabled_if(!locked, "This part is locked. Unlock it first.")
+                        .into(),
                     );
                 }
                 if footprint {
@@ -396,6 +416,11 @@ impl App {
             (CanvasAct::Properties, _) => self.load_properties(),
             (CanvasAct::StartRoute, CanvasMenuKind::Pad(id, pad)) => {
                 self.tool = Tool::Route(Some((*id, pad.clone())));
+            }
+            (CanvasAct::AddPad, _) => {
+                if let (Some(id), Some(at)) = (id, self.edit.menu_at) {
+                    self.add_pad_to_part(id, at);
+                }
             }
             (CanvasAct::CutTrack, _) => {
                 if let Some(id) = id
