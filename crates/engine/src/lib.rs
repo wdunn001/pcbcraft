@@ -1407,10 +1407,10 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "via.place",
-            "Place a plated via on an existing net. It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
+            "Place a plated via on an existing net, or on no net when net is left out or 0 (the checks report it until it is assigned). It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
             schema(
                 json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"},"from_layer":{"type":"string","description":"upper copper layer of the span, for example F.Cu or In1.Cu; default is the top layer"},"to_layer":{"type":"string","description":"lower copper layer of the span; default is the bottom layer"}}),
-                &["net", "position"],
+                &["position"],
             ),
         ),
         (
@@ -4228,13 +4228,6 @@ struct LockParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `component.set_in_bom`: include or exclude a component from the bill of materials.
-///
-/// # Rules
-/// - The component id must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct ComponentInBomParams {
     id: Id,
     in_bom: bool,
@@ -4248,13 +4241,6 @@ struct ComponentInBomParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `component.set_in_placement`: include or exclude a component from the placement file.
-///
-/// # Rules
-/// - The component id must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct ComponentInPlacementParams {
     id: Id,
     in_placement: bool,
@@ -4268,13 +4254,6 @@ struct ComponentInPlacementParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `board.set_clearance`: set the default clearance for the board.
-///
-/// # Rules
-/// - Clearance must be a non-negative value in mm.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct BoardClearanceParams {
     clearance: f64,
 }
@@ -4402,13 +4381,6 @@ fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `component.assign_footprint`: assign a footprint to a component.
-///
-/// # Rules
-/// - The component and footprint ids must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct AssignFootprint {
     id: Id,
     path: String,
@@ -4422,13 +4394,6 @@ struct AssignFootprint {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `pattern.assign`: assign a pattern to an object.
-///
-/// # Rules
-/// - The object and pattern ids must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct AssignPatternParams {
     pattern: String,
     path: String,
@@ -4442,14 +4407,6 @@ struct AssignPatternParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `library.refresh_symbol`: refresh a library symbol from its source file.
-///
-/// # Rules
-/// - The symbol id must exist.
-/// - The path must be a valid library file.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct RefreshSymbolParams {
     path: String,
     symbol: String,
@@ -4463,14 +4420,6 @@ struct RefreshSymbolParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `library.refresh_footprint`: refresh a library footprint from its source file.
-///
-/// # Rules
-/// - The footprint id must exist.
-/// - The path must be a valid library file.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct RefreshFootprintParams {
     library: Option<String>,
     name: Option<String>,
@@ -4484,14 +4433,6 @@ struct RefreshFootprintParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `table.assign`: assign rows to a table.
-///
-/// # Rules
-/// - The table id must exist.
-/// - All row ids must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct AssignTableParams {
     rows: Vec<AssignTableRow>,
 }
@@ -4511,14 +4452,6 @@ struct AssignTableRow {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `object.assign_file`: attach a file reference to an object.
-///
-/// # Rules
-/// - The object id must exist.
-/// - The path must be a valid file.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct AssignFileParams {
     path: String,
 }
@@ -4875,14 +4808,6 @@ fn assign_to(
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `object.move`: move an object to a new position.
-///
-/// # Rules
-/// - The object id must exist.
-/// - Position must be within board bounds.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct Move {
     id: Id,
     position: Point,
@@ -4898,14 +4823,6 @@ struct Move {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `object.rotate`: rotate an object by a given angle.
-///
-/// # Rules
-/// - The object id must exist.
-/// - Degrees must be in the range -360 to 360.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct Rotate {
     id: Id,
     degrees: f64,
@@ -4920,13 +4837,6 @@ struct Rotate {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `component.set_value`: set a component value.
-///
-/// # Rules
-/// - The component id must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct ValueParams {
     id: Id,
     value: String,
@@ -4940,14 +4850,6 @@ struct ValueParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `component.set_kind`: set a component kind.
-///
-/// # Rules
-/// - The component id must exist.
-/// - The kind must be a valid component kind.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct SetKindParams {
     id: Id,
     kind: String,
@@ -4961,13 +4863,6 @@ struct SetKindParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `net.rename`: rename a net.
-///
-/// # Rules
-/// - The name must be unique among existing nets.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct Name {
     name: String,
 }
@@ -4980,14 +4875,6 @@ struct Name {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `object.set_meta`: set a metadata key-value pair on an object.
-///
-/// # Rules
-/// - The object id must exist.
-/// - Key and value must be non-empty.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct MetaParams {
     key: String,
     value: String,
@@ -5001,13 +4888,6 @@ struct MetaParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `parameter.set`: set a design parameter value.
-///
-/// # Rules
-/// - The parameter name must be a valid identifier.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct ParameterSetParams {
     name: String,
     value: f64,
@@ -5023,13 +4903,6 @@ struct ParameterSetParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `parameter.remove`: remove a design parameter.
-///
-/// # Rules
-/// - The parameter name must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct ParameterRemoveParams {
     name: String,
     #[serde(default)]
@@ -5044,13 +4917,6 @@ struct ParameterRemoveParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `project.set_unit`: set the project unit system.
-///
-/// # Rules
-/// - The unit must be `mm` or `inch`.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct ProjectSetUnitParams {
     unit: String,
 }
@@ -5063,13 +4929,6 @@ struct ProjectSetUnitParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `project.set_auto_sync`: enable or disable automatic board sync.
-///
-/// # Rules
-/// - When enabled, board syncs automatically after schematic changes.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct ProjectSetAutoSyncParams {
     auto_sync: bool,
 }
@@ -5082,13 +4941,6 @@ struct ProjectSetAutoSyncParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `archive.path`: set the archive file path.
-///
-/// # Rules
-/// - The path must be writable.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct ArchivePathParams {
     path: String,
 }
@@ -5101,14 +4953,6 @@ struct ArchivePathParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `project.import`: import a project from a file.
-///
-/// # Rules
-/// - The path must be a valid file.
-/// - The format must be a supported import format.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct ProjectImportParams {
     path: String,
     format: String,
@@ -5122,15 +4966,6 @@ struct ProjectImportParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `laser.export`: export a laser engraving job file.
-///
-/// # Rules
-/// - The side must be `top` or `bottom`.
-/// - The profile must exist.
-/// - The format must be `json` or `csv`.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct LaserJobExportParams {
     side: String,
     profile_id: String,
@@ -5166,13 +5001,6 @@ fn laser_job_isolation_default() -> f64 {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `object.get_meta`: get a metadata value by key.
-///
-/// # Rules
-/// - The object id must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct MetaKeyParams {
     key: String,
 }
@@ -5185,14 +5013,6 @@ struct MetaKeyParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `project.replace`: search and replace text across the project.
-///
-/// # Rules
-/// - Search and replace must be non-empty.
-/// - Scope must be a valid replacement scope.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct ReplaceParams {
     search: String,
     replace: String,
@@ -5214,14 +5034,6 @@ fn replace_all_scope() -> String {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `net.connect`: connect pins to a net.
-///
-/// # Rules
-/// - The net id must exist.
-/// - All pin references must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct Connect {
     net: Id,
     pins: Vec<PinRef>,
@@ -5235,14 +5047,6 @@ struct Connect {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `track.set_net`: assign a net to a track or via.
-///
-/// # Rules
-/// - The object id must be a track or via.
-/// - The net id must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct CopperNetParams {
     id: Id,
     net: Id,
@@ -5285,14 +5089,6 @@ struct DrawnWireParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `wire.place_tee`: place a T-connection on an existing wire.
-///
-/// # Rules
-/// - The wire id must exist.
-/// - The point must be on the wire.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct WirePlaceTeeParams {
     wire: Id,
     at: Point,
@@ -5306,13 +5102,6 @@ struct WirePlaceTeeParams {
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Parameters of `wire.place`: place a new wire segment.
-///
-/// # Rules
-/// - At least two points must be provided.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
 struct WirePlaceParams {
     points: Vec<Point>,
     #[serde(default)]
@@ -5801,6 +5590,8 @@ struct RepeatLayoutParams {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaParams {
+    /// Net the via joins; 0 or absent places a via with no net.
+    #[serde(default)]
     net: Id,
     position: Point,
     #[serde(default)]
@@ -17733,7 +17524,7 @@ fn run_command_part_13(
         }
         "via.place" => {
             let a: ViaParams = parse(params)?;
-            if !p.nets.iter().any(|n| n.id == a.net) {
+            if a.net != 0 && !p.nets.iter().any(|n| n.id == a.net) {
                 return Err(missing());
             }
             if !a.position.valid() {
@@ -24260,6 +24051,46 @@ mod tests {
             .ok_or_else(missing)?;
         assert_eq!(label.kind, "global", "undo restores the kind");
         assert_eq!(label.net, b);
+        Ok(())
+    }
+    #[test]
+    fn via_place_without_a_net_makes_a_net_less_via_that_validates_and_undoes() -> Result<(), Error>
+    {
+        let mut s = Session::default();
+        s.execute(
+            "via.place",
+            json!({"position":{"x":10.0,"y":10.0},"diameter":0.8,"drill":0.4}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias.len(), 1);
+        assert_eq!(s.project.board.vias[0].net, 0);
+        assert!(s.project.validate().is_ok());
+        assert!(
+            pcbcraft_rules::drc(&s.project)
+                .iter()
+                .any(|f| f.code == "unassigned_via"),
+            "the checks mention the net-less via"
+        );
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let via = s.project.board.vias[0].id;
+        s.execute("copper.set_net", json!({"id":via,"net":net}), None)?;
+        assert_eq!(s.project.board.vias[0].net, net);
+        assert!(
+            !pcbcraft_rules::drc(&s.project)
+                .iter()
+                .any(|f| f.code == "unassigned_via")
+        );
+        assert!(
+            s.execute(
+                "via.place",
+                json!({"net":9999,"position":{"x":1.0,"y":1.0},"diameter":0.8}),
+                None
+            )
+            .is_err(),
+            "an unknown net is still refused"
+        );
         Ok(())
     }
     #[test]

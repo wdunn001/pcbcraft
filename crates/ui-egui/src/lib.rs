@@ -76,6 +76,7 @@ pub mod ui_kit;
 mod via_backdrill;
 mod via_covering;
 mod via_span;
+mod via_tool;
 mod wall_clock;
 mod wire_canvas;
 mod workspace;
@@ -1141,6 +1142,7 @@ pub struct App {
     swap_pick: Option<String>,
     swap_name: String,
     hole_diameter: f64,
+    via_tool: via_tool::ViaToolOptions,
     art_layer: Option<Id>,
     art_shape: DrawShape,
     art_start: Option<Point>,
@@ -1896,6 +1898,7 @@ impl App {
             swap_pick: None,
             swap_name: String::new(),
             hole_diameter: 3.2,
+            via_tool: via_tool::ViaToolOptions::default(),
             art_layer: None,
             art_shape: DrawShape::Line,
             art_start: None,
@@ -7036,6 +7039,11 @@ impl App {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.draw_tool_options(ui));
+                    }
+                    if matches!(self.tool, Tool::Via) {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.via_tool_options(ui));
                     }
                     if matches!(self.tool, Tool::Port) {
                         egui::Frame::NONE
