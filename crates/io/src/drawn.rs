@@ -569,10 +569,10 @@ fn hpgl_path(path: &ArtPath, unit: &impl Fn(f64) -> i64) -> String {
     out
 }
 
-/// Plot every drawn layer that has figures: a Gerber for silk and mask, a
-/// DXF for every layer, and a real-scale SVG and pen path for cut and
-/// perforation layers. Layers are top side, and the on-screen hidden flag
-/// does not change machine output, so a hidden cut line still gets its file.
+/// Plot every visible drawn layer that has figures: a Gerber for silk and mask,
+/// a DXF for every layer, and a real-scale SVG and pen path for cut and
+/// perforation layers. Layers are top side; hidden layers are skipped so
+/// a hidden cut line does not get a file.
 pub fn drawn_layer_plots(p: &Project) -> Result<DrawnLayerPlots, String> {
     p.validate()?;
     let stems = stems(p);
@@ -585,6 +585,9 @@ pub fn drawn_layer_plots(p: &Project) -> Result<DrawnLayerPlots, String> {
         Ok(())
     };
     for layer in &p.board.user_layers {
+        if !layer.visible {
+            continue;
+        }
         let Some(stem) = stems.get(&layer.id).cloned() else {
             continue;
         };
@@ -618,6 +621,9 @@ pub(crate) fn gerber_layer_files(p: &Project) -> Result<BTreeMap<String, String>
     let mut files = BTreeMap::new();
     for layer in &p.board.user_layers {
         if !matches!(layer.kind, ArtKind::Silk | ArtKind::Mask | ArtKind::Other) {
+            if !layer.visible {
+                continue;
+            }
             continue;
         }
         let Some(stem) = stems.get(&layer.id) else {
@@ -639,6 +645,9 @@ pub(crate) fn write_dxf_layers(p: &Project, w: &mut DxfWriter) -> Result<(), Str
         let Some(stem) = stems.get(&layer.id) else {
             continue;
         };
+        if !layer.visible {
+            continue;
+        }
         write_dxf_layer(layer, stem, w)?;
     }
     Ok(())
