@@ -27,21 +27,42 @@ runs, fails if any job failed or was cancelled, and is the one required check.
 | 1 | Clippy | `cargo xtask clippy` | Clippy with `-D warnings` on all targets |
 | 1 | Licenses and advisories | `cargo xtask deny` | `deny.toml`: licence allow list, RustSec advisories, yanked crates, unknown sources |
 | 2 | Unit tests | `cargo xtask test` | Workspace tests with cargo-nextest (profile `ci`, JUnit report uploaded) plus doctests |
-| 3 | Build (wasm) | `cargo xtask wasm`, `cargo xtask wasm-deps` | The browser crates build for wasm32, wasm clippy blocks `std::time` clocks, trunk release build with hashed file names, headless first-frame smoke; the portable crates pass `cargo check` for wasm32 and the shared library revision is reported. Uploads `web-dist` |
+| 3 | Check (wasm) | `cargo xtask wasm-check`, `cargo xtask wasm-deps` | The browser crates check for wasm32, wasm clippy blocks `std::time` clocks; the portable crates pass `cargo check` for wasm32 and the shared library revision is reported |
+| 3 | Build (wasm) | `cargo xtask wasm-bundle` | Trunk release build with hashed file names, without wasm-opt (see below), then the headless first-frame smoke. Uploads `web-dist` |
 | 3 | Build (Linux x86_64) | `cargo build --release --locked -p pcbcraft -p pcbcraft-cli` | The desktop app and CLI link. Uploads `linux-x86_64` |
 | 3 | Build (Windows x86_64) | `cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p pcbcraft -p pcbcraft-cli` | Cross-compiled on a Linux runner; main and the merge queue only. Uploads `windows-x86_64` |
-| 4 | E2E | `cargo xtask e2e`, then `node apps/pcbcraft-web/scripts/smoke-first-frame.mjs` | Every `a_newcomer_*` story and a walk of every page (see below), then the browser smoke against the built `web-dist` bundle |
+| 4 | E2E | `cargo xtask e2e` | Every `a_newcomer_*` story and a walk of every page (see below) |
 | - | CI result | none | The single required check |
 
-Stage 2 waits for stage 1, stage 3 for stage 2, stage 4 for stage 3. Stage 3
-jobs run in parallel and the wasm build is the one to watch.
+The unit tests, the builds and E2E each wait only for Lint and Clippy, so they
+run side by side instead of one stage after the other. The "stage" numbers are
+a reading order, not a chain. Licenses and advisories gate the unit tests only.
+The wasm work is two jobs (Check and Build) so the dev-profile checks run while
+the release bundle compiles. The browser smoke runs once, in Build (wasm), on the
+bundle it uploads.
+
+### Web bundle: with and without wasm-opt
+
+wasm-opt took about half an hour of the pull request job and tells the pull request
+nothing: the job exists to show that the app builds for wasm32 and starts. So
+`cargo xtask wasm-bundle` builds a quick bundle by default: the `wasm-quick` cargo
+profile (no LTO) and wasm-opt off. The result is large and is never shipped.
+
+`cargo xtask wasm-bundle --optimize` (or `PCBCRAFT_WASM_OPT=1`) builds what
+`apps/pcbcraft-web/index.html` describes: the `wasm-release` cargo profile (size
+tuned, fat LTO, one codegen unit) and wasm-opt. A plain `trunk build --release` in
+`apps/pcbcraft-web` does the same, so the deploy workflow needs no change. The
+nightly job "Web bundle (optimized)" runs the optimized path every night so it
+cannot rot. To change the optimized settings, edit the rust link in `index.html`
+and keep the `OPTIMIZED_ATTRS` constant in `xtask/src/main.rs` equal to it: the
+quick build swaps that text, and fails with a message when it is not found.
 
 Local equivalents: `cargo xtask lint` for stage 1, `cargo xtask ci` for stages
 1 to 3 in one go.
 The wasm jobs need `trunk`, `node` and the `wasm32-unknown-unknown` target; the
 Windows job needs `cargo-xwin`, `clang` and `lld`.
 
-Trunk downloads `wasm-opt` (binaryen) on first use. The version is pinned in
+Trunk downloads `wasm-opt` (binaryen) on first use, and only for an optimized build. The version is pinned in
 `apps/pcbcraft-web/Trunk.toml` under `[tools]`, and the wasm job restores
 trunk's tool cache (`~/.cache/trunk`) with `actions/cache`, keyed on that
 version, so a run does not depend on the download. Change the pin and the

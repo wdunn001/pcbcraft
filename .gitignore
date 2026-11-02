@@ -10,3 +10,4 @@ site/docs-preview/
 /site/src/data/status.json
 /site/src/data/status-snapshot.json
 node_modules/
+/apps/pcbcraft-web/index.quick.html

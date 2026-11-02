@@ -46,7 +46,9 @@ const USAGE: &str = "usage: cargo xtask <command>
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
   bench        timed large-board bench (release, ignored tests)
-  wasm         WebAssembly check of the shared UI and browser entry point, wasm clippy, trunk build and browser smoke
+  wasm         [--optimize] wasm-check, then wasm-bundle
+  wasm-check   WebAssembly check of the shared UI and browser entry point, and wasm clippy
+  wasm-bundle  [--optimize] trunk release build (wasm-opt only with --optimize or PCBCRAFT_WASM_OPT=1) and browser smoke
   wasm-deps    the portable crates must pass cargo check for wasm32; reports the craft-libs revision
   tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
@@ -390,8 +392,17 @@ fn run_env_in(
     }
 }
 
-/// Checks the wasm packages for the wasm32 target, lints them, builds trunk, and smoke-tests the page.
-fn wasm() -> Result<(), String> {
+/// The check, the lint, the trunk build and the browser smoke of the browser app.
+///
+/// # Rules
+/// - `--optimize` (or `PCBCRAFT_WASM_OPT=1`) builds the bundle that ships; see `wasm_bundle`.
+fn wasm(args: &[String]) -> Result<(), String> {
+    wasm_check()?;
+    wasm_bundle(args)
+}
+
+/// Checks the wasm packages for the wasm32 target and lints them. Dev builds only.
+fn wasm_check() -> Result<(), String> {
     let mut args = vec!["check", "--locked", "--target", "wasm32-unknown-unknown"];
     for package in WASM_PACKAGES {
         args.extend(["-p", package]);
@@ -408,18 +419,60 @@ fn wasm() -> Result<(), String> {
         "cargo",
         &clippy_args,
         &[("CLIPPY_CONF_DIR", conf.to_str().ok_or("clippy-wasm path")?)],
-    )?;
+    )
+}
 
+/// The attributes of the rust link in `index.html` that pick the shipped profile and turn wasm-opt on.
+const OPTIMIZED_ATTRS: &str =
+    r#"data-cargo-profile-release="wasm-release" data-wasm-opt-params="-O --all-features""#;
+/// What the quick build puts in their place: the cheap profile and no wasm-opt.
+const QUICK_ATTRS: &str = r#"data-cargo-profile-release="wasm-quick" data-wasm-opt="0""#;
+
+/// Builds the web bundle with trunk and smoke-tests the page.
+///
+/// # Rules
+/// - By default the bundle is not run through wasm-opt: the pull request job proves that the
+///   app builds for wasm32 and starts, and wasm-opt alone took half an hour of it.
+/// - `--optimize` or `PCBCRAFT_WASM_OPT=1` builds the optimized bundle exactly as `index.html`
+///   describes it. Release, deploy and the nightly use that.
+///
+/// # Do not
+/// - Do not ship the bundle of a default run; it is several times larger.
+fn wasm_bundle(args: &[String]) -> Result<(), String> {
     if !has_program("trunk") {
         return Err("trunk is not installed: see apps/pcbcraft-web and docs/ci.md".into());
     }
+    let optimize = args.iter().any(|a| a == "--optimize")
+        || std::env::var("PCBCRAFT_WASM_OPT").is_ok_and(|v| !v.is_empty() && v != "0");
     let web = root()?.join("apps/pcbcraft-web");
-    run_env_in(
-        &web,
-        "trunk",
-        &["build", "--release", "--public-url", "./"],
-        &[],
-    )?;
+    let build = ["build", "--release", "--public-url", "./"];
+    if optimize {
+        run_env_in(&web, "trunk", &build, &[])?;
+    } else {
+        // Trunk reads the wasm-opt switch from the page, so the quick build uses a copy of the
+        // page with wasm-opt off. The copy sits next to the page because its links are relative.
+        let page = std::fs::read_to_string(web.join("index.html"))
+            .map_err(|e| format!("apps/pcbcraft-web/index.html: {e}"))?;
+        if !page.contains(OPTIMIZED_ATTRS) {
+            return Err(format!(
+                "index.html no longer carries {OPTIMIZED_ATTRS}; update xtask"
+            ));
+        }
+        let quick = web.join("index.quick.html");
+        std::fs::write(&quick, page.replace(OPTIMIZED_ATTRS, QUICK_ATTRS))
+            .map_err(|e| format!("{}: {e}", quick.display()))?;
+        let mut quick_args = build.to_vec();
+        quick_args.push("index.quick.html");
+        let built = run_env_in(&web, "trunk", &quick_args, &[]);
+        let _ = std::fs::remove_file(&quick);
+        built?;
+        // Trunk names the page after its source; the smoke and the deploy expect index.html.
+        std::fs::rename(
+            web.join("dist/index.quick.html"),
+            web.join("dist/index.html"),
+        )
+        .map_err(|e| format!("dist/index.quick.html: {e}"))?;
+    }
 
     if !has_program("node") {
         return Err("node is not installed".into());
@@ -850,7 +903,7 @@ fn run() -> Result<(), String> {
             fmt()?;
             clippy()?;
             test()?;
-            wasm()?;
+            wasm(&[])?;
             docs()?;
             doc_check::run(&[])?;
             registry_check::run(&root()?, false)?;
@@ -870,7 +923,9 @@ fn run() -> Result<(), String> {
         "e2e" => e2e()?,
         "a11y" => a11y_gate()?,
         "i18n" => i18n_gate(args.get(1..).unwrap_or(&[]))?,
-        "wasm" => wasm()?,
+        "wasm" => wasm(args.get(1..).unwrap_or(&[]))?,
+        "wasm-check" => wasm_check()?,
+        "wasm-bundle" => wasm_bundle(args.get(1..).unwrap_or(&[]))?,
         "docs" if args.get(1).map(String::as_str) == Some("check") => {
             doc_check::run(args.get(2..).unwrap_or(&[]))?;
         }

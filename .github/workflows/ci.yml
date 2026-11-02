@@ -205,10 +205,45 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # Stage 3: builds, in parallel. The wasm build comes first in priority.
+  # Stage 3: builds. They need only the cheap checks (lint, clippy), so they
+  # run while the unit tests run. The wasm build comes first in priority.
+  check-wasm:
+    name: Check (wasm)
+    needs: [changes, lint, clippy]
+    if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: wasm-check
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The browser crates check for wasm32, wasm clippy blocks std::time clocks,
+      # and the portable crates pass cargo check for wasm32. Dev builds only, so this
+      # job runs next to the release bundle build instead of in front of it.
+      - run: cargo xtask wasm-check
+      - run: cargo xtask wasm-deps
+
   build-wasm:
     name: Build (wasm)
-    needs: [changes, unit]
+    needs: [changes, lint, clippy]
     if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
     runs-on: [self-hosted, pcbcraft-laptop]
     permissions:
@@ -256,10 +291,10 @@ jobs:
       # does nothing when they are already present.
       - name: Install browser system libraries
         run: sudo env "PATH=$PATH" npx --yes playwright@1.50.1 install-deps chromium
-      # Checks the wasm packages, wasm clippy, a trunk release build with hashed
-      # file names, and the headless browser first-frame smoke.
-      - run: cargo xtask wasm
-      - run: cargo xtask wasm-deps
+      # A trunk release build with hashed file names, without wasm-opt (the
+      # optimized bundle is built by the nightly, release and deploy workflows),
+      # and the headless browser first-frame smoke.
+      - run: cargo xtask wasm-bundle
       - name: Upload the web bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -270,7 +305,7 @@ jobs:
 
   build-linux-x64:
     name: Build (Linux x86_64)
-    needs: [changes, unit]
+    needs: [changes, lint, clippy]
     if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
     runs-on: [self-hosted, pcbcraft-laptop]
     permissions:
@@ -348,10 +383,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Stage 4: end-to-end stories and the browser smoke on the built bundle.
+  # Stage 4: end-to-end stories and the walk of every page. Needs only lint and clippy.
   e2e:
     name: E2E
-    needs: [changes, build-wasm, build-linux-x64]
+    needs: [changes, lint, clippy]
     if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
     runs-on: [self-hosted, pcbcraft-laptop]
     permissions:
@@ -384,22 +419,6 @@ jobs:
           path: target/e2e
           if-no-files-found: ignore
           retention-days: 14
-      - name: Fetch the built web bundle
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: web-dist
-          path: apps/pcbcraft-web/dist
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '22'
-      - name: Install browser system libraries
-        run: sudo env "PATH=$PATH" npx --yes playwright@1.50.1 install-deps chromium
-      - name: Browser smoke against the built bundle
-        working-directory: apps/pcbcraft-web
-        run: |
-          npm ci --no-audit --no-fund
-          npx playwright install chromium
-          node scripts/smoke-first-frame.mjs
 
   # The marketing site and user guide (Astro). Runs when site/ or this workflow changes.
   # Every command is one npm script in site/package.json, so a failure reproduces locally.
@@ -443,7 +462,7 @@ jobs:
   result:
     name: CI result
     if: ${{ always() }}
-    needs: [changes, lint, clippy, deny, unit, build-wasm, build-linux-x64, build-windows, e2e, site]
+    needs: [changes, lint, clippy, deny, unit, check-wasm, build-wasm, build-linux-x64, build-windows, e2e, site]
     runs-on: [self-hosted, pcbcraft]
     permissions: {}
     steps:
