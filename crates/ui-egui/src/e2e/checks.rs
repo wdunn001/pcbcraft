@@ -536,18 +536,16 @@ fn a_newcomer_sees_a_pin_conflict_in_the_findings_list() -> Result<(), String> {
         u1.reference = "U1".into();
         u1.value = "STM32F405".into();
         u1.kind = "ic_mcu".into();
-        u1.pins = vec![
-            pcbcraft_doc::Pin {
-                number: "PA5".into(),
-                name: "PA5".into(),
-                offset: pcbcraft_geom::Point { x: 0.0, y: 0.0 },
-                net: Some(10),
-                electrical_type: "bidirectional".into(),
-                direction: None,
-                unit: 1,
-                appearances: Default::default(),
-            },
-        ];
+        u1.pins = vec![pcbcraft_doc::Pin {
+            number: "PA5".into(),
+            name: "PA5".into(),
+            offset: pcbcraft_geom::Point { x: 0.0, y: 0.0 },
+            net: Some(10),
+            electrical_type: "bidirectional".into(),
+            direction: None,
+            unit: 1,
+            appearances: Default::default(),
+        }];
         let n10 = s
             .project
             .nets
@@ -555,8 +553,10 @@ fn a_newcomer_sees_a_pin_conflict_in_the_findings_list() -> Result<(), String> {
             .find(|n| n.id == 10)
             .ok_or("the sample has net 10")?;
         n10.name = "SIG".into();
-        let design_text = include_str!("../../../library/tests/fixtures/firmware-design.toml").to_string();
-        let mcu_text = include_str!("../../../library/tests/fixtures/stm32f405-fixture.mcu.toml").to_string();
+        let design_text =
+            include_str!("../../../library/tests/fixtures/firmware-design.toml").to_string();
+        let mcu_text =
+            include_str!("../../../library/tests/fixtures/stm32f405-fixture.mcu.toml").to_string();
         let conflicting = design_text
             .replace("function = \"SPI1_SCK\"", "function = \"USART1_TX\"")
             .replace("pin = \"PA9\"", "pin = \"PA5\"");
