@@ -4237,7 +4237,11 @@ mod tests {
                 .map(|(what, _)| what)
         };
         assert_eq!(page("sec:sheet:9001"), Some(RenameFor::Page(9001)));
-        assert_eq!(page("sec:sheet:0"), None, "Main cannot be renamed");
+        assert_eq!(
+            page("sec:sheet:0"),
+            Some(RenameFor::Page(0)),
+            "the first page can be renamed like any other"
+        );
     }
 
     #[test]
