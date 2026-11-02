@@ -134,6 +134,8 @@ pub(crate) enum Action {
     Select(Id),
     /// Select a row that is not one object (the board outline, a layer, a net).
     SelectKey(String),
+    /// Light the copper layer group at this tree path and dim the rest; none clears it.
+    LitLayer(Option<String>),
     /// Set a canvas drawing toggle shown (true) or hidden.
     SetShown { name: &'static str, on: bool },
     /// Show or hide a board layer group.
@@ -2833,7 +2835,12 @@ fn paint_row(
     {
         run_row_act(act, env, view, r, flags, actions);
     }
-    if chevron_clicked || (resp.double_clicked() && r.expandable) {
+    let layer_name_row = r.kind == RowKind::Layer
+        && matches!(
+            r.controls.as_ref().map(|c| &c.visibility),
+            Some(Visibility::LayerGroup(_))
+        );
+    if chevron_clicked || (resp.double_clicked() && r.expandable && !layer_name_row) {
         toggle(view, &r.key);
     } else if resp.clicked() {
         view.cursor = Some(r.key.clone());
@@ -3600,7 +3607,21 @@ fn activate(view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
         toggle(view, &r.key);
         return;
     }
+    let layer_group = r.kind == RowKind::Layer
+        && matches!(
+            r.controls.as_ref().map(|c| &c.visibility),
+            Some(Visibility::LayerGroup(_))
+        );
+    if layer_group && view.selected_key.as_deref() == Some(r.key.as_str()) {
+        // A second click on a picked layer row puts the lights back.
+        view.selected_key = None;
+        actions.push(Action::LitLayer(None));
+        return;
+    }
     view.selected_key = Some(r.key.clone());
+    if layer_group {
+        actions.push(Action::LitLayer(Some(r.key.clone())));
+    }
     if let Some(target) = r.target {
         actions.push(Action::SetTarget(target));
         if !matches!(target, Target::Edge | Target::User(_)) {
@@ -3609,7 +3630,8 @@ fn activate(view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
     }
     actions.push(Action::SelectKey(r.key.clone()));
     actions.push(Action::HighlightNet(r.net));
-    if r.expandable && !r.key.ends_with("/root") {
+    // The arrow alone opens and closes a layer; the name picks it.
+    if r.expandable && !r.key.ends_with("/root") && !layer_group {
         toggle(view, &r.key);
     }
 }
@@ -3828,6 +3850,7 @@ impl crate::App {
                     );
                 }
                 Action::Focus(key) => self.focus_layer = key,
+                Action::LitLayer(path) => self.light_layer(path),
                 Action::Delete(id) => {
                     self.select(Some(id));
                     self.delete_selection();
