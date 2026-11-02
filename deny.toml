@@ -14,6 +14,9 @@ ignore = []
 # enough to distribute the combined work under those terms. No GPL, LGPL or AGPL.
 # MPL-2.0 stays allowed: it is file-level copyleft and fine as an unmodified dependency.
 confidence-threshold = 0.93
+# The allow list is policy, not a record of what is used today, so an entry no
+# crate needs right now is not a warning.
+unused-allowed-license = "allow"
 allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
@@ -42,13 +45,17 @@ exceptions = [
 ignore = true
 
 [bans]
-multiple-versions = "warn"
+# Two versions of a crate come from the GUI and platform stacks and cannot be
+# merged from here; they were 55 warnings on every run and never failed it.
+multiple-versions = "allow"
 # Workspace crates depend on each other by path without a version.
 wildcards = "allow"
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# Likewise for sources that the lockfile does not use at the moment.
+unused-allowed-source = "allow"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # craft-ui is pinned to a revision in Cargo.toml.
 allow-git = [
