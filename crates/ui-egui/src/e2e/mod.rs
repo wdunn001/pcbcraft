@@ -33,6 +33,7 @@ mod library;
 mod library_browser;
 mod library_dock;
 mod library_workspace;
+mod machine_library;
 mod minimap;
 mod modifiers;
 mod nets;

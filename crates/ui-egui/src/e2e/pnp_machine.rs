@@ -26,10 +26,16 @@ fn painted(ctx: &egui::Context, app: &mut App) -> String {
 }
 
 fn open_machines(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
+    // The machine comes from the library: Library tab, Machines, find it, add it.
+    app.change_tab(Tab::Library);
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(ctx, app, "Machines")?;
+    type_into(ctx, app, "textinput:Search machines", "neoden yy1")?;
+    authoring::tests::tap(ctx, app, "Add to this project")?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::PlotFiles);
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(ctx, app, "Machines")?;
-    authoring::tests::tap(ctx, app, "Add NeoDen YY1")?;
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     Ok(())
 }

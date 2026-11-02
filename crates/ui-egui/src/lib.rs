@@ -1392,6 +1392,8 @@ pub struct App {
     dock: library_dock::Dock,
     /// The Library tab: open parts, the showing page, recorded supplier answers.
     libws: library_workspace::State,
+    /// The machine chosen in the Manufacture pick and place row, by id.
+    pnp_pick: Option<String>,
     tour: tour::Controller,
     datasheet: datasheet_reader::State,
     datasheet_pane: datasheet::Pane,
@@ -2071,6 +2073,7 @@ impl App {
             part_search_focus: false,
             dock: library_dock::Dock::default(),
             libws: library_workspace::State::default(),
+            pnp_pick: None,
             datasheet: datasheet_reader::State::default(),
             datasheet_pane: datasheet::Pane::default(),
             sheet: bottom_sheet::SheetState::default(),

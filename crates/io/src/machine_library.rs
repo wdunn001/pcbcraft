@@ -110,8 +110,9 @@ pub fn library_machines(user: &[MachineProfile], hidden: &[String]) -> Vec<Machi
 /// Say how a project copy stands against the library machine it came from.
 ///
 /// # Rules
-/// - The source is `based_on` when set, otherwise the copy's own id.
-/// - The version copied is the `based_on` version, otherwise the copy's own version.
+/// - The source is the library machine with the copy's own id, otherwise the `based_on` one.
+/// - The version copied is the copy's own version, or the `based_on` version for a renamed copy.
+/// - A copy made under a new name is not called edited for its name alone.
 ///
 /// # Dependencies
 /// - crates/io/src/machine_library.rs (`library_machines`)
@@ -119,11 +120,16 @@ pub fn library_machines(user: &[MachineProfile], hidden: &[String]) -> Vec<Machi
 /// # Do not
 /// - Look at the copy's origin; every project copy has the same one.
 pub fn copy_state(copy: &MachineProfile, library: &[MachineProfile]) -> CopyState {
-    let (source_id, copied) = match &copy.based_on {
-        Some(from) if !from.id.is_empty() => (from.id.as_str(), from.version),
-        _ => (copy.id.as_str(), copy.version),
-    };
-    let Some(source) = library.iter().find(|m| m.id == source_id) else {
+    // A library machine with the copy's own id is the first choice (the person's saved
+    // copy of it); otherwise the machine it was made from.
+    let (source, copied, renamed) = if let Some(own) = library.iter().find(|m| m.id == copy.id) {
+        (own, copy.version, false)
+    } else if let Some(from) = copy.based_on.as_ref().filter(|b| !b.id.is_empty()) {
+        match library.iter().find(|m| m.id == from.id) {
+            Some(found) => (found, from.version, true),
+            None => return CopyState::ProjectOnly,
+        }
+    } else {
         return CopyState::ProjectOnly;
     };
     if source.version > copied {
@@ -135,6 +141,9 @@ pub fn copy_state(copy: &MachineProfile, library: &[MachineProfile]) -> CopyStat
         m.id = String::new();
         m.based_on = None;
         m.version = 0;
+        if renamed {
+            m.name = String::new();
+        }
     }
     if a == b {
         CopyState::Same

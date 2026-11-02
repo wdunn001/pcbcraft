@@ -33,7 +33,10 @@ const HIDDEN_FILE: &str = "hidden-machines.txt";
 pub(crate) fn writes_folder_only(command: &str) -> bool {
     matches!(
         command,
-        "machine.library_save" | "machine.library_hide" | "machine.library_remove"
+        "machine.library_list"
+            | "machine.library_save"
+            | "machine.library_hide"
+            | "machine.library_remove"
     )
 }
 
@@ -89,8 +92,17 @@ fn no_folder() -> Error {
     Error::Invalid("There is no folder for your machines on this computer.".into())
 }
 
+/// Create the folder a file will be written into.
+fn make_parent(path: &std::path::Path) -> Result<(), Error> {
+    match path.parent() {
+        Some(parent) => std::fs::create_dir_all(parent).map_err(|e| Error::Invalid(e.to_string())),
+        None => Ok(()),
+    }
+}
+
 fn write_hidden(config: &UserConfig, ids: &[String]) -> Result<(), Error> {
     let path = config.file(HIDDEN_FILE).map_err(|_| no_folder())?;
+    make_parent(&path)?;
     let mut text = ids.join("\n");
     text.push('\n');
     pcbcraft_io::atomic_write(&path, text.as_bytes()).map_err(Error::Invalid)
@@ -101,6 +113,7 @@ fn save_user_machine(config: &UserConfig, machine: &MachineProfile) -> Result<()
         .file(&format!("{FOLDER}/{}.toml", machine.id))
         .map_err(|_| no_folder())?;
     let text = pcbcraft_io::machine_profile_to_toml(machine).map_err(Error::Invalid)?;
+    make_parent(&path)?;
     pcbcraft_io::atomic_write(&path, text.as_bytes()).map_err(Error::Invalid)
 }
 
@@ -476,14 +489,16 @@ pub(crate) fn run(
             let a: IdParams = parse(params)?;
             let copy = project_copy(p, &a.id)?;
             let library = pcbcraft_io::library_machines(&user_machines(config), &[]);
-            let source_id = copy
-                .based_on
-                .as_ref()
-                .filter(|b| !b.id.is_empty())
-                .map_or(copy.id.clone(), |b| b.id.clone());
+            // The library machine with the copy's own id comes first, then the one it was made from.
             let source = library
                 .iter()
-                .find(|m| m.id == source_id)
+                .find(|m| m.id == copy.id)
+                .or_else(|| {
+                    copy.based_on
+                        .as_ref()
+                        .filter(|b| !b.id.is_empty())
+                        .and_then(|b| library.iter().find(|m| m.id == b.id))
+                })
                 .cloned()
                 .ok_or_else(|| {
                     Error::Invalid("The library has no machine this copy came from.".into())
