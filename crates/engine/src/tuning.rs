@@ -20,8 +20,8 @@
 //!
 //! # Dependencies
 //!
-//! - ../../geom/src/impedance.rs: closed-form impedance and width-solver functions
-//! - ../../geom/src/meander.rs: serpentine shape generation and length accounting
+//! - crates/geom/src/impedance.rs (closed-form impedance and width-solver functions)
+//! - crates/geom/src/meander.rs (serpentine shape generation and length accounting)
 //!
 //! # Do not
 //!
@@ -54,7 +54,7 @@ const VIA_NOTE: &str =
 ///
 /// # Dependencies
 ///
-/// - ../lib.rs: CommandSpec, schema, id_schema
+/// - crates/engine/src/lib.rs (CommandSpec, schema, id_schema)
 ///
 /// # Do not
 ///
@@ -284,8 +284,8 @@ const MAX_SKEW_MEANDERS: usize = 32;
 ///
 /// # Dependencies
 ///
-/// - ../lib.rs: Project, Id, Value, Error
-/// - ../../doc/src/lib.rs: length group state carried in Project.board
+/// - crates/engine/src/lib.rs (Project, Id, Value, Error)
+/// - crates/doc/src/lib.rs (length group state carried in Project.board)
 ///
 /// # Do not
 ///
@@ -616,8 +616,8 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
 ///
 /// # Dependencies
 ///
-/// - ../lib.rs: Project, Id
-/// - ../../doc/src/lib.rs: Project.board.length_groups
+/// - crates/engine/src/lib.rs (Project, Id)
+/// - crates/doc/src/lib.rs (Project.board.length_groups)
 ///
 /// # Do not
 ///
