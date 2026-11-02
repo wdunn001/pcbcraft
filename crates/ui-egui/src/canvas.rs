@@ -1,3 +1,20 @@
+//! Canvas drawing and interaction for the PCB and schematic tabs.
+//!
+//! Owns world-to-screen conversion, selection, picking, the floating view
+//! controls, and the per-layer paint pass. The engine receives only commands;
+//! this module decides what the user sees and what they clicked.
+//!
+//! # Rules
+//! - All drawing uses mm world coordinates; conversion to pixels happens in one place.
+//! - Selection and picking return ids, never raw geometry.
+//! - The canvas never mutates the project; it emits commands through the engine.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs
+//! - crates/geom/src/lib.rs
+//! - crates/ui-egui/src/lib.rs
+//! - crates/ui-egui/src/arrange.rs
+//!
 use super::*;
 use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Id, Layer, PinRef, Project};
@@ -20,10 +37,37 @@ pub(crate) fn hex_colour(text: &str) -> Option<Color32> {
     Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
 }
 
+/// Check whether a schematic object belongs to a given page.
+///
+/// Used to filter which objects appear when the user views a specific
+/// schematic page, so the canvas only shows relevant geometry.
+///
+/// # Rules
+/// - Returns false for objects on other pages or board objects.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// # Do not
+/// - Call from the board paint path; this is schematic-only.
 fn on_page(p: &Project, page: Id, object: Id) -> bool {
     p.on_schematic_page(page, object)
 }
 
+/// Target of a right-click context menu on the canvas.
+///
+/// Identifies what object the user clicked so the menu can offer
+/// relevant actions such as delete, edit, or inspect.
+///
+/// # Rules
+/// - Carries only the minimum data needed to identify the target.
+/// - The menu builder reads this and emits the appropriate commands.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+///
+/// # Do not
+/// - Add fields beyond id and type; that data is in the project.
 pub(super) enum CanvasMenuKind {
     Empty,
     Pin(PinRef),
@@ -32,6 +76,22 @@ pub(super) enum CanvasMenuKind {
     Object(Id),
 }
 
+/// Compute the world-space bounding box for a selected object.
+///
+/// Used to draw the selection outline and to size the selection
+/// handles. Returns None for objects with no extent, such as
+/// empty or deleted ids.
+///
+/// # Rules
+/// - Returns the tightest box that contains the object.
+/// - Works for components, tracks, vias, and schematic objects.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+/// - crates/geom/src/lib.rs
+///
+/// # Do not
+/// - Call repeatedly in the paint loop; cache the result per frame.
 pub(crate) fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Point)> {
     if let Some(c) = project.component(id) {
         let p = c.position;
@@ -136,6 +196,21 @@ fn spotlight(lit: Option<Id>, net: Option<Id>, base: Color32, hot: Color32) -> C
     }
 }
 
+/// Snap a world position to the nearest grid point.
+///
+/// Used during interactive placement so the user can align objects
+/// to the grid. Grid snap is always applied unless snap is
+/// suspended by the user.
+///
+/// # Rules
+/// - Snaps to a 0.5mm grid.
+/// - Returns the snapped point.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+///
+/// # Do not
+/// - Snap during paint; this is an interaction helper only.
 pub(crate) fn snap(p: Point) -> Point {
     // Held keys that suspend snap (see tool_modifiers) leave the point as it is.
     if crate::tool_modifiers::snap_suspended() {
@@ -143,6 +218,20 @@ pub(crate) fn snap(p: Point) -> Point {
     }
     Point::new((p.x * 2.0).round() / 2.0, (p.y * 2.0).round() / 2.0)
 }
+/// Fill a closed polygon on the canvas with a solid colour.
+///
+/// Used for copper pours, board outline fills, and schematic
+/// fill regions. The polygon must be closed and non-self-intersecting.
+///
+/// # Rules
+/// - Points are in screen space, not world space.
+/// - The caller is responsible for transforming world coordinates.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+///
+/// # Do not
+/// - Use for strokes; use `stroke` for line segments.
 fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: Rect) {
     let points = if points.first() == points.last() {
         &points[..points.len().saturating_sub(1)]
@@ -713,6 +802,9 @@ impl App {
                     );
                 }
                 Tool::Keepout => self.paint_keepout_ghost(&painter, rect, camera, snapped),
+                Tool::Via if self.tab == Tab::Pcb => {
+                    self.paint_via_ghost(&painter, rect, camera, pos)
+                }
                 Tool::Hole => {
                     painter.circle_stroke(
                         camera.screen(snapped, rect),
@@ -2138,7 +2230,12 @@ impl App {
         };
         self.paint_board_body(painter, rect, camera, p);
         underlay::paint(painter, rect, camera, p, "pcb");
-        for fid in &p.board.fiducials {
+        for fid in p
+            .board
+            .fiducials
+            .iter()
+            .filter(|f| self.layer_group_shown(f.layer))
+        {
             let center = camera.screen(fid.position, rect);
             let radius = ((fid.diameter / 2.0) as f32 * camera.zoom).max(1.5);
             let color = if fid.layer == Layer::Front {
@@ -2210,7 +2307,7 @@ impl App {
                 self.colours().canvas.back
             };
             let rgb = [zone_colour.r(), zone_colour.g(), zone_colour.b()];
-            let far = stack.copper_alpha(z.layer);
+            let far = stack.copper_alpha(z.layer) * self.lit_alpha(z.layer);
             let fill = if self.selected == Some(z.id) {
                 self.accent().linear_multiply(0.35)
             } else {
@@ -2259,15 +2356,15 @@ impl App {
                         self.accent()
                     } else if t.layer == Layer::Front {
                         self.copper(Some(t.net), self.colours().canvas.front)
-                            .linear_multiply(stack.copper_alpha(t.layer))
+                            .linear_multiply(stack.copper_alpha(t.layer) * self.lit_alpha(t.layer))
                     } else {
                         self.copper(Some(t.net), self.colours().canvas.back)
-                            .linear_multiply(stack.copper_alpha(t.layer))
+                            .linear_multiply(stack.copper_alpha(t.layer) * self.lit_alpha(t.layer))
                     },
                 ),
             );
         }
-        for v in p.board.vias.iter().filter(|_| self.layer_shown("Vias")) {
+        for v in p.board.vias.iter().filter(|v| self.via_shown(v)) {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
             let through = (0..copper_count)
@@ -2316,9 +2413,11 @@ impl App {
                 );
             }
         }
-        for f in stack.far_to_near(p.board.footprints.iter(), |f| {
-            crate::stack_view::mount_copper(copper_count, f.board_side())
-        }) {
+        for f in stack.far_to_near(
+            p.board.footprints.iter().filter(|f| self.part_shown(f)),
+            |f| crate::stack_view::mount_copper(copper_count, f.board_side()),
+        ) {
+            let lit = self.lit_alpha(self.mount_layer(f));
             let on_bottom = f.board_side() != Layer::Front;
             let mount = crate::stack_view::mount_copper(copper_count, f.board_side());
             let pad_alpha = stack.copper_alpha(mount);
@@ -2354,7 +2453,7 @@ impl App {
             } else if let Some(kind) = self.compare_tint.get(&f.component).copied() {
                 self.compare_kind_color(kind)
             } else {
-                art.silk.linear_multiply(silk_fade)
+                art.silk.linear_multiply(silk_fade * lit)
             };
             let boxes = Self::footprint_boxes(f, rect, camera);
             if let Some(library) = p
@@ -2365,7 +2464,7 @@ impl App {
                     .definition
                     .graphics
                     .iter()
-                    .filter(|_| sub_on(f.board_side(), crate::layer_visibility::SubLayer::Silk))
+                    .filter(|_| self.part_artwork_shown(f))
                 {
                     if matches!(g,pcbcraft_library::Graphic::Text {text,..} if text=="REF**" || text=="%R" || text=="${REFERENCE}" || text=="${VALUE}" || text==&library.definition.name)
                     {
@@ -2380,24 +2479,20 @@ impl App {
                     };
                     self.paint_graphic(painter, rect, camera, g, (f.position, f.rotation), color);
                 }
-            } else if let Some((silk, _)) = &boxes {
+            } else if let Some((silk, _)) = boxes.as_ref().filter(|_| self.part_artwork_shown(f)) {
                 painter.add(egui::Shape::closed_line(
                     silk.clone(),
                     Stroke::new(1.5, color),
                 ));
             }
-            if let Some((_, courtyard)) = &boxes {
+            if let Some((_, courtyard)) = boxes.as_ref().filter(|_| self.part_artwork_shown(f)) {
                 layout_art::dashed_closed(
                     painter,
                     courtyard,
-                    Stroke::new(1.0, art.courtyard.gamma_multiply(0.6)),
+                    Stroke::new(1.0, art.courtyard.gamma_multiply(0.6 * lit)),
                 );
             }
-            for pad in f
-                .pads
-                .iter()
-                .filter(|_| sub_on(f.board_side(), crate::layer_visibility::SubLayer::Pads))
-            {
+            for pad in f.pads.iter().filter(|_| self.part_pads_shown(f)) {
                 {
                     let pos = f.pad_world_position(pad);
                     let center = camera.screen(pos, rect);
@@ -2419,7 +2514,7 @@ impl App {
                                     art.top_copper
                                 },
                             )
-                            .linear_multiply(pad_alpha),
+                            .linear_multiply(pad_alpha * lit),
                         ));
                     }
                     let hole = pad.drill_outline_points();
@@ -2473,7 +2568,7 @@ impl App {
                     }
                 }
             }
-            if sub_on(f.board_side(), crate::layer_visibility::SubLayer::Silk)
+            if self.part_labels_shown(f)
                 && let Some(c) = p.component(f.component)
             {
                 let (above, below) = boxes.as_ref().map_or((reference_at, value_at), |(_, y)| {
@@ -2487,14 +2582,14 @@ impl App {
                     Align2::CENTER_BOTTOM,
                     &c.reference,
                     FontId::proportional(13.0),
-                    art.text.linear_multiply(stack.silk_alpha(on_bottom)),
+                    art.text.linear_multiply(stack.silk_alpha(on_bottom) * lit),
                 );
                 painter.text(
                     below,
                     Align2::CENTER_TOP,
                     &c.value,
                     FontId::proportional(10.5),
-                    art.muted.linear_multiply(stack.silk_alpha(on_bottom)),
+                    art.muted.linear_multiply(stack.silk_alpha(on_bottom) * lit),
                 );
             }
             if self.selected == Some(f.id)
@@ -2826,7 +2921,7 @@ mod tests {
 }
 
 /// Shortest distance from a point to a straight segment, in millimetres.
-fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
+pub(crate) fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
     let dx = to.x - from.x;
     let dy = to.y - from.y;
     let span = dx * dx + dy * dy;

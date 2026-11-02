@@ -30,3 +30,11 @@ The wirelength functions live in `crates/engine/src/wirelength.rs` (`hpwl`, `rat
 ## rules.decoupling_set and missing_decoupling
 
 `rules.decoupling_set {"max_distance_mm": 3.0, "suggested_value": "100 nF"}` (at least one field; distance 0.1 to 50 mm) stores the settings on the project. The `missing_decoupling` check then reports, for each power input pin of a part that is not a capacitor, either no capacitor on the net, or the nearest placed capacitor being farther than the distance (pad centre to pad centre). Ground-named nets are skipped. The finding names the part, pin, net and the value to add. Severity follows `rules.severity` like every code (default warning).
+
+## Hiding and picking a layer
+
+The eye on a layer row hides everything that belongs to that layer: its tracks, zones, pads, part outlines and courtyards, reference and value labels, text, drawn board shapes, the vias that only reach hidden layers, and the ratsnest lines whose ends are all on hidden layers. A part mounted on a hidden side goes as one thing. Click the name of a layer row to pick it: its elements stay at full strength, everything else dims, and the hint says what the layer holds ("Top copper: 6 tracks, 3 pads, 6 silkscreen items, 2 vias shown"). Click the name again to clear it. Only the arrow opens or closes a layer row. The focus button still dims everything else without picking the row.
+
+## Via tool
+
+Arm Via and click anywhere inside the board outline to drop a via. The via takes the net of the track, pad or via under the cursor; on bare board it takes the net picked in the tool options, and with Auto it has no net. A via with no net is reported by the checks ("Via with no net") until you give it one in Properties. The options hold the Net, the via type (through, blind or buried, with the layers it joins on boards that allow them), the size and drill (they start from the net class or the fabrication rules), and Snap. A ghost via follows the cursor in the colours of the layers it joins and turns red, with the reason beside it, where the via would sit outside the board, too close to the edge, with too thin a copper ring, or too close to other copper. The status bar says what was placed or why not. The options sit in the right-hand panel for now.

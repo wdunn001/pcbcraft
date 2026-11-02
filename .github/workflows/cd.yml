@@ -1,0 +1,211 @@
+# Continuous deployment. Runs after the CI workflow finishes green on main (or by hand):
+#   deploy-site     builds the site and the wasm demo from the exact commit CI tested
+#                   and ships them with site/scripts/deploy.sh.
+#   publish-native  attaches that commit's Linux and Windows binaries to the rolling
+#                   `main-latest` pre-release.
+# The deploy target is not in the repository. See docs/ci.md, "Continuous deployment".
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  # One deployment at a time; a newer one waits instead of cancelling a deploy in flight.
+  group: cd
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+
+jobs:
+  deploy-site:
+    name: Deploy site and demo
+    # Only a successful push run of CI in this repository on main (never a fork or pull request run).
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    env:
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      REPO_DEPLOY_ENV: ${{ vars.PCBCRAFT_DEPLOY_ENV }}
+    steps:
+      # The target is an env file on the runner, outside the checkout. Its path comes from the
+      # PCBCRAFT_DEPLOY_ENV variable of the runner environment or of the repository.
+      - id: target
+        name: Find the deploy target
+        run: |
+          file="${REPO_DEPLOY_ENV:-${PCBCRAFT_DEPLOY_ENV:-}}"
+          if [ -z "$file" ] || [ ! -r "$file" ]; then
+            echo "no deploy target configured"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy target file found"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "file=$file" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.target.outputs.configured == 'true'
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - name: Install window-system packages
+        if: steps.target.outputs.configured == 'true'
+        run: .github/scripts/install-linux-deps.sh
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.target.outputs.configured == 'true'
+        with:
+          node-version: '22'
+      - name: Build the site
+        if: steps.target.outputs.configured == 'true'
+        working-directory: site
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Run the site checks
+        if: steps.target.outputs.configured == 'true'
+        working-directory: site
+        run: |
+          npm run test:contrast
+          npm run test:features
+          npm run check
+          npm run test:links
+          npm run test:csp
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        if: steps.target.outputs.configured == 'true'
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        if: steps.target.outputs.configured == 'true'
+        with:
+          toolchain: 1.99.1
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        if: steps.target.outputs.configured == 'true'
+        with:
+          tool: trunk
+      # Trunk downloads wasm-opt into its tool cache on first use, and that
+      # download times out now and then. Restore the cache instead; the key is
+      # the version pinned in apps/pcbcraft-web/Trunk.toml.
+      - name: Read the pinned wasm-opt version
+        id: wasm-opt
+        if: steps.target.outputs.configured == 'true'
+        run: echo "version=$(sed -n 's/^wasm_opt *= *"\(.*\)"/\1/p' apps/pcbcraft-web/Trunk.toml)" >> "$GITHUB_OUTPUT"
+      - name: Restore the trunk tool cache
+        if: steps.target.outputs.configured == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trunk
+          key: trunk-tools-${{ runner.os }}-${{ steps.wasm-opt.outputs.version }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: steps.target.outputs.configured == 'true'
+        with:
+          shared-key: wasm
+          save-if: false
+      # Hashed file names come from Trunk.toml (filehash). The public URL makes every
+      # asset path start with /demo/, where the bundle is served.
+      - name: Build the wasm demo for /demo/
+        if: steps.target.outputs.configured == 'true'
+        working-directory: apps/pcbcraft-web
+        run: |
+          trunk build --release --public-url /demo/ --dist "$RUNNER_TEMP/demo-dist"
+          ls "$RUNNER_TEMP"/demo-dist/*_bg.wasm
+      - name: Deploy
+        if: steps.target.outputs.configured == 'true'
+        env:
+          DEPLOY_ENV_FILE: ${{ steps.target.outputs.file }}
+          DEPLOY_DIST: ${{ github.workspace }}/site/dist
+          DEPLOY_DEMO_DIST: ${{ runner.temp }}/demo-dist
+          DEPLOY_VERSION: ${{ env.SOURCE_SHA }}
+        run: |
+          DEPLOY_VERSION="${DEPLOY_VERSION:0:12}"
+          export DEPLOY_VERSION
+          site/scripts/deploy.sh deploy
+
+  publish-native:
+    name: Publish native builds
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      CI_RUN_ID: ${{ github.event.workflow_run.id }}
+      TAG: main-latest
+    steps:
+      # Find the CI run of this commit: the triggering run, or the newest successful push run on manual dispatch.
+      - id: run
+        name: Find the CI run and its artifacts
+        run: |
+          set -euo pipefail
+          if [ -z "$CI_RUN_ID" ]; then
+            CI_RUN_ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].id // empty')
+            SOURCE_SHA=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/${CI_RUN_ID:-0}" --jq '.head_sha' 2>/dev/null || true)
+          fi
+          if [ -z "$CI_RUN_ID" ]; then
+            echo "no successful CI run on main; nothing to publish"
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          names=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID/artifacts?per_page=100" --jq '.artifacts[] | select(.expired | not) | .name')
+          echo "artifacts of run $CI_RUN_ID:"; echo "$names"
+          if echo "$names" | grep -qx linux-x86_64 && echo "$names" | grep -qx windows-x86_64; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+            echo "run_id=$CI_RUN_ID" >> "$GITHUB_OUTPUT"
+            echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "the Linux and Windows artifacts are not both present (documentation-only or expired run); nothing to publish"
+            echo "have=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download the binaries
+        if: steps.run.outputs.have == 'true'
+        env:
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name linux-x86_64 --dir linux
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name windows-x86_64 --dir windows
+          find linux windows -type f
+      - name: Package
+        if: steps.run.outputs.have == 'true'
+        run: |
+          set -euo pipefail
+          mkdir out
+          chmod +x linux/pcbcraft linux/pcbcraft-cli
+          tar -C linux -czf out/pcbcraft-main-linux-x86_64.tar.gz pcbcraft pcbcraft-cli
+          (cd windows && zip -9 -q ../out/pcbcraft-main-windows-x86_64.zip pcbcraft.exe pcbcraft-cli.exe)
+          (cd out && sha256sum ./* | sed 's# \./# #' > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      # A rolling pre-release: delete and recreate it so the tag always points at the tested commit.
+      # It is never marked latest, so it cannot replace the stable download links.
+      - name: Replace the rolling pre-release
+        if: steps.run.outputs.have == 'true'
+        env:
+          SHA: ${{ steps.run.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
+          printf 'Rolling build of main at %s. Replaced on every green merge; not a release.\n' "$SHA" > notes.md
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$SHA" --prerelease --latest=false \
+            --title "PCBCraft main (rolling)" --notes-file notes.md out/*

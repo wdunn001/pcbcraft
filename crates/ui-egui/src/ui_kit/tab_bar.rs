@@ -123,7 +123,9 @@ fn tab_width(ui: &Ui, item: &TabItem<'_>, size: TabSize) -> f32 {
 ///
 /// # Rules
 /// - Returns the bar response; `changed()` is true on the frame the active tab moves.
-/// - Left and right arrows, Home and End move the active tab while a tab has focus.
+/// - Left and right arrows, Home and End move the active tab while a tab has focus. The work-area
+///   nav (`TabSize::Nav`) wraps at the ends, so Right on the last tab opens the first; the other
+///   bars stop at their ends.
 /// - A `current` past the last tab means none is active (the page is not one of the tabs), so
 ///   a press on any tab, the last included, still counts as a change.
 ///
@@ -244,10 +246,19 @@ pub fn tab_bar(
                 );
             });
             let step = ui.input_mut(|input| {
+                let wrap = size == TabSize::Nav;
                 if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
-                    Some(i.saturating_sub(1))
+                    Some(if wrap {
+                        (i + count - 1) % count
+                    } else {
+                        i.saturating_sub(1)
+                    })
                 } else if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
-                    Some((i + 1).min(count - 1))
+                    Some(if wrap {
+                        (i + 1) % count
+                    } else {
+                        (i + 1).min(count - 1)
+                    })
                 } else if input.consume_key(Modifiers::NONE, Key::Home) {
                     Some(0)
                 } else if input.consume_key(Modifiers::NONE, Key::End) {

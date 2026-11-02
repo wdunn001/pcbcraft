@@ -1,0 +1,8 @@
+BLOCKED: no signal integrity severity control exists in the Rules dialog.
+
+The Electrical rules tab (crates/ui-egui/src/project_settings/electrical.rs) only
+exposes severity controls for the four electrical check codes in ELECTRICAL_CODES:
+unassigned_pin, single_pin_net, pin_conflict, undriven_input. The signal integrity
+check codes (impedance_target, return_path, parallel_crosstalk, stub_length) have
+no severity row in the UI, so the e2e story cannot click a real control to change
+their severity.

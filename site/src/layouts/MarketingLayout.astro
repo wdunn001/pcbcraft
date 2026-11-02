@@ -19,6 +19,7 @@ interface Props {
 const { title, description } = Astro.props;
 const fullTitle = title === 'PCBCraft' ? 'PCBCraft' : `${title} | PCBCraft`;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const socialCard = new URL(url('social-card.png'), Astro.site).href;
 ---
 
 <!doctype html>
@@ -30,10 +31,18 @@ const canonical = new URL(Astro.url.pathname, Astro.site).href;
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     <link rel="icon" href={url('favicon.svg')} type="image/svg+xml" />
+    <link rel="icon" href={url('favicon.ico')} sizes="48x48" />
+    <link rel="apple-touch-icon" href={url('apple-touch-icon.png')} />
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={socialCard} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The PCBCraft Layout tab showing a routed four-layer sensor board." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={socialCard} />
     <meta name="theme-color" content="#0A1411" />
     <script is:inline src={url('theme-init.js')}></script>
   </head>
@@ -42,6 +51,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site).href;
     <header class="site-header">
       <div class="inner">
         <SiteHeader>
+          <a slot="search" class="search-link" href={url('docs/')} title="Open the documentation and its search">Search docs</a>
           <ThemeToggle slot="theme" />
         </SiteHeader>
       </div>

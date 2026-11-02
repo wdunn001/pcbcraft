@@ -1,0 +1,176 @@
+{
+  "_note": "Crops for the user guide images in src/assets/guide/. source is a capture name from `cargo xtask screenshots`; crop is [x, y, width, height] in pixels of the 1920 by 1240 window. The alt text lives in the guide pages, next to each image. `social` is the 1200 by 630 card for og:image and twitter:image. Rebuild with `node scripts/make-screens.mjs --captures DIR`.",
+  "social": {
+    "source": "showcase-layout",
+    "crop": [
+      380,
+      255,
+      1200,
+      630
+    ]
+  },
+  "images": {
+    "board-routed": {
+      "source": "showcase-layout",
+      "crop": [
+        470,
+        250,
+        960,
+        830
+      ]
+    },
+    "board-tools": {
+      "source": "layout",
+      "crop": [
+        0,
+        76,
+        1600,
+        38
+      ]
+    },
+    "board-unrouted": {
+      "source": "layout",
+      "crop": [
+        480,
+        300,
+        940,
+        735
+      ]
+    },
+    "checks-sheet": {
+      "source": "layout-sheet",
+      "crop": [
+        330,
+        990,
+        1240,
+        230
+      ]
+    },
+    "layers-active-silk": {
+      "source": "layout-silk",
+      "crop": [
+        0,
+        250,
+        320,
+        282
+      ]
+    },
+    "layers-eye-lock": {
+      "source": "layout",
+      "crop": [
+        0,
+        250,
+        320,
+        282
+      ]
+    },
+    "layers-part-menu": {
+      "source": "layout-part-menu",
+      "crop": [
+        600,
+        600,
+        1310,
+        360
+      ]
+    },
+    "layers-tree": {
+      "source": "layout",
+      "crop": [
+        0,
+        250,
+        320,
+        840
+      ]
+    },
+    "library-cards": {
+      "source": "layout-library",
+      "crop": [
+        0,
+        165,
+        320,
+        700
+      ]
+    },
+    "library-chips": {
+      "source": "layout-library",
+      "crop": [
+        0,
+        165,
+        320,
+        140
+      ]
+    },
+    "library-online": {
+      "source": "layout-online",
+      "crop": [
+        0,
+        165,
+        320,
+        850
+      ]
+    },
+    "library-search": {
+      "source": "layout-search",
+      "crop": [
+        0,
+        165,
+        320,
+        520
+      ]
+    },
+    "save-files": {
+      "source": "files",
+      "crop": [
+        0,
+        76,
+        1920,
+        480
+      ]
+    },
+    "save-menubar": {
+      "source": "layout",
+      "crop": [
+        0,
+        0,
+        420,
+        75
+      ]
+    },
+    "schematic-tools": {
+      "source": "schematic",
+      "crop": [
+        0,
+        76,
+        940,
+        38
+      ]
+    },
+    "start-schematic": {
+      "source": "schematic",
+      "crop": [
+        490,
+        315,
+        1010,
+        720
+      ]
+    },
+    "start-tabs": {
+      "source": "schematic",
+      "crop": [
+        0,
+        0,
+        700,
+        75
+      ]
+    },
+    "start-tree": {
+      "source": "schematic-tree",
+      "crop": [
+        0,
+        250,
+        410,
+        320
+      ]
+    }
+  }
+}

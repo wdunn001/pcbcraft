@@ -683,3 +683,24 @@ pub(crate) fn session_with(
     session.config = config.clone();
     pcbcraft_mcp::shared(session)
 }
+
+/// Draw frames until the collection browser has finished reading its folders
+/// on its worker thread: the catalog and the source list are both in, nothing
+/// is pending, and that holds for a few frames in a row (the browser asks for
+/// the source list only after the catalog arrives, and switches its controls
+/// off while any read is pending).
+pub(crate) fn waits_for_library_read(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
+    let mut steady = 0;
+    for _ in 0..400 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+        let done = app.library.catalog.is_some()
+            && app.library.sources.is_some()
+            && app.library.pending.is_none();
+        steady = if done { steady + 1 } else { 0 };
+        if steady >= 3 {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    Err("the collection browser never finished reading".into())
+}

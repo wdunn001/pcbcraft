@@ -1,0 +1,100 @@
+---
+// Five-step strip: a trace with a pad at each step, labelled in silkscreen type.
+// Rules: step names come from the copy file; the strip makes no claim beyond the order of work.
+import { home } from '../lib/copy';
+const steps = home.pipeline.steps;
+const tones = ['sch', 'pcb', 'pcb', 'lib', 'out'];
+---
+
+<ol class="pipe">
+  {
+    steps.map((s: string, i: number) => (
+      <li class={`t-${tones[i]}`}>
+        <span class="node" aria-hidden="true"></span>
+        <span class="idx mono">{String(i + 1).padStart(2, '0')}</span>
+        <span class="lbl">{s}</span>
+      </li>
+    ))
+  }
+</ol>
+
+<style>
+  .pipe {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  li {
+    position: relative;
+    padding-top: 2.4rem;
+  }
+  /* the trace between pads */
+  li::before {
+    content: '';
+    position: absolute;
+    top: 0.6rem;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--pc-line);
+  }
+  li:first-child::before {
+    left: 0.7rem;
+  }
+  li:last-child::before {
+    right: 100%;
+  }
+  .node {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1.3rem;
+    height: 1.3rem;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 4px var(--pc-bg);
+  }
+  .node::after {
+    content: '';
+    position: absolute;
+    inset: 0.42rem;
+    border-radius: 50%;
+    background: var(--pc-bg);
+  }
+  .idx {
+    display: block;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+  }
+  .lbl {
+    display: block;
+    color: var(--pc-text);
+    font: 700 1.25rem/1.2 var(--pc-font-head);
+  }
+  @media (max-width: 40rem) {
+    .pipe {
+      grid-template-columns: 1fr;
+      gap: 1.2rem;
+    }
+    li {
+      padding: 0 0 0 2.4rem;
+    }
+    li::before {
+      top: 0;
+      bottom: -1.2rem;
+      left: 0.55rem;
+      right: auto;
+      width: 4px;
+      height: auto;
+    }
+    li:first-child::before {
+      top: 0.7rem;
+      left: 0.55rem;
+    }
+    li:last-child::before {
+      bottom: 100%;
+    }
+  }
+</style>
