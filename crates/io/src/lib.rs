@@ -4429,14 +4429,12 @@ pub fn report_text(p: &Project) -> Result<String, String> {
 
 /// The manufacturability block of the design report, one plain line per fact.
 ///
-/// With fabrication rules on the board it names the preset and where its
-/// limits came from, and adds the smallest ring and track. Without rules it
-/// states only what the document itself knows: board size, hole counts and the
-/// smallest drill. No metric that needs a limit is guessed.
+/// With fabrication rules it names the preset and its limits, and adds the
+/// smallest ring and track. Without rules it states only board size, hole
+/// counts and the smallest drill. No metric that needs a limit is guessed.
 ///
 /// # Rules
-/// Reads document data only; `pcbcraft-rules` is not a dependency of this
-/// crate (`crates/io/Cargo.toml`), so no finding is used.
+/// Reads document data only; `pcbcraft-rules` is not a dependency here.
 ///
 /// # Dependencies
 /// `FabRules` in `crates/doc/src/fab.rs`, `Pad::drill_capsule` and

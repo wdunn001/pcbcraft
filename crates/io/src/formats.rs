@@ -717,12 +717,9 @@ fn yes() -> bool {
     true
 }
 
-/// One vendor flavour of the bill of materials, as pure data: which columns, what the
-/// headers say, whether identical parts share a row, how references are joined, which
-/// file types it takes and which part fields it needs.
-///
-/// Why: a distributor or assembler upload format is a record in
-/// `crates/io/data/bom_flavours.json`, not code; adding one is adding a record.
+/// One vendor flavour of the bill of materials. Holds columns, headers, grouping,
+/// reference joins, file types and required part fields. Adding a format is adding
+/// a record to `crates/io/data/bom_flavours.json`, not code.
 ///
 /// # Rules
 /// - `requires` and `requires_any` hold keys of [`PART_FIELDS`]; a test pins that.

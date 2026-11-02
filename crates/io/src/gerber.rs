@@ -1,19 +1,14 @@
-//! RS-274X (Gerber X2 attributes) writers for one board side: copper flashes
-//! and track draws, solder mask openings, stencil paste openings, and
-//! silkscreen strokes. Zones, drills and the board outline live in
-//! `gerber_files`.
+//! RS-274X (Gerber X2 attributes) writers for one board side: copper, mask,
+//! paste and silkscreen. Zones, drills and the outline live in `gerber_files`.
 //!
-//! Circles use the standard C aperture. Axis-aligned rect and oval pads use R
-//! and O. Every other pad (rotated rect/oval, roundrect, chamfered and custom
-//! polygon pads) is flashed through an aperture macro with one outline
-//! primitive (code 4) holding the pad's board-space outline relative to the
-//! flash point. Chamfered and custom outlines are exact; roundrect corners are
+//! Circles use the C aperture. Axis-aligned rect and oval pads use R and O.
+//! Other pads flash through an aperture macro with one outline primitive
+//! (code 4). Chamfered and custom outlines are exact; roundrect corners are
 //! chord approximated within `Pad::outline_error`.
 //!
-//! The copper writer states coordinates in millimetres y-up about the board
-//! height. The mask, paste and silkscreen writers match the fabrication package
-//! from `gerber_files`: y stays down from the top-left corner, and a bottom
-//! side file mirrors x about the board origin.
+//! Copper uses millimetres y-up about the board height. Mask, paste and
+//! silkscreen match the fabrication package: y down from the top-left, bottom
+//! side files mirror x about the board origin.
 use crate::board_mesh::{graphic_layer, map_ring, pad_sides, thin_polyline};
 use crate::gerber_fidelity::{attach_gerber_md5, smd_aperture_function};
 use pcbcraft_doc::fill::{PlatedConnectKind, pad_exports_on_layer, plated_item_connected_on_layer};

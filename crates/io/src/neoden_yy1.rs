@@ -2,24 +2,17 @@
 //! feeder sheet the operator loads reels from.
 //!
 //! # Rules
-//! - Pure text generation from a `Project` and a `pick_place` machine profile;
-//!   no file is written here, the engine writes through `atomic_write`.
-//! - Every file is CRLF, has no byte order mark and has no comma inside a field.
-//! - Coordinates and rotation come from `placed_rows` with the flavour record in
-//!   crates/io/data/neoden-yy1-flavour.toml: positive millimetres to two decimals from
-//!   the lower-left corner of the board (lower-right for the bottom side, so X is mirrored).
-//! - The file has no nozzle column. The nozzle shows as the `Head` column (the
-//!   head that carries it) and as `NozzleChange` rows for a third and fourth nozzle type;
-//!   parts are grouped by nozzle so each change happens once.
-//! - Through-hole parts are never written; `placement_text` stays untouched.
+//! - Pure text generation; the engine writes through `atomic_write`.
+//! - Every file is CRLF, no BOM, no comma inside a field.
+//! - Coordinates from `placed_rows` with the flavour record: positive millimetres
+//!   to two decimals from the lower-left corner (lower-right for bottom, X mirrored).
+//! - No nozzle column. The nozzle shows as `Head` and `NozzleChange` rows.
 //!
 //! # Dependencies
 //! - crates/doc/src/machine_profile.rs
-//! - crates/doc/src/placement_machine.rs (nozzle, feeder, speed and heights per part)
-//! - crates/io/src/placement_flavour.rs (`placed_rows`, `flavour_rotation`)
+//! - crates/doc/src/placement_machine.rs
+//! - crates/io/src/placement_flavour.rs
 //! - crates/io/data/neoden-yy1-flavour.toml
-//! - machine-profiles/neoden-yy1.toml
-//! - crates/io/tests/fixtures/neoden_yy1_top.native.csv
 
 use crate::placement_flavour::{
     PlacementOptions, flavour_rotation, placed_rows_unchecked, placement_flavour_from_toml,
@@ -160,13 +153,9 @@ struct Change {
 /// Write the YY1 placement file or files and the feeder sheet for a design.
 ///
 /// # Rules
-/// - The profile must be kind `pick_place` with a board limit; a larger board is refused.
-/// - Package names pass through the profile's footprint aliases, then rotation
-///   offsets are added before the bottom side negates the angle.
-/// - Nozzle, speed, heights and feeder come from `plan_placement`: a part's own
-///   override first, then the profile's rules. Parts are written grouped by nozzle.
-/// - Two nozzle types or more write the `Head` column (types 1 and 2 on heads 1 and 2);
-///   each further type adds a `NozzleChange` row that drops and picks at one station.
+/// - The profile must be kind `pick_place` with a board limit; larger boards are refused.
+/// - Package names pass through footprint aliases, then rotation offsets are added.
+/// - Nozzle, speed, heights and feeder come from `plan_placement`. Parts are grouped by nozzle.
 ///
 /// # Dependencies
 /// - crates/doc/src/machine_profile.rs
@@ -174,7 +163,7 @@ struct Change {
 /// - crates/io/src/placement_flavour.rs
 ///
 /// # Do not
-/// - Change `placement_text`, or write a comma or a negative coordinate into a file.
+/// - Change `placement_text` or write a comma or negative coordinate into a file.
 pub fn placement_neoden_yy1(
     p: &Project,
     side: YySide,
