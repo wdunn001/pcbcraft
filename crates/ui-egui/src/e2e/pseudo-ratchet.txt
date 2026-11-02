@@ -19,4 +19,3 @@ escaped | PlotFiles | 320 | 2
 clipped | Pcb, lower dock page 2 | 1280 | 2
 clipped | Pcb, lower dock page 2 | 320 | 3
 escaped | Pcb, lower dock page 2 | 320 | 4
-escaped | Start page | 320 | 4

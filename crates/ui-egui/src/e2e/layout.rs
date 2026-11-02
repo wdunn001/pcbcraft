@@ -332,3 +332,88 @@ fn a_newcomer_zooms_to_four_hundred_percent_and_every_dock_still_fits() -> Resul
     );
     Ok(())
 }
+
+/// Every start screen tile keeps its title on one line and the tiles share one
+/// width, in a huge browser window and in a small one, at every zoom.
+///
+/// Why: in a 2000 by 1100 browser window the tile titles wrapped one letter per
+/// line because the description sat beside the title in the same button.
+#[test]
+fn a_newcomer_reads_every_start_tile_on_one_line_at_any_window_size() -> Result<(), String> {
+    let titles = [
+        "New design",
+        "Design setup wizard",
+        "Worked example",
+        "Showcase board",
+        "Open a design file",
+    ];
+    // Window size in physical pixels, then the zoom it is drawn at.
+    let sizes = [
+        (2000.0_f32, 1100.0_f32),
+        (1280.0, 800.0),
+        (800.0, 600.0),
+        (480.0, 800.0),
+    ];
+    for (px_w, px_h) in sizes {
+        for scale in [0.75_f32, 1.0, 1.5, 2.0, 3.0] {
+            let (w, h) = (px_w / scale, px_h / scale);
+            let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+            let mut app = App::create(shared, Preferences::default(), None, None);
+            app.refresh();
+            app.home_open = true;
+            let ctx = egui::Context::default();
+            ctx.set_pixels_per_point(scale);
+            let mut out = frame_sized(&ctx, &mut app, Vec2::new(w, h), vec![]);
+            for _ in 0..3 {
+                out = frame_sized(&ctx, &mut app, Vec2::new(w, h), vec![]);
+            }
+            let at = format!("{px_w}x{px_h} at {scale}x");
+            let rects: Vec<Rect> = ctx
+                .data(|d| d.get_temp(start_tile_key()))
+                .unwrap_or_default();
+            assert_eq!(rects.len(), 5, "{at}: five start tiles are drawn");
+            for (title, tile) in titles.into_iter().zip(&rects) {
+                if tile.min.y >= h {
+                    // Scrolled below the fold: the page scrolls to it.
+                    continue;
+                }
+                let galley = out
+                    .shapes
+                    .iter()
+                    .find_map(|s| match &s.shape {
+                        egui::Shape::Text(t)
+                            if t.galley.text().trim_end_matches(['.', '\u{2026}']) == title =>
+                        {
+                            Some(t.galley.clone())
+                        }
+                        _ => None,
+                    })
+                    .ok_or(format!("{at}: tile title {title:?} is not painted"))?;
+                if galley.rows.len() != 1 {
+                    // A genuinely narrow window may break between words, never
+                    // inside one.
+                    assert!(
+                        title.split_whitespace().count() > 1,
+                        "{at}: {title:?} wraps inside a word"
+                    );
+                    assert!(w < 420.0, "{at}: {title:?} wraps in a window this wide");
+                }
+            }
+            for r in &rects {
+                assert!(
+                    (r.width() - rects[0].width()).abs() < 0.5,
+                    "{at}: tiles differ in width: {rects:?}"
+                );
+                assert!(
+                    r.min.x >= -0.5 && r.max.x <= w + 0.5,
+                    "{at}: a tile leaves the {w} point window: {r:?}"
+                );
+                assert!(
+                    (r.center().x - w / 2.0).abs() < 1.0,
+                    "{at}: tiles are centred: {r:?}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
