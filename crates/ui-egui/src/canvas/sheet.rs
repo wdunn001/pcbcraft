@@ -168,6 +168,8 @@ pub(super) struct Sheet {
     pub title_shown: bool,
     pub page: usize,
     pub pages: usize,
+    /// The page name, the same one the tab strip and the Layers tree show.
+    pub name: String,
 }
 
 /// Everything the schematic draws, as one world rectangle, with room for the
@@ -316,6 +318,7 @@ pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
         title_shown: !settings.title_hidden,
         page: number,
         pages: p.sheets.len() + 1,
+        name: crate::pages::page_label(p, page),
     }
 }
 
@@ -518,14 +521,19 @@ fn paint_title_block(
         &sheet.title,
         &FontId::monospace((height * 0.22).clamp(9.0, 19.0)),
     );
+    // A long page name is cut at the edge of its cell, whole characters only.
+    let room = (cells[1] - cells[0] - pad * 2.0) / (value.size * 0.6);
+    let number = t!(
+        "schematic.sheet.page",
+        page = sheet.page,
+        pages = sheet.pages,
+        name = sheet.name
+    );
+    let fitted: String = number.chars().take(room.max(1.0) as usize).collect();
     place(
         Pos2::new(cells[0], split),
         t!("schematic.sheet.sheet").to_uppercase(),
-        &t!(
-            "schematic.sheet.page",
-            page = sheet.page,
-            pages = sheet.pages
-        ),
+        &fitted,
         &value,
     );
     place(
@@ -836,6 +844,7 @@ pub(super) struct HitOutline {
 /// # Rules
 /// - A ground wire is not listed as a wire (it is drawn as stubs); its pins
 ///   are listed as pins.
+/// - Only objects of `page` are listed, so a part of another page never glows.
 ///
 /// # Dependencies
 /// - `crates/ui-egui/src/canvas/sheet.rs` (`hover_outline`, below) and `crates/ui-egui/src/canvas.rs` (`paint_schematic`).
@@ -844,6 +853,7 @@ pub(super) struct HitOutline {
 /// - Paint here, or read the pointer.
 pub(super) fn hit_outlines(
     p: &Project,
+    page: pcbcraft_doc::Id,
     rect: Rect,
     camera: Camera,
     kinds: &HashMap<Id, PowerKind>,
@@ -852,7 +862,12 @@ pub(super) fn hit_outlines(
     let dot = |at: Point, half: f32| {
         Rect::from_center_size(camera.screen(at, rect), Vec2::splat(half * 2.0))
     };
-    for c in p.components.iter().flat_map(|c| c.schematic_views()) {
+    for c in p
+        .components
+        .iter()
+        .flat_map(|c| c.schematic_views())
+        .filter(|c| c.sheet == page)
+    {
         let mut lo = c.position;
         let mut hi = c.position;
         for pin in &c.pins {
@@ -870,7 +885,7 @@ pub(super) fn hit_outlines(
             bounds: body.expand2(Vec2::new(4.0, 2.5 * camera.zoom)),
         });
     }
-    for w in &p.wires {
+    for w in p.wires.iter().filter(|w| p.on_schematic_page(page, w.id)) {
         if kinds.get(&w.net) == Some(&PowerKind::Ground) {
             continue;
         }
@@ -886,7 +901,11 @@ pub(super) fn hit_outlines(
             });
         }
     }
-    for l in &p.labels {
+    for l in p
+        .labels
+        .iter()
+        .filter(|l| p.schematic_label_page(l) == page)
+    {
         let kind = if l.kind == "junction" {
             HitKind::Junction
         } else {

@@ -415,8 +415,7 @@ fn a_newcomer_adds_a_second_page_and_carries_a_net_across() -> Result<(), String
         labels.iter().any(|t| t.contains("[SDA]")),
         "Main shows the port placed here: {labels:?}"
     );
-    // "Page 1" is also the label of the child page's box on Main: press the tab, the
-    // copy of the label nearest the top of the window.
+    // Press the Page 1 tab: the copy of the label nearest the top of the window.
     let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let tab = output
         .shapes
@@ -445,9 +444,12 @@ fn a_newcomer_opens_a_child_page_from_its_box() -> Result<(), String> {
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "+")?;
     let child = app.project.sheets[0].id;
-    let entry = app.project.sheets[0]
-        .entry
-        .ok_or("a new page should sit in a box on its parent")?;
+    // A page only sits in a box on another page once it is placed there as a sheet symbol.
+    let entry = Point::new(25.0, 35.0);
+    app.tool_call(
+        "schematic.set_sheet_parent",
+        json!({"id": child, "parent": 0, "entry": {"x": entry.x, "y": entry.y}}),
+    );
     authoring::tests::tap(&ctx, &mut app, "Main")?;
     assert_eq!(app.schematic_page(), 0, "the parent page is showing");
     let inside = Point::new(
@@ -474,5 +476,166 @@ fn a_newcomer_opens_a_child_page_from_its_box() -> Result<(), String> {
         paints_text(&ctx, &mut app, "Page 1")?,
         "the child tab stays selected"
     );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_adds_a_page_and_page_one_gets_no_extra_outline() -> Result<(), String> {
+    let mut app = start();
+    add_part(&mut app, "R_ROOT", 10.0);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let before = canvas_labels(&app);
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    assert_eq!(page_names(&app), ["Page 1"], "one click adds one page");
+    authoring::tests::tap(&ctx, &mut app, "Main")?;
+    assert_eq!(app.schematic_page(), 0, "the Main tab goes back");
+    let after = canvas_labels(&app);
+    assert!(
+        !after.iter().any(|t| t.contains("Page 1")),
+        "page 1 shows no outline named after the new page: {after:?}"
+    );
+    assert_eq!(
+        before.len(),
+        after.len(),
+        "adding a page draws nothing on the Main page: {before:?} then {after:?}"
+    );
+    assert!(
+        app.project
+            .sheets
+            .iter()
+            .all(|s| s.parent.is_none() && s.entry.is_none()),
+        "a plain new page is not placed on any other page"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_clicks_where_a_page_one_part_sits_on_page_two() -> Result<(), String> {
+    let mut app = start();
+    add_part(&mut app, "R_ROOT", 40.0);
+    app.tool_call("net.create", json!({"name":"SDA"}));
+    let net = app.project.nets[0].id;
+    app.tool_call(
+        "label.place",
+        json!({"kind":"label","net":net,"position":{"x":70.0,"y":30.0},"rotation":0.0}),
+    );
+    assert_eq!(app.project.labels.len(), 1, "the net label is placed");
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let part = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "R_ROOT")
+        .ok_or("the part is missing")?
+        .id;
+    let at = app
+        .schematic
+        .screen(Point::new(40.0, 10.0), app.canvas_rect);
+    assert!(
+        app.canvas_rect.contains(at),
+        "the part sits inside the drawing area"
+    );
+    tap_at(&ctx, &mut app, at)?;
+    assert_eq!(
+        app.selected,
+        Some(part),
+        "clicking the part on its own page selects it"
+    );
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    assert_eq!(app.schematic_page(), app.project.sheets[0].id);
+    assert_eq!(
+        app.selected, None,
+        "a new page starts with nothing selected"
+    );
+    tap_at(&ctx, &mut app, at)?;
+    assert_eq!(
+        app.selected, None,
+        "clicking where the part of page 1 sits selects nothing on page 2"
+    );
+    hover_at(&ctx, &mut app, at);
+    let world = app.schematic.world(at, app.canvas_rect);
+    assert!(
+        matches!(
+            app.hit_at(world, app.schematic.zoom),
+            canvas::gestures::Hit::Empty
+        ),
+        "resting the pointer there on page 2 finds nothing to act on"
+    );
+    let label_world = Point::new(70.0, 30.0);
+    assert!(
+        matches!(
+            app.hit_at(label_world, app.schematic.zoom),
+            canvas::gestures::Hit::Empty
+        ),
+        "the net label of page 1 cannot be picked on page 2"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Main")?;
+    assert!(
+        matches!(
+            app.hit_at(label_world, app.schematic.zoom),
+            canvas::gestures::Hit::NetLabel(_)
+        ),
+        "the same net label is found again on page 1"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_renames_page_one_and_every_place_shows_the_same_name() -> Result<(), String> {
+    let mut app = start();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    authoring::tests::tap(&ctx, &mut app, "Main")?;
+    assert_eq!(app.schematic_page(), 0, "page 1 is showing");
+    type_into(&ctx, &mut app, "textinput:Name", "Amp")?;
+    assert_eq!(
+        app.project.root_sheet_name.as_deref(),
+        Some("Amp"),
+        "the Name field renames page 1: {}",
+        app.message
+    );
+    assert!(
+        canvas_labels(&app).iter().any(|t| t == "1 of 2 Amp"),
+        "the title block shows the number and the page name: {:?}",
+        canvas_labels(&app)
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Amp")?,
+        "the tab strip shows the new name"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Main")?,
+        "the old name is gone from the tab strip"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "AMP")?,
+        "the Layers tree shows the same name"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "SHEET 1")?,
+        "the Layers tree no longer calls page 1 a second name"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reaches_a_new_page_from_the_tab_strip_and_the_layers_tree() -> Result<(), String> {
+    let mut app = start();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    let page = app.project.sheets[0].id;
+    authoring::tests::tap(&ctx, &mut app, "Main")?;
+    assert_eq!(app.schematic_page(), 0);
+    authoring::tests::tap(&ctx, &mut app, "PAGE 1")?;
+    assert_eq!(
+        app.schematic_page(),
+        page,
+        "the Layers tree row opens the page"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Main")?;
+    authoring::tests::tap(&ctx, &mut app, "Page 1")?;
+    assert_eq!(app.schematic_page(), page, "the tab opens the page");
     Ok(())
 }

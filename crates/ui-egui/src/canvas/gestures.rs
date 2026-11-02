@@ -147,6 +147,7 @@ impl App {
     pub(crate) fn hit_at(&self, pos: Point, zoom: f32) -> Hit {
         let near = |d: f64, px: f64| d * zoom as f64 <= px;
         if self.tab == Tab::Schematic {
+            let page = self.schematic_page();
             if let Some(pin) = self.pick_pin(pos, zoom) {
                 return Hit::Pin(pin);
             }
@@ -154,6 +155,7 @@ impl App {
                 .project
                 .labels
                 .iter()
+                .filter(|l| self.project.schematic_label_page(l) == page)
                 .filter(|l| near(l.position.distance(pos), 7.0))
                 .min_by(|a, b| {
                     a.position
@@ -168,11 +170,17 @@ impl App {
                 };
             }
             for w in &self.project.drawn_wires {
+                if self.project.schematic_drawn_wire_page(w) != page {
+                    continue;
+                }
                 if let Some(i) = w.points.iter().position(|p| near(p.distance(pos), 6.0)) {
                     return Hit::Node(w.id, i);
                 }
             }
             for w in &self.project.drawn_wires {
+                if self.project.schematic_drawn_wire_page(w) != page {
+                    continue;
+                }
                 for (i, pair) in w.points.windows(2).enumerate() {
                     if near(segment_distance(pos, pair[0], pair[1]), 5.0) {
                         return Hit::WireSegment(w.id, i);

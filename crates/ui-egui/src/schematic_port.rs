@@ -42,16 +42,6 @@ pub(crate) fn child_sheet_at(project: &Project, parent: Id, pos: Point) -> Optio
         })
 }
 
-/// A default top-left corner for another child box on `parent`.
-pub(crate) fn default_sheet_entry(project: &Project, parent: Id) -> Point {
-    let n = project
-        .sheets
-        .iter()
-        .filter(|s| s.parent == Some(parent))
-        .count();
-    Point::new(25.0 + (n as f64) * (CHILD_BOX_W + 5.0), 35.0)
-}
-
 impl App {
     /// Names a hierarchy port can take: every net name plus ports on other pages.
     fn port_name_choices(&self) -> Vec<String> {

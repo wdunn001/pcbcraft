@@ -561,7 +561,8 @@ impl App {
                 }
             }
         } else {
-            for c in &self.project.components {
+            let page = self.schematic_page();
+            for c in self.project.components.iter().filter(|c| c.sheet == page) {
                 for pin in &c.pins {
                     if let Some(at) = c.pin_position(&pin.number) {
                         consider(at);

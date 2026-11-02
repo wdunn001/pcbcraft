@@ -1045,7 +1045,7 @@ impl App {
 
     /// The sheets a schematic map can show: Main, then the named sheets.
     fn sheet_names(&self) -> Vec<(Id, String)> {
-        let mut pages: Vec<(Id, String)> = vec![(0, t!("schematic.pages.root"))];
+        let mut pages: Vec<(Id, String)> = vec![(0, self.page_name(0))];
         pages.extend(self.project.sheets.iter().map(|s| (s.id, s.name.clone())));
         pages
     }
