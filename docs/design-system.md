@@ -5,7 +5,7 @@ Status: accepted by the maintainer. Page by page layouts are in [page-layouts.md
 The app is a dockable workbench with one frame for every page:
 
 1. menu bar (brand, File, Edit, View, Help)
-2. tab nav, work areas only: Files, Library, Schematic, Layout, Manufacture (3D is the 2D | 3D toggle in the Layout view card, not a tab)
+2. tab nav, work areas only: Files, Schematic, Layout, Manufacture, Library (3D is the 2D | 3D toggle in the Layout view card, not a tab)
 3. tool bar, one row, changes per tab
 4. left aside: Layers | Library tabs on Schematic and Layout, Outputs | Machines on Manufacture, actions on Files
 5. centre work area (canvas or page)

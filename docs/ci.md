@@ -41,6 +41,12 @@ Local equivalents: `cargo xtask lint` for stage 1, `cargo xtask ci` for stages
 The wasm jobs need `trunk`, `node` and the `wasm32-unknown-unknown` target; the
 Windows job needs `cargo-xwin`, `clang` and `lld`.
 
+Trunk downloads `wasm-opt` (binaryen) on first use. The version is pinned in
+`apps/pcbcraft-web/Trunk.toml` under `[tools]`, and the wasm job restores
+trunk's tool cache (`~/.cache/trunk`) with `actions/cache`, keyed on that
+version, so a run does not depend on the download. Change the pin and the
+cache key follows. Any workflow that runs trunk should restore the same cache.
+
 `wasm-deps` compares the `craft-libs` revision in `Cargo.toml` with a sibling
 checkout (`../solidcraft`, or the path in `SOLIDCRAFT_DIR`) and prints a warning
 when they differ. It skips the comparison quietly when that checkout is absent.
@@ -135,6 +141,8 @@ lines. The tracker is the fork, `wdunn001/pcbcraft`.
 The nightly workflow captures the desktop UI; to do it locally:
 
 `cargo xtask screenshots --out target/screenshots`
+
+The site images come from the same captures. Run `xvfb-run -a -s "-screen 0 1920x1240x24" cargo xtask screenshots --bin target/release/pcbcraft --out target/shots`, then `cd site && npm ci && node scripts/make-screens.mjs --captures ../target/shots`. The crops are listed in `site/src/data/screens.json` and `site/src/data/guide-shots.json`; each run starts the app with an empty settings folder so the dark default theme and the standard layout are used.
 
 Views are listed in `VIEWS` in xtask/src/main.rs.
 

@@ -1275,7 +1275,7 @@ pub(super) fn run(
                 if matches!(
                     graphic,
                     pcbcraft_library::Graphic::Rectangle { layer, .. }
-                        if layer == "pcbcraft.courtyard"
+                        if pcbcraft_library::is_courtyard_layer(layer)
                 ) {
                     continue;
                 }
@@ -1313,28 +1313,32 @@ pub(super) fn run(
                     "this footprint has no pads or artwork to surround".into(),
                 ));
             }
-            let before = def.graphics.len();
-            def.graphics
-                .retain(|g| !matches!(g, pcbcraft_library::Graphic::Rectangle { layer, .. } if layer == "pcbcraft.courtyard"));
+            // Corners go outward onto the 0.01 mm grid the library checks require.
+            let down = |v: f64| ((v * 100.0 + 1e-6).floor() / 100.0).max(-1.0e6);
+            let up = |v: f64| ((v * 100.0 - 1e-6).ceil() / 100.0).min(1.0e6);
+            let (lo, hi) = (
+                Point::new(down(min.x - a.margin), down(min.y - a.margin)),
+                Point::new(up(max.x + a.margin), up(max.y + a.margin)),
+            );
+            let before = def.graphics.clone();
+            def.graphics.retain(|g| {
+                !matches!(g, pcbcraft_library::Graphic::Rectangle { layer, .. }
+                    if pcbcraft_library::is_courtyard_layer(layer))
+            });
             def.graphics.push(pcbcraft_library::Graphic::Rectangle {
-                start: Point::new(min.x - a.margin, min.y - a.margin),
-                end: Point::new(max.x + a.margin, max.y + a.margin),
+                start: lo,
+                end: hi,
                 width: 0.1,
                 fill: String::new(),
                 layer: "pcbcraft.courtyard".into(),
             });
             if let Err(e) = def.validate() {
-                def.graphics.truncate(before);
+                def.graphics = before;
                 return Err(Error::Invalid(e.to_string()));
             }
             Ok(json!({
                 "name": a.name,
-                "courtyard": [
-                    min.x - a.margin,
-                    min.y - a.margin,
-                    max.x + a.margin,
-                    max.y + a.margin
-                ],
+                "courtyard": [lo.x, lo.y, hi.x, hi.y],
                 "margin": a.margin
             }))
         }

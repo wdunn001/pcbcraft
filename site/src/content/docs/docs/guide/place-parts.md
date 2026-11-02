@@ -16,7 +16,7 @@ Open the sample with `cargo run -p pcbcraft -- --sample`. The Schematic tab open
 1. Click the **Library** tab at the top of the left panel. It sits beside **Layers**.
 2. Read the cards. Each one shows a picture, a name, a short description, where it comes from and its pin count.
 
-   ![The Library tab. Four built-in parts are listed: Resistor, LED, Capacitor and 2-pin connector. Above them are a search box, the Symbols, Footprints and Both buttons and a row of filter icons.](../../../../assets/guide/library-cards.png)
+   ![The Library tab. Built-in parts are listed: Resistor, LED, Capacitor, 2-pin connector and Protection diode. Above them are a search box, three view buttons and a row of filter icons.](../../../../assets/guide/library-cards.png)
 
 3. Choose what the cards show with **Symbols**, **Footprints** or **Both**. On the Layout tab the Library shows footprints.
 
@@ -26,7 +26,7 @@ Open the sample with `cargo run -p pcbcraft -- --sample`. The Schematic tab open
 2. Three more icons filter by kind: passive parts, chips and connectors. The star keeps the parts you starred.
 3. Click an icon again to clear it. The **...** button holds more filters, including Offline.
 
-   ![The search box, the Symbols, Footprints and Both buttons and the row of filter icons at the top of the Library.](../../../../assets/guide/library-chips.png)
+   ![The search box, the three view buttons for Symbols, Footprints and Both, and the row of filter icons at the top of the Library.](../../../../assets/guide/library-chips.png)
 
 ## Search
 
@@ -34,7 +34,7 @@ Open the sample with `cargo run -p pcbcraft -- --sample`. The Schematic tab open
 2. Type a word, for example `resistor`.
 3. The list shows the matches. Parts from the online source carry a line such as Open library and a licence.
 
-   ![The Library after typing resistor. The built-in Resistor card is first, followed by cards from the Open library such as R and R_45deg.](../../../../assets/guide/library-search.png)
+   ![The Library after typing resistor. The built-in Resistor card is first, followed by cards from the Open library such as R_01005_0402Metric and R_0201_0603Metric.](../../../../assets/guide/library-search.png)
 
 ## Place a part
 
@@ -57,7 +57,7 @@ This needs a network connection.
 3. Make sure the globe icon is on. It turns online results on.
 4. Read the cards that appear. Each one names the package, the pin count and the licence.
 
-   ![The Library on the Layout tab after typing LQFP-64. Footprint cards for 64-pin packages are listed, each marked Open library and CC-BY-SA 4.0.](../../../../assets/guide/library-online.png)
+   ![The Library on the Layout tab after typing LQFP-64. Footprint cards for 64-pin LQFP packages are listed, most marked Open library and CC-BY-SA 4.0.](../../../../assets/guide/library-online.png)
 
 5. Drag the card you want onto the board.
 
