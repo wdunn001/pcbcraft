@@ -107,7 +107,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             id: "track.tune_skew",
             description: "On a declared differential pair with a length tolerance, replace straight runs on the shorter net with serpentines until routed skew is within that tolerance. Bumps rise on the side away from the partner net so the coupling gap is preserved. Refuses when either net has no copper on the chosen layer, no straight segment fits a meander, or too many passes would be needed",
             input_schema: schema(
-                json!({"id":id_schema(),"name":{"type":"string","maxLength":64},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"id":id_schema(),"name":{"type":"string","maxLength":64},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &[],
             ),
         },

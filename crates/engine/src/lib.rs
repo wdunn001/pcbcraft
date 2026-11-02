@@ -1586,7 +1586,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.cleanup",
             "Remove dangling track stubs, merge collinear same-net segments on one layer, and drop zero-length pieces in one undo step",
             schema(
-                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &[],
             ),
         ),
@@ -1914,7 +1914,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.route_pair",
             "Route both nets of a declared differential pair between two pad pairs on the chosen copper layer with coupled geometry at the pair gap; corners are cut at 45 degrees by default, mode orthogonal keeps right angles",
             schema(
-                json!({"from_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"from_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"mode":{"type":"string","enum":["octilinear","orthogonal"]}}),
+                json!({"from_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"from_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"mode":{"type":"string","enum":["octilinear","orthogonal"]}}),
                 &["from_p", "from_n", "to_p", "to_n"],
             ),
         ),
