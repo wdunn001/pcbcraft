@@ -1,12 +1,10 @@
 //! Original symbols and footprints for the showcase sample project.
-//!
-//! Every shape here is drawn from published package dimensions (pad pitch,
-//! body size) by the code below; nothing is copied from a third-party
-//! library, so the generated project carries no foreign licence.
+//! Shapes are drawn from published package dimensions, not copied from a
+//! third-party library.
 //!
 //! # Rules
-//! - Geometry is millimetres, y down, with pin angles in the library's
-//!   counter-clockwise convention (0 points the pin at the body on its right).
+//! - Geometry is millimetres, y down, with pin angles counter-clockwise
+//!   (0 points the pin at the body on its right).
 //! - A symbol's pin numbers must equal its footprint's pad numbers.
 //!
 //! # Dependencies
