@@ -172,3 +172,149 @@ fn a_newcomer_allows_and_removes_a_buried_via_span() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// A fresh Layout page with the Via tool armed and the options open.
+fn via_tool_page() -> Result<(App, egui::Context), String> {
+    let (mut app, ctx) = four_layer_app()?;
+    app.tool = Tool::Via;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    Ok((app, ctx))
+}
+
+/// Findings of one check code in the last design check.
+fn drc_count(app: &App, code: &str) -> usize {
+    app.checks
+        .get("drc")
+        .and_then(Value::as_array)
+        .map_or(0, |all| {
+            all.iter()
+                .filter(|f| f.get("code").and_then(Value::as_str) == Some(code))
+                .count()
+        })
+}
+
+#[test]
+fn a_newcomer_drops_a_via_on_an_empty_part_of_the_board() -> Result<(), String> {
+    let (mut app, ctx) = via_tool_page()?;
+    assert!(
+        app.project.board.tracks.is_empty(),
+        "the board has no tracks"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Via type")?,
+        "the Via options are on screen: {}",
+        app.message
+    );
+    app.canvas_click(Point::new(30.0, 20.0), 10.0);
+    app.refresh();
+    assert_eq!(app.project.board.vias.len(), 1, "{}", app.message);
+    assert_eq!(app.project.board.vias[0].net, 0, "no net was given");
+    assert!(
+        app.message.contains("no net"),
+        "the result says the via has no net: {}",
+        app.message
+    );
+    assert_eq!(
+        drc_count(&app, "unassigned_via"),
+        1,
+        "the checks mention the net-less via"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_drops_a_via_on_a_chosen_net() -> Result<(), String> {
+    let (mut app, ctx) = via_tool_page()?;
+    app.run("net.create", json!({"name": "GND"}));
+    app.refresh();
+    let gnd = app
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "GND")
+        .ok_or("GND should exist")?
+        .id;
+    app.via_tool.net = Some(gnd);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.canvas_click(Point::new(30.0, 20.0), 10.0);
+    app.refresh();
+    assert_eq!(app.project.board.vias.len(), 1, "{}", app.message);
+    assert_eq!(app.project.board.vias[0].net, gnd);
+    assert!(
+        app.message.contains("Via placed on GND at 30.0, 20.0"),
+        "{}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_drops_a_via_on_a_track_and_it_takes_the_tracks_net() -> Result<(), String> {
+    let (mut app, ctx) = via_tool_page()?;
+    let sig = app.project.nets.first().ok_or("net should exist")?.id;
+    app.run(
+        "track.add",
+        json!({"net": sig, "start": {"x": 20.0, "y": 20.0}, "end": {"x": 40.0, "y": 20.0}, "width": 0.25}),
+    );
+    app.refresh();
+    app.run("net.create", json!({"name": "GND"}));
+    app.refresh();
+    let gnd = app
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "GND")
+        .map(|n| n.id);
+    app.via_tool.net = gnd;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.canvas_click(Point::new(30.0, 20.0), 10.0);
+    app.refresh();
+    assert_eq!(app.project.board.vias.len(), 1, "{}", app.message);
+    assert_eq!(
+        app.project.board.vias[0].net, sig,
+        "the track under the cursor wins over the picked net"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_why_a_via_is_refused() -> Result<(), String> {
+    let (mut app, _ctx) = via_tool_page()?;
+    app.canvas_click(Point::new(100.0, 20.0), 10.0);
+    app.refresh();
+    assert!(app.project.board.vias.is_empty(), "nothing was placed");
+    assert!(
+        app.message.contains("outside the board outline"),
+        "the reason is plain: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_places_a_blind_via_with_a_layer_span() -> Result<(), String> {
+    let (mut app, ctx) = via_tool_page()?;
+    assert!(
+        paints_text(&ctx, &mut app, "Via type")?,
+        "the options offer a via type: {}",
+        app.message
+    );
+    app.via_tool.span = Some((0, 1));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Blind")?,
+        "the type reads Blind: {}",
+        app.message
+    );
+    app.canvas_click(Point::new(30.0, 20.0), 10.0);
+    app.refresh();
+    let via = app
+        .project
+        .board
+        .vias
+        .first()
+        .ok_or_else(|| format!("a via should exist: {}", app.message))?;
+    assert_eq!(via.to_layer.map(|l| l.index()), Some(1));
+    assert_eq!(app.project.via_kind(via), pcbcraft_doc::ViaKind::Blind);
+    Ok(())
+}
