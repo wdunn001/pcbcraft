@@ -309,3 +309,74 @@ fn array_dialog_bounds_match_the_engine() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// A newcomer who has never seen the app learns to line up two parts and
+/// make a row of them, using only the Edit menu.
+#[test]
+fn a_newcomer_aligns_two_parts_from_the_edit_menu() -> Result<(), String> {
+    let (mut app, ids) = four_board_parts()?;
+    let ctx = egui::Context::default();
+
+    // The newcomer picks two parts by dragging a box around them.
+    let (first, second) = (ids[0], ids[1]);
+    let (a, _) = app.bounds_of(first).ok_or("first part has no box")?;
+    let (_, b) = app.bounds_of(second).ok_or("second part has no box")?;
+    app.begin_box(a, false);
+    app.edit.box_to = Some(b);
+    app.finish_box();
+    assert!(
+        app.selection().contains(&first) && app.selection().contains(&second),
+        "the box picks both parts"
+    );
+
+    // They open the Edit menu and look for the alignment tools.
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Edit")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Align and distribute")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Align top")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+    // After the menu action, the parts should share one height.
+    let ys = |app: &App| -> Vec<f64> {
+        app.project
+            .board
+            .footprints
+            .iter()
+            .filter(|f| f.id == first || f.id == second)
+            .map(|f| f.position.y)
+            .collect()
+    };
+    let after_align = ys(&app);
+    assert!(
+        (after_align[0] - after_align[1]).abs() < 1e-9,
+        "both parts now share one height: {after_align:?} ({})",
+        app.message
+    );
+
+    // The newcomer wants to make a row of copies, so they select one part
+    // and open the array dialog from the menu.
+    app.set_selection(vec![first]);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Edit")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Array...")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+    // The dialog is open; the newcomer clicks "Make array".
+    assert!(app.edit.arrange.open, "the array dialog is open");
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Make array")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+    // New parts should have been created.
+    let footprints = app.project.board.footprints.len();
+    assert!(footprints > 2, "the array created new parts");
+    assert!(
+        !app.edit.arrange.open,
+        "the dialog closes after making the array"
+    );
+
+    Ok(())
+}

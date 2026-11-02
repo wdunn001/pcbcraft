@@ -1,0 +1,48 @@
+---
+// Showcase: the finished example board that ships with PCBCraft.
+// Rules: text comes from the repo docs (docs/getting-started.md); the image is the catalog capture
+// of that board. No community entries exist yet, so none are shown.
+import MarketingLayout from '../../layouts/MarketingLayout.astro';
+import ShotFrame from '../../components/ShotFrame.astro';
+import { REPO_URL, url } from '../../lib/site';
+---
+
+<MarketingLayout title="Showcase" description="The finished showcase board that ships with PCBCraft: a four-layer sensor node with no check findings.">
+  <section class="head">
+    <div class="wrap">
+      <p class="eyebrow">Showcase</p>
+      <h1>A finished board, ready to open</h1>
+      <p class="lede">The showcase example is a battery powered sensor node with 55 parts on three schematic pages, a four-layer board with ground and power pours, stitching vias, a USB pair, two builds and no check findings.</p>
+    </div>
+  </section>
+  <section class="wrap shot" aria-label="The showcase board">
+    <ShotFrame id="layout-routed" alt="The routed showcase board in the Layout tab" title="PCBCraft · showcase board" ratio="16 / 10.5" eager />
+  </section>
+  <section class="wrap how" aria-labelledby="how-h">
+    <h2 id="how-h">Open it yourself</h2>
+    <p>Start PCBCraft and pick <b>Showcase board</b> on the Start page. The file is <code>examples/showcase.pcbcraft</code> in the source tree. <code>examples/showcase-with-findings.pcbcraft</code> is the same design with one error and two warnings, for reading the Checks page.</p>
+    <p class="links">
+      <a class="btn primary" href={url('download/')}>Download</a>
+      <a class="btn ghost" href={url('demo/')}>Try it in the browser</a>
+      <a class="btn ghost" href={`${REPO_URL}/tree/main/examples`} rel="noopener">Browse the examples</a>
+    </p>
+  </section>
+</MarketingLayout>
+
+<style>
+  .head {
+    padding: 3.5rem 0 2rem;
+  }
+  .how {
+    padding-top: 2.5rem;
+    max-width: 50rem;
+  }
+  .how p {
+    margin: 0 0 1.1rem;
+  }
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+  }
+</style>

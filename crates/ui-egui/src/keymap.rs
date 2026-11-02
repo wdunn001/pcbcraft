@@ -563,11 +563,15 @@ pub fn action_tooltip(action: KeyAction) -> &'static str {
 }
 
 pub fn rebindable_actions() -> impl Iterator<Item = KeyAction> {
-    SPECS
-        .iter()
-        .map(|s| s.action)
-        .collect::<HashSet<_>>()
-        .into_iter()
+    // Table order, so the rows hold still from one frame to the next. An
+    // action with a second default chord has a second table entry but one row.
+    let mut seen: Vec<KeyAction> = Vec::new();
+    for spec in SPECS.iter().filter(|s| s.rebindable) {
+        if !seen.contains(&spec.action) {
+            seen.push(spec.action);
+        }
+    }
+    seen.into_iter()
 }
 
 fn context_name(context: ShortcutContext) -> &'static str {
@@ -922,6 +926,16 @@ impl KeymapProfileFile {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn the_rebindable_rows_keep_one_order_and_skip_fixed_actions() {
+        let first: Vec<KeyAction> = rebindable_actions().collect();
+        for _ in 0..20 {
+            assert_eq!(rebindable_actions().collect::<Vec<_>>(), first);
+        }
+        let unique: HashSet<KeyAction> = first.iter().copied().collect();
+        assert_eq!(unique.len(), first.len(), "one row per action");
+    }
 
     #[test]
     fn default_bindings_have_unique_chords_per_context() -> Result<(), String> {

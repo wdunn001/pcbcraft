@@ -2,9 +2,9 @@
 //! named command on a cloned project, then validation and revision rules apply.
 //!
 //! # Rules
-//! - Command handlers live in `run_command`; read a struct's doc block for the
-//!   rules that arm enforces.
-//! - Global invariants (revision, undo, validation) live in AGENTS.md.
+//! - A command is a string id plus JSON params; inputs are bounded and an invalid batch leaves state untouched.
+//! - No handler opens a dialog; the UI, the CLI and MCP all call the same ids.
+//! - A stale revision check rejects the command with `Error::Stale`; command handlers live in `run_command`.
 //!
 //! # Dependencies
 //! - crates/doc/src/lib.rs
@@ -64,6 +64,14 @@ use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, VecDeque};
+/// Error returned by engine commands.
+///
+/// # Rules
+/// - `Invalid` holds a human-readable message for input and validation failures.
+/// - `Stale` carries the expected and current revision when a revision check fails.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (command handlers)
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
@@ -76,6 +84,14 @@ impl From<String> for Error {
         Self::Invalid(s)
     }
 }
+/// One engine command: the id and its JSON parameters.
+///
+/// # Rules
+/// - `command` is the string id listed in `commands()`.
+/// - `params` is bounded by the command's input schema; unknown fields are rejected.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`commands()`, `run_command`)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Command {
@@ -83,6 +99,14 @@ pub struct Command {
     #[serde(default)]
     pub params: Value,
 }
+/// One registered command: its id, description and JSON input schema.
+///
+/// # Rules
+/// - `id` is the string the client sends; it must match a handler.
+/// - `input_schema` is a JSON Schema object that bounds the command params.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`commands()`)
 #[derive(Clone, Debug, Serialize)]
 pub struct CommandSpec {
     pub id: &'static str,
@@ -111,6 +135,34 @@ fn pin_schema() -> Value {
         &["component", "pin"],
     )
 }
+/// Every command the engine accepts: id, description and JSON input schema.
+///
+/// # Rules
+/// - A command is a string id plus JSON params; inputs are bounded and an invalid batch leaves state untouched.
+/// - No handler opens a dialog; the UI, the CLI and MCP all call the same ids.
+///
+/// # Implementations
+/// - crates/engine/src/lib.rs (`run_command`, `run_command_part_1` through `run_command_part_23`)
+/// - crates/engine/src/authoring.rs
+/// - crates/engine/src/online.rs
+/// - crates/engine/src/tuning.rs
+/// - crates/engine/src/via_protection.rs
+/// - crates/engine/src/backdrill.rs
+/// - crates/engine/src/part.rs
+/// - crates/engine/src/part_save.rs
+/// - crates/engine/src/calc.rs
+/// - crates/engine/src/teardrop.rs
+/// - crates/engine/src/images.rs
+/// - crates/engine/src/packages.rs
+/// - crates/engine/src/outline.rs
+/// - crates/engine/src/datasheet_annotations.rs
+/// - crates/engine/src/snapmaker.rs
+/// - crates/engine/src/layout.rs
+/// - crates/engine/src/publication.rs
+/// - crates/engine/src/sim.rs
+///
+/// # Do not
+/// - Add an id here without a handler in one of the listed files.
 pub fn commands() -> Vec<CommandSpec> {
     let entries = [
         (
@@ -1407,10 +1459,10 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "via.place",
-            "Place a plated via on an existing net. It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
+            "Place a plated via on an existing net, or on no net when net is left out or 0 (the checks report it until it is assigned). It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
             schema(
                 json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"},"from_layer":{"type":"string","description":"upper copper layer of the span, for example F.Cu or In1.Cu; default is the top layer"},"to_layer":{"type":"string","description":"lower copper layer of the span; default is the bottom layer"}}),
-                &["net", "position"],
+                &["position"],
             ),
         ),
         (
@@ -4226,6 +4278,7 @@ struct LockParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentInBomParams {
@@ -4239,6 +4292,7 @@ struct ComponentInBomParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentInPlacementParams {
@@ -4252,6 +4306,7 @@ struct ComponentInPlacementParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BoardClearanceParams {
@@ -4379,6 +4434,7 @@ fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignFootprint {
@@ -4392,6 +4448,7 @@ struct AssignFootprint {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignPatternParams {
@@ -4405,6 +4462,7 @@ struct AssignPatternParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RefreshSymbolParams {
@@ -4418,6 +4476,7 @@ struct RefreshSymbolParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RefreshFootprintParams {
@@ -4431,6 +4490,7 @@ struct RefreshFootprintParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignTableParams {
@@ -4450,6 +4510,7 @@ struct AssignTableRow {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignFileParams {
@@ -4806,6 +4867,7 @@ fn assign_to(
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Move {
@@ -4821,6 +4883,7 @@ struct Move {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Rotate {
@@ -4835,6 +4898,7 @@ struct Rotate {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ValueParams {
@@ -4848,6 +4912,7 @@ struct ValueParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetKindParams {
@@ -4861,6 +4926,7 @@ struct SetKindParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Name {
@@ -4873,6 +4939,7 @@ struct Name {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MetaParams {
@@ -4886,6 +4953,7 @@ struct MetaParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ParameterSetParams {
@@ -4901,6 +4969,7 @@ struct ParameterSetParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ParameterRemoveParams {
@@ -4915,6 +4984,7 @@ struct ParameterRemoveParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectSetUnitParams {
@@ -4927,6 +4997,7 @@ struct ProjectSetUnitParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectSetAutoSyncParams {
@@ -4939,6 +5010,7 @@ struct ProjectSetAutoSyncParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArchivePathParams {
@@ -4951,6 +5023,7 @@ struct ArchivePathParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectImportParams {
@@ -4964,6 +5037,7 @@ struct ProjectImportParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LaserJobExportParams {
@@ -4999,6 +5073,7 @@ fn laser_job_isolation_default() -> f64 {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MetaKeyParams {
@@ -5011,6 +5086,7 @@ struct MetaKeyParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReplaceParams {
@@ -5032,6 +5108,7 @@ fn replace_all_scope() -> String {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Connect {
@@ -5045,6 +5122,7 @@ struct Connect {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CopperNetParams {
@@ -5087,6 +5165,7 @@ struct DrawnWireParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WirePlaceTeeParams {
@@ -5100,6 +5179,7 @@ struct WirePlaceTeeParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WirePlaceParams {
@@ -5590,6 +5670,8 @@ struct RepeatLayoutParams {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaParams {
+    /// Net the via joins; 0 or absent places a via with no net.
+    #[serde(default)]
     net: Id,
     position: Point,
     #[serde(default)]
@@ -17522,7 +17604,7 @@ fn run_command_part_13(
         }
         "via.place" => {
             let a: ViaParams = parse(params)?;
-            if !p.nets.iter().any(|n| n.id == a.net) {
+            if a.net != 0 && !p.nets.iter().any(|n| n.id == a.net) {
                 return Err(missing());
             }
             if !a.position.valid() {
@@ -24049,6 +24131,46 @@ mod tests {
             .ok_or_else(missing)?;
         assert_eq!(label.kind, "global", "undo restores the kind");
         assert_eq!(label.net, b);
+        Ok(())
+    }
+    #[test]
+    fn via_place_without_a_net_makes_a_net_less_via_that_validates_and_undoes() -> Result<(), Error>
+    {
+        let mut s = Session::default();
+        s.execute(
+            "via.place",
+            json!({"position":{"x":10.0,"y":10.0},"diameter":0.8,"drill":0.4}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias.len(), 1);
+        assert_eq!(s.project.board.vias[0].net, 0);
+        assert!(s.project.validate().is_ok());
+        assert!(
+            pcbcraft_rules::drc(&s.project)
+                .iter()
+                .any(|f| f.code == "unassigned_via"),
+            "the checks mention the net-less via"
+        );
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let via = s.project.board.vias[0].id;
+        s.execute("copper.set_net", json!({"id":via,"net":net}), None)?;
+        assert_eq!(s.project.board.vias[0].net, net);
+        assert!(
+            !pcbcraft_rules::drc(&s.project)
+                .iter()
+                .any(|f| f.code == "unassigned_via")
+        );
+        assert!(
+            s.execute(
+                "via.place",
+                json!({"net":9999,"position":{"x":1.0,"y":1.0},"diameter":0.8}),
+                None
+            )
+            .is_err(),
+            "an unknown net is still refused"
+        );
         Ok(())
     }
     #[test]
