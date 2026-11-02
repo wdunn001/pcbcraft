@@ -55,6 +55,11 @@ fn export(s: &mut Session, id: &str, dir: &Path) -> Result<serde_json::Value, St
 
 #[test]
 fn the_prototype_fab_package_matches_its_golden_file_list() -> Result<(), String> {
+    // The files carry a creation time; pin the clock so two exports never straddle a second.
+    pcbcraft_io::with_fixed_clock(1_800_000_000, the_prototype_fab_package_body)
+}
+
+fn the_prototype_fab_package_body() -> Result<(), String> {
     let mut s = Session::sample().map_err(|e| e.to_string())?;
     let dir = scratch("fab");
     let r = export(&mut s, "fab_prototype", &dir)?;
