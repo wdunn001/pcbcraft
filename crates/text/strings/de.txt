@@ -1577,6 +1577,10 @@ tour.e2e_resume.list.tip = Headless-Fixture für Tour-Fortschritt.
 tour.e2e_resume.chip = Tour: Layout ({steps} Schritte)
 tour.e2e_resume.chip.tip = Story-Fixture-Chip.
 
+# picking a layer row
+tree.layer_hint = {name}: {tracks} Leiterbahnen, {pads} Pads, {silk} Bestückungsdruck-Teile, {vias} Vias sichtbar; alles andere ist abgedunkelt. Zum Aufheben erneut klicken.
+tree.layer_hint_clear = Hervorhebung der Lage aufgehoben; alles wird in voller Stärke gezeigt.
+
 # via tool options and messages
 via_tool.net = Netz
 via_tool.net.tip = Das Netz für ein Via auf freier Platine. Eine Leiterbahn oder ein Pad unter dem Zeiger hat immer Vorrang; Auto lässt das Via ohne Netz.

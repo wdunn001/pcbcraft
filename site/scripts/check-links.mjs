@@ -19,6 +19,8 @@ function* walk(dir) {
   }
 }
 
+// Paths the deploy step fills outside the Astro build (the browser app under demo/).
+const separate = ['demo/'];
 const problems = [];
 let checked = 0;
 for (const file of walk(dist)) {
@@ -32,6 +34,7 @@ for (const file of walk(dist)) {
       continue;
     }
     const rel = link.slice(base.length);
+    if (separate.some((p) => rel === p || rel.startsWith(p))) continue;
     const target = join(dist, rel);
     const ok = existsSync(target) && (statSync(target).isFile() || existsSync(join(target, 'index.html')));
     if (!ok) problems.push(`${file}: ${link} not found in dist`);

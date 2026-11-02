@@ -1595,6 +1595,10 @@ tour.e2e_resume.list.tip = Fixture headless pour la progression des visites.
 tour.e2e_resume.chip = Visite : Layout ({steps} étapes)
 tour.e2e_resume.chip.tip = Étiquette chip de fixture story.
 
+# picking a layer row
+tree.layer_hint = {name} : {tracks} pistes, {pads} pads, {silk} éléments de sérigraphie, {vias} vias affichés; le reste est atténué. Cliquez encore pour effacer.
+tree.layer_hint_clear = Mise en évidence de la couche effacée; tout est affiché normalement.
+
 # via tool options and messages
 via_tool.net = Réseau
 via_tool.net.tip = Le réseau d'un via posé sur la carte nue. Une piste ou un pad sous le curseur l'emporte toujours; Auto laisse le via sans réseau.
