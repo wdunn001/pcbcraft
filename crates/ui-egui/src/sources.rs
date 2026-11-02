@@ -55,7 +55,6 @@ struct Search {
 
 #[derive(Default)]
 /// Online part search state: transport, search request and results.
-
 pub(super) struct PartSources {
     source: Option<Arc<OpenLibrarySource>>,
     /// Set by the desktop app so the Offline toggle can stop all requests.
@@ -92,7 +91,6 @@ fn short_size(bytes: u64) -> String {
 
 /// One plain line about a result's stock.
 /// A plain-language stock line for the part card.
-
 pub(super) fn stock_line(part: &PartResult) -> String {
     let stock = if part.stock == 0 {
         "out of stock".to_string()

@@ -29,7 +29,6 @@ impl Camera {
 }
 
 /// Viewer state: loaded files, camera and measure mode.
-
 pub struct State {
     pub folder_path: String,
     package: Option<PlotPackage>,
@@ -79,7 +78,6 @@ impl State {
 }
 
 /// Colours used by the plot viewer.
-
 pub struct Theme {
     pub surface: Color32,
     pub muted: Color32,
@@ -87,7 +85,6 @@ pub struct Theme {
 }
 
 /// Build the plot viewer UI: load button, layer list and canvas.
-
 pub fn ui(
     state: &mut State,
     ui: &mut egui::Ui,

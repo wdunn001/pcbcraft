@@ -56,7 +56,6 @@ enum LibraryPick {
 }
 
 /// The symbol and footprint editor state, including the canvas camera.
-
 pub(super) struct Editor {
     pub mode: u8,
     pub draft: Option<Draft>,
@@ -123,7 +122,6 @@ impl Editor {
     }
 }
 /// Create an editor for the tab named, loading the first library item if needed.
-
 pub(super) fn initial_editor(tab: Option<&str>, project: &Project) -> Editor {
     match tab {
         Some("project-library") => Editor {
@@ -169,7 +167,6 @@ fn rectangle(layer: &str) -> Graphic {
     }
 }
 /// A blank symbol with one unnamed pin, ready for editing.
-
 pub(super) fn new_symbol() -> SymbolDefinition {
     SymbolDefinition {
         name: "NewSymbol".into(),
@@ -228,7 +225,6 @@ pub(crate) fn new_pad(number: &str, x: f64) -> FootprintPad {
     }
 }
 /// A blank footprint with one pad, ready for editing.
-
 pub(super) fn new_footprint() -> FootprintDefinition {
     FootprintDefinition {
         name: "NewFootprint".into(),
