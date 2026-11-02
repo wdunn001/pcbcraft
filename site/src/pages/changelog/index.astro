@@ -1,8 +1,22 @@
 ---
+// Changelog: release notes are written by the release workflow into the GitHub Release.
 import MarketingLayout from '../../layouts/MarketingLayout.astro';
-import ComingSoon from '../../components/ComingSoon.astro';
+import { REPO_URL } from '../../lib/site';
 ---
 
-<MarketingLayout title="Changelog" description="Placeholder page for Changelog.">
-  <ComingSoon heading="Changelog" issue="#717" note="Release notes land with #717." />
+<MarketingLayout title="Changelog" description="Where PCBCraft release notes are published.">
+  <section class="section">
+    <div class="wrap prose">
+      <p class="eyebrow">Changelog</p>
+      <h1>Changelog</h1>
+      <p class="lede">Release notes are published with each release on GitHub. They list the commit subjects since the previous tag.</p>
+      <p><a class="btn primary" href={`${REPO_URL}/releases`} rel="noopener">Release notes on GitHub</a></p>
+    </div>
+  </section>
 </MarketingLayout>
+
+<style>
+  .prose {
+    max-width: 46rem;
+  }
+</style>
