@@ -51,6 +51,7 @@ mod outline_arcs;
 mod pad_tool;
 mod pages;
 mod palette;
+mod parts_table;
 mod placement_machine_ui;
 mod plot_viewer;
 mod pour_panel;
@@ -1317,6 +1318,7 @@ pub struct App {
     part_search_focus: bool,
     /// The bottom sheet under the canvas.
     sheet: bottom_sheet::SheetState,
+    parts_table: parts_table::PartsTableState,
     needs_fit: bool,
     /// The layer view a click pinned: it stays forward until unpinned.
     pinned_view: Option<draw_target::Target>,
@@ -2080,6 +2082,7 @@ impl App {
             datasheet: datasheet_reader::State::default(),
             datasheet_pane: datasheet::Pane::default(),
             sheet: bottom_sheet::SheetState::default(),
+            parts_table: parts_table::PartsTableState::default(),
             needs_fit: true,
             stack: stack_view::StackView::plain(2, false),
             pinned_view: None,
