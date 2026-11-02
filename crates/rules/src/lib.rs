@@ -27,6 +27,7 @@ mod diffpair_impedance;
 mod drill;
 mod finding_set;
 mod impedance_target;
+mod pad_kinds;
 mod pair_properties;
 mod parallel_crosstalk;
 mod peripheral;
@@ -94,6 +95,8 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("art_off_board", "warning"),
     ("cut_hits_via", "error"),
     ("mask_covers_pad", "warning"),
+    ("mask_web", "warning"),
+    ("notch_feature", "error"),
     ("pour_fill", "error"),
     ("thermal_starved", "warning"),
     ("zone_unconnected", "info"),
@@ -2198,6 +2201,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(fab_findings(project, board));
     result.extend(courtyard::courtyard_findings(project));
     result.extend(silk::silk_findings(project));
+    result.extend(pad_kinds::pad_kind_findings(project));
     result.extend(drill::drill_findings(project));
     result.extend(drill::drill_spacing_findings(project));
     // Drawn machine layers sit beside the copper.

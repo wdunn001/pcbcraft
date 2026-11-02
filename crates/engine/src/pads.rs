@@ -18,6 +18,11 @@
 //!   is a plated hole across all copper and needs a drill. A surface side other
 //!   than the part's own is refused unless the pad is the part's only pad.
 //! - Every call is checked first and changes nothing when it fails.
+//! - `kind` is plain, exposed (open mask, no paste, surface only) or notched (a
+//!   rectangle with one corner or edge notch, stored as a custom polygon). The
+//!   kind is read back from the stored layers and polygon, never kept apart.
+//! - `paste` (full or none) belongs to a notched pad; a plain pad takes paste
+//!   and an exposed pad never does.
 //!
 //! # Dependencies
 //! - `crates/engine/src/lib.rs` for `CommandSpec`, `schema`, `parse`, `assign`,
@@ -29,7 +34,9 @@
 //!   pin are the source a board sync rebuilds the pads from.
 use super::*;
 use pcbcraft_doc::{Component, Footprint, LibraryFootprint, Pin, PinRef};
-use pcbcraft_library::{Drill, FootprintDefinition, FootprintPad};
+use pcbcraft_library::{
+    Drill, FootprintDefinition, FootprintPad, NotchPlace, PadKind, notched_rectangle,
+};
 
 /// Most pads one part may carry through these commands.
 const MAX_PADS: usize = 512;
@@ -43,6 +50,8 @@ const ROUNDRECT_RATIO: f64 = 0.25;
 /// The name of the embedded footprint made for a free pad or a starter part.
 const DEFINITION_NAME: &str = "Pad";
 
+const KINDS: [&str; 3] = ["plain", "exposed", "notched"];
+const PASTES: [&str; 2] = ["full", "none"];
 const SHAPES: [&str; 4] = ["circle", "rect", "oval", "roundrect"];
 const SIDES: [&str; 3] = ["top", "bottom", "through"];
 
@@ -69,6 +78,16 @@ struct AddParams {
     #[serde(default)]
     shape: Option<String>,
     #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    paste: Option<String>,
+    #[serde(default)]
+    notch_place: Option<String>,
+    #[serde(default)]
+    notch_width: Option<f64>,
+    #[serde(default)]
+    notch_depth: Option<f64>,
+    #[serde(default)]
     width: Option<f64>,
     #[serde(default)]
     height: Option<f64>,
@@ -91,6 +110,16 @@ struct EditParams {
     number: Option<String>,
     #[serde(default)]
     shape: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    paste: Option<String>,
+    #[serde(default)]
+    notch_place: Option<String>,
+    #[serde(default)]
+    notch_width: Option<f64>,
+    #[serde(default)]
+    notch_depth: Option<f64>,
     #[serde(default)]
     width: Option<f64>,
     #[serde(default)]
@@ -122,6 +151,11 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         "width":{"type":"number","minimum":MIN_SIZE,"maximum":MAX_SIZE,"description":"copper extent in x, millimetres"},
         "height":{"type":"number","minimum":MIN_SIZE,"maximum":MAX_SIZE,"description":"copper extent in y, millimetres; a circle uses the width"},
         "drill":{"type":"number","minimum":0,"maximum":MAX_SIZE,"description":"drill diameter, millimetres; a surface pad has none"},
+        "kind":{"type":"string","enum":KINDS,"description":"plain, exposed (open mask, no paste, surface only) or notched (a rectangle with one notch)"},
+        "paste":{"type":"string","enum":PASTES,"description":"paste on a notched pad: full or none"},
+        "notch_place":{"type":"string","enum":NotchPlace::ALL.map(NotchPlace::word),"description":"where a notched pad is cut: a corner or the middle of an edge"},
+        "notch_width":{"type":"number","minimum":0.05,"maximum":MAX_SIZE,"description":"notch width in millimetres; along the edge, or across for a corner"},
+        "notch_depth":{"type":"number","minimum":0.05,"maximum":MAX_SIZE,"description":"notch depth in millimetres, into the pad"},
         "side":{"type":"string","enum":SIDES,"description":"top or bottom is a surface pad, through is a plated hole across all copper"},
     });
     let mut add = copper.clone();
@@ -250,8 +284,66 @@ fn free_number(c: &Component, pads: &[FootprintPad]) -> String {
 }
 
 /// Copper layers of a surface pad as authored on the top; a bottom part swaps them.
-fn surface_layers() -> Vec<String> {
-    vec!["F.Cu".into(), "F.Paste".into(), "F.Mask".into()]
+fn surface_layers(paste: bool) -> Vec<String> {
+    if paste {
+        vec!["F.Cu".into(), "F.Paste".into(), "F.Mask".into()]
+    } else {
+        vec!["F.Cu".into(), "F.Mask".into()]
+    }
+}
+
+/// What a pad request asks for beyond its plain copper.
+struct Style {
+    kind: PadKind,
+    paste: bool,
+    /// Polygon and anchor of a notched pad.
+    custom: Option<(Vec<Point>, Point)>,
+}
+
+impl Style {
+    fn plain() -> Self {
+        Self {
+            kind: PadKind::Plain,
+            paste: true,
+            custom: None,
+        }
+    }
+}
+
+fn parse_kind(word: &str) -> Result<PadKind, Error> {
+    PadKind::from_word(word).ok_or_else(|| invalid("kind is plain, exposed or notched"))
+}
+
+/// The notch a request describes, with defaults of a quarter of the pad.
+fn fresh_notch(
+    width: f64,
+    height: f64,
+    place: Option<&str>,
+    notch_width: Option<f64>,
+    notch_depth: Option<f64>,
+) -> Result<(Vec<Point>, Point), Error> {
+    let place = match place {
+        Some(word) => NotchPlace::from_word(word).ok_or_else(|| {
+            invalid("notch_place is corner_nw, corner_ne, corner_se, corner_sw, edge_n, edge_e, edge_s or edge_w")
+        })?,
+        None => NotchPlace::CornerNw,
+    };
+    let nw = notch_width.unwrap_or((width / 4.0).max(0.05));
+    let nd = notch_depth.unwrap_or((height / 4.0).max(0.05));
+    notched_rectangle(width, height, place, nw, nd).map_err(Error::Invalid)
+}
+
+/// Width and height of a pad's copper; a notched pad is its polygon's box.
+fn copper_extent(g: &FootprintPad) -> Point {
+    if g.polygon.is_empty() {
+        return g.size;
+    }
+    let (mut lo, mut hi) = (g.polygon[0], g.polygon[0]);
+    for v in &g.polygon {
+        lo = Point::new(lo.x.min(v.x), lo.y.min(v.y));
+        hi = Point::new(hi.x.max(v.x), hi.y.max(v.y));
+    }
+    Point::new(hi.x - lo.x, hi.y - lo.y)
 }
 
 /// Copper layers of a plated through-hole pad.
@@ -267,6 +359,7 @@ fn build_pad(
     height: f64,
     drill: Option<f64>,
     offset: Point,
+    style: &Style,
 ) -> Result<FootprintPad, Error> {
     check_shape(shape)?;
     let size = if shape == "circle" {
@@ -279,7 +372,19 @@ fn build_pad(
         if d >= size.x.min(size.y) {
             return Err(invalid("the drill must be smaller than the copper"));
         }
+        if let Some((ring, _)) = &style.custom
+            && (!pcbcraft_geom::point_in_polygon(Point::new(0.0, 0.0), ring)
+                || pcbcraft_geom::polygon_boundary_distance(Point::new(0.0, 0.0), ring) * 2.0 <= d)
+        {
+            return Err(invalid(
+                "the drill reaches the notch; make the notch smaller",
+            ));
+        }
     }
+    let (shape, size, polygon) = match &style.custom {
+        Some((ring, anchor)) => ("custom", *anchor, ring.clone()),
+        None => (shape, size, Vec::new()),
+    };
     Ok(FootprintPad {
         number: number.into(),
         pad_type: if drill.is_some() { "thru_hole" } else { "smd" }.into(),
@@ -290,7 +395,7 @@ fn build_pad(
         layers: if drill.is_some() {
             through_layers()
         } else {
-            surface_layers()
+            surface_layers(style.paste)
         },
         drill: drill.map(|d| Drill {
             size: Point::new(d, d),
@@ -298,9 +403,66 @@ fn build_pad(
         }),
         roundrect_ratio: (shape == "roundrect").then_some(ROUNDRECT_RATIO),
         chamfer: None,
-        polygon: Vec::new(),
+        polygon,
         raw_source: String::new(),
     })
+}
+
+/// The style a new pad request asks for, checked against its side.
+fn style_for_add(a: &AddParams, width: f64, height: f64, through: bool) -> Result<Style, Error> {
+    let kind = match &a.kind {
+        Some(k) => parse_kind(k)?,
+        None => PadKind::Plain,
+    };
+    let paste = match a.paste.as_deref() {
+        None => None,
+        Some("full") => Some(true),
+        Some("none") => Some(false),
+        Some(_) => return Err(invalid("paste is full or none")),
+    };
+    let notch_given = a.notch_place.is_some() || a.notch_width.is_some() || a.notch_depth.is_some();
+    match kind {
+        PadKind::Plain => {
+            if paste.is_some() || notch_given {
+                return Err(invalid(
+                    "paste and notch settings belong to an exposed or notched pad; choose that kind",
+                ));
+            }
+            Ok(Style::plain())
+        }
+        PadKind::Exposed => {
+            if through {
+                return Err(invalid(
+                    "an exposed pad is a surface pad; choose top or bottom",
+                ));
+            }
+            if paste == Some(true) || notch_given {
+                return Err(invalid("an exposed pad has no paste and no notch"));
+            }
+            Ok(Style {
+                kind,
+                paste: false,
+                custom: None,
+            })
+        }
+        PadKind::Notched => {
+            if a.shape.as_deref().is_some_and(|s| s != "rect") {
+                return Err(invalid("a notched pad is cut from a rectangle"));
+            }
+            let custom = fresh_notch(
+                width,
+                height,
+                a.notch_place.as_deref(),
+                a.notch_width,
+                a.notch_depth,
+            )?;
+            Ok(Style {
+                kind,
+                paste: paste.unwrap_or(true) && !through,
+                custom: Some(custom),
+            })
+        }
+    }
 }
 
 /// The embedded definition of a part, made from its current pads when it has none.
@@ -319,7 +481,7 @@ fn definition_of(c: &Component, f: &Footprint) -> FootprintDefinition {
                 position: pad.offset,
                 rotation: 0.0,
                 size: Point::new(pad.diameter, pad.diameter),
-                layers: surface_layers(),
+                layers: surface_layers(true),
                 drill: None,
                 roundrect_ratio: None,
                 chamfer: None,
@@ -430,9 +592,15 @@ fn add(p: &mut Project, next: &mut Id, a: AddParams) -> Result<Value, Error> {
             check_point(point, what)?;
         }
     }
+    let style = style_for_add(&a, width, height, side == Side::Through)?;
+    let shape = if style.kind == PadKind::Notched {
+        "rect".to_owned()
+    } else {
+        shape
+    };
     match a.footprint {
-        Some(footprint) => add_to_part(p, a, footprint, width, height, &shape, side, drill),
-        None => add_free(p, next, a, width, height, &shape, side, drill),
+        Some(footprint) => add_to_part(p, a, footprint, width, height, &shape, side, drill, &style),
+        None => add_free(p, next, a, width, height, &shape, side, drill, &style),
     }
 }
 
@@ -446,6 +614,7 @@ fn add_to_part(
     shape: &str,
     side: Side,
     drill: Option<f64>,
+    style: &Style,
 ) -> Result<Value, Error> {
     if a.schematic_position.is_some() || a.sheet.is_some() || a.reference.is_some() {
         return Err(invalid(
@@ -492,9 +661,9 @@ fn add_to_part(
     {
         return Err(Error::Invalid(format!("pad {number} already exists")));
     }
-    definition
-        .pads
-        .push(build_pad(&number, shape, width, height, drill, offset)?);
+    definition.pads.push(build_pad(
+        &number, shape, width, height, drill, offset, style,
+    )?);
     definition
         .validate()
         .map_err(|e| Error::Invalid(e.to_string()))?;
@@ -576,6 +745,7 @@ fn add_free(
     shape: &str,
     side: Side,
     drill: Option<f64>,
+    style: &Style,
 ) -> Result<Value, Error> {
     if a.offset.is_some() {
         return Err(invalid("offset belongs to a pad added to a placed part"));
@@ -590,7 +760,15 @@ fn add_free(
         return Err(invalid("unknown schematic page"));
     }
     let number = a.number.clone().unwrap_or_else(|| "1".into());
-    let pad = build_pad(&number, shape, width, height, drill, Point::new(0.0, 0.0))?;
+    let pad = build_pad(
+        &number,
+        shape,
+        width,
+        height,
+        drill,
+        Point::new(0.0, 0.0),
+        style,
+    )?;
     let reference = unique_reference(p, a.reference.clone())?;
     let component = allocate(next)?;
     let footprint = allocate(next)?;
@@ -686,14 +864,96 @@ fn edit(p: &mut Project, a: EditParams) -> Result<Value, Error> {
     {
         return Err(Error::Invalid(format!("pad {number} already exists")));
     }
-    let shape = a.shape.clone().unwrap_or_else(|| old.shape.clone());
-    let width = check_size(a.width.unwrap_or(old.size.x), "the width")?;
-    let height = check_size(a.height.unwrap_or(old.size.y), "the height")?;
+    let old_kind = old.kind();
+    let old_extent = copper_extent(&old);
+    let width = check_size(a.width.unwrap_or(old_extent.x), "the width")?;
+    let height = check_size(a.height.unwrap_or(old_extent.y), "the height")?;
     let was_through = old.drill.is_some();
     let side = match &a.side {
         Some(s) => parse_side(s)?,
         None if was_through => Side::Through,
         None => f.board_side().into_side(),
+    };
+    let kind = match &a.kind {
+        Some(k) => parse_kind(k)?,
+        None if side == Side::Through && old_kind == PadKind::Exposed => PadKind::Plain,
+        None => old_kind,
+    };
+    let shape = match (&a.shape, kind) {
+        (Some(s), PadKind::Notched) if s != "rect" => {
+            return Err(invalid("a notched pad is cut from a rectangle"));
+        }
+        (_, PadKind::Notched) => "rect".to_owned(),
+        (Some(s), _) => s.clone(),
+        (None, _) if old.shape == "custom" => "rect".to_owned(),
+        (None, _) => old.shape.clone(),
+    };
+    let paste = match a.paste.as_deref() {
+        None => None,
+        Some("full") => Some(true),
+        Some("none") => Some(false),
+        Some(_) => return Err(invalid("paste is full or none")),
+    };
+    let notch_given = a.notch_place.is_some() || a.notch_width.is_some() || a.notch_depth.is_some();
+    let style = match kind {
+        PadKind::Plain => {
+            if paste.is_some() || notch_given {
+                return Err(invalid(
+                    "paste and notch settings belong to an exposed or notched pad; choose that kind",
+                ));
+            }
+            Style::plain()
+        }
+        PadKind::Exposed => {
+            if side == Side::Through {
+                return Err(invalid(
+                    "an exposed pad is a surface pad; choose top or bottom",
+                ));
+            }
+            if paste == Some(true) || notch_given {
+                return Err(invalid("an exposed pad has no paste and no notch"));
+            }
+            Style {
+                kind,
+                paste: false,
+                custom: None,
+            }
+        }
+        PadKind::Notched => {
+            let same_size =
+                (width - old_extent.x).abs() < 1e-9 && (height - old_extent.y).abs() < 1e-9;
+            let custom = if old_kind == PadKind::Notched && !notch_given {
+                if same_size {
+                    (old.polygon.clone(), old.size)
+                } else {
+                    // Resizing a notched pad scales its outline with it.
+                    let (sx, sy) = (width / old_extent.x, height / old_extent.y);
+                    let ring = old
+                        .polygon
+                        .iter()
+                        .map(|v| Point::new(v.x * sx, v.y * sy))
+                        .collect();
+                    (ring, Point::new(old.size.x * sx, old.size.y * sy))
+                }
+            } else {
+                fresh_notch(
+                    width,
+                    height,
+                    a.notch_place.as_deref(),
+                    a.notch_width,
+                    a.notch_depth,
+                )?
+            };
+            Style {
+                kind,
+                paste: paste.unwrap_or(if old_kind == PadKind::Notched {
+                    old.has_paste()
+                } else {
+                    true
+                }) && side != Side::Through,
+                custom: Some(custom),
+            }
+        }
     };
     let drill = match (side, a.drill) {
         (Side::Through, Some(d)) if d > 0.0 => Some(d),
@@ -708,7 +968,7 @@ fn edit(p: &mut Project, a: EditParams) -> Result<Value, Error> {
     };
     let offset = a.offset.unwrap_or(old.position);
     check_point(offset, "the offset")?;
-    let mut rebuilt = build_pad(&number, &shape, width, height, drill, offset)?;
+    let mut rebuilt = build_pad(&number, &shape, width, height, drill, offset, &style)?;
     rebuilt.rotation = old.rotation;
     let mut new_side = f.side;
     if matches!(side, Side::Top | Side::Bottom) {
@@ -1054,6 +1314,107 @@ mod tests {
         assert_eq!(s.project.board.footprints.len(), 1);
         assert_eq!(s.project.board.footprints[0].pads[0].net, Some(net));
         assert!(s.execute("pad.add", json!({}), None).is_err());
+        Ok(())
+    }
+    fn first_pad(s: &Session) -> Result<FootprintPad, Error> {
+        s.project
+            .board
+            .footprints
+            .last()
+            .and_then(|f| f.pads.first())
+            .and_then(|q| q.geometry.clone())
+            .ok_or_else(missing)
+    }
+
+    #[test]
+    fn an_exposed_pad_has_an_open_mask_and_no_paste() -> Result<(), Error> {
+        let (mut s, _) = session_with_net()?;
+        s.execute(
+            "pad.add",
+            json!({"position":{"x":5.0,"y":5.0},"kind":"exposed","shape":"rect","width":2.0,"height":1.0}),
+            None,
+        )?;
+        let g = first_pad(&s)?;
+        assert_eq!(g.kind(), PadKind::Exposed);
+        assert!(g.mask_open() && !g.has_paste());
+        let table = s.execute("pad.table", json!({}), None)?.to_string();
+        assert!(table.contains("\"kind\":\"exposed\""), "{table}");
+        for bad in [
+            json!({"position":{"x":5.0,"y":5.0},"kind":"exposed","side":"through","drill":0.5,"width":2.0}),
+            json!({"position":{"x":5.0,"y":5.0},"kind":"exposed","paste":"full"}),
+            json!({"position":{"x":5.0,"y":5.0},"kind":"odd"}),
+            json!({"position":{"x":5.0,"y":5.0},"paste":"none"}),
+        ] {
+            assert!(s.execute("pad.add", bad, None).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_notched_pad_stores_its_outline_and_edits_in_one_undo_step() -> Result<(), Error> {
+        let (mut s, _) = session_with_net()?;
+        let id = s.execute(
+            "pad.add",
+            json!({"position":{"x":5.0,"y":5.0},"kind":"notched","width":2.0,"height":1.4,
+                   "notch_place":"edge_n","notch_width":0.6,"notch_depth":0.4}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let g = first_pad(&s)?;
+        assert_eq!(g.kind(), PadKind::Notched);
+        assert_eq!(g.polygon.len(), 8);
+        let (place, w, d) = g.notch().ok_or_else(missing)?;
+        assert_eq!(place, NotchPlace::EdgeN);
+        assert!((w - 0.6).abs() < 1e-9 && (d - 0.4).abs() < 1e-9);
+        let revision = s.revision;
+        s.execute("pad.edit", json!({"id":id,"pad":"1","width":3.0}), None)?;
+        let wider = first_pad(&s)?;
+        assert_eq!(wider.kind(), PadKind::Notched, "a resize keeps the notch");
+        assert!((copper_extent(&wider).x - 3.0).abs() < 1e-9);
+        s.execute(
+            "pad.edit",
+            json!({"id":id,"pad":"1","notch_place":"corner_se","notch_width":0.5,"notch_depth":0.5}),
+            None,
+        )?;
+        assert_eq!(
+            first_pad(&s)?.notch().map(|n| n.0),
+            Some(NotchPlace::CornerSe)
+        );
+        s.execute("pad.edit", json!({"id":id,"pad":"1","kind":"plain"}), None)?;
+        let plain = first_pad(&s)?;
+        assert_eq!(
+            (plain.kind(), plain.shape.as_str()),
+            (PadKind::Plain, "rect")
+        );
+        s.undo()?;
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(
+            first_pad(&s)?.polygon.len(),
+            8,
+            "undo walks back to the first notch"
+        );
+        assert!(s.revision >= revision);
+        Ok(())
+    }
+
+    #[test]
+    fn a_notch_that_eats_the_pad_or_the_drill_is_refused_and_changes_nothing() -> Result<(), Error>
+    {
+        let (mut s, _) = session_with_net()?;
+        let before = s.revision;
+        for bad in [
+            json!({"position":{"x":5.0,"y":5.0},"kind":"notched","width":1.0,"height":1.0,"notch_place":"edge_n","notch_width":0.98}),
+            json!({"position":{"x":5.0,"y":5.0},"kind":"notched","width":1.0,"height":1.0,"notch_place":"corner_nw","notch_width":0.7,"notch_depth":0.7}),
+            json!({"position":{"x":5.0,"y":5.0},"kind":"notched","width":1.0,"notch_depth":0.0}),
+            json!({"position":{"x":5.0,"y":5.0},"kind":"notched","shape":"circle"}),
+            json!({"position":{"x":5.0,"y":5.0},"kind":"notched","width":2.0,"height":2.0,"notch_place":"edge_n","notch_width":1.0,"notch_depth":0.9,"drill":0.9,"side":"through"}),
+        ] {
+            assert!(s.execute("pad.add", bad, None).is_err());
+        }
+        assert_eq!(s.revision, before);
+        assert!(s.project.board.footprints.is_empty());
         Ok(())
     }
 }
