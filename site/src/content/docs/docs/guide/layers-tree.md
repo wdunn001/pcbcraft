@@ -14,11 +14,11 @@ Open the sample with `cargo run -p pcbcraft -- --sample`. Click the **Layout** t
 ## Read the tree
 
 1. Find **Board** at the top. It shows the board size, 60 x 40 mm.
-2. Find **Layer 1 · Top** and **Layer 2 · Bottom**. Each side has sublayers: Copper, Solder mask, Silkscreen, Paste and Components.
-3. Open **Copper** on the top side. The nets GND, LED and VCC are listed under it.
+2. Find **Layer 1 · Top** and **Layer 2 · Bottom**. Each side has sublayers: Tracks, Solder mask, Silkscreen, Paste and Pads.
+3. Open **Tracks** on the top side. The nets GND, LED and VCC are listed under it.
 4. Scroll down for **Board edge**, **User layers** and **Parts**.
 
-   ![The Layers tree on the Layout tab. Board is 60 x 40 mm. Layer 1 Top and Layer 2 Bottom each list Copper, Solder mask, Silkscreen, Paste and Components. Board edge and Parts follow.](../../../../assets/guide/layers-tree.png)
+   ![The Layers tree on the Layout tab. Board is 60 x 40 mm. Layer 1 Top and Layer 2 Bottom each list Tracks, Solder mask, Silkscreen, Paste and Pads. Board edge and Parts follow.](../../../../assets/guide/layers-tree.png)
 
 The number on each row counts the items on it. The arrow at the left of a row opens or closes it.
 

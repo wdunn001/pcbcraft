@@ -17,7 +17,7 @@ Open the sample with `cargo run -p pcbcraft -- --sample` and make a change, for 
 2. Pick **Save**. The tip reads: write the design to its file on disk.
 3. Or press **Ctrl+S**.
 
-   ![The top left of the window. File, Edit, View and Help sit beside the PCBCraft name. Below them are the tabs Files, Library, Schematic, Layout and Manufacture, with Layout selected.](../../../../assets/guide/save-menubar.png)
+   ![The top left of the window. File, Edit, View and Help sit beside the PCBCraft name. Below them are the tabs Files, Schematic, Layout, Manufacture and Library, with Layout selected.](../../../../assets/guide/save-menubar.png)
 
 The status strip tells you what happened. Saving again replaces the file with the current design.
 

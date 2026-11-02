@@ -18,7 +18,7 @@ Open the sample with `cargo run -p pcbcraft -- --sample`. The Schematic tab open
 
    ![The Library tab. Built-in parts are listed: Resistor, LED, Capacitor, 2-pin connector and Protection diode. Above them are a search box, three view buttons and a row of filter icons.](../../../../assets/guide/library-cards.png)
 
-3. Choose what the cards show with **Symbols**, **Footprints** or **Both**. On the Layout tab the Library shows footprints.
+3. Choose what the cards show with the three buttons under the search box. Hover each one for its name: **Symbols**, **Footprints** or **Both**. On the Layout tab the Library shows footprints.
 
 ## Narrow the list
 
