@@ -21,6 +21,11 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::cam::{CncProfile, isolation_gcode, isolation_options_from_value};
+use crate::cam_drill::{
+    CamProfile as DrillCamProfile, Dialect as DrillDialect, DrillOptions, DrillOrder,
+    OutlineCompensation, OutlineOptions, Tabs, Tool as DrillMillTool, ToolChange, drill_gcode,
+    outline_gcode,
+};
 use crate::machine_library::resolve_machine_profile;
 use crate::snapmaker::{snapmaker_cnc_profile, snapmaker_files, snapmaker_settings};
 use crate::{
@@ -230,6 +235,88 @@ fn isolation_gcode_artifact(p: &Project, artifact: &Artifact) -> Result<Generate
     Ok(GeneratedOutput::Files(map))
 }
 
+fn drill_gcode_artifact(p: &Project, _artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let tools = vec![
+        DrillMillTool {
+            number: 1,
+            diameter_mm: 0.3,
+            spindle_rpm: 10_000,
+            cut_feed_mm_min: 300.0,
+            plunge_feed_mm_min: 100.0,
+        },
+        DrillMillTool {
+            number: 2,
+            diameter_mm: 1.0,
+            spindle_rpm: 10_000,
+            cut_feed_mm_min: 300.0,
+            plunge_feed_mm_min: 100.0,
+        },
+        DrillMillTool {
+            number: 3,
+            diameter_mm: 2.0,
+            spindle_rpm: 10_000,
+            cut_feed_mm_min: 300.0,
+            plunge_feed_mm_min: 100.0,
+        },
+    ];
+    let options = DrillOptions {
+        tools,
+        peck_mm: None,
+        order: DrillOrder::Nearest,
+        alignment_holes: vec![],
+        tool_change: ToolChange::PauseM0,
+    };
+    let profile = DrillCamProfile {
+        dialect: DrillDialect::Grbl,
+        work_x_mm: 320.0,
+        work_y_mm: 350.0,
+        safe_z_mm: 5.0,
+        retract_z_mm: 2.0,
+        direction: crate::cam_drill::CutDirection::Conventional,
+        plating_allowance_mm: 0.0,
+        fab_plated: false,
+    };
+    let files = drill_gcode(p, &options, &profile)?;
+    let mut map = BTreeMap::new();
+    for (name, body) in files {
+        map.insert(name, body);
+    }
+    Ok(GeneratedOutput::Files(map))
+}
+
+fn outline_gcode_artifact(p: &Project, _artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let tool = DrillMillTool {
+        number: 1,
+        diameter_mm: 3.0,
+        spindle_rpm: 10_000,
+        cut_feed_mm_min: 300.0,
+        plunge_feed_mm_min: 100.0,
+    };
+    let options = OutlineOptions {
+        tool,
+        pass_depth_mm: 0.6,
+        tabs: Tabs {
+            count: 4,
+            width_mm: 5.0,
+            height_mm: 0.4,
+        },
+        compensation: OutlineCompensation::Outside,
+        cutouts: false,
+    };
+    let profile = DrillCamProfile {
+        dialect: DrillDialect::Grbl,
+        work_x_mm: 320.0,
+        work_y_mm: 350.0,
+        safe_z_mm: 5.0,
+        retract_z_mm: 2.0,
+        direction: crate::cam_drill::CutDirection::Conventional,
+        plating_allowance_mm: 0.0,
+        fab_plated: false,
+    };
+    let text = outline_gcode(p, &options, &profile)?;
+    Ok(GeneratedOutput::Text(text))
+}
+
 fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
     let path = artifact.path.as_str();
     if path == "gerber/" || path.starts_with("gerber/") {
@@ -357,8 +444,8 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
             Err("split drill artifacts are not available yet; see issue #276".into())
         }
         "isolation_gcode" => isolation_gcode_artifact(p, artifact),
-        "drill_gcode" => Err("drill gcode is not available yet; see issue #330".into()),
-        "outline_gcode" => Err("outline gcode is not available yet; see issue #331".into()),
+        "drill_gcode" => drill_gcode_artifact(p, artifact),
+        "outline_gcode" => outline_gcode_artifact(p, artifact),
         "stencil" => Err("stencil output is not available yet; see issue #325".into()),
         "laser_path" => Err("laser path output is not available yet; see issue #358".into()),
         "placement_job" | "placement_yy1" => placement_job_artifact(p, artifact),
