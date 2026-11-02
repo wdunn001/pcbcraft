@@ -40,6 +40,18 @@ These commands add, change and remove single copper pads from the canvases. The 
 - `pad.edit` changes one pad of a placed part by its current number; the pin follows the number and the net. `release_net` takes the pad off its net.
 - `pad.remove` removes one pad and its pin. The only pad of a free pad part removes the part. Any other part keeps at least one pad.
 
+### Pad kinds
+
+`kind` picks what the pad is for. In Layout, the Pad tool and the Pads section of Properties have a Kind list.
+
+- `plain` is the ordinary pad: open mask, paste printed.
+- `exposed` is bare copper for contacts such as test pads, card edge fingers and spring contacts. The mask is open and no paste is printed. It is a surface pad (top or bottom), not a through-hole pad.
+- `notched` is a rectangle with one corner or edge cut out. Give `notch_place` (`corner_nw`, `corner_ne`, `corner_se`, `corner_sw`, `edge_n`, `edge_e`, `edge_s` or `edge_w`), `notch_width` and `notch_depth`; a missing value is a quarter of the pad. An edge notch is centred and stays under half the pad deep; a corner notch must leave 0.05 mm of the pad in width or height. `paste` (`full` or `none`) belongs to a notched pad. The shape is stored as the pad's polygon, so saving, loading, undo and the Gerber copper, mask and paste outputs follow it.
+
+The kind is read back from the stored layers and polygon, `pad.table` lists it, and resizing a notched pad scales its notch with it. The checks hold a notched pad to the board edge by its real outline. Two further checks cover the new kinds: `mask_web` (warning) when the mask between an exposed or notched pad and its neighbour is thinner than 0.1 mm, and `notch_feature` (error) when a notch or the copper arm beside it is thinner than the board's minimum track width (0.1 mm without fabrication rules).
+
+Half pads (clipped by the board edge) and castellated hole rows are not part of this slice. The `footprint.set_castellated` flag stays as it was.
+
 A free pad is an ordinary part, so clearance checks, net connectivity, Gerber, drill and placement output, undo and saving treat it like any other pad.
 
 ## Hiding and picking a layer

@@ -196,10 +196,10 @@ pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
 use gerber::coordinate;
-/// Gerber file generation for copper and silk layers.
+/// Gerber file generation for copper, solder mask, paste and silk layers.
 /// # Dependencies
 /// - crates/io/src/gerber.rs
-pub use gerber::{gerber_copper, gerber_silk};
+pub use gerber::{gerber_copper, gerber_mask, gerber_paste, gerber_silk};
 /// Gerber job file generation and zipping.
 /// # Dependencies
 /// - crates/io/src/gerber_job.rs

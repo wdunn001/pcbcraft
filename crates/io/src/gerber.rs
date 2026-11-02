@@ -606,7 +606,9 @@ pub(crate) fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
 }
 
 /// Whether a pad is surface mounted, and so takes paste. Pads with a drill and
-/// legacy pads that carry only a diameter are through-hole and are skipped.
+/// legacy pads that carry only a diameter are through-hole and are skipped. A
+/// pad whose layer list names no paste layer, such as an exposed contact pad,
+/// takes no paste either.
 pub(crate) fn pad_is_smd(pad: &Pad) -> bool {
     match &pad.geometry {
         None => false,
@@ -614,6 +616,7 @@ pub(crate) fn pad_is_smd(pad: &Pad) -> bool {
             g.drill.is_none()
                 && !g.pad_type.starts_with("thru_hole")
                 && !g.pad_type.starts_with("np_thru_hole")
+                && (g.layers.is_empty() || g.has_paste())
         }
     }
 }

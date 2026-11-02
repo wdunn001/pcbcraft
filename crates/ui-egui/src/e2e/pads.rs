@@ -247,3 +247,155 @@ fn a_newcomer_places_a_test_pad_in_the_schematic() -> Result<(), String> {
     assert!(members_text(&app, net).contains(&pad.reference));
     Ok(())
 }
+
+/// Flash operations in a Gerber file: one per pad opening.
+fn flashes(gerber: &str) -> usize {
+    gerber.lines().filter(|l| l.ends_with("D03*")).count()
+}
+
+/// Pick a value in a Properties drop-down by its label and visible option.
+fn choose(ctx: &egui::Context, app: &mut App, combo: &str, option: &str) -> Result<(), String> {
+    tap_properties(ctx, app, combo)?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(ctx, app, option)?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_draws_an_exposed_pad_with_the_mask_open() -> Result<(), String> {
+    let (ctx, mut app) = sample_app(Tab::Pcb);
+    let mask_before = flashes(&pcbcraft_io::gerber_mask(
+        &app.project,
+        pcbcraft_doc::Layer::Front,
+    )?);
+    let paste_before = flashes(&pcbcraft_io::gerber_paste(
+        &app.project,
+        pcbcraft_doc::Layer::Front,
+    )?);
+    tap_strip(&ctx, &mut app, "button:Pad")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    choose(&ctx, &mut app, "combobox:Kind", "Exposed")?;
+    choose(&ctx, &mut app, "combobox:Shape", "Rectangle")?;
+    type_into(&ctx, &mut app, "spinbutton:Width", "2")?;
+    type_into(&ctx, &mut app, "spinbutton:Height", "1")?;
+    let board = &app.project.board;
+    app.canvas_click(Point::new(6.0, board.height - 5.0), 1.0);
+    let f = pad_part(&app).ok_or_else(|| format!("no pad dropped: {}", app.message))?;
+    let id = f.id;
+    let g = f.pads[0].geometry.as_ref().ok_or("no geometry")?;
+    assert_eq!(
+        g.kind(),
+        pcbcraft_library::PadKind::Exposed,
+        "the dropped pad is exposed: {}",
+        app.message
+    );
+    assert!(g.mask_open(), "the mask is open over the pad");
+    assert!(!g.has_paste(), "an exposed pad takes no paste");
+    let mask = pcbcraft_io::gerber_mask(&app.project, pcbcraft_doc::Layer::Front)?;
+    assert_eq!(
+        flashes(&mask),
+        mask_before + 1,
+        "the mask output has the opening"
+    );
+    let paste = pcbcraft_io::gerber_paste(&app.project, pcbcraft_doc::Layer::Front)?;
+    assert_eq!(
+        flashes(&paste),
+        paste_before,
+        "the paste output skips the exposed pad"
+    );
+    let copper = pcbcraft_io::gerber_copper(&app.project, pcbcraft_doc::Layer::Front)?;
+    assert!(
+        copper.contains("R,2X1"),
+        "the copper output has the 2 by 1 pad"
+    );
+    let own: Vec<_> = pcbcraft_rules::drc(&app.project)
+        .into_iter()
+        .filter(|finding| finding.objects.contains(&id) && finding.severity == "error")
+        .collect();
+    assert!(own.is_empty(), "the exposed pad raises no error: {own:?}");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_draws_a_notched_pad() -> Result<(), String> {
+    let (ctx, mut app) = sample_app(Tab::Pcb);
+    let paste_before = flashes(&pcbcraft_io::gerber_paste(
+        &app.project,
+        pcbcraft_doc::Layer::Front,
+    )?);
+    tap_strip(&ctx, &mut app, "button:Pad")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    choose(&ctx, &mut app, "combobox:Kind", "Notched")?;
+    choose(&ctx, &mut app, "combobox:Notch place", "Top edge")?;
+    type_into(&ctx, &mut app, "spinbutton:Width", "2")?;
+    type_into(&ctx, &mut app, "spinbutton:Height", "1.4")?;
+    type_into(&ctx, &mut app, "spinbutton:Notch width", "0.6")?;
+    type_into(&ctx, &mut app, "spinbutton:Notch depth", "0.4")?;
+    let board = &app.project.board;
+    app.canvas_click(Point::new(12.0, board.height - 5.0), 1.0);
+    let f = pad_part(&app).ok_or_else(|| format!("no pad dropped: {}", app.message))?;
+    let id = f.id;
+    let g = f.pads[0].geometry.as_ref().ok_or("no geometry")?;
+    assert_eq!(
+        g.kind(),
+        pcbcraft_library::PadKind::Notched,
+        "{}",
+        app.message
+    );
+    assert_eq!(g.polygon.len(), 8, "the outline has the notch");
+    let (place, w, d) = g.notch().ok_or("the notch reads back")?;
+    assert_eq!(place, pcbcraft_library::NotchPlace::EdgeN);
+    assert!((w - 0.6).abs() < 1e-9 && (d - 0.4).abs() < 1e-9);
+    // A save and load keeps the notch.
+    let saved = serde_json::to_string(&app.project).map_err(|e| e.to_string())?;
+    let loaded: pcbcraft_doc::Project = serde_json::from_str(&saved).map_err(|e| e.to_string())?;
+    let back = loaded
+        .board
+        .footprints
+        .iter()
+        .find(|q| q.id == id)
+        .and_then(|q| q.pads.first())
+        .and_then(|q| q.geometry.as_ref())
+        .ok_or("pad lost on load")?;
+    assert_eq!(
+        back.polygon,
+        g.polygon.clone(),
+        "the notch survives a save and load"
+    );
+    // The copper and the mask both draw the cut outline; paste prints on it.
+    let copper = pcbcraft_io::gerber_copper(&app.project, pcbcraft_doc::Layer::Front)?;
+    assert!(
+        copper.contains("%AMPAD"),
+        "the copper output draws the outline"
+    );
+    let mask = pcbcraft_io::gerber_mask(&app.project, pcbcraft_doc::Layer::Front)?;
+    assert!(
+        mask.contains("%AMPAD"),
+        "the mask opening follows the outline"
+    );
+    let paste = pcbcraft_io::gerber_paste(&app.project, pcbcraft_doc::Layer::Front)?;
+    assert_eq!(
+        flashes(&paste),
+        paste_before + 1,
+        "a notched pad keeps its paste"
+    );
+    let own: Vec<_> = pcbcraft_rules::drc(&app.project)
+        .into_iter()
+        .filter(|finding| finding.objects.contains(&id) && finding.severity == "error")
+        .collect();
+    assert!(own.is_empty(), "the notched pad raises no error: {own:?}");
+    // A notch finer than the shop can etch is reported.
+    app.run(
+        "pad.edit",
+        json!({"id": id, "pad": "1", "notch_width": 0.06, "notch_place": "edge_n"}),
+    );
+    assert!(
+        pcbcraft_rules::drc(&app.project)
+            .iter()
+            .any(|finding| finding.code == "notch_feature" && finding.objects.contains(&id)),
+        "a 0.06 mm slot is reported: {}",
+        app.message
+    );
+    Ok(())
+}

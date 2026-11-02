@@ -1934,7 +1934,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "pad.table",
-            "Report every board pad: number, net, position, shape, size and drill, by component reference",
+            "Report every board pad: number, net, position, shape, size, drill, kind (plain, exposed or notched) and paste, by component reference",
             schema(json!({"component":id_schema()}), &[]),
         ),
         (
@@ -18226,6 +18226,8 @@ fn run_command_part_14(
                             "size": size,
                             "drill": drill,
                             "castellated": pad.castellated.unwrap_or(false),
+                            "kind": pad.geometry.as_ref().map_or("plain", |g| g.kind().word()),
+                            "paste": pad.geometry.as_ref().is_some_and(|g| g.has_paste()),
                         }),
                     ));
                 }
