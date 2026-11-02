@@ -14,6 +14,7 @@
 //!
 //! # Do not
 //! - Keep state of the document here; read it from `App::project` each frame.
+mod shape;
 use super::*;
 use crate::fonts::{self, Role};
 use crate::theme;
@@ -519,6 +520,7 @@ impl App {
                 );
             },
         );
+        self.board_shape_section(ui);
         section(
             ui,
             "board-stackup",
