@@ -41,6 +41,12 @@ Local equivalents: `cargo xtask lint` for stage 1, `cargo xtask ci` for stages
 The wasm jobs need `trunk`, `node` and the `wasm32-unknown-unknown` target; the
 Windows job needs `cargo-xwin`, `clang` and `lld`.
 
+Trunk downloads `wasm-opt` (binaryen) on first use. The version is pinned in
+`apps/pcbcraft-web/Trunk.toml` under `[tools]`, and the wasm job restores
+trunk's tool cache (`~/.cache/trunk`) with `actions/cache`, keyed on that
+version, so a run does not depend on the download. Change the pin and the
+cache key follows. Any workflow that runs trunk should restore the same cache.
+
 `wasm-deps` compares the `craft-libs` revision in `Cargo.toml` with a sibling
 checkout (`../solidcraft`, or the path in `SOLIDCRAFT_DIR`) and prints a warning
 when they differ. It skips the comparison quietly when that checkout is absent.
