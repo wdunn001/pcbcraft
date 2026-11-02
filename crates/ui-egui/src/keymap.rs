@@ -40,6 +40,7 @@ pub enum KeyAction {
     UpdateBoardFromSchematic,
     ToggleAssistant,
     MinimapPeek,
+    RulesAndChecks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -477,6 +478,19 @@ const SPECS: &[ActionSpec] = &[
         }),
     },
     ActionSpec {
+        action: KeyAction::RulesAndChecks,
+        label: "Open Rules and checks",
+        tooltip: "See the check results and choose how strict each check is.",
+        context: ShortcutContext::Anywhere,
+        rebindable: true,
+        default_chord: Some(KeyChord {
+            key: Key::R,
+            ctrl: true,
+            shift: true,
+            alt: false,
+        }),
+    },
+    ActionSpec {
         action: KeyAction::RepeatLastCommand,
         label: "Repeat the last command",
         tooltip: "Run the most recent successful edit command again.",
@@ -816,6 +830,12 @@ impl Keymap {
             && !self.bindings.values().any(|c| *c == chord)
         {
             self.bindings.insert(KeyAction::MinimapPeek, chord);
+        }
+        if !self.bindings.contains_key(&KeyAction::RulesAndChecks)
+            && let Some(chord) = spec(KeyAction::RulesAndChecks).and_then(|s| s.default_chord)
+            && !self.bindings.values().any(|c| *c == chord)
+        {
+            self.bindings.insert(KeyAction::RulesAndChecks, chord);
         }
     }
 
