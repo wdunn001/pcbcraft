@@ -13,7 +13,6 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Schematic);
-    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Keyword or part number")?,
@@ -36,7 +35,7 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
         app.tool
     );
     app.change_tab(Tab::Schematic);
-    authoring::tests::tap(&ctx, &mut app, "Place part")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     tap_id(&ctx, &mut app, "textinput:Keyword or part number")?;
     for letter in "resistor".chars() {
         frame(
@@ -327,7 +326,6 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
     let none = egui::Modifiers::NONE;
     frame(&ctx, &mut app, vec![], none);
     app.change_tab(Tab::Schematic);
-    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], none);
     authoring::tests::tap(&ctx, &mut app, "Keyword or part number")?;
     for letter in "resistor".chars() {
@@ -1005,7 +1003,8 @@ fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), S
     let ctx = egui::Context::default();
     app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Place part")?;
+    app.region().left_tab = "library".to_owned();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Browse component libraries \u{2192}")?;
     assert_eq!(
         app.tab,

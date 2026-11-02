@@ -116,7 +116,7 @@ fn a_newcomer_arms_the_power_port_tool_on_the_schematic() -> Result<(), String> 
     let (ctx, mut app) = layout_page();
     app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap_id(&ctx, &mut app, "icon:tool-power")?;
+    tap_strip(&ctx, &mut app, "icon:tool-power")?;
     assert!(
         matches!(
             app.tool,

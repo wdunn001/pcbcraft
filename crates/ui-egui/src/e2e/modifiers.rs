@@ -66,7 +66,7 @@ pub(crate) fn click(ctx: &egui::Context, app: &mut App, at: Pos2, m: Modifiers) 
 }
 
 /// Press at one spot, glide to another and let go.
-fn drag(ctx: &egui::Context, app: &mut App, from: Pos2, to: Pos2, m: Modifiers) {
+pub(crate) fn drag(ctx: &egui::Context, app: &mut App, from: Pos2, to: Pos2, m: Modifiers) {
     hover(ctx, app, from, m);
     hover(ctx, app, from, m);
     press(ctx, app, from, true, m);
@@ -79,7 +79,7 @@ fn drag(ctx: &egui::Context, app: &mut App, from: Pos2, to: Pos2, m: Modifiers) 
 }
 
 /// The middle of the box around a part, away from its pins.
-fn centre_of(app: &App, id: Id) -> Result<Pos2, String> {
+pub(crate) fn centre_of(app: &App, id: Id) -> Result<Pos2, String> {
     let (lo, hi) = app.bounds_of(id).ok_or("part has no box")?;
     Ok(screen_of(
         app,
