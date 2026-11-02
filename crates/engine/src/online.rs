@@ -1,13 +1,9 @@
-//! Commands that bring an online library part into the project: import it
-//! into the project library with its licence notice, or import and place it
-//! in one undo step. The engine never touches the network; the caller fetches
-//! the files (crates/library/src/online_import.rs and, for open-library skus,
-//! crates/library/src/open_import.rs) and passes parsed definitions. Whether a
-//! 3D model file is fetched is decided before these commands run.
+//! Online library import commands. The caller fetches files from the network;
+//! the engine only processes the parsed definitions it receives.
 //!
 //! # Rules
-//! - Both commands run inside one `Session::batch` step, so one undo reverts everything.
-//! - A name already held by different content is refused unless `on_conflict` says otherwise.
+//! - Both commands run inside one `Session::batch` step; one undo reverts all.
+//! - A name held by different content is refused unless `on_conflict` allows it.
 //! - A pad and pin number mismatch fails the whole command and changes nothing.
 //!
 //! # Dependencies

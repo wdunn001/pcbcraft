@@ -6991,32 +6991,15 @@ struct PadTableParams {
     #[serde(default)]
     component: Option<Id>,
 }
-/// Parameters of `netlist.export`: list nets with member pins and unconnected pins for review or export.
+/// Parameters for netlist commands: `netlist.export`, `netlist.import` and `netlist.import_session`.
 ///
 /// # Rules
-/// - Optional net id must name an existing net; when omitted every net is listed.
-/// - Unconnected pins exclude no-connect flags; read-only over the project.
+/// - Export lists nets with member pins; optional net id filters to one net; read-only.
+/// - Import assigns pins to nets from a payload; limits on nets, pins and name length.
+/// - Import session reads a router file and applies the same import rules.
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-///
-/// Parameters of `netlist.import`: assign schematic pins to nets from a structured netlist payload.
-///
-/// # Rules
-/// - The list holds 1 to 256 nets with 1 to 128 pins each; total pins cannot exceed 4096.
-/// - Net names are 1 to 128 bytes; references and pin numbers are 1 to 64 bytes and must exist on the design.
-/// - A pin cannot appear under two net names or conflict with an existing net assignment.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
-///
-/// Parameters of `netlist.import_session`: read an external router session file and import its net map.
-///
-/// # Rules
-/// - Path is 1 to 1024 bytes and must be readable text on disk.
-/// - Parsed nets are passed through the same import rules as `netlist.import`.
-///
-/// # Dependencies
 /// - crates/io/src/lib.rs
 /// - crates/library/src/lib.rs
 #[derive(Deserialize)]
@@ -7168,22 +7151,16 @@ pub fn compliance_report_write(p: &Project, params: &Value) -> Result<Value, Err
     }))
 }
 
-/// The bill of materials as data: rows grouped by value, kind, footprint and
-/// the requested properties, or one row per part when `group` is false.
-///
-/// Why: the `bom.export` command and the app's export dialog (preview, File
-/// menu, part menus, Manufacture) read the same rows, so what is previewed is
-/// what is written.
+/// The bill of materials as rows grouped by value, kind and footprint.
 ///
 /// # Rules
 /// - Reads the project only; never changes it.
-/// - Skips parts that carry `pcbcraft_doc::BOM_EXCLUDE_FIELD` set to `yes`, parts
-///   a named variant leaves unpopulated, and, when `ids` is not empty, every
-///   part not listed.
+/// - Skips parts excluded by `pcbcraft_doc::BOM_EXCLUDE_FIELD`, unpopulated parts
+///   and parts not in `ids` when it is not empty.
 ///
 /// # Dependencies
-/// - crates/doc/src/lib.rs (`Component::in_bom`).
-/// - crates/io/src/bom_sheet.rs (row collection and generic CSV text).
+/// - crates/doc/src/lib.rs (`Component::in_bom`)
+/// - crates/io/src/bom_sheet.rs (row collection and generic CSV text)
 ///
 /// # Do not
 /// - Print the bill from anywhere else; `pcbcraft_io::bom_csv` is the file writer.
@@ -7557,31 +7534,16 @@ struct AddPointParams {
     index: u32,
     position: Point,
 }
-/// Parameters of `wire.remove_point`: delete one vertex from a drawn wire.
+/// Parameters for wire commands: `wire.remove_point`, `wire.move` and `wire.set_point`.
 ///
 /// # Rules
-/// - At least two vertices must remain; junction labels on the removed point block the delete.
-/// - Index must be in range for the wire.
+/// - Remove point requires at least two vertices remaining; labels block deletion.
+/// - Move translates all vertices by a delta; unchanged moves are refused.
+/// - Set point moves one vertex; it cannot duplicate a neighbour.
+/// - Junction labels on moved or removed points follow or block accordingly.
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
-///
-/// Parameters of `wire.move`: translate every vertex of a drawn wire by a delta.
-///
-/// # Rules
-/// - Delta must be in range; a move that leaves vertices unchanged is refused.
-/// - Junction labels on the wire net follow vertices that moved.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
-///
-/// Parameters of `wire.set_point`: move one vertex of a drawn wire.
-///
-/// # Rules
-/// - Index and position must be in range; the new point cannot duplicate a neighbour.
-/// - Junction labels sitting on the old vertex block the move until relocated.
-///
-/// # Dependencies
 /// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -7990,36 +7952,15 @@ struct GraphicMoveParams {
 struct ObjectGroupParams {
     members: Vec<Id>,
 }
-/// Parameters of `graphic.group`: tie two to 512 graphics so they move together.
+/// Parameters for graphic grouping commands and linear dimensions.
 ///
 /// # Rules
-/// - Each id must exist, be unique in the list, and not already belong to another graphic group.
+/// - Group ties 2 to 512 graphics; ids must exist, be unique and ungrouped.
 /// - A project defines at most 256 graphic groups.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
-///
-/// Parameters of `graphic.ungroup`: remove one graphic group without deleting its graphics.
-///
-/// # Rules
-/// - The group id must exist.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
-///
-/// Parameters of `graphic.translate`: move every graphic in one group by the same delta.
-///
-/// # Rules
-/// - Group id must exist; every member vertex must stay in range after the shift.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
-///
-/// Parameters of `dimension.add`: create a linear dimension as a grouped set of graphics.
-///
-/// # Rules
-/// - Layer is schematic or board; start and end must differ and stay in range.
-/// - Offset defaults to 2 mm and must be within 100 mm; room must remain under graphic and group caps.
+/// - Ungroup removes the group without deleting its graphics.
+/// - Translate moves every graphic in a group; vertices must stay in range.
+/// - Dimension adds a linear callout; layer is schematic or board.
+/// - Dimension offset defaults to 2 mm and must be within 100 mm.
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
