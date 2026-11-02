@@ -671,3 +671,54 @@ fn a_newcomer_saves_a_four_layer_board_and_the_file_names_the_bottom_layer() -> 
     assert_eq!(first, second, "saving again changes nothing");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sees_where_the_last_page_ends() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tab = Tab::Schematic;
+    app.tool_call(
+        "component.add",
+        json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+    );
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // Add a second page via the page switcher.
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(app.project.sheets.len(), 1, "one click adds one page");
+    // Build the schematic tree rows and look for the divider.
+    let hidden: Vec<String> = Vec::new();
+    let colours = crate::palette::palette(true, [0, 200, 160]);
+    let env = layers_tree::Env {
+        project: &app.project,
+        tab: layers_tree::TreeTab::Schematic,
+        colours,
+        hidden: &hidden,
+        focus: None,
+        selected: None,
+        target: crate::draw_target::Target::Copper(pcbcraft_doc::Layer::Front),
+        revision: 1,
+        parts_selected: 0,
+        show_empty: false,
+    };
+    let mut view = layers_tree::TreeView::default();
+    let rows = layers_tree::rows(&env, &mut view);
+    // The divider should be between the last page row and the components row.
+    let divider_index = rows
+        .iter()
+        .position(|r| r.kind == layers_tree::RowKind::Divider);
+    assert!(divider_index.is_some(), "the divider row exists");
+    let divider_index = match divider_index {
+        Some(i) => i,
+        None => return Ok(()),
+    };
+    // There should be a page row above the divider.
+    let above_page = rows[..divider_index].iter().any(|r| r.page.is_some());
+    assert!(above_page, "a page row is above the divider");
+    // There should be a components row below the divider.
+    let below_components = rows[divider_index..].iter().any(|r| r.key == "components");
+    assert!(below_components, "the components row is below the divider");
+    Ok(())
+}

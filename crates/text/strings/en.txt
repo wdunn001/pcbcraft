@@ -3176,6 +3176,7 @@ tree.explain.zones = The filled copper areas on this side, such as ground or pow
 tree.explain.wire = A drawn connection between two pins.
 tree.explain.label = A name tag that joins this point to the net with the same name.
 tree.explain.page = One sheet of the schematic. Switch pages to draw a different part of the circuit.
+tree.explain.divider = The line that marks the end of the schematic pages. New pages are added above it.
 tree.explain.symbols = The part symbols placed on this page.
 tree.explain.power = Symbols that connect a wire to a power net such as GND or 3V3 without drawing the wire.
 tree.explain.power_port = One power symbol and the net it ties to.
