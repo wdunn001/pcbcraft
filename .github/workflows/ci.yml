@@ -63,7 +63,7 @@ jobs:
           fi
           changed=$(git diff --name-only "$base" HEAD)
           printf 'Changed files:\n%s\n' "$changed"
-          if printf '%s\n' "$changed" | grep -qE '^site/|^\.github/workflows/ci\.yml$'; then
+          if printf '%s\n' "$changed" | grep -qE '^site/|^docs/|^\.github/workflows/ci\.yml$'; then
             echo "site=true" >> "$GITHUB_OUTPUT"
           else
             echo "site=false" >> "$GITHUB_OUTPUT"
@@ -422,7 +422,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # The marketing site and user guide (Astro). Runs when site/ or this workflow changes.
+  # The marketing site and user guide (Astro). Runs when site/, docs/ or this workflow changes.
   # Every command is one npm script in site/package.json, so a failure reproduces locally.
   site:
     name: Site
@@ -444,6 +444,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run test:contrast
       - run: npm run test:features
+      - run: npm run test:docs-map
       - run: npm run check
       - run: npm run build
       - run: npm run test:links

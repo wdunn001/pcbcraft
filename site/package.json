@@ -7,15 +7,20 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "sync:docs": "node scripts/sync-docs.mjs",
+    "predev": "npm run sync:docs",
     "dev": "astro dev",
+    "precheck": "npm run sync:docs",
     "check": "astro check",
+    "prebuild": "npm run sync:docs",
     "build": "astro build && node scripts/externalize-inline.mjs",
     "preview": "astro preview",
     "test:contrast": "node --test scripts/check-contrast.mjs",
     "test:a11y": "node scripts/check-a11y.mjs",
     "test:links": "node scripts/check-links.mjs",
-    "test": "npm run test:contrast && npm run test:features && npm run check && npm run build && npm run test:links && npm run test:csp",
+    "test": "npm run test:contrast && npm run test:features && npm run test:docs-map && npm run check && npm run build && npm run test:links && npm run test:csp",
     "test:features": "node --test scripts/check-features.mjs",
+    "test:docs-map": "node --test scripts/check-docs-map.mjs",
     "test:csp": "node scripts/check-csp.mjs"
   },
   "dependencies": {
