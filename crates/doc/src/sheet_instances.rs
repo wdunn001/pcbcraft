@@ -312,6 +312,7 @@ pub fn expand_instance(
             position,
             rotation: label.rotation,
             text: label.text.clone(),
+            style: label.style.clone(),
         });
     }
     let new_nets = net_map

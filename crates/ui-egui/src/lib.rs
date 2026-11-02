@@ -2451,6 +2451,9 @@ impl App {
                 .and_then(Value::as_str)
                 .map_or_else(|| t!("dialogs.tool_call.operation_failed"), refusal_text)
         };
+        if success && name == "open" {
+            self.note_merged_nets(&result);
+        }
         self.refresh();
         if success && name == "save" {
             self.assistant_save();

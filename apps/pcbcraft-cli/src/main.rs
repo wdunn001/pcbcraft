@@ -91,7 +91,7 @@ fn run() -> Result<(), String> {
     session.config = pcbcraft_engine::user_config::UserConfig::from_environment();
     if let Some(path) = option(&args, "--project") {
         session
-            .replace(pcbcraft_io::load(Path::new(path))?)
+            .open_project(pcbcraft_io::load_for_open(Path::new(path))?)
             .map_err(|e| e.to_string())?;
     }
     match action {

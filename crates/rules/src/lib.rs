@@ -3643,6 +3643,7 @@ mod tests {
             position: Point::new(50.0, 10.0),
             rotation: 0.0,
             text: String::new(),
+            style: String::new(),
         });
         p.validate()?;
         assert!(!erc(&p).iter().any(|f| f.code == "missing_pullup"));
@@ -3679,6 +3680,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             text: String::new(),
+            style: String::new(),
         });
         p.validate()?;
         assert!(!erc(&p).iter().any(|f| f.code == "power_not_driven"));
@@ -3699,6 +3701,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             text: String::new(),
+            style: String::new(),
         });
         p.validate()?;
         assert!(erc(&p).iter().any(|f| f.code == "dangling_label"));

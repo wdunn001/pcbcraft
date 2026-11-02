@@ -655,16 +655,21 @@ fn builtin_power_driven(project: &Project) -> Vec<Finding> {
         if !is_power_net(project, net.id) {
             continue;
         }
-        let driven = project.components.iter().any(|c| {
-            (kind_matches(&c.kind, "connector")
-                || kind_matches(&c.kind, "connector_power")
-                || kind_matches(&c.kind, "ldo")
-                || kind_matches(&c.kind, "buck"))
-                && c.pins.iter().any(|p| {
-                    p.net == Some(net.id)
-                        && (p.electrical_type == "power_out" || p.electrical_type == "power_in")
-                })
-        });
+        let flagged = project
+            .labels
+            .iter()
+            .any(|l| l.net == net.id && l.kind == "power");
+        let driven = flagged
+            || project.components.iter().any(|c| {
+                (kind_matches(&c.kind, "connector")
+                    || kind_matches(&c.kind, "connector_power")
+                    || kind_matches(&c.kind, "ldo")
+                    || kind_matches(&c.kind, "buck"))
+                    && c.pins.iter().any(|p| {
+                        p.net == Some(net.id)
+                            && (p.electrical_type == "power_out" || p.electrical_type == "power_in")
+                    })
+            });
         if !driven {
             out.push(finding(
                 project,
@@ -883,6 +888,43 @@ mod tests {
     }
 
     #[test]
+    fn companion_power_net_counts_as_driven_once_a_power_label_sets_it() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(net(1, "3V3"));
+        p.components.push(part(
+            10,
+            "U1",
+            "mcu",
+            "MCU",
+            vec![pin("1", Some(1), "power_in")],
+        ));
+        p.validate()?;
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "power_not_driven"),
+            "a supply net with only an input pin has no source"
+        );
+        p.labels.push(pcbcraft_doc::Label {
+            id: 50,
+            kind: "power".into(),
+            net: 1,
+            position: Point::default(),
+            rotation: 0.0,
+            text: String::new(),
+            style: "arrow".into(),
+        });
+        p.validate()?;
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "power_not_driven"),
+            "a power label on the net marks it as driven"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn companion_cc_net_requires_5k1_pulldown_to_ground() -> Result<(), String> {
         let mut p = Project::default();
         p.nets.extend([net(1, "CC1"), net(2, "GND")]);
@@ -893,6 +935,7 @@ mod tests {
             position: Point::default(),
             rotation: 0.0,
             text: "GND".into(),
+            style: String::new(),
         });
         p.components.push(part(
             10,
@@ -1124,6 +1167,7 @@ mod tests {
             position: Point::default(),
             rotation: 0.0,
             text: "GND".into(),
+            style: String::new(),
         });
         p.components.push(part(
             10,
