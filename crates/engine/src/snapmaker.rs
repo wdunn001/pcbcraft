@@ -136,11 +136,8 @@ fn pick_tool(profile: &MachineProfile, id: &str, params: &Value) -> Result<Pick,
 
 fn lookup(p: &Project, params: &Value) -> Result<(MachineProfile, SnapmakerSettings), String> {
     let id = text(params, "profile_id")?;
-    let profile = match p.machine_profiles.iter().find(|m| m.id == id) {
-        Some(found) => found.clone(),
-        None => pcbcraft_io::builtin_machine_profile(id)
-            .map_err(|_| format!("no machine profile named {id}"))?,
-    };
+    let profile = pcbcraft_io::resolve_machine_profile(&p.machine_profiles, &[], id)
+        .map_err(|_| format!("no machine profile named {id}"))?;
     let quick = params
         .get("quick_swap")
         .and_then(Value::as_bool)

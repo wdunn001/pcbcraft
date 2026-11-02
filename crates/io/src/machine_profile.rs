@@ -3,47 +3,56 @@
 //! # Rules
 //! - TOML is parsed here only; crates/doc stays free of it, so text becomes
 //!   `serde_json::Value` first and is then read into `MachineProfile`.
-//! - Presets are compiled in from the repo `machine-profiles/` folder and returned as copies.
+//! - Built-in machines are the `*.toml` files of the repo `machine-profiles/` folder, embedded by
+//!   `crates/io/build.rs` and returned as copies marked as built in. No machine id is named here.
 //!
 //! # Dependencies
 //! - crates/doc/src/machine_profile.rs
+//! - crates/io/build.rs (lists the machine files)
 //! - machine-profiles/SCHEMA.md
-use pcbcraft_doc::MachineProfile;
+use pcbcraft_doc::{MachineOrigin, MachineProfile};
 use serde_json::{Map, Value};
 
-const BUILTIN_IDS: [&str; 6] = [
-    "neoden-4",
-    "neoden-yy1",
-    "eufymake-e1",
-    "snapmaker-2-a350t-200w-cnc",
-    "snapmaker-artisan-200w-cnc",
-    "commarker-b6-mopa",
-];
+/// The text of every machine file in `machine-profiles/`, embedded at build time.
+const BUILTIN_FILES: &[&str] = include!(concat!(env!("OUT_DIR"), "/builtin_machine_files.rs"));
 
-/// The ids of the shop presets compiled into the program.
-pub fn builtin_machine_profile_ids() -> &'static [&'static str] {
-    &BUILTIN_IDS
+fn builtin_machines() -> &'static [MachineProfile] {
+    static MACHINES: std::sync::OnceLock<Vec<MachineProfile>> = std::sync::OnceLock::new();
+    MACHINES.get_or_init(|| {
+        BUILTIN_FILES
+            .iter()
+            .filter_map(|text| machine_profile_from_toml(text).ok())
+            .map(|mut profile| {
+                profile.origin = MachineOrigin::BuiltIn;
+                profile
+            })
+            .collect()
+    })
 }
 
-/// A copy of one shop preset, parsed and validated; an unknown id is refused.
+/// The ids of the machines shipped with the program, in file order.
+///
+/// # Rules
+/// - The list comes from the files in `machine-profiles/`; no id is named in code.
+pub fn builtin_machine_profile_ids() -> Vec<String> {
+    builtin_machines().iter().map(|m| m.id.clone()).collect()
+}
+
+/// Every machine shipped with the program, marked as built in.
+pub fn builtin_machine_profiles() -> &'static [MachineProfile] {
+    builtin_machines()
+}
+
+/// A copy of one shipped machine, parsed and validated; an unknown id is refused.
 ///
 /// # Dependencies
 /// - machine-profiles/SCHEMA.md
 pub fn builtin_machine_profile(id: &str) -> Result<MachineProfile, String> {
-    let text = match id {
-        "neoden-yy1" => include_str!("../../../machine-profiles/neoden-yy1.toml"),
-        "neoden-4" => include_str!("../../../machine-profiles/neoden-4.toml"),
-        "eufymake-e1" => include_str!("../../../machine-profiles/eufymake-e1.toml"),
-        "snapmaker-2-a350t-200w-cnc" => {
-            include_str!("../../../machine-profiles/snapmaker-2-a350t-200w-cnc.toml")
-        }
-        "snapmaker-artisan-200w-cnc" => {
-            include_str!("../../../machine-profiles/snapmaker-artisan-200w-cnc.toml")
-        }
-        "commarker-b6-mopa" => include_str!("../../../machine-profiles/commarker-b6-mopa.toml"),
-        _ => return Err("unknown built-in machine profile".into()),
-    };
-    machine_profile_from_toml(text)
+    builtin_machines()
+        .iter()
+        .find(|m| m.id == id)
+        .cloned()
+        .ok_or_else(|| "unknown built-in machine profile".into())
 }
 
 /// Read one profile from TOML text and validate it.
@@ -132,8 +141,8 @@ mod tests {
     #[test]
     fn each_builtin_preset_parses_and_validates() -> Result<(), String> {
         for id in builtin_machine_profile_ids() {
-            let profile = builtin_machine_profile(id)?;
-            if profile.id != *id {
+            let profile = builtin_machine_profile(&id)?;
+            if profile.id != id {
                 return Err(format!("built-in id mismatch for {id}"));
             }
             profile.validate()?;
@@ -149,7 +158,7 @@ mod tests {
             let text = std::fs::read_to_string(&path)
                 .map_err(|e| format!("read preset file {id}: {e}"))?;
             let from_disk = machine_profile_from_toml(&text)?;
-            let from_builtin = builtin_machine_profile(id)?;
+            let from_builtin = builtin_machine_profile(&id)?;
             if from_disk != from_builtin {
                 return Err(format!(
                     "machine-profiles/{id}.toml does not match the compiled built-in preset"

@@ -38,6 +38,7 @@ pub fn command_is_read_only(id: &str) -> bool {
             | "artifact.stale"
             | "package.list"
             | "library.online_status"
+            | "machine.library_list"
             | "sim.dc"
     )
 }

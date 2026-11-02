@@ -141,7 +141,7 @@ const PACKAGES: [(&str, f64); 30] = [
 fn every_bundled_package_size_maps_to_a_nozzle_on_each_bundled_profile() -> Result<(), String> {
     let mut seen = 0;
     for id in builtin_machine_profile_ids() {
-        let profile = builtin_machine_profile(id)?;
+        let profile = builtin_machine_profile(&id)?;
         if profile.kind != "pick_place" {
             continue;
         }
