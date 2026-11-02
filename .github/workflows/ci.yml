@@ -45,13 +45,15 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
         run: |
           base=""
           if [ "$EVENT" = pull_request ]; then
             base=$(git merge-base "$PR_BASE" HEAD || true)
-          elif [ "$EVENT" = push ] && [ -n "$PUSH_BEFORE" ] && ! echo "$PUSH_BEFORE" | grep -qE '^0+$'; then
-            base="$PUSH_BEFORE"
+          elif [ "$EVENT" = push ]; then
+            # A push to main is a merge commit, and its first parent is the main that came before it.
+            # The push event's "before" value is not reliable when runs are cancelled or batched: it
+            # produced an empty file list and skipped every test stage on code changes.
+            base=$(git rev-parse HEAD^1 2>/dev/null || true)
           fi
           if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
             echo "No usable base commit; running everything."
