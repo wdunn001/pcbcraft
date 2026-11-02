@@ -1,8 +1,8 @@
 //! SolidCraft enclosure and assembly geometry for the 3D board view.
 //!
-//! Context: issue #735. Reads a design through [`crate::solidcraft_format`] and
-//! returns every body with its occurrence transform and appearance. The layer is
-//! editor-only and never enters fabrication outputs.
+//! Context: issue #735. Reads a design through [`crate::solidcraft_format`] and returns
+//! every body with its occurrence transform and appearance. The layer is editor-only and
+//! never enters fabrication outputs.
 //!
 //! # Rules
 //! - When [`solidcraft_has_board_export_frame`] is true, placement stays identity.

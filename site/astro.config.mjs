@@ -48,7 +48,10 @@ export default defineConfig({
       },
       sidebar: [
         { label: 'Guide', items: [{ autogenerate: { directory: 'docs/guide' } }] },
+        { label: 'Using PCBCraft', items: [{ autogenerate: { directory: 'docs/use' } }] },
+        { label: 'Connect and extend', items: [{ autogenerate: { directory: 'docs/connect' } }] },
         { label: 'Reference', items: [{ autogenerate: { directory: 'docs/reference' } }] },
+        { label: 'Contributing', items: [{ autogenerate: { directory: 'docs/contributing' } }] },
       ],
     }),
   ],
