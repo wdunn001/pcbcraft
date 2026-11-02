@@ -4226,6 +4226,7 @@ struct LockParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentInBomParams {
@@ -4239,6 +4240,7 @@ struct ComponentInBomParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentInPlacementParams {
@@ -4252,6 +4254,7 @@ struct ComponentInPlacementParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BoardClearanceParams {
@@ -4379,6 +4382,7 @@ fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignFootprint {
@@ -4392,6 +4396,7 @@ struct AssignFootprint {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignPatternParams {
@@ -4405,6 +4410,7 @@ struct AssignPatternParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RefreshSymbolParams {
@@ -4418,6 +4424,7 @@ struct RefreshSymbolParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RefreshFootprintParams {
@@ -4431,6 +4438,7 @@ struct RefreshFootprintParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignTableParams {
@@ -4450,6 +4458,7 @@ struct AssignTableRow {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssignFileParams {
@@ -4806,6 +4815,7 @@ fn assign_to(
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Move {
@@ -4821,6 +4831,7 @@ struct Move {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Rotate {
@@ -4835,6 +4846,7 @@ struct Rotate {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ValueParams {
@@ -4848,6 +4860,7 @@ struct ValueParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetKindParams {
@@ -4861,6 +4874,7 @@ struct SetKindParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Name {
@@ -4873,6 +4887,7 @@ struct Name {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MetaParams {
@@ -4886,6 +4901,7 @@ struct MetaParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ParameterSetParams {
@@ -4901,6 +4917,7 @@ struct ParameterSetParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ParameterRemoveParams {
@@ -4915,6 +4932,7 @@ struct ParameterRemoveParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectSetUnitParams {
@@ -4927,6 +4945,7 @@ struct ProjectSetUnitParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectSetAutoSyncParams {
@@ -4939,6 +4958,7 @@ struct ProjectSetAutoSyncParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArchivePathParams {
@@ -4951,6 +4971,7 @@ struct ArchivePathParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectImportParams {
@@ -4964,6 +4985,7 @@ struct ProjectImportParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LaserJobExportParams {
@@ -4999,6 +5021,7 @@ fn laser_job_isolation_default() -> f64 {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MetaKeyParams {
@@ -5011,6 +5034,7 @@ struct MetaKeyParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReplaceParams {
@@ -5032,6 +5056,7 @@ fn replace_all_scope() -> String {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Connect {
@@ -5045,6 +5070,7 @@ struct Connect {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CopperNetParams {
@@ -5087,6 +5113,7 @@ struct DrawnWireParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WirePlaceTeeParams {
@@ -5100,6 +5127,7 @@ struct WirePlaceTeeParams {
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
+///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WirePlaceParams {
