@@ -286,18 +286,30 @@ fn bench() -> Result<(), String> {
 
 /// Runs workspace tests with nextest when installed, plus doctests.
 fn test() -> Result<(), String> {
+    // Exports stamp the creation time to the second, so tests that compare two
+    // exports fail when the clock ticks between them. A fixed source date, the
+    // standard reproducible-build setting, makes every test run see one time.
+    let pinned = [("SOURCE_DATE_EPOCH", "1800000000")];
     if has_cargo_subcommand("nextest") {
-        cargo(&[
-            "nextest",
-            "run",
-            "--workspace",
-            "--locked",
-            "--no-fail-fast",
-        ])?;
+        run_env(
+            "cargo",
+            &[
+                "nextest",
+                "run",
+                "--workspace",
+                "--locked",
+                "--no-fail-fast",
+            ],
+            &pinned,
+        )?;
         // nextest does not run doctests.
-        cargo(&["test", "--workspace", "--locked", "--doc"])
+        run_env(
+            "cargo",
+            &["test", "--workspace", "--locked", "--doc"],
+            &pinned,
+        )
     } else {
-        cargo(&["test", "--workspace", "--locked"])
+        run_env("cargo", &["test", "--workspace", "--locked"], &pinned)
     }
 }
 
