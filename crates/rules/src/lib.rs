@@ -28,6 +28,7 @@ mod drill;
 mod finding_set;
 mod hole_copper;
 mod impedance_target;
+mod mask_dam;
 mod pad_kinds;
 mod pair_properties;
 mod parallel_crosstalk;
@@ -97,6 +98,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("cut_hits_via", "error"),
     ("mask_covers_pad", "warning"),
     ("mask_web", "warning"),
+    ("mask_dam", "warning"),
     ("notch_feature", "error"),
     ("pour_fill", "error"),
     ("thermal_starved", "warning"),
@@ -2207,6 +2209,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(courtyard::courtyard_findings(project));
     result.extend(silk::silk_findings(project));
     result.extend(pad_kinds::pad_kind_findings(project));
+    result.extend(mask_dam::mask_dam_findings(project));
     result.extend(drill::drill_findings(project));
     result.extend(drill::drill_spacing_findings(project));
     result.extend(hole_copper::hole_to_copper_findings(project));
