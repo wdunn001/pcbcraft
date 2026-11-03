@@ -36,6 +36,7 @@ mod pads;
 mod part;
 mod part_records;
 mod part_save;
+pub mod placement;
 mod plugins;
 pub mod profiles;
 pub mod publication;

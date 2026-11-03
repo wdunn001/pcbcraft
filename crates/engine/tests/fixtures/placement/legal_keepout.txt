@@ -1,0 +1,6 @@
+# L5: a part sits inside a keepout rectangle and is moved to the nearest free spot outside it.
+board 0 0 40 30
+keepout 10 10 20 20
+cell A 15 15 1 1 free
+expect seed0 15 21
+expect seed1 9 15
