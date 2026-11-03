@@ -82,6 +82,7 @@ pub mod theme;
 mod tool_modifiers;
 mod toolbar;
 mod tour;
+mod track_round_ui;
 pub mod ui_kit;
 mod via_backdrill;
 mod via_covering;
@@ -7358,6 +7359,7 @@ impl App {
                                             );
                                         }
                                         });
+                                        self.round_corner_button(ui, id, mate.map(|m| m.0));
                                         if ui
                                             .button(t!("board.inspector.cut_in_half"))
                                             .on_hover_text(t!("board.inspector.cut_in_half.tip"))

@@ -58,6 +58,14 @@ The app says why in the status strip and changes nothing. The sentence names the
 - A track joins the two pads you picked.
 - The tool goes back to Select.
 
+## Round the corners
+
+1. Select the tracks whose corners you want smooth, or select nothing to use every track.
+2. Choose **Edit**, then **Round corners**.
+3. Type a radius in millimetres and click **Round corners**.
+
+Each sharp corner between joined tracks becomes an arc. A short track gets a smaller arc, and a corner that would break clearance is left as it was. The status strip says how many corners were rounded. One **Undo** brings every sharp corner back. To round a single corner, select one track and click **Round corner** in its properties.
+
 ## Related
 
 - [The Layers tree](../layers-tree/)

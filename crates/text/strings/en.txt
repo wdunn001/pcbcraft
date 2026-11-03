@@ -65,6 +65,8 @@ menu.edit.paste = Paste  Ctrl+V
 menu.edit.paste.tip = Paste the last copy a little to the side, with new reference numbers.
 menu.edit.cleanup = Clean up tracks
 menu.edit.cleanup.tip = Remove zero-length and dangling pieces and join straight neighbours. One undo puts it all back.
+menu.edit.round_corners = Round corners
+menu.edit.round_corners.tip = Turn the sharp corners of the selected wires into smooth arcs, or of every wire when none is selected. One undo puts them all back.
 menu.edit.redo = Redo
 menu.edit.redo.tip = Step forward to the action you undid. Ctrl+Shift+Z or Ctrl+Y does the same.
 menu.edit.redo.none = Nothing to redo: undo an action first.
@@ -1139,6 +1141,17 @@ dialogs.run.command_committed = {command} · committed
 dialogs.run.len_library_symbols_need_a = {len} library symbols need a footprint assignment in Libraries
 
 # lib.rs run_and_keep
+dialogs.round_corners.title = Round corners
+dialogs.round_corners.scope_all = Rounds every corner between joined wires on the board.
+dialogs.round_corners.scope_selected = Rounds the corners between the selected wires.
+dialogs.round_corners.scope_pair = Rounds the corner between this wire and the one it meets.
+dialogs.round_corners.radius = Radius
+dialogs.round_corners.radius.tip = How wide each arc is, from 0.05 to 50 mm. A short wire gets a smaller arc so neighbours never collide.
+dialogs.round_corners.apply = Round corners
+dialogs.round_corners.apply.tip = Replace each sharp corner with an arc of this radius. Corners that would break clearance are left as they are. One undo puts them all back.
+dialogs.round_corners.cancel = Cancel
+dialogs.round_corners.cancel.tip = Close without changing the board.
+status.round_corners.done = Rounded {rounded} corners, left {skipped} as they were
 dialogs.run_and_keep.session_unavailable = Session unavailable
 dialogs.run_and_keep.command_reported = {command} · reported
 
@@ -1408,6 +1421,9 @@ unit.mm8.tip = How far back from the sharp corner the diagonal cut starts.
 board.inspector.cut_corner = Cut corner
 board.inspector.trade_the_sharp_angle_where = Trade the sharp angle where two wires meet for a diagonal, so the etch comes out cleaner. Undo brings the corner back.
 board.inspector.this_wire_does_not_meet = This wire does not meet another wire of the same connection end to end, so there is no corner to cut.
+board.inspector.round_corner = Round corner
+board.inspector.round_corner.tip = Open the Round corners window for this wire and the one it meets, to turn their sharp angle into an arc. Undo puts it back.
+board.inspector.round_corner.none = This wire does not meet another wire at an end, so there is no corner to round.
 board.inspector.cut_in_half = Cut in half
 board.inspector.cut_in_half.tip = Break this stretch of wire into two equal halves so you can bend, branch or re-route part of it. Undo joins it back into one.
 board.inspector.ground_stitching = Ground stitching
