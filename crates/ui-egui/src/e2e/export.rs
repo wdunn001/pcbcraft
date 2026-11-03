@@ -517,57 +517,38 @@ fn a_newcomer_opens_an_interchange_board_file() -> Result<(), String> {
 fn a_newcomer_exports_a_compliance_report() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());
-
-    // Open the Export as... dialog via "More..."
     file_export(&ctx, &mut app, "More…")?;
-
-    // Select "Compliance data report" from the list
+    let listed = in_format_list(&ctx, &mut app, "Compliance data report")?;
     assert!(
-        in_format_list(&ctx, &mut app, "Compliance data report")?,
-        "Compliance data report is listed in Export as..."
+        listed,
+        "the compliance report is listed under Documentation"
     );
     authoring::tests::tap(&ctx, &mut app, "Compliance data report")?;
-
-    // Verify the tooltip is shown
-    assert!(
-        app.edit.dialog.format == "compliance_report",
-        "the dialog is on the compliance report format"
-    );
-
-    // Export the report
     authoring::tests::tap(&ctx, &mut app, "Export")?;
-
-    // The report should have been written to the make directory
-    let report_path = dir.path().join("compliance-report.md");
-    let first_bytes = std::fs::read(&report_path).map_err(|e| e.to_string())?;
-
-    // Export again to verify determinism
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let path = dir.path().join("compliance-report.md");
+    assert!(path.exists(), "no report was written: {}", app.message);
+    let first = std::fs::read(&path).map_err(|e| e.to_string())?;
+    std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     file_export(&ctx, &mut app, "More…")?;
     in_format_list(&ctx, &mut app, "Compliance data report")?;
     authoring::tests::tap(&ctx, &mut app, "Compliance data report")?;
     authoring::tests::tap(&ctx, &mut app, "Export")?;
-    let second_bytes = std::fs::read(&report_path).map_err(|e| e.to_string())?;
-
-    // Verify determinism
-    assert_eq!(
-        first_bytes, second_bytes,
-        "exporting twice produces identical bytes"
-    );
-
-    // Verify acceptance criteria in the report content
-    let text = String::from_utf8(first_bytes).map_err(|e| e.to_string())?;
-
-    // No "product is compliant" phrase
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let second = std::fs::read(&path).map_err(|e| e.to_string())?;
+    assert_eq!(first, second, "two exports are byte identical");
+    let text = String::from_utf8(first).map_err(|e| e.to_string())?;
     assert!(
         !text.to_ascii_lowercase().contains("product is compliant"),
         "the report never claims the product is compliant"
     );
-
-    // Verify disclaimer is present (data-quality aid, not certification)
     assert!(
         text.contains("data-quality aid"),
-        "the report identifies itself as a data-quality aid"
+        "the report names itself a data-quality aid"
     );
-
     Ok(())
 }

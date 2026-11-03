@@ -572,6 +572,15 @@ impl App {
                 }
                 ok
             }
+            Some(Run::Engine("compliance.report")) => {
+                let mut params = gerber_params(f, d);
+                params["directory"] = json!(&directory);
+                let ok = self.tool_call("compliance.report", params);
+                if ok {
+                    self.message = format!("{} saved in {directory}.", f.label);
+                }
+                ok
+            }
             Some(Run::Kind(kind)) => {
                 let job = format!("export-{kind}");
                 let _ = self.tool_call("output_job.add", json!({"name": &job, "kinds": [kind]}));
