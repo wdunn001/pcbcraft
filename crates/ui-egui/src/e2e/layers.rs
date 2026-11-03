@@ -1028,6 +1028,10 @@ fn a_newcomer_focuses_a_drawn_layer_and_the_rest_fades() -> Result<(), String> {
         json!({"layer": layer, "x1": 25.0, "y1": 5.0, "x2": 35.0, "y2": 5.0}),
     );
     app.refresh();
+    // Let the opening fade finish, so `before` is the settled drawing.
+    for _ in 0..30 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     let before = line_colours(&ctx, &mut app);
     assert!(!before.is_empty(), "the board paints copper before focus");
     app.tree.expanded.insert("user".to_owned());
