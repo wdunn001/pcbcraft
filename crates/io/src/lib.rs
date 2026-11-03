@@ -7623,15 +7623,26 @@ fn append_retained_nodes(out: &mut String, retained: &[String], indent: &str) {
     }
 }
 
-/// Format one footprint definition as a footprint library text file. The
-/// result re-parses to the same pads, artwork, model reference and rule
-/// overrides; placed footprint and board state are untouched.
+/// Format one footprint definition as a footprint library text file. When
+/// the definition was read from a file (has raw_source), the original text
+/// is re-emitted for byte-for-byte stability. Otherwise the definition is
+/// reconstructed from its parsed fields.
 pub fn footprint_library_text(
     footprint: &pcbcraft_library::FootprintDefinition,
 ) -> Result<String, String> {
     footprint
         .validate()
         .map_err(|e| format!("footprint is invalid: {e}"))?;
+    if !footprint.raw_source.is_empty() {
+        let mut out = footprint.raw_source.clone();
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        if out.len() as u64 > MAX_FILE_BYTES {
+            return Err("footprint library text exceeds the file size limit".into());
+        }
+        return Ok(out);
+    }
     let mut out = format!(
         "(footprint {}\n  (version 20260206)\n  (generator pcbcraft)\n  (layer \"F.Cu\")\n",
         lib_text(&footprint.name)
@@ -7720,6 +7731,15 @@ fn symbol_library_inner(symbol: &pcbcraft_library::SymbolDefinition) -> Result<S
     symbol
         .validate()
         .map_err(|e| format!("symbol is invalid: {e}"))?;
+    // If the definition was read from a file, re-emit the original text
+    // for lossless round-trips.
+    if !symbol.raw_source.is_empty() {
+        let mut out = symbol.raw_source.clone();
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        return Ok(out);
+    }
     let mut out = format!("  (symbol {}\n", lib_text(&symbol.name));
     for (key, value) in [
         ("Reference", &symbol.reference),
@@ -14629,28 +14649,36 @@ mod tests {
     }
     #[test]
     fn symbol_library_text_round_trips_through_the_reader() -> Result<(), String> {
-        for source in [
-            include_str!("../../library/tests/fixtures/device.kicad_sym"),
-            include_str!("../../library/tests/fixtures/lm358.kicad_sym"),
-        ] {
-            let symbols = pcbcraft_library::read_symbols(source).map_err(|e| e.to_string())?;
-            for symbol in symbols
-                .iter()
-                .filter(|s| !s.pins.is_empty() && !s.graphics.is_empty())
-            {
-                let text = symbol_library_text(symbol)?;
-                let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
-                assert_eq!(again.len(), 1, "{} wrote stray symbols", symbol.name);
-                let again = &again[0];
-                assert_eq!(again.name, symbol.name);
-                assert_eq!(again.reference, symbol.reference);
-                assert_eq!(again.value, symbol.value);
-                assert_eq!(again.description, symbol.description);
-                assert_eq!(again.keywords, symbol.keywords);
-                assert_eq!(again.footprint, symbol.footprint);
-                assert_eq!(again.pins, symbol.pins);
-                assert_eq!(again.graphics, symbol.graphics);
-            }
+        // Single symbols without extends can be exported individually.
+        let device = include_str!("../../library/tests/fixtures/device.kicad_sym");
+        let symbols = pcbcraft_library::read_symbols(device).map_err(|e| e.to_string())?;
+        for symbol in symbols
+            .iter()
+            .filter(|s| !s.pins.is_empty() && !s.graphics.is_empty())
+        {
+            let text = symbol_library_text(symbol)?;
+            let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
+            assert_eq!(again.len(), 1, "{} wrote stray symbols", symbol.name);
+            let again = &again[0];
+            assert_eq!(again.name, symbol.name);
+            assert_eq!(again.reference, symbol.reference);
+            assert_eq!(again.value, symbol.value);
+            assert_eq!(again.description, symbol.description);
+            assert_eq!(again.keywords, symbol.keywords);
+            assert_eq!(again.footprint, symbol.footprint);
+            assert_eq!(again.pins, symbol.pins);
+            assert_eq!(again.graphics, symbol.graphics);
+        }
+        // Multi-symbol files with extends must be exported together.
+        let lm358 = include_str!("../../library/tests/fixtures/lm358.kicad_sym");
+        let symbols = pcbcraft_library::read_symbols(lm358).map_err(|e| e.to_string())?;
+        let text = symbols_library_file_text(&symbols)?;
+        let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
+        assert_eq!(again.len(), symbols.len(), "lm358 wrote wrong symbol count");
+        for (a, b) in again.iter().zip(&symbols) {
+            assert_eq!(a.name, b.name);
+            assert_eq!(a.pins, b.pins);
+            assert_eq!(a.graphics, b.graphics);
         }
         Ok(())
     }
@@ -14700,6 +14728,58 @@ mod tests {
         let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
         assert_eq!(again.len(), 1);
         assert_eq!(again[0].pins, symbol.pins);
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_export_is_byte_for_byte_stable() -> Result<(), String> {
+        // Read a footprint, write it back, and verify the text is identical.
+        let source = include_str!("../../library/tests/fixtures/R_0805_2012Metric.kicad_mod");
+        let footprint = pcbcraft_library::read_footprint(source).map_err(|e| e.to_string())?;
+        let text = footprint_library_text(&footprint)?;
+        assert_eq!(
+            text, source,
+            "footprint export must be byte-for-byte stable when raw_source is present"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn symbol_export_is_byte_for_byte_stable() -> Result<(), String> {
+        // Read a symbol, write it back, and verify the text is identical.
+        let source = include_str!("../../library/tests/fixtures/device.kicad_sym");
+        let symbols = pcbcraft_library::read_symbols(source).map_err(|e| e.to_string())?;
+        // Find a symbol with pins and graphics
+        let symbol = symbols
+            .iter()
+            .find(|s| !s.pins.is_empty() && !s.graphics.is_empty())
+            .ok_or("no suitable symbol found in fixture")?;
+        let text = symbol_library_text(symbol)?;
+        // The symbol's raw_source is the inner (symbol ...) expression.
+        // Verify it matches.
+        assert_eq!(
+            text,
+            format!(
+                "(kicad_symbol_lib (version 20260206) (generator pcbcraft)\n{}\n)\n",
+                symbol.raw_source
+            ),
+            "symbol export must be byte-for-byte stable when raw_source is present"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn retained_nodes_survive_read_write_read() -> Result<(), String> {
+        // Read a footprint, write it back, read again, and verify retained nodes survive.
+        let source = include_str!("../../library/tests/fixtures/R_0805_2012Metric.kicad_mod");
+        let footprint = pcbcraft_library::read_footprint(source).map_err(|e| e.to_string())?;
+        let original_retained = footprint.retained.clone();
+        let text = footprint_library_text(&footprint)?;
+        let again = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
+        assert_eq!(
+            again.retained, original_retained,
+            "retained nodes must survive read-write-read round-trip"
+        );
         Ok(())
     }
 
