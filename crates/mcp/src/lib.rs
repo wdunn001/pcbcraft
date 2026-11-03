@@ -3464,4 +3464,18 @@ mod tests {
             assert_eq!(r.get("isError"), Some(&json!(true)), "{args}");
         }
     }
+
+    #[test]
+    fn no_duplicate_tool_names_in_tool_list() -> Result<(), String> {
+        let tools = tool_list();
+        let tools_arr = tools["tools"]
+            .as_array()
+            .ok_or("tool_list missing 'tools' array")?;
+        let mut seen = std::collections::HashSet::new();
+        for t in tools_arr {
+            let name = t["name"].as_str().ok_or("tool missing 'name' field")?;
+            assert!(seen.insert(name), "duplicate tool name: {}", name);
+        }
+        Ok(())
+    }
 }
