@@ -1,8 +1,8 @@
 ---
-type: feature
-area: engine
+type: test
+area: io
 issues: [120]
-user_visible: true
-docs: [docs/getting-started.md]
-summary: Autosave snapshots recover unsaved work after a crash, and old design files migrate automatically.
+user_visible: false
+docs: n/a: adds a synthetic benchmark board and its test, with no change to the app or the file format
+summary: The repository gains a synthetic ten thousand pad board used to measure large-board speed.
 ---

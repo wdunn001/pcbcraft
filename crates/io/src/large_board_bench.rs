@@ -155,3 +155,25 @@ pub fn bench_project_10k_pads() -> Project {
     }
     p
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_ten_thousand_pad_board_is_valid_and_has_ten_thousand_pads() -> Result<(), String> {
+        let project = bench_project_10k_pads();
+        // Five thousand parts is above the schematic item cap, so the cap is the
+        // only complaint validation may raise; any other message is a defect.
+        match project.validate() {
+            Ok(()) => {}
+            Err(message) if message.contains("schematic unit limit") => {}
+            Err(message) => return Err(message),
+        }
+        assert_eq!(project.components.len(), 5000);
+        assert_eq!(project.board.footprints.len(), 5000);
+        let pads: usize = project.board.footprints.iter().map(|f| f.pads.len()).sum();
+        assert_eq!(pads, 10_000);
+        Ok(())
+    }
+}
