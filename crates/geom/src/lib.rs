@@ -319,6 +319,17 @@ fn ring_open_points(ring: &Ring) -> Vec<Point> {
 /// Parallel hatch segments over the area the rings enclose under the even-odd rule, so a ring
 /// inside another ring is a hole. Scan lines are `spacing_mm` apart and one line can give several
 /// segments. Caps output at 8192 segments.
+///
+/// # Rules
+/// - `spacing_mm` must be positive and finite; `angle_deg` must be finite.
+/// - Degenerate or invalid rings are skipped.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs (polygon_edges)
+///
+/// # Do not
+/// - Assume the segments are joined; callers must chain them into zigzags.
+/// - Increase the segment cap without a reason; large boards get very many lines.
 pub fn hatch(rings: &[Ring], spacing_mm: f64, angle_deg: f64) -> Vec<(Point, Point)> {
     if !spacing_mm.is_finite() || spacing_mm <= 0.0 || !angle_deg.is_finite() {
         return vec![];

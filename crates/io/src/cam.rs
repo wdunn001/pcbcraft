@@ -75,6 +75,17 @@ pub enum MirrorAxis {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 /// Area to clear with a larger bit after isolation: optional rectangle, hatch tool and fill.
+///
+/// # Rules
+/// - `stepover_pct` must be 30 to 80 inclusive.
+/// - The rubout tool diameter must be at least the isolation tool diameter.
+/// - When `rect` is `None`, the whole board side is cleared.
+///
+/// # Dependencies
+/// - crates/io/src/cam.rs (Tool)
+///
+/// # Do not
+/// - Use a rubout tool smaller than the isolation tool; the clearance check will fail.
 pub struct RubRegion {
     /// When `None`, the rubout fills the whole board side up to the board width and height.
     pub rect: Option<(Point, Point)>,
@@ -466,7 +477,20 @@ fn join_hatch_zigzag(segments: &[(Point, Point)], stepover: f64) -> Vec<Vec<Poin
 }
 
 /// Hatch and contour paths that clear unused copper inside `RubRegion` without crossing `keep`
-/// isolation rings.
+/// isolation rings. Grows copper shapes by half the rubout tool diameter, computes the difference,
+/// hatches the result, joins segments into zigzags, and adds a contour around each remaining
+/// copper island.
+///
+/// # Rules
+/// - Returns an error if stepover, tool size or angle are out of range.
+/// - Every segment must be at least `1e-6` mm from every isolation ring.
+///
+/// # Dependencies
+/// - crates/geom/src/overlay.rs (polygon_difference, polygon_offset, polygon_union)
+/// - crates/geom/src/lib.rs (hatch)
+///
+/// # Do not
+/// - Skip the isolation ring clearance check; that is the main safety property.
 pub fn rubout_paths(
     p: &Project,
     side: Side,
@@ -664,7 +688,17 @@ pub struct IsolationGcodeResult {
 
 /// Writes the isolation G-code for one copper side. Refuses a cut deeper than the board, a
 /// non-positive diameter, feed or plunge, and any point outside the profile work area; the reason
-/// names the limit.
+/// names the limit. When `rubout` is set, a second G-code file is produced for the rubout tool.
+///
+/// # Rules
+/// - Cut depth must not exceed board thickness for either tool.
+/// - The rubout tool diameter must be at least the isolation tool diameter.
+///
+/// # Dependencies
+/// - crates/io/src/cam.rs (isolation_paths, rubout_paths)
+///
+/// # Do not
+/// - Call this without validating the project first; the first thing it does is validate.
 pub fn isolation_gcode(
     p: &Project,
     opts: &IsolationOptions,
