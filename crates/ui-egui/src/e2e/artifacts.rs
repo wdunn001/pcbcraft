@@ -646,12 +646,12 @@ fn a_newcomer_exports_silkscreen_layers_with_the_fabrication_files() -> Result<(
     authoring::tests::tap(&ctx, &mut app, "Load")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "pcb-F.Silk.gbr")?,
+        paints_text(&ctx, &mut app, "pcb-F.SilkS.gbr")?,
         "front silkscreen should appear in the layer list: {}",
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "pcb-B.Silk.gbr")?,
+        paints_text(&ctx, &mut app, "pcb-B.SilkS.gbr")?,
         "back silkscreen should appear in the layer list: {}",
         app.message
     );
