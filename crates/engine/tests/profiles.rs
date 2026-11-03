@@ -306,3 +306,18 @@ fn batch_profile_apply_is_one_undo_step() -> Result<(), Error> {
     assert!(s.project.net_classes.is_empty());
     Ok(())
 }
+
+#[test]
+fn a_newcomer_applies_a_usb_profile_to_their_design() -> Result<(), Error> {
+    let mut s = Session::default();
+    s.execute("net.create", json!({"name":"USB_D+"}), None)?;
+    s.execute("net.create", json!({"name":"USB_D-"}), None)?;
+    let out = s.execute("rules.profile_apply", json!({"id":"usb2"}), None)?;
+    assert_eq!(out["result"]["applied"], true);
+    let pair = &s.project.board.diff_pairs[0];
+    assert_eq!(pair.name, "USB");
+    assert_eq!(pair.target_impedance, Some(90.0));
+    assert_eq!(s.project.net_classes.len(), 1);
+    assert_eq!(s.project.net_classes[0].name, "USB");
+    Ok(())
+}
