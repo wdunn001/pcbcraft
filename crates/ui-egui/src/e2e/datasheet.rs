@@ -146,3 +146,60 @@ fn a_newcomer_opens_a_local_datasheet_from_properties() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn show_source_jumps_to_the_page_and_flashes_the_rectangle() -> Result<(), String> {
+    let f = fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "text-one-page.pdf")
+        .ok_or("fixture pdf")?;
+    let ctx = egui::Context::default();
+    let mut app = fresh();
+    app.datasheet_pane
+        .open_fixture(&ctx, f.bytes)
+        .map_err(|e| e.to_string())?;
+    let now = ctx.input(|i| i.time);
+    app.datasheet_pane
+        .show_source(0, [10.0, 20.0, 60.0, 40.0], now);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.datasheet_pane.is_open(),
+        "show_source should open the reader pane"
+    );
+    assert_eq!(
+        app.datasheet_pane.flash_rect(),
+        Some((0, [10.0, 20.0, 60.0, 40.0])),
+        "the flash should be set on the first frame"
+    );
+    for _ in 0..60 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        app.datasheet_pane.flash_rect().is_none(),
+        "the flash should clear after 1.5 seconds of context time"
+    );
+    Ok(())
+}
+
+#[test]
+fn show_source_clamps_a_page_past_the_end() -> Result<(), String> {
+    let f = fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "two-pages.pdf")
+        .ok_or("fixture pdf")?;
+    let ctx = egui::Context::default();
+    let mut app = fresh();
+    app.datasheet_pane
+        .open_fixture(&ctx, f.bytes)
+        .map_err(|e| e.to_string())?;
+    let now = ctx.input(|i| i.time);
+    app.datasheet_pane
+        .show_source(99, [10.0, 20.0, 60.0, 40.0], now);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.datasheet_pane.flash_rect(),
+        Some((1, [10.0, 20.0, 60.0, 40.0])),
+        "page 99 should clamp to the last page (index 1)"
+    );
+    Ok(())
+}
