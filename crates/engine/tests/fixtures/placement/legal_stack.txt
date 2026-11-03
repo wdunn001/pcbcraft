@@ -1,0 +1,11 @@
+# L4: six equal parts on one point. The legaliser spreads them with no overlap. Equal distance
+# choices are settled by the seeded generator, so the exact spots depend on the seed.
+board 0 0 100 100
+cell C1 50 50 2 1 free
+cell C2 50 50 2 1 free
+cell C3 50 50 2 1 free
+cell C4 50 50 2 1 free
+cell C5 50 50 2 1 free
+cell C6 50 50 2 1 free
+expect seed0 50 50 50 52 50 48 50 46 54 50 46 50
+expect seed1 50 50 50 52 50 48 50 54 50 46 54 50

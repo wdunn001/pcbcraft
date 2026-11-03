@@ -1,0 +1,9 @@
+# Pin offsets turn with the part. R has a pin 2 mm above its centre. After one quarter turn
+# the offset (x, y) becomes (-y, x) = (-2, 0), so the pin sits at (8, 0) and the HPWL of the
+# two pin net to J at (0, 0) is 8 (it would be 12 with no turn).
+board 0 0 40 40
+cell J 0 0 1 1 fixed
+cell R 10 0 1 1 free turns=1
+net n 1 J R:0,2
+expect hpwl 8
+expect hpwl_unturned 12

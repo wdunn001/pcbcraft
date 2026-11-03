@@ -1,0 +1,11 @@
+# Cost case: A and B overlap by 1 mm x 1 mm, so the penalty is 100 * 1 = 100 on top of the
+# wire. Pins: J (0,10), A (10,10), B (11,10): HPWL 11, cost 111. Moving B right by 1 mm removes
+# the overlap: HPWL 12, cost 12, change -99.
+board 0 0 40 30
+cell J 0 10 1 1 fixed
+cell A 10 10 1 0.5 free
+cell B 11 10 1 0.5 free
+net n 1 J A B
+expect cost 111
+expect cost_after_fix 12
+expect delta_fix -99
