@@ -2,7 +2,7 @@
 
 What each work area holds, region by region. The tokens, components and rules are in [design-system.md](design-system.md); this page does not repeat them. The mockups are attached to the issues in the table at the end of that page.
 
-Frame (1920 by 1240 reference): menu bar 32, tab nav 40, tool bar 40, body, status bar 24. Body = left aside 320, centre, right aside 340. The bottom sheet sits under the centre only (232 open, 36 collapsed). There is no left rail.
+Frame (1920 by 1240 reference): menu bar 32, tab nav 40, tool bar 40, body, status bar 24 (the open project's name at the left with a small copper dot when it has unsaved changes, then the last plain sentence; no command names). Body = left aside 320, centre, right aside 340. The bottom sheet sits under the centre only (232 open, 36 collapsed). There is no left rail.
 
 Each tab owns its regions through the `Workspace` trait in `crates/ui-egui/src/workspace.rs`: its tool bar, left aside tabs, centre, bottom sheet tabs and default layout. The user's layout is remembered per tab and View > Reset layout restores the defaults. The Workspace contract today lists Files, Schematic, Layout and Manufacture; the Library tab joins it as its own workspace.
 

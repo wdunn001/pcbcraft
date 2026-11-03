@@ -666,7 +666,7 @@ fn a_newcomer_cannot_undo_before_the_first_edit() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "Undo")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        !app.message.starts_with("undo"),
+        !app.message.starts_with("Undid"),
         "Undo is greyed out with nothing to undo: {}",
         app.message
     );
