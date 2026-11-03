@@ -49,6 +49,7 @@ pub use compliance::{
     compliance_check, export_trade_report, export_trade_report_with_ruleset, load_list_snapshot,
 };
 
+pub use courtyard::{CourtyardPair, courtyard_pairs};
 pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
 
 #[derive(Clone, Debug, Serialize)]

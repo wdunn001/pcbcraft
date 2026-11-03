@@ -2384,10 +2384,10 @@ impl App {
         if path.is_empty() || symbol.is_empty() {
             return false;
         }
-        self.run(
-            "component.place_library",
+        let params = self.on_current_page(
             json!({"path": path, "symbol": symbol, "position": canvas::snap(position)}),
         );
+        self.run("component.place_library", params);
         self.change_tab(Tab::Schematic);
         true
     }
