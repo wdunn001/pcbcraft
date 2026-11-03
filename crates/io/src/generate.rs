@@ -439,7 +439,17 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
             Err("layer plot artifacts are not available yet; see issue #325".into())
         }
         "drill_plated" | "drill_unplated" => {
-            Err("split drill artifacts are not available yet; see issue #276".into())
+            let key = if artifact.kind == "drill_plated" {
+                "pcb-Plated.drl"
+            } else {
+                "pcb-NPTH.drl"
+            };
+            let files = gerber_files(p)?;
+            let text = files
+                .get(key)
+                .ok_or_else(|| format!("gerber export has no drill file named {key}"))
+                .cloned()?;
+            Ok(GeneratedOutput::Text(text))
         }
         "isolation_gcode" => isolation_gcode_artifact(p, artifact),
         "drill_gcode" => drill_gcode_artifact(p, artifact),
@@ -739,6 +749,120 @@ mod generate_tests {
                 &placement_artifact_with(serde_json::json!({"flavour": "nope"})),
             )
             .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_plated_drill_artifact_lists_only_plated_holes() -> Result<(), String> {
+        use pcbcraft_doc::{Hole, Via};
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.board.vias.push(Via {
+            id: 3,
+            net: 1,
+            position: pcbcraft_geom::Point::new(5.0, 5.0),
+            diameter: 0.8,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+            preserved: Default::default(),
+        });
+        project.board.holes.push(Hole {
+            id: 4,
+            position: pcbcraft_geom::Point::new(20.0, 20.0),
+            diameter: 3.2,
+            end: None,
+        });
+        project.validate()?;
+        let artifact = Artifact {
+            id: 2,
+            name: "plated drill".into(),
+            kind: "drill_plated".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-Plated.drl".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(text.starts_with("M48"), "drill file must start with M48");
+        assert!(
+            text.contains("C0.400"),
+            "plated drill must list the 0.4mm via tool: {text}"
+        );
+        assert!(
+            !text.contains("C3.200"),
+            "plated drill must not list the 3.2mm mounting hole tool: {text}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_unplated_drill_artifact_lists_only_npth_holes() -> Result<(), String> {
+        use pcbcraft_doc::{Hole, Via};
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.board.vias.push(Via {
+            id: 3,
+            net: 1,
+            position: pcbcraft_geom::Point::new(5.0, 5.0),
+            diameter: 0.8,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+            preserved: Default::default(),
+        });
+        project.board.holes.push(Hole {
+            id: 4,
+            position: pcbcraft_geom::Point::new(20.0, 20.0),
+            diameter: 3.2,
+            end: None,
+        });
+        project.validate()?;
+        let artifact = Artifact {
+            id: 3,
+            name: "unplated drill".into(),
+            kind: "drill_unplated".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-NPTH.drl".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(text.starts_with("M48"), "drill file must start with M48");
+        assert!(
+            text.contains("C3.200"),
+            "unplated drill must list the 3.2mm mounting hole tool: {text}"
+        );
+        assert!(
+            !text.contains("C0.400"),
+            "unplated drill must not list the 0.4mm via tool: {text}"
         );
         Ok(())
     }
