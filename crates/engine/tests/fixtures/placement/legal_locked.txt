@@ -1,0 +1,5 @@
+# L3: both parts are fixed and overlap. Nothing moves and the pair is reported.
+board 0 0 40 30
+cell A 10 10 2 1 fixed
+cell B 11 10 2 1 fixed
+expect fixed_overlap 0 1

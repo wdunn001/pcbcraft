@@ -1,0 +1,6 @@
+# A free part with no net: no move can make the cost rise, so there is no uphill sample and
+# the start temperature is the fallback.
+board 0 0 40 30
+cell A 10 10 1 0.5 free
+cell B 20 10 1 0.5 free
+expect t0 1
