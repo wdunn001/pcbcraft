@@ -240,12 +240,17 @@ impl App {
             let heading = format!("{word}: {}", human_code(&row.code));
             let net = row.objects.first().map(|id| self.project.net_name(*id));
             let chip = net.filter(|n| *n != "unassigned");
+            let detail = if row.hint.is_empty() {
+                row.message.clone()
+            } else {
+                format!("{} {}", row.message, row.hint)
+            };
             let answer = rows::finding_row(
                 ui,
                 &Finding {
                     severity,
                     title: &heading,
-                    detail: &row.message,
+                    detail: &detail,
                     chip,
                     selected: false,
                     compact: true,
