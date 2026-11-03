@@ -1,8 +1,8 @@
 ---
-type: feature
+type: docs
 area: packaging
 issues: [310]
-user_visible: true
+user_visible: false
 docs: [docs/ci.md]
-summary: CI builds Flatpak bundles and Snap packages for x86_64 and aarch64 and attaches them to draft releases.
+summary: The CI guide now says that store listing and upload for Flatpak and Snap need owner secrets and are out of scope.
 ---
