@@ -133,7 +133,7 @@ fn point_schema() -> Value {
 }
 fn pin_schema() -> Value {
     schema(
-        json!({"component":id_schema(),"pin":{"type":"string"}}),
+        json!({"component":id_schema(),"pin":{"type":"string"},"unit":{"type":"integer","minimum":1,"description":"symbol unit for multi-unit parts, required only when the pin number is shared across units"}}),
         &["component", "pin"],
     )
 }
