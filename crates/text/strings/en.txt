@@ -1156,7 +1156,6 @@ dialogs.run_and_keep.session_unavailable = Session unavailable
 dialogs.run_and_keep.command_reported = {command} · reported
 
 # lib.rs tool_call
-dialogs.tool_call.name_complete = {name} · complete
 dialogs.tool_call.operation_failed = operation failed
 
 # editing.rs shift_click
@@ -3850,7 +3849,18 @@ webfs.pick_waiting = Choose a design file in the window that opened.
 webfs.opened = Opened {name}.
 webfs.open_failed = Could not open {name}: {reason}
 webfs.not_a_design = {name} is a library or part file, not a whole design, so it was not opened.
-webfs.saved = Downloaded {name}. Open it again with File, Open.
 webfs.save_failed = Could not save the design: {reason}
 webfs.exported = Downloaded {format}.
 webfs.export_unavailable = {format} cannot be downloaded from the browser yet.
+
+# project_status.rs footer
+status.project.name.tip = The project you are working on.
+status.project.unsaved = Unsaved changes
+status.project.unsaved.tip = This project has changes that are not saved.
+status.done.new_design = New project started
+status.done.sample_design = Worked example opened
+status.done.open = Opened {name}
+status.done.save = Saved to {file}
+status.done.undo = Undid the last change
+status.done.redo = Redid the change
+status.done.files_made = Files made in {folder}

@@ -130,7 +130,7 @@ impl App {
         match self.host.save_download(&name, &bytes) {
             Ok(()) => {
                 self.saved_revision = Some(self.revision);
-                self.message = t!("webfs.saved", name = name);
+                self.message = t!("status.done.save", file = name);
             }
             Err(e) => self.message = t!("webfs.save_failed", reason = e),
         }
