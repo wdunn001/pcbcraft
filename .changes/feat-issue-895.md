@@ -1,13 +1,8 @@
-# Library filter: Symbols | Footprints | Both as a segmented button group
-
-The Library panel's symbols/footprints filter is now a segmented button group
-with three options: Symbols, Footprints, and Both. This replaces the single
-footprints icon in the filter row with a clearer, full-width control under the
-search field.
-
-The control shows result counts for each option and supports keyboard navigation
-with arrow keys, Home, End, Space, and Enter. It is one tab stop and announces
-its state to screen readers.
-
-The layout test verifies the control fits within the aside at narrow window
-widths (640 px and above, where the aside is shown).
+---
+type: test
+area: ui
+issues: [895]
+user_visible: false
+docs: n/a: the segmented Symbols, Footprints and Both control already exists and this only adds a story that checks it
+summary: A library dock story now checks that the Symbols, Footprints and Both switch is full width, has no footprints icon in the chips row and is one radio group.
+---
