@@ -92,7 +92,7 @@ fn a_via_open_on_the_bottom_keeps_its_bottom_mask_opening_only() -> T {
 
 #[test]
 fn golden_drill_files_and_masks_for_the_four_layer_board() -> T {
-    let files = pcbcraft_io::gerber_files(&golden_board()?)?;
+    let files = pcbcraft_io::with_fixed_clock(0, || pcbcraft_io::gerber_files(&golden_board()?))?;
     for (name, golden_name) in [
         ("pcb-Plated.drl", "via_protection_plated.drl"),
         ("pcb-Drill-L1-L2.drl", "via_protection_blind.drl"),
