@@ -1275,7 +1275,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("power_not_driven", "warning"),
                 message: format!(
                     "{} has a power input but no power source; drive it from a power output, \
-                     a power label or a connector pin",
+                     a power symbol or a connector pin",
                     net.name
                 ),
                 objects: vec![net.id],
