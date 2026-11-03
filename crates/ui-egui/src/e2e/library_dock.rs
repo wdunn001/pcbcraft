@@ -56,6 +56,27 @@ fn tap_library_view(ctx: &egui::Context, app: &mut App, slot: usize) -> Result<(
 #[test]
 fn a_newcomer_switches_the_library_between_symbols_footprints_and_both() -> Result<(), String> {
     let (ctx, mut app) = library_open();
+
+    // The segmented control is on screen with all three options.
+    let strip = library_view_strip(&ctx, &app)?;
+    assert!(
+        strip.width() > 100.0,
+        "the view switch is full width, got {:.0}",
+        strip.width()
+    );
+
+    // The footprints icon is not in the filter chips row.
+    let chips = audit::controls(&ctx, &app);
+    let footprints_icon = chips.iter().find(|c| {
+        c.id.as_deref()
+            .is_some_and(|id| id.starts_with("icon:footprint"))
+    });
+    assert!(
+        footprints_icon.is_none(),
+        "the footprints icon should not be in the filter chips row"
+    );
+
+    // Click each option and assert the view changes.
     for (slot, view) in [
         (1, library_dock::ViewKind::Footprints),
         (2, library_dock::ViewKind::Both),
@@ -64,6 +85,17 @@ fn a_newcomer_switches_the_library_between_symbols_footprints_and_both() -> Resu
         tap_library_view(&ctx, &mut app, slot)?;
         assert_eq!(app.dock.view, view, "slot {slot} sets what the cards show");
     }
+
+    // AccessKit: the group is one radio group named "Show".
+    let controls = audit::controls(&ctx, &app);
+    let radios = controls
+        .iter()
+        .filter(|c| {
+            c.id.as_deref()
+                .is_some_and(|id| id.starts_with("radiobutton:Show"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(radios.len(), 1, "the view switch is one radio group");
     Ok(())
 }
 
