@@ -39901,6 +39901,47 @@ mod tests {
     }
 
     #[test]
+    fn an_exported_artifact_stays_current_when_the_clock_moves_on() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-artifact-clock-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let dir = directory.to_string_lossy().into_owned();
+        let copper = s.execute(
+            "artifact.add",
+            json!({"name":"copper","kind":"copper_plot","path":"pcb-F.Cu.gbr","layers":["F.Cu"]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        // Exported on one day, checked years later: only a real edit may flip the marker.
+        pcbcraft_io::with_fixed_clock(1_700_000_000, || {
+            s.execute(
+                "artifact.export",
+                json!({"id": copper, "directory": dir}),
+                None,
+            )
+        })?;
+        let later = pcbcraft_io::with_fixed_clock(1_900_000_000, || stale_ids(&s))?;
+        assert!(
+            later.is_empty(),
+            "a later clock must not make a current file stale"
+        );
+        s.execute(
+            "artifact.set",
+            json!({"id": copper, "layers": ["B.Cu"]}),
+            None,
+        )?;
+        let after_edit = pcbcraft_io::with_fixed_clock(1_900_000_000, || stale_ids(&s))?;
+        assert_eq!(
+            after_edit,
+            vec![copper],
+            "a real change still flips the marker"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn artifact_record_goes_stale_on_layer_or_setting_change_and_survives_save_and_load()
     -> Result<(), Error> {
         let mut s = Session::sample()?;

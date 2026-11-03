@@ -17,6 +17,7 @@ use crate::Error;
 use base64::Engine as _;
 use pcbcraft_doc::{Artifact, Id, Project};
 use pcbcraft_io::{GeneratedOutput, generate, output_hash, write_generated};
+
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -61,7 +62,7 @@ pub fn artifact_is_stale(p: &Project, artifact: &Artifact) -> Result<bool, Error
     let Some(stored) = artifact.generated_hash.as_ref() else {
         return Ok(true);
     };
-    let live = output_hash(&generate(p, artifact).map_err(Error::Invalid)?);
+    let live = stable_hash(p, artifact)?;
     Ok(stored != &live)
 }
 
@@ -164,7 +165,7 @@ pub fn export_artifact_record(
         .ok_or_else(|| Error::Invalid("object not found".into()))?;
     let artifact = p.artifacts[index].clone();
     let output = generate(p, &artifact).map_err(Error::Invalid)?;
-    let hash = output_hash(&output);
+    let hash = stable_hash(p, &artifact)?;
     let written = write_generated(directory, &artifact, &output).map_err(Error::Invalid)?;
     let artifact = p
         .artifacts
@@ -174,4 +175,24 @@ pub fn export_artifact_record(
     artifact.generated_at_revision = Some(record_revision);
     artifact.generated_hash = Some(hash.clone());
     Ok((written, hash))
+}
+
+/// The hash an artifact is judged by: its output generated with the clock held still.
+///
+/// A plot stamps its creation time into its text, so hashing the live output would call
+/// every file out of date a second after it was made. Holding the clock fixes that stamp.
+///
+/// # Rules
+/// - The stored hash and the live check both come from here, so they always agree.
+///
+/// # Dependencies
+/// - `crates/io/src/generate.rs` `generate`, `output_hash`.
+/// - `crates/io/src/gerber_job.rs` `with_fixed_clock`.
+///
+/// # Do not
+/// - Hash the bytes that are written; they carry the real creation time.
+fn stable_hash(p: &Project, artifact: &Artifact) -> Result<String, Error> {
+    let output =
+        pcbcraft_io::with_fixed_clock(0, || generate(p, artifact)).map_err(Error::Invalid)?;
+    Ok(output_hash(&output))
 }
