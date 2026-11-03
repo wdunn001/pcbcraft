@@ -36,6 +36,7 @@ mod pads;
 mod part;
 mod part_records;
 mod part_save;
+pub mod placement;
 mod plugins;
 pub mod profiles;
 pub mod publication;
@@ -1135,6 +1136,14 @@ pub fn commands() -> Vec<CommandSpec> {
             "schematic.remove_port",
             "Remove a hierarchy port; the net itself is untouched",
             schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "schematic.set_port_direction",
+            "Set the signal direction at a hierarchy port: input, output, bidirectional or passive",
+            schema(
+                json!({"id":id_schema(),"direction":{"type":"string","enum":["input","output","bidirectional","passive"]}}),
+                &["id", "direction"],
+            ),
         ),
         (
             "schematic.import_sheet",
@@ -7499,6 +7508,12 @@ struct RenamePort {
     id: Id,
     name: String,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetPortDirection {
+    id: Id,
+    direction: String,
+}
 /// Parameters of `graphic.rotate`: turn one graphic in 90 degree steps about a pivot.
 ///
 /// # Rules
@@ -9219,6 +9234,7 @@ fn merge_design_block_template(
             sheet: sheet_id,
             position: port.position,
             interchange_uuid: Default::default(),
+            direction: "bidirectional".to_owned(),
         });
     }
     for wire in block.wires {
@@ -10698,7 +10714,8 @@ fn run_command(
         | "schematic.move_component"
         | "schematic.place_port"
         | "schematic.move_port"
-        | "schematic.rename_port" => {
+        | "schematic.rename_port"
+        | "schematic.set_port_direction" => {
             run_command_part_9(config, p, next, command, params, record_revision, mutating)
         }
         "schematic.remove_port"
@@ -15737,6 +15754,7 @@ fn run_command_part_9(
                 net: a.net,
                 sheet: a.sheet,
                 position: a.position,
+                direction: "bidirectional".to_owned(),
                 interchange_uuid: None,
             });
             Ok(json!({"id":id,"name":a.name,"sheet":a.sheet}))
@@ -15817,6 +15835,19 @@ fn run_command_part_9(
             }
             p.ports[index].name = a.name.clone();
             Ok(json!({"id": a.id, "name": a.name}))
+        }
+        "schematic.set_port_direction" => {
+            let a: SetPortDirection = parse(params)?;
+            let index = p
+                .ports
+                .iter()
+                .position(|o| o.id == a.id)
+                .ok_or_else(missing)?;
+            if p.ports[index].direction == a.direction {
+                return Err(Error::Invalid("the port already has that direction".into()));
+            }
+            p.ports[index].direction = a.direction.clone();
+            Ok(json!({"id": a.id, "direction": a.direction}))
         }
         _ => Err(Error::Invalid(format!("unknown command: {command}"))),
     }
@@ -15973,6 +16004,7 @@ fn run_command_part_10(
                     sheet,
                     position: item.position,
                     interchange_uuid: Default::default(),
+                    direction: "bidirectional".to_owned(),
                 });
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))

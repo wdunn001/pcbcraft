@@ -1303,6 +1303,30 @@ impl App {
         self.pick_object_any(pos, zoom)
             .filter(|id| !crate::layers_tree::is_locked(&self.project, &self.tree.locked, *id))
             .filter(|id| !self.sheet_row_hidden(*id))
+            .filter(|id| self.pcb_object_shown(*id))
+    }
+    /// True when the canvas paints the board object `id`: its layer is on and the
+    /// sub-layer that holds it (tracks, zones, parts, vias) is on. An object the
+    /// canvas does not paint cannot be clicked. Other kinds stay pickable.
+    ///
+    /// # Dependencies
+    /// - `crates/ui-egui/src/board_visibility.rs` decides what each eye paints.
+    fn pcb_object_shown(&self, id: Id) -> bool {
+        use crate::layer_visibility::SubLayer;
+        let board = &self.project.board;
+        if let Some(t) = board.tracks.iter().find(|t| t.id == id) {
+            return self.layer_part_shown(t.layer, SubLayer::Tracks);
+        }
+        if let Some(z) = board.zones.iter().find(|z| z.id == id) {
+            return self.layer_part_shown(z.layer, SubLayer::Zones);
+        }
+        if let Some(f) = board.footprints.iter().find(|f| f.id == id) {
+            return self.part_shown(f);
+        }
+        if let Some(v) = board.vias.iter().find(|v| v.id == id) {
+            return self.via_shown(v);
+        }
+        true
     }
     /// True when the sheet row an object belongs to is switched off with the eye,
     /// so the canvas draws nothing there to pick.

@@ -248,3 +248,72 @@ fn a_newcomer_is_told_when_nets_of_one_name_were_merged_on_open() -> Result<(), 
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sets_a_port_direction() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    // Place a port at a free spot on the sheet.
+    let c = app.schematic.center;
+    let spot = Point::new(c.x, c.y + 50.0);
+    app.run(
+        "schematic.place_port",
+        json!({
+            "name": "SIG",
+            "net": app.project.nets.first().map(|n| n.id).ok_or("no net")?,
+            "sheet": 0,
+            "position": spot
+        }),
+    );
+    frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    let port = app.project.ports.first().ok_or("port was not placed")?.id;
+    // Click the port to select it.
+    let at = screen_of(&app, spot);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    assert!(
+        matches!(app.tool, Tool::Select),
+        "tool is Select after placing port"
+    );
+    assert_eq!(app.selected, Some(port), "port was selected");
+    let controls = crate::e2e::audit::controls(&ctx, &app);
+    let has_segment = controls.iter().any(|c| {
+        c.id.as_deref()
+            .is_some_and(|i| i.starts_with("radiobutton:schematic.port.direction"))
+    });
+    let port_in_list = app.project.ports.iter().any(|p| p.id == port);
+    assert!(port_in_list, "port is in project.ports");
+    let is_component = app.project.component(port).is_some();
+    assert!(!is_component, "port is not a component");
+    assert!(has_segment, "port direction segment is on screen");
+    // Tap the Output segment in the Properties panel.
+    tap_properties_text(&ctx, &mut app, "Output")?;
+    frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    let found = app
+        .project
+        .ports
+        .iter()
+        .find(|p| p.id == port)
+        .ok_or("port vanished")?;
+    assert_eq!(
+        found.direction, "output",
+        "the port direction is now output: {}",
+        found.direction
+    );
+    // Undo returns to bidirectional.
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    let found = app
+        .project
+        .ports
+        .iter()
+        .find(|p| p.id == port)
+        .ok_or("port vanished after undo")?;
+    assert_eq!(
+        found.direction, "bidirectional",
+        "undo restored the default direction: {}",
+        found.direction
+    );
+    Ok(())
+}

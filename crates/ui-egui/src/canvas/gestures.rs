@@ -43,6 +43,7 @@ pub(crate) enum Hit {
     Node(Id, usize),
     Junction(Id),
     NetLabel(Id),
+    Port(Id),
     Other(Id),
 }
 
@@ -61,6 +62,7 @@ impl Hit {
             Self::Node(..) => Target::Node,
             Self::Junction(_) => Target::Junction,
             Self::NetLabel(_) => Target::NetLabel,
+            Self::Port(_) => Target::Port,
             Self::Other(_) => Target::Other,
         }
     }
@@ -163,6 +165,9 @@ impl App {
                 } else {
                     Hit::NetLabel(l.id)
                 };
+            }
+            if let Some(port) = self.port_under(pos, zoom) {
+                return Hit::Port(port);
             }
             for w in &sheet.drawn_wires {
                 if !crate::page_scope::in_view(&sheet, page, sheet.schematic_drawn_wire_page(w)) {
@@ -456,6 +461,10 @@ impl App {
                     vec![],
                 ))
             }
+            Hit::Port(id) => {
+                let p = self.project.ports.iter().find(|o| o.id == *id)?;
+                Some((dot(p.position, 6.0), vec![]))
+            }
         }
     }
 
@@ -746,6 +755,7 @@ impl App {
                 self.duplicate_to(pos);
             }
             _ if self.select_label_hit(&hit) => {}
+            _ if self.select_port_hit(&hit) => {}
             _ => self.canvas_click(pos, zoom),
         }
     }

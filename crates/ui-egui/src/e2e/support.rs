@@ -47,20 +47,78 @@ pub(crate) fn use_recorded_library(app: &mut App, name: &str) -> Result<(), Stri
     Ok(())
 }
 
+/// How long a story gives the library worker thread to answer before it
+/// gives up. A busy machine can starve that thread for many seconds.
+const WORKER_ANSWER_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Draw frames, sleeping a little between them, until `done` holds or a
+/// minute has passed. Returns whether `done` held.
+///
+/// The library browser answers on a worker thread, so a story that acts and
+/// then looks at the next frame races that thread whenever the machine is
+/// busy. This waits for the app state itself instead of counting frames. The
+/// limit is a clock deadline, so slow frames do not stretch it.
+///
+/// # Rules
+/// - Draws at least one frame before it first asks `done`.
+/// - Sleeps 25 ms between frames so the worker thread gets the processor.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/e2e/support.rs (frame, the one frame driver)
+/// - crates/clock/src/lib.rs (instant_now, the deadline clock)
+///
+/// # Do not
+/// - Use it to hide a result that never arrives; the caller still asserts.
+pub(crate) fn waits_until(
+    ctx: &egui::Context,
+    app: &mut App,
+    mut done: impl FnMut(&mut App) -> bool,
+) -> bool {
+    let started = pcbcraft_clock::instant_now();
+    loop {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+        if done(app) {
+            return true;
+        }
+        if started.elapsed() > WORKER_ANSWER_LIMIT {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+}
+
 /// Draw frames until `needle` is on screen, giving a worker thread up to
-/// thirty seconds to answer.
+/// a minute to answer.
 pub(crate) fn waits_for_text(
     ctx: &egui::Context,
     app: &mut App,
     needle: &str,
 ) -> Result<bool, String> {
-    for _ in 0..600 {
+    let started = pcbcraft_clock::instant_now();
+    loop {
         if paints_text(ctx, app, needle)? {
             return Ok(true);
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        if started.elapsed() > WORKER_ANSWER_LIMIT {
+            return Ok(false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
     }
-    Ok(false)
+}
+
+/// Draw frames until the control called `id` is painted and switched on, so
+/// a story never presses or types into a control the worker has not yet
+/// let the page draw. Fails with the control's name after a minute.
+pub(crate) fn waits_for_control(
+    ctx: &egui::Context,
+    app: &mut App,
+    id: &str,
+) -> Result<(), String> {
+    if waits_until(ctx, app, |app| on_screen(ctx, app, id)) {
+        Ok(())
+    } else {
+        Err(format!("{id} never appeared on screen"))
+    }
 }
 
 /// True when the named words appear anywhere on screen this frame or the
@@ -476,6 +534,31 @@ pub(crate) fn tap_properties_segment(
     tap_segment(ctx, app, group, PROPERTIES_LEFT, f32::INFINITY, slot, count)
 }
 
+/// Press the word `label` in the Properties panel, where the segments of a strip differ in width
+/// and so cannot be told apart by their place alone.
+pub(crate) fn tap_properties_text(
+    ctx: &egui::Context,
+    app: &mut App,
+    label: &str,
+) -> Result<(), String> {
+    let _tall = TallScope::enter();
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let at = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == label => {
+                let c = t.pos + t.galley.size() / 2.0;
+                (c.x >= PROPERTIES_LEFT && shape.clip_rect.contains(c)).then_some(c)
+            }
+            _ => None,
+        })
+        .next_back()
+        .ok_or_else(|| format!("{label} is not in the Properties panel"))?;
+    tap_at(ctx, app, at)
+}
+
 /// True when the control the gate calls `id` is on screen and switched on.
 pub(crate) fn on_screen(ctx: &egui::Context, app: &mut App, id: &str) -> bool {
     let _tall = TallScope::enter();
@@ -742,16 +825,16 @@ pub(crate) fn session_with(
 /// off while any read is pending).
 pub(crate) fn waits_for_library_read(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
     let mut steady = 0;
-    for _ in 0..400 {
-        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let settled = waits_until(ctx, app, |app| {
         let done = app.library.catalog.is_some()
             && app.library.sources.is_some()
             && app.library.pending.is_none();
         steady = if done { steady + 1 } else { 0 };
-        if steady >= 3 {
-            return Ok(());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(25));
+        steady >= 3
+    });
+    if settled {
+        Ok(())
+    } else {
+        Err("the collection browser never finished reading".into())
     }
-    Err("the collection browser never finished reading".into())
 }

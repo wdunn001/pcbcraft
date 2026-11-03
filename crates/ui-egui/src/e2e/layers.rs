@@ -284,6 +284,46 @@ fn top_painted(app: &App) -> crate::board_visibility::LayerCount {
 }
 
 #[test]
+fn a_newcomer_cannot_click_a_track_the_hidden_layer_does_not_paint() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    top_with_track_zone_and_text(&ctx, &mut app);
+    let track = app
+        .project
+        .board
+        .tracks
+        .last()
+        .map(|t| t.id)
+        .ok_or("no track")?;
+    let spot = Point::new(15.0, 10.0);
+    assert_eq!(
+        app.pick_object(spot, 10.0),
+        Some(track),
+        "the track is clickable"
+    );
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert_eq!(
+        app.pick_object(spot, 10.0),
+        None,
+        "tracks off: nothing to click"
+    );
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert_eq!(app.pick_object(spot, 10.0), Some(track), "tracks on again");
+    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert_eq!(
+        app.pick_object(spot, 10.0),
+        None,
+        "layer hidden: nothing to click"
+    );
+    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert_eq!(
+        app.pick_object(spot, 10.0),
+        Some(track),
+        "layer shown again"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_hides_a_layer_and_gets_it_back_as_it_was() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
     top_with_track_zone_and_text(&ctx, &mut app);

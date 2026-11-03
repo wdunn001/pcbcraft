@@ -64,10 +64,14 @@ fn a_newcomer_goes_offline_and_is_told_only_saved_parts_are_shown() -> Result<()
     app.change_tab(Tab::Schematic);
     use_recorded_library(&mut app, "offline-story")?;
     app.part_search = "resistor".into();
+    // The search answers on a worker thread; wait for that answer itself, then
+    // for the list to paint it.
+    waits_until(&ctx, &mut app, |app| app.online_settled());
     assert!(
         waits_for_text(&ctx, &mut app, "R_Small")?,
-        "online, the list shows the parts: {}",
-        app.message
+        "online, the list shows the parts: {} / {}",
+        app.message,
+        app.part_sources_state()
     );
     assert!(
         paints_text(&ctx, &mut app, "Kept on this computer")?,
@@ -82,10 +86,12 @@ fn a_newcomer_goes_offline_and_is_told_only_saved_parts_are_shown() -> Result<()
     app.use_open_source(Box::new(sources::CacheOnly), Some(dir));
     app.part_sources_offline_for_test(flag.clone());
     app.part_search = "resistor".into();
+    waits_until(&ctx, &mut app, |app| app.online_settled());
     assert!(
         waits_for_text(&ctx, &mut app, "R_Small")?,
-        "offline, parts saved before still list: {}",
-        app.message
+        "offline, parts saved before still list: {} / {}",
+        app.message,
+        app.part_sources_state()
     );
     assert!(
         paints_text(&ctx, &mut app, "Offline: only parts saved on this computer")?,

@@ -176,7 +176,9 @@ pub(crate) fn parallel_crosstalk_findings(project: &Project) -> Vec<Finding> {
                     severity: project.rule_severity("parallel_crosstalk", "warning"),
                     message,
                     objects: vec![a.id, b.id],
-                    hint: None,
+                    hint: Some(
+                        "Move the two tracks farther apart or shorten the side by side run.".into(),
+                    ),
                 });
             }
         }
@@ -219,7 +221,7 @@ pub(crate) fn parallel_crosstalk_findings(project: &Project) -> Vec<Finding> {
                 limit
             ),
             objects: vec![net],
-            hint: None,
+            hint: Some("Shorten the route or add a series termination.".into()),
         });
     }
     result
@@ -353,6 +355,35 @@ mod tests {
         p.validate().map_err(|e| format!("{}: {e:?}", "valid"))?;
         assert!(long_findings(&p).is_empty());
         assert!(parallel_findings(&p).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn parallel_crosstalk_and_long_net_findings_have_hints() -> Result<(), String> {
+        let p = clock_pair(0.15)?;
+        let findings = parallel_findings(&p);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].hint.as_deref(),
+            Some("Move the two tracks farther apart or shorten the side by side run.")
+        );
+        let mut p_long = clock_pair(2.0)?;
+        p_long.board.tracks[0].end = Point::new(80.0, 0.0);
+        p_long.board.tracks[1].end = Point::new(80.0, p_long.board.tracks[1].width + 2.0);
+        p_long
+            .validate()
+            .map_err(|e| format!("{}: {e:?}", "valid"))?;
+        let long = long_findings(&p_long);
+        assert!(!long.is_empty());
+        assert_eq!(
+            long[0].hint.as_deref(),
+            Some("Shorten the route or add a series termination.")
+        );
+        let quiet = clock_pair(0.6)?;
+        assert!(
+            parallel_findings(&quiet).is_empty(),
+            "no parallel finding at three trace widths"
+        );
         Ok(())
     }
 }

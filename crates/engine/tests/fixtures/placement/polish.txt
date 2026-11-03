@@ -1,0 +1,26 @@
+# Annealing golden case: a connector J (fixed) on the left edge, a fixed block U,
+# three equal resistors R1..R3 scattered, one keepout rectangle in the middle.
+board 0 0 40 30
+keepout 17 11 23 19
+cell J 2 15 1 3 fixed
+cell U 36 15 2 2 fixed
+cell R1 30 5 1 0.5 free
+cell R2 28 26 1 0.5 free
+cell R3 12 24 1 0.5 free
+cell R4 20 5 1 0.5 free
+net NJ1 1 J:1,1 R1:-0.5,0 R2:-0.5,0
+net NJ2 1 J:1,-1 R3:-0.5,0 R4:-0.5,0
+net NU1 1 U:-1,1 R1:0.5,0 R3:0.5,0
+net NU2 1 U:-1,-1 R2:0.5,0 R4:0.5,0
+net NR 1 R1:0,0 R2:0,0 R3:0,0 R4:0,0
+# Seed 0, 500 moves, trace of 20. Computed by an independent script, see the pull request.
+expect t0 11.661877351805932
+expect start_cost 199
+expect trace AAACACACAAAARAAACAAA
+expect run_500 94 245 86 169 500 budget
+expect R1 18.5 19.5 2
+expect R2 21 19.5 0
+expect R3 25 16 1
+expect R4 24 16 1
+expect run_3000 72 2600 frozen
+expect seed1_500 88

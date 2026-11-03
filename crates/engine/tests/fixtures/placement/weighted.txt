@@ -1,0 +1,10 @@
+# G2: two nets join B to A and one joins B to C. B settles at the connectivity weighted mean
+# x = (2*0 + 1*30) / 3 = 10, y = 0.
+board 0 0 60 40
+cell A 0 0 1 1 fixed
+cell B 12 7 1 1 free
+cell C 30 0 1 1 fixed
+net nab1 1 A B
+net nab2 1 A B
+net nbc 1 B C
+expect B 10 0

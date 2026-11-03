@@ -1,0 +1,8 @@
+# L1: A and B are the same size and overlap by 0.7 mm in x. B is later in the order (equal
+# area, higher index) so B moves. Lattice step 0.25 mm without a grid: the first free spot is
+# three steps right, 12.05. With a 1 mm grid B lands on 12.
+board 0 0 40 30
+cell A 10 10 1 0.5 free
+cell B 11.3 10 1 0.5 free
+expect B_no_grid 12.05 10
+expect B_grid_1 12 10

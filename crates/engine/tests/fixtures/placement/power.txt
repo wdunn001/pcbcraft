@@ -1,0 +1,9 @@
+# G4: B is tied to A by a signal net (weight 1) and to C by a power net (weight 0.1).
+# Closed form: x = (1*0 + 0.1*40) / 1.1 = 3.636363636..., y = 0, much nearer A than the midpoint 20.
+board 0 0 80 40
+cell A 0 0 1 1 fixed
+cell C 40 0 1 1 fixed
+cell B 20 10 1 1 free
+net sig 1 A B
+net pwr 0.1 B C
+expect B 3.6363636363636362 0
