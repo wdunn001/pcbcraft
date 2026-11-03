@@ -429,6 +429,48 @@ fn builtin_can_termination(project: &Project, graph: &SchematicGraph) -> Vec<Fin
     out
 }
 
+fn builtin_rs485_termination(project: &Project, graph: &SchematicGraph) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let a_nets: Vec<_> = project
+        .nets
+        .iter()
+        .filter(|n| {
+            net_pattern_matches(&n.name, "RS485_*A*")
+                || net_pattern_matches(&n.name, "RS485_A*")
+                || n.name.eq_ignore_ascii_case("RS485_A")
+                || n.name.eq_ignore_ascii_case("RS485A")
+        })
+        .collect();
+    for a in a_nets {
+        let b_name = if a.name.eq_ignore_ascii_case("RS485_A") {
+            "RS485_B".to_string()
+        } else if a.name.eq_ignore_ascii_case("RS485A") {
+            "RS485B".to_string()
+        } else {
+            a.name.replace("A", "B").replace("a", "b")
+        };
+        let Some(b) = project.nets.iter().find(|n| n.name == b_name) else {
+            continue;
+        };
+        let ends_a = bus_end_nets(project, graph, "RS485*");
+        if ends_a.is_empty() {
+            continue;
+        }
+        if !termination_on_can_pair(project, graph, a.id, b.id) {
+            out.push(finding(
+                project,
+                "missing_bus_termination",
+                format!(
+                    "Add a 110 to 130 ohm termination resistor between {} and {}",
+                    a.name, b.name
+                ),
+                vec![a.id, b.id],
+            ));
+        }
+    }
+    out
+}
+
 fn builtin_relay_flyback(project: &Project, graph: &SchematicGraph) -> Vec<Finding> {
     let mut out = Vec::new();
     for c in &project.components {
@@ -765,6 +807,7 @@ pub fn companion_findings(project: &Project) -> Vec<Finding> {
     out.extend(builtin_cc_pulldown(project, &graph));
     out.extend(builtin_i2c_pullup(project, &graph));
     out.extend(builtin_can_termination(project, &graph));
+    out.extend(builtin_rs485_termination(project, &graph));
     out.extend(builtin_relay_flyback(project, &graph));
     out.extend(builtin_connector_tvs(project, &graph));
     out.extend(builtin_power_fuse(project, &graph));
@@ -1008,6 +1051,39 @@ mod tests {
             "U1",
             "ic",
             "CAN",
+            vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
+        ));
+        p.validate()?;
+        assert!(
+            companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_bus_termination")
+        );
+        p.components.push(part(
+            11,
+            "R1",
+            "resistor",
+            "120",
+            vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
+        ));
+        p.validate()?;
+        assert!(
+            !companion_findings(&p)
+                .iter()
+                .any(|f| f.code == "missing_bus_termination")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn companion_rs485_bus_end_requires_120_ohm_termination() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.extend([net(1, "RS485_A"), net(2, "RS485_B")]);
+        p.components.push(part(
+            10,
+            "U1",
+            "ic",
+            "RS485",
             vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
