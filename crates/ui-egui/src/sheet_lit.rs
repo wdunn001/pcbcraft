@@ -2,7 +2,7 @@
 //! and the nets that run through them.
 //!
 //! Context: on the Schematic tab the tree's layer rows are the fixed rows of a
-//! page (Symbols, Power ports). Picking one is recorded as `TreeView::selected_key`
+//! page (Symbols, Power symbols). Picking one is recorded as `TreeView::selected_key`
 //! (`sec:sheet:<page>/layer:<row>`); this module reads that key, works out the
 //! parts and nets it stands for, and paints them in the accent colour over the
 //! normal drawing. It never switches tab and never edits the project.
@@ -42,7 +42,7 @@ impl App {
     ///
     /// # Rules
     /// - Symbols lights the page's parts and every net wired to them.
-    /// - Power ports lights the power nets and every part wired to them.
+    /// - Power symbols lights the power nets and every part wired to them.
     /// - Other rows light nothing.
     ///
     /// # Dependencies

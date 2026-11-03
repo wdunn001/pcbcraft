@@ -195,7 +195,7 @@ fn a_newcomer_adds_a_power_rail() -> Result<(), String> {
         .labels
         .iter()
         .find(|l| l.kind == "power")
-        .ok_or_else(|| format!("clicking should place a power label: {}", app.message))?;
+        .ok_or_else(|| format!("clicking should place a power symbol: {}", app.message))?;
     assert_eq!(label.style, "arrow", "the picked symbol style is kept");
     assert_eq!(app.project.net_name(label.net), "3V3", "the net is 3V3");
     let findings = pcbcraft_rules::erc(&app.project);

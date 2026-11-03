@@ -399,8 +399,8 @@ impl App {
             entry(
                 "tool-power",
                 "power",
-                "Power".to_string(),
-                "Place a power port label on a wire or pin.".to_string(),
+                "Power symbol".to_string(),
+                "Place a power symbol on a wire or pin.".to_string(),
                 matches!(
                     self.tool,
                     Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power)

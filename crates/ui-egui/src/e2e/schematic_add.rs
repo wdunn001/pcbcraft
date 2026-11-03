@@ -38,7 +38,7 @@ fn a_newcomer_finds_labels_and_flags_under_add() -> Result<(), String> {
         );
     }
     tap_strip(&ctx, &mut app, "icon:tool-add")?;
-    for name in ["Label", "Power", "Bus", "Port", "No connect"] {
+    for name in ["Label", "Power symbol", "Bus", "Port", "No connect"] {
         assert!(
             paints_text(&ctx, &mut app, name)?,
             "the Add menu lists {name}"
@@ -96,7 +96,7 @@ fn a_newcomer_sees_the_placing_hint() -> Result<(), String> {
         "the hint says what is armed and how to stop"
     );
     assert!(
-        paints_text(&ctx, &mut app, "Power:")?,
+        paints_text(&ctx, &mut app, "Power symbol:")?,
         "the hint names the armed kind"
     );
     Ok(())

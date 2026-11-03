@@ -509,7 +509,7 @@ fn tool_hint(tool: &Tool) -> String {
             "Click a wire or pin to place a net label.".to_string() + &common
         }
         Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power) => {
-            "Click a wire or pin to place a power label.".to_string() + &common
+            "Click a wire or pin to place a power symbol.".to_string() + &common
         }
         Tool::Bus => {
             "Click two or more points for the bus path, then name it.".to_string() + &common
@@ -1347,7 +1347,7 @@ pub struct App {
     schematic: Camera,
     /// Schematic page on the canvas; 0 is the Main page. See `pages.rs`.
     active_page: Id,
-    /// The net each page's Add power port picker holds.
+    /// The net each page's Add power symbol picker holds.
     power_pick: std::collections::BTreeMap<Id, Id>,
     /// Name the Port tool places on the next canvas click.
     port_pick_name: String,

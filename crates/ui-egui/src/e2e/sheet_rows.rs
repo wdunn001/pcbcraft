@@ -158,11 +158,11 @@ fn a_newcomer_hides_drawing_and_power_ports_on_the_page() -> Result<(), String> 
         "hidden drawing is not drawn"
     );
     let ports_before = canvas_text(&app).iter().filter(|t| *t == "GND").count();
-    tap_id(&ctx, &mut app, "button:Hide Power ports")?;
+    tap_id(&ctx, &mut app, "button:Hide Power symbols")?;
     let ports_after = canvas_text(&app).iter().filter(|t| *t == "GND").count();
     assert!(
         ports_after < ports_before,
-        "hidden power ports are not drawn ({ports_before} to {ports_after})"
+        "hidden power symbols are not drawn ({ports_before} to {ports_after})"
     );
     Ok(())
 }
@@ -217,7 +217,7 @@ fn a_newcomer_sees_power_ports_listed_with_their_nets() -> Result<(), String> {
         json!({"kind":"power","net":gnd,"position":{"x":30.0,"y":30.0}}),
     );
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap_id(&ctx, &mut app, "button:Power ports, shown, unlocked")?;
+    tap_id(&ctx, &mut app, "button:Power symbols, shown, unlocked")?;
     assert!(
         paints_text(&ctx, &mut app, "GND")?,
         "Properties lists the port with its net"
@@ -230,8 +230,8 @@ fn a_newcomer_sees_power_ports_listed_with_their_nets() -> Result<(), String> {
         .iter()
         .filter(|l| l.kind == "power")
         .count();
-    tap_id(&ctx, &mut app, "button:Power ports, shown, unlocked")?;
-    tap_properties(&ctx, &mut app, "button:Add power port")?;
+    tap_id(&ctx, &mut app, "button:Power symbols, shown, unlocked")?;
+    tap_properties(&ctx, &mut app, "button:Add power symbol")?;
     let after = app
         .project
         .labels
@@ -241,7 +241,7 @@ fn a_newcomer_sees_power_ports_listed_with_their_nets() -> Result<(), String> {
     assert_eq!(
         after,
         before + 1,
-        "Add power port places another: {}",
+        "Add power symbol places another: {}",
         app.message
     );
     Ok(())
@@ -251,8 +251,8 @@ fn a_newcomer_sees_power_ports_listed_with_their_nets() -> Result<(), String> {
 fn a_newcomer_never_sees_empty_categories_by_default() -> Result<(), String> {
     let (ctx, mut app) = start();
     assert!(
-        !on_screen(&ctx, &mut app, "button:Power ports, shown, unlocked"),
-        "an empty page lists no Power ports row"
+        !on_screen(&ctx, &mut app, "button:Power symbols, shown, unlocked"),
+        "an empty page lists no Power symbols row"
     );
     assert!(!on_screen(
         &ctx,
@@ -266,14 +266,14 @@ fn a_newcomer_never_sees_empty_categories_by_default() -> Result<(), String> {
     ));
     tap_id(&ctx, &mut app, "button:Show empty")?;
     assert!(
-        on_screen(&ctx, &mut app, "button:Power ports, shown, unlocked"),
+        on_screen(&ctx, &mut app, "button:Power symbols, shown, unlocked"),
         "Show empty lists every category"
     );
     tap_id(&ctx, &mut app, "button:Hide empty")?;
     assert!(!on_screen(
         &ctx,
         &mut app,
-        "button:Power ports, shown, unlocked"
+        "button:Power symbols, shown, unlocked"
     ));
     Ok(())
 }

@@ -1231,7 +1231,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "label.place",
-            "Place a local, global, hierarchical or power label, or a junction. Name an existing net by id, or type a net name: the net of that name is used and created when missing, a net given beside a name is renamed to it or merged into the net already called that, so labels of one name always share one net. A power label takes a symbol style: ground, bar, arrow or negative",
+            "Place a local, global, hierarchical or power symbol, or a junction. Name an existing net by id, or type a net name: the net of that name is used and created when missing, a net given beside a name is renamed to it or merged into the net already called that, so labels of one name always share one net. A power symbol takes a symbol style: ground, bar, arrow or negative",
             schema(
                 json!({"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"name":{"type":"string","minLength":1,"maxLength":128},"position":point_schema(),"rotation":{"type":"number","minimum":-360000.0,"maximum":360000.0},"style":{"type":"string","enum":["ground","bar","arrow","negative"]}}),
                 &["kind", "position"],
@@ -1271,7 +1271,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "label.rotate",
-            "Rotate an existing label, global label or power label in degrees",
+            "Rotate an existing label, global label or power symbol in degrees",
             schema(
                 json!({"id":id_schema(),"degrees":{"type":"number"}}),
                 &["id", "degrees"],
@@ -1279,7 +1279,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "label.set",
-            "Retype a net label, point it at a different net or a typed net name (made when new), or change the symbol style of a power label in place; junctions must stay on matching wire",
+            "Retype a net label, point it at a different net or a typed net name (made when new), or change the symbol style of a power symbol in place; junctions must stay on matching wire",
             schema(
                 json!({"id":id_schema(),"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"name":{"type":"string"},"style":{"type":"string","enum":["ground","bar","arrow","negative"]}}),
                 &["id"],
@@ -3393,7 +3393,7 @@ impl Session {
         drc.extend(custom_findings(&self.project));
         drc.extend(height_findings(&self.project));
         let compliance = pcbcraft_rules::compliance_check(&self.project);
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"peripheral":pcbcraft_rules::peripheral(&self.project),"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power label or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, labels with no wires or pins, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. When fabrication rules are recorded on the board, track width, drill size, annular ring, copper-to-routed-edge spacing, unlike-net spacing, aspect ratio, and drawn silk text height are compared to those limits, and copper pour neck widths thinner than the minimum track are reported. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. Pin-type rules, hole-to-hole spacing against a fab table, mask dams, and hierarchy are not fully checked."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"peripheral":pcbcraft_rules::peripheral(&self.project),"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power symbol or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, labels with no wires or pins, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. When fabrication rules are recorded on the board, track width, drill size, annular ring, copper-to-routed-edge spacing, unlike-net spacing, aspect ratio, and drawn silk text height are compared to those limits, and copper pour neck widths thinner than the minimum track are reported. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. Pin-type rules, hole-to-hole spacing against a fab table, mask dams, and hierarchy are not fully checked."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -10079,19 +10079,19 @@ fn split_drawn_wire_at(p: &mut Project, next: &mut Id, id: Id, at: Point) -> Res
 /// Check the style asked for on a label and return the text to store.
 ///
 /// # Rules
-/// - Only a power label takes a style, and it must be one of
+/// - Only a power symbol takes a style, and it must be one of
 ///   `Label::POWER_STYLES`; asking for none stores the empty default.
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs (`Label::POWER_STYLES` lists the symbols)
 ///
 /// # Do not
-/// - Accept a style on a label that is not a power label.
+/// - Accept a style on a label that is not a power symbol.
 fn label_style(kind: &str, style: Option<&str>) -> Result<String, Error> {
     match style {
         None => Ok(String::new()),
         Some(_) if kind != "power" => Err(Error::Invalid(
-            "only a power label takes a symbol style".into(),
+            "only a power symbol takes a symbol style".into(),
         )),
         Some(chosen) if pcbcraft_doc::Label::POWER_STYLES.contains(&chosen) => {
             Ok(chosen.to_string())
