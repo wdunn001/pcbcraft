@@ -9,7 +9,15 @@ const FAB_LAYER: &str = "F.Fab";
 const CHIP_ROUNDRECT: f64 = 0.244;
 const GRID_MM: f64 = 0.01;
 
-/// Land pattern density level (IPC-7351B).
+/// Land pattern density level (IPC-7351B) governs clearance, pad size and silk stroke.
+///
+/// # Rules
+/// - Most (A): densest layout, tightest clearance
+/// - Nominal (B): standard production layout
+/// - Least (C): loosest layout, most clearance
+///
+/// # Do not
+/// - Change density constants without IPC-7351B reference update
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LandPatternDensity {
@@ -54,6 +62,14 @@ impl LandPatternDensity {
 }
 
 /// Bounded numeric inputs shared across package families.
+///
+/// # Rules
+/// - All dimensions are in millimetres
+/// - Fields are validated by the generator before use
+/// - Unknown fields cause a parse error (deny_unknown_fields)
+///
+/// # Dependencies
+/// - crates/library/src/footprint_generate.rs
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LandPatternParams {
@@ -80,21 +96,18 @@ pub struct LandPatternParams {
     pub thermal_size: f64,
 }
 
-/// Build a footprint from a family id and parameter object.
 /// Generate a footprint from an IPC-7351B land pattern family.
-///
 /// # Rules
 /// - Density governs courtyard clearance, silk stroke, and pad size
 /// - All package dimensions are validated before generation
 /// - The resulting footprint is validated and must pass
 ///
 /// # Dependencies
-/// - crates/library/src/footprint_generate.rs [`LandPatternParams`] for bounded input validation
-/// - crates/library/src/footprint_generate.rs [`FootprintDefinition`] for output structure
+/// - crates/library/src/footprint_generate.rs [`LandPatternParams`]
+/// - crates/library/src/lib.rs [`FootprintDefinition`]
 ///
 /// # Do not
-/// - Change density constants without updating IPC-7351B reference
-/// - Add new families without corresponding validation tests
+/// - Change density constants without IPC-7351B reference update
 pub fn generate_footprint(
     family: &str,
     density: LandPatternDensity,
