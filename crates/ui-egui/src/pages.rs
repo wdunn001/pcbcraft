@@ -180,6 +180,21 @@ impl App {
         }
     }
 
+    /// Add the page being drawn on to the parameters of a part placement, so the part lands on
+    /// that page. Main (page 0) is the engine's default and is left out.
+    ///
+    /// # Rules
+    /// - Only the Schematic tab places onto a page; any other tab gets the parameters back as they were.
+    pub(crate) fn on_current_page(&self, mut params: serde_json::Value) -> serde_json::Value {
+        if self.tab == Tab::Schematic {
+            let page = self.schematic_page();
+            if page != 0 {
+                params["sheet"] = serde_json::json!(page);
+            }
+        }
+        params
+    }
+
     /// The key of the Layers tree row that stands for page `id`.
     ///
     /// # Dependencies

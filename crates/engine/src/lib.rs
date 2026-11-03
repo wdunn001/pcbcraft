@@ -267,7 +267,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "component.add",
             "Place an original built-in symbol: resistor, capacitor, led or connector",
             schema(
-                json!({"kind":{"type":"string","enum":["resistor","capacitor","led","connector"]},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),
+                json!({"kind":{"type":"string","enum":["resistor","capacitor","led","connector"]},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"},"sheet":id_schema()}),
                 &["kind", "position"],
             ),
         ),
@@ -275,7 +275,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "component.place_library",
             "Place a symbol package with independently movable units and embedded definitions",
             schema(
-                json!({"path":{"type":"string"},"symbol":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),
+                json!({"path":{"type":"string"},"symbol":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"},"sheet":id_schema()}),
                 &["path", "symbol", "position"],
             ),
         ),
@@ -4283,6 +4283,9 @@ struct Add {
     value: Option<String>,
     #[serde(default)]
     rotation: Option<f64>,
+    /// Schematic page to place the part on; absent means Main (page 0).
+    #[serde(default)]
+    sheet: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4302,6 +4305,9 @@ struct PlaceLibrary {
     value: Option<String>,
     #[serde(default)]
     rotation: Option<f64>,
+    /// Schematic page to place the part on; absent means Main (page 0).
+    #[serde(default)]
+    sheet: Option<Id>,
 }
 /// Parameters of `footprint.set_pad`: change one pad offset and/or diameter on a placed footprint.
 ///
@@ -4876,6 +4882,33 @@ fn place_definition(
         definition, library, id, reference, position, value,
     )?);
     Ok(json!({"id":id}))
+}
+/// Fail unless `sheet` names Main or a page of the project. It is checked before a part is
+/// placed, so a bad page leaves the project untouched.
+pub(crate) fn check_sheet(p: &Project, sheet: Option<Id>) -> Result<(), Error> {
+    match sheet {
+        Some(id) if id != 0 && !p.sheets.iter().any(|s| s.id == id) => Err(Error::Invalid(
+            "the destination sheet does not exist".into(),
+        )),
+        _ => Ok(()),
+    }
+}
+/// Put the part a placement just made on schematic page `sheet` (absent leaves it on Main).
+pub(crate) fn put_on_sheet(
+    result: &Value,
+    p: &mut Project,
+    sheet: Option<Id>,
+) -> Result<(), Error> {
+    let Some(sheet) = sheet else {
+        return Ok(());
+    };
+    let id = result["id"].as_u64().ok_or_else(missing)?;
+    p.components
+        .iter_mut()
+        .find(|c| c.id == id)
+        .ok_or_else(missing)?
+        .sheet = sheet;
+    Ok(())
 }
 /// Apply an optional rotation in degrees to a component just placed from `place_definition`.
 ///
@@ -11381,6 +11414,7 @@ fn run_command_part_1(
         }
         "component.add" => {
             let a: Add = parse(params)?;
+            check_sheet(p, a.sheet)?;
             // The palette kinds have their own prefix; any other kind in the
             // vocabulary is numbered like an integrated circuit.
             let prefix = match TEMPLATES.iter().find(|t| t.kind == a.kind) {
@@ -11416,11 +11450,15 @@ fn run_command_part_1(
                 }
                 c.rotation = degrees.rem_euclid(360.0);
             }
+            if let Some(sheet) = a.sheet {
+                c.sheet = sheet;
+            }
             p.components.push(c);
             Ok(json!({"id":id}))
         }
         "component.place_library" => {
             let a: PlaceLibrary = parse(params)?;
+            check_sheet(p, a.sheet)?;
             let resolved = resolve_library_path(p, &a.path);
             let path = std::path::Path::new(&resolved);
             let definition = library::symbol(path, &a.symbol)?;
@@ -11437,6 +11475,10 @@ fn run_command_part_1(
                 a.value,
             )
             .and_then(|placed| turn_placed(&placed, p, a.rotation))
+            .and_then(|placed| {
+                put_on_sheet(&placed, p, a.sheet)?;
+                Ok(placed)
+            })
         }
         "footprint.assign" => {
             let a: AssignFootprint = parse(params)?;

@@ -19,7 +19,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.import_symbol_dir","Read every symbol library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor symbol folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_part","Copy a part's symbol and, when it has one, its footprint into the project library as one undoable step, keeping the licence notice; the symbol is linked to the footprint by name",schema(json!({"symbol":{"type":"object","description":"a symbol definition as library readers emit it"},"footprint":{"type":"object","description":"a footprint definition as library readers emit it"},"notice":{"type":"string","description":"licence or attribution line kept with the project library"}}),&["symbol"])),
         ("part.place","Import a part if it is not in the project library yet and place it as one undoable step. On the schematic the symbol goes at the position; on the board the footprint goes at the position and the part joins the schematic parked below the drawing, not yet wired",schema(json!({"target":{"type":"string","enum":["schematic","board"]},"position":point_schema(),"name":{"type":"string","description":"a symbol already in the project library"},"kind":{"type":"string","description":"a built-in part kind such as resistor"},"symbol":{"type":"object"},"footprint":{"type":"object"},"notice":{"type":"string"},"reference":{"type":"string"},"value":{"type":"string"}}),&["target","position"])),
-        ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),&["name","position"])),
+        ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"},"sheet":id_schema()}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
         ("library.footprint.attach_starter_model","Attach a bundled starter 3D model to a project-library footprint when one matches its name or an explicit starter id, materializing the file into the user cache and recording the licence notice",schema(json!({"name":{"type":"string"},"id":{"type":"string","description":"starter model id; omit to match by footprint name"}}),&["name"])),
@@ -547,6 +547,9 @@ struct Place {
     value: Option<String>,
     #[serde(default)]
     rotation: Option<f64>,
+    /// Schematic page to place the part on; absent means Main (page 0).
+    #[serde(default)]
+    sheet: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3409,6 +3412,7 @@ pub(super) fn run(
         }
         "component.place_custom" => {
             let a: Place = parse(params)?;
+            check_sheet(p, a.sheet)?;
             let def = p
                 .library
                 .symbols
@@ -3426,6 +3430,10 @@ pub(super) fn run(
                 a.value,
             )
             .and_then(|placed| turn_placed(&placed, p, a.rotation))
+            .and_then(|placed| {
+                put_on_sheet(&placed, p, a.sheet)?;
+                Ok(placed)
+            })
         }
         "footprint.assign_custom" => {
             let a: Assign = parse(params)?;
