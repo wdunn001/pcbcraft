@@ -67,6 +67,7 @@ mod toolbar;
 mod tours;
 mod tours_progress;
 mod tours_replay;
+mod track_round_corners;
 mod tree_rows;
 mod via_backdrill;
 mod via_covering;
