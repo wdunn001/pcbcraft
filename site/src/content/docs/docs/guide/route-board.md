@@ -22,7 +22,7 @@ Open the sample with `cargo run -p pcbcraft -- --sample`. Click the **Layout** t
 
 1. In the Layers tree, find **Tracks** under **Layer 1 · Top**. It carries the **Active** tag, so new tracks go on the top side.
 
-The status strip shows the active layer, for example Layer 1 of 2 · Top copper. On the **Preferences** page the **Route on** entry also picks Top or Bottom.
+The status strip shows the active layer, for example Layer 1 of 2 · Top copper. Click another layer row in the Layers tree, or press `]` and `[`, to route on a different layer.
 
 ## Route two pads
 

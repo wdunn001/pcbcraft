@@ -2,8 +2,8 @@
 //! of copper layers.
 //!
 //! Context: `lib.rs` keeps the choice in `App::route_layer`; the Layers tree
-//! sets it too (through `draw_target.rs`). This module owns the Settings
-//! "Route on" row, the layer-step keys and the rule that keeps the choice
+//! sets it too (through `draw_target.rs`). This module owns the
+//! layer-step keys and the rule that keeps the choice
 //! valid when the stackup changes. Every value it stores is a real index into
 //! the stackup, never the two-layer shorthand `Layer::Back`.
 //!
@@ -13,73 +13,9 @@
 //! more than two.
 
 use crate::App;
-use crate::a11y::Named;
 use pcbcraft_doc::Layer;
-use pcbcraft_text::t;
 
 impl App {
-    /// Every copper layer of the board, top to bottom, with the plain name a
-    /// person sees: Top, Bottom, or the stackup name of an inner layer.
-    ///
-    /// # Rules
-    /// - Reads the stackup of `self.project`; one entry per copper layer.
-    ///
-    /// # Dependencies
-    /// - crates/doc/src/lib.rs (`Project::copper_layers`, `Project::layer_name`)
-    /// - crates/text/strings/en.txt (`settings.settings_tab.top` and `.bottom`)
-    ///
-    /// # Do not
-    /// - Cache the list; the stackup can change between frames.
-    pub(crate) fn route_on_choices(&self) -> Vec<(Layer, String)> {
-        let last = self.project.bottom_layer();
-        self.project
-            .copper_layers()
-            .into_iter()
-            .map(|layer| {
-                let name = if layer == Layer::Front {
-                    t!("settings.settings_tab.top")
-                } else if layer == last {
-                    t!("settings.settings_tab.bottom")
-                } else {
-                    self.project.layer_name(layer)
-                };
-                (layer, name)
-            })
-            .collect()
-    }
-
-    /// Draw the "Route on" choice: one button per copper layer of the board.
-    ///
-    /// Why: a four-layer board needs inner layers to be pickable, not only
-    /// Top and Bottom.
-    ///
-    /// # Rules
-    /// - Picking a layer sets `route_layer` and, when the drawing target is
-    ///   copper, the target follows it.
-    /// - Every button has a tooltip and an accessible name.
-    ///
-    /// # Dependencies
-    /// - crates/ui-egui/src/a11y.rs (`Named` gives each button its name)
-    ///
-    /// # Do not
-    /// - Show a layer the stackup does not have.
-    pub(crate) fn route_on_picker(&mut self, ui: &mut egui::Ui) {
-        let choices = self.route_on_choices();
-        let last = self.project.bottom_layer();
-        for (layer, name) in choices {
-            let tip = if layer == Layer::Front {
-                t!("settings.settings_tab.top.tip")
-            } else if layer == last {
-                t!("settings.settings_tab.bottom.tip")
-            } else {
-                t!("settings.settings_tab.inner.tip", name = name.clone())
-            };
-            ui.selectable_value(&mut self.route_layer, layer, name.clone())
-                .named(&name)
-                .on_hover_text(tip);
-        }
-    }
-
     /// Move the routing layer one step through the stackup, wrapping at the ends.
     ///
     /// # Rules

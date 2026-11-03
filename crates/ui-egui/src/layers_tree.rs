@@ -640,6 +640,7 @@ fn top_level(env: &Env) -> Vec<Row> {
                 let mut r = row("", &key, RowKind::Layer, label);
                 r.swatch = Some(sw);
                 r.expandable = true;
+                r.target = Layer::from_index(i as u8).ok().map(Target::Copper);
                 r.stack = Some(name);
                 r.controls = Some(LayerControls {
                     key: ctl_key,

@@ -1,0 +1,30 @@
+[
+ {
+  "id": "268408b1e9611a9594c9ec348835f5f6cc3931f1",
+  "name": "STM32F103C8Tx.kicad_sym",
+  "type": "blob",
+  "path": "MCU_ST_STM32F1.kicad_symdir/STM32F103C8Tx.kicad_sym",
+  "mode": "100644"
+ },
+ {
+  "id": "05a64ca0b623b1f2108c7cec4d56aedf51779eeb",
+  "name": "STM32F103R8Tx.kicad_sym",
+  "type": "blob",
+  "path": "MCU_ST_STM32F1.kicad_symdir/STM32F103R8Tx.kicad_sym",
+  "mode": "100644"
+ },
+ {
+  "id": "419c5d1b209b527bdac46b64e51dca24092628d4",
+  "name": "STM32F103RBTx.kicad_sym",
+  "type": "blob",
+  "path": "MCU_ST_STM32F1.kicad_symdir/STM32F103RBTx.kicad_sym",
+  "mode": "100644"
+ },
+ {
+  "id": "6f3684cf25973f3a6b2b0f8059234b1ccf9eb7e7",
+  "name": "STM32F103R_8-B_Tx.kicad_sym",
+  "type": "blob",
+  "path": "MCU_ST_STM32F1.kicad_symdir/STM32F103R_8-B_Tx.kicad_sym",
+  "mode": "100644"
+ }
+]

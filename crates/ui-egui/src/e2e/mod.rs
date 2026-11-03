@@ -34,6 +34,7 @@ mod layout;
 mod library;
 mod library_browser;
 mod library_dock;
+mod library_real_part;
 mod library_workspace;
 mod machine_library;
 mod minimap;
