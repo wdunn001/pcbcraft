@@ -14,6 +14,7 @@ thread_local! {
 }
 
 /// Hidden file input plus object-URL downloads for the wasm build.
+#[allow(dead_code)]
 pub struct WasmHost {
     input: HtmlInputElement,
 }
@@ -75,6 +76,7 @@ impl WasmHost {
         Ok(Self { input })
     }
 
+    #[allow(dead_code)]
     pub fn trigger_open(&self) {
         let _ = self.input.click();
     }
@@ -93,8 +95,8 @@ impl ProjectHost for WasmHost {
         array.copy_from(bytes);
         let parts = js_sys::Array::new();
         parts.push(&array.buffer());
-        let mut bag = BlobPropertyBag::new();
-        bag.type_("application/octet-stream");
+        let bag = BlobPropertyBag::new();
+        bag.set_type("application/octet-stream");
         let blob = Blob::new_with_u8_array_sequence_and_options(&parts, &bag)
             .map_err(|_| "could not build download blob")?;
         let url =
