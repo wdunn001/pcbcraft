@@ -544,6 +544,7 @@ pub enum Target {
     Node,
     Junction,
     NetLabel,
+    Port,
     /// Anything else selectable: zone, cutout, graphic, text.
     Other,
 }

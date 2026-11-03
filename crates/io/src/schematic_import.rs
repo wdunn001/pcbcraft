@@ -724,6 +724,7 @@ impl ImportCtx {
                     sheet: page.sheet_id,
                     position: *pos,
                     interchange_uuid: uuid.clone(),
+                    direction: "bidirectional".to_owned(),
                 });
             }
         }

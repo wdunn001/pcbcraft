@@ -3864,3 +3864,14 @@ status.done.save = Saved to {file}
 status.done.undo = Undid the last change
 status.done.redo = Redid the change
 status.done.files_made = Files made in {folder}
+
+schematic.port.props.section = Port
+schematic.port.props.section.tip = The hierarchy port that carries a net between pages.
+schematic.port.props.name = Name
+schematic.port.props.name.tip = The port name; ports with the same name on different pages carry the same net.
+schematic.port.direction = Direction
+schematic.port.direction.tip = Whether this port is an input, output, bidirectional or passive.
+schematic.port.direction.input = Input
+schematic.port.direction.output = Output
+schematic.port.direction.bidirectional = Both
+schematic.port.direction.passive = Passive
