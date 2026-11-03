@@ -1116,6 +1116,14 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         }),
     );
     files.insert(
+        "pcb-F.Silk.gbr".into(),
+        crate::gerber::gerber_silk(p, Layer::Front)?,
+    );
+    files.insert(
+        "pcb-B.Silk.gbr".into(),
+        crate::gerber::gerber_silk(p, Layer::Back)?,
+    );
+    files.insert(
         "pcb-Edge.gbr".into(),
         outline.finish(&LayerAttrs {
             comment: "board outline",
@@ -1281,6 +1289,62 @@ mod fab_export_tests {
             assert_eq!(text.matches(name.as_str()).count(), 1, "{name}");
         }
         assert!(text.contains("oracle board"));
+        Ok(())
+    }
+
+    #[test]
+    fn gerber_files_include_silk_layers() -> Result<(), String> {
+        let p = Project::default();
+        p.validate()?;
+        let files = gerber_files(&p)?;
+        assert!(files.contains_key("pcb-F.Silk.gbr"), "front silk missing");
+        assert!(files.contains_key("pcb-B.Silk.gbr"), "back silk missing");
+        Ok(())
+    }
+
+    #[test]
+    fn silk_layers_have_x2_attributes() -> Result<(), String> {
+        let p = Project::default();
+        p.validate()?;
+        let files = gerber_files(&p)?;
+        let front_silk = files.get("pcb-F.Silk.gbr").ok_or("front silk missing")?;
+        let back_silk = files.get("pcb-B.Silk.gbr").ok_or("back silk missing")?;
+        // Verify mandatory X2 attributes are present
+        for (name, content) in [
+            ("pcb-F.Silk.gbr", front_silk),
+            ("pcb-B.Silk.gbr", back_silk),
+        ] {
+            assert!(
+                content.contains("%TF.FileFunction,"),
+                "{name} missing FileFunction"
+            );
+            assert!(
+                content.contains("%TF.FilePolarity,"),
+                "{name} missing FilePolarity"
+            );
+            assert!(
+                content.contains("%TF.SameCoordinates,"),
+                "{name} missing SameCoordinates"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn silk_layers_parse_cleanly() -> Result<(), String> {
+        let p = Project::default();
+        p.validate()?;
+        let files = gerber_files(&p)?;
+        for name in ["pcb-F.Silk.gbr", "pcb-B.Silk.gbr"] {
+            let content = files.get(name).ok_or(format!("{} missing", name))?;
+            // Basic validation: file starts with gerber header and ends with M02
+            assert!(content.starts_with("G04"), "{name} missing G04 header");
+            assert!(content.contains("M02*"), "{name} missing M02 footer");
+            assert!(
+                content.contains("%FSLAX46Y46*%"),
+                "{name} missing format spec"
+            );
+        }
         Ok(())
     }
 }

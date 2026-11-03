@@ -621,3 +621,40 @@ fn io_and_mcp_never_use_the_localized_formatters() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_exports_silkscreen_layers_with_the_fabrication_files() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let directory = std::env::temp_dir().join(format!("pcbcraft-silk-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    app.make_dir = directory.to_string_lossy().into_owned();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Copper & drill files", 700.0)?,
+        "the make files section offers the copper and drill files"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "tab:Manufacture")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.plot_viewer.folder_path = directory.to_string_lossy().into_owned();
+    authoring::tests::tap(&ctx, &mut app, "Load")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "pcb-F.Silk.gbr")?,
+        "front silkscreen should appear in the layer list: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "pcb-B.Silk.gbr")?,
+        "back silkscreen should appear in the layer list: {}",
+        app.message
+    );
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
