@@ -2541,8 +2541,8 @@ web.reload = Reload the page
 web.reload.tip = Start PCBCraft again from the beginning. Changes made since the page opened are not kept.
 web.download_desktop = Download the desktop app
 web.download_desktop.tip = Open the releases page, where the desktop app for your computer is listed.
-web.needs_desktop = Open, Save and Export need the desktop app. In the browser your work stays in this tab only.
-web.limits = Browser version: your work stays in this tab. Open, Save, Export and library folders need the desktop app.
+web.needs_desktop = Some exports still need the desktop app. Open, Save and the main exports work in the browser through your file picker and downloads.
+web.limits = Browser version: Open picks a file and Save and Export download files. Some exports and library folders still need the desktop app.
 web.online_cross_origin_refused = This page cannot read the open library host. Online parts stay off; drop a symbol or footprint file to import it.
 # Layers tree: what each row is (hover text on every row of both trees)
 docks.workbench_tabs.library = Library
@@ -3845,6 +3845,13 @@ parts_table.export_no_path = Type a save path first.
 parts_table.export_copied = Parts table copied. The browser build cannot write files yet.
 parts_table.export_saved = Parts table saved as {path} ({rows} rows).
 parts_table.export_failed = Could not write the parts table: {error}
+webfs.pick_waiting = Choose a design file in the window that opened.
+webfs.opened = Opened {name}.
+webfs.open_failed = Could not open {name}: {reason}
+webfs.not_a_design = {name} is a library or part file, not a whole design, so it was not opened.
+webfs.save_failed = Could not save the design: {reason}
+webfs.exported = Downloaded {format}.
+webfs.export_unavailable = {format} cannot be downloaded from the browser yet.
 
 # project_status.rs footer
 status.project.name.tip = The project you are working on.

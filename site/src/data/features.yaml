@@ -395,7 +395,7 @@
 # ---------- Browser build ----------
 - area: browser
   name: Runs in a browser tab
-  summary: The shared interface compiles to WebAssembly. Opening, saving and exporting files need the desktop app.
+  summary: The shared interface compiles to WebAssembly. Open picks a file and Save downloads one; some exports need the desktop app.
   status: browser
   key: true
   evidence: [file:apps/pcbcraft-web]

@@ -53,7 +53,7 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
     let document = web_sys::window()
         .and_then(|window| window.document())
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("browser document unavailable"))?;
-    let _wasm_host = wasm_host::WasmHost::mount(&document)?;
+    let wasm_host = wasm_host::WasmHost::mount(&document)?;
     let canvas = document
         .get_element_by_id("pcbcraft")
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("missing pcbcraft canvas"))?
@@ -81,7 +81,8 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
                             http: None,
                             transport: Some(std::sync::Arc::new(browser_keys::BrowserTransport)),
                             keys: Some(std::sync::Arc::new(browser_keys::BrowserKeys)),
-                        }),
+                        })
+                        .with_project_host(Box::new(wasm_host)),
                 )))
             }),
         )
