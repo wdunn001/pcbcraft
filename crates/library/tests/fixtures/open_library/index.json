@@ -17,8 +17,11 @@
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/commits/master": "symbols-commit.json",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/files/Device.kicad_symdir%2FC.kicad_sym/raw?ref=45efbd93be87e365a21d743daf9b8a07e6414df6": "Device-C.kicad_sym",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/files/Device.kicad_symdir%2FR.kicad_sym/raw?ref=45efbd93be87e365a21d743daf9b8a07e6414df6": "Device-R.kicad_sym",
+ "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/files/MCU_ST_STM32F1.kicad_symdir%2FSTM32F103R8Tx.kicad_sym/raw?ref=45efbd93be87e365a21d743daf9b8a07e6414df6": "MCU_ST_STM32F1-STM32F103R8Tx.kicad_sym",
+ "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/files/MCU_ST_STM32F1.kicad_symdir%2FSTM32F103R_8-B_Tx.kicad_sym/raw?ref=45efbd93be87e365a21d743daf9b8a07e6414df6": "MCU_ST_STM32F1-STM32F103R_8-B_Tx.kicad_sym",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/tree?path=Connector_Generic.kicad_symdir&ref=45efbd93be87e365a21d743daf9b8a07e6414df6&per_page=100&page=1": "symbols-Connector_Generic.json",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/tree?path=Device.kicad_symdir&ref=45efbd93be87e365a21d743daf9b8a07e6414df6&per_page=100&page=1": "symbols-Device.json",
+ "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/tree?path=MCU_ST_STM32F1.kicad_symdir&ref=45efbd93be87e365a21d743daf9b8a07e6414df6&per_page=100&page=1": "symbols-MCU_ST_STM32F1.json",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/tree?ref=45efbd93be87e365a21d743daf9b8a07e6414df6&per_page=100&page=1": "symbols-root-1.json",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/tree?ref=45efbd93be87e365a21d743daf9b8a07e6414df6&per_page=100&page=2": "symbols-root-2.json",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/tree?ref=45efbd93be87e365a21d743daf9b8a07e6414df6&per_page=100&page=3": "symbols-root-3.json"

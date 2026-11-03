@@ -213,6 +213,13 @@ fn letters_of(squashed: &str) -> &str {
     &squashed[..end]
 }
 
+/// True when the last `_` part of a library name (`STM32F1` in `MCU_ST_STM32F1`) is at
+/// least four characters, holds a digit, and starts the lower-case word `token`.
+fn family_prefix_of(library: &str, token: &str) -> bool {
+    let family = library.rsplit('_').next().unwrap_or("").to_lowercase();
+    family.len() >= 4 && family.chars().any(|c| c.is_ascii_digit()) && token.starts_with(&family)
+}
+
 struct Layout {
     suffix: &'static str,
     extensions: &'static [&'static str],
@@ -611,6 +618,15 @@ impl OpenLibrarySource {
                 })
                 .collect();
             if matches.is_empty() {
+                // A chip number such as `stm32f103r8` also names its family library
+                // (`MCU_ST_STM32F1`); the number stays a word every name must hold.
+                if kind == CadKind::Symbol {
+                    for family in all.iter().filter(|l| family_prefix_of(l, token)) {
+                        if !chosen.contains(family) {
+                            chosen.push(family.clone());
+                        }
+                    }
+                }
                 words.push(token.to_owned());
             } else {
                 for m in matches {

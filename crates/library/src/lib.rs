@@ -59,6 +59,8 @@ mod source_sign;
 pub mod sources;
 pub mod static_registry;
 mod symbol_check;
+pub mod symbol_inherit;
+pub mod symbol_sourcing;
 mod validation;
 pub mod wall_clock;
 pub use component_kind::infer_component_kind;

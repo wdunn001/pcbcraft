@@ -234,8 +234,18 @@ impl App {
         (have, shown)
     }
 
-    /// Whether the lit layer (a selected layer row) includes `layer`, or none is lit.
+    /// Whether the lit layer (a selected layer row, or a focused copper face) includes `layer`, or
+    /// none is lit.
     pub(crate) fn layer_is_lit(&self, layer: Layer) -> bool {
+        // A focused copper face outshines every other layer; through vias are
+        // painted without this test, so they stay bright under either face.
+        if self.tab == Tab::Pcb {
+            match self.focus_layer.as_deref() {
+                Some("copper:front") => return layer == Layer::Front,
+                Some("copper:back") => return layer == self.project.bottom_layer(),
+                _ => {}
+            }
+        }
         match &self.layer_lit {
             Some(path) => *path == self.layer_path(layer),
             None => true,

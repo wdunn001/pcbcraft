@@ -6746,7 +6746,7 @@ impl Project {
                 symbol.definition.validate().map_err(|e| e.to_string())?;
                 if symbol.unit != 1
                     || symbol.library.len() > 256
-                    || !symbol.definition.unsupported.is_empty()
+                    || !symbol.definition.lossy_unsupported().is_empty()
                 {
                     return Err("invalid or unsupported embedded library symbol".into());
                 }
@@ -7392,10 +7392,15 @@ pub fn library_component(
     // reported as that clash, not as a generic duplicate-pin refusal.
     let pins = collapse_symbol_pins(&definition)?;
     definition.validate().map_err(|e| e.to_string())?;
-    if !definition.unsupported.is_empty() {
+    let lossy = definition.lossy_unsupported();
+    if !lossy.is_empty() {
         return Err(format!(
             "unsupported symbol features: {}",
-            definition.unsupported.join(", ")
+            lossy
+                .iter()
+                .map(|n| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     let unit_ids = symbol_units(&definition)?;

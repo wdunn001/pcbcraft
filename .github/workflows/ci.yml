@@ -190,15 +190,22 @@ jobs:
           persist-credentials: false
       - name: Install window-system packages
         run: .github/scripts/install-linux-deps.sh 
-      # Some runner work folders are small RAM-backed disks. A leftover target folder plus the
-      # restored cache leaves too little room to link every test binary, and the linker dies
-      # with a bus error. Clear the leftover when the work disk is short.
-      - name: Make room on the work disk
+      # Some runner work folders are small RAM-backed disks. The restored cache and the full
+      # test build do not fit in them, and the linker dies with a bus error. When the work
+      # disk is small, keep the build output on the container disk behind a symlink.
+      - name: Keep the build output on a big disk
         shell: bash
         run: |
           avail=$(df -m "$GITHUB_WORKSPACE" | awk 'NR==2{print $4}')
           echo "work disk free: ${avail} MB"
-          if [ "${avail:-99999}" -lt 7500 ]; then rm -rf target; fi
+          if [ "${avail:-99999}" -lt 20000 ]; then
+            rm -rf target
+            big="/tmp/pcb-target-${GITHUB_RUN_ID}-${GITHUB_JOB}"
+            mkdir -p "$big"
+            ln -s "$big" target
+            echo "PCB_BIG_TARGET=$big" >> "$GITHUB_ENV"
+            echo "build output on $big"
+          fi
       # The runner containers share one /cargo volume. A sibling job's cache restore
       # rewrites the registry under a running compile, which shows up as missing
       # sources or a vanished rustc. Give each job its own cargo home.
@@ -224,6 +231,10 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: ignore
           retention-days: 14
+      - name: Remove the build output from the big disk
+        if: ${{ always() }}
+        shell: bash
+        run: '[ -z "${PCB_BIG_TARGET:-}" ] || rm -rf "$PCB_BIG_TARGET"'
 
   # Stage 3: builds. They need only the cheap checks (lint, clippy), so they
   # run while the unit tests run. The wasm build comes first in priority.
@@ -417,15 +428,22 @@ jobs:
           persist-credentials: false
       - name: Install window-system packages
         run: .github/scripts/install-linux-deps.sh 
-      # Some runner work folders are small RAM-backed disks. A leftover target folder plus the
-      # restored cache leaves too little room to link every test binary, and the linker dies
-      # with a bus error. Clear the leftover when the work disk is short.
-      - name: Make room on the work disk
+      # Some runner work folders are small RAM-backed disks. The restored cache and the full
+      # test build do not fit in them, and the linker dies with a bus error. When the work
+      # disk is small, keep the build output on the container disk behind a symlink.
+      - name: Keep the build output on a big disk
         shell: bash
         run: |
           avail=$(df -m "$GITHUB_WORKSPACE" | awk 'NR==2{print $4}')
           echo "work disk free: ${avail} MB"
-          if [ "${avail:-99999}" -lt 7500 ]; then rm -rf target; fi
+          if [ "${avail:-99999}" -lt 20000 ]; then
+            rm -rf target
+            big="/tmp/pcb-target-${GITHUB_RUN_ID}-${GITHUB_JOB}"
+            mkdir -p "$big"
+            ln -s "$big" target
+            echo "PCB_BIG_TARGET=$big" >> "$GITHUB_ENV"
+            echo "build output on $big"
+          fi
       # The runner containers share one /cargo volume. A sibling job's cache restore
       # rewrites the registry under a running compile, which shows up as missing
       # sources or a vanished rustc. Give each job its own cargo home.
@@ -448,6 +466,10 @@ jobs:
           path: target/e2e
           if-no-files-found: ignore
           retention-days: 14
+      - name: Remove the build output from the big disk
+        if: ${{ always() }}
+        shell: bash
+        run: '[ -z "${PCB_BIG_TARGET:-}" ] || rm -rf "$PCB_BIG_TARGET"'
 
   # The marketing site and user guide (Astro). Runs when site/, docs/ or this workflow changes.
   # Every command is one npm script in site/package.json, so a failure reproduces locally.

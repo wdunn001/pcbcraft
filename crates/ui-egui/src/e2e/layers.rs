@@ -525,10 +525,8 @@ fn a_newcomer_draws_on_bottom_copper_of_a_four_layer_board() -> Result<(), Strin
         "the board now has four copper layers: {}",
         app.message
     );
-    // Settings > Route on > Bottom.
-    app.change_tab(Tab::Settings);
-    scrolled_to_at(&ctx, &mut app, "Route on", 700.0)?;
-    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    // Layers tree > Bottom layer row.
+    tap_left(&ctx, &mut app, &t!("tree.layer.bottom", n = 4))?;
     let net = app.project.nets[0].id;
     let routing_on = app.project.layer_key(app.route_layer);
     app.run(
@@ -726,5 +724,153 @@ fn a_newcomer_sees_where_the_last_page_ends() -> Result<(), String> {
     // There should be a components row below the divider.
     let below_components = rows[divider_index..].iter().any(|r| r.key == "components");
     assert!(below_components, "the components row is below the divider");
+    Ok(())
+}
+
+/// Colours of every straight line the frame paints.
+fn line_colours(ctx: &egui::Context, app: &mut App) -> Vec<egui::Color32> {
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    output
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::LineSegment { stroke, .. } => Some(stroke.color),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Fill colours of every round dot the frame paints (vias are round).
+fn dot_colours(ctx: &egui::Context, app: &mut App) -> Vec<egui::Color32> {
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let mut colours: Vec<egui::Color32> = output
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Circle(c) if c.radius >= 2.0 && c.center.x > LEFT_ASIDE + 20.0 => {
+                Some(c.fill)
+            }
+            _ => None,
+        })
+        .collect();
+    colours.sort_by_key(|c| c.to_array());
+    colours
+}
+
+/// The sample board with one signal routed on both copper faces and a via
+/// joining them, so a story can see each face and the through via.
+fn routed_app() -> (egui::Context, App) {
+    let (ctx, mut app) = pcb_app();
+    app.run("net.create", json!({"name": "SIGX"}));
+    app.refresh();
+    if let Some(net) = app
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "SIGX")
+        .map(|n| n.id)
+    {
+        for layer in ["F.Cu", "B.Cu"] {
+            app.run(
+                "track.add",
+                json!({"net": net, "start": [5.0, 5.0], "end": [15.0, 5.0], "width": 0.3, "layer": layer}),
+            );
+        }
+        app.run(
+            "via.place",
+            json!({"net": net, "position": {"x": 15.0, "y": 5.0}, "diameter": 0.6, "drill": 0.3}),
+        );
+    }
+    app.select(None);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    (ctx, app)
+}
+
+#[test]
+fn a_newcomer_focuses_a_layer_and_the_rest_fades() -> Result<(), String> {
+    let (ctx, mut app) = routed_app();
+    let bottom = app.project.bottom_layer();
+    assert!(
+        app.project.board.tracks.iter().any(|t| t.layer == bottom)
+            && app
+                .project
+                .board
+                .tracks
+                .iter()
+                .any(|t| t.layer == pcbcraft_doc::Layer::Front),
+        "the sample board has copper on both faces"
+    );
+    let before = line_colours(&ctx, &mut app);
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::F);
+    assert_eq!(app.focus_layer.as_deref(), Some("copper:front"));
+    let after = line_colours(&ctx, &mut app);
+    let faded = before
+        .iter()
+        .any(|b| after.contains(&b.linear_multiply(0.22)) && !after.contains(b));
+    assert!(
+        faded,
+        "a bottom track is still painted, at reduced strength: {}",
+        app.message
+    );
+    assert!(
+        before.iter().any(|b| after.contains(b)),
+        "the focused layer keeps its full strength"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_focuses_either_copper_face_and_vias_stay_bright() -> Result<(), String> {
+    let (ctx, mut app) = routed_app();
+    assert!(!app.project.board.vias.is_empty(), "the sample has vias");
+    let before = dot_colours(&ctx, &mut app);
+    for (row, focus) in [
+        ("side:top/copper", "copper:front"),
+        ("side:bottom/copper", "copper:back"),
+    ] {
+        press_on(&ctx, &mut app, row, egui::Key::F);
+        assert_eq!(app.focus_layer.as_deref(), Some(focus), "{}", app.message);
+        let after = dot_colours(&ctx, &mut app);
+        assert_eq!(
+            before, after,
+            "through vias keep their strength under {focus}"
+        );
+        key(&ctx, &mut app, egui::Key::F);
+        assert_eq!(app.focus_layer, None);
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_a_layer_on_the_schematic_and_its_parts_light_up() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(app.sheet_lit_for_test(), None, "nothing is lit at first");
+    let accent = app.colours().accent;
+    let lit_paths = |ctx: &egui::Context, app: &mut App| -> usize {
+        frame(ctx, app, vec![], egui::Modifiers::NONE)
+            .shapes
+            .iter()
+            .filter(|s| match &s.shape {
+                egui::Shape::Path(p) => p.stroke.color == egui::epaint::ColorMode::Solid(accent),
+                _ => false,
+            })
+            .count()
+    };
+    let quiet = lit_paths(&ctx, &mut app);
+    tap_left(&ctx, &mut app, &t!("tree.sch.symbols"))?;
+    assert_eq!(app.tab, Tab::Schematic, "picking a layer keeps the tab");
+    let (parts, nets) = app
+        .sheet_lit_for_test()
+        .ok_or("picking Symbols lights something")?;
+    assert!(
+        parts > 0 && nets > 0,
+        "the layer's parts ({parts}) and nets ({nets}) are lit"
+    );
+    assert!(
+        lit_paths(&ctx, &mut app) > quiet,
+        "the lit nets are painted in the accent colour"
+    );
     Ok(())
 }
