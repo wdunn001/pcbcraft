@@ -163,7 +163,7 @@ pub fn parse(slug: &str, text: &str) -> Result<Changeset, String> {
             "summary must be one plain sentence of 10 to {MAX_SUMMARY} characters"
         ));
     }
-    if summary.contains('\u{2014}') || summary.contains('\u{2013}') {
+    if summary.contains('\u{2014}') || summary.contains(" - ") || summary.contains('\u{2013}') {
         return Err("summary must not contain dashes used as punctuation".into());
     }
     Ok(Changeset {
@@ -289,6 +289,49 @@ pub fn check(
         }
     }
     Ok(())
+}
+
+/// True for a path that belongs to the app, the engine or the site and is not documentation.
+///
+/// # Rules
+/// - `crates/`, `apps/` and `site/` count; Markdown files and the documentation paths do not.
+/// - Tests under these folders count, because the same pull request still changes the product.
+///
+/// # Do not
+/// - List a folder here without a reason; a missing change file hides a change from the changelog.
+#[allow(dead_code)]
+fn is_product_path(path: &str) -> bool {
+    let product =
+        path.starts_with("crates/") || path.starts_with("apps/") || path.starts_with("site/");
+    product && !is_doc_path(path) && !path.ends_with(".md")
+}
+
+/// Fails a pull request that changes the product and adds no change file.
+///
+/// # Rules
+/// - A pull request labelled `docs-only` (or `docs only`), or one with no product path, passes.
+/// - Any file `.changes/<slug>.md` in the changed list satisfies the check; `check` judges its content.
+///
+/// # Do not
+/// - Look at git or the network; callers pass the changed files and the labels in.
+#[allow(dead_code)]
+pub fn require(files: &[String], labels: &[String]) -> Result<(), String> {
+    if labels
+        .iter()
+        .any(|l| matches!(l.trim().to_lowercase().as_str(), "docs-only" | "docs only"))
+    {
+        return Ok(());
+    }
+    if files.iter().any(|f| is_changeset_path(f)) {
+        return Ok(());
+    }
+    match files.iter().find(|f| is_product_path(f)) {
+        Some(first) => Err(format!(
+            "this pull request changes {first} but adds no change file under .changes/. \
+             Add one, or label the pull request docs-only if it changes documentation only"
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Instructions printed under every failure.
@@ -446,6 +489,21 @@ pub fn run_changeset(root: &Path, args: &[String]) -> Result<(), String> {
             println!("changeset ok ({} changed files)", files.len());
             Ok(())
         }
+        Some("require") => {
+            let base = std::env::var("CHANGESET_BASE").unwrap_or_else(|_| "origin/main".into());
+            let labels: Vec<String> = std::env::var("PR_LABELS")
+                .unwrap_or_default()
+                .split(',')
+                .map(str::to_string)
+                .collect();
+            let files = changed_files(&base)?;
+            require(&files, &labels).map_err(|e| format!("{e}\n{}", help()))?;
+            println!(
+                "change file present or not needed ({} changed files)",
+                files.len()
+            );
+            Ok(())
+        }
         Some("list") => {
             let sets = load_dir(root)?;
             let json: Vec<serde_json::Value> = sets
@@ -461,7 +519,7 @@ pub fn run_changeset(root: &Path, args: &[String]) -> Result<(), String> {
             println!("{}", serde_json::Value::Array(json));
             Ok(())
         }
-        _ => Err("usage: cargo xtask changeset check | list".into()),
+        _ => Err("usage: cargo xtask changeset check | require | list".into()),
     }
 }
 
@@ -549,6 +607,37 @@ mod tests {
         assert!(parse("x", "no frontmatter").is_err());
         assert!(parse("x", &GOOD.replace("area: layout\n", "")).is_err());
         assert!(parse("x", &GOOD.replace("type: fix\n", "type: fix\ntype: fix\n")).is_err());
+    }
+
+    #[test]
+    fn product_changes_need_a_change_file() {
+        let none: Vec<String> = Vec::new();
+        let docs_label = files(&["docs-only"]);
+        for code in [
+            "crates/engine/src/a.rs",
+            "apps/pcbcraft-web/x.rs",
+            "site/src/pages/a.astro",
+        ] {
+            assert!(require(&files(&[code]), &none).is_err(), "{code}");
+            assert!(
+                require(&files(&[code, ".changes/x.md"]), &none).is_ok(),
+                "{code}"
+            );
+            assert!(require(&files(&[code]), &docs_label).is_ok(), "{code}");
+        }
+        assert!(
+            require(
+                &files(&["docs/a.md", "site/src/content/docs/b.md", "README.md"]),
+                &none
+            )
+            .is_ok()
+        );
+        assert!(require(&files(&[".github/workflows/ci.yml"]), &none).is_ok());
+    }
+
+    #[test]
+    fn a_spaced_hyphen_is_a_dash() {
+        assert!(parse("x", &GOOD.replace("snap to", "snap - to")).is_err());
     }
 
     #[test]

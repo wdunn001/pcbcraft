@@ -495,7 +495,7 @@ pub fn gerber_component_layers(
              %TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n\
              %TF.FileFunction,{file_function}*%\n\
              %TF.FilePolarity,Positive*%\n\
-             %TF.SameCoordinates,PCBCraftFabrication*%\n\
+             %TF.SameCoordinates,PCBCraft*%\n\
              %FSLAX46Y46*%\n\
              %{unit}*%\n\
              %LPD*%\n\

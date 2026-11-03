@@ -526,11 +526,14 @@ fn a_newcomer_draws_on_bottom_copper_of_a_four_layer_board() -> Result<(), Strin
         app.message
     );
     // Settings > Route on > Bottom.
-    app.route_layer = pcbcraft_doc::Layer::Back;
+    app.change_tab(Tab::Settings);
+    scrolled_to_at(&ctx, &mut app, "Route on", 700.0)?;
+    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
     let net = app.project.nets[0].id;
+    let routing_on = app.project.layer_key(app.route_layer);
     app.run(
         "track.add",
-        json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":app.route_layer}),
+        json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":routing_on}),
     );
     app.refresh();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);

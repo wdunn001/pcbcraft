@@ -28,6 +28,7 @@ pub(crate) enum SheetTab {
     Findings,
     Output,
     Console,
+    Parts,
 }
 
 impl SheetTab {
@@ -37,12 +38,14 @@ impl SheetTab {
             SheetTab::Findings => "findings",
             SheetTab::Output => "output",
             SheetTab::Console => "console",
+            SheetTab::Parts => "parts",
         }
     }
     fn from_id(id: &str) -> Self {
         match id {
             "output" => SheetTab::Output,
             "console" => SheetTab::Console,
+            "parts" => SheetTab::Parts,
             _ => SheetTab::Findings,
         }
     }
@@ -114,6 +117,7 @@ impl App {
                             SheetTab::Findings => self.sheet_findings(ui, &findings),
                             SheetTab::Output => self.sheet_output(ui),
                             SheetTab::Console => self.sheet_console(ui),
+                            SheetTab::Parts => self.sheet_parts(ui),
                         });
                 }
             });

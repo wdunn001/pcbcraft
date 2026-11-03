@@ -72,6 +72,14 @@ cache key follows. Any workflow that runs trunk should restore the same cache.
 checkout (`../solidcraft`, or the path in `SOLIDCRAFT_DIR`) and prints a warning
 when they differ. It skips the comparison quietly when that checkout is absent.
 
+## Changelog and release notes
+
+Every pull request that changes the app, the engine or the site adds one change file under `.changes/` (format in `.changes/README.md`). The step "Require a change file" in the Lint job runs `cargo xtask changeset require` and fails a pull request that changes `crates/`, `apps/` or `site/` and adds none. A pull request carrying the `docs-only` label is exempt, as is one that changes documentation only.
+
+The site builds its Changelog page from those files. `site/src/lib/changelog-core.js` reads them, keeps the entries marked `user_visible: true` and sorts them newest first. The date and the pull request number come from the git history of the file, so the site and release jobs check out the full history. Files moved to `.changes/released/` by `cargo xtask changelog --version X` are still listed, so the history stays complete.
+
+The `publish-native` job in `cd.yml` writes the same entries into the notes of the `main-latest` release with `site/scripts/release-notes.mjs`. It lists the entries added since the commit named in the previous notes. `npm run test:changelog` in `site/` tests the reader and the notes.
+
 ## Nightly and off the pull request path
 
 These checks do not run per pull request. They run in `nightly.yml`, each with

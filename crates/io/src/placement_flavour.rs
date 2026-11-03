@@ -1,18 +1,14 @@
-//! Pick-and-place file flavours: the layout choices of a placement list kept as data.
+//! Pick-and-place file flavours: layout choices of a placement list kept as data.
 //!
-//! Context: assemblers each ask for their own placement list (header names, units,
-//! origin, side words, one file or one per side, a stated rotation sense). A
-//! [`PlacementFlavour`] records those choices and [`placement_flavoured`] writes the
-//! file or files; the bundled flavours live in `crates/io/data/placement-flavours.toml`.
+//! Context: assemblers ask for their own placement list format. A [`PlacementFlavour`]
+//! records the choices and [`placement_flavoured`] writes the file. Bundled flavours
+//! live in `crates/io/data/placement-flavours.toml`.
 //!
 //! # Rules
-//! - Pure text generation from a `Project`; the engine or `generate` writes to disk.
+//! - Pure text generation from a `Project`; the engine writes to disk.
 //! - `placement_text` is untouched; a design with no flavour keeps its old output.
-//! - A part is held back by a flavour when it is unpopulated in the chosen variant or
-//!   carries a truthy `DNP` or `Exclude from BOM` field; the flavour's [`DnpRule`] then
-//!   drops it, keeps it, or keeps it with a populate flag.
-//! - Bottom-side angle handling is one explicit [`BottomRotation`] choice, applied
-//!   after any rotation offset, never mixed into the coordinates.
+//! - A part is held back when unpopulated or marked DNP; the [`DnpRule`] decides.
+//! - Bottom-side angle handling is one explicit [`BottomRotation`] choice.
 //! - Text fields never contain the delimiter, a quote or a line break.
 //!
 //! # Dependencies
