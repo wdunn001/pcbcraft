@@ -284,7 +284,7 @@ fn a_newcomer_hides_a_layer_and_gets_it_back_as_it_was() -> Result<(), String> {
     // Toggle the Tracks sub-layer while the layer is hidden: turn it off.
     press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
     assert!(
-        !app.board_sub_effective("side:top", layer_visibility::SubLayer::Tracks),
+        !app.board_sub_stored("side:top", layer_visibility::SubLayer::Tracks),
         "toggling tracks while hidden changes the stored flag"
     );
     assert_eq!(
@@ -295,7 +295,7 @@ fn a_newcomer_hides_a_layer_and_gets_it_back_as_it_was() -> Result<(), String> {
     // Toggle the Tracks sub-layer back on while the layer is still hidden.
     press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
     assert!(
-        app.board_sub_effective("side:top", layer_visibility::SubLayer::Tracks),
+        app.board_sub_stored("side:top", layer_visibility::SubLayer::Tracks),
         "toggling tracks back on changes the stored flag"
     );
     assert_eq!(

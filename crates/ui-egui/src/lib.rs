@@ -2637,6 +2637,14 @@ impl App {
     ) -> bool {
         layer_visibility::sub_effective(&self.preferences.hidden_layers, side_path, sub)
     }
+    #[allow(dead_code)]
+    pub(crate) fn board_sub_stored(
+        &self,
+        side_path: &str,
+        sub: layer_visibility::SubLayer,
+    ) -> bool {
+        layer_visibility::sub_stored(&self.preferences.hidden_layers, side_path, sub)
+    }
     pub(crate) fn board_sub_effective_on_layer(
         &self,
         layer: pcbcraft_doc::Layer,
