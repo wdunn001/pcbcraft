@@ -84,7 +84,7 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
                         project.layer_name(*layer),
                     ),
                     objects: vec![*zone_id],
-                    hint: None,
+                    hint: Some("Add a ground via beside the layer change, or keep the track over solid ground.".into()),
                 });
                 return findings;
             }
@@ -114,7 +114,7 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
                         project.layer_name(ref_layer),
                     ),
                     objects: vec![track.id],
-                    hint: None,
+                    hint: Some("Add a ground via beside the layer change, or keep the track over solid ground.".into()),
                 });
                 return findings;
             }
@@ -140,7 +140,7 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
                     at.y,
                 ),
                 objects: vec![track.id],
-                hint: None,
+                hint: Some("Add a ground via beside the layer change, or keep the track over solid ground.".into()),
             });
         }
     }
@@ -167,7 +167,7 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
                     via.id,
                 ),
                 objects: vec![via.id],
-                hint: None,
+                hint: Some("Add a ground via beside the layer change, or keep the track over solid ground.".into()),
             });
         }
     }
@@ -542,6 +542,43 @@ mod tests {
         });
         p.validate()?;
         assert!(return_path_findings(&p).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn return_path_findings_have_a_fix_hint() -> Result<(), String> {
+        let mut p = two_layer_board_with_ground_pour();
+        p.board.zones[0]
+            .cutouts
+            .push(square(15.0, 18.0, 25.0, 22.0));
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 2,
+            start: Point::new(10.0, 20.0),
+            end: Point::new(30.0, 20.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.validate()?;
+        let findings = return_path_findings(&p);
+        assert!(!findings.is_empty(), "expected return path findings");
+        for finding in &findings {
+            assert_eq!(
+                finding.hint.as_deref(),
+                Some(
+                    "Add a ground via beside the layer change, or keep the track over solid ground."
+                )
+            );
+        }
+        p.board.tracks[0].start.y = 10.0;
+        p.board.tracks[0].end.y = 10.0;
+        p.validate()?;
+        assert!(
+            return_path_findings(&p).is_empty(),
+            "no finding when track is over solid ground"
+        );
         Ok(())
     }
 }
