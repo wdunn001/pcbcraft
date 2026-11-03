@@ -34,6 +34,17 @@ fn is_high_rail_net(name: &str) -> bool {
     upper.contains("5V") || upper.contains("+5") || upper.starts_with("VBUS")
 }
 
+fn pin_net_text(project: &Project, ctx: &FirmwareContext, pin: &str) -> String {
+    let id = ctx.mcu_component.id;
+    match pin_on_net(project, id, pin) {
+        Some(net_id) => match net_name(project, Some(net_id)) {
+            Some(name) => format!("net {}", name),
+            None => "no net".to_string(),
+        },
+        None => "no net".to_string(),
+    }
+}
+
 fn push(
     project: &Project,
     out: &mut Vec<Finding>,
@@ -81,9 +92,10 @@ fn check_invalid_function(ctx: &FirmwareContext, project: &Project, out: &mut Ve
                 "peripheral_invalid_function",
                 "error",
                 format!(
-                    "{} pin {} cannot take {} (allowed: {})",
+                    "{} pin {} ({}) cannot take {} (allowed: {})",
                     ctx.mcu_component.reference,
                     assign.pin,
+                    pin_net_text(project, ctx, &assign.pin),
                     assign.function,
                     pin.functions.join(", ")
                 ),
@@ -110,8 +122,12 @@ fn check_instance_conflicts(ctx: &FirmwareContext, project: &Project, out: &mut 
                 "peripheral_instance_conflict",
                 "error",
                 format!(
-                    "nets claim {} on {} and {} at once",
-                    signal, pins[0], pins[1]
+                    "nets claim {} on {} ({}) and {} ({}) at once",
+                    signal,
+                    pins[0],
+                    pin_net_text(project, ctx, pins[0]),
+                    pins[1],
+                    pin_net_text(project, ctx, pins[1])
                 ),
                 vec![id],
             );
@@ -195,8 +211,11 @@ fn check_5v_tolerance(ctx: &FirmwareContext, project: &Project, out: &mut Vec<Fi
                 "peripheral_5v_tolerance",
                 "error",
                 format!(
-                    "{} pin {} sits on net {} but the pad is not 5 V tolerant",
-                    ctx.mcu_component.reference, assign.pin, name
+                    "{} pin {} ({}) sits on net {} but the pad is not 5 V tolerant",
+                    ctx.mcu_component.reference,
+                    assign.pin,
+                    pin_net_text(project, ctx, &assign.pin),
+                    name
                 ),
                 vec![id],
             );
@@ -369,6 +388,30 @@ mod tests {
         assert!(
             findings.iter().any(|f| f.code == "peripheral_boot_strap"),
             "expected boot strap finding"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_function_finding_names_the_net() -> Result<(), String> {
+        let mut project = fixture_project();
+        project.files[0].data = project.files[0]
+            .data
+            .replace("function = \"SPI1_SCK\"", "function = \"CAN1_TX\"");
+        let findings = peripheral(&project);
+        let finding = findings
+            .iter()
+            .find(|f| f.code == "peripheral_invalid_function")
+            .ok_or("expected invalid function finding")?;
+        assert!(
+            finding.message.contains("PA5"),
+            "expected PA5 in message, got: {}",
+            finding.message
+        );
+        assert!(
+            finding.message.contains("+5V"),
+            "expected +5V in message, got: {}",
+            finding.message
         );
         Ok(())
     }

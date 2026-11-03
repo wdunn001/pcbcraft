@@ -35,6 +35,16 @@ fn options_tsw(positions: u32, rows: u32) -> ConnectorSeriesOptions {
     }
 }
 
+fn options_ssw(positions: u32, rows: u32) -> ConnectorSeriesOptions {
+    ConnectorSeriesOptions {
+        positions_per_row: positions,
+        rows,
+        lead_code: "07".into(),
+        stack_code: None,
+        alignment_posts: false,
+    }
+}
+
 #[test]
 fn tsw_example_parts_validate() -> Result<(), String> {
     for (positions, rows) in [(8, 1), (10, 1), (6, 2), (20, 2)] {
@@ -43,6 +53,42 @@ fn tsw_example_parts_validate() -> Result<(), String> {
         part.footprint.validate().map_err(|e| e.to_string())?;
         assert!(part.footprint.description.contains("verify against"));
         assert!(part.footprint.description.contains("samtec.com"));
+    }
+    Ok(())
+}
+#[test]
+fn ssw_footprint_passes_validate_for_all_position_counts() -> Result<(), String> {
+    for rows in 1..=2 {
+        for positions in 1..=40 {
+            let part = generate_connector_part("SSW", &options_ssw(positions, rows))
+                .map_err(|e| format!("SSW {positions}x{rows}: {e:?}"))?;
+            part.footprint
+                .validate()
+                .map_err(|e| format!("SSW {positions}x{rows} validate: {e}"))?;
+            if !part.footprint.description.contains("verify against") {
+                return Err(format!(
+                    "SSW {positions}x{rows}: description missing 'verify against'"
+                ));
+            }
+            let signal_pads: usize = part
+                .footprint
+                .pads
+                .iter()
+                .filter(|p| p.number.chars().all(|c| c.is_ascii_digit()))
+                .count();
+            let expected = (positions * rows) as usize;
+            if signal_pads != expected {
+                return Err(format!(
+                    "SSW {positions}x{rows}: expected {expected} signal pads, got {signal_pads}"
+                ));
+            }
+            if !part.part_number.starts_with("SSW-") {
+                return Err(format!(
+                    "SSW {positions}x{rows}: part number does not start with 'SSW-': {}",
+                    part.part_number
+                ));
+            }
+        }
     }
     Ok(())
 }

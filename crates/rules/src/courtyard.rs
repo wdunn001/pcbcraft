@@ -28,6 +28,7 @@ const FALLBACK_MARGIN_MM: f64 = 0.25;
 /// Overlap depth below which two courtyards count as touching, in millimetres.
 const TOUCH_MM: f64 = 1e-6;
 
+#[derive(Clone)]
 struct Yard {
     footprint: Id,
     label: String,
@@ -185,12 +186,14 @@ fn yards_of(project: &Project, f: &Footprint) -> Vec<Yard> {
     yards
 }
 
-/// Depth by which two convex polygons overlap, or `None` when they are apart.
+/// Depth and push direction for two overlapping convex polygons, or `None` when apart.
 ///
-/// Separating-axis test over the edge normals of both polygons; the depth is
-/// the smallest overlap found on any axis.
-fn overlap_depth(a: &[Point], b: &[Point]) -> Option<f64> {
-    let mut depth = f64::INFINITY;
+/// Separating-axis test over the edge normals of both polygons; the depth is the smallest
+/// overlap found on any axis. The direction is the unit vector along that axis oriented so
+/// it points from polygon a to polygon b (used to push a away from b).
+fn overlap_depth(a: &[Point], b: &[Point]) -> Option<(f64, (f64, f64))> {
+    let mut best = f64::INFINITY;
+    let mut best_axis = (0.0, 0.0);
     for poly in [a, b] {
         for (i, p) in poly.iter().enumerate() {
             let q = poly.get((i + 1) % poly.len()).copied()?;
@@ -212,25 +215,47 @@ fn overlap_depth(a: &[Point], b: &[Point]) -> Option<f64> {
             if overlap <= TOUCH_MM {
                 return None;
             }
-            depth = depth.min(overlap);
+            if overlap < best {
+                best = overlap;
+                best_axis = (axis.x, axis.y);
+            }
         }
     }
-    depth.is_finite().then_some(depth)
+    if !best.is_finite() {
+        return None;
+    }
+    let (ax, ay) = best_axis;
+    let centroid_a = a.iter().fold((0.0f64, 0.0f64), |(acc_x, acc_y), p| {
+        (acc_x + p.x, acc_y + p.y)
+    });
+    let centroid_b = b.iter().fold((0.0f64, 0.0f64), |(acc_x, acc_y), p| {
+        (acc_x + p.x, acc_y + p.y)
+    });
+    let cx = (centroid_b.0 / b.len() as f64) - (centroid_a.0 / a.len() as f64);
+    let cy = (centroid_b.1 / b.len() as f64) - (centroid_a.1 / a.len() as f64);
+    let dot = cx * ax + cy * ay;
+    let dir = if dot < 0.0 { (-ax, -ay) } else { (ax, ay) };
+    Some((best, dir))
 }
 
-/// One `courtyard_overlap` finding per pair of footprints whose courtyards
-/// intersect on the same side.
-///
-/// # Rules
-/// Severity is `project.rule_severity("courtyard_overlap", "error")`. The
-/// footprint ids are the finding's objects, lower id first.
-///
-/// # Dependencies
-/// `crates/doc/src/lib.rs` (`Footprint::drawing_points`).
-///
-/// # Do not
-/// Do not compare bounding boxes of rotated courtyards.
-pub(crate) fn courtyard_findings(project: &Project) -> Vec<Finding> {
+/// A pair of footprints whose courtyards overlap, with the depth and the direction
+/// to push one away from the other.
+/// A pair of footprints whose courtyards overlap, with the depth and the direction
+/// to push one away from the other.
+pub struct CourtyardPair {
+    /// The lower footprint id of the overlapping pair.
+    pub a: Id,
+    /// The higher footprint id of the overlapping pair.
+    pub b: Id,
+    /// The minimum translation distance to clear the overlap, in millimetres.
+    pub depth: f64,
+    /// The unit vector from footprint a to footprint b; move a by depth times
+    /// this vector to clear the overlap.
+    pub push: (f64, f64),
+}
+
+/// Shared overlap detection for the findings and the pairs API.
+fn courtyard_overlap_pairs(project: &Project) -> Vec<(Id, Id, f64, (f64, f64))> {
     let yards: Vec<Yard> = project
         .board
         .footprints
@@ -248,28 +273,89 @@ pub(crate) fn courtyard_findings(project: &Project) -> Vec<Finding> {
             if seen.contains(&key) {
                 continue;
             }
-            let Some(depth) = overlap_depth(&a.polygon, &b.polygon) else {
+            let Some((depth, push)) = overlap_depth(&a.polygon, &b.polygon) else {
                 continue;
             };
             seen.push(key);
-            let mut message = format!(
-                "{} and {} courtyards overlap by {depth:.3} mm",
-                a.label, b.label
-            );
-            for y in [a, b].iter().filter(|y| y.estimated) {
-                message.push_str(&format!(
-                    "; the courtyard of {} is estimated from its pads and drawing plus {FALLBACK_MARGIN_MM} mm",
-                    y.label
-                ));
-            }
-            result.push(Finding {
-                code: "courtyard_overlap",
-                severity: project.rule_severity("courtyard_overlap", "error"),
-                message,
-                objects: vec![key.0, key.1],
-                hint: None,
-            });
+            result.push((key.0, key.1, depth, push));
         }
+    }
+    result
+}
+
+/// Overlapping courtyard pairs with depth and push direction.
+///
+/// # Rules
+/// One pair per overlapping footprint pair on the same side, lower footprint id
+/// first. The depth is the minimum translation distance; the push direction is
+/// the unit vector pointing from footprint a to footprint b (so moving a by
+/// depth times push clears the overlap).
+///
+/// # Dependencies
+/// `crates/doc/src/lib.rs` (`Footprint::drawing_points`).
+///
+/// # Do not
+/// Do not compare bounding boxes of rotated courtyards.
+pub fn courtyard_pairs(project: &Project) -> Vec<CourtyardPair> {
+    courtyard_overlap_pairs(project)
+        .into_iter()
+        .map(|(a, b, depth, push)| CourtyardPair { a, b, depth, push })
+        .collect()
+}
+
+/// One `courtyard_overlap` finding per pair of footprints whose courtyards
+/// intersect on the same side.
+///
+/// # Rules
+/// Severity is `project.rule_severity("courtyard_overlap", "error")`. The
+/// footprint ids are the finding's objects, lower id first.
+///
+/// # Dependencies
+/// `crates/doc/src/lib.rs` (`Footprint::drawing_points`).
+///
+/// # Do not
+/// Do not compare bounding boxes of rotated courtyards.
+pub(crate) fn courtyard_findings(project: &Project) -> Vec<Finding> {
+    let pairs = courtyard_overlap_pairs(project);
+    let yards: Vec<Yard> = project
+        .board
+        .footprints
+        .iter()
+        .flat_map(|f| yards_of(project, f))
+        .collect();
+    let mut result = vec![];
+    for (a_id, b_id, depth, _push) in pairs {
+        let yard_a = yards.iter().find(|y| y.footprint == a_id).cloned();
+        let yard_b = yards.iter().find(|y| y.footprint == b_id).cloned();
+        let label_a = yard_a
+            .as_ref()
+            .map_or_else(|| format!("footprint {}", a_id), |y| y.label.clone());
+        let label_b = yard_b
+            .as_ref()
+            .map_or_else(|| format!("footprint {}", b_id), |y| y.label.clone());
+        let mut message = format!(
+            "{} and {} courtyards overlap by {depth:.3} mm",
+            label_a, label_b
+        );
+        if yard_a.as_ref().is_some_and(|y| y.estimated)
+            || yard_b.as_ref().is_some_and(|y| y.estimated)
+        {
+            for y in yard_a.iter().chain(yard_b.iter()) {
+                if y.estimated {
+                    message.push_str(&format!(
+                        "; the courtyard of {} is estimated from its pads and drawing plus {FALLBACK_MARGIN_MM} mm",
+                        y.label
+                    ));
+                }
+            }
+        }
+        result.push(Finding {
+            code: "courtyard_overlap",
+            severity: project.rule_severity("courtyard_overlap", "error"),
+            message,
+            objects: vec![a_id, b_id],
+            hint: None,
+        });
     }
     result
 }
@@ -511,5 +597,64 @@ mod tests {
         p.rule_severity
             .insert("courtyard_overlap".into(), "off".into());
         assert!(found(&p).is_empty());
+    }
+    #[test]
+    fn courtyard_pairs_give_depth_and_push_direction() {
+        // Two 2x1 mm courtyards, a at (0,0) and b at (1.5,0): overlap by 0.5 mm in x.
+        let mut p = Project::default();
+        part(
+            &mut p,
+            2,
+            Point::new(0.0, 0.0),
+            0.0,
+            Some((1.0, 0.5)),
+            "F.CrtYd",
+            None,
+        );
+        part(
+            &mut p,
+            3,
+            Point::new(1.5, 0.0),
+            0.0,
+            Some((1.0, 0.5)),
+            "F.CrtYd",
+            None,
+        );
+        let pairs = courtyard_pairs(&p);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].a, 12);
+        assert_eq!(pairs[0].b, 13);
+        assert!(
+            (pairs[0].depth - 0.5).abs() < 1e-9,
+            "depth: {}",
+            pairs[0].depth
+        );
+        assert!(
+            (pairs[0].push.0 - 1.0).abs() < 1e-9,
+            "push.x: {}",
+            pairs[0].push.0
+        );
+        assert!(
+            (pairs[0].push.1 - 0.0).abs() < 1e-9,
+            "push.y: {}",
+            pairs[0].push.1
+        );
+        // Mirrored: b at (-1.5, 0) pushes in the opposite direction.
+        p.board.footprints[1].position = Point::new(-1.5, 0.0);
+        let pairs = courtyard_pairs(&p);
+        assert_eq!(pairs.len(), 1);
+        assert!(
+            (pairs[0].push.0 - -1.0).abs() < 1e-9,
+            "mirrored push.x: {}",
+            pairs[0].push.0
+        );
+        // 3 mm apart: no overlap.
+        p.board.footprints[1].position = Point::new(3.0, 0.0);
+        assert!(courtyard_pairs(&p).is_empty());
+        // Findings and pairs agree on which pairs overlap.
+        p.board.footprints[1].position = Point::new(1.5, 0.0);
+        let pairs = courtyard_pairs(&p);
+        let findings = found(&p);
+        assert_eq!(pairs.len(), findings.len());
     }
 }
