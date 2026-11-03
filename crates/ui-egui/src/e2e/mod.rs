@@ -74,5 +74,6 @@ mod via_backdrill;
 mod via_covering;
 mod vias;
 mod view_side;
+mod webfs;
 mod wire_canvas;
 mod workbench;

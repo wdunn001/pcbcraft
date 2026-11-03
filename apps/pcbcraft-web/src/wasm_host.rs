@@ -1,6 +1,6 @@
 //! Browser file picker and blob download bridge for the web app shell.
 use pcbcraft_mcp::ProjectHost;
-use std::cell::{RefCell, RefMut};
+use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
@@ -11,6 +11,25 @@ const OPEN_ACCEPT: &str = ".pcbcraft,.zip,.pcbcraft-lib,.kicad_sym,.kicad_mod";
 
 thread_local! {
     static PENDING_OPEN: RefCell<Option<(String, Vec<u8>)>> = RefCell::new(None);
+}
+
+/// Read one picked or dropped file and park its bytes for `pick_open`.
+fn read_into_pending(file: &web_sys::File) {
+    let name = file.name();
+    let Ok(reader) = web_sys::FileReader::new() else {
+        return;
+    };
+    let reader = Rc::new(reader);
+    let reader_for_load = Rc::clone(&reader);
+    let onload = Closure::wrap(Box::new(move |_event: web_sys::ProgressEvent| {
+        if let Ok(result) = reader_for_load.result() {
+            let bytes = js_sys::Uint8Array::new(&result).to_vec();
+            PENDING_OPEN.with(|slot| *slot.borrow_mut() = Some((name.clone(), bytes)));
+        }
+    }) as Box<dyn FnMut(_)>);
+    reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+    onload.forget();
+    let _ = reader.read_as_array_buffer(file);
 }
 
 /// Hidden file input plus object-URL downloads for the wasm build.
@@ -33,44 +52,32 @@ impl WasmHost {
 
         let input_for_closure = input.clone();
         let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
-            let Some(file_list) = input_for_closure.files() else {
-                return;
-            };
-            if file_list.length() == 0 {
-                return;
+            if let Some(file) = input_for_closure.files().and_then(|list| list.get(0)) {
+                read_into_pending(&file);
             }
-            let Some(file) = file_list.get(0) else {
-                return;
-            };
-            let name = file.name();
-            let reader = match web_sys::FileReader::new() {
-                Ok(value) => Rc::new(RefCell::new(value)),
-                Err(_) => return,
-            };
-            let name_copy = name.clone();
-            let reader_for_load = Rc::clone(&reader);
-            let onload = Closure::wrap(Box::new(move |_event: web_sys::ProgressEvent| {
-                let reader_ref: RefMut<'_, web_sys::FileReader> = reader_for_load.borrow_mut();
-                match reader_ref.result() {
-                    Ok(result) => {
-                        let bytes = js_sys::Uint8Array::new(&result).to_vec();
-                        PENDING_OPEN.with(|slot| {
-                            *slot.borrow_mut() = Some((name_copy.clone(), bytes));
-                        });
-                    }
-                    Err(_) => {}
-                }
-            }) as Box<dyn FnMut(_)>);
-            {
-                let reader_ref = reader.borrow();
-                reader_ref.set_onload(Some(onload.as_ref().unchecked_ref()));
-            }
-            onload.forget();
-            let _ = reader.borrow().read_as_array_buffer(&file);
-            let _ = input_for_closure.set_value("");
+            input_for_closure.set_value("");
         }) as Box<dyn FnMut(_)>);
         input.set_onchange(Some(closure.as_ref().unchecked_ref()));
         closure.forget();
+
+        // Dropping a file anywhere on the page opens it like the picker does.
+        let over = Closure::wrap(Box::new(|event: web_sys::Event| {
+            event.prevent_default();
+        }) as Box<dyn FnMut(_)>);
+        let drop = Closure::wrap(Box::new(|event: web_sys::DragEvent| {
+            event.prevent_default();
+            if let Some(file) = event
+                .data_transfer()
+                .and_then(|transfer| transfer.files())
+                .and_then(|list| list.get(0))
+            {
+                read_into_pending(&file);
+            }
+        }) as Box<dyn FnMut(_)>);
+        body.add_event_listener_with_callback("dragover", over.as_ref().unchecked_ref())?;
+        body.add_event_listener_with_callback("drop", drop.as_ref().unchecked_ref())?;
+        over.forget();
+        drop.forget();
 
         Ok(Self { input })
     }
@@ -82,6 +89,14 @@ impl WasmHost {
 
 /// Contract: crates/mcp/src/project_host.rs
 impl ProjectHost for WasmHost {
+    fn takes_bytes(&self) -> bool {
+        true
+    }
+
+    fn request_open(&mut self) {
+        self.trigger_open();
+    }
+
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)> {
         PENDING_OPEN.with(|slot| slot.borrow_mut().take())
     }
@@ -94,7 +109,7 @@ impl ProjectHost for WasmHost {
         let parts = js_sys::Array::new();
         parts.push(&array.buffer());
         let mut bag = BlobPropertyBag::new();
-        bag.type_("application/octet-stream");
+        bag.set_type("application/octet-stream");
         let blob = Blob::new_with_u8_array_sequence_and_options(&parts, &bag)
             .map_err(|_| "could not build download blob")?;
         let url =

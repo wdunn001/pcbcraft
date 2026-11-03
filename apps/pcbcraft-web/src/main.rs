@@ -48,7 +48,7 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
     let document = web_sys::window()
         .and_then(|window| window.document())
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("browser document unavailable"))?;
-    let _wasm_host = wasm_host::WasmHost::mount(&document)?;
+    let wasm_host = wasm_host::WasmHost::mount(&document)?;
     let canvas = document
         .get_element_by_id("pcbcraft")
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("missing pcbcraft canvas"))?
@@ -71,7 +71,8 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
                 let session = pcbcraft_mcp::shared(opening_session(cc.storage));
                 Ok(Box::new(WithFonts::new(
                     pcbcraft_ui_egui::App::new(cc, session, None, None, false)
-                        .with_web_transport(transport, offline),
+                        .with_web_transport(transport, offline)
+                        .with_project_host(Box::new(wasm_host)),
                 )))
             }),
         )
