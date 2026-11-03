@@ -31,6 +31,21 @@ pub struct DocumentHub {
 }
 
 impl DocumentHub {
+    /// Create a hub with one document slot holding the given session.
+    ///
+    /// The initial path is used for display and save tracking; empty means
+    /// a new unnamed design. The path must be at most 1024 characters.
+    /// Returns an error if the session lock is poisoned or the path is too long.
+    ///
+    /// # Rules
+    /// - The caller must keep the session alive as long as the hub is used.
+    /// - Only one slot exists until another design is opened via the open tool.
+    ///
+    /// # Dependencies
+    /// - crates/mcp/src/lib.rs (`SharedSession`)
+    ///
+    /// # Do not
+    /// - Pass a path longer than 1024 characters.
     pub fn new(session: Session, initial_path: Option<String>) -> Result<Self, String> {
         let shared = shared(session);
         let (revision, path) = {
@@ -56,6 +71,19 @@ impl DocumentHub {
         })
     }
 
+    /// Return the shared session of the currently active document.
+    ///
+    /// Returns an error if there are no open documents or the lock is poisoned.
+    ///
+    /// # Rules
+    /// - The caller must not hold the lock while calling this.
+    /// - The returned session is the one that receives execute and tool calls.
+    ///
+    /// # Dependencies
+    /// - crates/mcp/src/lib.rs (`SharedSession`)
+    ///
+    /// # Do not
+    /// - Assume this returns the same session across calls if documents are opened.
     pub fn active_session(&self) -> Result<SharedSession, String> {
         let state = self
             .inner
@@ -68,6 +96,21 @@ impl DocumentHub {
             .ok_or_else(|| "no open documents".into())
     }
 
+    /// Route a tool call through the hub, dispatching by tool name.
+    ///
+    /// Document management tools (design.list_open, design.activate, open)
+    /// are handled by the hub; all others are forwarded to the active session.
+    /// Returns a JSON-RPC result object with isError set on failure.
+    ///
+    /// # Rules
+    /// - Args must be a JSON object.
+    /// - Tool names are validated against the registered schema.
+    ///
+    /// # Dependencies
+    /// - crates/mcp/src/lib.rs (`SharedSession`, `validate_tool_schema`)
+    ///
+    /// # Do not
+    /// - Call this for non-tool methods like initialize or ping.
     pub fn call_tool(&self, name: &str, args: &Value) -> Value {
         match self.invoke(name, args) {
             Ok(v) => v,
