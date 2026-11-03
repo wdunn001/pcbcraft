@@ -73,7 +73,7 @@ pub fn replace_session_from_open(
         OpenKind::Project(project) => {
             let mut current = lock_session(session)?;
             current
-                .replace(*project)
+                .open_project(*project)
                 .map(|_| ())
                 .map_err(|e| e.to_string())
         }

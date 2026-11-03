@@ -1764,3 +1764,38 @@ fn size_text(bytes: u64) -> String {
         format!("{} KB", bytes.div_ceil(1024).max(1))
     }
 }
+
+impl App {
+    /// Tell the user which nets an opened design had folded together because
+    /// they shared a name. Nothing is said when no name repeated.
+    ///
+    /// # Rules
+    /// - Reads the `merged` list the `open` tool returns and writes one plain
+    ///   sentence to the status line that names each net and how many were joined.
+    ///
+    /// # Dependencies
+    /// - crates/engine/src/net_names.rs (`NetMerge` is the shape of each entry)
+    /// - crates/text/strings/en.txt (`schematic.merge.notice`)
+    ///
+    /// # Do not
+    /// - Merge anything here: the engine already did, as one undo step.
+    pub(crate) fn note_merged_nets(&mut self, result: &serde_json::Value) {
+        let Some(rows) = result
+            .pointer("/structuredContent/merged")
+            .and_then(serde_json::Value::as_array)
+        else {
+            return;
+        };
+        let items: Vec<String> = rows
+            .iter()
+            .filter_map(|row| {
+                let name = row.get("name")?.as_str()?;
+                let count = row.get("merged")?.as_array()?.len() + 1;
+                Some(t!("schematic.merge.item", name = name, count = count))
+            })
+            .collect();
+        if !items.is_empty() {
+            self.message = t!("schematic.merge.notice", list = items.join(", "));
+        }
+    }
+}

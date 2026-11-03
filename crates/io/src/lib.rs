@@ -359,13 +359,25 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 /// # Do not
 /// - Call with paths to non-JSON files
 pub fn load(path: &Path) -> Result<Project, String> {
+    let project = load_for_open(path)?;
+    project.validate()?;
+    Ok(project)
+}
+
+/// Read a project file and migrate it, without validating it.
+/// # Rules
+/// - The caller validates; `Session::open_project` folds nets that share a
+///   name first and then validates, because `Project::validate` refuses a
+///   repeated net name.
+/// # Do not
+/// - Hand the result to anything that assumes a valid project.
+pub fn load_for_open(path: &Path) -> Result<Project, String> {
     let text = read_text(path)?;
     let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     // The document model reads copper layer names against the stackup itself
     // (legacy files without the naming marker keep their index-derived names).
     let mut project: Project = serde_json::from_value(root).map_err(|e| e.to_string())?;
     migrate_loaded_project(&mut project)?;
-    project.validate()?;
     Ok(project)
 }
 /// Read a text file at the given path, enforcing the 8 MiB size limit.
@@ -8946,6 +8958,7 @@ mod tests {
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
             text: String::new(),
+            style: String::new(),
         });
         project.validate()?;
         let pcb = postscript(&project, "pcb")?;
@@ -9533,6 +9546,7 @@ mod tests {
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
             text: String::new(),
+            style: String::new(),
         });
         project.validate()?;
         for view in ["pcb", "schematic"] {
@@ -14446,6 +14460,7 @@ mod tests {
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
             text: Default::default(),
+            style: String::new(),
         });
         project.labels.push(pcbcraft_doc::Label {
             id: 5,
@@ -14454,6 +14469,7 @@ mod tests {
             position: Point::new(20.0, 5.0),
             rotation: 0.0,
             text: Default::default(),
+            style: String::new(),
         });
         project.no_connects.push(pcbcraft_doc::NoConnectFlag {
             id: 6,

@@ -697,6 +697,7 @@ impl ImportCtx {
                     position: *pos,
                     rotation: *rot,
                     text: bus.clone(),
+                    style: String::new(),
                 });
             }
             for junction in &page.junctions {
@@ -710,6 +711,7 @@ impl ImportCtx {
                     position: *junction,
                     rotation: 0.0,
                     text: String::new(),
+                    style: String::new(),
                 });
             }
             for (pin_name, pos, uuid) in &page.sheet_pins {

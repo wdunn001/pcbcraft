@@ -52,6 +52,7 @@ mod route_drag;
 mod rules;
 mod rules_dialog;
 mod schematic_add;
+mod schematic_labels;
 mod schematic_pages;
 mod settings;
 mod sheet_rows;
