@@ -58,6 +58,7 @@ mod rules_dialog;
 mod schematic_add;
 mod schematic_label_edit;
 mod schematic_labels;
+mod schematic_page_scope;
 mod schematic_pages;
 mod selection;
 mod settings;

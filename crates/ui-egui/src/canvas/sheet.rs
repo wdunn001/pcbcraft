@@ -174,9 +174,15 @@ pub(super) struct Sheet {
 
 /// Everything the schematic draws, as one world rectangle, with room for the
 /// reference text above, the value text below and the power symbols.
-fn content_bounds(p: &Project) -> Option<(Point, Point)> {
+fn content_bounds(p: &Project, page: pcbcraft_doc::Id) -> Option<(Point, Point)> {
+    let in_page = |object: Id| crate::page_scope::object_in_view(p, page, object);
     let mut pts: Vec<Point> = Vec::new();
-    for c in p.components.iter().flat_map(|c| c.schematic_views()) {
+    for c in p
+        .components
+        .iter()
+        .filter(|c| crate::page_scope::in_view(p, page, c.sheet))
+        .flat_map(|c| c.schematic_views())
+    {
         pts.push(c.position);
         for pin in &c.pins {
             pts.push(c.position.offset(pin.offset.rotate(-c.rotation)));
@@ -187,20 +193,30 @@ fn content_bounds(p: &Project) -> Option<(Point, Point)> {
                 .map(|q| c.position.offset(q.rotate(-c.rotation))),
         );
     }
-    for w in &p.wires {
+    for w in p.wires.iter().filter(|w| in_page(w.id)) {
         if let Some(path) = p.wire_path(w) {
             pts.extend(path);
         }
     }
-    for w in &p.drawn_wires {
+    for w in p.drawn_wires.iter().filter(|w| in_page(w.id)) {
         pts.extend(w.points.iter().copied());
     }
-    pts.extend(p.labels.iter().map(|l| l.position));
-    pts.extend(p.ports.iter().map(|q| q.position));
+    pts.extend(
+        p.labels
+            .iter()
+            .filter(|l| in_page(l.id))
+            .map(|l| l.position),
+    );
+    pts.extend(
+        p.ports
+            .iter()
+            .filter(|q| crate::page_scope::in_view(p, page, q.sheet))
+            .map(|q| q.position),
+    );
     pts.extend(
         p.graphics
             .iter()
-            .filter(|g| g.layer == "schematic")
+            .filter(|g| g.layer == "schematic" && in_page(g.id))
             .flat_map(|g| g.points.iter().copied()),
     );
     let first = *pts.first()?;
@@ -250,7 +266,8 @@ fn today() -> String {
 /// - Move or resize anything in the project; the sheet follows the drawing.
 pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
     let settings = p.page_settings_of(page);
-    let (clo, chi) = content_bounds(p).unwrap_or((Point::new(0.0, 0.0), Point::new(80.0, 48.0)));
+    let (clo, chi) =
+        content_bounds(p, page).unwrap_or((Point::new(0.0, 0.0), Point::new(80.0, 48.0)));
     let (cw, ch) = (chi.x - clo.x, chi.y - clo.y);
     let fits = |w: f64, h: f64| {
         let band = (w * 0.02).clamp(3.0, 8.0);
@@ -323,8 +340,8 @@ pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
 }
 
 /// The world rectangle the fit button should show: the whole sheet.
-pub(super) fn sheet_bounds(p: &Project) -> (Point, Point) {
-    let s = sheet_for(p, 0);
+pub(super) fn sheet_bounds(p: &Project, page: pcbcraft_doc::Id) -> (Point, Point) {
+    let s = sheet_for(p, page);
     (s.lo, s.hi)
 }
 
@@ -780,7 +797,7 @@ pub(super) fn paint_power(
     for w in p
         .wires
         .iter()
-        .filter(|w| show_wires && p.on_schematic_page(page, w.id))
+        .filter(|w| show_wires && crate::page_scope::object_in_view(p, page, w.id))
     {
         match kinds.get(&w.net) {
             Some(PowerKind::Ground) => {
@@ -846,7 +863,7 @@ pub(super) fn paint_power(
     for l in p
         .labels
         .iter()
-        .filter(|l| l.kind == "power" && p.on_schematic_page(page, l.id))
+        .filter(|l| l.kind == "power" && crate::page_scope::object_in_view(p, page, l.id))
     {
         let name = p.net_name(l.net);
         match l.style.as_str() {
@@ -940,7 +957,7 @@ pub(super) fn hit_outlines(
         .components
         .iter()
         .flat_map(|c| c.schematic_views())
-        .filter(|c| c.sheet == page)
+        .filter(|c| crate::page_scope::in_view(p, page, c.sheet))
     {
         let mut lo = c.position;
         let mut hi = c.position;
@@ -959,7 +976,11 @@ pub(super) fn hit_outlines(
             bounds: body.expand2(Vec2::new(4.0, 2.5 * camera.zoom)),
         });
     }
-    for w in p.wires.iter().filter(|w| p.on_schematic_page(page, w.id)) {
+    for w in p
+        .wires
+        .iter()
+        .filter(|w| crate::page_scope::object_in_view(p, page, w.id))
+    {
         if kinds.get(&w.net) == Some(&PowerKind::Ground) {
             continue;
         }
@@ -978,7 +999,7 @@ pub(super) fn hit_outlines(
     for l in p
         .labels
         .iter()
-        .filter(|l| p.schematic_label_page(l) == page)
+        .filter(|l| crate::page_scope::in_view(p, page, p.schematic_label_page(l)))
     {
         let kind = if l.kind == "junction" {
             HitKind::Junction

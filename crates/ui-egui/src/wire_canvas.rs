@@ -253,10 +253,13 @@ impl App {
     /// The drawn wires that sit on schematic page `page`, so a pick or a snap
     /// never reaches a wire of another page.
     fn on_this_page_wires(&self, page: Id) -> impl Iterator<Item = &DrawnWire> {
-        self.project
-            .drawn_wires
-            .iter()
-            .filter(move |w| self.project.schematic_drawn_wire_page(w) == page)
+        self.project.drawn_wires.iter().filter(move |w| {
+            crate::page_scope::in_view(
+                &self.project,
+                page,
+                self.project.schematic_drawn_wire_page(w),
+            )
+        })
     }
 
     fn pick_wire_tee(&self, pos: Point, zoom: f32) -> Option<(Id, Point)> {

@@ -56,7 +56,13 @@ impl App {
         self.project
             .labels
             .iter()
-            .filter(|l| self.project.schematic_label_page(l) == page)
+            .filter(|l| {
+                crate::page_scope::in_view(
+                    &self.project,
+                    page,
+                    self.project.schematic_label_page(l),
+                )
+            })
             .filter(|l| l.kind != "bus")
             .filter(|l| l.position.distance(pos) * f64::from(zoom) <= reach(l))
             .min_by(|a, b| {

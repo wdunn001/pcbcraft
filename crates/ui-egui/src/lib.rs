@@ -53,6 +53,7 @@ mod motion;
 mod number_entry;
 mod outline_arcs;
 mod pad_tool;
+mod page_scope;
 mod pages;
 mod palette;
 mod parts_table;

@@ -214,7 +214,7 @@ impl App {
             .filter(|id| !self.sheet_row_hidden(*id))
             .filter(|id| {
                 self.tab != Tab::Schematic
-                    || self.project.on_schematic_page(self.schematic_page(), *id)
+                    || crate::page_scope::object_in_view(&self.project, self.schematic_page(), *id)
             })
             .filter(|id| {
                 self.bounds_of(*id)
@@ -566,7 +566,12 @@ impl App {
             }
         } else {
             let page = self.schematic_page();
-            for c in self.project.components.iter().filter(|c| c.sheet == page) {
+            for c in self
+                .project
+                .components
+                .iter()
+                .filter(|c| crate::page_scope::in_view(&self.project, page, c.sheet))
+            {
                 for pin in &c.pins {
                     if let Some(at) = c.pin_position(&pin.number) {
                         consider(at);

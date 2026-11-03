@@ -89,7 +89,10 @@ fn a_newcomer_sees_one_schematic_page_at_a_time() -> Result<(), String> {
     assert_eq!(app.schematic_page(), 0, "the Main tab goes back");
     let labels = canvas_labels(&app);
     assert!(labels.iter().any(|t| t.contains("R_ROOT")), "{labels:?}");
-    assert!(!labels.iter().any(|t| t.contains("R_PAGE")), "{labels:?}");
+    assert!(
+        labels.iter().any(|t| t.contains("R_PAGE")),
+        "Main shows the part of every page: {labels:?}"
+    );
     Ok(())
 }
 
@@ -408,8 +411,8 @@ fn a_newcomer_adds_a_second_page_and_carries_a_net_across() -> Result<(), String
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let labels = canvas_labels(&app);
     assert!(
-        !labels.iter().any(|t| t.contains("R_CHILD")),
-        "Main hides the child page part: {labels:?}"
+        labels.iter().any(|t| t.contains("R_CHILD")),
+        "Main shows the part of every page: {labels:?}"
     );
     assert!(
         labels.iter().any(|t| t.contains("[SDA]")),

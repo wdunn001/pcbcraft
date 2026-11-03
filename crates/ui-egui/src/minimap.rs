@@ -133,7 +133,7 @@ fn corners(lo: Point, hi: Point) -> Vec<Point> {
 /// # Do not
 /// - Read selection or findings here; see [`build_marks`].
 pub(crate) fn build_overview(project: &Project, pcb: bool, page: Id) -> Overview {
-    let bounds = crate::canvas::view_bounds(project, pcb);
+    let bounds = crate::canvas::view_bounds(project, pcb, page);
     let mut out = Overview {
         bounds,
         ..Overview::default()
@@ -168,14 +168,14 @@ pub(crate) fn build_overview(project: &Project, pcb: bool, page: Id) -> Overview
         out.outline = corners(bounds.0, bounds.1);
         let mut segs: Vec<(Seg, bool)> = Vec::new();
         for wire in &project.wires {
-            if project.on_schematic_page(page, wire.id)
+            if crate::page_scope::object_in_view(project, page, wire.id)
                 && let Some(path) = project.wire_path(wire)
             {
                 segs.extend(path.windows(2).map(|w| ([w[0], w[1]], true)));
             }
         }
         for wire in &project.drawn_wires {
-            if project.on_schematic_page(page, wire.id) {
+            if crate::page_scope::object_in_view(project, page, wire.id) {
                 segs.extend(wire.points.windows(2).map(|w| ([w[0], w[1]], true)));
             }
         }
@@ -184,7 +184,7 @@ pub(crate) fn build_overview(project: &Project, pcb: bool, page: Id) -> Overview
         let parts: Vec<(Point, Point)> = project
             .components
             .iter()
-            .filter(|c| c.sheet == page)
+            .filter(|c| crate::page_scope::in_view(project, page, c.sheet))
             .map(|c| {
                 (
                     Point::new(c.position.x - 3.0, c.position.y - 3.0),
@@ -254,7 +254,7 @@ fn object_point(project: &Project, pcb: bool, page: Id, id: Id) -> Option<Point>
     } else {
         project
             .component(id)
-            .filter(|c| c.sheet == page)
+            .filter(|c| crate::page_scope::in_view(project, page, c.sheet))
             .map(|c| c.position)
     }
 }
@@ -304,7 +304,7 @@ pub(crate) fn build_marks(
                 .collect();
         } else {
             for wire in project.wires.iter().filter(|w| w.net == net) {
-                if project.on_schematic_page(page, wire.id)
+                if crate::page_scope::object_in_view(project, page, wire.id)
                     && let Some(path) = project.wire_path(wire)
                 {
                     marks.net.extend(path.windows(2).map(|w| [w[0], w[1]]));

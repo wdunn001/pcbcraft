@@ -162,7 +162,11 @@ impl App {
                 };
             }
             for w in &self.project.drawn_wires {
-                if self.project.schematic_drawn_wire_page(w) != page {
+                if !crate::page_scope::in_view(
+                    &self.project,
+                    page,
+                    self.project.schematic_drawn_wire_page(w),
+                ) {
                     continue;
                 }
                 if let Some(i) = w.points.iter().position(|p| near(p.distance(pos), 6.0)) {
@@ -170,7 +174,11 @@ impl App {
                 }
             }
             for w in &self.project.drawn_wires {
-                if self.project.schematic_drawn_wire_page(w) != page {
+                if !crate::page_scope::in_view(
+                    &self.project,
+                    page,
+                    self.project.schematic_drawn_wire_page(w),
+                ) {
                     continue;
                 }
                 for (i, pair) in w.points.windows(2).enumerate() {
