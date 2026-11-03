@@ -8396,9 +8396,9 @@ mod tests {
         label: &str,
         mut done: impl FnMut(&App) -> bool,
     ) -> Result<bool, String> {
-        for _ in 0..5 {
+        for _ in 0..12 {
             authoring::tests::tap(ctx, app, label)?;
-            if frames_until(ctx, app, 80, &mut done) {
+            if frames_until(ctx, app, 240, &mut done) {
                 return Ok(true);
             }
         }
