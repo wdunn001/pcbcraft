@@ -87,7 +87,7 @@ The Checks tab runs after every edit and lists what it finds, grouped by check.
 - Pads, drills, part courtyards, board text and silkscreen that touch or overlap, and cut, perforation and mask figures against copper, pads and the board edge.
 - Board outline edge and circular cutout clearance.
 
-Limits: some findings can be false alarms. When fabrication limits are set on the board, minimum track width, drill size, and annular ring on vias and plated pads are checked, and drills that touch or overlap are errors. Pin-type rules beyond ERC, zones and hierarchy are not covered yet. Each check can be set to warning or turned off in the project rules. Hide this hides one finding; Quiet this area hides a check inside a box around the finding.
+Limits: some findings can be false alarms. When fabrication limits are set on the board, minimum track width, drill size, and annular ring on vias and plated pads are checked, and drills that touch or overlap are errors. You can apply a named fabrication preset that sets all the limits at once and records where the values came from. Clearance between two named net classes can be set independently of the board default. Pin-type rules beyond ERC, zones and hierarchy are not covered yet. Each check can be set to warning or turned off in the project rules. Hide this hides one finding; Quiet this area hides a check inside a box around the finding.
 
 ## Libraries
 
