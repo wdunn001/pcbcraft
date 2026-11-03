@@ -671,9 +671,6 @@ impl App {
         } else {
             None
         };
-        if let Some(focus) = &focus {
-            Self::apply_layer_focus(&mut visible, focus);
-        }
         painter.rect_filled(
             rect,
             0.0,
@@ -1147,18 +1144,6 @@ impl App {
             self.show_canvas_menu(ui.ctx(), screen, kind);
         }
     }
-    /// Narrow the view to a focused drawn machine layer. A focused copper face
-    /// is not cut away here: `lit_alpha` paints the other layers faint instead.
-    fn apply_layer_focus(p: &mut Project, focus: &str) {
-        let board = &mut p.board;
-        if let Some(name) = focus.strip_prefix("art:") {
-            board.tracks.clear();
-            board.zones.clear();
-            board.texts.clear();
-            board.vias.clear();
-            board.user_layers.retain(|l| l.name == name);
-        }
-    }
 
     /// Draw the shapes the designer put on their own layers. Cut layers read
     /// as a strong outline, perforation layers are dotted so they say
@@ -1175,6 +1160,7 @@ impl App {
                 pcbcraft_doc::ArtKind::Mask => self.colours().canvas.mask,
                 pcbcraft_doc::ArtKind::Other => self.ink().linear_multiply(0.55),
             };
+            let colour = colour.linear_multiply(self.art_alpha(&layer.name));
             let stroke = Stroke::new(1.2, colour);
             let dotted = layer.dotted;
             for shape in &layer.shapes {
