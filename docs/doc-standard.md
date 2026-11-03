@@ -126,7 +126,8 @@ Review still reads whether the prose is true, whether the rule belongs at that l
 ## Contracts in PCBCraft
 
 - `ChatBackend`, crates/assistant/src/backend.rs. Implementations: `ApiBackend` in crates/assistant/src/api.rs, `ScriptBackend` in crates/assistant/src/script.rs.
-- `Secrets`, crates/assistant/src/backend.rs. Implementations: none yet.
+- `ModelKeyStore`, crates/assistant/src/provider.rs. Implementations: `MemKeys` (same file), `Keychain` in apps/pcbcraft/src/host.rs, `BrowserKeys` in apps/pcbcraft-web/src/browser_keys.rs.
+- `ModelProvider` and `Transport`, crates/assistant/src/provider.rs. Implementations: `CloudProvider`, `MemProvider`, `ThreadTransport` (same file), `BrowserTransport` in apps/pcbcraft-web/src/browser_keys.rs.
 - `PartSource`, crates/library/src/sources.rs. Implementations: `FixtureSource` (same file), `Counting` (crates/library/tests/sources.rs, test only).
 - Engine command registry, crates/engine/src/lib.rs: `Command`, `CommandSpec` and `commands()`, which chains the specs from crates/engine/src/authoring.rs and crates/engine/src/tuning.rs. Handlers run through `run_command` in crates/engine/src/lib.rs and the `run` function in each of those two modules. Consumers: crates/mcp/src/lib.rs, crates/ui-egui/src/lib.rs, apps/pcbcraft-cli/src/main.rs.
 

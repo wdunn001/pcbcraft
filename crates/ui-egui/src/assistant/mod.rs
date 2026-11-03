@@ -16,8 +16,8 @@ mod text;
 
 use super::{App, Tab};
 use pcbcraft_assistant::{
-    ApiBackend, ChatBackend, Event, HttpFn, Item, PromptPart, Secrets, StartContext, StepState,
-    ToolRequest, Transcript, Turn, Verdict,
+    ApiBackend, ChatBackend, CloudProvider, Event, HttpFn, Item, ModelKeyStore, PromptPart,
+    ProviderBackend, StartContext, StepState, ToolRequest, Transcript, Transport, Turn, Verdict,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -36,10 +36,12 @@ pub(crate) fn tab_tip() -> String {
 /// What the desktop or web shell offers the assistant. `None` means the shell has no such thing.
 #[derive(Clone, Default)]
 pub struct Host {
-    /// Sends one HTTP request. Absent in the browser build.
+    /// Sends one blocking HTTP request from a thread, with streaming. Absent where the shell has no threads.
     pub http: Option<HttpFn>,
-    /// The system keychain for model keys. Absent where the shell has none.
-    pub secrets: Option<Arc<dyn Secrets>>,
+    /// Sends one HTTP request and reports through a callback. The way the browser shell sends.
+    pub transport: Option<Arc<dyn Transport>>,
+    /// Where model keys are kept. Absent where the shell has no place for them.
+    pub keys: Option<Arc<dyn ModelKeyStore>>,
 }
 
 /// A tool call held back until the user answers.
@@ -214,9 +216,9 @@ impl App {
         if self.assistant.backend.is_some() || self.assistant.tried {
             return;
         }
-        let Some(http) = self.assistant.host.http.clone() else {
+        if self.assistant.host.http.is_none() && self.assistant.host.transport.is_none() {
             return;
-        };
+        }
         let Some(connection) = self
             .preferences
             .assistant_connections
@@ -228,19 +230,43 @@ impl App {
         };
         self.assistant.tried = true;
         let key = if connection.has_key {
-            self.assistant.host.secrets.as_ref().and_then(|s| {
+            self.assistant.host.keys.as_ref().and_then(|s| {
                 s.get(&pcbcraft_assistant::key_id(&connection.id))
                     .ok()
                     .flatten()
+                    .map(|k| k.expose().to_string())
             })
         } else {
             None
         };
-        let config = pcbcraft_assistant::config_for(&connection, key, String::new());
         let context = self.assistant.start_context(std::path::PathBuf::new());
-        match ApiBackend::start(config, context, http) {
+        let started: Result<Box<dyn ChatBackend>, String> = if let Some(http) =
+            self.assistant.host.http.clone()
+        {
+            let config = pcbcraft_assistant::config_for(&connection, key, String::new());
+            ApiBackend::start(config, context, http).map(|b| Box::new(b) as Box<dyn ChatBackend>)
+        } else if let (Some(transport), Some(keys)) = (
+            self.assistant.host.transport.clone(),
+            self.assistant.host.keys.clone(),
+        ) {
+            let provider = CloudProvider::new(
+                connection.protocol,
+                &connection.base_url,
+                &connection.model,
+                connection
+                    .has_key
+                    .then(|| pcbcraft_assistant::key_id(&connection.id)),
+                keys,
+                transport,
+            );
+            ProviderBackend::start(Arc::new(provider), context)
+                .map(|b| Box::new(b) as Box<dyn ChatBackend>)
+        } else {
+            Err(text::no_http_body())
+        };
+        match started {
             Ok(backend) => {
-                self.assistant_use(Box::new(backend));
+                self.assistant_use(backend);
                 self.assistant.active = Some(connection.id);
                 self.assistant.ready = true;
             }

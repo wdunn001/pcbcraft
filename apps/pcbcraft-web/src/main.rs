@@ -10,7 +10,10 @@
 //! The online part source runs through the browser's own fetch
 //! (`browser_fetch.rs`), started by `crates/library/src/web_transport.rs`.
 //!
+//! The assistant gets its keys and its requests from `browser_keys.rs` (Web Storage and fetch).
+//!
 //! # Dependencies
+//! - `apps/pcbcraft-web/src/browser_keys.rs` (assistant keys and requests, wasm only)
 //! - `apps/pcbcraft-web/src/browser_fetch.rs` (the browser transport, wasm only)
 //! - `crates/text/strings/en.txt` (message text)
 //! - `apps/pcbcraft-web/index.html`
@@ -22,6 +25,8 @@
 
 #[cfg(target_arch = "wasm32")]
 mod browser_fetch;
+#[cfg(target_arch = "wasm32")]
+mod browser_keys;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
@@ -71,7 +76,12 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
                 let session = pcbcraft_mcp::shared(opening_session(cc.storage));
                 Ok(Box::new(WithFonts::new(
                     pcbcraft_ui_egui::App::new(cc, session, None, None, false)
-                        .with_web_transport(transport, offline),
+                        .with_web_transport(transport, offline)
+                        .with_host(pcbcraft_ui_egui::Host {
+                            http: None,
+                            transport: Some(std::sync::Arc::new(browser_keys::BrowserTransport)),
+                            keys: Some(std::sync::Arc::new(browser_keys::BrowserKeys)),
+                        }),
                 )))
             }),
         )

@@ -3,7 +3,7 @@
 //! Context: adapted in shape from SolidCraft (MIT OR Apache-2.0), commit 32558d0a,
 //! `crates/ui-egui/src/agent_chat/settings.rs`. Called from `settings_tab()` and from
 //! `App::assistant_frame`.
-//! Rules: a key goes to the keychain through `Host.secrets` and never into the preferences, a
+//! Rules: a key goes to the key store of the shell through `Host.keys` and never into the preferences, a
 //! log line or the design; the key field shows only for an address the key may be sent to; Test
 //! runs on a thread through `Host.http` and shows its outcome as text; every control has a tooltip.
 //! Do not: send a request from anywhere but a button the user pressed.
@@ -12,8 +12,8 @@ use super::text;
 use crate::App;
 use crate::a11y::Named;
 use pcbcraft_assistant::{
-    Connection, HttpFn, Mode, PRESETS, Protocol, anthropic_model_list, key_safe_for, model_list,
-    new_id, normalize_url, test_anthropic_endpoint,
+    Connection, HttpFn, KeptIn, Mode, PRESETS, Protocol, ProviderKind, anthropic_model_list,
+    key_safe_for, model_list, new_id, normalize_url, test_anthropic_endpoint,
 };
 use std::sync::{Arc, Mutex};
 
@@ -33,6 +33,7 @@ pub(crate) enum TestState {
 /// The Add connection window.
 pub(crate) struct Dialog {
     preset: usize,
+    kind: ProviderKind,
     name: String,
     url: String,
     model: String,
@@ -45,6 +46,7 @@ impl Dialog {
     fn new() -> Self {
         let mut d = Self {
             preset: 0,
+            kind: ProviderKind::Cloud,
             name: String::new(),
             url: String::new(),
             model: String::new(),
@@ -227,6 +229,7 @@ fn connections(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
     let mut remove = None;
     let mut make_default = None;
     let mut test = None;
+    let mut clear_key = None;
     for c in &rows {
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -273,6 +276,13 @@ fn connections(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
                     .clicked()
                 {
                     test = Some(c.clone());
+                }
+                if ui
+                    .add_enabled(c.has_key, egui::Button::new(text::clear_key()))
+                    .on_hover_text(text::clear_key_tip())
+                    .clicked()
+                {
+                    clear_key = Some(c.id.clone());
                 }
                 if ui
                     .button(text::remove())
@@ -353,9 +363,28 @@ fn connections(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
         );
         app.assistant.row_test = Some((c.id, slot));
     }
+    if let Some(id) = clear_key {
+        clear_connection_key(app, &id);
+    }
     if let Some(id) = remove {
         remove_connection(app, &id);
     }
+}
+
+/// Delete the stored key of one connection and keep the connection.
+pub(crate) fn clear_connection_key(app: &mut App, id: &str) {
+    if let Some(keys) = &app.assistant.host.keys {
+        let _ = keys.clear(&pcbcraft_assistant::key_id(id));
+    }
+    if let Some(row) = app
+        .preferences
+        .assistant_connections
+        .iter_mut()
+        .find(|c| c.id == id)
+    {
+        row.has_key = false;
+    }
+    app.assistant_reconnect();
 }
 
 fn stored_key(app: &App, c: &Connection) -> Option<String> {
@@ -364,15 +393,16 @@ fn stored_key(app: &App, c: &Connection) -> Option<String> {
     }
     app.assistant
         .host
-        .secrets
+        .keys
         .as_ref()
         .and_then(|s| s.get(&pcbcraft_assistant::key_id(&c.id)).ok().flatten())
+        .map(|k| k.expose().to_string())
 }
 
 /// Forget a connection and delete its keychain entry.
 pub(crate) fn remove_connection(app: &mut App, id: &str) {
-    if let Some(secrets) = &app.assistant.host.secrets {
-        let _ = secrets.delete(&pcbcraft_assistant::key_id(id));
+    if let Some(keys) = &app.assistant.host.keys {
+        let _ = keys.clear(&pcbcraft_assistant::key_id(id));
     }
     app.preferences.assistant_connections.retain(|c| c.id != id);
     app.preferences.assistant_modes.remove(id);
@@ -419,6 +449,23 @@ pub(crate) fn dialog(app: &mut App, ctx: &egui::Context) {
                         d.apply_preset(d.preset);
                     }
                     ui.add_space(8.0);
+                    egui::ComboBox::from_id_salt("assistant-kind")
+                        .selected_text(kind_name(d.kind))
+                        .show_ui(ui, |ui| {
+                            for k in ProviderKind::ALL {
+                                ui.selectable_value(&mut d.kind, k, kind_name(k));
+                            }
+                        })
+                        .response
+                        .on_hover_text(text::kind_tip());
+                    if !d.kind.is_built() {
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(text::kind_not_built(
+                                &kind_name(d.kind),
+                            )))
+                            .wrap(),
+                        );
+                    }
                     ui.label(text::name());
                     ui.text_edit_singleline(&mut d.name)
                         .on_hover_text(text::name_tip());
@@ -512,34 +559,46 @@ pub(crate) fn dialog(app: &mut App, ctx: &egui::Context) {
 }
 
 fn key_field(app: &App, ui: &mut egui::Ui, d: &mut Dialog, muted: egui::Color32) {
-    if app.assistant.host.secrets.is_none() {
-        ui.add(
-            egui::Label::new(
-                egui::RichText::new(text::key_needs_desktop())
-                    .small()
-                    .color(muted),
-            )
-            .wrap(),
-        );
-    } else if key_safe_for(&d.url) {
+    let small = |t: String| egui::Label::new(egui::RichText::new(t).small().color(muted)).wrap();
+    let Some(keys) = app.assistant.host.keys.as_ref() else {
+        ui.add(small(text::key_no_store()));
+        return;
+    };
+    if key_safe_for(&d.url) {
         ui.label(text::key());
-        ui.add(egui::TextEdit::singleline(&mut d.key).password(true))
-            .on_hover_text(text::key_tip());
+        let tip = match keys.kept_in() {
+            KeptIn::SystemKeychain => text::key_tip(),
+            KeptIn::BrowserStorage => text::key_tip_browser(),
+            KeptIn::Memory => text::key_tip_memory(),
+        };
+        ui.add(
+            egui::TextEdit::singleline(&mut d.key)
+                .password(true)
+                .id_salt("assistant-key"),
+        )
+        .on_hover_text(tip);
+        if keys.kept_in() == KeptIn::BrowserStorage {
+            ui.add(small(text::key_warning_browser()));
+        }
     } else {
         d.key.clear();
-        ui.add(
-            egui::Label::new(
-                egui::RichText::new(text::key_refused())
-                    .small()
-                    .color(muted),
-            )
-            .wrap(),
-        );
+        ui.add(small(text::key_refused()));
+    }
+}
+
+fn kind_name(k: ProviderKind) -> String {
+    match k {
+        ProviderKind::Cloud => text::kind_cloud(),
+        ProviderKind::WebGpu => text::kind_webgpu(),
+        ProviderKind::WebMcp => text::kind_webmcp(),
     }
 }
 
 /// Save the dialog's connection; the key goes to the keychain and nowhere else.
 fn finish(app: &mut App, d: &Dialog) -> Result<(), String> {
+    if !d.kind.is_built() {
+        return Err(text::kind_not_built(&kind_name(d.kind)));
+    }
     let url = normalize_url(&d.url)?;
     if d.name.trim().is_empty() {
         return Err("Give the connection a name.".into());
@@ -550,13 +609,13 @@ fn finish(app: &mut App, d: &Dialog) -> Result<(), String> {
         if !key_safe_for(&url) {
             return Err(text::key_refused());
         }
-        let secrets = app
+        let keys = app
             .assistant
             .host
-            .secrets
+            .keys
             .clone()
-            .ok_or(text::key_needs_desktop())?;
-        secrets.set(&pcbcraft_assistant::key_id(&id), &d.key)?;
+            .ok_or(text::key_no_store())?;
+        keys.set(&pcbcraft_assistant::key_id(&id), &d.key)?;
         has_key = true;
     }
     app.preferences.assistant_connections.push(Connection {

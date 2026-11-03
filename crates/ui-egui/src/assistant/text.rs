@@ -294,8 +294,48 @@ pub(super) fn key_refused() -> String {
     t!("assistant.key_refused")
 }
 
-pub(super) fn key_needs_desktop() -> String {
-    t!("assistant.key_needs_desktop")
+pub(super) fn key_no_store() -> String {
+    t!("assistant.key_no_store")
+}
+
+pub(super) fn key_tip_browser() -> String {
+    t!("assistant.key.tip_browser")
+}
+
+pub(super) fn key_tip_memory() -> String {
+    t!("assistant.key.tip_memory")
+}
+
+pub(super) fn key_warning_browser() -> String {
+    t!("assistant.key_warning_browser")
+}
+
+pub(super) fn clear_key() -> String {
+    t!("assistant.clear_key")
+}
+
+pub(super) fn clear_key_tip() -> String {
+    t!("assistant.clear_key.tip")
+}
+
+pub(super) fn kind_tip() -> String {
+    t!("assistant.kind.tip")
+}
+
+pub(super) fn kind_cloud() -> String {
+    t!("assistant.kind_cloud")
+}
+
+pub(super) fn kind_webgpu() -> String {
+    t!("assistant.kind_webgpu")
+}
+
+pub(super) fn kind_webmcp() -> String {
+    t!("assistant.kind_webmcp")
+}
+
+pub(super) fn kind_not_built(name: &str) -> String {
+    t!("assistant.kind_not_built", name = name)
 }
 
 pub(super) fn add() -> String {
