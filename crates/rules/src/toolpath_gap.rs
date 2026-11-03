@@ -122,12 +122,13 @@ mod tests {
     fn a_toolpath_closer_than_the_tool_is_a_finding() {
         let segments = vec![
             seg([0.0, 0.0], [10.0, 0.0], 1),
-            seg([0.0, 0.8], [10.0, 0.8], 2),
+            seg([0.0, 0.4], [10.0, 0.4], 2),
         ];
+        // The least gap is 0.5 mm tool + 0.1 mm clearance = 0.6 mm; these sit 0.4 mm apart.
         let findings = toolpath_gap_findings(&segments, 0.5, 0.1);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].code, "toolpath_gap");
-        assert!(findings[0].message.contains("0.800 mm"));
+        assert!(findings[0].message.contains("0.400 mm"));
     }
 
     #[test]
