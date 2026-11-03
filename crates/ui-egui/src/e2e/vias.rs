@@ -2,7 +2,7 @@ use super::super::*;
 use super::support::*;
 
 /// A four-layer board with one via net, ready for span stories.
-fn four_layer_app() -> Result<(App, egui::Context), String> {
+pub(super) fn four_layer_app() -> Result<(App, egui::Context), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     {
         let mut session = shared.lock().map_err(|_| "session lock unavailable")?;
@@ -41,7 +41,7 @@ fn four_layer_app() -> Result<(App, egui::Context), String> {
     Ok((app, egui::Context::default()))
 }
 
-fn place_via(app: &mut App, extra: Value) -> Result<Id, String> {
+pub(super) fn place_via(app: &mut App, extra: Value) -> Result<Id, String> {
     let net = app.project.nets.first().ok_or("net should exist")?.id;
     let mut params = json!({
         "net": net,

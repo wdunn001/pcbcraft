@@ -3688,6 +3688,34 @@ draw.readout.line = {length} mm at {angle}°
 draw.readout.box = {w} by {h} mm
 draw.readout.circle = radius {r} mm
 
+# selection.rs, layer_record_panel.rs
+drill_table.row.tip = Pick this set of holes. The Layers tree lights the layers it joins and the vias drilled into it.
+layer.record.title = Physical record
+layer.record.not_set = Not set
+layer.record.side = Side
+layer.record.side.tip = Which face of the board this layer belongs to: top, bottom or inside.
+layer.record.kind = Kind
+layer.record.kind.tip = What this layer is: copper, core, prepreg, mask, silkscreen or paste.
+layer.record.dk = Dk
+layer.record.dk.tip = Relative permittivity of the material, which sets how fast a signal travels and its impedance.
+layer.record.df = Df
+layer.record.df.tip = Loss tangent of the material, which sets how much signal it absorbs.
+layer.record.tolerance = Tolerance
+layer.record.tolerance.tip = How far the made thickness may differ from the stated one, in percent.
+layer.record.copper_weight = Copper weight
+layer.record.copper_weight.tip = Weight of copper per square foot, in ounces. One ounce is about 35 micrometres thick.
+layer.record.foil = Foil
+layer.record.foil.tip = How the copper foil is made: rolled or electrodeposited.
+layer.sub.copper = Copper
+layer.sub.silk = Silkscreen
+layer.sub.mask = Solder mask
+layer.sub.paste = Paste
+layer.sub.zones = Zones
+layer.sub.help = A part of a layer. Its physical record is the record of the layer it sits on.
+artifact.drill.title = Drill artifact
+artifact.unknown = This artifact is no longer in the design.
+artifact.drill.vias = Vias
+artifact.drill.vias.tip = How many vias are drilled into this set of holes.
 # parts_table.rs
 parts_table.col_reference = Reference
 parts_table.col_value = Value

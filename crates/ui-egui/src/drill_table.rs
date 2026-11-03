@@ -39,6 +39,9 @@ impl App {
                         ui.label(egui::RichText::new(t!("drill_table.empty")).color(self.muted()));
                     }
                     Ok(rows) => {
+                        let rel = crate::selection::relations(&self.project, &self.subject);
+                        let accent = self.accent();
+                        let mut picked: Option<crate::selection::DrillKey> = None;
                         egui::Grid::new("drill-table-grid")
                             .num_columns(6)
                             .spacing([14.0, 6.0])
@@ -62,12 +65,37 @@ impl App {
                                 }
                                 ui.end_row();
                                 for r in &rows {
-                                    ui.label(format!(
+                                    let dk = crate::selection::DrillKey::new(
+                                        r.from_layer,
+                                        r.to_layer,
+                                        r.diameter_mm,
+                                    );
+                                    let level = crate::selection::drill_level(
+                                        &self.project,
+                                        &self.subject,
+                                        &rel,
+                                        dk,
+                                    );
+                                    let name = format!(
                                         "L{} to L{} {}",
                                         r.from_layer,
                                         r.to_layer,
                                         r.kind.label().to_lowercase()
-                                    ));
+                                    );
+                                    let mut text = egui::RichText::new(name.clone());
+                                    if level == crate::selection::Level::Weak {
+                                        text = text.color(accent);
+                                    }
+                                    let resp = ui
+                                        .selectable_label(
+                                            level == crate::selection::Level::Strong,
+                                            text,
+                                        )
+                                        .on_hover_text(t!("drill_table.row.tip"))
+                                        .named(&format!("Drill {name} {:.3} mm", r.diameter_mm));
+                                    if resp.clicked() {
+                                        picked = Some(dk);
+                                    }
                                     ui.label(if r.plated {
                                         t!("drill_table.yes")
                                     } else {
@@ -90,6 +118,9 @@ impl App {
                                     ui.end_row();
                                 }
                             });
+                        if let Some(dk) = picked {
+                            self.select_subject(crate::selection::Selection::Artifact(dk.text()));
+                        }
                     }
                 }
                 ui.add_space(8.0);
