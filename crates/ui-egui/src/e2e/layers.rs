@@ -246,20 +246,73 @@ fn a_newcomer_hides_a_layer_from_its_right_click_menu() -> Result<(), String> {
 #[test]
 fn a_newcomer_hides_a_layer_and_gets_it_back_as_it_was() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
+    // Add a track on the top layer so we can verify canvas visibility.
+    app.project.board.tracks.push(pcbcraft_doc::Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
+        id: 9_999,
+        net: app.project.nets[0].id,
+        start: Point::new(10.0, 10.0),
+        end: Point::new(20.0, 10.0),
+        width: 0.25,
+        layer: pcbcraft_doc::Layer::Front,
+        arc: None,
+    });
+    let track_spot = Point::new(15.0, 10.0);
+    assert_eq!(
+        app.pick_object(track_spot, 10.0),
+        Some(9_999),
+        "the track is pickable before anything is hidden"
+    );
+    // Turn off the Pads sub-layer.
     press_on(&ctx, &mut app, "side:top/components", egui::Key::Space);
     assert!(
         !app.board_sub_effective("side:top", layer_visibility::SubLayer::Pads),
         "pads are off before the layer is hidden"
     );
+    assert_eq!(
+        app.pick_object(track_spot, 10.0),
+        Some(9_999),
+        "the track is still pickable with only pads off"
+    );
+    // Hide the whole top layer.
     press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert_eq!(
+        app.pick_object(track_spot, 10.0),
+        None,
+        "hiding the layer removes the track from the canvas"
+    );
+    // Toggle the Tracks sub-layer while the layer is hidden: turn it off.
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert!(
+        !app.board_sub_effective("side:top", layer_visibility::SubLayer::Tracks),
+        "toggling tracks while hidden changes the stored flag"
+    );
+    assert_eq!(
+        app.pick_object(track_spot, 10.0),
+        None,
+        "the canvas is unchanged: the track is still not pickable"
+    );
+    // Toggle the Tracks sub-layer back on while the layer is still hidden.
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert!(
+        app.board_sub_effective("side:top", layer_visibility::SubLayer::Tracks),
+        "toggling tracks back on changes the stored flag"
+    );
+    assert_eq!(
+        app.pick_object(track_spot, 10.0),
+        None,
+        "the canvas is still unchanged while the layer is hidden"
+    );
+    // Show the whole top layer again.
     press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert_eq!(
+        app.pick_object(track_spot, 10.0),
+        Some(9_999),
+        "showing the layer brings back the track because its sub-layer is on"
+    );
     assert!(
         !app.board_sub_effective("side:top", layer_visibility::SubLayer::Pads),
         "pads are still off after the layer is shown again"
-    );
-    assert!(
-        app.board_sub_effective("side:top", layer_visibility::SubLayer::Tracks),
-        "tracks come back because their sub-layer stayed on"
     );
     Ok(())
 }
@@ -267,6 +320,24 @@ fn a_newcomer_hides_a_layer_and_gets_it_back_as_it_was() -> Result<(), String> {
 #[test]
 fn a_newcomer_turns_off_tracks_then_hides_and_shows_the_layer() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
+    // Add a track on the top layer so we can verify canvas visibility.
+    app.project.board.tracks.push(pcbcraft_doc::Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
+        id: 9_998,
+        net: app.project.nets[0].id,
+        start: Point::new(10.0, 10.0),
+        end: Point::new(20.0, 10.0),
+        width: 0.25,
+        layer: pcbcraft_doc::Layer::Front,
+        arc: None,
+    });
+    let track_spot = Point::new(15.0, 10.0);
+    assert_eq!(
+        app.pick_object(track_spot, 10.0),
+        Some(9_998),
+        "the track is pickable before anything is hidden"
+    );
+    // Turn off the Tracks sub-layer.
     press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
     assert!(
         app.preferences
@@ -275,14 +346,45 @@ fn a_newcomer_turns_off_tracks_then_hides_and_shows_the_layer() -> Result<(), St
             .any(|h| h == "sub:side:top:tracks"),
         "Space on the tracks row stores tracks off"
     );
+    assert_eq!(
+        app.pick_object(track_spot, 10.0),
+        None,
+        "turning off the tracks sub-layer removes the track from the canvas"
+    );
+    // Hide the whole top layer.
     press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert!(
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "group:side:top"),
+        "hiding the layer stores the layer group as hidden"
+    );
+    assert_eq!(
+        app.pick_object(track_spot, 10.0),
+        None,
+        "the track is still not pickable with the layer hidden"
+    );
+    // Show the whole top layer again.
     press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert!(
+        !app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "group:side:top"),
+        "showing the layer clears the layer group hidden flag"
+    );
     assert!(
         app.preferences
             .hidden_layers
             .iter()
             .any(|h| h == "sub:side:top:tracks"),
         "tracks stay off in storage after hide and show"
+    );
+    assert_eq!(
+        app.pick_object(track_spot, 10.0),
+        None,
+        "the track is still not pickable after the layer is shown because tracks are off"
     );
     Ok(())
 }
