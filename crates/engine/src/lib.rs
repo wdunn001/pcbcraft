@@ -46142,4 +46142,147 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn inner_layer_copper_connects_through_via_but_not_without() -> Result<(), Error> {
+        // Two pads on different copper layers are connected only when a through
+        // via bridges them; without the via the net is open and an airwire is
+        // reported.
+        let (mut s, net) = six_layer_session()?;
+        let fp = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let fp_id = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == fp)
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":fp,"pin":"1"},{"component":fp,"pin":"2"}]}),
+            None,
+        )?;
+        s.execute("footprint.flip", json!({"id":fp_id}), None)?;
+        s.execute(
+            "track.route",
+            json!({"from":{"footprint":fp_id,"pad":"1"},"to":{"footprint":fp_id,"pad":"2"},"layer":"F.Cu"}),
+            None,
+        )?;
+        assert!(
+            !pcbcraft_rules::airwires(&s.project).is_empty(),
+            "pads on B.Cu with track on F.Cu are not connected"
+        );
+        let track = s.project.board.tracks.last().ok_or_else(missing)?;
+        let via_pos = Point::new((track.start.x + track.end.x) / 2.0, track.start.y);
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":via_pos.x,"y":via_pos.y},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        assert!(
+            pcbcraft_rules::airwires(&s.project).is_empty(),
+            "through via bridges the layers and connects the pads to the track"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn track_route_changes_layer_in_one_undo_step() -> Result<(), Error> {
+        let (mut s, net) = six_layer_session()?;
+        let fp = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let fp_id = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == fp)
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":fp,"pin":"1"},{"component":fp,"pin":"2"}]}),
+            None,
+        )?;
+        let before_tracks = s.project.board.tracks.len();
+        let before_vias = s.project.board.vias.len();
+        s.execute(
+            "track.route",
+            json!({
+                "from":{"footprint":fp_id,"pad":"1"},
+                "to":{"footprint":fp_id,"pad":"2"},
+                "layer":"L1",
+                "end_layer":"L3"
+            }),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.tracks.len() - before_tracks,
+            2,
+            "layer change creates two track segments"
+        );
+        assert_eq!(
+            s.project.board.vias.len() - before_vias,
+            1,
+            "layer change creates one via"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.tracks.len(),
+            before_tracks,
+            "undo removes both track segments"
+        );
+        assert_eq!(
+            s.project.board.vias.len(),
+            before_vias,
+            "undo removes the via"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn inner_layer_clearance_finds_same_layer_only() -> Result<(), Error> {
+        let (mut s, net) = six_layer_session()?;
+        let net2 = s.execute("net.create", json!({"name":"SIG2"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":15.0,"y":10.0},"width":0.2,"layer":"L1"}),
+            None,
+        )?;
+        s.execute(
+            "zone.place",
+            json!({
+                "net":net2,
+                "layer":"L1",
+                "outline":[{"x":12.0,"y":9.0},{"x":14.0,"y":9.0},{"x":14.0,"y":11.0},{"x":12.0,"y":11.0},{"x":12.0,"y":9.0}]
+            }),
+            None,
+        )?;
+        let drc = pcbcraft_rules::drc(&s.project);
+        assert!(
+            drc.iter().any(|f| f.code == "clearance"),
+            "clearance violation on same layer"
+        );
+        let zone = s.project.board.zones.last().ok_or_else(missing)?;
+        s.execute("zone.set_layer", json!({"id":zone.id,"layer":"L2"}), None)?;
+        let drc2 = pcbcraft_rules::drc(&s.project);
+        assert!(
+            !drc2.iter().any(|f| f.code == "clearance"),
+            "no clearance violation on different layers"
+        );
+        Ok(())
+    }
 }
