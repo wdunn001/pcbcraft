@@ -1009,3 +1009,49 @@ fn a_newcomer_picks_a_layer_on_the_schematic_and_its_parts_light_up() -> Result<
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_focuses_a_drawn_layer_and_the_rest_fades() -> Result<(), String> {
+    let (ctx, mut app) = routed_app();
+    app.tool_call("board.layer_add", json!({"name": "Cut", "kind": "cut"}));
+    app.refresh();
+    let layer = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.name == "Cut")
+        .map(|l| l.id)
+        .ok_or("the cut layer should be added")?;
+    app.tool_call(
+        "board.layer_line_add",
+        json!({"layer": layer, "x1": 25.0, "y1": 5.0, "x2": 35.0, "y2": 5.0}),
+    );
+    app.refresh();
+    let before = line_colours(&ctx, &mut app);
+    assert!(!before.is_empty(), "the board paints copper before focus");
+    app.tree.expanded.insert("user".to_owned());
+    let focus_key = format!("user/art:{layer}");
+    press_on(&ctx, &mut app, &focus_key, egui::Key::F);
+    let art_focus = "art:Cut".to_owned();
+    assert_eq!(
+        app.focus_layer.as_deref(),
+        Some(art_focus.as_str()),
+        "the cut layer is focused"
+    );
+    let after = line_colours(&ctx, &mut app);
+    let faded = before
+        .iter()
+        .any(|b| after.contains(&b.linear_multiply(0.22)) && !after.contains(b));
+    assert!(
+        faded,
+        "copper is still painted, at reduced strength: {}",
+        app.message
+    );
+    press_on(&ctx, &mut app, &focus_key, egui::Key::F);
+    assert!(app.focus_layer.is_none(), "focus is cleared");
+    let after_clear = line_colours(&ctx, &mut app);
+    let restored = before.iter().all(|b| after_clear.contains(b));
+    assert!(restored, "full strength returns when focus clears");
+    Ok(())
+}
