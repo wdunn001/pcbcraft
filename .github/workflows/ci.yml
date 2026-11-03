@@ -190,6 +190,15 @@ jobs:
           persist-credentials: false
       - name: Install window-system packages
         run: .github/scripts/install-linux-deps.sh 
+      # Some runner work folders are small RAM-backed disks. A leftover target folder plus the
+      # restored cache leaves too little room to link every test binary, and the linker dies
+      # with a bus error. Clear the leftover when the work disk is short.
+      - name: Make room on the work disk
+        shell: bash
+        run: |
+          avail=$(df -m "$GITHUB_WORKSPACE" | awk 'NR==2{print $4}')
+          echo "work disk free: ${avail} MB"
+          if [ "${avail:-99999}" -lt 7500 ]; then rm -rf target; fi
       # The runner containers share one /cargo volume. A sibling job's cache restore
       # rewrites the registry under a running compile, which shows up as missing
       # sources or a vanished rustc. Give each job its own cargo home.
@@ -408,6 +417,15 @@ jobs:
           persist-credentials: false
       - name: Install window-system packages
         run: .github/scripts/install-linux-deps.sh 
+      # Some runner work folders are small RAM-backed disks. A leftover target folder plus the
+      # restored cache leaves too little room to link every test binary, and the linker dies
+      # with a bus error. Clear the leftover when the work disk is short.
+      - name: Make room on the work disk
+        shell: bash
+        run: |
+          avail=$(df -m "$GITHUB_WORKSPACE" | awk 'NR==2{print $4}')
+          echo "work disk free: ${avail} MB"
+          if [ "${avail:-99999}" -lt 7500 ]; then rm -rf target; fi
       # The runner containers share one /cargo volume. A sibling job's cache restore
       # rewrites the registry under a running compile, which shows up as missing
       # sources or a vanished rustc. Give each job its own cargo home.
