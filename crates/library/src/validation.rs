@@ -153,6 +153,23 @@ impl Graphic {
     }
 }
 impl SymbolDefinition {
+    /// The unsupported-feature notes that mean something would be lost, which
+    /// excludes the ones the reader says are kept whole in the raw source.
+    ///
+    /// # Rules
+    /// - A note ending "preserved in raw source" (pin alternate functions, pin
+    ///   graphical style) is not a loss: the raw source is re-emitted on export.
+    /// - Every other note counts, so a part with real losses is still refused.
+    ///
+    /// # Do not
+    /// - Use this to hide a note from the person; `unsupported` still lists all of them.
+    pub fn lossy_unsupported(&self) -> Vec<&String> {
+        self.unsupported
+            .iter()
+            .filter(|note| !note.ends_with("preserved in raw source"))
+            .collect()
+    }
+
     /// Validate symbol structure, pin uniqueness, and graphic references.
     ///
     /// Checks name, pin numbers, electrical types, graphical styles,
