@@ -13,7 +13,7 @@
 //! manifest with no other change.
 use crate::{COPPER_THICKNESS, MASK_THICKNESS, SILK_THICKNESS};
 use pcbcraft_doc::Project;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
 /// Most files one fabrication package may list.
@@ -66,27 +66,34 @@ pub(crate) fn gerber_job_at(
             "FilePolarity": polarity,
         }));
     }
-    let rules = design_rules(p);
-    let job = json!({
-        "Header": {
+    let mut job = Map::new();
+    job.insert(
+        "Header".to_owned(),
+        json!({
             "GenerationSoftware": {
                 "Vendor": "Tangency Labs",
                 "Application": "PCBCraft",
                 "Version": env!("CARGO_PKG_VERSION"),
             },
             "CreationDate": creation,
-        },
-        "GeneralSpecs": {
+        }),
+    );
+    job.insert(
+        "GeneralSpecs".to_owned(),
+        json!({
             "ProjectId": { "Name": p.name },
             "Size": { "X": p.board.width, "Y": p.board.height },
             "LayerNumber": copper,
             "BoardThickness": p.board.thickness,
             "Finish": p.board.finish,
-        },
-        "DesignRules": rules,
-        "FilesAttributes": attributes,
-        "MaterialStackup": material_stackup(p, copper),
-    });
+        }),
+    );
+    if let Some(rules) = design_rules(p) {
+        job.insert("DesignRules".to_owned(), rules);
+    }
+    job.insert("FilesAttributes".to_owned(), json!(attributes));
+    job.insert("MaterialStackup".to_owned(), material_stackup(p, copper));
+    let job = Value::Object(job);
     serde_json::to_string_pretty(&job).map_err(|e| e.to_string())
 }
 
@@ -104,21 +111,29 @@ pub(crate) fn gerber_job_at(
 ///
 /// # Do not
 /// Invent a limit the board does not carry.
-fn design_rules(p: &Project) -> Value {
-    let fab = p.board.rules.as_ref();
-    let space = fab.and_then(|r| r.min_space).unwrap_or(p.board.clearance);
-    let mut rule = json!({
-        "Layers": "All",
-        "PadToPad": space,
-        "PadToTrack": space,
-        "TrackToTrack": space,
-        "TrackToRegion": space,
-        "RegionToRegion": space,
-    });
-    if let (Some(width), Some(map)) = (fab.and_then(|r| r.min_track), rule.as_object_mut()) {
-        map.insert("MinLineWidth".into(), json!(width));
+fn design_rules(p: &Project) -> Option<Value> {
+    let fab = p.board.rules.as_ref()?;
+    let space = fab.min_space.unwrap_or(p.board.clearance);
+    let mut map = Map::new();
+    map.insert("Layers".to_owned(), json!("All"));
+    map.insert("PadToPad".to_owned(), json!(space));
+    map.insert("PadToTrack".to_owned(), json!(space));
+    map.insert("TrackToTrack".to_owned(), json!(space));
+    map.insert("TrackToRegion".to_owned(), json!(space));
+    map.insert("RegionToRegion".to_owned(), json!(space));
+    if let Some(width) = fab.min_track {
+        map.insert("MinLineWidth".to_owned(), json!(width));
     }
-    json!([rule])
+    if let Some(ring) = fab.min_ring_via {
+        map.insert("MinRingVia".to_owned(), json!(ring));
+    }
+    if let Some(ring) = fab.min_ring_pth {
+        map.insert("MinRingPth".to_owned(), json!(ring));
+    }
+    if let Some(edge) = fab.edge_routed {
+        map.insert("ClearanceToProfile".to_owned(), json!(edge));
+    }
+    Some(json!([map]))
 }
 
 /// The stackup in fabrication order: legend and mask on the top face, each
@@ -442,14 +457,37 @@ mod tests {
     }
 
     #[test]
-    fn design_rules_without_fabrication_limits_keep_the_board_clearance() -> Result<(), String> {
-        let project = board();
+    fn design_rules_map_ring_and_edge_limits() -> Result<(), String> {
+        let mut project = board();
+        project.board.rules = Some(pcbcraft_doc::FabRules {
+            min_ring_via: Some(0.075),
+            min_ring_pth: Some(0.09),
+            edge_routed: Some(0.1),
+            ..Default::default()
+        });
         let files = crate::gerber_files(&project)?;
         let job: Value =
             serde_json::from_str(&files["pcb-job.gbrjob"]).map_err(|e| e.to_string())?;
         let rule = &job["DesignRules"][0];
-        assert_eq!(rule["PadToPad"], project.board.clearance);
-        assert!(rule.get("MinLineWidth").is_none(), "no invented line width");
+        assert_eq!(rule["MinRingVia"], 0.075, "min_ring_via becomes MinRingVia");
+        assert_eq!(rule["MinRingPth"], 0.09, "min_ring_pth becomes MinRingPth");
+        assert_eq!(
+            rule["ClearanceToProfile"], 0.1,
+            "edge_routed becomes ClearanceToProfile"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn design_rules_are_omitted_without_fabrication_limits() -> Result<(), String> {
+        let project = board();
+        let files = crate::gerber_files(&project)?;
+        let job: Value =
+            serde_json::from_str(&files["pcb-job.gbrjob"]).map_err(|e| e.to_string())?;
+        assert!(
+            job.get("DesignRules").is_none(),
+            "no DesignRules section when Board.rules is absent"
+        );
         Ok(())
     }
 
