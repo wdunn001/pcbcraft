@@ -44,17 +44,12 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         "required": ["pages"],
         "additionalProperties": false
     });
-    let review_schema = json!({
-        "type": "object",
-        "properties": {
-            "part": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_-]+$" },
+    let review_properties = json!({
+        "part": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_-]+$" },
             "table": { "type": "string", "enum": ["pin_table", "absolute_maximum_ratings", "recommended_operating_conditions", "ordering_codes", "package_dimensions"] },
             "index": { "type": "integer", "minimum": 0, "maximum": 255 },
             "decision": { "type": "string", "enum": ["accept", "reject", "edit"] },
             "edited": { "type": "object" }
-        },
-        "required": ["part", "table", "index", "decision"],
-        "additionalProperties": false
     });
     vec![
         CommandSpec {
@@ -71,7 +66,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         CommandSpec {
             id: "datasheet.review",
             description: "Apply an accept, edit or reject decision to one row in a previously extracted datasheet bundle",
-            input_schema: schema(review_schema, &["part", "table", "index", "decision"]),
+            input_schema: schema(review_properties, &["part", "table", "index", "decision"]),
         },
     ]
 }
