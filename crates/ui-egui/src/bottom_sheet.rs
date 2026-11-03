@@ -72,6 +72,8 @@ impl App {
     const SHEET_STRIP: f32 = 36.0;
     /// Height of the sheet when open.
     const SHEET_OPEN: f32 = 232.0;
+    /// Height of the sheet when open on the Parts tab, which carries a tool row above the grid.
+    const SHEET_PARTS: f32 = 330.0;
 
     /// Opens the sheet on a tab.
     ///
@@ -95,7 +97,9 @@ impl App {
         let count = findings.counts();
         let open = self.region().bottom_open;
         let tab = SheetTab::from_id(&self.region().bottom_tab);
-        let height = if open {
+        let height = if open && tab == SheetTab::Parts {
+            Self::SHEET_PARTS
+        } else if open {
             Self::SHEET_OPEN
         } else {
             Self::SHEET_STRIP
