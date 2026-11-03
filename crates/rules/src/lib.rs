@@ -37,6 +37,7 @@ mod return_path;
 mod silk;
 mod stub;
 pub mod testpoint;
+pub mod toolpath_gap;
 mod track_radius;
 mod width_advice;
 
@@ -136,6 +137,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("via_count", "warning"),
     ("decoupling_distance", "warning"),
     ("keepout", "error"),
+    ("toolpath_gap", "warning"),
 ];
 
 #[derive(Clone, Debug, Serialize)]
