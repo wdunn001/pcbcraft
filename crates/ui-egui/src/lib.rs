@@ -34,6 +34,7 @@ mod hover_affordance;
 mod icons;
 mod impedance_panel;
 mod keymap;
+mod label_edit;
 mod layer_picker;
 mod layer_record_panel;
 mod layer_visibility;

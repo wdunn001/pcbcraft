@@ -471,6 +471,7 @@ impl App {
                 }
             },
         );
+        self.label_controls(ui, id);
     }
 
     /// The board root: size, clearance and a stackup summary, then the stackup editor.

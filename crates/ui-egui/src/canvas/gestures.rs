@@ -148,21 +148,13 @@ impl App {
         let near = |d: f64, px: f64| d * zoom as f64 <= px;
         if self.tab == Tab::Schematic {
             let page = self.schematic_page();
-            if let Some(pin) = self.pick_pin(pos, zoom) {
+            let label = self.label_under(pos, zoom);
+            if let Some(pin) = self.pick_pin(pos, zoom)
+                && !label.is_some_and(|l| self.label_beats_pin(l, &pin, pos))
+            {
                 return Hit::Pin(pin);
             }
-            if let Some(l) = self
-                .project
-                .labels
-                .iter()
-                .filter(|l| self.project.schematic_label_page(l) == page)
-                .filter(|l| near(l.position.distance(pos), 7.0))
-                .min_by(|a, b| {
-                    a.position
-                        .distance(pos)
-                        .total_cmp(&b.position.distance(pos))
-                })
-            {
+            if let Some(l) = label {
                 return if l.kind == "junction" {
                     Hit::Junction(l.id)
                 } else {
@@ -526,6 +518,11 @@ impl App {
                     press.origin = original;
                 }
             }
+            (ClickAction::MovePart, Hit::NetLabel(id)) => {
+                if let Some(at) = self.label_press(*id) {
+                    press.origin = at;
+                }
+            }
             (ClickAction::BoxSelect, _) => self.begin_box(pos, extend),
             _ => {
                 if !matches!(hit, Hit::Empty) {
@@ -600,6 +597,17 @@ impl App {
                 let to = place(press.origin.offset(Point::new(delta.x, delta.y)));
                 if to != press.origin {
                     self.run("via.move", json!({"id": id, "position": to}));
+                }
+            }
+            (ClickAction::MovePart, Hit::NetLabel(id)) => {
+                if let Some(p) = pos {
+                    let to = Self::label_drop_point(
+                        press.origin,
+                        press.from,
+                        p,
+                        !live.contains(ModAction::DragNoSnap),
+                    );
+                    self.label_drag_end(*id, press.origin, to);
                 }
             }
             (ClickAction::MovePart, _) => {
@@ -707,6 +715,11 @@ impl App {
                     v.position = press.origin.offset(d);
                 }
             }
+            (ClickAction::MovePart, Hit::NetLabel(id)) => {
+                if let Some(l) = visible.labels.iter_mut().find(|l| l.id == *id) {
+                    l.position = Self::label_drop_point(press.origin, press.from, press.to, true);
+                }
+            }
             _ => {}
         }
     }
@@ -730,6 +743,7 @@ impl App {
             {
                 self.duplicate_to(pos);
             }
+            _ if self.select_label_hit(&hit) => {}
             _ => self.canvas_click(pos, zoom),
         }
     }
