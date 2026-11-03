@@ -15,7 +15,7 @@ project recovery, including on a normal close.
 
 Built-in two-pin symbols (resistor, capacitor, LED, connector). Explicit logical
 nets. Orthogonal pin-to-pin wires and free-form wires with editable vertices.
-Local, global, hierarchical and power labels; junctions; no-connect flags.
+Local, global, hierarchical and power symbols; junctions; no-connect flags.
 Free graphics: line, rectangle, circle, arc, polygon, text. Multi-unit symbols
 share one reference and footprint; units move independently.
 

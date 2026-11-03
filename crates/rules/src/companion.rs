@@ -962,7 +962,7 @@ mod tests {
             !companion_findings(&p)
                 .iter()
                 .any(|f| f.code == "power_not_driven"),
-            "a power label on the net marks it as driven"
+            "a power symbol on the net marks it as driven"
         );
         Ok(())
     }

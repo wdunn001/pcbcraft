@@ -90,6 +90,7 @@ mod via_covering;
 mod via_span;
 mod via_tool;
 mod wall_clock;
+mod webfs;
 mod wire_canvas;
 mod workspace;
 use crate::a11y::Named;
@@ -508,7 +509,7 @@ fn tool_hint(tool: &Tool) -> String {
             "Click a wire or pin to place a net label.".to_string() + &common
         }
         Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power) => {
-            "Click a wire or pin to place a power label.".to_string() + &common
+            "Click a wire or pin to place a power symbol.".to_string() + &common
         }
         Tool::Bus => {
             "Click two or more points for the bus path, then name it.".to_string() + &common
@@ -1346,7 +1347,7 @@ pub struct App {
     schematic: Camera,
     /// Schematic page on the canvas; 0 is the Main page. See `pages.rs`.
     active_page: Id,
-    /// The net each page's Add power port picker holds.
+    /// The net each page's Add power symbol picker holds.
     power_pick: std::collections::BTreeMap<Id, Id>,
     /// Name the Port tool places on the next canvas click.
     port_pick_name: String,
@@ -1362,6 +1363,9 @@ pub struct App {
     message: String,
     /// True in the browser build, where disk actions are refused (see browser.rs).
     browser: bool,
+    /// Where Open, Save and Export go: the native paths, the browser, or a test (see webfs.rs).
+    host: Box<dyn pcbcraft_mcp::ProjectHost>,
+    webfs: webfs::State,
     value: String,
     x: f64,
     y: f64,
@@ -2136,6 +2140,8 @@ impl App {
                 t!("status.ready")
             },
             browser: cfg!(target_arch = "wasm32"),
+            host: Box::new(pcbcraft_mcp::NativeHost),
+            webfs: webfs::State::default(),
             value: String::new(),
             x: 0.0,
             y: 0.0,
@@ -3203,7 +3209,9 @@ impl App {
                 self.tool_call("redo", json!({}));
             }
             KeyAction::Save => {
-                self.tool_call("save", json!({"path": self.path}));
+                if !self.webfs_save() {
+                    self.tool_call("save", json!({"path": self.path}));
+                }
             }
             KeyAction::CommandPalette => {
                 self.command_open = !self.command_open;
@@ -3803,7 +3811,9 @@ impl App {
                 .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
-                self.show_files(files_home::Page::Open);
+                if !self.webfs_open() {
+                    self.show_files(files_home::Page::Open);
+                }
                 ui.close();
             }
             if ui
@@ -3826,7 +3836,9 @@ impl App {
                 .on_hover_text(t!("menu.file.save_as.tip"))
                 .clicked()
             {
-                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                if !self.webfs_save() {
+                    self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                }
                 ui.close();
             }
             if ui
@@ -8132,6 +8144,7 @@ impl App {
             ctx.request_repaint();
             return;
         }
+        self.webfs_frame(&ctx);
         self.file_shortcuts(&ctx);
         self.shortcuts(&ctx);
         if self.compare_open {

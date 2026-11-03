@@ -207,7 +207,7 @@ pub(crate) enum Action {
     SelectAllInRow { page: Id, row: &'static str },
     /// Switch a page's title block on or off.
     TitleShown { page: Id, on: bool },
-    /// Place a power port on a page, tied to the first power net.
+    /// Place a power symbol on a page, tied to the first power net.
     AddPowerPort(Id),
 }
 
@@ -278,7 +278,7 @@ pub(crate) struct TreeView {
     pub query: String,
     /// Layer keys the canvas may not select from or edit.
     pub locked: BTreeSet<String>,
-    /// Show the fixed rows of a page (Symbols, Power ports, Drawing, Title
+    /// Show the fixed rows of a page (Symbols, Power symbols, Drawing, Title
     /// block) even when they hold nothing.
     pub show_empty: bool,
     /// Keyboard cursor row key.
@@ -1260,7 +1260,7 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
     out
 }
 
-/// The fixed rows of page `id`: Symbols, Power ports, Drawing and Title
+/// The fixed rows of page `id`: Symbols, Power symbols, Drawing and Title
 /// block, each with its count. Rows that hold nothing are left out unless the
 /// tree shows empty ones.
 ///

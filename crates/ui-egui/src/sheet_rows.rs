@@ -1,4 +1,4 @@
-//! The fixed rows of a schematic page (Symbols, Power ports, Drawing, Title
+//! The fixed rows of a schematic page (Symbols, Power symbols, Drawing, Title
 //! block): what selecting one shows in Properties, and what their menus do.
 //!
 //! Context: `layers_tree.rs` builds the rows and returns actions; the app calls
@@ -35,7 +35,7 @@ impl App {
     /// The objects the fixed row `row` of page `page` stands for.
     ///
     /// # Rules
-    /// - Symbols are the parts on the page, power ports the power labels placed
+    /// - Symbols are the parts on the page, power symbols the power symbols placed
     ///   for it, drawing the schematic graphics (they live on the Main page).
     /// - The title block is not an object, so it has none.
     pub(crate) fn sheet_row_ids(&self, page: Id, row: &str) -> Vec<Id> {
@@ -125,7 +125,7 @@ impl App {
         )
     }
 
-    /// Place a power port on `page`, tied to the net the Properties picker holds
+    /// Place a power symbol on `page`, tied to the net the Properties picker holds
     /// (the first net that page carries when none was picked).
     pub(crate) fn add_power_port(&mut self, page: Id) {
         let nets = self.power_port_nets(page);
@@ -148,7 +148,7 @@ impl App {
         );
     }
 
-    /// The nets a power port on `page` can tie to, by name: the nets the page's
+    /// The nets a power symbol on `page` can tie to, by name: the nets the page's
     /// parts connect to, or every net on the Main page.
     fn power_port_nets(&self, page: Id) -> Vec<(Id, String)> {
         let mut nets: Vec<(Id, String)> = self
@@ -179,8 +179,8 @@ impl App {
     /// Properties of a fixed page row.
     ///
     /// # Rules
-    /// - Title block: its six fields and Show title block. Power ports: the
-    ///   ports with their nets, Select all, Add power port. Drawing: count,
+    /// - Title block: its six fields and Show title block. Power symbols: the
+    ///   ports with their nets, Select all, Add power symbol. Drawing: count,
     ///   defaults for new graphics, Select all. Symbols: count and Select all.
     /// - Text fields commit when they lose focus; Escape cancels.
     ///

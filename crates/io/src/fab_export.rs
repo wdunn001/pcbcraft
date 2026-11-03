@@ -569,6 +569,58 @@ fn pad_ap(pad: &pcbcraft_doc::Pad) -> Ap {
     }
 }
 
+/// Build the solder paste aperture for a pad, growing or shrinking it by the
+/// footprint paste margin. The margin is in millimetres; a negative value
+/// shrinks the opening, as the library rule documents. Dimensions are stored in
+/// micrometres, so the margin is converted first. Each dimension is clamped to
+/// at least one micrometre so a large negative margin cannot produce a zero or
+/// negative aperture. Computation uses i64 to avoid u64 underflow when the
+/// margin is negative. A zero margin returns exactly the pad aperture, matching
+/// the old behaviour.
+fn paste_ap(pad: &pcbcraft_doc::Pad, margin_mm: f64) -> Ap {
+    let margin_um = (margin_mm * 1_000.0).round() as i64;
+    match &pad.geometry {
+        Some(g) => {
+            let w = (g.size.x * 1_000.0).round() as i64;
+            let h = (g.size.y * 1_000.0).round() as i64;
+            match g.shape.as_str() {
+                "circle" => {
+                    let d = w + 2 * margin_um;
+                    Ap::Circle(d.max(1) as u64)
+                }
+                "rect" => {
+                    let dw = w + 2 * margin_um;
+                    let dh = h + 2 * margin_um;
+                    Ap::Rect(dw.max(1) as u64, dh.max(1) as u64)
+                }
+                "oval" => {
+                    let dw = w + 2 * margin_um;
+                    let dh = h + 2 * margin_um;
+                    Ap::Obround(dw.max(1) as u64, dh.max(1) as u64)
+                }
+                "roundrect" => {
+                    let dw = w + 2 * margin_um;
+                    let dh = h + 2 * margin_um;
+                    let r = ((w.min(h) as f64 * g.roundrect_ratio.unwrap_or(0.0))
+                        .round()
+                        .max(1.0)) as u64;
+                    Ap::Round(dw.max(1) as u64, dh.max(1) as u64, r)
+                }
+                _ => {
+                    let d = (pad.diameter * 1_000.0).round() as i64;
+                    let dd = d + 2 * margin_um;
+                    Ap::Circle(dd.max(1) as u64)
+                }
+            }
+        }
+        None => {
+            let d = (pad.diameter * 1_000.0).round() as i64;
+            let dd = d + 2 * margin_um;
+            Ap::Circle(dd.max(1) as u64)
+        }
+    }
+}
+
 fn pad_on_back(pad: &pcbcraft_doc::Pad) -> bool {
     pad.geometry
         .as_ref()
@@ -999,11 +1051,11 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 
             if pad_is_smd(pad) {
                 if !is_back && !paste_ring.is_empty() {
-                    let code = paste_front.code(pad_ap(pad))?;
+                    let code = paste_front.code(paste_ap(pad, paste_margin))?;
                     paste_front.flash(code, world.x, world.y)?;
                 }
                 if is_back && !paste_ring.is_empty() {
-                    let code = paste_back.code(pad_ap(pad))?;
+                    let code = paste_back.code(paste_ap(pad, paste_margin))?;
                     paste_back.flash(code, world.x, world.y)?;
                 }
             }

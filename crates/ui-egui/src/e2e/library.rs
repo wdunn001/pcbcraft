@@ -1090,6 +1090,10 @@ fn a_newcomer_exports_a_part_with_unknown_nodes_and_loses_none_of_them() -> Resu
     }
     app.refresh();
     authoring::tests::tap(&ctx, &mut app, "Library")?;
+    // The page grows as the browser's folder read lands; type only once the
+    // export box is painted and switched on.
+    waits_for_collections(&ctx, &mut app)?;
+    waits_for_control(&ctx, &mut app, "textinput:Symbol export file")?;
     let export_file = std::env::temp_dir().join(format!(
         "pcbcraft-lossless-symbol-{}.kicad_sym",
         std::process::id()
@@ -1129,6 +1133,8 @@ fn a_newcomer_exports_a_footprint_and_keeps_its_pad_details_and_extra_nodes() ->
     authoring::tests::tap(&ctx, &mut app, "Library")?;
     let folder = std::env::temp_dir().join(format!("pcbcraft-lossless-fp-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
+    waits_for_collections(&ctx, &mut app)?;
+    waits_for_control(&ctx, &mut app, "textinput:Footprint export folder")?;
     type_into(
         &ctx,
         &mut app,
@@ -1207,15 +1213,7 @@ fn a_newcomer_adds_a_folder_picks_its_library_and_searches_it() -> Result<(), St
     )?;
     // Enter in the box adds the folder. Wait for the add and the re-read it
     // starts: the controls are switched off while the browser is reading.
-    let mut added = false;
-    for _ in 0..200 {
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        if app.library.notice.contains("Added") {
-            added = true;
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(25));
-    }
+    let added = waits_until(&ctx, &mut app, |app| app.library.notice.contains("Added"));
     assert!(
         added,
         "adding the folder reports back: {}",

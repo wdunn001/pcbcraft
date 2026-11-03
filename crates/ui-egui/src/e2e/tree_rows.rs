@@ -32,14 +32,14 @@ fn flip_each(ctx: &egui::Context, app: &mut App, pairs: &[(&str, &str)]) -> Resu
 #[test]
 fn a_newcomer_picks_each_row_of_the_schematic_tree() -> Result<(), String> {
     let (ctx, mut app) = practice(Tab::Schematic);
-    // The sample has no power ports or drawing, which the tree leaves out until asked.
+    // The sample has no power symbols or drawing, which the tree leaves out until asked.
     tap_id(&ctx, &mut app, "button:Show empty")?;
     let missing = press_each(
         &ctx,
         &mut app,
         &[
             "button:Symbols, shown, unlocked",
-            "button:Power ports, shown, unlocked",
+            "button:Power symbols, shown, unlocked",
             "button:Drawing, shown, unlocked",
             "button:Title block, shown, unlocked",
             "button:Nets",
@@ -76,12 +76,12 @@ fn a_newcomer_hides_and_locks_each_schematic_layer_from_its_row() -> Result<(), 
         &mut app,
         &[
             ("button:Hide Symbols", "button:Show Symbols"),
-            ("button:Hide Power ports", "button:Show Power ports"),
+            ("button:Hide Power symbols", "button:Show Power symbols"),
             ("button:Hide Title block", "button:Show Title block"),
             ("button:Hide Drawing", "button:Show Drawing"),
             ("button:Hide Nets", "button:Show Nets"),
             ("button:Lock Symbols", "button:Unlock Symbols"),
-            ("button:Lock Power ports", "button:Unlock Power ports"),
+            ("button:Lock Power symbols", "button:Unlock Power symbols"),
             ("button:Lock Drawing", "button:Unlock Drawing"),
             ("button:Lock Title block", "button:Unlock Title block"),
         ],
