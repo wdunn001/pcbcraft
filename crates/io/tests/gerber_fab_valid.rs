@@ -230,10 +230,10 @@ fn plated_and_unplated_drill_files_are_split() -> Result<(), String> {
         "npth header: {npth}"
     );
     assert!(
-        plated.contains("T1\nX30.000Y10.000\n"),
+        plated.contains("T01\nX30.000Y10.000\n"),
         "via on plated file"
     );
-    assert!(plated.contains("T2\nX0.000Y0.000\n"), "pad on plated file");
+    assert!(plated.contains("T02\nX0.000Y0.000\n"), "pad on plated file");
     assert!(
         !npth.contains("X30.000Y10.000"),
         "plated hits stay out of the npth file"

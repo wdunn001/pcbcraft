@@ -220,6 +220,10 @@ pub(crate) struct Env<'a> {
     pub hidden: &'a [String],
     pub focus: Option<&'a str>,
     pub selected: Option<Id>,
+    /// The one selection value, when the caller has it (`selection.rs`).
+    pub subject: Option<&'a crate::selection::Selection>,
+    /// What the selection touches, for weak highlight and dimming.
+    pub relations: Option<&'a crate::selection::Relations>,
     /// What the drawing tools draw on; its row carries the Active badge.
     pub target: Target,
     /// Bumps on every document change; part of the row cache key.
@@ -767,6 +771,11 @@ fn net_copper(env: &Env, path: &str, id: Id, side: Layer, out: &mut Vec<Row>) {
         r.net = Some(id);
         out.push(r);
     }
+    for v in board.vias.iter().filter(|v| v.net == id) {
+        if project.via_span_layers(v).contains(&side) {
+            out.push(via_row(path, project, v));
+        }
+    }
     if side == Layer::Front {
         for f in &board.footprints {
             for (i, pad) in f.pads.iter().enumerate() {
@@ -792,6 +801,11 @@ fn net_copper_count(env: &Env, id: Id, side: Layer) -> usize {
             .zones
             .iter()
             .filter(|z| z.layer == side && z.net == id)
+            .count()
+        + board
+            .vias
+            .iter()
+            .filter(|v| v.net == id && env.project.via_span_layers(v).contains(&side))
             .count();
     if side == Layer::Front {
         n += board
@@ -2434,6 +2448,66 @@ fn hovered_stack_target(env: &Env, all: &[Row], key: Option<&str>) -> Option<Tar
 }
 
 /// Paint one row; returns true when it holds keyboard focus.
+/// True when the row stands for something related to the selection: an
+/// object in its relations, or the net it belongs to.
+pub(crate) fn related_weakly(env: &Env, r: &Row) -> bool {
+    let (Some(sel), Some(rel)) = (env.subject, env.relations) else {
+        return false;
+    };
+    if let Some(id) = r.select
+        && crate::selection::object_level(sel, rel, id) == crate::selection::Level::Weak
+    {
+        return true;
+    }
+    if r.kind == RowKind::Net && r.net.is_some() && r.net == rel.net {
+        return true;
+    }
+    if r.kind == RowKind::Layer
+        && matches!(
+            r.controls.as_ref().map(|c| &c.visibility),
+            Some(Visibility::LayerGroup(_))
+        )
+        && let Some(set) = &rel.layers
+        && let Some(i) = crate::selection::Selection::layer_index(env.project, &r.key)
+    {
+        return set.contains(&i);
+    }
+    false
+}
+
+/// True when the selection reaches some layers and this row sits on a layer
+/// outside them, so it dims.
+pub(crate) fn outside_reach(env: &Env, r: &Row) -> bool {
+    let Some(rel) = env.relations else {
+        return false;
+    };
+    if rel.layers.is_none() {
+        return false;
+    }
+    if let Some(i) = crate::selection::Selection::layer_index(env.project, &r.key) {
+        return crate::selection::dims_layer(rel, i);
+    }
+    if let Some(at) = r
+        .key
+        .split('/')
+        .next()
+        .and_then(|k| k.strip_prefix("diel:"))
+        .and_then(|n| n.parse::<usize>().ok())
+    {
+        let above = env.project.board.layer_records
+            [..at.min(env.project.board.layer_records.len())]
+            .iter()
+            .filter(|x| x.kind == "copper")
+            .count();
+        let (Some(a), Some(b)) = (above.checked_sub(1), Some(above)) else {
+            return false;
+        };
+        return crate::selection::dims_layer(rel, a as u8)
+            || crate::selection::dims_layer(rel, b as u8);
+    }
+    false
+}
+
 fn paint_row(
     ui: &mut Ui,
     env: &Env,
@@ -2470,8 +2544,13 @@ fn paint_row(
     {
         view.hover_now = Some(page);
     }
+    let net_selected = matches!(env.subject, Some(crate::selection::Selection::Net(n))
+        if r.kind == RowKind::Net && r.net == Some(*n));
     let selected = (r.marks && r.select.is_some() && r.select == env.selected)
-        || view.selected_key.as_deref() == Some(r.key.as_str());
+        || view.selected_key.as_deref() == Some(r.key.as_str())
+        || net_selected;
+    let weak = !selected && related_weakly(env, r);
+    let outside = outside_reach(env, r);
     let searching = !view.query.trim().is_empty();
     let expanded = view.expanded.contains(&r.key) || searching;
     let stored_off = r.controls.as_ref().is_some_and(|c| !stored_visible(env, c));
@@ -2488,7 +2567,11 @@ fn paint_row(
         .as_ref()
         .is_some_and(|c| c.focusable && env.focus == Some(c.key.as_str()));
     let is_section = r.kind == RowKind::Section;
-    let dim = if drawn_off || r.dim { 0.45 } else { 1.0 };
+    let dim = if drawn_off || r.dim || outside {
+        0.45
+    } else {
+        1.0
+    };
     let painter = ui.painter().clone();
     if selected {
         painter.rect_filled(rect, 0.0, colours.accent.gamma_multiply(0.16));
@@ -2496,6 +2579,13 @@ fn paint_row(
             Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())),
             0.0,
             colours.accent,
+        );
+    } else if weak {
+        painter.rect_filled(rect, 0.0, colours.accent.gamma_multiply(0.07));
+        painter.rect_filled(
+            Rect::from_min_size(rect.min, Vec2::new(1.5, rect.height())),
+            0.0,
+            colours.accent.gamma_multiply(0.6),
         );
     } else if resp.hovered() && !is_section {
         painter.rect_filled(rect, 0.0, colours.hover);
@@ -3803,6 +3893,8 @@ impl crate::App {
         } else {
             TreeTab::Layout
         };
+        self.adopt_legacy_selection();
+        let relations = crate::selection::relations(&self.project, &self.subject);
         let actions = {
             let env = Env {
                 project: &self.project,
@@ -3811,6 +3903,8 @@ impl crate::App {
                 hidden: &self.preferences.hidden_layers,
                 focus: self.focus_layer.as_deref(),
                 selected: self.selected,
+                subject: Some(&self.subject),
+                relations: Some(&relations),
                 target: self.current_target(),
                 revision: self.revision,
                 parts_selected: self.selected_part_components().len(),
@@ -3826,7 +3920,9 @@ impl crate::App {
                         self.change_tab(crate::Tab::Pcb);
                     }
                 }
-                Action::SelectKey(_) => self.select(None),
+                Action::SelectKey(key) => {
+                    self.select_subject(crate::selection::Selection::from_key(&key));
+                }
                 Action::SetShown { name, on } => {
                     layer_visibility::set_legacy_canvas(
                         &mut self.preferences.hidden_layers,
@@ -4037,6 +4133,16 @@ impl crate::App {
             self.page_properties(ui, page.parse().unwrap_or(0), false);
         } else if key == "root" || key.ends_with("/root") {
             self.board_root_properties(ui);
+        } else if let Some(rest) = key.strip_prefix("artifact:") {
+            self.artifact_properties(ui, rest);
+        } else if !key.contains("/net:")
+            && key.contains('/')
+            && matches!(
+                crate::selection::Selection::from_key(&key),
+                crate::selection::Selection::Sublayer(_)
+            )
+        {
+            self.sublayer_properties(ui, &key);
         } else if last.starts_with("side:")
             || last.starts_with("inner:")
             || last.starts_with("diel:")
@@ -4069,7 +4175,7 @@ impl crate::App {
     ///
     /// # Dependencies
     /// - `crates/engine/src/lib.rs` `board.set_layer_record` stores the change.
-    fn stack_properties(&mut self, ui: &mut Ui, seg: &str) {
+    pub(crate) fn stack_properties(&mut self, ui: &mut Ui, seg: &str) {
         let records = &self.project.board.layer_records;
         let copper: Vec<&pcbcraft_doc::LayerRecord> =
             records.iter().filter(|r| r.kind == "copper").collect();
@@ -4150,6 +4256,7 @@ impl crate::App {
                 d.insert_temp(key.with("m"), material);
             });
         }
+        self.layer_record_rows(ui, &rec);
     }
 }
 
@@ -4188,6 +4295,8 @@ mod tests {
             hidden,
             focus: None,
             selected: None,
+            subject: None,
+            relations: None,
             target: Target::Copper(Layer::Front),
             revision: 1,
             parts_selected: 0,

@@ -189,7 +189,7 @@ pub use export_validate::{
     stored_zip_entry, stored_zip_entry_names, validate_fabrication_package_file,
     validate_ipc2581_document, validate_odb_package,
 };
-pub use fab_drawing::fab_drawing_pdf;
+pub use fab_drawing::{fab_drawing_pdf, fab_drawing_svg};
 pub use fab_export::{DrillFunction, via_mask_opening, via_mask_opening_on_face};
 pub use firmware_target::{firmware_config_compare, firmware_target_files};
 pub use generate::{
@@ -359,13 +359,37 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 /// # Do not
 /// - Call with paths to non-JSON files
 pub fn load(path: &Path) -> Result<Project, String> {
-    let text = read_text(path)?;
-    let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let project = load_for_open(path)?;
+    project.validate()?;
+    Ok(project)
+}
+
+/// Read a project file and migrate it, without validating it.
+/// # Rules
+/// - The caller validates; `Session::open_project` folds nets that share a
+///   name first and then validates, because `Project::validate` refuses a
+///   repeated net name.
+/// # Do not
+/// - Hand the result to anything that assumes a valid project.
+pub fn load_for_open(path: &Path) -> Result<Project, String> {
+    load_text_for_open(&read_text(path)?)
+}
+
+/// Read a project from its text and migrate it, without validating it.
+/// Why: the browser build has no disk, so a design that ships inside the
+/// program opens from its text and never from a path.
+/// # Rules
+/// - The caller validates, exactly as for `load_for_open`.
+/// # Dependencies
+/// - crates/io/src/lib.rs (`migrate_loaded_project`)
+/// # Do not
+/// - Touch the file system here; this runs in the browser build.
+pub fn load_text_for_open(text: &str) -> Result<Project, String> {
+    let root: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     // The document model reads copper layer names against the stackup itself
     // (legacy files without the naming marker keep their index-derived names).
     let mut project: Project = serde_json::from_value(root).map_err(|e| e.to_string())?;
     migrate_loaded_project(&mut project)?;
-    project.validate()?;
     Ok(project)
 }
 /// Read a text file at the given path, enforcing the 8 MiB size limit.
@@ -2646,8 +2670,15 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let b = &p.board;
     let mut s = format!(
-        "(kicad_pcb (version 20240108) (generator \"pcbcraft\")\n (general (thickness {})) (paper \"A4\")\n (layers{} (34 \"B.Paste\" user) (35 \"F.Paste\" user) (36 \"B.SilkS\" user \"b.silkscreen\") (37 \"F.SilkS\" user \"f.silkscreen\") (38 \"B.Mask\" user) (39 \"F.Mask\" user) (44 \"Edge.Cuts\" user) (46 \"B.CrtYd\" user) (47 \"F.CrtYd\" user) (48 \"B.Fab\" user) (49 \"F.Fab\" user))\n (setup{} (pad_to_mask_clearance 0))\n (net 0 \"\")\n",
+        "(kicad_pcb (version 20240108) (generator \"pcbcraft\")\n (general (thickness {})){}\n (layers{} (34 \"B.Paste\" user) (35 \"F.Paste\" user) (36 \"B.SilkS\" user \"b.silkscreen\") (37 \"F.SilkS\" user \"f.silkscreen\") (38 \"B.Mask\" user) (39 \"F.Mask\" user) (44 \"Edge.Cuts\" user) (46 \"B.CrtYd\" user) (47 \"F.CrtYd\" user) (48 \"B.Fab\" user) (49 \"F.Fab\" user))\n (setup{} (pad_to_mask_clearance 0))\n (net 0 \"\")\n",
         f64s(b.thickness),
+        // A page size kept from the source file is written back by the
+        // preserved nodes below; only a fresh board gets the default.
+        if has_preserved_node(&b.preserved, "(paper") {
+            ""
+        } else {
+            " (paper \"A4\")"
+        },
         kicad_copper_layers(p),
         kicad_stackup(p)
     );
@@ -2850,11 +2881,22 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
     }
     for z in &b.zones {
         s.push_str(&format!(
-            " (zone (net {}) (net_name {}) (layer {}) {} (hatch edge 0.508) (connect_pads (clearance 0.508)) (min_thickness 0.254) (filled {})\n  (polygon (pts",
+            " (zone (net {}) (net_name {}) (layer {}) {} (hatch edge 0.508){}{} (filled {})\n  (polygon (pts",
             ordinal(Some(z.net)),
             quote(p.net_name(z.net)),
             quote(&p.layer_name(z.layer)),
             uuid_node(&z.preserved, z.id, 1),
+            // Defaults only when the source did not carry its own value.
+            if has_preserved_node(&z.preserved, "(connect_pads") {
+                ""
+            } else {
+                " (connect_pads (clearance 0.508))"
+            },
+            if has_preserved_node(&z.preserved, "(min_thickness") {
+                ""
+            } else {
+                " (min_thickness 0.254)"
+            },
             if z.filled { "yes" } else { "no" }
         ));
         for pt in z.outline.iter().take(z.outline.len().saturating_sub(1)) {
@@ -2989,6 +3031,13 @@ fn uuid_node(preserved: &pcbcraft_doc::PreservedSource, id: u64, kind: usize) ->
 
 /// Preserved nodes written inside the object that owns them; the uuid node is
 /// written separately.
+fn has_preserved_node(preserved: &pcbcraft_doc::PreservedSource, head: &str) -> bool {
+    preserved
+        .nodes
+        .iter()
+        .any(|n| n.trim_start().starts_with(head))
+}
+
 fn write_preserved_inline(s: &mut String, preserved: &pcbcraft_doc::PreservedSource) {
     for node in preserved.nodes.iter().filter(|n| !n.starts_with("(uuid")) {
         s.push(' ');
@@ -3925,7 +3974,6 @@ fn gerber_files_core(
     }
     let hits = project_drill_hits(p)?;
     let origin = p.board.drill_origin;
-    let drill = excellon_drill_file(&hits, origin, inch, scale, None)?;
     let plated_drill = excellon_drill_file(&hits, origin, inch, scale, Some(true))?;
     let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false))?;
     let drill_map = fab_export::drill_map_plot(p)?;
@@ -3971,7 +4019,6 @@ fn gerber_files_core(
         outline.finish(creation, "board outline", "Profile,NP", "Positive", true),
     );
     files.insert("pcb-DrillMap.gbr".into(), drill_map);
-    files.insert("pcb-Drill.drl".into(), drill);
     files.insert("pcb-Plated.drl".into(), plated_drill.clone());
     files.insert("pcb-NPTH.drl".into(), npth_drill.clone());
     for (name, text) in drawn::gerber_layer_files(p)? {
@@ -3988,6 +4035,7 @@ fn gerber_files_core(
         "pcb-B.Paste.gbr",
         "pcb-Plated.drl",
         "pcb-NPTH.drl",
+        "pcb-Rout.drl",
     ] {
         if let Some(text) = extras.get(key) {
             files.insert(key.to_string(), text.clone());
@@ -6113,8 +6161,11 @@ pub fn dxf_entities(text: &str) -> Result<Vec<DxfEntity>, String> {
 /// - Coordinates are in the project's native units (typically mm).
 pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
+    if assembly_drawing::view_is_assembly(view) {
+        return assembly_drawing::drawing_svg(p, view);
+    }
     if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
+        return Err("view must be pcb, schematic, assembly-top, or assembly-bottom".into());
     }
     let content_bounds = preview_bounds(p, view);
     let (min, max) = content_bounds;
@@ -7609,10 +7660,26 @@ fn lib_layer(layer: &str) -> String {
     lib_text(layer)
 }
 
+/// Append stored source text under `indent`. Lines after the first lose the
+/// indent they carried in their original file, so writing the same text twice
+/// never makes it drift to the right.
 fn append_indented_source(out: &mut String, source: &str, indent: &str) {
-    for line in source.trim().lines() {
+    let lines: Vec<&str> = source.trim().lines().collect();
+    let carried = lines
+        .iter()
+        .skip(1)
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    for (i, line) in lines.iter().enumerate() {
         out.push_str(indent);
-        out.push_str(line);
+        out.push_str(if i == 0 {
+            line
+        } else {
+            let cut = line.len() - line.trim_start().len();
+            &line[cut.min(carried)..]
+        });
         out.push('\n');
     }
 }
@@ -7623,9 +7690,51 @@ fn append_retained_nodes(out: &mut String, retained: &[String], indent: &str) {
     }
 }
 
+/// True when the pad's stored source text still reads back as exactly this
+/// pad, so the original text can be written instead of a regenerated copy.
+fn pad_source_is_current(pad: &pcbcraft_library::FootprintPad) -> bool {
+    if pad.raw_source.trim().is_empty() {
+        return false;
+    }
+    let wrapped = format!("(footprint \"probe\"\n{}\n)", pad.raw_source);
+    let Ok(read) = pcbcraft_library::read_footprint(&wrapped) else {
+        return false;
+    };
+    let [first] = read.pads.as_slice() else {
+        return false;
+    };
+    let mut a = first.clone();
+    let mut b = pad.clone();
+    a.raw_source.clear();
+    b.raw_source.clear();
+    a == b
+}
+
+/// True when the model's stored source text still reads back as this model.
+fn model_source_is_current(model: &pcbcraft_library::Model3D) -> bool {
+    if model.raw_source.trim().is_empty() {
+        return false;
+    }
+    let wrapped = format!("(footprint \"probe\"\n{}\n)", model.raw_source);
+    let Ok(read) = pcbcraft_library::read_footprint(&wrapped) else {
+        return false;
+    };
+    let Some(first) = read.model else {
+        return false;
+    };
+    let mut a = first;
+    let mut b = model.clone();
+    a.raw_source.clear();
+    b.raw_source.clear();
+    a == b
+}
+
 /// Format one footprint definition as a footprint library text file. The
 /// result re-parses to the same pads, artwork, model reference and rule
-/// overrides; placed footprint and board state are untouched.
+/// overrides; placed footprint and board state are untouched. Pads and the
+/// model whose stored source still matches their fields are written from
+/// that source, and nodes the reader kept as `retained` follow the body, so
+/// an unedited definition loses nothing.
 pub fn footprint_library_text(
     footprint: &pcbcraft_library::FootprintDefinition,
 ) -> Result<String, String> {
@@ -7653,6 +7762,10 @@ pub fn footprint_library_text(
         if smd { "smd" } else { "through_hole" }
     ));
     for pad in &footprint.pads {
+        if pad_source_is_current(pad) {
+            append_indented_source(&mut out, &pad.raw_source, "  ");
+            continue;
+        }
         out.push_str(&format!(
             "  (pad {} {} {} (at {} {} {}) (size {} {})",
             lib_text(&pad.number),
@@ -7688,7 +7801,13 @@ pub fn footprint_library_text(
     for graphic in &footprint.graphics {
         out.push_str(&format!("  {}\n", lib_graphic(graphic, false)));
     }
-    if let Some(model) = &footprint.model {
+    if let Some(model) = footprint
+        .model
+        .as_ref()
+        .filter(|m| model_source_is_current(m))
+    {
+        append_indented_source(&mut out, &model.raw_source, "  ");
+    } else if let Some(model) = &footprint.model {
         let triple = |v: &[f64; 3]| format!("(xyz {} {} {})", v[0], v[1], v[2]);
         out.push_str(&format!(
             "  (model {} (offset {}) (scale {}) (rotate {}))\n",
@@ -7709,6 +7828,7 @@ pub fn footprint_library_text(
             out.push_str(&format!("  (solder_paste_margin {value})\n"));
         }
     }
+    append_retained_nodes(&mut out, &footprint.retained, "  ");
     out.push_str("  (embedded_fonts no)\n)\n");
     if out.len() as u64 > MAX_FILE_BYTES {
         return Err("footprint library text exceeds the file size limit".into());
@@ -8874,6 +8994,7 @@ mod tests {
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
             text: String::new(),
+            style: String::new(),
         });
         project.validate()?;
         let pcb = postscript(&project, "pcb")?;
@@ -9200,7 +9321,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn a_slotted_mounting_hole_writes_one_g85_span() -> Result<(), String> {
+    fn a_slotted_mounting_hole_writes_one_routed_span() -> Result<(), String> {
         let mut project = Project::default();
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 520,
@@ -9210,16 +9331,21 @@ mod tests {
         });
         project.validate()?;
         let files = gerber_files(&project)?;
-        let drill = &files["pcb-Drill.drl"];
+        let drill = &files["pcb-Rout.drl"];
         assert!(
-            drill.contains("T1C1.000\n"),
+            drill.contains("T01C1.000\n"),
             "the tool is the slot width: {drill}"
         );
         assert!(
-            drill.contains("X10.000Y10.000G85X14.000Y10.000\n"),
-            "one hit spans the two centres: {drill}"
+            drill.contains("G00X10.000Y10.000\nM15\nG01X14.000Y10.000\nM16\n"),
+            "one rout runs between the two centres: {drill}"
         );
         assert!(drill.ends_with("M30\n"));
+        assert!(!drill.contains("G85"), "no G85 span survives: {drill}");
+        assert!(
+            !files["pcb-NPTH.drl"].contains("T01C1.000"),
+            "the slot is not a round hole in the unplated file"
+        );
         let map = &files["pcb-DrillMap.gbr"];
         assert!(
             map.contains("X10000000Y10000000D02*\nX14000000Y10000000D01*\n"),
@@ -9461,6 +9587,7 @@ mod tests {
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
             text: String::new(),
+            style: String::new(),
         });
         project.validate()?;
         for view in ["pcb", "schematic"] {
@@ -10459,11 +10586,11 @@ mod tests {
         );
         let drill = &files["pcb-Plated.drl"];
         assert!(
-            drill.starts_with("M48\nPlated,1,2,PTH\nFMAT,2\nINCH,TZ\n"),
+            drill.starts_with("M48\nPlated,1,2,PTH\nINCH\n"),
             "the drill header declares inches: {drill}"
         );
         assert!(
-            drill.contains("T1C0.0118\n"),
+            drill.contains("T01C0.0118\n"),
             "a 0.3 mm bit is a 0.0118 inch bit"
         );
         assert!(
@@ -10500,7 +10627,7 @@ mod tests {
                 assert_eq!(layer.flash_count, flashes, "flash count for {name}");
                 assert_eq!(layer.draw_count, draws, "draw count for {name}");
                 flashing += layer.flash_count;
-            } else if name == "pcb-Drill.drl" {
+            } else if name == "pcb-Plated.drl" {
                 let (tools, hits) = parse_excellon_drill(text)?;
                 assert!(!tools.is_empty(), "drill tools in {name}");
                 assert!(!hits.is_empty(), "drill hits in {name}");
@@ -10677,7 +10804,6 @@ mod tests {
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
                 "pcb-B.SilkS.gbr",
-                "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cmp.gbr",
@@ -10743,12 +10869,13 @@ mod tests {
             outline.contains("X44000000Y20000000D02*\nG02*\nX44000000Y20000000I2000000J0D01*\n"),
             "the circular cutout must trace a circle"
         );
-        let drill = &files["pcb-Drill.drl"];
-        assert!(drill.starts_with("M48\nFMAT,2\nMETRIC,TZ\n"));
-        assert!(drill.contains("T1C0.300\n"), "via drill tool");
-        assert!(drill.contains("T2C0.800\n"), "pad drill tool");
-        assert!(drill.contains("T1\nX30.000Y10.000\n"), "via hole hit");
-        assert!(drill.contains("T2\nX0.000Y0.000\n"), "pad hole hit");
+        let drill = &files["pcb-Plated.drl"];
+        assert!(drill.starts_with("M48\nPlated,1,2,PTH\nMETRIC\n"));
+        assert!(!drill.contains("FMAT") && !drill.contains(",TZ"));
+        assert!(drill.contains("T01C0.300\n"), "via drill tool");
+        assert!(drill.contains("T02C0.800\n"), "pad drill tool");
+        assert!(drill.contains("T01\nX30.000Y10.000\n"), "via hole hit");
+        assert!(drill.contains("T02\nX0.000Y0.000\n"), "pad hole hit");
         assert!(drill.ends_with("M30\n"));
         Ok(())
     }
@@ -10889,17 +11016,17 @@ mod tests {
         }
         project.validate()?;
         let files = gerber_files(&project)?;
-        let drill = &files["pcb-Drill.drl"];
+        let drill = &files["pcb-Rout.drl"];
         assert!(
-            drill.contains("T1C0.500\n"),
+            drill.contains("T01C0.500\n"),
             "one narrow tool carries both slots"
         );
         assert!(
-            drill.contains("X9.850Y10.000G85X10.150Y10.000\n"),
+            drill.contains("G00X9.850Y10.000\nM15\nG01X10.150Y10.000\nM16\n"),
             "an unrotated oval spans along x"
         );
         assert!(
-            drill.contains("X30.000Y10.150G85X30.000Y9.850\n"),
+            drill.contains("G00X30.000Y10.150\nM15\nG01X30.000Y9.850\nM16\n"),
             "a rotated footprint rotates its slot"
         );
         assert!(drill.ends_with("M30\n"));
@@ -14374,6 +14501,7 @@ mod tests {
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
             text: Default::default(),
+            style: String::new(),
         });
         project.labels.push(pcbcraft_doc::Label {
             id: 5,
@@ -14382,6 +14510,7 @@ mod tests {
             position: Point::new(20.0, 5.0),
             rotation: 0.0,
             text: Default::default(),
+            style: String::new(),
         });
         project.no_connects.push(pcbcraft_doc::NoConnectFlag {
             id: 6,
@@ -14588,70 +14717,121 @@ mod tests {
         bad.version = 999;
         assert!(bad.validate().is_err());
     }
+    fn without_source_text(
+        mut footprint: pcbcraft_library::FootprintDefinition,
+    ) -> pcbcraft_library::FootprintDefinition {
+        footprint.raw_source.clear();
+        for pad in &mut footprint.pads {
+            pad.raw_source.clear();
+        }
+        if let Some(model) = &mut footprint.model {
+            model.raw_source.clear();
+        }
+        footprint
+    }
+    fn symbol_without_source_text(
+        mut symbol: pcbcraft_library::SymbolDefinition,
+    ) -> pcbcraft_library::SymbolDefinition {
+        symbol.raw_source.clear();
+        // A derived symbol is written with its inherited drawing folded in.
+        symbol.extends = None;
+        symbol
+    }
+    const FOOTPRINT_FIXTURES: [&str; 3] = [
+        include_str!("../../library/tests/fixtures/R_0805_2012Metric.kicad_mod"),
+        include_str!("../../library/tests/fixtures/DIP-8_W7.62mm.kicad_mod"),
+        include_str!("../../library/tests/fixtures/unknown-nodes.kicad_mod"),
+    ];
+    const SYMBOL_FIXTURES: [&str; 4] = [
+        include_str!("../../library/tests/fixtures/device.kicad_sym"),
+        include_str!("../../library/tests/fixtures/lm358.kicad_sym"),
+        include_str!("../../library/tests/fixtures/dual-common-supply.kicad_sym"),
+        include_str!("../../library/tests/fixtures/unknown-nodes.kicad_sym"),
+    ];
     #[test]
     fn footprint_library_text_round_trips_through_the_reader() -> Result<(), String> {
-        for source in [
-            include_str!("../../library/tests/fixtures/R_0805_2012Metric.kicad_mod"),
-            include_str!("../../library/tests/fixtures/DIP-8_W7.62mm.kicad_mod"),
-        ] {
+        for source in FOOTPRINT_FIXTURES {
             let footprint = pcbcraft_library::read_footprint(source).map_err(|e| e.to_string())?;
             let text = footprint_library_text(&footprint)?;
             let again = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
-            assert_eq!(again.name, footprint.name);
-            assert_eq!(again.description, footprint.description);
-            assert_eq!(again.keywords, footprint.keywords);
-            assert_eq!(again.pads.len(), footprint.pads.len());
-            for (a, b) in again.pads.iter().zip(&footprint.pads) {
-                assert_eq!(a.number, b.number);
-                assert_eq!(a.pad_type, b.pad_type);
-                assert_eq!(a.shape, b.shape);
-                assert_eq!(a.position, b.position);
-                assert_eq!(a.rotation, b.rotation);
-                assert_eq!(a.size, b.size);
-                assert_eq!(a.layers, b.layers);
-                assert_eq!(a.drill, b.drill);
-                assert_eq!(a.roundrect_ratio, b.roundrect_ratio);
-            }
-            assert_eq!(again.graphics, footprint.graphics);
             assert_eq!(
-                again
-                    .model
-                    .as_ref()
-                    .map(|m| (&m.path, m.offset, m.scale, m.rotate)),
-                footprint
-                    .model
-                    .as_ref()
-                    .map(|m| (&m.path, m.offset, m.scale, m.rotate))
+                without_source_text(again),
+                without_source_text(footprint.clone()),
+                "{} changed across a write",
+                footprint.name
             );
-            assert_eq!(again.rules, footprint.rules);
+            let third = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
+            assert_eq!(
+                footprint_library_text(&third)?,
+                text,
+                "{} text is not stable across a second write",
+                footprint.name
+            );
         }
         Ok(())
     }
     #[test]
     fn symbol_library_text_round_trips_through_the_reader() -> Result<(), String> {
-        for source in [
-            include_str!("../../library/tests/fixtures/device.kicad_sym"),
-            include_str!("../../library/tests/fixtures/lm358.kicad_sym"),
-        ] {
+        for source in SYMBOL_FIXTURES {
             let symbols = pcbcraft_library::read_symbols(source).map_err(|e| e.to_string())?;
-            for symbol in symbols
-                .iter()
-                .filter(|s| !s.pins.is_empty() && !s.graphics.is_empty())
-            {
+            assert!(!symbols.is_empty());
+            for symbol in &symbols {
                 let text = symbol_library_text(symbol)?;
                 let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
                 assert_eq!(again.len(), 1, "{} wrote stray symbols", symbol.name);
-                let again = &again[0];
-                assert_eq!(again.name, symbol.name);
-                assert_eq!(again.reference, symbol.reference);
-                assert_eq!(again.value, symbol.value);
-                assert_eq!(again.description, symbol.description);
-                assert_eq!(again.keywords, symbol.keywords);
-                assert_eq!(again.footprint, symbol.footprint);
-                assert_eq!(again.pins, symbol.pins);
-                assert_eq!(again.graphics, symbol.graphics);
+                let again = again.into_iter().next().ok_or("no symbol")?;
+                assert_eq!(
+                    symbol_without_source_text(again.clone()),
+                    symbol_without_source_text(symbol.clone()),
+                    "{} changed across a write",
+                    symbol.name
+                );
+                assert_eq!(symbol_library_text(&again)?, text);
             }
         }
+        Ok(())
+    }
+    #[test]
+    fn library_fixtures_survive_lossless_write_round_trip() -> Result<(), String> {
+        let footprint = pcbcraft_library::read_footprint(include_str!(
+            "../../library/tests/fixtures/unknown-nodes.kicad_mod"
+        ))
+        .map_err(|e| e.to_string())?;
+        assert_eq!(footprint.retained.len(), 2, "both unknown nodes are kept");
+        let text = footprint_library_text(&footprint)?;
+        for needle in [
+            "(private_layers \"In1.Cu\" \"In2.Cu\")",
+            "(net_tie_pad_groups \"1, 2\")",
+            "(uuid \"11111111-1111-1111-1111-111111111111\")",
+            "(thermal_bridge_angle 45)",
+        ] {
+            assert!(text.contains(needle), "footprint write lost {needle}");
+        }
+        let symbol = pcbcraft_library::read_symbols(include_str!(
+            "../../library/tests/fixtures/unknown-nodes.kicad_sym"
+        ))
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or("no symbol")?;
+        assert_eq!(symbol.retained.len(), 1);
+        assert!(symbol_library_text(&symbol)?.contains("(power_flag_hint yes)"));
+        Ok(())
+    }
+    #[test]
+    fn an_edited_pad_is_regenerated_instead_of_spliced() -> Result<(), String> {
+        let mut footprint = pcbcraft_library::read_footprint(include_str!(
+            "../../library/tests/fixtures/unknown-nodes.kicad_mod"
+        ))
+        .map_err(|e| e.to_string())?;
+        footprint.pads[0].size.x = 1.5;
+        let text = footprint_library_text(&footprint)?;
+        assert!(
+            !text.contains("11111111-1111"),
+            "the stale source was written"
+        );
+        let again = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
+        assert_eq!(again.pads[0].size.x, 1.5);
         Ok(())
     }
 
@@ -15466,7 +15646,7 @@ mod tests {
         let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
         assert!(
-            plated.contains("T1C0.800\n"),
+            plated.contains("T01C0.800\n"),
             "numbered through-hole pads stay on the plated drill file"
         );
         assert!(
@@ -15474,7 +15654,7 @@ mod tests {
             "peg coordinates must not appear in the plated drill file: {plated}"
         );
         assert!(
-            npth.contains("T1C3.000\n"),
+            npth.contains("T01C3.000\n"),
             "both pegs share one unplated tool"
         );
         assert!(
@@ -15599,8 +15779,8 @@ mod tests {
         let files = gerber_files(&project)?;
         let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
-        assert!(plated.contains("T1C0.300\n") && !plated.contains("T1C3.000\n"));
-        assert!(npth.contains("T1C3.000\n") && !npth.contains("0.300"));
+        assert!(plated.contains("T01C0.300\n") && !plated.contains("T01C3.000\n"));
+        assert!(npth.contains("T01C3.000\n") && !npth.contains("0.300"));
         Ok(())
     }
 
@@ -15636,7 +15816,8 @@ mod tests {
         let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
         for text in [plated.as_str(), npth.as_str()] {
-            assert!(text.contains("FMAT,2\n"));
+            assert!(text.starts_with("M48\n"));
+            assert!(!text.contains("FMAT") && !text.contains(",TZ"));
             assert!(text.ends_with("M30\n"));
         }
         let (p_tools, p_hits) = parse_excellon_drill(plated)?;
@@ -15691,18 +15872,23 @@ mod tests {
     #[test]
     fn panel_two_by_two_sample_board_drill_and_placement() -> Result<(), String> {
         let p = sample_board_with_two_by_two_panel()?;
-        let single_drill = gerber_files(&p)?
-            .get("pcb-Drill.drl")
-            .ok_or("single-board drill missing")?
-            .clone();
-        let single_hits = single_drill
-            .lines()
-            .filter(|line| line.starts_with('X'))
-            .count();
+        let hit_count = |files: &BTreeMap<String, String>| -> usize {
+            ["pcb-Plated.drl", "pcb-NPTH.drl"]
+                .iter()
+                .filter_map(|name| files.get(*name))
+                .flat_map(|text| text.lines())
+                .filter(|line| line.starts_with('X'))
+                .count()
+        };
+        let single_hits = hit_count(&gerber_files(&p)?);
         let files = panel_fabrication_files(&p)?;
+        assert!(
+            !files.contains_key("pcb-Drill.drl"),
+            "the panel set ships the split drill files only"
+        );
         let drill = files
-            .get("pcb-Drill.drl")
-            .ok_or("panel drill file missing")?;
+            .get("pcb-NPTH.drl")
+            .ok_or("panel unplated drill file missing")?;
         assert!(
             drill.contains("MechanicalDrill,Breakout"),
             "breakaway holes must carry the breakout aperture function"
@@ -15711,7 +15897,7 @@ mod tests {
             drill.contains("MechanicalDrill,Tooling"),
             "tooling holes must carry the tooling aperture function"
         );
-        let panel_hits = drill.lines().filter(|line| line.starts_with('X')).count();
+        let panel_hits = hit_count(&files);
         assert!(
             panel_hits > single_hits * 4,
             "panel drill must repeat every board hit on each copy plus mechanical holes"
@@ -16455,7 +16641,7 @@ mod tests {
             "each via tool clears its attribute so later tools do not inherit it"
         );
         assert_eq!(
-            drill.matches("\nT1C0.300\n").count() + drill.matches("\nT2C0.300\n").count(),
+            drill.matches("\nT01C0.300\n").count() + drill.matches("\nT02C0.300\n").count(),
             2,
             "one tool per covering: {drill}"
         );

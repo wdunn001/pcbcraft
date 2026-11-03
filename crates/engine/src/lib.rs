@@ -27,6 +27,7 @@ mod images;
 mod layout;
 pub mod library;
 mod machines;
+mod net_names;
 mod net_properties;
 mod online;
 mod outline;
@@ -133,7 +134,7 @@ fn point_schema() -> Value {
 }
 fn pin_schema() -> Value {
     schema(
-        json!({"component":id_schema(),"pin":{"type":"string"}}),
+        json!({"component":id_schema(),"pin":{"type":"string"},"unit":{"type":"integer","minimum":1,"description":"symbol unit for multi-unit parts, required only when the pin number is shared across units"}}),
         &["component", "pin"],
     )
 }
@@ -1229,10 +1230,10 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "label.place",
-            "Place a local, global, hierarchical or power label, or a junction, naming an existing net",
+            "Place a local, global, hierarchical or power label, or a junction. Name an existing net by id, or type a net name: the net of that name is used and created when missing, a net given beside a name is renamed to it or merged into the net already called that, so labels of one name always share one net. A power label takes a symbol style: ground, bar, arrow or negative",
             schema(
-                json!({"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"position":point_schema(),"rotation":{"type":"number","minimum":-360000.0,"maximum":360000.0}}),
-                &["kind", "net", "position"],
+                json!({"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"name":{"type":"string","minLength":1,"maxLength":128},"position":point_schema(),"rotation":{"type":"number","minimum":-360000.0,"maximum":360000.0},"style":{"type":"string","enum":["ground","bar","arrow","negative"]}}),
+                &["kind", "position"],
             ),
         ),
         (
@@ -1277,9 +1278,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "label.set",
-            "Retype a net label or point it at a different net in place; junctions must stay on matching wire",
+            "Retype a net label, point it at a different net, or change the symbol style of a power label in place; junctions must stay on matching wire",
             schema(
-                json!({"id":id_schema(),"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema()}),
+                json!({"id":id_schema(),"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"style":{"type":"string","enum":["ground","bar","arrow","negative"]}}),
                 &["id"],
             ),
         ),
@@ -5424,10 +5425,15 @@ struct GraphicPointParams {
 #[serde(deny_unknown_fields)]
 struct LabelParams {
     kind: String,
-    net: Id,
+    #[serde(default)]
+    net: Option<Id>,
+    #[serde(default)]
+    name: Option<String>,
     position: Point,
     #[serde(default)]
     rotation: f64,
+    #[serde(default)]
+    style: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -7518,6 +7524,8 @@ struct LabelSetParams {
     kind: Option<String>,
     #[serde(default)]
     net: Option<Id>,
+    #[serde(default)]
+    style: Option<String>,
 }
 /// Parameters of `wire.add_point`: insert one vertex into a drawn wire.
 ///
@@ -9224,6 +9232,7 @@ fn merge_design_block_template(
             position: label.position,
             rotation: label.rotation,
             text: label.text.clone(),
+            style: label.style.clone(),
         });
     }
     Ok(sheet_id)
@@ -10044,6 +10053,53 @@ fn split_drawn_wire_at(p: &mut Project, next: &mut Id, id: Id, at: Point) -> Res
     Ok(tail_id)
 }
 
+/// Check the style asked for on a label and return the text to store.
+///
+/// # Rules
+/// - Only a power label takes a style, and it must be one of
+///   `Label::POWER_STYLES`; asking for none stores the empty default.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs (`Label::POWER_STYLES` lists the symbols)
+///
+/// # Do not
+/// - Accept a style on a label that is not a power label.
+fn label_style(kind: &str, style: Option<&str>) -> Result<String, Error> {
+    match style {
+        None => Ok(String::new()),
+        Some(_) if kind != "power" => Err(Error::Invalid(
+            "only a power label takes a symbol style".into(),
+        )),
+        Some(chosen) if pcbcraft_doc::Label::POWER_STYLES.contains(&chosen) => {
+            Ok(chosen.to_string())
+        }
+        Some(_) => Err(Error::Invalid(
+            "power style is ground, bar, arrow or negative".into(),
+        )),
+    }
+}
+
+/// Trim and check a net name typed for a label.
+///
+/// # Rules
+/// - The name is 1 to 128 bytes after trimming and holds no control characters.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs (`net.rename` applies the same length bound)
+///
+/// # Do not
+/// - Store the untrimmed text: a stray space would make two labels of one
+///   name look different.
+fn checked_net_name(raw: &str) -> Result<String, Error> {
+    let name = raw.trim();
+    if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+        return Err(Error::Invalid(
+            "net name must be 1 to 128 bytes without control characters".into(),
+        ));
+    }
+    Ok(name.to_string())
+}
+
 fn merge_net_into(p: &mut Project, source: Id, target: Id) -> Result<(), Error> {
     if source == target {
         return Err(Error::Invalid("a net cannot be merged into itself".into()));
@@ -10051,61 +10107,7 @@ fn merge_net_into(p: &mut Project, source: Id, target: Id) -> Result<(), Error> 
     if !p.nets.iter().any(|n| n.id == source) || !p.nets.iter().any(|n| n.id == target) {
         return Err(missing());
     }
-    for c in p.components.iter_mut() {
-        for pin in c.pins.iter_mut() {
-            if pin.net == Some(source) {
-                pin.net = Some(target);
-            }
-        }
-    }
-    for w in p.drawn_wires.iter_mut() {
-        if w.net == Some(source) {
-            w.net = Some(target);
-        }
-    }
-    for w in p.wires.iter_mut() {
-        if w.net == source {
-            w.net = target;
-        }
-    }
-    for l in p.labels.iter_mut() {
-        if l.net == source {
-            l.net = target;
-        }
-    }
-    for t in p.board.tracks.iter_mut() {
-        if t.net == source {
-            t.net = target;
-        }
-    }
-    for v in p.board.vias.iter_mut() {
-        if v.net == source {
-            v.net = target;
-        }
-    }
-    for z in p.board.zones.iter_mut() {
-        if z.net == source {
-            z.net = target;
-        }
-    }
-    for class in p.net_classes.iter_mut() {
-        if class.nets.contains(&source) {
-            class.nets.retain(|n| *n != source && *n != target);
-            class.nets.push(target);
-            class.nets.sort_unstable();
-            class.nets.dedup();
-        }
-    }
-    for rule in p.board.pair_rules.iter_mut() {
-        if rule.a == source {
-            rule.a = target;
-        }
-        if rule.b == source {
-            rule.b = target;
-        }
-    }
-    p.board.pair_rules.retain(|r| r.a != r.b);
-    p.nets.retain(|n| n.id != source);
+    p.merge_net(source, target);
     Ok(())
 }
 
@@ -14628,6 +14630,7 @@ fn run_command_part_7(
                     position: at,
                     rotation: 0.0,
                     text: String::new(),
+                    style: String::new(),
                 });
                 junction_id = Some(label);
             }
@@ -16628,8 +16631,10 @@ fn run_command_part_11(
             if !pcbcraft_doc::Label::KINDS.iter().any(|k| *k == a.kind) {
                 return Err(Error::Invalid("unknown label kind".into()));
             }
-            if !p.nets.iter().any(|n| n.id == a.net) {
-                return Err(missing());
+            if a.kind == "bus" {
+                return Err(Error::Invalid(
+                    "place bus labels with label.place_bus".into(),
+                ));
             }
             if !a.position.valid() {
                 return Err(Error::Invalid("label position is out of range".into()));
@@ -16637,31 +16642,95 @@ fn run_command_part_11(
             if !a.rotation.is_finite() || a.rotation.abs() > 360_000.0 {
                 return Err(Error::Invalid("invalid label rotation".into()));
             }
+            let style = label_style(&a.kind, a.style.as_deref())?;
+            if a.net.is_some_and(|n| !p.nets.iter().any(|x| x.id == n)) {
+                return Err(missing());
+            }
+            if a.net.is_none() && a.name.is_none() {
+                return Err(Error::Invalid(
+                    "give the net to label by id or by a typed name".into(),
+                ));
+            }
+            if a.kind == "junction" && a.name.is_some() {
+                return Err(Error::Invalid("a junction carries no net name".into()));
+            }
+            let mut merged = None;
+            let mut created = false;
+            let net = match a.name.as_deref() {
+                None => a.net.ok_or_else(missing)?,
+                Some(raw) => {
+                    let name = checked_net_name(raw)?;
+                    let named = p.nets.iter().find(|n| n.name == name).map(|n| n.id);
+                    match (a.net, named) {
+                        (Some(net), Some(target)) if net != target => {
+                            merge_net_into(p, net, target)?;
+                            merged = Some(net);
+                            target
+                        }
+                        (Some(net), Some(_)) => net,
+                        (Some(net), None) => {
+                            if let Some(n) = p.nets.iter_mut().find(|n| n.id == net) {
+                                n.name = name;
+                            }
+                            net
+                        }
+                        (None, Some(target)) => target,
+                        (None, None) => {
+                            let id = allocate(next)?;
+                            p.nets.push(Net {
+                                id,
+                                name,
+                                ..Default::default()
+                            });
+                            created = true;
+                            id
+                        }
+                    }
+                }
+            };
             if a.kind == "junction"
                 && !p
                     .drawn_wires
                     .iter()
-                    .any(|w| w.net == Some(a.net) && w.points.contains(&a.position))
+                    .any(|w| w.net == Some(net) && w.points.contains(&a.position))
             {
                 return Err(Error::Invalid(
                     "junction must sit on a vertex of a drawn wire of its net".into(),
                 ));
             }
-            let id = allocate(next)?;
-            if a.kind == "bus" {
-                return Err(Error::Invalid(
-                    "place bus labels with label.place_bus".into(),
-                ));
+            if a.name.is_some() {
+                // A named label beside a bare wire gives that wire its net:
+                // the nearest wire without a net within one millimetre.
+                let near = p
+                    .drawn_wires
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, w)| w.net.is_none())
+                    .filter_map(|(i, w)| {
+                        w.points
+                            .windows(2)
+                            .map(|s| pcbcraft_geom::point_segment(a.position, s[0], s[1]))
+                            .min_by(f64::total_cmp)
+                            .map(|d| (i, d))
+                    })
+                    .filter(|(_, d)| *d <= 1.0)
+                    .min_by(|x, y| x.1.total_cmp(&y.1))
+                    .map(|(i, _)| i);
+                if let Some(i) = near {
+                    p.drawn_wires[i].net = Some(net);
+                }
             }
+            let id = allocate(next)?;
             p.labels.push(pcbcraft_doc::Label {
                 id,
                 kind: a.kind,
-                net: a.net,
+                net,
                 position: a.position,
                 rotation: a.rotation,
                 text: String::new(),
+                style,
             });
-            Ok(json!({"id":id}))
+            Ok(json!({"id":id,"net":net,"created":created,"merged":merged}))
         }
         "wire.draw_bus" => {
             let a: BusWireParams = parse(params)?;
@@ -16690,6 +16759,7 @@ fn run_command_part_11(
                 position: a.points[0],
                 rotation: 0.0,
                 text: a.name.clone(),
+                style: String::new(),
             });
             Ok(json!({"id":id,"label":label,"members":members,"created":created}))
         }
@@ -16711,6 +16781,7 @@ fn run_command_part_11(
                 position: a.position,
                 rotation: a.rotation,
                 text: a.name.clone(),
+                style: String::new(),
             });
             Ok(json!({"id":id,"members":members,"created":created}))
         }
@@ -16773,8 +16844,10 @@ fn run_command_part_11(
         }
         "label.set" => {
             let a: LabelSetParams = parse(params)?;
-            if a.kind.is_none() && a.net.is_none() {
-                return Err(Error::Invalid("provide a kind or net to change".into()));
+            if a.kind.is_none() && a.net.is_none() && a.style.is_none() {
+                return Err(Error::Invalid(
+                    "provide a kind, net or style to change".into(),
+                ));
             }
             if a.kind
                 .as_ref()
@@ -16802,9 +16875,17 @@ fn run_command_part_11(
             }
             let kind = a.kind.unwrap_or_else(|| p.labels[index].kind.clone());
             let net = a.net.unwrap_or_else(|| p.labels[index].net);
-            if kind == p.labels[index].kind && net == p.labels[index].net {
+            let style = match a.style.as_deref() {
+                Some(chosen) => label_style(&kind, Some(chosen))?,
+                None if kind == "power" => p.labels[index].style.clone(),
+                None => String::new(),
+            };
+            if kind == p.labels[index].kind
+                && net == p.labels[index].net
+                && style == p.labels[index].style
+            {
                 return Err(Error::Invalid(
-                    "that label already has that kind and net".into(),
+                    "that label already has that kind, net and style".into(),
                 ));
             }
             if kind == "junction"
@@ -16819,6 +16900,7 @@ fn run_command_part_11(
             }
             p.labels[index].kind = kind;
             p.labels[index].net = net;
+            p.labels[index].style = style;
             Ok(json!({"id": a.id}))
         }
         "pin.no_connect" => {
@@ -38612,10 +38694,10 @@ mod tests {
             .collect();
         assert_eq!(xs, vec![20.0, 30.0, 10.0, 20.0, 30.0]);
         let files = pcbcraft_io::gerber_files(&s.project)?;
-        // The combined drill file holds every slot as a G85 span.
-        let drill = &files["pcb-Drill.drl"];
+        // The rout file holds every slot as a routed span.
+        let drill = &files["pcb-Rout.drl"];
         assert_eq!(
-            drill.matches("G85").count(),
+            drill.matches("M15\n").count(),
             6,
             "every copy is a routed slot: {drill}"
         );
@@ -38623,7 +38705,11 @@ mod tests {
             .lines()
             .filter(|l| l.starts_with('T') && l.contains('C'))
             .collect();
-        assert_eq!(tools, vec!["T1C1.000"], "one tool carries all six: {drill}");
+        assert_eq!(
+            tools,
+            vec!["T01C1.000"],
+            "one tool carries all six: {drill}"
+        );
         Ok(())
     }
     #[test]
@@ -40282,7 +40368,6 @@ mod tests {
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
                 "pcb-B.SilkS.gbr",
-                "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cmp.gbr",
@@ -40405,7 +40490,6 @@ mod tests {
             "pcb-B.Mask.gbr",
             "pcb-B.Paste.gbr",
             "pcb-B.SilkS.gbr",
-            "pcb-Drill.drl",
             "pcb-DrillMap.gbr",
             "pcb-Edge.gbr",
             "pcb-F.Cmp.gbr",

@@ -847,8 +847,8 @@ pub(crate) fn invoke_session(
             .replace(Session::sample().map_err(|e| e.to_string())?.project)
             .map_err(|e| e.to_string())?,
         "open" => {
-            let p = pcbcraft_io::load(Path::new(string(args, "path")?))?;
-            s.replace(p).map_err(|e| e.to_string())?
+            let p = pcbcraft_io::load_for_open(Path::new(string(args, "path")?))?;
+            s.open_project(p).map_err(|e| e.to_string())?
         }
         "save" => {
             let path = string(args, "path")?;

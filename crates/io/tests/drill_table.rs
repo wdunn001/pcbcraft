@@ -214,9 +214,14 @@ fn the_table_counts_every_hole_on_two_four_and_six_layers() -> T {
             .windows(2)
             .all(|w| (w[0].from_layer, w[0].to_layer) <= (w[1].from_layer, w[1].to_layer));
         assert!(ordered, "{layers} layers: rows run in span order");
-        let excellon_hits: usize = pcbcraft_io::gerber_files(&p)?
+        let package = pcbcraft_io::gerber_files(&p)?;
+        assert!(
+            !package.contains_key("pcb-Drill.drl"),
+            "{layers} layers: no combined drill file ships"
+        );
+        let excellon_hits: usize = package
             .iter()
-            .filter(|(n, _)| n.ends_with(".drl") && n.as_str() != "pcb-Drill.drl")
+            .filter(|(n, _)| n.ends_with(".drl"))
             .map(|(_, t)| {
                 t.lines()
                     .filter(|l| l.starts_with('X') && !l.contains("G85"))

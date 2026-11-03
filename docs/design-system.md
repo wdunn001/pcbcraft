@@ -143,6 +143,7 @@ egui: custom `tab_bar(ui, &mut current, &[Tab{label, badge}])`. Do not use `Sele
 
 ### 5.7 List row and tree row
 List row: 36 high, 12 side padding, optional leading icon, label 13, trailing meta in Mono or chips, 1 px divider at 55 percent `line`. Hover: `raised`. Selected: copper tint plus a 3 px `copper` bar on the left edge. Tree row: 28 high, indent 16 per level, chevron 16, swatch or icon, name, count in Mono, lock cell 24, eye cell 24 (see layers tree in the page spec). Dimmed row (layer hidden or empty): name and swatch at 45 percent.
+One selection: the tree, the canvas, Properties and the Manufacture drill table read and write the single value in `crates/ui-egui/src/selection.rs`. The selected row is strong (tint plus bar). Rows related to it are weak (7 percent tint plus a 1.5 px bar): a net lights its tracks, zones, vias and parts, a via lights the layer rows of its span and dims the layers outside it. A net or via is one object however many rows show it.
 egui: `fn list_row(ui, selected, add_contents) -> Response` using `ui.allocate_exact_size`, painting the background first, then `ui.allocate_ui_at_rect` for the content. Trees use `egui::CollapsingState` for open state but our own row painter.
 
 ### 5.8 Finding row

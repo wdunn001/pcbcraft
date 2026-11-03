@@ -608,12 +608,8 @@ fn write_excellon(
     if by_tool.len() > MAX_TOOLS {
         return Err("drill export needs 64 or fewer distinct tools".into());
     }
-    let (unit_line, prec) = if inch {
-        ("INCH,TZ", 4)
-    } else {
-        ("METRIC,TZ", 3)
-    };
-    let mut out = format!("M48\n{plating_line}\nFMAT,2\n{unit_line}\n");
+    let (unit_line, prec) = if inch { ("INCH", 4) } else { ("METRIC", 3) };
+    let mut out = format!("M48\n{plating_line}\n{unit_line}\n");
     for (n, key) in by_tool.keys().enumerate() {
         let d = key.0;
         let mut attributed = false;
@@ -633,7 +629,7 @@ fn write_excellon(
             attributed = true;
         }
         out.push_str(&format!(
-            "T{}C{:.prec$}\n",
+            "T{:02}C{:.prec$}\n",
             n + 1,
             d as f64 / 1000.0 * scale,
             prec = prec
@@ -644,7 +640,7 @@ fn write_excellon(
     }
     out.push_str("%\nG90\nG05\n");
     for (n, (_key, group)) in by_tool.iter().enumerate() {
-        out.push_str(&format!("T{}\n", n + 1));
+        out.push_str(&format!("T{:02}\n", n + 1));
         for hit in group {
             let x = (hit.x - origin.x) * scale;
             let y = (hit.y - origin.y) * scale;
@@ -667,15 +663,11 @@ fn write_rout(hits: &[DrillHit], scale: f64, origin: Point, inch: bool) -> Resul
     if by_tool.len() > MAX_TOOLS {
         return Err("rout export needs 64 or fewer distinct tools".into());
     }
-    let (unit_line, prec) = if inch {
-        ("INCH,TZ", 4)
-    } else {
-        ("METRIC,TZ", 3)
-    };
-    let mut out = format!("M48\nRout\nFMAT,2\n{unit_line}\n");
+    let (unit_line, prec) = if inch { ("INCH", 4) } else { ("METRIC", 3) };
+    let mut out = format!("M48\nRout\n{unit_line}\n");
     for (n, (d, _)) in by_tool.iter().enumerate() {
         out.push_str(&format!(
-            "T{}C{:.prec$}\n",
+            "T{:02}C{:.prec$}\n",
             n + 1,
             *d as f64 / 1000.0 * scale,
             prec = prec
@@ -683,14 +675,14 @@ fn write_rout(hits: &[DrillHit], scale: f64, origin: Point, inch: bool) -> Resul
     }
     out.push_str("%\nG90\nG05\n");
     for (n, (_d, group)) in by_tool.iter().enumerate() {
-        out.push_str(&format!("T{}\n", n + 1));
+        out.push_str(&format!("T{:02}\n", n + 1));
         for hit in group {
             let x = (hit.x - origin.x) * scale;
             let y = (hit.y - origin.y) * scale;
             let ux = hit.ux * scale;
             let uy = hit.uy * scale;
             out.push_str(&format!(
-                "X{a:.prec$}Y{b:.prec$}G85X{c:.prec$}Y{d:.prec$}\n",
+                "G00X{a:.prec$}Y{b:.prec$}\nM15\nG01X{c:.prec$}Y{d:.prec$}\nM16\n",
                 a = x - ux,
                 b = y - uy,
                 c = x + ux,

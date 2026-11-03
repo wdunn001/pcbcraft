@@ -1,9 +1,9 @@
 //! Start-page support for the showcase sample board.
 //!
 //! The finished board ships inside the program, so the Start page can open it
-//! from one click on any machine. It is written to the temporary folder and
-//! opened like any other design file, which keeps undo, recents and the
-//! assistant notice working exactly as for a file the person opened.
+//! from one click on any machine. It opens from its embedded text through the
+//! session, with no file, so the browser build can open it too. Undo and the
+//! assistant notice work as for a file the person opened.
 //!
 //! # Rules
 //! - The text is the generated file in `examples/`; never edit a copy.
@@ -34,19 +34,31 @@ impl App {
     /// - examples/showcase.pcbcraft
     ///
     /// # Do not
-    /// - Keep the temporary file open; it is only read once.
+    /// - Write a file or ask for a temporary folder; the browser build has neither.
     pub(crate) fn open_showcase(&mut self) -> bool {
-        let path = std::env::temp_dir().join(format!(
-            "pcbcraft-showcase-sensor-node-{}.pcbcraft",
-            std::process::id()
-        ));
-        if let Err(error) = std::fs::write(&path, SHOWCASE) {
-            self.message = error.to_string();
+        // The design opens from its embedded text: the browser build has no file system, and
+        // asking it for a temporary folder stops the whole page.
+        let project = match pcbcraft_io::load_text_for_open(SHOWCASE) {
+            Ok(project) => project,
+            Err(error) => {
+                self.message = error;
+                return false;
+            }
+        };
+        let opened = match self.session.lock() {
+            Ok(mut session) => session.open_project(project).map_err(|e| e.to_string()),
+            Err(_) => Err("session unavailable after internal failure".to_string()),
+        };
+        if let Err(error) = opened {
+            self.message = error;
             return false;
         }
-        let Some(path) = path.to_str() else {
-            return false;
-        };
-        self.tool_call("open", json!({ "path": path }))
+        self.message = t!("dialogs.tool_call.name_complete", name = "open");
+        self.path = "showcase.pcbcraft".to_string();
+        self.refresh();
+        self.saved_revision = Some(self.revision);
+        self.assistant_design_opened("open");
+        self.needs_fit = true;
+        true
     }
 }
