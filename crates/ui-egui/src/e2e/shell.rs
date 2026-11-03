@@ -1412,3 +1412,112 @@ fn a_newcomer_sees_that_saving_needs_the_desktop_app() -> Result<(), String> {
     }
     Ok(())
 }
+
+#[test]
+fn a_newcomer_switches_design_tabs_and_sees_their_own_view() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let first = dir.path().join("first.pcbcraft");
+    let second = dir.path().join("second.pcbcraft");
+    pcbcraft_io::save(&app.project, &first).map_err(|e| e.to_string())?;
+    pcbcraft_io::save(&app.project, &second).map_err(|e| e.to_string())?;
+
+    app.tool_call("open", json!({"path": first.to_string_lossy()}));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+    app.tool_call(
+        "execute",
+        json!({"command": "net.create", "params": {"name": "FIRST"}}),
+    );
+    app.change_tab(Tab::Pcb);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.tab,
+        Tab::Pcb,
+        "first design is on Layout: {}",
+        app.message
+    );
+
+    app.tool_call("open", json!({"path": second.to_string_lossy()}));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.tool_call(
+        "execute",
+        json!({"command": "net.create", "params": {"name": "SECOND"}}),
+    );
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.tab,
+        Tab::Schematic,
+        "second design is on Schematic: {}",
+        app.message
+    );
+
+    app.tool_call("design.activate", json!({"index": 0}));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.tab,
+        Tab::Pcb,
+        "switching back to design 0 restores its Layout tab: {}",
+        app.message
+    );
+
+    app.tool_call("design.activate", json!({"index": 1}));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.tab,
+        Tab::Schematic,
+        "switching to design 1 restores its Schematic tab: {}",
+        app.message
+    );
+
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_the_dirty_dot_disappear_after_save() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let path = dir.path().join("dirty.pcbcraft");
+    pcbcraft_io::save(&app.project, &path).map_err(|e| e.to_string())?;
+
+    app.tool_call("open", json!({"path": path.to_string_lossy()}));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+    app.tool_call(
+        "execute",
+        json!({"command": "net.create", "params": {"name": "DIRTY"}}),
+    );
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+    let listed = pcbcraft_mcp::call_tool(&app.session, "design.list_open", &json!({}));
+    assert!(
+        listed
+            .pointer("/structuredContent/documents/0/dirty")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true),
+        "the document should be dirty after an edit: {listed}"
+    );
+
+    app.tool_call("save", json!({"path": path.to_string_lossy()}));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+    let listed = pcbcraft_mcp::call_tool(&app.session, "design.list_open", &json!({}));
+    assert!(
+        listed
+            .pointer("/structuredContent/documents/0/dirty")
+            .and_then(serde_json::Value::as_bool)
+            == Some(false),
+        "the document should be clean after save: {listed}"
+    );
+
+    Ok(())
+}
