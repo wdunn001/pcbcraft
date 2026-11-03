@@ -63,6 +63,7 @@ mod generate;
 mod gerber;
 mod gerber_arc;
 mod gerber_job;
+mod gerber_origin;
 mod idf;
 mod import_cache;
 mod interface_profile;
@@ -3997,18 +3998,12 @@ fn gerber_files_core(
             ),
         );
     }
+    // Mask and paste come from the one fabrication writer in `fab_export`
+    // (copied in below); silkscreen is written here.
     for (layer, name) in [
         (pcbcraft_doc::Layer::Front, "F"),
         (pcbcraft_doc::Layer::Back, "B"),
     ] {
-        files.insert(
-            format!("pcb-{name}.Mask.gbr"),
-            gerber::gerber_mask(p, layer)?,
-        );
-        files.insert(
-            format!("pcb-{name}.Paste.gbr"),
-            gerber::gerber_paste(p, layer)?,
-        );
         files.insert(
             format!("pcb-{name}.SilkS.gbr"),
             gerber::gerber_silk(p, layer)?,
@@ -4060,6 +4055,15 @@ fn gerber_files_core(
             "pcb-Viafill.gbr".into(),
             gerber_fidelity::gerber_viafill(p)?,
         );
+    }
+    // One design origin for every layer: the drill writers already subtract
+    // the drill origin, so every other Gerber file is moved by the same amount.
+    let shift = |v: f64| gerber::coordinate(v * scale);
+    let (dx, dy) = (shift(origin.x), shift(origin.y));
+    for (name, text) in files.iter_mut() {
+        if name.ends_with(".gbr") && name != "pcb-DrillMap.gbr" {
+            *text = gerber_origin::shift_gerber(text, dx, dy);
+        }
     }
     // The job file is built from the files that exist, so it lists itself
     // last and never drifts from the package it travels in.
@@ -12776,7 +12780,7 @@ mod tests {
     }
 
     #[test]
-    fn drill_origin_shifts_drill_coordinates_but_not_copper() -> Result<(), String> {
+    fn drill_origin_shifts_drill_and_copper_coordinates_alike() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
             id: 7,
@@ -12810,8 +12814,8 @@ mod tests {
         );
         let copper = &files["pcb-F.Cu.gbr"];
         assert!(
-            copper.contains("X30000000Y20000000"),
-            "copper layers keep absolute coordinates"
+            copper.contains("X10000000Y10000000") && !copper.contains("X30000000Y20000000"),
+            "copper layers are measured from the same recorded origin"
         );
         project.board.drill_origin = Point::new(-5.0, 0.0);
         let files = gerber_files(&project)?;
