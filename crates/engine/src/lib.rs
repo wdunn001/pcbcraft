@@ -38694,10 +38694,10 @@ mod tests {
             .collect();
         assert_eq!(xs, vec![20.0, 30.0, 10.0, 20.0, 30.0]);
         let files = pcbcraft_io::gerber_files(&s.project)?;
-        // The combined drill file holds every slot as a G85 span.
-        let drill = &files["pcb-Drill.drl"];
+        // The rout file holds every slot as a routed span.
+        let drill = &files["pcb-Rout.drl"];
         assert_eq!(
-            drill.matches("G85").count(),
+            drill.matches("M15\n").count(),
             6,
             "every copy is a routed slot: {drill}"
         );
@@ -38705,7 +38705,11 @@ mod tests {
             .lines()
             .filter(|l| l.starts_with('T') && l.contains('C'))
             .collect();
-        assert_eq!(tools, vec!["T1C1.000"], "one tool carries all six: {drill}");
+        assert_eq!(
+            tools,
+            vec!["T01C1.000"],
+            "one tool carries all six: {drill}"
+        );
         Ok(())
     }
     #[test]
@@ -40364,7 +40368,6 @@ mod tests {
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
                 "pcb-B.SilkS.gbr",
-                "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cmp.gbr",
@@ -40487,7 +40490,6 @@ mod tests {
             "pcb-B.Mask.gbr",
             "pcb-B.Paste.gbr",
             "pcb-B.SilkS.gbr",
-            "pcb-Drill.drl",
             "pcb-DrillMap.gbr",
             "pcb-Edge.gbr",
             "pcb-F.Cmp.gbr",

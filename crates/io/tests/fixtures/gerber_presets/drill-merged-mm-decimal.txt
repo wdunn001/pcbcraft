@@ -1,5 +1,7 @@
 --- pcb-Drill.drl
 M48
+; #@! TF.FileFunction,MixedPlating,1,4
+; FORMAT={decimal}
 FMAT,2
 METRIC,TZ
 T1C0.200

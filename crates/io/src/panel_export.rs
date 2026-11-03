@@ -242,118 +242,40 @@ fn inject_part_array_header(content: &mut String) {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum DrillRole {
-    Plated,
-    Breakout,
-    Tooling,
-}
-
-struct PanelDrillHit {
-    d_um: u64,
-    x: f64,
-    y: f64,
-    role: DrillRole,
-}
-
-fn panel_drill_file(p: &Project, layout: &PanelLayout) -> Result<String, String> {
-    let panel = build_panel_project(p, layout, &p.panel)?;
-    let inch = p.unit == "inch";
-    let scale = if inch { 1.0 / 25.4 } else { 1.0 };
-    let (drill_header, drill_prec) = if inch {
-        ("INCH,TZ", 4)
-    } else {
-        ("METRIC,TZ", 3)
-    };
-
-    let mut hits: Vec<PanelDrillHit> = Vec::new();
-    for v in &panel.board.vias {
-        if v.drill > 0.0 {
-            hits.push(PanelDrillHit {
-                d_um: (v.drill * 1_000.0).round() as u64,
-                x: v.position.x,
-                y: v.position.y,
-                role: DrillRole::Plated,
-            });
-        }
-    }
-    for f in &panel.board.footprints {
-        for pad in &f.pads {
-            let Some(g) = pad.geometry.as_ref() else {
-                continue;
-            };
-            let Some(drill) = g.drill.as_ref() else {
-                continue;
-            };
-            let narrow = drill.size.x.min(drill.size.y);
-            if narrow <= 0.0 {
-                continue;
+/// Marks the breakaway and tooling tools of an unplated drill file.
+///
+/// The panel's unplated file is the one the board export writes, slots and all.
+/// Each tool whose diameter matches the mouse-bite or the tooling size gets an
+/// X2 comment line naming its function, so a fabricator reads it from the file.
+fn annotate_mechanical_drills(npth: &str, inch: bool) -> String {
+    let to_mm = if inch { 25.4 } else { 1.0 };
+    let mut out = String::with_capacity(npth.len() + 128);
+    for line in npth.split_inclusive('\n') {
+        let tool = line
+            .strip_prefix('T')
+            .and_then(|rest| rest.trim_end().split_once('C'))
+            .and_then(|(_, d)| d.parse::<f64>().ok());
+        let function = tool.and_then(|d| {
+            let mm = d * to_mm;
+            if (mm - MOUSE_BITE_DIAMETER).abs() < 0.05 {
+                Some("Breakout")
+            } else if (mm - TOOLING_DIAMETER).abs() < 0.05 {
+                Some("Tooling")
+            } else {
+                None
             }
-            let local = pad.offset.offset(drill.offset.rotate(-g.rotation));
-            let world = f.position.offset(local.rotate(-f.rotation));
-            hits.push(PanelDrillHit {
-                d_um: (narrow * 1_000.0).round() as u64,
-                x: world.x,
-                y: world.y,
-                role: DrillRole::Plated,
-            });
-        }
-    }
-    for h in &panel.board.holes {
-        let role = if (h.diameter - MOUSE_BITE_DIAMETER).abs() < 0.05 {
-            DrillRole::Breakout
-        } else if (h.diameter - TOOLING_DIAMETER).abs() < 0.05 {
-            DrillRole::Tooling
-        } else {
-            DrillRole::Plated
-        };
-        hits.push(PanelDrillHit {
-            d_um: (h.diameter * 1_000.0).round() as u64,
-            x: h.position.x,
-            y: h.position.y,
-            role,
         });
-    }
-
-    hits.sort_by(|a, b| {
-        a.d_um
-            .cmp(&b.d_um)
-            .then(a.role.cmp(&b.role))
-            .then(a.x.total_cmp(&b.x))
-            .then(a.y.total_cmp(&b.y))
-    });
-
-    let mut tools: Vec<(u64, DrillRole)> = Vec::new();
-    for h in &hits {
-        if !tools.iter().any(|(d, r)| *d == h.d_um && *r == h.role) {
-            tools.push((h.d_um, h.role));
+        if let Some(function) = function {
+            out.push_str(&format!(
+                "; #@! TA.AperFunction,MechanicalDrill,{function}\n"
+            ));
+            out.push_str(line);
+            out.push_str("; #@! TD\n");
+        } else {
+            out.push_str(line);
         }
     }
-
-    let mut drill = format!("M48\nFMAT,2\n{drill_header}\n");
-    for (n, (d, role)) in tools.iter().enumerate() {
-        let attr = match role {
-            DrillRole::Plated => "",
-            DrillRole::Breakout => "%TA.AperFunction,MechanicalDrill,Breakout*%\n",
-            DrillRole::Tooling => "%TA.AperFunction,MechanicalDrill,Tooling*%\n",
-        };
-        drill.push_str(attr);
-        drill.push_str(&format!(
-            "T{}C{:.drill_prec$}\n",
-            n + 1,
-            *d as f64 / 1000.0 * scale
-        ));
-    }
-    drill.push_str("%\nG90\nG05\n");
-    for (n, (d, role)) in tools.iter().enumerate() {
-        drill.push_str(&format!("T{}\n", n + 1));
-        for h in hits.iter().filter(|h| h.d_um == *d && h.role == *role) {
-            let (x, y) = (h.x * scale, h.y * scale);
-            drill.push_str(&format!("X{x:.drill_prec$}Y{y:.drill_prec$}\n"));
-        }
-    }
-    drill.push_str("M30\n");
-    Ok(drill)
+    out
 }
 
 fn vcut_layer(layout: &PanelLayout, inch: bool) -> String {
@@ -405,7 +327,9 @@ pub fn panel_fabrication_files(p: &Project) -> Result<BTreeMap<String, String>, 
             inject_part_array_header(text);
         }
     }
-    files.insert("pcb-Drill.drl".into(), panel_drill_file(p, &layout)?);
+    if let Some(npth) = files.get_mut("pcb-NPTH.drl") {
+        *npth = annotate_mechanical_drills(npth, p.unit == "inch");
+    }
     if p.panel.separation == PanelSeparation::VScore {
         files.insert("pcb-Vcut.gbr".into(), vcut_layer(&layout, p.unit == "inch"));
     }
