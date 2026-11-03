@@ -22,19 +22,28 @@ use pcbcraft_library::mcu_record::function_instance;
 /// One detailed pin row from the firmware design.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PinDetailRow {
+    /// The microcontroller pin name.
     pub pin: String,
+    /// The function assigned to the pin.
     pub function: String,
+    /// The net the pin is wired to, or empty when it is not wired.
     pub net: String,
+    /// The peripheral instance the function belongs to, for example SPI1, or empty.
     pub instance: String,
+    /// The bus family of the instance, or empty when the function is not on a bus.
     pub bus: String,
+    /// The chip-select pin of the device on an SPI instance, or empty.
     pub select: String,
+    /// The interrupt pin for an external-interrupt function, or empty.
     pub interrupt: String,
 }
 
 /// Detailed pin map with unmapped parts listed separately.
 #[derive(Clone, Debug)]
 pub struct PinDetail {
+    /// One row per pin assignment.
     pub rows: Vec<PinDetailRow>,
+    /// Parts with no known driver, listed apart from the rows.
     pub unmapped: Vec<String>,
 }
 
