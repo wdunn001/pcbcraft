@@ -2,7 +2,7 @@
 type: feature
 area: io
 issues: [267]
-user_visible: false
-docs: n/a: internal host bridge for browser file operations, no UI change
-summary: Added a ProjectHost trait and MemHost implementation for byte-oriented project I/O so the browser build can open uploaded files and trigger downloads without std::fs.
+user_visible: true
+docs: [crates/mcp/src/project_host.rs]
+summary: The browser build can now open uploaded projects and download edited ones using the ProjectHost bridge.
 ---

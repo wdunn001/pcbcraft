@@ -19,6 +19,7 @@ pub struct WasmHost {
 }
 
 impl WasmHost {
+    /// Attach the hidden file picker to the given document.
     pub fn mount(document: &web_sys::Document) -> Result<Self, JsValue> {
         let input = document
             .create_element("input")?
@@ -75,6 +76,7 @@ impl WasmHost {
         Ok(Self { input })
     }
 
+    /// Open the file picker dialog in the browser.
     pub fn trigger_open(&self) {
         let _ = self.input.click();
     }
