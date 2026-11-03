@@ -46142,4 +46142,13 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn no_duplicate_command_ids_in_commands() {
+        let commands = commands();
+        let mut seen = std::collections::HashSet::new();
+        for cmd in &commands {
+            assert!(seen.insert(cmd.id), "duplicate command id: {}", cmd.id);
+        }
+    }
 }
