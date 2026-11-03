@@ -837,7 +837,6 @@ dialogs.run.command_committed = {command} · übertragen
 dialogs.run.len_library_symbols_need_a = {len} Bibliothekssymbole brauchen eine Footprint-Zuweisung in Bibliotheken
 dialogs.run_and_keep.session_unavailable = Sitzung nicht verfügbar
 dialogs.run_and_keep.command_reported = {command} · gemeldet
-dialogs.tool_call.name_complete = {name} · fertig
 dialogs.tool_call.operation_failed = Operation fehlgeschlagen
 status.shift_click.a_selection_holds_at_most = Eine Auswahl fasst höchstens {MAX_SELECTED} Objekte
 status.move_selection.moved_moved_objects_together = {moved} Objekte zusammen bewegt
