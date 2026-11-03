@@ -289,8 +289,12 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     app.label_x = 3.0;
     app.label_y = 2.0;
     app.label_size = 1.2;
-    app.label_front = false;
     scrolled_to_at(&ctx, &mut app, "Add label", 700.0)?;
+    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    assert!(
+        !app.label_front,
+        "clicking Bottom puts the label on the bottom"
+    );
     authoring::tests::tap(&ctx, &mut app, "Add label")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();

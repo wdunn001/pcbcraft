@@ -5147,10 +5147,6 @@ impl App {
                 }
             }
         });
-        ui.horizontal_wrapped(|ui| {
-            ui.label(t!("settings.settings_tab.route_on"));
-            self.route_on_picker(ui);
-        });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.pad_labels"));
             for labels in [PadLabels::Number, PadLabels::Net, PadLabels::Off] {
@@ -5445,12 +5441,14 @@ impl App {
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.side"));
-            ui.selectable_value(&mut self.label_front, true, t!("settings.settings_tab.top"));
+            ui.selectable_value(&mut self.label_front, true, t!("settings.settings_tab.top"))
+                .on_hover_text(t!("settings.settings_tab.label_top.tip"));
             ui.selectable_value(
                 &mut self.label_front,
                 false,
                 t!("settings.settings_tab.bottom"),
-            );
+            )
+            .on_hover_text(t!("settings.settings_tab.label_bottom.tip"));
         });
         if ui
             .button(t!("settings.settings_tab.add_label"))

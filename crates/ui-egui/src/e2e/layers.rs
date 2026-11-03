@@ -525,10 +525,8 @@ fn a_newcomer_draws_on_bottom_copper_of_a_four_layer_board() -> Result<(), Strin
         "the board now has four copper layers: {}",
         app.message
     );
-    // Settings > Route on > Bottom.
-    app.change_tab(Tab::Settings);
-    scrolled_to_at(&ctx, &mut app, "Route on", 700.0)?;
-    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    // Layers tree > Bottom layer row.
+    tap_left(&ctx, &mut app, &t!("tree.layer.bottom", n = 4))?;
     let net = app.project.nets[0].id;
     let routing_on = app.project.layer_key(app.route_layer);
     app.run(
