@@ -372,8 +372,20 @@ pub fn load(path: &Path) -> Result<Project, String> {
 /// # Do not
 /// - Hand the result to anything that assumes a valid project.
 pub fn load_for_open(path: &Path) -> Result<Project, String> {
-    let text = read_text(path)?;
-    let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    load_text_for_open(&read_text(path)?)
+}
+
+/// Read a project from its text and migrate it, without validating it.
+/// Why: the browser build has no disk, so a design that ships inside the
+/// program opens from its text and never from a path.
+/// # Rules
+/// - The caller validates, exactly as for `load_for_open`.
+/// # Dependencies
+/// - crates/io/src/lib.rs (`migrate_loaded_project`)
+/// # Do not
+/// - Touch the file system here; this runs in the browser build.
+pub fn load_text_for_open(text: &str) -> Result<Project, String> {
+    let root: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     // The document model reads copper layer names against the stackup itself
     // (legacy files without the naming marker keep their index-derived names).
     let mut project: Project = serde_json::from_value(root).map_err(|e| e.to_string())?;
