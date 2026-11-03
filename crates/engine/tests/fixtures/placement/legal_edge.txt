@@ -1,0 +1,6 @@
+# L2: B overlaps the fixed part A near the bottom edge. Edge clearance 0.5 mm means a centre
+# of B must have y >= 1.5, so going down is not allowed and B ends above A at (2, 4).
+board 0 0 40 30
+cell A 3 2 2 1 fixed
+cell B 2 2.5 1 1 free
+expect B 2 4

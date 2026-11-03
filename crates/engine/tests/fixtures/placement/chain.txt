@@ -1,0 +1,14 @@
+# G1: a chain A - P - Q - D of three equal springs between two fixed ends 30 mm apart.
+# Closed form: with equal springs the free parts sit evenly spaced, P at 10 and Q at 20, both on y = 0.
+board 0 0 60 40
+cell A 0 0 1 1 fixed
+cell P 3 3 1 1 free
+cell Q 25 -4 1 1 free
+cell D 30 0 1 1 fixed
+net n1 1 A P
+net n2 1 P Q
+net n3 1 Q D
+# Pinned: closed form 10 and 20 (hand), exact rational solve, and an independent conjugate gradient agree to 1e-4.
+expect P 10 0
+expect Q 20 0
+expect cg_steps_at_most 2
