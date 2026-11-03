@@ -2658,8 +2658,15 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let b = &p.board;
     let mut s = format!(
-        "(kicad_pcb (version 20240108) (generator \"pcbcraft\")\n (general (thickness {})) (paper \"A4\")\n (layers{} (34 \"B.Paste\" user) (35 \"F.Paste\" user) (36 \"B.SilkS\" user \"b.silkscreen\") (37 \"F.SilkS\" user \"f.silkscreen\") (38 \"B.Mask\" user) (39 \"F.Mask\" user) (44 \"Edge.Cuts\" user) (46 \"B.CrtYd\" user) (47 \"F.CrtYd\" user) (48 \"B.Fab\" user) (49 \"F.Fab\" user))\n (setup{} (pad_to_mask_clearance 0))\n (net 0 \"\")\n",
+        "(kicad_pcb (version 20240108) (generator \"pcbcraft\")\n (general (thickness {})){}\n (layers{} (34 \"B.Paste\" user) (35 \"F.Paste\" user) (36 \"B.SilkS\" user \"b.silkscreen\") (37 \"F.SilkS\" user \"f.silkscreen\") (38 \"B.Mask\" user) (39 \"F.Mask\" user) (44 \"Edge.Cuts\" user) (46 \"B.CrtYd\" user) (47 \"F.CrtYd\" user) (48 \"B.Fab\" user) (49 \"F.Fab\" user))\n (setup{} (pad_to_mask_clearance 0))\n (net 0 \"\")\n",
         f64s(b.thickness),
+        // A page size kept from the source file is written back by the
+        // preserved nodes below; only a fresh board gets the default.
+        if has_preserved_node(&b.preserved, "(paper") {
+            ""
+        } else {
+            " (paper \"A4\")"
+        },
         kicad_copper_layers(p),
         kicad_stackup(p)
     );
@@ -2862,11 +2869,22 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
     }
     for z in &b.zones {
         s.push_str(&format!(
-            " (zone (net {}) (net_name {}) (layer {}) {} (hatch edge 0.508) (connect_pads (clearance 0.508)) (min_thickness 0.254) (filled {})\n  (polygon (pts",
+            " (zone (net {}) (net_name {}) (layer {}) {} (hatch edge 0.508){}{} (filled {})\n  (polygon (pts",
             ordinal(Some(z.net)),
             quote(p.net_name(z.net)),
             quote(&p.layer_name(z.layer)),
             uuid_node(&z.preserved, z.id, 1),
+            // Defaults only when the source did not carry its own value.
+            if has_preserved_node(&z.preserved, "(connect_pads") {
+                ""
+            } else {
+                " (connect_pads (clearance 0.508))"
+            },
+            if has_preserved_node(&z.preserved, "(min_thickness") {
+                ""
+            } else {
+                " (min_thickness 0.254)"
+            },
             if z.filled { "yes" } else { "no" }
         ));
         for pt in z.outline.iter().take(z.outline.len().saturating_sub(1)) {
@@ -3001,6 +3019,13 @@ fn uuid_node(preserved: &pcbcraft_doc::PreservedSource, id: u64, kind: usize) ->
 
 /// Preserved nodes written inside the object that owns them; the uuid node is
 /// written separately.
+fn has_preserved_node(preserved: &pcbcraft_doc::PreservedSource, head: &str) -> bool {
+    preserved
+        .nodes
+        .iter()
+        .any(|n| n.trim_start().starts_with(head))
+}
+
 fn write_preserved_inline(s: &mut String, preserved: &pcbcraft_doc::PreservedSource) {
     for node in preserved.nodes.iter().filter(|n| !n.starts_with("(uuid")) {
         s.push(' ');
