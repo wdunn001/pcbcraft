@@ -42,19 +42,13 @@ fn a_newcomer_types_a_chip_number_clicks_the_card_and_gets_a_real_part() -> Resu
         &mut app,
         "button:STM#F#R#Tx, Open library \u{b7} CC-BY-SA #.#",
     )?;
-    for _ in 0..600 {
-        frame(&ctx, &mut app, vec![], none);
-        let placed = !shared
+    // The part resolves on the library worker thread: wait for it to land in
+    // the project, however busy the machine is.
+    waits_until(&ctx, &mut app, |_| {
+        shared
             .lock()
-            .map_err(|_| "session")?
-            .project
-            .components
-            .is_empty();
-        if placed {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
+            .is_ok_and(|session| !session.project.components.is_empty())
+    });
     let session = shared.lock().map_err(|_| "session")?;
     let part = session
         .project
