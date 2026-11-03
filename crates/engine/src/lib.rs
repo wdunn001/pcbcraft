@@ -503,7 +503,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "components.update",
             "Change reference, value or named properties on up to 128 components in one undo step; the whole batch is refused when any row fails validation or would duplicate a reference",
             schema(
-                json!({"updates":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"id":id_schema(),"reference":{"type":"string"},"value":{"type":"string"},"field":{"type":"object","properties":{"key":{"type":"string"},"value":{"type":["string","null"]}},"required":["key"],"additionalProperties":false}},"required":["id"],"additionalProperties":false}}}),
+                json!({"updates":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"id":id_schema(),"reference":{"type":"string"},"value":{"type":"string"},"manufacturer":{"type":"string"},"mpn":{"type":"string"},"field":{"type":"object","properties":{"key":{"type":"string"},"value":{"type":["string","null"]}},"required":["key"],"additionalProperties":false}},"required":["id"],"additionalProperties":false}}}),
                 &["updates"],
             ),
         ),
@@ -6960,6 +6960,10 @@ struct ComponentUpdateEntry {
     value: Option<String>,
     #[serde(default)]
     field: Option<ComponentUpdateField>,
+    #[serde(default)]
+    manufacturer: Option<String>,
+    #[serde(default)]
+    mpn: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8982,7 +8986,11 @@ fn apply_component_updates(
         ));
     }
     for entry in updates {
-        let changes = entry.reference.is_some() || entry.value.is_some() || entry.field.is_some();
+        let changes = entry.reference.is_some()
+            || entry.value.is_some()
+            || entry.field.is_some()
+            || entry.manufacturer.is_some()
+            || entry.mpn.is_some();
         if !changes {
             return Err(Error::Invalid(
                 "each update changes at least one property".into(),
@@ -9023,6 +9031,17 @@ fn apply_component_updates(
         }
         if let Some(value) = entry.value.clone() {
             component.value = value;
+        }
+        if entry.manufacturer.is_some() || entry.mpn.is_some() {
+            let mut next = component.sourcing.clone();
+            if let Some(maker) = entry.manufacturer.as_ref() {
+                next.manufacturer = maker.trim().to_owned();
+            }
+            if let Some(mpn) = entry.mpn.as_ref() {
+                next.mpn = mpn.trim().to_owned();
+            }
+            next.validate().map_err(Error::Invalid)?;
+            component.sourcing = next;
         }
         if let Some(field) = entry.field.clone() {
             let existing = component.fields.iter().position(|f| f.key == field.key);
@@ -33770,6 +33789,38 @@ mod tests {
                 s.project.component(*id).ok_or_else(missing)?.field("MPN"),
                 None
             );
+        }
+        Ok(())
+    }
+    #[test]
+    fn components_update_sets_maker_and_part_number_in_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut ids = Vec::new();
+        for reference in ["R1", "R2"] {
+            ids.push(
+                s.execute(
+                    "component.add",
+                    json!({"kind":"resistor","reference":reference,"value":"10k","position":{"x":10.0,"y":10.0}}),
+                    None,
+                )?["result"]["id"]
+                    .as_u64()
+                    .ok_or_else(missing)?,
+            );
+        }
+        let updates: Vec<Value> = ids
+            .iter()
+            .map(|id| json!({"id": id, "manufacturer": " Yageo ", "mpn": "RC0603"}))
+            .collect();
+        s.execute("components.update", json!({"updates": updates}), None)?;
+        for id in &ids {
+            let c = s.project.component(*id).ok_or_else(missing)?;
+            assert_eq!(c.sourcing.manufacturer, "Yageo");
+            assert_eq!(c.sourcing.mpn, "RC0603");
+        }
+        s.undo()?;
+        for id in &ids {
+            let c = s.project.component(*id).ok_or_else(missing)?;
+            assert_eq!(c.sourcing.mpn, "");
         }
         Ok(())
     }

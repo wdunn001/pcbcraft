@@ -516,6 +516,42 @@ pub(crate) fn tap_id(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(),
     tap_at(ctx, app, pos)
 }
 
+/// Click the control whose spoken name is exactly `name` (role first, digits kept, for
+/// example `CheckBox Pick R2`) while the given keys are held, like a hand holding Shift.
+/// Use it where several rows share one folded gate id.
+pub(crate) fn tap_named_holding(
+    ctx: &egui::Context,
+    app: &mut App,
+    name: &str,
+    modifiers: egui::Modifiers,
+) -> Result<(), String> {
+    let _tall = TallScope::enter();
+    let pos = interactive_rects(ctx, app)
+        .into_iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, r)| r.center())
+        .ok_or_else(|| format!("{name} is not on screen"))?;
+    frame(ctx, app, vec![egui::Event::PointerMoved(pos)], modifiers);
+    for pressed in [true, false] {
+        frame(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers,
+                },
+            ],
+            modifiers,
+        );
+    }
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
 /// Press and release at `pos`, like a hand.
 pub(crate) fn tap_at(ctx: &egui::Context, app: &mut App, pos: egui::Pos2) -> Result<(), String> {
     // Rest the pointer on it first, as a hand does, before pressing.

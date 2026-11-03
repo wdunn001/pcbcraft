@@ -158,3 +158,183 @@ fn a_newcomer_sorts_and_filters_the_parts_grid() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// The sample board's parts in the order the grid shows them with no sort chosen.
+fn references_in_grid_order(app: &App) -> Vec<(Id, String)> {
+    let mut parts: Vec<(Id, String)> = app
+        .project
+        .components
+        .iter()
+        .map(|c| (c.id, c.reference.clone()))
+        .collect();
+    parts.sort_by(|a, b| {
+        let split = |s: &str| {
+            let at = s.find(|c: char| c.is_ascii_digit()).unwrap_or(s.len());
+            (
+                s[..at].to_owned(),
+                s[at..].parse::<u64>().unwrap_or(0),
+                s.to_owned(),
+            )
+        };
+        split(&a.1).cmp(&split(&b.1))
+    });
+    parts
+}
+
+#[test]
+fn a_newcomer_exports_the_parts_table_as_a_spreadsheet() -> Result<(), String> {
+    let (ctx, mut app) = parts_tab()?;
+    let file = std::env::temp_dir().join(format!("pcbcraft-parts-{}.csv", std::process::id()));
+    let path = file.to_string_lossy().to_string();
+    type_into(&ctx, &mut app, "textinput:Save path", &path)?;
+    tap_id(&ctx, &mut app, "button:Export")?;
+    let all = std::fs::read_to_string(&file).map_err(|e| format!("{e}: {}", app.message))?;
+    let lines: Vec<&str> = all.lines().collect();
+    assert_eq!(
+        lines.first().copied(),
+        Some("Reference,Value,Footprint,Manufacturer,Part number"),
+        "the header names the visible columns"
+    );
+    let parts = references_in_grid_order(&app);
+    assert_eq!(lines.len(), parts.len() + 1, "one line per part");
+    let (id, reference) = parts.first().cloned().ok_or("the board has no part")?;
+    let part = app.project.component(id).ok_or("part missing")?;
+    assert!(
+        lines
+            .get(1)
+            .is_some_and(|l| l.starts_with(&format!("{reference},{},", part.value))),
+        "the first line is the first part: {:?}",
+        lines.get(1)
+    );
+    // A filter narrows the file to what the grid shows.
+    type_into(&ctx, &mut app, "textinput:Filter Reference", &reference)?;
+    tap_id(&ctx, &mut app, "button:Export")?;
+    let narrow = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
+    let kept = parts
+        .iter()
+        .filter(|(_, r)| r.to_lowercase().contains(&reference.to_lowercase()))
+        .count();
+    assert_eq!(narrow.lines().count(), kept + 1, "{narrow}");
+    assert!(
+        narrow.lines().count() < lines.len(),
+        "the filter made the file shorter"
+    );
+    let _ = std::fs::remove_file(&file);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_fills_a_column_for_several_parts() -> Result<(), String> {
+    let (ctx, mut app) = parts_tab()?;
+    let parts = references_in_grid_order(&app);
+    assert!(parts.len() >= 3, "the sample board needs three parts");
+    let (first, third) = (parts[0].clone(), parts[2].clone());
+    let before: Vec<(Id, String)> = app
+        .project
+        .components
+        .iter()
+        .map(|c| (c.id, c.sourcing.mpn.clone()))
+        .collect();
+    tap_named_holding(
+        &ctx,
+        &mut app,
+        &format!("CheckBox Pick {}", first.1),
+        egui::Modifiers::NONE,
+    )?;
+    tap_named_holding(
+        &ctx,
+        &mut app,
+        &format!("CheckBox Pick {}", third.1),
+        egui::Modifiers::SHIFT,
+    )?;
+    assert_eq!(
+        app.parts_table.picked_count(),
+        3,
+        "a click and a Shift click pick the range between them"
+    );
+    tap_id(&ctx, &mut app, "button:Fill into Part number")?;
+    type_into(&ctx, &mut app, "textinput:Fill value", "RC0603FR-0710KL")?;
+    tap_id(&ctx, &mut app, "button:Fill")?;
+    app.refresh();
+    let filled: Vec<&str> = parts
+        .iter()
+        .take(3)
+        .filter_map(|(id, _)| app.project.component(*id))
+        .map(|c| c.sourcing.mpn.as_str())
+        .collect();
+    assert_eq!(
+        filled, ["RC0603FR-0710KL"; 3],
+        "all three picked parts got the part number: {}",
+        app.message
+    );
+    if let Some((id, _)) = parts.get(3) {
+        let was = before.iter().find(|(b, _)| b == id).map(|(_, m)| m.clone());
+        assert_eq!(
+            app.project.component(*id).map(|c| c.sourcing.mpn.clone()),
+            was,
+            "a part that was not picked is left alone"
+        );
+    }
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    for (id, mpn) in &before {
+        assert_eq!(
+            app.project.component(*id).map(|c| c.sourcing.mpn.clone()),
+            Some(mpn.clone()),
+            "one Undo restores every filled part"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_groups_identical_parts() -> Result<(), String> {
+    let (ctx, mut app) = parts_tab()?;
+    for (reference, kind, value) in [
+        ("R901", "resistor", "47k"),
+        ("R902", "resistor", "47k"),
+        ("R903", "resistor", "47k"),
+        ("R904", "resistor", "68k"),
+    ] {
+        app.run(
+            "component.add",
+            json!({"kind": kind, "reference": reference, "value": value,
+                   "position": {"x": 10.0, "y": 10.0}}),
+        );
+    }
+    app.refresh();
+    let total = app.project.components.len();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "checkbox:Group identical")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Quantity")?,
+        "grouping adds a Quantity column"
+    );
+    let file = std::env::temp_dir().join(format!("pcbcraft-grouped-{}.csv", std::process::id()));
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Save path",
+        &file.to_string_lossy(),
+    )?;
+    tap_id(&ctx, &mut app, "button:Export")?;
+    let text = std::fs::read_to_string(&file).map_err(|e| format!("{e}: {}", app.message))?;
+    let _ = std::fs::remove_file(&file);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines.first().copied(),
+        Some("Quantity,Reference,Value,Footprint,Manufacturer,Part number")
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("3,\"R901, R902, R903\",47k,")),
+        "the three 47k resistors are one line with quantity 3: {text}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("1,R904,68k,")),
+        "a different value stays on its own line: {text}"
+    );
+    assert!(lines.len() < total, "fewer lines than parts: {text}");
+    Ok(())
+}
