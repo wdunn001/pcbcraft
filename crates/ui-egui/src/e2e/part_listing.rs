@@ -56,13 +56,18 @@ fn a_newcomer_searches_once_and_sees_parts_from_every_source() -> Result<(), Str
         ("the open library", "Open library"),
     ] {
         assert!(
-            paints_text(&ctx, &mut app, badge)?,
+            waits_for_text(&ctx, &mut app, badge)?,
             "a card from {what} names its source ({badge})"
         );
     }
-    assert!(paints_text(&ctx, &mut app, "Project resistor")?);
+    assert!(waits_for_text(&ctx, &mut app, "Project resistor")?);
 
     // The part named exactly like the search comes before the looser matches.
+    // Each source answers on its own thread, so wait for both cards to be drawn.
+    let both = waits_until(&ctx, &mut app, |app| {
+        top_of(&ctx, app, "Resistor").is_some() && top_of(&ctx, app, "R_Small").is_some()
+    });
+    assert!(both, "both the Resistor and the R_Small card are drawn");
     let exact = top_of(&ctx, &mut app, "Resistor").ok_or("no Resistor card")?;
     let loose = top_of(&ctx, &mut app, "R_Small").ok_or("no R_Small card")?;
     assert!(exact < loose, "exact name first: {exact} vs {loose}");

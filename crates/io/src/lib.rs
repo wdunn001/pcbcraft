@@ -51,6 +51,8 @@ mod starter_models;
 mod stencil;
 mod stencil_laser;
 pub use board_mesh::bench_project_600_parts;
+mod large_board_bench;
+pub use large_board_bench::bench_project_10k_pads;
 mod compliance_list;
 mod datasheet_cache;
 mod diff;
@@ -16338,6 +16340,135 @@ mod tests {
         assert!(files["pcb-F.Mask.gbr"].contains("%TF.FileFunction,Soldermask,Top*%"));
         assert!(files["pcb-F.Paste.gbr"].contains("%TF.FileFunction,Paste,Top*%"));
         assert!(files["pcb-F.Paste.gbr"].contains("D03*"));
+        Ok(())
+    }
+    #[test]
+    fn the_bundle_paste_opening_shrinks_by_a_negative_paste_margin() -> Result<(), String> {
+        // Case 1: negative paste margin shrinks the opening.
+        let smd = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.0, 0.5),
+            layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+            drill: None,
+            roundrect_ratio: None,
+            raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
+        };
+        let mut project = Project::default();
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 1,
+            reference: "C1".into(),
+            value: "cap".into(),
+            kind: "capacitor".into(),
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                name: String::new(),
+                offset: Point::new(0.0, 0.0),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+                appearances: Default::default(),
+            }],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "C0402".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![smd.clone()],
+                    graphics: vec![],
+                    model: None,
+                    rules: Some(pcbcraft_library::FootprintRules {
+                        clearance: None,
+                        mask_margin: Some(0.1),
+                        paste_margin: Some(-0.02),
+                    }),
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                    box_body: Default::default(),
+                    retained: Default::default(),
+                },
+            }),
+            fields: vec![],
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(12.0, 8.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::new(0.0, 0.0),
+                diameter: 0.5,
+                net: None,
+                castellated: None,
+                geometry: Some(smd.clone()),
+            }],
+            preserved: Default::default(),
+            side: Default::default(),
+        });
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        // 1.0 x 0.5 mm pad with -0.02 margin -> 0.960 x 0.460 mm opening.
+        assert!(
+            files["pcb-F.Paste.gbr"].contains("R,0.960X0.460"),
+            "paste file must contain the shrunk aperture: {}",
+            files["pcb-F.Paste.gbr"]
+        );
+        assert!(
+            !files["pcb-F.Paste.gbr"].contains("R,1.000X0.500"),
+            "paste file must not contain the ungrown aperture: {}",
+            files["pcb-F.Paste.gbr"]
+        );
+
+        // Case 2: no paste margin gives the pad size.
+        let mut project2 = project.clone();
+        if let Some(ref mut lf) = project2.components[0].library_footprint {
+            lf.definition.rules = Some(pcbcraft_library::FootprintRules {
+                clearance: None,
+                mask_margin: Some(0.1),
+                paste_margin: None,
+            });
+        }
+        project2.validate()?;
+        let files2 = gerber_files(&project2)?;
+        assert!(
+            files2["pcb-F.Paste.gbr"].contains("R,1.000X0.500"),
+            "no margin must give the pad size: {}",
+            files2["pcb-F.Paste.gbr"]
+        );
+
+        // Case 3: inch project with negative margin.
+        // 960 um -> 0.0378 inch -> "0.038"; 460 um -> 0.0181 inch -> "0.018".
+        let mut project3 = project.clone();
+        project3.unit = "inch".into();
+        project3.validate()?;
+        let files3 = gerber_files(&project3)?;
+        assert!(
+            files3["pcb-F.Paste.gbr"].contains("R,0.038X0.018"),
+            "inch project must show scaled aperture: {}",
+            files3["pcb-F.Paste.gbr"]
+        );
+
         Ok(())
     }
 

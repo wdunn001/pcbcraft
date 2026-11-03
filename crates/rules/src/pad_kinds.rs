@@ -34,15 +34,15 @@ const DEFAULT_MARGIN_MM: f64 = 0.05;
 /// Narrowest notch or arm without fabrication rules, in millimetres.
 const DEFAULT_MIN_FEATURE_MM: f64 = 0.1;
 
-struct Opening {
-    footprint: Id,
-    number: String,
-    special: bool,
-    margin: f64,
-    ring: Vec<Point>,
+pub(super) struct Opening {
+    pub(super) footprint: Id,
+    pub(super) number: String,
+    pub(super) special: bool,
+    pub(super) margin: f64,
+    pub(super) ring: Vec<Point>,
 }
 
-fn margin_of(project: &Project, f: &Footprint) -> f64 {
+pub(super) fn margin_of(project: &Project, f: &Footprint) -> f64 {
     project
         .component(f.component)
         .and_then(|c| c.library_footprint.as_ref())
@@ -65,7 +65,7 @@ fn open_on(f: &Footprint, pad: &Pad, side: Layer) -> bool {
     layers.iter().any(|l| l == wanted || l == "*.Mask")
 }
 
-fn openings(project: &Project, side: Layer) -> Vec<Opening> {
+pub(super) fn openings(project: &Project, side: Layer) -> Vec<Opening> {
     let mut out = vec![];
     for f in &project.board.footprints {
         let margin = margin_of(project, f);
@@ -96,7 +96,7 @@ fn openings(project: &Project, side: Layer) -> Vec<Opening> {
     out
 }
 
-fn ring_gap(a: &[Point], b: &[Point]) -> f64 {
+pub(super) fn ring_gap(a: &[Point], b: &[Point]) -> f64 {
     if a.iter().any(|p| point_in_polygon(*p, b)) || b.iter().any(|p| point_in_polygon(*p, a)) {
         return 0.0;
     }
