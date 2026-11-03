@@ -243,6 +243,7 @@ impl App {
             match self.focus_layer.as_deref() {
                 Some("copper:front") => return layer == Layer::Front,
                 Some("copper:back") => return layer == self.project.bottom_layer(),
+                Some(focus) if focus.starts_with("art:") => return false,
                 _ => {}
             }
         }
@@ -256,6 +257,19 @@ impl App {
     /// elsewhere.
     pub(crate) fn lit_alpha(&self, layer: Layer) -> f32 {
         if self.layer_is_lit(layer) { 1.0 } else { 0.22 }
+    }
+
+    /// Brightness of a drawn machine layer: full when focused or when nothing is focused,
+    /// faint otherwise. Copper focus is handled by lit_alpha, not here.
+    pub(crate) fn art_alpha(&self, name: &str) -> f32 {
+        if self.tab != Tab::Pcb {
+            return 1.0;
+        }
+        match self.focus_layer.as_deref() {
+            None => 1.0,
+            Some(focus) if focus == format!("art:{name}") => 1.0,
+            Some(_) => 0.22,
+        }
     }
 
     /// The copper layer a tree path names.

@@ -96,6 +96,46 @@ fn a_newcomer_sees_one_schematic_page_at_a_time() -> Result<(), String> {
     Ok(())
 }
 
+#[test]
+fn a_newcomer_places_a_part_on_the_second_page_and_it_stays_there() -> Result<(), String> {
+    let mut app = start();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let page = app.project.sheets.first().ok_or("no page was added")?.id;
+    assert_eq!(
+        app.schematic_page(),
+        page,
+        "the new page is the one on screen"
+    );
+    // Pick the resistor tool and click the drawing, as a person does.
+    app.tool = Tool::Place("resistor".into());
+    let at = app
+        .schematic
+        .screen(Point::new(40.0, 10.0), app.canvas_rect);
+    tap_at(&ctx, &mut app, at)?;
+    let part = app.project.components.first().ok_or("nothing was placed")?;
+    assert_eq!(
+        part.sheet, page,
+        "the part belongs to the page it was placed on"
+    );
+    let reference = part.reference.clone();
+    let labels = canvas_labels(&app);
+    assert!(
+        labels.iter().any(|t| t.contains(&reference)),
+        "the page shows the part it just got: {labels:?}"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Main")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let labels = canvas_labels(&app);
+    assert!(
+        !labels.iter().any(|t| t.contains(&reference)),
+        "Main does not show a part that belongs to the other page: {labels:?}"
+    );
+    Ok(())
+}
+
 /// Where the last copy of `label` is painted (the topmost one), after a quiet frame.
 fn text_at(ctx: &egui::Context, app: &mut App, label: &str) -> Option<egui::Pos2> {
     frame(ctx, app, vec![], egui::Modifiers::NONE);

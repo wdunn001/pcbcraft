@@ -147,7 +147,7 @@ fn a_drill_tolerance_is_written_only_when_the_board_records_one() -> T {
 fn golden_drill_table_lines_for_the_four_layer_board() -> T {
     let lines = drill_table_lines(&drill_table(&golden_board()?)?);
     golden("drill_table_lines.csv", &(lines.join("\n") + "\n"))?;
-    let files = pcbcraft_io::gerber_files(&golden_board()?)?;
+    let files = pcbcraft_io::with_fixed_clock(0, || pcbcraft_io::gerber_files(&golden_board()?))?;
     let map = files.get("pcb-DrillMap.gbr").ok_or("no drill map")?;
     golden("drill_table_map.gbr", map)
 }

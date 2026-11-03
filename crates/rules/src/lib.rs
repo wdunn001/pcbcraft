@@ -37,6 +37,7 @@ mod return_path;
 mod silk;
 mod stub;
 pub mod testpoint;
+pub mod toolpath_gap;
 mod track_radius;
 mod width_advice;
 
@@ -49,6 +50,7 @@ pub use compliance::{
     compliance_check, export_trade_report, export_trade_report_with_ruleset, load_list_snapshot,
 };
 
+pub use courtyard::{CourtyardPair, courtyard_pairs};
 pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
 
 #[derive(Clone, Debug, Serialize)]
@@ -136,6 +138,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("via_count", "warning"),
     ("decoupling_distance", "warning"),
     ("keepout", "error"),
+    ("toolpath_gap", "warning"),
 ];
 
 #[derive(Clone, Debug, Serialize)]
