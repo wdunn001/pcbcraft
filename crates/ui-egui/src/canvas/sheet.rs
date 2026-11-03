@@ -679,7 +679,7 @@ fn arrow_symbol(
         camera.screen(Point::new(top.x, top.y - 1.0), rect),
         Align2::CENTER_BOTTOM,
         name,
-        FontId::monospace(12.0),
+        crate::fonts::Role::Mono.font(),
         sc.wire,
     );
 }
@@ -711,7 +711,7 @@ fn negative_symbol(
         camera.screen(Point::new(foot.x, foot.y + 0.8), rect),
         Align2::CENTER_TOP,
         name,
-        FontId::monospace(12.0),
+        crate::fonts::Role::Mono.font(),
         sc.wire,
     );
 }
