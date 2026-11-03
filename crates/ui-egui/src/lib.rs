@@ -66,6 +66,7 @@ mod rules_fab;
 mod schematic_port;
 mod selection;
 mod setup_wizard;
+mod sheet_lit;
 mod sheet_rows;
 mod showcase;
 mod sources;
