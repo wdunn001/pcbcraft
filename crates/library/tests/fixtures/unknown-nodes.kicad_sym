@@ -1,0 +1,30 @@
+(kicad_symbol_lib (version 20251024) (generator "fixture")
+	(symbol "UnknownNodes"
+		(pin_names (offset 0))
+		(in_bom yes)
+		(on_board yes)
+		(property "Reference" "U"
+			(at 0 0 0)
+			(effects (font (size 1.27 1.27)))
+		)
+		(property "Value" "UnknownNodes"
+			(at 0 -2.54 0)
+			(effects (font (size 1.27 1.27)))
+		)
+		(power_flag_hint yes)
+		(symbol "UnknownNodes_1_1"
+			(rectangle
+				(start -2.54 -2.54)
+				(end 2.54 2.54)
+				(stroke (width 0.254) (type default))
+				(fill (type background))
+			)
+			(pin passive line
+				(at -5.08 0 0)
+				(length 2.54)
+				(name "A" (effects (font (size 1.27 1.27))))
+				(number "1" (effects (font (size 1.27 1.27))))
+			)
+		)
+	)
+)

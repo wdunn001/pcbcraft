@@ -7612,10 +7612,26 @@ fn lib_layer(layer: &str) -> String {
     lib_text(layer)
 }
 
+/// Append stored source text under `indent`. Lines after the first lose the
+/// indent they carried in their original file, so writing the same text twice
+/// never makes it drift to the right.
 fn append_indented_source(out: &mut String, source: &str, indent: &str) {
-    for line in source.trim().lines() {
+    let lines: Vec<&str> = source.trim().lines().collect();
+    let carried = lines
+        .iter()
+        .skip(1)
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    for (i, line) in lines.iter().enumerate() {
         out.push_str(indent);
-        out.push_str(line);
+        out.push_str(if i == 0 {
+            line
+        } else {
+            let cut = line.len() - line.trim_start().len();
+            &line[cut.min(carried)..]
+        });
         out.push('\n');
     }
 }
@@ -7626,9 +7642,51 @@ fn append_retained_nodes(out: &mut String, retained: &[String], indent: &str) {
     }
 }
 
+/// True when the pad's stored source text still reads back as exactly this
+/// pad, so the original text can be written instead of a regenerated copy.
+fn pad_source_is_current(pad: &pcbcraft_library::FootprintPad) -> bool {
+    if pad.raw_source.trim().is_empty() {
+        return false;
+    }
+    let wrapped = format!("(footprint \"probe\"\n{}\n)", pad.raw_source);
+    let Ok(read) = pcbcraft_library::read_footprint(&wrapped) else {
+        return false;
+    };
+    let [first] = read.pads.as_slice() else {
+        return false;
+    };
+    let mut a = first.clone();
+    let mut b = pad.clone();
+    a.raw_source.clear();
+    b.raw_source.clear();
+    a == b
+}
+
+/// True when the model's stored source text still reads back as this model.
+fn model_source_is_current(model: &pcbcraft_library::Model3D) -> bool {
+    if model.raw_source.trim().is_empty() {
+        return false;
+    }
+    let wrapped = format!("(footprint \"probe\"\n{}\n)", model.raw_source);
+    let Ok(read) = pcbcraft_library::read_footprint(&wrapped) else {
+        return false;
+    };
+    let Some(first) = read.model else {
+        return false;
+    };
+    let mut a = first;
+    let mut b = model.clone();
+    a.raw_source.clear();
+    b.raw_source.clear();
+    a == b
+}
+
 /// Format one footprint definition as a footprint library text file. The
 /// result re-parses to the same pads, artwork, model reference and rule
-/// overrides; placed footprint and board state are untouched.
+/// overrides; placed footprint and board state are untouched. Pads and the
+/// model whose stored source still matches their fields are written from
+/// that source, and nodes the reader kept as `retained` follow the body, so
+/// an unedited definition loses nothing.
 pub fn footprint_library_text(
     footprint: &pcbcraft_library::FootprintDefinition,
 ) -> Result<String, String> {
@@ -7656,6 +7714,10 @@ pub fn footprint_library_text(
         if smd { "smd" } else { "through_hole" }
     ));
     for pad in &footprint.pads {
+        if pad_source_is_current(pad) {
+            append_indented_source(&mut out, &pad.raw_source, "  ");
+            continue;
+        }
         out.push_str(&format!(
             "  (pad {} {} {} (at {} {} {}) (size {} {})",
             lib_text(&pad.number),
@@ -7691,7 +7753,13 @@ pub fn footprint_library_text(
     for graphic in &footprint.graphics {
         out.push_str(&format!("  {}\n", lib_graphic(graphic, false)));
     }
-    if let Some(model) = &footprint.model {
+    if let Some(model) = footprint
+        .model
+        .as_ref()
+        .filter(|m| model_source_is_current(m))
+    {
+        append_indented_source(&mut out, &model.raw_source, "  ");
+    } else if let Some(model) = &footprint.model {
         let triple = |v: &[f64; 3]| format!("(xyz {} {} {})", v[0], v[1], v[2]);
         out.push_str(&format!(
             "  (model {} (offset {}) (scale {}) (rotate {}))\n",
@@ -7712,6 +7780,7 @@ pub fn footprint_library_text(
             out.push_str(&format!("  (solder_paste_margin {value})\n"));
         }
     }
+    append_retained_nodes(&mut out, &footprint.retained, "  ");
     out.push_str("  (embedded_fonts no)\n)\n");
     if out.len() as u64 > MAX_FILE_BYTES {
         return Err("footprint library text exceeds the file size limit".into());
@@ -14591,70 +14660,121 @@ mod tests {
         bad.version = 999;
         assert!(bad.validate().is_err());
     }
+    fn without_source_text(
+        mut footprint: pcbcraft_library::FootprintDefinition,
+    ) -> pcbcraft_library::FootprintDefinition {
+        footprint.raw_source.clear();
+        for pad in &mut footprint.pads {
+            pad.raw_source.clear();
+        }
+        if let Some(model) = &mut footprint.model {
+            model.raw_source.clear();
+        }
+        footprint
+    }
+    fn symbol_without_source_text(
+        mut symbol: pcbcraft_library::SymbolDefinition,
+    ) -> pcbcraft_library::SymbolDefinition {
+        symbol.raw_source.clear();
+        // A derived symbol is written with its inherited drawing folded in.
+        symbol.extends = None;
+        symbol
+    }
+    const FOOTPRINT_FIXTURES: [&str; 3] = [
+        include_str!("../../library/tests/fixtures/R_0805_2012Metric.kicad_mod"),
+        include_str!("../../library/tests/fixtures/DIP-8_W7.62mm.kicad_mod"),
+        include_str!("../../library/tests/fixtures/unknown-nodes.kicad_mod"),
+    ];
+    const SYMBOL_FIXTURES: [&str; 4] = [
+        include_str!("../../library/tests/fixtures/device.kicad_sym"),
+        include_str!("../../library/tests/fixtures/lm358.kicad_sym"),
+        include_str!("../../library/tests/fixtures/dual-common-supply.kicad_sym"),
+        include_str!("../../library/tests/fixtures/unknown-nodes.kicad_sym"),
+    ];
     #[test]
     fn footprint_library_text_round_trips_through_the_reader() -> Result<(), String> {
-        for source in [
-            include_str!("../../library/tests/fixtures/R_0805_2012Metric.kicad_mod"),
-            include_str!("../../library/tests/fixtures/DIP-8_W7.62mm.kicad_mod"),
-        ] {
+        for source in FOOTPRINT_FIXTURES {
             let footprint = pcbcraft_library::read_footprint(source).map_err(|e| e.to_string())?;
             let text = footprint_library_text(&footprint)?;
             let again = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
-            assert_eq!(again.name, footprint.name);
-            assert_eq!(again.description, footprint.description);
-            assert_eq!(again.keywords, footprint.keywords);
-            assert_eq!(again.pads.len(), footprint.pads.len());
-            for (a, b) in again.pads.iter().zip(&footprint.pads) {
-                assert_eq!(a.number, b.number);
-                assert_eq!(a.pad_type, b.pad_type);
-                assert_eq!(a.shape, b.shape);
-                assert_eq!(a.position, b.position);
-                assert_eq!(a.rotation, b.rotation);
-                assert_eq!(a.size, b.size);
-                assert_eq!(a.layers, b.layers);
-                assert_eq!(a.drill, b.drill);
-                assert_eq!(a.roundrect_ratio, b.roundrect_ratio);
-            }
-            assert_eq!(again.graphics, footprint.graphics);
             assert_eq!(
-                again
-                    .model
-                    .as_ref()
-                    .map(|m| (&m.path, m.offset, m.scale, m.rotate)),
-                footprint
-                    .model
-                    .as_ref()
-                    .map(|m| (&m.path, m.offset, m.scale, m.rotate))
+                without_source_text(again),
+                without_source_text(footprint.clone()),
+                "{} changed across a write",
+                footprint.name
             );
-            assert_eq!(again.rules, footprint.rules);
+            let third = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
+            assert_eq!(
+                footprint_library_text(&third)?,
+                text,
+                "{} text is not stable across a second write",
+                footprint.name
+            );
         }
         Ok(())
     }
     #[test]
     fn symbol_library_text_round_trips_through_the_reader() -> Result<(), String> {
-        for source in [
-            include_str!("../../library/tests/fixtures/device.kicad_sym"),
-            include_str!("../../library/tests/fixtures/lm358.kicad_sym"),
-        ] {
+        for source in SYMBOL_FIXTURES {
             let symbols = pcbcraft_library::read_symbols(source).map_err(|e| e.to_string())?;
-            for symbol in symbols
-                .iter()
-                .filter(|s| !s.pins.is_empty() && !s.graphics.is_empty())
-            {
+            assert!(!symbols.is_empty());
+            for symbol in &symbols {
                 let text = symbol_library_text(symbol)?;
                 let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
                 assert_eq!(again.len(), 1, "{} wrote stray symbols", symbol.name);
-                let again = &again[0];
-                assert_eq!(again.name, symbol.name);
-                assert_eq!(again.reference, symbol.reference);
-                assert_eq!(again.value, symbol.value);
-                assert_eq!(again.description, symbol.description);
-                assert_eq!(again.keywords, symbol.keywords);
-                assert_eq!(again.footprint, symbol.footprint);
-                assert_eq!(again.pins, symbol.pins);
-                assert_eq!(again.graphics, symbol.graphics);
+                let again = again.into_iter().next().ok_or("no symbol")?;
+                assert_eq!(
+                    symbol_without_source_text(again.clone()),
+                    symbol_without_source_text(symbol.clone()),
+                    "{} changed across a write",
+                    symbol.name
+                );
+                assert_eq!(symbol_library_text(&again)?, text);
             }
         }
+        Ok(())
+    }
+    #[test]
+    fn library_fixtures_survive_lossless_write_round_trip() -> Result<(), String> {
+        let footprint = pcbcraft_library::read_footprint(include_str!(
+            "../../library/tests/fixtures/unknown-nodes.kicad_mod"
+        ))
+        .map_err(|e| e.to_string())?;
+        assert_eq!(footprint.retained.len(), 2, "both unknown nodes are kept");
+        let text = footprint_library_text(&footprint)?;
+        for needle in [
+            "(private_layers \"In1.Cu\" \"In2.Cu\")",
+            "(net_tie_pad_groups \"1, 2\")",
+            "(uuid \"11111111-1111-1111-1111-111111111111\")",
+            "(thermal_bridge_angle 45)",
+        ] {
+            assert!(text.contains(needle), "footprint write lost {needle}");
+        }
+        let symbol = pcbcraft_library::read_symbols(include_str!(
+            "../../library/tests/fixtures/unknown-nodes.kicad_sym"
+        ))
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or("no symbol")?;
+        assert_eq!(symbol.retained.len(), 1);
+        assert!(symbol_library_text(&symbol)?.contains("(power_flag_hint yes)"));
+        Ok(())
+    }
+    #[test]
+    fn an_edited_pad_is_regenerated_instead_of_spliced() -> Result<(), String> {
+        let mut footprint = pcbcraft_library::read_footprint(include_str!(
+            "../../library/tests/fixtures/unknown-nodes.kicad_mod"
+        ))
+        .map_err(|e| e.to_string())?;
+        footprint.pads[0].size.x = 1.5;
+        let text = footprint_library_text(&footprint)?;
+        assert!(
+            !text.contains("11111111-1111"),
+            "the stale source was written"
+        );
+        let again = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
+        assert_eq!(again.pads[0].size.x, 1.5);
         Ok(())
     }
 
