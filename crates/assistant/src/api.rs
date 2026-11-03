@@ -29,11 +29,11 @@ pub const MAX_REQUESTS_PER_TURN: usize = 24;
 pub const MAX_TOOL_TEXT: usize = 20_000;
 /// Messages kept in the conversation (the system note stays).
 pub const MAX_HISTORY: usize = 240;
-const REQUEST_TIMEOUT_S: u64 = 300;
-const TOOL_TIMEOUT: Duration = Duration::from_secs(330);
+pub(crate) const REQUEST_TIMEOUT_S: u64 = 300;
+pub(crate) const TOOL_TIMEOUT: Duration = Duration::from_secs(330);
 const CANCEL_POLL: Duration = Duration::from_millis(40);
-const ANTHROPIC_MAX_TOKENS: u64 = 8192;
-const ANTHROPIC_VERSION: &str = "2023-06-01";
+pub(crate) const ANTHROPIC_MAX_TOKENS: u64 = 8192;
+pub(crate) const ANTHROPIC_VERSION: &str = "2023-06-01";
 const TEST_TIMEOUT_S: u64 = 60;
 /// Shown when the model ran out of room for its answer (`length`, `max_tokens`).
 const NOTE_CUT_BY_LENGTH: &str = "The model stopped early because the answer hit its length limit. Ask for a shorter answer or a smaller step.";
@@ -674,7 +674,7 @@ impl Worker {
 }
 
 /// An error text with the key taken out, if it ever got in.
-fn redact(text: &str, key: Option<&str>) -> String {
+pub(crate) fn redact(text: &str, key: Option<&str>) -> String {
     match key.filter(|k| !k.is_empty()) {
         Some(k) => text.replace(k, "(key)"),
         None => text.to_string(),
@@ -733,11 +733,11 @@ fn tool_arguments(raw: Option<&Value>) -> Result<Value, String> {
     }
 }
 
-fn user_text(protocol: Protocol, text: &str) -> Value {
+pub(crate) fn user_text(protocol: Protocol, text: &str) -> Value {
     user_message(protocol, &[PromptPart::Text(text.to_string())])
 }
 
-fn user_message(protocol: Protocol, parts: &[PromptPart]) -> Value {
+pub(crate) fn user_message(protocol: Protocol, parts: &[PromptPart]) -> Value {
     let pictures = parts
         .iter()
         .any(|p| matches!(p, PromptPart::Picture { .. }));
@@ -770,7 +770,7 @@ fn user_message(protocol: Protocol, parts: &[PromptPart]) -> Value {
     json!({"role": "user", "content": content})
 }
 
-fn starts_a_turn(message: &Value) -> bool {
+pub(crate) fn starts_a_turn(message: &Value) -> bool {
     message["role"] == "user"
         && !message["content"]
             .as_array()
@@ -778,25 +778,25 @@ fn starts_a_turn(message: &Value) -> bool {
 }
 
 #[derive(Debug)]
-struct Call {
-    id: String,
-    name: String,
-    arguments: Result<Value, String>,
+pub(crate) struct Call {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) arguments: Result<Value, String>,
 }
 
 #[derive(Debug)]
-struct Reply {
-    text: Vec<(bool, String)>,
-    calls: Vec<Call>,
-    assistant: Value,
+pub(crate) struct Reply {
+    pub(crate) text: Vec<(bool, String)>,
+    pub(crate) calls: Vec<Call>,
+    pub(crate) assistant: Value,
     /// `finish_reason` (OpenAI) or `stop_reason` (Anthropic), when the endpoint sent one.
-    stop: Option<String>,
+    pub(crate) stop: Option<String>,
     /// Live [`Event::Text`] was already sent while bytes arrived.
-    streamed: bool,
+    pub(crate) streamed: bool,
 }
 
 /// The note for a stop value that means the answer was cut off or held back, else `None`.
-fn stop_note(stop: &str) -> Option<&'static str> {
+pub(crate) fn stop_note(stop: &str) -> Option<&'static str> {
     match stop {
         "length" | "max_tokens" => Some(NOTE_CUT_BY_LENGTH),
         "content_filter" => Some(NOTE_FILTERED),
@@ -807,7 +807,7 @@ fn stop_note(stop: &str) -> Option<&'static str> {
 
 /// An assistant message with its tool calls taken out. An emptied message gets a short placeholder,
 /// because both protocols refuse an assistant message with nothing in it.
-fn without_calls(mut message: Value) -> Value {
+pub(crate) fn without_calls(mut message: Value) -> Value {
     const PLACEHOLDER: &str = "(answer cut off)";
     if let Some(obj) = message.as_object_mut() {
         obj.remove("tool_calls");
@@ -826,7 +826,7 @@ fn without_calls(mut message: Value) -> Value {
     message
 }
 
-fn reply(protocol: Protocol, body: &Value) -> Reply {
+pub(crate) fn reply(protocol: Protocol, body: &Value) -> Reply {
     match protocol {
         Protocol::OpenAi => openai_reply(body),
         Protocol::Anthropic => anthropic_reply(body),
@@ -1205,7 +1205,7 @@ pub fn tool_text(r: &Value) -> (String, bool) {
     (text, failed)
 }
 
-fn tool_title(name: &str, args: &Value) -> String {
+pub(crate) fn tool_title(name: &str, args: &Value) -> String {
     match name {
         "execute" => format!(
             "execute: {}",

@@ -171,7 +171,7 @@ fn off_state(app: &mut App, ui: &mut egui::Ui) {
     let blocked = pcbcraft_assistant::can_send(
         app.preferences.assistant_enabled,
         !app.preferences.assistant_connections.is_empty(),
-        app.assistant.host.http.is_some(),
+        app.assistant.host.http.is_some() || app.assistant.host.transport.is_some(),
     );
     ui.label(egui::RichText::new(text::no_model_title()).strong());
     ui.add_space(6.0);

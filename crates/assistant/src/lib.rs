@@ -9,6 +9,8 @@ mod gate;
 mod guard;
 mod http;
 mod prompt;
+mod provider;
+mod provider_backend;
 mod retrieval;
 mod script;
 mod steps;
@@ -30,7 +32,7 @@ pub use api::{
 };
 pub use backend::{
     AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, HttpResponse, HttpStreamPart,
-    ModelInfo, PermissionOption, PromptPart, Secrets, SourceLink, StartContext, ToolStatus, base64,
+    ModelInfo, PermissionOption, PromptPart, SourceLink, StartContext, ToolStatus, base64,
     content_blocks, deliver_streamed_body,
 };
 pub use connections::{Connection, PRESETS, Preset, config_for, key_id, new_id, normalize_url};
@@ -43,6 +45,11 @@ pub use gate::{
 pub use guard::{Blocked, can_send};
 pub use http::{MAX_BODY, plain_http, plain_request};
 pub use prompt::SYSTEM_NOTE;
+pub use provider::{
+    ChatRequest, CloudProvider, Done, KeptIn, Key, MemKeys, MemProvider, ModelKeyStore,
+    ModelProvider, ProviderKind, ThreadTransport, Transport,
+};
+pub use provider_backend::ProviderBackend;
 pub use retrieval::{
     MODEL_TOOL_NAME, RETRIEVAL_KEY_ID, Retrieval, RetrievalConfig, SearchOutcome,
     append_model_tool, pick_search_tool, register_tool_name, system_note_offered, test_retrieval,

@@ -316,3 +316,19 @@ The server advertises `prompts` (no list-changed notice) and answers `prompts/li
 
 An unknown prompt name or a `focus` outside the list is error -32602. Argument text is
 inserted as plain text and clipped to 200 characters.
+
+## Browser model routes (research notes, November 2026)
+
+WebMCP is a draft from the W3C Web Machine Learning Community Group, not a standard. It
+lets a page register tools that an in-browser agent can call; it ships only behind a
+Chrome origin trial, and sources disagree on whether the entry point is
+`navigator.modelContext` or `document.modelContext`, so feature-detect both and check the
+draft and the Chrome release notes before relying on either name. PCBCraft would expose
+its existing tool list through it, using the same names as `tools/list`.
+
+WebGPU is available by default in Chrome and Edge (since version 113), and in recent Safari
+and Firefox with gaps (Firefox on Linux and Android). Libraries such as WebLLM run models on
+it behind an OpenAI-style chat API, which fits the `ModelProvider` wire format already used
+by `CloudProvider`. A local model should run in a Web Worker and report through the same
+callback. Sources: the WebMCP draft and the web-features explorer entry for
+`modelContext`; MDN's WebGPU compatibility table; the WebLLM project documentation.
