@@ -542,6 +542,69 @@ fn a_newcomer_opens_an_interchange_board_file() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_opens_an_existing_schematic() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Schematic);
+    app.needs_fit = true;
+    let ctx = egui::Context::default();
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+
+    // Count parts before import.
+    let parts_before = app.project.components.len();
+
+    // Open the Import dialog.
+    authoring::tests::tap(&ctx, &mut app, "File")?;
+    authoring::tests::tap(&ctx, &mut app, "Import")?;
+    authoring::tests::tap(&ctx, &mut app, "Schematic interchange file")?;
+    assert!(app.edit.dialog.open, "the Import dialog opens");
+    assert_eq!(
+        app.edit.dialog.format, "schematic_interchange",
+        "on the Schematic interchange file"
+    );
+
+    // Set the file path.
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../io/tests/fixtures/schematic_import_flat.kicad_sch");
+    app.edit.dialog.path = fixture.to_string_lossy().into_owned();
+
+    // Run the import.
+    authoring::tests::tap(&ctx, &mut app, "Import")?;
+    assert!(!app.edit.dialog.open, "the dialog closes after the import");
+
+    // Verify the schematic was imported.
+    let parts_after = app.project.components.len();
+    // The import replaces the open design with the file's schematic: the file holds two resistors.
+    assert_eq!(
+        parts_after, 2,
+        "the design is now the file's schematic with its two resistors"
+    );
+    assert_ne!(parts_after, parts_before, "the sample design was replaced");
+
+    // Verify the net count.
+    let nets = app.project.nets.len();
+    assert!(
+        nets >= 1,
+        "the imported schematic has at least one net, got {}",
+        nets
+    );
+
+    // Verify undo restores the prior design.
+    app.tool_call("undo", json!({}));
+    let parts_after_undo = app.project.components.len();
+    assert_eq!(
+        parts_after_undo, parts_before,
+        "undo restores the prior design"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_exports_a_compliance_report() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());
