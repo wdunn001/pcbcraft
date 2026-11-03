@@ -450,13 +450,26 @@ impl GerberLayer {
                     h as f64 / 1000.0 * self.scale
                 )),
                 Ap::Round(w, h, r) => {
-                    let r_mm = r as f64 / 1000.0 * self.scale;
-                    out.push_str(&format!(
-                        "%ADD{code}R,{:.3}X{:.3}*%\n",
-                        w as f64 / 1000.0 * self.scale,
-                        h as f64 / 1000.0 * self.scale
-                    ));
-                    let _ = r_mm;
+                    let w_mm = w as f64 / 1000.0;
+                    let h_mm = h as f64 / 1000.0;
+                    let r_mm = r as f64 / 1000.0;
+                    let points = roundrect_outline(w_mm, h_mm, r_mm);
+                    let mut ring = points.clone();
+                    if let Some(first) = points.first().copied() {
+                        ring.push(first);
+                    }
+                    let coords = ring
+                        .iter()
+                        .map(|(x, y)| format!("{:.6},{:.6}", x * self.scale, y * self.scale))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let macro_def = format!("%AMPAD{}*", code);
+                    let macro_body = format!("4,1,{},{}*%", ring.len().saturating_sub(1), coords);
+                    out.push_str(&macro_def);
+                    out.push('\n');
+                    out.push_str(&macro_body);
+                    out.push('\n');
+                    out.push_str(&format!("%ADD{code}PAD{code}*%\n"));
                 }
             }
         }
@@ -507,6 +520,30 @@ fn grow_outline(points: &[(f64, f64)], margin: f64) -> Vec<(f64, f64)> {
             }
         })
         .collect()
+}
+
+fn roundrect_outline(w_mm: f64, h_mm: f64, r_mm: f64) -> Vec<(f64, f64)> {
+    if r_mm <= 0.0 {
+        return vec![
+            (-w_mm / 2.0, -h_mm / 2.0),
+            (w_mm / 2.0, -h_mm / 2.0),
+            (w_mm / 2.0, h_mm / 2.0),
+            (-w_mm / 2.0, h_mm / 2.0),
+        ];
+    }
+    let mut points = Vec::with_capacity(68);
+    for (cx, cy, start_deg) in [
+        (w_mm / 2.0 - r_mm, h_mm / 2.0 - r_mm, 0.0),
+        (-w_mm / 2.0 + r_mm, h_mm / 2.0 - r_mm, 90.0),
+        (-w_mm / 2.0 + r_mm, -h_mm / 2.0 + r_mm, 180.0),
+        (w_mm / 2.0 - r_mm, -h_mm / 2.0 + r_mm, 270.0),
+    ] {
+        for i in 0..=16 {
+            let angle = (start_deg + i as f64 * 90.0 / 16.0).to_radians();
+            points.push((cx + r_mm * angle.cos(), cy + r_mm * angle.sin()));
+        }
+    }
+    points
 }
 
 fn pad_ap(pad: &pcbcraft_doc::Pad) -> Ap {

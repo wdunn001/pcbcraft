@@ -39889,6 +39889,100 @@ mod tests {
         Ok(())
     }
 
+    fn stale_ids(s: &Session) -> Result<Vec<u64>, Error> {
+        let result = s.query("artifact.stale", json!({}), None)?;
+        Ok(result["result"]["stale"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter_map(|v| v.as_u64())
+            .collect())
+    }
+
+    #[test]
+    fn artifact_record_goes_stale_on_layer_or_setting_change_and_survives_save_and_load()
+    -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-artifact-record-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let dir = directory.to_string_lossy().into_owned();
+        let copper = s.execute(
+            "artifact.add",
+            json!({"name":"copper","kind":"copper_plot","path":"pcb-F.Cu.gbr","layers":["F.Cu"]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let place = s.execute(
+            "artifact.add",
+            json!({"name":"placement","kind":"placement","path":"pos.csv","settings":{"flavour":"cpl_mm"}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            stale_ids(&s)?,
+            vec![copper, place],
+            "a new record has never been generated, so it starts stale"
+        );
+        for id in [copper, place] {
+            s.execute("artifact.export", json!({"id": id, "directory": dir}), None)?;
+        }
+        assert!(stale_ids(&s)?.is_empty(), "exporting clears the marker");
+
+        // The record, with its marker, survives save and load.
+        let bytes = pcbcraft_io::save_bytes(&s.project).map_err(Error::Invalid)?;
+        let text = String::from_utf8(bytes).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded = pcbcraft_io::load_text_for_open(&text).map_err(Error::Invalid)?;
+        assert_eq!(loaded.artifacts, s.project.artifacts);
+        let reopened = Session {
+            project: loaded,
+            ..Session::default()
+        };
+        assert!(
+            stale_ids(&reopened)?.is_empty(),
+            "a reopened project is still current"
+        );
+
+        // Changing the source layer flips the marker; undo and export both clear it.
+        s.execute(
+            "artifact.set",
+            json!({"id": copper, "layers": ["B.Cu"]}),
+            None,
+        )?;
+        assert_eq!(stale_ids(&s)?, vec![copper], "a new source layer is stale");
+        s.undo()?;
+        assert!(stale_ids(&s)?.is_empty(), "undo restores the source layer");
+        s.execute(
+            "artifact.set",
+            json!({"id": copper, "layers": ["B.Cu"]}),
+            None,
+        )?;
+        s.execute(
+            "artifact.export",
+            json!({"id": copper, "directory": dir}),
+            None,
+        )?;
+        assert!(stale_ids(&s)?.is_empty(), "regenerating clears it");
+
+        // Changing a setting that changes the bytes flips the marker too.
+        s.execute(
+            "artifact.set",
+            json!({"id": place, "path": "pos-inch.csv", "settings": {"flavour": "cpl_inch"}}),
+            None,
+        )?;
+        assert_eq!(stale_ids(&s)?, vec![place], "a changed setting is stale");
+        s.execute(
+            "artifact.export",
+            json!({"id": place, "directory": dir}),
+            None,
+        )?;
+        assert!(stale_ids(&s)?.is_empty());
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
     #[test]
     fn legacy_project_with_output_jobs_loads_with_artifacts_and_same_files() -> Result<(), Error> {
         let mut s = Session::sample()?;
@@ -46140,6 +46234,15 @@ mod tests {
                     t.id
                 );
             }
+        }
+    }
+
+    #[test]
+    fn no_duplicate_command_ids_in_commands() {
+        let commands = commands();
+        let mut seen = std::collections::HashSet::new();
+        for cmd in &commands {
+            assert!(seen.insert(cmd.id), "duplicate command id: {}", cmd.id);
         }
     }
 }

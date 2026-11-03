@@ -21,9 +21,10 @@
 use crate::cad::{CadKind, CadRef, CadSource};
 use crate::open_pool::{OpenPoolPackageRecord, OpenPoolPartRecord};
 use crate::sources::SourceError;
+use crate::symbol_inherit::read_symbol_with_parents;
+use crate::symbol_sourcing::sourcing_fields;
 use crate::{
-    FootprintDefinition, Graphic, Model3D, SymbolDefinition, SymbolPin, UnitGraphic,
-    read_footprint, read_symbols,
+    FootprintDefinition, Graphic, Model3D, SymbolDefinition, SymbolPin, UnitGraphic, read_footprint,
 };
 use pcbcraft_geom::Point;
 use serde_json::{Value, json};
@@ -63,17 +64,11 @@ pub fn import_part(
     footprint: Option<&CadRef>,
     model: Option<&CadRef>,
 ) -> Result<ImportedPart, SourceError> {
-    let file = source.fetch_symbol(symbol)?;
-    let defs = read_symbols(file.text()?)
-        .map_err(|e| invalid(format!("the symbol file could not be read: {e}")))?;
-    let symbol_def = defs
-        .into_iter()
-        .find(|d| d.name == symbol.name)
-        .ok_or_else(|| SourceError::NotFound(format!("{} {}", symbol.library, symbol.name)))?;
+    let (symbol_def, provenance) = read_symbol_with_parents(source, symbol)?;
     symbol_def
         .validate()
         .map_err(|e| invalid(format!("the symbol is not usable: {e}")))?;
-    let mut notices = vec![file.provenance.notice()];
+    let mut notices: Vec<String> = provenance.iter().map(|p| p.notice()).collect();
 
     let mut footprint_def = None;
     if let Some(fref) = footprint {
@@ -321,6 +316,10 @@ impl ImportedPart {
     /// Parameters for the engine command `library.import_online`; add
     /// `target`, `position` and the rest to place it with `library.place_online`.
     ///
+    /// # Rules
+    /// - A `fields` list (maker, part number, datasheet, description) is included when the
+    ///   symbol states any; only `library.place_online` takes it, so drop it for an import.
+    ///
     /// # Dependencies
     /// - crates/engine/src/online.rs
     pub fn to_params(&self) -> Value {
@@ -328,6 +327,15 @@ impl ImportedPart {
             "symbol": self.symbol,
             "notices": self.notices,
         });
+        let fields: Vec<Value> = sourcing_fields(&self.symbol)
+            .into_iter()
+            .map(|(key, value)| json!({"key": key, "value": value}))
+            .collect();
+        if !fields.is_empty()
+            && let Some(map) = v.as_object_mut()
+        {
+            map.insert("fields".into(), Value::Array(fields));
+        }
         if let Some(map) = v.as_object_mut()
             && let Some(fp) = &self.footprint
         {

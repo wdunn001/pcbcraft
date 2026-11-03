@@ -1,5 +1,6 @@
 //! Stories for routing and pouring on any copper layer of a multilayer board
-//! (#141): the Settings "Route on" choice lists every layer of the stackup.
+//! (#141): clicking a copper layer row in the Layers tree makes it the layer
+//! new tracks and pours go on, and the layer keys step through the stackup.
 use super::super::*;
 use super::layers::pcb_app;
 use super::support::*;
@@ -28,31 +29,21 @@ fn draw_line(ctx: &egui::Context, app: &mut App, y: f64) -> Result<(), String> {
     Ok(())
 }
 
+/// The words of a copper layer row in the Layers tree.
+fn inner_row(n: usize, name: &str) -> String {
+    t!("tree.layer.inner", n = n, name = name)
+}
+
 #[test]
-fn a_newcomer_picks_an_inner_layer_in_settings_and_draws_a_track_on_it() -> Result<(), String> {
+fn a_newcomer_picks_an_inner_layer_in_the_tree_and_draws_a_track_on_it() -> Result<(), String> {
     let (ctx, mut app) = four_layer_app()?;
-    app.change_tab(Tab::Settings);
-    assert!(
-        scrolled_to_at(&ctx, &mut app, "Route on", 700.0)?,
-        "the Settings page has a Route on row: {:?}",
-        app.tab
-    );
-    for label in ["In1.Cu", "In2.Cu"] {
-        assert!(
-            scrolled_to_at(&ctx, &mut app, label, 700.0)?,
-            "Route on offers {label} on a four-layer board: {}",
-            app.message
-        );
-    }
-    authoring::tests::tap(&ctx, &mut app, "In1.Cu")?;
+    tap_left(&ctx, &mut app, &inner_row(2, "In1.Cu"))?;
     let inner = pcbcraft_doc::Layer::from_index(1)?;
     assert_eq!(
         app.route_layer, inner,
         "clicking In1.Cu makes it the routing layer: {}",
         app.message
     );
-    app.change_tab(Tab::Pcb);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     draw_line(&ctx, &mut app, 10.0)?;
     let track = app
         .project
@@ -72,10 +63,7 @@ fn a_newcomer_picks_an_inner_layer_in_settings_and_draws_a_track_on_it() -> Resu
         "the track is in the second copper plot"
     );
     // Back to the outer layers: Bottom is the last layer, index 3.
-    app.change_tab(Tab::Settings);
-    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
-    app.change_tab(Tab::Pcb);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_left(&ctx, &mut app, &t!("tree.layer.bottom", n = 4))?;
     draw_line(&ctx, &mut app, 20.0)?;
     let bottom = app
         .project
@@ -128,15 +116,15 @@ fn a_newcomer_steps_through_every_copper_layer_with_the_layer_keys() -> Result<(
 #[test]
 fn a_newcomer_pours_copper_on_an_inner_layer() -> Result<(), String> {
     let (ctx, mut app) = four_layer_app()?;
-    app.change_tab(Tab::Settings);
-    scrolled_to_at(&ctx, &mut app, "Route on", 700.0)?;
-    authoring::tests::tap(&ctx, &mut app, "In2.Cu")?;
+    tap_left(&ctx, &mut app, &inner_row(3, "In2.Cu"))?;
     assert_eq!(
         app.route_layer.index(),
         2,
         "clicking In2.Cu makes it the routing layer: {}",
         app.message
     );
+    app.change_tab(Tab::Settings);
+    scrolled_to_at(&ctx, &mut app, "Pour copper", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Pour copper")?;
     let zone = app
         .project
@@ -148,7 +136,7 @@ fn a_newcomer_pours_copper_on_an_inner_layer() -> Result<(), String> {
     assert_eq!(
         zone.layer.index(),
         2,
-        "the pour goes on the layer picked in Route on, In2.Cu: {}",
+        "the pour goes on the layer picked in the Layers tree, In2.Cu: {}",
         app.message
     );
     Ok(())
@@ -157,8 +145,7 @@ fn a_newcomer_pours_copper_on_an_inner_layer() -> Result<(), String> {
 #[test]
 fn a_newcomer_keeps_routing_on_the_bottom_when_inner_layers_are_added() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
-    app.change_tab(Tab::Settings);
-    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    tap_left(&ctx, &mut app, &t!("tree.layer.bottom", n = 2))?;
     assert_eq!(
         app.route_layer.index(),
         1,

@@ -26,6 +26,7 @@ mod decoupling;
 mod diffpair_impedance;
 mod drill;
 mod finding_set;
+mod hole_copper;
 mod impedance_target;
 mod pad_kinds;
 mod pair_properties;
@@ -121,6 +122,10 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("silk_to_copper", "warning"),
     ("drill_overlap", "error"),
     ("hole_to_hole", "error"),
+    ("hole_to_copper_via", "error"),
+    ("hole_to_copper_pth", "error"),
+    ("hole_to_copper_npth", "error"),
+    ("min_npth", "error"),
     ("copper_sliver", "error"),
     ("length_group_skew", "error"),
     ("stub_length", "error"),
@@ -2204,6 +2209,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(pad_kinds::pad_kind_findings(project));
     result.extend(drill::drill_findings(project));
     result.extend(drill::drill_spacing_findings(project));
+    result.extend(hole_copper::hole_to_copper_findings(project));
+    result.extend(hole_copper::npth_size_findings(project));
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
     // pad, and no figure may leave the board. Drawn silk and reference art are

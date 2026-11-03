@@ -1147,29 +1147,10 @@ impl App {
             self.show_canvas_menu(ui.ctx(), screen, kind);
         }
     }
-    /// Draw the shapes the designer put on their own layers. Cut layers read
-    /// as a strong outline, perforation layers are dotted so they say
-    /// "break apart here", and the rest stay quiet so copper stays loudest.
-    /// Keep only what a focused tree row points at: one copper face or one
-    /// drawn machine layer. Everything else falls back to plain board colour.
+    /// Narrow the view to a focused drawn machine layer. A focused copper face
+    /// is not cut away here: `lit_alpha` paints the other layers faint instead.
     fn apply_layer_focus(p: &mut Project, focus: &str) {
-        let bottom = p.bottom_layer();
         let board = &mut p.board;
-        match focus.strip_prefix("copper:") {
-            Some("front") => {
-                board.tracks.retain(|t| t.layer == Layer::Front);
-                board.zones.retain(|z| z.layer == Layer::Front);
-                board.texts.retain(|t| t.layer == Layer::Front);
-                board.vias.clear();
-            }
-            Some("back") => {
-                board.tracks.retain(|t| t.layer == bottom);
-                board.zones.retain(|z| z.layer == bottom);
-                board.texts.retain(|t| t.layer == bottom);
-                board.vias.clear();
-            }
-            _ => {}
-        }
         if let Some(name) = focus.strip_prefix("art:") {
             board.tracks.clear();
             board.zones.clear();
@@ -1179,6 +1160,9 @@ impl App {
         }
     }
 
+    /// Draw the shapes the designer put on their own layers. Cut layers read
+    /// as a strong outline, perforation layers are dotted so they say
+    /// "break apart here", and the rest stay quiet so copper stays loudest.
     fn draw_user_layers(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
         for layer in &p.board.user_layers {
             if !layer.visible {
@@ -1963,6 +1947,7 @@ impl App {
                 false,
             );
         }
+        self.paint_sheet_lit(painter, rect, camera, page);
         let outlines = sheet::hit_outlines(p, page, rect, camera, &kinds);
         sheet::hover_outline(painter, &outlines, sc.select);
         if p.components.iter().all(|c| c.sheet != page) {
