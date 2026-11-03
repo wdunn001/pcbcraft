@@ -745,6 +745,67 @@ fn an_openai_stream_shows_text_before_the_turn_ends() -> Result<(), String> {
     Ok(())
 }
 
+fn streaming_anthropic_text(text: &str) -> HttpFn {
+    let text = text.to_string();
+    Arc::new(move |r: &HttpRequest| {
+        if r.method == "GET" {
+            return Ok(HttpResponse::ok(b"{\"data\":[]}".to_vec()));
+        }
+        let Some(out) = &r.stream_out else {
+            return Ok(HttpResponse::ok(
+                json!({"stop_reason": "end_turn", "content": [{"type": "text", "text": text}]})
+                    .to_string()
+                    .into_bytes(),
+            ));
+        };
+        let first = format!(
+            "event: content_block_start\ndata: {{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{{\"type\":\"text\",\"text\":\"\"}}}}\n\nevent: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":{}}}}}\n\n",
+            serde_json::to_string(&text).map_err(|e| e.to_string())?
+        );
+        std::thread::sleep(Duration::from_millis(80));
+        let tail = "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n";
+        out.send(Ok(HttpStreamPart::Chunk(first.into_bytes())))
+            .map_err(|_| "The stream ended early.".to_string())?;
+        out.send(Ok(HttpStreamPart::Chunk(tail.as_bytes().to_vec())))
+            .map_err(|_| "The stream ended early.".to_string())?;
+        out.send(Ok(HttpStreamPart::End { status: 200 }))
+            .map_err(|_| "The stream ended early.".to_string())?;
+        Ok(HttpResponse::ok(Vec::new()))
+    })
+}
+
+#[test]
+fn an_anthropic_stream_shows_text_before_the_turn_ends() -> Result<(), String> {
+    let http = streaming_anthropic_text("early");
+    let (ctx, _) = host("ok");
+    let mut b = ApiBackend::start(cfg(Protocol::Anthropic), ctx, http)?;
+    say(&mut b, "hi");
+    let end = pcbcraft_clock::instant_now() + Duration::from_secs(10);
+    let mut saw_early = false;
+    let mut saw_end = false;
+    while pcbcraft_clock::instant_now() < end {
+        for e in b.poll() {
+            if matches!(&e, Event::Text { text, .. } if text == "early") {
+                saw_early = true;
+            }
+            if matches!(e, Event::TurnEnded { .. }) {
+                saw_end = true;
+            }
+        }
+        if saw_early && !saw_end {
+            break;
+        }
+        if saw_end {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(saw_early, "expected streamed text before the turn ended");
+    assert!(!saw_end, "the turn ended before streamed text arrived");
+    run_until(&mut b, ended)?;
+    Ok(())
+}
+
 fn slow_openai_stream() -> HttpFn {
     Arc::new(move |r: &HttpRequest| {
         if r.method == "GET" {
