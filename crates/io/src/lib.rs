@@ -51,6 +51,8 @@ mod starter_models;
 mod stencil;
 mod stencil_laser;
 pub use board_mesh::bench_project_600_parts;
+mod large_board_bench;
+pub use large_board_bench::bench_project_10k_pads;
 mod compliance_list;
 mod datasheet_cache;
 mod diff;

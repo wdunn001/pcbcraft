@@ -6109,7 +6109,7 @@ impl Project {
                 return Err("library table nicknames must be unique".into());
             }
         }
-        if self.format != "pcbcraft" || self.version != 1 {
+        if self.format != "pcbcraft" || (self.version != 1 && self.version != 2) {
             return Err("unsupported project format/version".into());
         }
         if !Self::UNITS.contains(&self.unit.as_str()) {

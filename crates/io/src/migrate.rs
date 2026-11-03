@@ -12,18 +12,26 @@
 //! field, changing its unit or removing it does, and each bump ships with a
 //! fixture of the old version under test.
 use pcbcraft_doc::Project;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// The format version this build writes and reads.
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = 2;
 
 /// One step of the chain: the version it reads, and the rewrite that turns that
 /// version's JSON into the next one's.
 type Step = (u32, fn(Value) -> Result<Value, String>);
 
+/// Version 1 to 2: record that the design has been migrated.
+fn migrate_1_to_2(mut value: Value) -> Result<Value, String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "an object".to_string())?;
+    object.insert("migrated".into(), json!(true));
+    Ok(value)
+}
 /// Every released step, oldest first. Version 1 is the first format this
 /// project wrote, so the chain is empty until a change needs version 2.
-const STEPS: &[Step] = &[];
+const STEPS: &[Step] = &[(1, migrate_1_to_2)];
 
 /// Bring a design's JSON up to [`CURRENT_VERSION`].
 ///
@@ -132,6 +140,13 @@ mod tests {
         let project = read_project(&text)?;
         assert_eq!(project.version, CURRENT_VERSION);
         assert_eq!(project.format, "pcbcraft");
+        // The migration step should have run and set the "migrated" field.
+        let value: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let migrated = migrate(value)?;
+        assert_eq!(
+            migrated.get("migrated").and_then(Value::as_bool),
+            Some(true)
+        );
         Ok(())
     }
 
