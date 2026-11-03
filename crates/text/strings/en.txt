@@ -979,6 +979,7 @@ settings.settings_tab.top = Top
 settings.settings_tab.top.tip = New tracks are drawn on the top copper layer.
 settings.settings_tab.bottom = Bottom
 settings.settings_tab.bottom.tip = New tracks are drawn on the bottom copper layer.
+settings.settings_tab.inner.tip = New tracks are drawn on {name}, an inner copper layer between the top and the bottom.
 settings.settings_tab.pad_labels = Pad labels
 settings.settings_tab.choose_what_is_drawn_at.tip = Choose what is drawn at each pad centre on the board.
 settings.settings_tab.accent_color = Accent color

@@ -2681,19 +2681,14 @@ fn pad_shape(mut outline: Vec<Pos2>, convex: bool, color: Color32) -> egui::Shap
     egui::Shape::convex_polygon(outline, color, Stroke::NONE)
 }
 
-/// Whether a via has copper on the layer being worked on. The "Bottom" choice
-/// always means the last copper layer of the board.
+/// Whether a via has copper on the layer being worked on. `active` is a real
+/// index into the stackup, as `App::route_layer` always is.
 pub(crate) fn via_on_layer(
     p: &pcbcraft_doc::Project,
     v: &pcbcraft_doc::Via,
     active: pcbcraft_doc::Layer,
 ) -> bool {
-    let last = p.copper_layer_count().saturating_sub(1);
-    let index = if active == Layer::Back {
-        last
-    } else {
-        active.index()
-    };
+    let index = active.index();
     let (a, b) = p.via_span(v);
     (a.index()..=b.index()).contains(&index)
 }

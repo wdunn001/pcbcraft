@@ -5356,6 +5356,34 @@ impl Project {
             format!("In{}.Cu", idx)
         }
     }
+    /// The position-based copper name of a layer on this board, safe to put in
+    /// a command: `F.Cu` for the top, `B.Cu` for the last layer, `In<i>.Cu`
+    /// for the inner layer at index `i`.
+    ///
+    /// Why: a bare `Layer` serialised on its own has no stackup in view, so
+    /// index 1 turns into `B.Cu`, which a four-layer board reads as its
+    /// bottom. Commands built from a layer the user picked must name it here.
+    ///
+    /// # Rules
+    /// - Always reads back to the same index through [`Project::resolve_copper_layer`].
+    /// - Independent of the names a stackup row was given.
+    ///
+    /// # Dependencies
+    /// - crates/doc/src/lib.rs (`resolve_copper_layer` reads the name back)
+    ///
+    /// # Do not
+    /// - Put `json!(layer)` in a command when a project is at hand.
+    pub fn layer_key(&self, layer: Layer) -> String {
+        let count = self.copper_layer_count();
+        let idx = layer.index();
+        if idx == 0 {
+            "F.Cu".into()
+        } else if idx + 1 >= count {
+            "B.Cu".into()
+        } else {
+            format!("In{idx}.Cu")
+        }
+    }
     /// Map a copper layer string from a command or file to a layer index.
     pub fn resolve_copper_layer(&self, s: &str) -> Result<Layer, String> {
         let s = s.trim();
@@ -8373,6 +8401,33 @@ mod drill_tests {
         assert_eq!(json, "\"F.Cu\"");
         let back: Layer = serde_json::from_str("\"B.Cu\"").map_err(|e| e.to_string())?;
         assert_eq!(back, Layer::Back);
+        Ok(())
+    }
+    #[test]
+    fn layer_key_names_every_layer_so_it_reads_back_to_the_same_index() -> Result<(), String> {
+        let mut p = Project::default();
+        for count in [2usize, 4, 6] {
+            p.board.layer_records = (0..count)
+                .map(|i| LayerRecord {
+                    name: format!("Custom{i}"),
+                    kind: "copper".into(),
+                    thickness: 0.035,
+                    ..Default::default()
+                })
+                .collect();
+            for layer in p.copper_layers() {
+                let key = p.layer_key(layer);
+                assert_eq!(
+                    p.resolve_copper_layer(&key)?,
+                    layer,
+                    "{key} on a {count}-layer board names layer {}",
+                    layer.index()
+                );
+            }
+            assert_eq!(p.layer_key(Layer::Front), "F.Cu");
+            assert_eq!(p.layer_key(p.bottom_layer()), "B.Cu");
+        }
+        assert_eq!(p.layer_key(Layer::from_index(1)?), "In1.Cu");
         Ok(())
     }
     #[test]
