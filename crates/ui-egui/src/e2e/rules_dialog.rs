@@ -140,3 +140,41 @@ fn a_newcomer_runs_checks_and_reads_the_results() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Issue #110: a mounting hole drilled with the real tool, a track routed close
+/// to it, and a fab limit; Run checks names the problem in plain words.
+#[test]
+fn a_newcomer_is_told_a_mounting_hole_sits_too_close_to_copper() -> Result<(), String> {
+    let (ctx, mut app) = board();
+    app.run("board.fab_limits.set", json!({"hole_to_copper_npth": 0.4}));
+    tap_strip(&ctx, &mut app, "button:Mounting hole")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.canvas_click(Point::new(-25.0, -17.0), 1.0);
+    app.tool = Tool::Select;
+    // The default drill is 3.2 mm, so its wall is 1.6 mm out. A 0.2 mm track
+    // centred 1.95 mm out leaves 0.25 mm of air, under the 0.4 mm limit.
+    let net = app.project.nets.first().ok_or("the sample has nets")?.id;
+    app.run(
+        "track.add",
+        json!({"net":net,"start":{"x":-35.0,"y":-15.05},"end":{"x":-15.0,"y":-15.05},"width":0.2,"layer":"F.Cu"}),
+    );
+    app.refresh();
+    assert!(
+        pcbcraft_rules::drc(&app.project)
+            .iter()
+            .any(|f| f.code == "hole_to_copper_npth"),
+        "the engine reports the close copper: {}",
+        app.message
+    );
+    open_from_menu(&ctx, &mut app)?;
+    tap_id(&ctx, &mut app, "button:Run checks")?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "Unplated hole to copper")?,
+        "the results name the finding in plain words: {}",
+        app.message
+    );
+    Ok(())
+}
