@@ -10873,6 +10873,7 @@ fn run_command(
         | "bom.set_fields"
         | "bom.clear_fields"
         | "datasheet.extract"
+        | "datasheet.review"
         | "file.attach"
         | "file.remove"
         | "laser_job.export" => {
