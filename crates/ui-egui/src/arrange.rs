@@ -150,6 +150,7 @@ impl App {
             self.open_array_dialog();
             ui.close();
         }
+        self.round_corners_menu_item(ui);
     }
 
     /// Open the array dialog with a pitch just wider than the part.
@@ -212,6 +213,7 @@ impl App {
 
     /// The array dialog window.
     pub(super) fn array_window(&mut self, ctx: &egui::Context) {
+        self.round_corners_window(ctx);
         if !self.edit.arrange.open {
             return;
         }

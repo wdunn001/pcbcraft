@@ -6,7 +6,7 @@
 //! replies are read up to [`MAX_REPLY`] bytes; error text never includes request headers.
 //! Do not: log a request, a header or a key.
 
-use pcbcraft_assistant::{HttpFn, HttpRequest, HttpResponse, Secrets};
+use pcbcraft_assistant::{HttpFn, HttpRequest, HttpResponse, KeptIn, Key, ModelKeyStore};
 use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,7 +20,8 @@ const SERVICE: &str = "PCBCraft assistant";
 pub fn host() -> pcbcraft_ui_egui::Host {
     pcbcraft_ui_egui::Host {
         http: Some(http()),
-        secrets: Some(Arc::new(Keychain)),
+        transport: None,
+        keys: Some(Arc::new(Keychain)),
     }
 }
 
@@ -106,25 +107,30 @@ impl Keychain {
     }
 }
 
-impl Secrets for Keychain {
-    fn get(&self, id: &str) -> Result<Option<String>, String> {
-        match Self::entry(id)?.get_password() {
-            Ok(secret) => Ok(Some(secret)),
+/// Contract: crates/assistant/src/provider.rs
+impl ModelKeyStore for Keychain {
+    fn get(&self, name: &str) -> Result<Option<Key>, String> {
+        match Self::entry(name)?.get_password() {
+            Ok(secret) => Ok(Some(Key::new(&secret))),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(e.to_string()),
         }
     }
 
-    fn set(&self, id: &str, secret: &str) -> Result<(), String> {
-        Self::entry(id)?
-            .set_password(secret)
+    fn set(&self, name: &str, key: &str) -> Result<(), String> {
+        Self::entry(name)?
+            .set_password(key)
             .map_err(|e| e.to_string())
     }
 
-    fn delete(&self, id: &str) -> Result<(), String> {
-        match Self::entry(id)?.delete_credential() {
+    fn clear(&self, name: &str) -> Result<(), String> {
+        match Self::entry(name)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.to_string()),
         }
+    }
+
+    fn kept_in(&self) -> KeptIn {
+        KeptIn::SystemKeychain
     }
 }

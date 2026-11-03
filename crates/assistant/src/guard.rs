@@ -21,7 +21,7 @@ impl std::fmt::Display for Blocked {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Blocked::Disabled => "The assistant is switched off in Settings.",
-            Blocked::NoHttp => "The assistant needs the desktop app.",
+            Blocked::NoHttp => "This build has no way to send requests to a model.",
             Blocked::NoConnection => "Add a model connection in Settings to start.",
         })
     }

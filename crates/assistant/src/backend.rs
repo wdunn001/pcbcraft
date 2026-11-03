@@ -210,13 +210,6 @@ pub fn deliver_streamed_body(
     Ok(HttpResponse::with_status(status, Vec::new()))
 }
 
-/// The system keychain (the desktop host's), for API keys: never in the preferences.
-pub trait Secrets: Send + Sync {
-    fn get(&self, id: &str) -> Result<Option<String>, String>;
-    fn set(&self, id: &str, secret: &str) -> Result<(), String>;
-    fn delete(&self, id: &str) -> Result<(), String>;
-}
-
 /// One way to log in that the agent offers.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AuthMethod {

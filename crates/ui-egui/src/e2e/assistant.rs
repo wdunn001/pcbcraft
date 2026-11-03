@@ -262,25 +262,7 @@ fn fake_http(calls: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> pcbcraft_
 }
 
 /// A keychain that remembers keys in memory.
-#[derive(Default)]
-struct FakeKeychain(std::sync::Mutex<std::collections::BTreeMap<String, String>>);
-
-impl pcbcraft_assistant::Secrets for FakeKeychain {
-    fn get(&self, id: &str) -> Result<Option<String>, String> {
-        let map = self.0.lock().map_err(|e| e.to_string())?;
-        Ok(map.get(id).cloned())
-    }
-    fn set(&self, id: &str, secret: &str) -> Result<(), String> {
-        let mut map = self.0.lock().map_err(|e| e.to_string())?;
-        map.insert(id.into(), secret.into());
-        Ok(())
-    }
-    fn delete(&self, id: &str) -> Result<(), String> {
-        let mut map = self.0.lock().map_err(|e| e.to_string())?;
-        map.remove(id);
-        Ok(())
-    }
-}
+type FakeKeychain = pcbcraft_assistant::MemKeys;
 
 fn settings_app(
     calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
@@ -289,7 +271,8 @@ fn settings_app(
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None).with_host(Host {
         http: Some(fake_http(calls)),
-        secrets: Some(keys),
+        transport: None,
+        keys: Some(keys),
     });
     app.refresh();
     app.assistant.settings_open = true;
@@ -376,12 +359,13 @@ fn a_key_is_stored_in_the_keychain_and_never_in_the_preferences_file() -> Result
     assert!(text.contains("\"has_key\":true"));
     let id = app.preferences.assistant_connections[0].id.clone();
     assert_eq!(
-        pcbcraft_assistant::Secrets::get(&*keys, &pcbcraft_assistant::key_id(&id))?,
+        pcbcraft_assistant::ModelKeyStore::get(&*keys, &pcbcraft_assistant::key_id(&id))?
+            .map(|k| k.expose().to_string()),
         Some("sk-secret-123".to_string())
     );
     assistant::settings::remove_connection(&mut app, &id);
     assert_eq!(
-        pcbcraft_assistant::Secrets::get(&*keys, &pcbcraft_assistant::key_id(&id))?,
+        pcbcraft_assistant::ModelKeyStore::get(&*keys, &pcbcraft_assistant::key_id(&id))?,
         None,
         "remove deletes the keychain entry"
     );
@@ -541,7 +525,8 @@ fn app_with_http(http: &pcbcraft_assistant::CountingHttp, connected: bool) -> Ap
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None).with_host(Host {
         http: Some(http.http()),
-        secrets: None,
+        transport: None,
+        keys: None,
     });
     app.refresh();
     app.preferences.aside_lower_tab = 1;
@@ -683,15 +668,15 @@ fn a_newcomer_presses_stop_and_the_assistant_stops_within_a_frame() -> Result<()
 }
 
 #[test]
-fn a_newcomer_in_the_browser_build_is_told_the_assistant_needs_the_desktop_app()
--> Result<(), String> {
+fn a_newcomer_in_a_shell_with_no_way_to_send_is_told_so_in_plain_words() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app =
         App::create(shared, Preferences::default(), None, None).with_host(Host::default());
     app.refresh();
     app.preferences.aside_lower_tab = 1;
     let ctx = egui::Context::default();
-    assert!(paints_text(&ctx, &mut app, "needs the desktop app")?);
+    assert!(paints_text(&ctx, &mut app, "no way to send requests")?);
+    assert!(!paints_text(&ctx, &mut app, "desktop app")?);
     app.assistant.input = "hello".into();
     app.assistant_send();
     assert!(

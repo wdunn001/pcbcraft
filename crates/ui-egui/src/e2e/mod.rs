@@ -7,6 +7,7 @@ mod a11y_gate;
 mod artifact_rows;
 mod artifacts;
 mod assistant;
+mod assistant_browser;
 mod audit;
 mod board;
 mod board3d;
