@@ -10713,7 +10713,8 @@ fn run_command(
         | "schematic.move_component"
         | "schematic.place_port"
         | "schematic.move_port"
-        | "schematic.rename_port" => {
+        | "schematic.rename_port"
+        | "schematic.set_port_direction" => {
             run_command_part_9(config, p, next, command, params, record_revision, mutating)
         }
         "schematic.remove_port"

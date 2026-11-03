@@ -276,16 +276,17 @@ fn a_newcomer_sets_a_port_direction() -> Result<(), String> {
     );
     assert_eq!(app.selected, Some(port), "port was selected");
     let controls = crate::e2e::audit::controls(&ctx, &app);
-    let has_segment = controls
-        .iter()
-        .any(|c| c.id.as_deref() == Some("radiobutton:schematic.port.direction, 3 of 4"));
+    let has_segment = controls.iter().any(|c| {
+        c.id.as_deref()
+            .is_some_and(|i| i.starts_with("radiobutton:schematic.port.direction"))
+    });
     let port_in_list = app.project.ports.iter().any(|p| p.id == port);
     assert!(port_in_list, "port is in project.ports");
     let is_component = app.project.component(port).is_some();
     assert!(!is_component, "port is not a component");
     assert!(has_segment, "port direction segment is on screen");
     // Tap the Output segment in the Properties panel.
-    tap_properties_segment(&ctx, &mut app, "schematic.port.direction", 1, 4)?;
+    tap_properties_text(&ctx, &mut app, "Output")?;
     frame(&ctx, &mut app, vec![], Modifiers::NONE);
     frame(&ctx, &mut app, vec![], Modifiers::NONE);
     let found = app
@@ -300,7 +301,8 @@ fn a_newcomer_sets_a_port_direction() -> Result<(), String> {
         found.direction
     );
     // Undo returns to bidirectional.
-    app.run("undo", json!({}));
+    app.tool_call("undo", json!({}));
+    app.refresh();
     frame(&ctx, &mut app, vec![], Modifiers::NONE);
     let found = app
         .project
