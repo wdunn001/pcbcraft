@@ -60,6 +60,7 @@ mod placement_machine_ui;
 mod plot_viewer;
 mod pour_panel;
 mod project_settings;
+mod project_status;
 mod properties;
 mod reference_panel;
 mod route_drag;
@@ -2461,7 +2462,7 @@ impl App {
         let result = pcbcraft_mcp::call_tool(&self.session, name, &args);
         let success = result.get("isError").and_then(Value::as_bool) != Some(true);
         self.message = if success {
-            t!("dialogs.tool_call.name_complete", name = name)
+            project_status::done_sentence(name, &args).unwrap_or_default()
         } else {
             result
                 .pointer("/content/0/text")
@@ -3733,11 +3734,9 @@ impl App {
                                             .button(t!("dialogs.start_home.open"))
                                             .on_hover_text(t!("dialogs.start_home.open.tip"))
                                             .clicked()
+                                            && self.tool_call("open", json!({"path": self.path}))
                                         {
-                                            self.tool_call("open", json!({"path": self.path}));
-                                            if self.message.starts_with("open") {
-                                                self.home_open = false;
-                                            }
+                                            self.home_open = false;
                                         }
                                     });
                                 });
@@ -3766,8 +3765,7 @@ impl App {
                                         .clicked()
                                     {
                                         self.path = design;
-                                        self.tool_call("open", json!({"path": self.path}));
-                                        if self.message.starts_with("open") {
+                                        if self.tool_call("open", json!({"path": self.path})) {
                                             self.home_open = false;
                                         }
                                     }
@@ -7485,6 +7483,7 @@ impl App {
                 use ui_kit::{icons as kit_icons, status_item::status_item};
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
+                    self.footer_project(ui);
                     let status =
                         status_item(ui, None, &self.message, &t!("status.message.tip"), false);
                     a11y::announce_status(ui.ctx(), &status, &self.message);
@@ -8523,7 +8522,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Save")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            app.message.starts_with("save"),
+            app.message.starts_with("Saved to"),
             "saving answers: {}",
             app.message
         );
@@ -8545,7 +8544,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Undo")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            app.message.starts_with("undo"),
+            app.message.starts_with("Undid"),
             "undo answers: {}",
             app.message
         );

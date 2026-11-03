@@ -53,7 +53,7 @@ impl App {
             self.message = error;
             return false;
         }
-        self.message = t!("dialogs.tool_call.name_complete", name = "open");
+        self.message = t!("status.done.sample_design");
         self.path = "showcase.pcbcraft".to_string();
         self.refresh();
         self.saved_revision = Some(self.revision);

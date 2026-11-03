@@ -24,6 +24,7 @@ mod editing;
 mod export;
 mod files_home;
 mod findings_counts;
+mod footer;
 mod glyphs;
 mod hide_layer;
 mod i18n;

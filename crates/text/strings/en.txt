@@ -1143,7 +1143,6 @@ dialogs.run_and_keep.session_unavailable = Session unavailable
 dialogs.run_and_keep.command_reported = {command} · reported
 
 # lib.rs tool_call
-dialogs.tool_call.name_complete = {name} · complete
 dialogs.tool_call.operation_failed = operation failed
 
 # editing.rs shift_click
@@ -3820,3 +3819,15 @@ parts_table.export_no_path = Type a save path first.
 parts_table.export_copied = Parts table copied. The browser build cannot write files yet.
 parts_table.export_saved = Parts table saved as {path} ({rows} rows).
 parts_table.export_failed = Could not write the parts table: {error}
+
+# project_status.rs footer
+status.project.name.tip = The project you are working on.
+status.project.unsaved = Unsaved changes
+status.project.unsaved.tip = This project has changes that are not saved.
+status.done.new_design = New project started
+status.done.sample_design = Worked example opened
+status.done.open = Opened {name}
+status.done.save = Saved to {file}
+status.done.undo = Undid the last change
+status.done.redo = Redid the change
+status.done.files_made = Files made in {folder}
