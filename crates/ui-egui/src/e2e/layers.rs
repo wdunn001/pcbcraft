@@ -243,23 +243,126 @@ fn a_newcomer_hides_a_layer_from_its_right_click_menu() -> Result<(), String> {
     Ok(())
 }
 
+/// Put a track, a zone and a text label on the top copper of the sample board.
+fn top_with_track_zone_and_text(ctx: &egui::Context, app: &mut App) {
+    let net = app.project.nets[0].id;
+    app.run(
+        "track.add",
+        json!({"net": net, "start": {"x": 10.0, "y": 10.0}, "end": {"x": 20.0, "y": 10.0}, "width": 0.37}),
+    );
+    app.run(
+        "zone.place",
+        json!({"net": net, "layer": "F.Cu", "outline": [
+            {"x": 30.0, "y": 30.0}, {"x": 40.0, "y": 30.0}, {"x": 40.0, "y": 40.0},
+            {"x": 30.0, "y": 40.0}, {"x": 30.0, "y": 30.0}]}),
+    );
+    app.run(
+        "text.place",
+        json!({"text": "HELLO", "position": {"x": 25.0, "y": 25.0}, "layer": "F.Cu"}),
+    );
+    app.refresh();
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+}
+
+/// What the canvas paints this frame as lines: the real frame, not a stored flag. Only shapes
+/// clipped to the wide drawing area count, so the side tree's own row marks stay out.
+fn painted_lines(ctx: &egui::Context, app: &mut App) -> usize {
+    let screen = ctx.content_rect();
+    frame(ctx, app, vec![], egui::Modifiers::NONE)
+        .shapes
+        .iter()
+        .filter(|s| {
+            s.clip_rect.width() > screen.width() * 0.4 && s.clip_rect.contains(screen.center())
+        })
+        .filter(|s| matches!(s.shape, egui::Shape::LineSegment { .. }))
+        .count()
+}
+
+/// What of the top layer the painter draws, by kind.
+fn top_painted(app: &App) -> crate::board_visibility::LayerCount {
+    app.layer_counts(pcbcraft_doc::Layer::Front).1
+}
+
 #[test]
 fn a_newcomer_hides_a_layer_and_gets_it_back_as_it_was() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
+    top_with_track_zone_and_text(&ctx, &mut app);
+    let all = top_painted(&app);
+    assert!(
+        all.tracks > 0 && all.pads > 0 && all.zones > 0 && all.labels > 0,
+        "the top layer holds tracks, pads, zones and text: {all:?}"
+    );
+    let lines_all = painted_lines(&ctx, &mut app);
+    // Turn off the Pads sub-layer first.
     press_on(&ctx, &mut app, "side:top/components", egui::Key::Space);
     assert!(
         !app.board_sub_effective("side:top", layer_visibility::SubLayer::Pads),
         "pads are off before the layer is hidden"
     );
+    let pads_off = top_painted(&app);
+    assert_eq!(pads_off.pads, 0, "no pad is painted: {pads_off:?}");
+    assert_eq!(pads_off.tracks, all.tracks, "tracks are still painted");
+    // Hide the whole top layer from its own eye.
     press_on(&ctx, &mut app, "side:top", egui::Key::Space);
-    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    let hidden = top_painted(&app);
+    assert_eq!(
+        (
+            hidden.pads,
+            hidden.tracks,
+            hidden.zones,
+            hidden.labels,
+            hidden.silkscreen,
+            hidden.drawn
+        ),
+        (0, 0, 0, 0, 0, 0),
+        "hiding the layer removes its pads, tracks, zones, text and artwork: {hidden:?}"
+    );
+    let lines_hidden = painted_lines(&ctx, &mut app);
     assert!(
-        !app.board_sub_effective("side:top", layer_visibility::SubLayer::Pads),
-        "pads are still off after the layer is shown again"
+        lines_hidden < lines_all,
+        "the frame paints fewer lines with the layer hidden ({lines_hidden} against {lines_all})"
+    );
+    // While hidden, turn the Tracks sub-layer off and on: the canvas does not change.
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert!(
+        !layer_visibility::sub_stored(
+            &app.preferences.hidden_layers,
+            "side:top",
+            layer_visibility::SubLayer::Tracks
+        ),
+        "the stored flag of tracks changed while the layer is hidden"
+    );
+    assert_eq!(
+        painted_lines(&ctx, &mut app),
+        lines_hidden,
+        "the canvas is unchanged while the layer is hidden"
+    );
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert!(
+        layer_visibility::sub_stored(
+            &app.preferences.hidden_layers,
+            "side:top",
+            layer_visibility::SubLayer::Tracks
+        ),
+        "tracks are back on in storage"
+    );
+    assert_eq!(
+        painted_lines(&ctx, &mut app),
+        lines_hidden,
+        "the canvas is still unchanged while the layer is hidden"
+    );
+    // Show the layer: every sub-layer is as it was.
+    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    let back = top_painted(&app);
+    assert_eq!(back.pads, 0, "pads stay off, as they were: {back:?}");
+    assert_eq!(
+        (back.tracks, back.zones, back.labels),
+        (all.tracks, all.zones, all.labels),
+        "tracks, zones and text come back because their sub-layers stayed on"
     );
     assert!(
-        app.board_sub_effective("side:top", layer_visibility::SubLayer::Tracks),
-        "tracks come back because their sub-layer stayed on"
+        painted_lines(&ctx, &mut app) > lines_hidden,
+        "the frame paints the lines again"
     );
     Ok(())
 }
@@ -267,6 +370,9 @@ fn a_newcomer_hides_a_layer_and_gets_it_back_as_it_was() -> Result<(), String> {
 #[test]
 fn a_newcomer_turns_off_tracks_then_hides_and_shows_the_layer() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
+    top_with_track_zone_and_text(&ctx, &mut app);
+    let all = top_painted(&app);
+    assert!(all.tracks > 0 && all.pads > 0, "{all:?}");
     press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
     assert!(
         app.preferences
@@ -275,7 +381,29 @@ fn a_newcomer_turns_off_tracks_then_hides_and_shows_the_layer() -> Result<(), St
             .any(|h| h == "sub:side:top:tracks"),
         "Space on the tracks row stores tracks off"
     );
+    let tracks_off = top_painted(&app);
+    assert_eq!(tracks_off.tracks, 0, "no track is painted: {tracks_off:?}");
+    assert_eq!(tracks_off.pads, all.pads, "pads are still painted");
     press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert!(
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "group:side:top"),
+        "hiding the layer stores the layer as hidden"
+    );
+    assert!(
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "sub:side:top:tracks"),
+        "the layer's eye leaves the tracks setting alone"
+    );
+    let hidden = top_painted(&app);
+    assert_eq!(
+        (hidden.pads, hidden.tracks, hidden.zones, hidden.labels),
+        (0, 0, 0, 0)
+    );
     press_on(&ctx, &mut app, "side:top", egui::Key::Space);
     assert!(
         app.preferences
@@ -283,6 +411,13 @@ fn a_newcomer_turns_off_tracks_then_hides_and_shows_the_layer() -> Result<(), St
             .iter()
             .any(|h| h == "sub:side:top:tracks"),
         "tracks stay off in storage after hide and show"
+    );
+    let shown = top_painted(&app);
+    assert_eq!(shown.tracks, 0, "tracks stay off on the canvas: {shown:?}");
+    assert_eq!(
+        (shown.pads, shown.zones, shown.labels),
+        (all.pads, all.zones, all.labels),
+        "everything else comes back"
     );
     Ok(())
 }
