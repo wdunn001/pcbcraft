@@ -37,11 +37,6 @@ impl App {
     /// The tree path of a copper layer's group (`side:top`, `side:bottom`, `inner:n`).
     pub(crate) fn layer_path(&self, layer: Layer) -> String {
         let count = usize::from(self.project.copper_layer_count());
-        let layer = if layer == Layer::Back {
-            self.project.bottom_layer()
-        } else {
-            layer
-        };
         lv::side_path_for_layer(count, layer)
     }
 
@@ -96,9 +91,9 @@ impl App {
     }
 
     /// The layer a free board graphic belongs to: back for `B.*`, front otherwise.
-    pub(crate) fn graphic_layer(g: &pcbcraft_doc::Graphic) -> Layer {
+    pub(crate) fn graphic_layer(&self, g: &pcbcraft_doc::Graphic) -> Layer {
         if g.sublayer.starts_with("B.") {
-            Layer::Back
+            self.project.bottom_layer()
         } else {
             Layer::Front
         }
@@ -107,7 +102,7 @@ impl App {
     /// A free board graphic is painted: its side is on, and for silkscreen and plain artwork
     /// the artwork slice is on too.
     pub(crate) fn graphic_shown(&self, g: &pcbcraft_doc::Graphic) -> bool {
-        let layer = Self::graphic_layer(g);
+        let layer = self.graphic_layer(g);
         if g.sublayer.ends_with("Mask") {
             self.layer_group_shown(layer)
         } else {
@@ -221,7 +216,7 @@ impl App {
             }
         }
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
-            if here(Self::graphic_layer(g)) {
+            if here(self.graphic_layer(g)) {
                 have.drawn += 1;
                 shown.drawn += usize::from(self.graphic_shown(g));
             }

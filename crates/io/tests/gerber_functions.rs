@@ -377,3 +377,29 @@ fn filled_via_writes_a_viafill_file() -> Result<(), String> {
     pcbcraft_io::assert_gerber_md5_valid(fill)?;
     Ok(())
 }
+
+#[test]
+fn a_six_layer_export_holds_one_poured_file_per_inner_layer() -> Result<(), String> {
+    let p = six_layer_plane_board()?;
+    let files = pcbcraft_io::gerber_preset::gerber_files_with(&p, &Default::default())?;
+    let inner: Vec<&String> = files.keys().filter(|n| n.contains(".Cu.gbr")).collect();
+    assert_eq!(
+        inner.len(),
+        4,
+        "front, back and two inner layers, no second copy of any: {inner:?}"
+    );
+    let l2 = files.get("pcb-In1.Cu.gbr").ok_or("inner layer 1")?;
+    assert!(
+        l2.contains("%TA.AperFunction,AntiPad*%"),
+        "the inner file is the poured plane, not a pad-only stub"
+    );
+    assert!(
+        l2.contains("%TF.CreationDate,1980-01-01"),
+        "the inner file carries the package date: {l2}"
+    );
+    assert!(
+        !files.keys().any(|n| n == "pcb-L2.gbr"),
+        "the layer-name copy is filed under the inner role"
+    );
+    Ok(())
+}

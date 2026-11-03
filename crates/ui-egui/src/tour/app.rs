@@ -65,6 +65,7 @@ impl crate::App {
             "findings" => SheetTab::Findings,
             "output" => SheetTab::Output,
             "console" => SheetTab::Console,
+            "parts" => SheetTab::Parts,
             other => return Err(format!("unknown region tab `{other}`")),
         };
         self.open_sheet(tab);

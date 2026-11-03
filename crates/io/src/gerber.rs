@@ -6,9 +6,9 @@
 //! (code 4). Chamfered and custom outlines are exact; roundrect corners are
 //! chord approximated within `Pad::outline_error`.
 //!
-//! Copper uses millimetres y-up about the board height. Mask, paste and
-//! silkscreen match the fabrication package: y down from the top-left, bottom
-//! side files mirror x about the board origin.
+//! Every writer here uses design coordinates as seen from the top of the
+//! board: x and y pass through unchanged and no side is mirrored, so all files
+//! of a package and its drill files share one coordinate system.
 use crate::board_mesh::{graphic_layer, map_ring, pad_sides, thin_polyline};
 use crate::gerber_fidelity::{attach_gerber_md5, smd_aperture_function};
 use pcbcraft_doc::fill::{PlatedConnectKind, pad_exports_on_layer, plated_item_connected_on_layer};
@@ -236,12 +236,10 @@ pub(crate) fn md5_hex(message: &[u8]) -> String {
     hex
 }
 
-/// Gerber copper image of one layer. Board coordinates are y-down from the
-/// top-left board corner; Gerber is y-up, so y is mirrored about the board height.
+/// Gerber copper image of one layer, in design coordinates as seen from the top.
 pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     p.validate()?;
-    let height = p.board.height;
-    let to_gerber = |point: Point| Point::new(point.x, height - point.y);
+    let to_gerber = |point: Point| point;
     let mut codes: BTreeMap<String, usize> = BTreeMap::new();
     let mut definitions = String::new();
     let mut define = |aperture: Aperture| -> usize {
@@ -538,7 +536,7 @@ impl Sheet {
              %TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n\
              %TF.FileFunction,{file_function}*%\n\
              %TF.FilePolarity,{polarity}*%\n\
-             %TF.SameCoordinates,PCBCraftFabrication*%\n\
+             %TF.SameCoordinates,PCBCraft*%\n\
              %FSLAX46Y46*%\n\
              %{unit}*%\n"
         );
@@ -556,16 +554,6 @@ impl Sheet {
 /// Fabrication files write inches for an inch project, like `gerber_files`.
 fn file_scale(p: &Project) -> f64 {
     if p.unit == "inch" { 1.0 / 25.4 } else { 1.0 }
-}
-
-/// A bottom side file mirrors x about the board origin.
-fn mirror(at: Point, layer: Layer) -> Point {
-    match layer {
-        Layer::Back => Point::new(-at.x, at.y),
-        // Only the outer sides carry mask, paste and silk; an inner layer
-        // never reaches here, and the top side is the harmless default.
-        _ => at,
-    }
 }
 
 /// Millimetres to whole micrometres, the unit the aperture keys use.
@@ -606,7 +594,9 @@ pub(crate) fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
 }
 
 /// Whether a pad is surface mounted, and so takes paste. Pads with a drill and
-/// legacy pads that carry only a diameter are through-hole and are skipped.
+/// legacy pads that carry only a diameter are through-hole and are skipped. A
+/// pad whose layer list names no paste layer, such as an exposed contact pad,
+/// takes no paste either.
 pub(crate) fn pad_is_smd(pad: &Pad) -> bool {
     match &pad.geometry {
         None => false,
@@ -614,6 +604,7 @@ pub(crate) fn pad_is_smd(pad: &Pad) -> bool {
             g.drill.is_none()
                 && !g.pad_type.starts_with("thru_hole")
                 && !g.pad_type.starts_with("np_thru_hole")
+                && (g.layers.is_empty() || g.has_paste())
         }
     }
 }
@@ -623,7 +614,7 @@ pub(crate) fn pad_is_smd(pad: &Pad) -> bool {
 /// exact. Other outlines grow their bounding box by the margin, which matches
 /// the rule within the margin at every edge for a plain rectangle and never
 /// leaves an opening smaller than the pad itself.
-fn pad_opening(f: &Footprint, pad: &Pad, margin: f64, mirror_x: bool) -> Result<Opening, String> {
+fn pad_opening(f: &Footprint, pad: &Pad, margin: f64) -> Result<Opening, String> {
     let Some(g) = &pad.geometry else {
         let diameter = (pad.diameter + 2.0 * margin).max(0.001);
         return Ok(Opening::Circle(microns(diameter)));
@@ -671,8 +662,7 @@ fn pad_opening(f: &Footprint, pad: &Pad, margin: f64, mirror_x: bool) -> Result<
                     let v = v
                         .offset(Point::new(-pad.offset.x, -pad.offset.y))
                         .rotate(-f.rotation);
-                    let x = if mirror_x { -v.x } else { v.x };
-                    (microns(x), microns(v.y))
+                    (microns(v.x), microns(v.y))
                 })
                 .collect();
             Ok(Opening::Outline(points))
@@ -686,7 +676,6 @@ fn pad_opening(f: &Footprint, pad: &Pad, margin: f64, mirror_x: bool) -> Result<
 /// vias, use the default because no footprint rule reaches them.
 pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
     p.validate()?;
-    let mirror_x = layer == Layer::Back;
     let mut sheet = Sheet::new(file_scale(p));
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, true).unwrap_or(DEFAULT_MASK_MARGIN);
@@ -697,9 +686,9 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
             let Some(at) = f.pad_position(&pad.number) else {
                 continue;
             };
-            let opening = pad_opening(f, pad, margin, mirror_x)?;
+            let opening = pad_opening(f, pad, margin)?;
             let code = sheet.define(opening, smd_aperture_function(f, pad))?;
-            sheet.flash(code, mirror(at, layer))?;
+            sheet.flash(code, at)?;
         }
     }
     for v in &p.board.vias {
@@ -710,7 +699,7 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         }
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
         let code = sheet.define(Opening::Circle(microns(diameter)), "SMDPad,CuDef")?;
-        sheet.flash(code, mirror(v.position, layer))?;
+        sheet.flash(code, v.position)?;
     }
     let (function, comment) = match layer {
         Layer::Back => ("Soldermask,Bot", "bottom solder mask"),
@@ -726,23 +715,21 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
 /// `DEFAULT_PASTE_MARGIN` when unset. A negative margin shrinks the opening, as
 /// the library rule documents. Through-hole pads get no paste.
 pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
-    gerber_paste_layer(p, layer, true, false)
+    gerber_paste_layer(p, layer, false)
 }
 
-/// Paste layer for a laser-cut stencil order: board coordinates without mirroring
-/// the bottom side, and fiducials on that side as their own apertures.
+/// Paste layer for a laser-cut stencil order: the same design coordinates as
+/// every other layer, with fiducials as their own apertures.
 pub fn gerber_paste_stencil(p: &Project, layer: Layer) -> Result<String, String> {
-    gerber_paste_layer(p, layer, false, true)
+    gerber_paste_layer(p, layer, true)
 }
 
 fn gerber_paste_layer(
     p: &Project,
     layer: Layer,
-    mirror_bottom: bool,
     include_fiducials: bool,
 ) -> Result<String, String> {
     p.validate()?;
-    let mirror_x = mirror_bottom && layer == Layer::Back;
     let mut sheet = Sheet::new(file_scale(p));
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, false).unwrap_or(DEFAULT_PASTE_MARGIN);
@@ -753,9 +740,8 @@ fn gerber_paste_layer(
             let Some(at) = f.pad_position(&pad.number) else {
                 continue;
             };
-            let opening = pad_opening(f, pad, margin, mirror_x)?;
+            let opening = pad_opening(f, pad, margin)?;
             let code = sheet.define(opening, "SMDPad,CuDef")?;
-            let at = if mirror_bottom { mirror(at, layer) } else { at };
             sheet.flash(code, at)?;
         }
     }
@@ -763,12 +749,7 @@ fn gerber_paste_layer(
         for fid in p.board.fiducials.iter().filter(|f| f.layer == layer) {
             let diameter = fid.diameter.max(0.001);
             let code = sheet.define(Opening::Circle(microns(diameter)), "FiducialMark")?;
-            let at = if mirror_bottom {
-                mirror(fid.position, layer)
-            } else {
-                fid.position
-            };
-            sheet.flash(code, at)?;
+            sheet.flash(code, fid.position)?;
         }
     }
     let (function, comment) = match layer {
@@ -992,11 +973,7 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
             continue;
         }
         let code = sheet.define(Opening::Circle(microns(stroke.width.max(0.05))), "Legend")?;
-        sheet.stroke(
-            code,
-            &[mirror(stroke.start, layer), mirror(stroke.end, layer)],
-            false,
-        )?;
+        sheet.stroke(code, &[stroke.start, stroke.end], false)?;
     }
     let notes = if dropped_text > 0 {
         vec![format!(
@@ -1022,7 +999,6 @@ pub fn gerber_mask_for_stack_row(
     default_margin: f64,
 ) -> Result<String, String> {
     p.validate()?;
-    let mirror_x = crate::gerber_fidelity::copper_layer_is_back(p, layer);
     let mut sheet = Sheet::new(file_scale(p));
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, true).unwrap_or(default_margin);
@@ -1033,13 +1009,8 @@ pub fn gerber_mask_for_stack_row(
             let Some(at) = f.pad_position(&pad.number) else {
                 continue;
             };
-            let opening = pad_opening(f, pad, margin, mirror_x)?;
+            let opening = pad_opening(f, pad, margin)?;
             let code = sheet.define(opening, smd_aperture_function(f, pad))?;
-            let at = if mirror_x {
-                Point::new(-at.x, at.y)
-            } else {
-                at
-            };
             sheet.flash(code, at)?;
         }
     }
@@ -1052,7 +1023,7 @@ pub fn gerber_mask_for_stack_row(
         }
         let diameter = (v.diameter + 2.0 * default_margin).max(0.001);
         let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad")?;
-        sheet.flash(code, mirror(v.position, layer))?;
+        sheet.flash(code, v.position)?;
     }
     Ok(sheet.finish(file_function, "Negative", "mask layer from stack", &[]))
 }
@@ -1456,8 +1427,8 @@ mod tests {
         let back = gerber_parser(&gerber_mask(&project, Layer::Back)?)?;
         assert_eq!(back.flashes.len(), 2, "the through pad and the via");
         assert!(
-            back.flashes.iter().any(|(_, at)| at.x == -30.0),
-            "the back file mirrors x: {:?}",
+            back.flashes.iter().any(|(_, at)| at.x == 30.0),
+            "the back file keeps design x, never mirrored: {:?}",
             back.flashes
         );
         Ok(())
@@ -1515,8 +1486,8 @@ mod tests {
         );
         let back = gerber_parser(&gerber_silk(&project, Layer::Back)?)?;
         assert!(
-            back.draws.contains(&Point::new(-8.0, 9.0)),
-            "the back silk line is mirrored: {:?}",
+            back.draws.contains(&Point::new(8.0, 9.0)),
+            "the back silk line keeps design x: {:?}",
             back.draws
         );
         assert!(
@@ -1576,7 +1547,7 @@ mod tests {
         };
         assert!(!pad_on_side(&footprint, &placed, Layer::Front));
         assert!(pad_on_side(&footprint, &placed, Layer::Back));
-        let opening = pad_opening(&footprint, &placed, MASK_RULE, true)?;
+        let opening = pad_opening(&footprint, &placed, MASK_RULE)?;
         assert_eq!(opening, Opening::Rect(1_400, 1_000));
         Ok(())
     }

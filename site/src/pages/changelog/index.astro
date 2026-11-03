@@ -1,16 +1,53 @@
 ---
-// Changelog: release notes are written by the release workflow into the GitHub Release.
+// Changelog: built at site build time from the change files under .changes/.
+// Context: each pull request adds one file; the date and pull request come from its git history.
+// Rules: user visible entries only, newest first. The release workflow prints the same entries.
+// Do not: hand-edit entries here; add or change a change file instead.
 import MarketingLayout from '../../layouts/MarketingLayout.astro';
 import { REPO_URL } from '../../lib/site';
+import { loadEntries, entryLinks } from '../../lib/changelog-core.js';
+
+const root = new URL('../../../../', import.meta.url).pathname;
+const entries = loadEntries(root);
+const KIND_LABELS: Record<string, string> = {
+  feature: 'New',
+  fix: 'Fix',
+  refactor: 'Internal',
+  docs: 'Docs',
+  test: 'Tests',
+  ci: 'Build',
+  chore: 'Upkeep',
+};
 ---
 
-<MarketingLayout title="Changelog" description="Where PCBCraft release notes are published.">
+<MarketingLayout title="Changelog" description="What changed in PCBCraft, newest first, built from the change files.">
   <section class="section">
     <div class="wrap prose">
       <p class="eyebrow">Changelog</p>
       <h1>Changelog</h1>
-      <p class="lede">Release notes are published with each release on GitHub. They list the commit subjects since the previous tag.</p>
-      <p><a class="btn primary" href={`${REPO_URL}/releases`} rel="noopener">Release notes on GitHub</a></p>
+      <p class="lede">Every change you can notice, newest first. The list is built from the change files in the repository each time the site is built.</p>
+      {entries.length === 0 ? (
+        <p>No changes are listed yet. The <a href={`${REPO_URL}/releases`} rel="noopener">release page on GitHub</a> has the latest build.</p>
+      ) : (
+        <ol class="entries">
+          {entries.map((e) => (
+            <li class="entry" id={e.slug}>
+              <p class="meta">
+                <time datetime={e.date}>{e.date || 'Undated'}</time>
+                <span class="chip">{e.area}</span>
+                <span class="chip">{KIND_LABELS[e.kind] ?? e.kind}</span>
+              </p>
+              <p class="summary">{e.summary}</p>
+              <p class="links">
+                {entryLinks(e).map((l) => (
+                  <a href={l.href} rel="noopener">{l.label}</a>
+                ))}
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+      <p><a class="btn primary" href={`${REPO_URL}/releases`} rel="noopener">Latest build on GitHub</a></p>
     </div>
   </section>
 </MarketingLayout>
@@ -18,5 +55,40 @@ import { REPO_URL } from '../../lib/site';
 <style>
   .prose {
     max-width: 46rem;
+  }
+  .entries {
+    list-style: none;
+    margin: 1.5rem 0;
+    padding: 0;
+  }
+  .entry {
+    border-top: 1px solid var(--pc-line);
+    padding: 1rem 0;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0 0 0.25rem;
+    color: var(--pc-muted);
+    font-family: var(--pc-font-mono);
+    font-size: 0.85rem;
+  }
+  .chip {
+    border: 1px solid var(--pc-line);
+    border-radius: 0.25rem;
+    padding: 0 0.4rem;
+    color: var(--pc-text);
+  }
+  .summary {
+    margin: 0.25rem 0;
+  }
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0;
+    font-size: 0.9rem;
   }
 </style>

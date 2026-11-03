@@ -24,6 +24,7 @@ use crate::ui_kit::{
     section::section,
     select::select,
 };
+use pcbcraft_library::{NotchPlace, PadKind};
 
 const ROW: FormWidth = FormWidth::Aside;
 
@@ -31,6 +32,8 @@ const ROW: FormWidth = FormWidth::Aside;
 const SHAPES: [&str; 4] = ["circle", "rect", "oval", "roundrect"];
 /// Sides, in the order of the side list.
 const SIDES: [&str; 3] = ["top", "bottom", "through"];
+/// Pad kinds, in the order of the kind list.
+const KINDS: [PadKind; 3] = [PadKind::Plain, PadKind::Exposed, PadKind::Notched];
 
 /// The values of the pad form: the draft of the Pad tool, or one placed pad.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,6 +52,16 @@ pub(crate) struct PadFields {
     pub drill: f64,
     /// The net the pad joins, if any.
     pub net: Option<Id>,
+    /// Index into the kind list: plain, exposed or notched.
+    pub kind: usize,
+    /// Index into the paste list: full or none (notched pads only).
+    pub paste: usize,
+    /// Index into `NotchPlace::ALL`.
+    pub notch_place: usize,
+    /// Notch width in millimetres.
+    pub notch_width: f64,
+    /// Notch depth in millimetres.
+    pub notch_depth: f64,
 }
 
 impl Default for PadFields {
@@ -61,6 +74,11 @@ impl Default for PadFields {
             height: 1.6,
             drill: 0.8,
             net: None,
+            kind: 0,
+            paste: 0,
+            notch_place: 0,
+            notch_width: 0.4,
+            notch_depth: 0.4,
         }
     }
 }
@@ -74,11 +92,22 @@ pub(crate) struct Changed {
     pub size: bool,
     pub drill: bool,
     pub net: bool,
+    pub kind: bool,
+    pub paste: bool,
+    pub notch: bool,
 }
 
 impl Changed {
     fn any(self) -> bool {
-        self.number || self.side || self.shape || self.size || self.drill || self.net
+        self.number
+            || self.side
+            || self.shape
+            || self.size
+            || self.drill
+            || self.net
+            || self.kind
+            || self.paste
+            || self.notch
     }
 }
 
@@ -95,6 +124,9 @@ impl PadFields {
             .and_then(|g| SHAPES.iter().position(|s| *s == g.shape))
             .unwrap_or(0);
         let _ = project;
+        let kind = g.map_or(PadKind::Plain, |g| g.kind());
+        let notch = g.and_then(|g| g.notch());
+        let defaults = Self::default();
         Self {
             number: pad.number.clone(),
             side: if through {
@@ -107,6 +139,26 @@ impl PadFields {
             height: g.map_or(pad.diameter, |g| g.size.y),
             drill: g.and_then(|g| g.drill.as_ref()).map_or(0.8, |d| d.size.x),
             net: pad.net,
+            kind: KINDS.iter().position(|k| *k == kind).unwrap_or(0),
+            paste: usize::from(g.is_some_and(|g| !g.has_paste())),
+            notch_place: notch
+                .and_then(|(p, _, _)| NotchPlace::ALL.iter().position(|q| *q == p))
+                .unwrap_or(defaults.notch_place),
+            notch_width: notch.map_or(defaults.notch_width, |(_, w, _)| w),
+            notch_depth: notch.map_or(defaults.notch_depth, |(_, _, d)| d),
+        }
+    }
+
+    /// The kind, paste and notch parameters of this form, shared by add and edit.
+    fn kind_params(&self, params: &mut Value) {
+        let kind = KINDS[self.kind.min(2)];
+        params["kind"] = json!(kind.word());
+        if kind == PadKind::Notched {
+            params["paste"] = json!(if self.paste == 0 { "full" } else { "none" });
+            params["notch_place"] = json!(NotchPlace::ALL[self.notch_place.min(7)].word());
+            params["notch_width"] = json!(self.notch_width);
+            params["notch_depth"] = json!(self.notch_depth);
+            params["shape"] = json!("rect");
         }
     }
 
@@ -121,6 +173,7 @@ impl PadFields {
         if self.side == 2 {
             params["drill"] = json!(self.drill);
         }
+        self.kind_params(&mut params);
         if !self.number.trim().is_empty() {
             params["number"] = json!(self.number.trim());
         }
@@ -192,6 +245,26 @@ impl App {
             );
             changed.side = before != f.side;
         });
+        let kinds = [
+            t!("pad.kind.plain"),
+            t!("pad.kind.exposed"),
+            t!("pad.kind.notched"),
+        ];
+        let kind_names: Vec<&str> = kinds.iter().map(String::as_str).collect();
+        form_row(ui, ROW, &t!("pad.kind"), None, None, |ui| {
+            let before = f.kind;
+            select(
+                ui,
+                (salt, "pad-kind"),
+                &mut f.kind,
+                &kind_names,
+                &t!("pad.kind"),
+                &t!("pad.kind.tip"),
+                150.0,
+            );
+            changed.kind = before != f.kind;
+        });
+        let notched = f.kind == 2;
         let shapes = [
             t!("pad.shape.circle"),
             t!("pad.shape.rect"),
@@ -199,19 +272,21 @@ impl App {
             t!("pad.shape.roundrect"),
         ];
         let shape_names: Vec<&str> = shapes.iter().map(String::as_str).collect();
-        form_row(ui, ROW, &t!("pad.shape"), None, None, |ui| {
-            let before = f.shape;
-            select(
-                ui,
-                (salt, "pad-shape"),
-                &mut f.shape,
-                &shape_names,
-                &t!("pad.shape"),
-                &t!("pad.shape.tip"),
-                150.0,
-            );
-            changed.shape = before != f.shape;
-        });
+        if !notched {
+            form_row(ui, ROW, &t!("pad.shape"), None, None, |ui| {
+                let before = f.shape;
+                select(
+                    ui,
+                    (salt, "pad-shape"),
+                    &mut f.shape,
+                    &shape_names,
+                    &t!("pad.shape"),
+                    &t!("pad.shape.tip"),
+                    150.0,
+                );
+                changed.shape = before != f.shape;
+            });
+        }
         let spec = NumberSpec {
             min: 0.05,
             max: 100.0,
@@ -230,7 +305,7 @@ impl App {
             )
             .changed();
         });
-        if f.shape != 0 {
+        if f.shape != 0 || notched {
             form_row(ui, ROW, &t!("pad.height"), None, None, |ui| {
                 changed.size |= number_field(
                     ui,
@@ -241,6 +316,71 @@ impl App {
                     &t!("pad.height.tip"),
                 )
                 .changed();
+            });
+        }
+        if notched {
+            let places = [
+                t!("pad.notch.corner_nw"),
+                t!("pad.notch.corner_ne"),
+                t!("pad.notch.corner_se"),
+                t!("pad.notch.corner_sw"),
+                t!("pad.notch.edge_n"),
+                t!("pad.notch.edge_e"),
+                t!("pad.notch.edge_s"),
+                t!("pad.notch.edge_w"),
+            ];
+            let place_names: Vec<&str> = places.iter().map(String::as_str).collect();
+            form_row(ui, ROW, &t!("pad.notch"), None, None, |ui| {
+                let before = f.notch_place;
+                select(
+                    ui,
+                    (salt, "pad-notch"),
+                    &mut f.notch_place,
+                    &place_names,
+                    &t!("pad.notch"),
+                    &t!("pad.notch.tip"),
+                    150.0,
+                );
+                changed.notch |= before != f.notch_place;
+            });
+            form_row(ui, ROW, &t!("pad.notch_width"), None, None, |ui| {
+                changed.notch |= number_field(
+                    ui,
+                    (salt, "pad-notch-width"),
+                    &mut f.notch_width,
+                    &spec,
+                    &t!("pad.notch_width"),
+                    &t!("pad.notch_width.tip"),
+                )
+                .changed();
+            });
+            form_row(ui, ROW, &t!("pad.notch_depth"), None, None, |ui| {
+                changed.notch |= number_field(
+                    ui,
+                    (salt, "pad-notch-depth"),
+                    &mut f.notch_depth,
+                    &spec,
+                    &t!("pad.notch_depth"),
+                    &t!("pad.notch_depth.tip"),
+                )
+                .changed();
+            });
+        }
+        if notched && f.side != 2 {
+            let pastes = [t!("pad.paste.full"), t!("pad.paste.none")];
+            let paste_names: Vec<&str> = pastes.iter().map(String::as_str).collect();
+            form_row(ui, ROW, &t!("pad.paste"), None, None, |ui| {
+                let before = f.paste;
+                select(
+                    ui,
+                    (salt, "pad-paste"),
+                    &mut f.paste,
+                    &paste_names,
+                    &t!("pad.paste"),
+                    &t!("pad.paste.tip"),
+                    150.0,
+                );
+                changed.paste = before != f.paste;
             });
         }
         if f.side == 2 {
@@ -312,6 +452,25 @@ impl App {
         let stroke = Stroke::new(1.5, self.accent());
         let centre = camera.screen(at, rect);
         let zoom = camera.zoom;
+        if d.kind == 2
+            && let Ok((ring, _)) = pcbcraft_library::notched_rectangle(
+                d.width,
+                d.height,
+                NotchPlace::ALL[d.notch_place.min(7)],
+                d.notch_width,
+                d.notch_depth,
+            )
+        {
+            let points: Vec<egui::Pos2> = ring
+                .iter()
+                .map(|v| camera.screen(Point::new(at.x + v.x, at.y + v.y), rect))
+                .collect();
+            painter.add(egui::Shape::closed_line(points, stroke));
+            if d.side == 2 {
+                painter.circle_stroke(centre, (d.drill / 2.0) as f32 * zoom, stroke);
+            }
+            return;
+        }
         let half_w = (d.width / 2.0) as f32 * zoom;
         let half_h = (if d.shape == 0 { d.width } else { d.height } / 2.0) as f32 * zoom;
         match d.shape {
@@ -414,6 +573,9 @@ impl App {
                     }
                     if changed.shape {
                         params["shape"] = json!(SHAPES[fields.shape.min(3)]);
+                    }
+                    if changed.kind || changed.notch || changed.paste {
+                        fields.kind_params(&mut params);
                     }
                     if changed.size {
                         params["width"] = json!(fields.width);

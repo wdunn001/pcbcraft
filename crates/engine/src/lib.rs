@@ -1935,7 +1935,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "pad.table",
-            "Report every board pad: number, net, position, shape, size and drill, by component reference",
+            "Report every board pad: number, net, position, shape, size, drill, kind (plain, exposed or notched) and paste, by component reference",
             schema(json!({"component":id_schema()}), &[]),
         ),
         (
@@ -18308,6 +18308,8 @@ fn run_command_part_14(
                             "size": size,
                             "drill": drill,
                             "castellated": pad.castellated.unwrap_or(false),
+                            "kind": pad.geometry.as_ref().map_or("plain", |g| g.kind().word()),
+                            "paste": pad.geometry.as_ref().is_some_and(|g| g.has_paste()),
                         }),
                     ));
                 }
@@ -25283,12 +25285,12 @@ mod tests {
             .ok_or_else(missing)?
             .pad_position("1")
             .ok_or_else(missing)?;
-        // Copper files use 4.6 integer words and the bottom film is mirrored
-        // about x=0, so the flipped pad appears at minus its x on that layer.
+        // Copper files use 4.6 integer words and keep design coordinates, so
+        // the flipped pad appears at its own x on the bottom layer.
         assert!(
             gerber["pcb-B.Cu.gbr"].lines().any(|l| l.ends_with("D03*")
-                && l.contains(&format!("X{}Y", (-centre.x * 1e6).round() as i64))),
-            "bottom copper carries the mirrored x"
+                && l.contains(&format!("X{}Y", (centre.x * 1e6).round() as i64))),
+            "bottom copper carries the design x"
         );
         assert!(
             !gerber["pcb-F.Cu.gbr"].lines().any(|l| l.ends_with("D03*")
