@@ -42415,6 +42415,7 @@
   },
   "ports": [
     {
+      "direction": "bidirectional",
       "id": 181,
       "name": "USB_DP",
       "net": 148,
@@ -42425,6 +42426,7 @@
       "sheet": 0
     },
     {
+      "direction": "bidirectional",
       "id": 183,
       "name": "USB_DN",
       "net": 147,
@@ -42435,6 +42437,7 @@
       "sheet": 0
     },
     {
+      "direction": "bidirectional",
       "id": 271,
       "name": "USB_DP",
       "net": 148,
@@ -42445,6 +42448,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 273,
       "name": "USB_DN",
       "net": 147,
@@ -42455,6 +42459,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 275,
       "name": "BTN1",
       "net": 115,
@@ -42465,6 +42470,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 277,
       "name": "BTN2",
       "net": 116,
@@ -42475,6 +42481,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 279,
       "name": "I2C_SCL",
       "net": 121,
@@ -42485,6 +42492,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 281,
       "name": "I2C_SDA",
       "net": 122,
@@ -42495,6 +42503,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 283,
       "name": "SENSOR_EN",
       "net": 137,
@@ -42505,6 +42514,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 285,
       "name": "LED0",
       "net": 123,
@@ -42515,6 +42525,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 287,
       "name": "LED1",
       "net": 125,
@@ -42525,6 +42536,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 289,
       "name": "LED2",
       "net": 127,
@@ -42535,6 +42547,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 291,
       "name": "LED3",
       "net": 129,
@@ -42545,6 +42558,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 293,
       "name": "LED4",
       "net": 131,
@@ -42555,6 +42569,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 295,
       "name": "LED5",
       "net": 133,
@@ -42565,6 +42580,7 @@
       "sheet": 1
     },
     {
+      "direction": "bidirectional",
       "id": 352,
       "name": "SENSOR_EN",
       "net": 137,
@@ -42575,6 +42591,7 @@
       "sheet": 2
     },
     {
+      "direction": "bidirectional",
       "id": 408,
       "name": "LED0",
       "net": 123,
@@ -42585,6 +42602,7 @@
       "sheet": 2
     },
     {
+      "direction": "bidirectional",
       "id": 412,
       "name": "LED1",
       "net": 125,
@@ -42595,6 +42613,7 @@
       "sheet": 2
     },
     {
+      "direction": "bidirectional",
       "id": 416,
       "name": "LED2",
       "net": 127,
@@ -42605,6 +42624,7 @@
       "sheet": 2
     },
     {
+      "direction": "bidirectional",
       "id": 420,
       "name": "LED3",
       "net": 129,
@@ -42615,6 +42635,7 @@
       "sheet": 2
     },
     {
+      "direction": "bidirectional",
       "id": 424,
       "name": "LED4",
       "net": 131,
@@ -42625,6 +42646,7 @@
       "sheet": 2
     },
     {
+      "direction": "bidirectional",
       "id": 428,
       "name": "LED5",
       "net": 133,
@@ -42635,6 +42657,7 @@
       "sheet": 2
     },
     {
+      "direction": "bidirectional",
       "id": 432,
       "name": "BTN1",
       "net": 115,
@@ -42645,6 +42668,7 @@
       "sheet": 2
     },
     {
+      "direction": "bidirectional",
       "id": 435,
       "name": "BTN2",
       "net": 116,

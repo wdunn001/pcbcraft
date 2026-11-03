@@ -1182,9 +1182,16 @@ pub struct Port {
     /// The page the port sits on; 0 is the root page.
     pub sheet: Id,
     pub position: Point,
+    /// Signal direction at this port: input, output, bidirectional or passive.
+    #[serde(default = "default_port_direction")]
+    pub direction: String,
     /// Interchange file uuid for hierarchy round-trip, when present in the source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interchange_uuid: Option<String>,
+}
+
+fn default_port_direction() -> String {
+    "bidirectional".to_owned()
 }
 /// Free-form schematic wire drawn by the user with explicit vertices.
 /// Connectivity stays explicit: `net` is assigned by a command, never inferred from crossings.

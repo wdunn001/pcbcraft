@@ -534,6 +534,31 @@ pub(crate) fn tap_properties_segment(
     tap_segment(ctx, app, group, PROPERTIES_LEFT, f32::INFINITY, slot, count)
 }
 
+/// Press the word `label` in the Properties panel, where the segments of a strip differ in width
+/// and so cannot be told apart by their place alone.
+pub(crate) fn tap_properties_text(
+    ctx: &egui::Context,
+    app: &mut App,
+    label: &str,
+) -> Result<(), String> {
+    let _tall = TallScope::enter();
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let at = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == label => {
+                let c = t.pos + t.galley.size() / 2.0;
+                (c.x >= PROPERTIES_LEFT && shape.clip_rect.contains(c)).then_some(c)
+            }
+            _ => None,
+        })
+        .next_back()
+        .ok_or_else(|| format!("{label} is not in the Properties panel"))?;
+    tap_at(ctx, app, at)
+}
+
 /// True when the control the gate calls `id` is on screen and switched on.
 pub(crate) fn on_screen(ctx: &egui::Context, app: &mut App, id: &str) -> bool {
     let _tall = TallScope::enter();

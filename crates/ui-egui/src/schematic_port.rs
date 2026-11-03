@@ -7,6 +7,7 @@ use crate::tool_modifiers::Held;
 use crate::ui_kit::{
     form_row::{FormWidth, form_row},
     section::section,
+    segmented::{Segment, SegmentedStyle, segmented_styled},
     select::select,
 };
 
@@ -85,8 +86,8 @@ impl App {
         section(
             ui,
             "port-tool",
-            &t!("schematic.port.section"),
-            &t!("schematic.port.section.tip"),
+            &t!("schematic.port.props.section"),
+            &t!("schematic.port.props.section.tip"),
             |ui| {
                 if choices.is_empty() {
                     ui.label(fonts::caption(t!("schematic.port.none")));
@@ -95,17 +96,24 @@ impl App {
                 let names: Vec<&str> = choices.iter().map(String::as_str).collect();
                 let mut index = self.port_pick_index();
                 let before = index;
-                form_row(ui, ROW, &t!("schematic.port.name"), None, None, |ui| {
-                    select(
-                        ui,
-                        "port-name",
-                        &mut index,
-                        &names,
-                        &t!("schematic.port.name"),
-                        &t!("schematic.port.name.tip"),
-                        160.0,
-                    );
-                });
+                form_row(
+                    ui,
+                    ROW,
+                    &t!("schematic.port.props.name"),
+                    None,
+                    None,
+                    |ui| {
+                        select(
+                            ui,
+                            "port-name",
+                            &mut index,
+                            &names,
+                            &t!("schematic.port.props.name"),
+                            &t!("schematic.port.props.name.tip"),
+                            160.0,
+                        );
+                    },
+                );
                 if index != before
                     && let Some(name) = choices.get(index)
                 {
@@ -209,5 +217,123 @@ impl App {
                 );
             }
         }
+    }
+}
+
+impl App {
+    /// The port nearest `pos` on the shown page, if within 8 screen points.
+    ///
+    /// # Rules
+    /// - Only ports on the shown page count; the nearest one wins.
+    ///
+    /// # Dependencies
+    /// - crates/doc/src/lib.rs (`Port`)
+    ///
+    /// # Do not
+    /// - Use this on the board tab.
+    pub(crate) fn port_under(&self, pos: Point, zoom: f32) -> Option<Id> {
+        let page = self.schematic_page();
+        let reach = 8.0;
+        self.project
+            .ports
+            .iter()
+            .filter(|p| p.sheet == page)
+            .filter(|p| p.position.distance(pos) * f64::from(zoom) <= reach)
+            .min_by(|a, b| {
+                a.position
+                    .distance(pos)
+                    .total_cmp(&b.position.distance(pos))
+            })
+            .map(|p| p.id)
+    }
+
+    /// A plain click on a port selects it. Returns true when it did.
+    ///
+    /// # Rules
+    /// - Only in Select mode.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/lib.rs (`select`)
+    ///
+    /// # Do not
+    /// - Select in any other tool mode.
+    pub(crate) fn select_port_hit(&mut self, hit: &canvas::gestures::Hit) -> bool {
+        if matches!(self.tool, Tool::Select)
+            && let canvas::gestures::Hit::Port(id) = hit
+        {
+            self.select(Some(*id));
+            return true;
+        }
+        false
+    }
+
+    /// Properties for a selected port: its name and signal direction.
+    ///
+    /// # Rules
+    /// - The direction picker runs `schematic.set_port_direction` on change.
+    /// - The name is read-only; use the rename command for that.
+    ///
+    /// # Dependencies
+    /// - crates/engine/src/lib.rs (`schematic.set_port_direction`)
+    ///
+    /// # Do not
+    /// - Edit the name here.
+    pub(crate) fn port_controls(&mut self, ui: &mut egui::Ui, id: Id) {
+        let Some(port) = self.project.ports.iter().find(|p| p.id == id).cloned() else {
+            return;
+        };
+        section(
+            ui,
+            "port-direction",
+            &t!("schematic.port.props.section"),
+            &t!("schematic.port.props.section.tip"),
+            |ui| {
+                form_row(
+                    ui,
+                    ROW,
+                    &t!("schematic.port.props.name"),
+                    None,
+                    None,
+                    |ui| {
+                        ui.label(fonts::text(fonts::Role::Mono, &port.name));
+                    },
+                );
+                let directions = ["input", "output", "bidirectional", "passive"];
+                let in_label = t!("schematic.port.direction.input");
+                let out_label = t!("schematic.port.direction.output");
+                let both_label = t!("schematic.port.direction.bidirectional");
+                let passive_label = t!("schematic.port.direction.passive");
+                let items = [
+                    Segment::text(&in_label, ""),
+                    Segment::text(&out_label, ""),
+                    Segment::text(&both_label, ""),
+                    Segment::text(&passive_label, ""),
+                ];
+                let mut index = directions
+                    .iter()
+                    .position(|d| *d == port.direction)
+                    .unwrap_or(2);
+                let before = index;
+                form_row(ui, ROW, &t!("schematic.port.direction"), None, None, |ui| {
+                    segmented_styled(
+                        ui,
+                        "port-direction",
+                        &mut index,
+                        &items,
+                        SegmentedStyle {
+                            full_width: true,
+                            group_name: Some("schematic.port.direction"),
+                        },
+                    );
+                });
+                if index != before {
+                    let dir = directions[index];
+                    self.run(
+                        "schematic.set_port_direction",
+                        json!({"id": id, "direction": dir}),
+                    );
+                }
+            },
+        );
     }
 }
