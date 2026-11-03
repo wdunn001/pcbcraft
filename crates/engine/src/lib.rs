@@ -17,6 +17,7 @@ mod calc;
 pub mod collab;
 pub mod compliance_lists;
 mod datasheet_annotations;
+mod datasheet_extract;
 pub mod design_document;
 mod dry_run;
 mod finding_set;
@@ -3051,6 +3052,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(tuning::commands())
         .chain(sim::commands())
         .chain(datasheet_annotations::commands())
+        .chain(datasheet_extract::commands())
         .chain(via_protection::commands())
         .chain(backdrill::commands())
         .chain(layout::commands())
@@ -10575,6 +10577,9 @@ fn run_command(
     if let Some(result) = datasheet_annotations::run_design(p, command, params) {
         return result;
     }
+    if let Some(result) = datasheet_extract::run_design(p, command, params) {
+        return result;
+    }
     #[cfg(feature = "vendor-handoff")]
     if let Some(result) = vendor_handoff::run(p, command, params) {
         return result;
@@ -10867,6 +10872,7 @@ fn run_command(
         | "board.remove_pair_rule"
         | "bom.set_fields"
         | "bom.clear_fields"
+        | "datasheet.extract"
         | "file.attach"
         | "file.remove"
         | "laser_job.export" => {
