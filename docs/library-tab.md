@@ -54,11 +54,29 @@ The model is edited on the footprint in the project's library with `library.foot
 not in the project's library shows its model read-only. A part with no model file shows the
 generated body.
 
+## Parts from the open library
+
+With Open library switched on, type a chip number such as STM32F103R8 in the part search and
+click the card. The part is placed with its pins, the package its symbol names, and these fields
+when the symbol states them: Manufacturer, MPN, Datasheet and Description. A chip number also
+finds its family library, so the library name is not needed.
+
+- Many chips are stored as a small symbol that inherits its pins from a parent symbol in another
+  file of the same library. Both files are fetched and both are named in the project's library
+  notices (`read_symbol_with_parents` in `crates/library/src/symbol_inherit.rs`).
+- Manufacturer is filled only when the symbol has it; it is never guessed. MPN is the symbol's
+  own part number property, or the symbol value when the symbol links a datasheet. A generic
+  symbol such as a resistor gets neither (`sourcing_fields` in
+  `crates/library/src/symbol_sourcing.rs`).
+- Pin alternate functions are kept in the symbol's source text and no longer stop a part from
+  being placed.
+
 ## Not built yet
 
 - Rendering the datasheet PDF in the app (page navigation, zoom, search, selectable text).
 - Symbol and footprint canvases side by side on the Edit page; today one editor shows one at a time.
 - Auto-align of the model to the pads, and snapping.
+- Joining the open library part to a distributor listing for stock and price by part number.
 
 ## Machines
 

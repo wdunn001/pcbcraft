@@ -4,6 +4,7 @@
 //!
 //! # Rules
 //! - Runs on a worker; a frame never waits for it.
+//! - A symbol that inherits its pins from another file is read with that file.
 //! - A footprint or model that cannot be had does not stop the part: the
 //!   symbol alone is still placed, and the notice list says what was read.
 //! - Only parts of the open library carry the `Library/Name` sku this reads; a footprint
@@ -22,7 +23,7 @@ use pcbcraft_library::online_import::{
 use pcbcraft_library::open_library::FOOTPRINT_SKU_PREFIX;
 use pcbcraft_library::open_library::OpenLibrarySource;
 use pcbcraft_library::read_footprint;
-use pcbcraft_library::read_symbols;
+use pcbcraft_library::symbol_inherit::read_symbol_with_parents;
 use serde_json::Value;
 use serde_json::json;
 
@@ -47,13 +48,8 @@ pub(crate) fn import_open(
         .split_once('/')
         .ok_or_else(|| "this part has no library path to open".to_owned())?;
     let symbol = CadRef::new(CadKind::Symbol, library, name).map_err(|e| e.to_string())?;
-    let file = source.fetch_symbol(&symbol).map_err(|e| e.to_string())?;
-    let text = file.text().map_err(|e| e.to_string())?;
-    let footprint = read_symbols(text)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|d| d.name == name)
-        .and_then(|d| footprint_ref_from_field(&d.footprint));
+    let (definition, _) = read_symbol_with_parents(source, &symbol).map_err(|e| e.to_string())?;
+    let footprint = footprint_ref_from_field(&definition.footprint);
     let model = footprint
         .as_ref()
         .and_then(|f| CadRef::new(CadKind::Model, &f.library, &f.name).ok());
@@ -98,13 +94,7 @@ pub(crate) fn peek_open(source: &OpenLibrarySource, sku: &str) -> Result<Value, 
         .split_once('/')
         .ok_or_else(|| "this part has no library path to open".to_owned())?;
     let symbol = CadRef::new(CadKind::Symbol, library, name).map_err(|e| e.to_string())?;
-    let file = source.fetch_symbol(&symbol).map_err(|e| e.to_string())?;
-    let text = file.text().map_err(|e| e.to_string())?;
-    let def = read_symbols(text)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|d| d.name == name)
-        .ok_or_else(|| "the symbol file does not hold this part".to_owned())?;
+    let (def, _) = read_symbol_with_parents(source, &symbol).map_err(|e| e.to_string())?;
     let footprint = footprint_ref_from_field(&def.footprint).and_then(|f| {
         let file = source.fetch_footprint(&f).ok()?;
         read_footprint(file.text().ok()?).ok()
