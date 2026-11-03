@@ -18,6 +18,7 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { label: 'Features', path: 'features/' },
   { label: 'Showcase', path: 'showcase/' },
+  { label: 'Design', path: 'design/' },
   { label: 'Download', path: 'download/' },
   { label: 'Try it', path: 'demo/' },
   { label: 'Docs', path: 'docs/' },
