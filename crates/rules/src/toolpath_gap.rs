@@ -35,8 +35,11 @@ use pcbcraft_geom::segment_distance;
 /// - Use this to store geometry; it is a lightweight reference.
 #[derive(Clone, Debug)]
 pub struct ToolpathSegmentRef {
+    /// Start of the segment, as x and y in millimetres.
     pub from: [f64; 2],
+    /// End of the segment, as x and y in millimetres.
     pub to: [f64; 2],
+    /// The toolpath this segment belongs to; segments with the same id are never compared.
     pub path_id: u32,
 }
 
