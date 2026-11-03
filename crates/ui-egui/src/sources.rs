@@ -314,6 +314,17 @@ impl App {
     pub(super) fn part_sources_offline_for_test(&mut self, flag: Arc<AtomicBool>) {
         self.part_sources.offline = Some(flag);
     }
+    /// Where the part search stands, in words, for a failing story to print.
+    #[cfg(test)]
+    pub(super) fn part_sources_state(&self) -> String {
+        let answer = match &self.part_sources.answer {
+            None => "no answer yet".to_owned(),
+            Some((query, Ok(parts))) => format!("{} parts for {query:?}", parts.len()),
+            Some((query, Err(why))) => format!("failed for {query:?}: {why}"),
+        };
+        let running = self.part_sources.search.is_some();
+        format!("search running: {running}, {answer}")
+    }
     /// True when no online search is wanted or the one wanted has answered;
     /// a `--capture` image waits for it.
     pub(super) fn online_settled(&self) -> bool {

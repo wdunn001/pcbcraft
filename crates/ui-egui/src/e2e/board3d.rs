@@ -212,13 +212,16 @@ fn open_3d_with_model(model_path: &str) -> Result<(egui::Context, App, Id), Stri
         s.revision += 1;
     }
     app.refresh();
-    for _ in 0..200 {
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        if app.view3d.model_status(j1) != Some(pcbcraft_io::ModelStatus::Loading) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    // The model file loads on a worker thread. Until the view has noted the
+    // part there is no status at all, and then it reads Loading, so wait for
+    // an answer (loaded or failed) or for the build to report its error.
+    waits_until(&ctx, &mut app, |app| {
+        app.view3d.build_error().is_some()
+            || !matches!(
+                app.view3d.model_status(j1),
+                None | Some(pcbcraft_io::ModelStatus::Loading)
+            )
+    });
     for _ in 0..3 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
