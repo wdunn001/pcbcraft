@@ -57,6 +57,7 @@ pub mod user_config;
 mod vendor_handoff;
 mod via_protection;
 pub mod wirelength;
+pub use artifacts::artifact_is_stale;
 pub use collab::{
     CollabSnapshot, OrderedRoomApply, RoomOp, apply_room_command, command_lock_scope,
     shareable_room_command,

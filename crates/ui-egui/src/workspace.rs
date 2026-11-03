@@ -280,6 +280,7 @@ impl Workspace for ManufactureWorkspace {
                     return;
                 }
                 app.drill_table_section(ui);
+                app.artifact_outputs_section(ui);
                 ui.add_space(12.0);
                 let theme = plot_viewer::Theme {
                     surface: app.surface(),

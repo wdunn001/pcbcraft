@@ -7,6 +7,7 @@
 )]
 mod a11y;
 mod arrange;
+mod artifact_rows;
 mod assistant;
 mod authoring;
 pub mod board3d;

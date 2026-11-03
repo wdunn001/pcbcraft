@@ -118,7 +118,8 @@ impl App {
         self.stack_properties(ui, layer);
     }
 
-    /// Properties of a drill artifact: the layers it joins, its size and count.
+    /// Properties of an artifact: a record's file and state, or a drill artifact's
+    /// layers it joins, its size and count.
     ///
     /// # Dependencies
     /// - crates/io/src/drill_table.rs (`drill_table` rows)
@@ -126,6 +127,10 @@ impl App {
     /// # Do not
     /// - Compute counts here; ask the io crate.
     pub(crate) fn artifact_properties(&mut self, ui: &mut egui::Ui, rest: &str) {
+        if let Some(id) = crate::artifact_rows::record(&self.project, rest).map(|a| a.id) {
+            self.record_artifact_properties(ui, id);
+            return;
+        }
         ui.label(fonts::title(t!("artifact.drill.title")));
         let Some(key) = crate::selection::DrillKey::parse(rest) else {
             ui.label(t!("artifact.unknown"));
