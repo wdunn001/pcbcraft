@@ -319,7 +319,7 @@ Flatpak and Snap need extra host tooling and match what CI runs:
 - Flatpak: build the FHS tarball (`packaging/linux/package.sh --skip-build --formats tar`), then `packaging/linux/flatpak-bundle.sh dist/pcbcraft-$PCBCRAFT_DIST_TAG-linux-$(uname -m).tar.gz` (needs `flatpak`, `flatpak-builder`, and `librsvg2-common`).
 - Snap: same tarball, then `packaging/linux/snap-pack.sh` (needs `snapcraft`; CI uses `--destructive-mode` on Ubuntu 24.04).
 
-CI does not upload to Flathub or the Snap Store; bundles are release artifacts only.
+CI does not upload to Flathub or the Snap Store; store listing and upload need owner secrets and are out of scope. Bundles are release artifacts only.
 
 ## Security posture
 
