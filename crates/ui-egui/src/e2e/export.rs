@@ -512,3 +512,43 @@ fn a_newcomer_opens_an_interchange_board_file() -> Result<(), String> {
 
     Ok(())
 }
+
+#[test]
+fn a_newcomer_exports_a_compliance_report() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    let listed = in_format_list(&ctx, &mut app, "Compliance data report")?;
+    assert!(
+        listed,
+        "the compliance report is listed under Documentation"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Compliance data report")?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let path = dir.path().join("compliance-report.md");
+    assert!(path.exists(), "no report was written: {}", app.message);
+    let first = std::fs::read(&path).map_err(|e| e.to_string())?;
+    std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    file_export(&ctx, &mut app, "More…")?;
+    in_format_list(&ctx, &mut app, "Compliance data report")?;
+    authoring::tests::tap(&ctx, &mut app, "Compliance data report")?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let second = std::fs::read(&path).map_err(|e| e.to_string())?;
+    assert_eq!(first, second, "two exports are byte identical");
+    let text = String::from_utf8(first).map_err(|e| e.to_string())?;
+    assert!(
+        !text.to_ascii_lowercase().contains("product is compliant"),
+        "the report never claims the product is compliant"
+    );
+    assert!(
+        text.contains("data-quality aid"),
+        "the report names itself a data-quality aid"
+    );
+    Ok(())
+}

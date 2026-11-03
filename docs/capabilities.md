@@ -58,6 +58,7 @@ code, per object, or per rectangle. Pad table, drill chart, board statistics,
 impedance estimates from recorded stackup, net chain walk, library part
 compare. Compliance data report export (CSV, Markdown, HTML or PDF) summarises
 part declarations and supplier questions; it is not a product certification.
+File > Export > More… > Compliance data report writes it into the make folder.
 
 ## Export
 
