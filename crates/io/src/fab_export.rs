@@ -1125,7 +1125,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     // Both split drill files are always written, empty ones included, so a
     // fabricator finds the same set of files for every board.
     files.insert(
-        "pcb-PTH.drl".into(),
+        "pcb-Plated.drl".into(),
         write_excellon(&plated, "Plated,1,2,PTH", scale, origin, inch, tolerance)?,
     );
     files.insert(

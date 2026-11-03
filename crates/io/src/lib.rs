@@ -3937,7 +3937,6 @@ fn gerber_files_core(
     }
     let hits = project_drill_hits(p)?;
     let origin = p.board.drill_origin;
-    let _drill = excellon_drill_file(&hits, origin, inch, scale, None)?;
     let plated_drill = excellon_drill_file(&hits, origin, inch, scale, Some(true))?;
     let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false))?;
     let drill_map = fab_export::drill_map_plot(p)?;
@@ -3983,7 +3982,7 @@ fn gerber_files_core(
         outline.finish(creation, "board outline", "Profile,NP", "Positive", true),
     );
     files.insert("pcb-DrillMap.gbr".into(), drill_map);
-    files.insert("pcb-PTH.drl".into(), plated_drill.clone());
+    files.insert("pcb-Plated.drl".into(), plated_drill.clone());
     files.insert("pcb-NPTH.drl".into(), npth_drill.clone());
     for (name, text) in drawn::gerber_layer_files(p)? {
         files.insert(name, text);
@@ -3997,8 +3996,9 @@ fn gerber_files_core(
         "pcb-B.Mask.gbr",
         "pcb-F.Paste.gbr",
         "pcb-B.Paste.gbr",
-        "pcb-PTH.drl",
+        "pcb-Plated.drl",
         "pcb-NPTH.drl",
+        "pcb-Rout.drl",
     ] {
         if let Some(text) = extras.get(key) {
             files.insert(key.to_string(), text.clone());
@@ -4012,8 +4012,8 @@ fn gerber_files_core(
     if !files.contains_key("pcb-NPTH.drl") {
         files.insert("pcb-NPTH.drl".into(), npth_drill);
     }
-    if !files.contains_key("pcb-PTH.drl") {
-        files.insert("pcb-PTH.drl".into(), plated_drill);
+    if !files.contains_key("pcb-Plated.drl") {
+        files.insert("pcb-Plated.drl".into(), plated_drill);
     }
     for (name, text) in gerber_fidelity::mask_stack_gerber_files(p)? {
         files.insert(name, text);
@@ -9284,7 +9284,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn a_slotted_mounting_hole_writes_one_g85_span() -> Result<(), String> {
+    fn a_slotted_mounting_hole_writes_one_routed_span() -> Result<(), String> {
         let mut project = Project::default();
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 520,
@@ -9294,16 +9294,21 @@ mod tests {
         });
         project.validate()?;
         let files = gerber_files(&project)?;
-        let drill = &files["pcb-Drill.drl"];
+        let drill = &files["pcb-Rout.drl"];
         assert!(
-            drill.contains("T1C1.000\n"),
+            drill.contains("T01C1.000\n"),
             "the tool is the slot width: {drill}"
         );
         assert!(
-            drill.contains("X10.000Y10.000G85X14.000Y10.000\n"),
-            "one hit spans the two centres: {drill}"
+            drill.contains("G00X10.000Y10.000\nM15\nG01X14.000Y10.000\nM16\n"),
+            "one rout runs between the two centres: {drill}"
         );
         assert!(drill.ends_with("M30\n"));
+        assert!(!drill.contains("G85"), "no G85 span survives: {drill}");
+        assert!(
+            !files["pcb-NPTH.drl"].contains("T01C1.000"),
+            "the slot is not a round hole in the unplated file"
+        );
         let map = &files["pcb-DrillMap.gbr"];
         assert!(
             map.contains("X10000000Y10000000D02*\nX14000000Y10000000D01*\n"),
@@ -10542,13 +10547,13 @@ mod tests {
             back.contains("C,0.020000*%"),
             "a 0.508 mm track is a 0.02 inch flash: {back}"
         );
-        let drill = &files["pcb-PTH.drl"];
+        let drill = &files["pcb-Plated.drl"];
         assert!(
-            drill.starts_with("M48\nPlated,1,2,PTH\nFMAT,2\nINCH,TZ\n"),
+            drill.starts_with("M48\nPlated,1,2,PTH\nINCH\n"),
             "the drill header declares inches: {drill}"
         );
         assert!(
-            drill.contains("T1C0.0118\n"),
+            drill.contains("T01C0.0118\n"),
             "a 0.3 mm bit is a 0.0118 inch bit"
         );
         assert!(
@@ -10585,7 +10590,7 @@ mod tests {
                 assert_eq!(layer.flash_count, flashes, "flash count for {name}");
                 assert_eq!(layer.draw_count, draws, "draw count for {name}");
                 flashing += layer.flash_count;
-            } else if name == "pcb-Drill.drl" {
+            } else if name == "pcb-Plated.drl" {
                 let (tools, hits) = parse_excellon_drill(text)?;
                 assert!(!tools.is_empty(), "drill tools in {name}");
                 assert!(!hits.is_empty(), "drill hits in {name}");
@@ -10762,7 +10767,6 @@ mod tests {
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
                 "pcb-B.SilkS.gbr",
-                "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cmp.gbr",
@@ -10771,7 +10775,7 @@ mod tests {
                 "pcb-F.Paste.gbr",
                 "pcb-F.SilkS.gbr",
                 "pcb-NPTH.drl",
-                "pcb-PTH.drl",
+                "pcb-Plated.drl",
                 "pcb-job.gbrjob",
             ]
         );
@@ -10828,12 +10832,13 @@ mod tests {
             outline.contains("X44000000Y20000000D02*\nG02*\nX44000000Y20000000I2000000J0D01*\n"),
             "the circular cutout must trace a circle"
         );
-        let drill = &files["pcb-Drill.drl"];
-        assert!(drill.starts_with("M48\nFMAT,2\nMETRIC,TZ\n"));
-        assert!(drill.contains("T1C0.300\n"), "via drill tool");
-        assert!(drill.contains("T2C0.800\n"), "pad drill tool");
-        assert!(drill.contains("T1\nX30.000Y10.000\n"), "via hole hit");
-        assert!(drill.contains("T2\nX0.000Y0.000\n"), "pad hole hit");
+        let drill = &files["pcb-Plated.drl"];
+        assert!(drill.starts_with("M48\nPlated,1,2,PTH\nMETRIC\n"));
+        assert!(!drill.contains("FMAT") && !drill.contains(",TZ"));
+        assert!(drill.contains("T01C0.300\n"), "via drill tool");
+        assert!(drill.contains("T02C0.800\n"), "pad drill tool");
+        assert!(drill.contains("T01\nX30.000Y10.000\n"), "via hole hit");
+        assert!(drill.contains("T02\nX0.000Y0.000\n"), "pad hole hit");
         assert!(drill.ends_with("M30\n"));
         Ok(())
     }
@@ -10974,17 +10979,17 @@ mod tests {
         }
         project.validate()?;
         let files = gerber_files(&project)?;
-        let drill = &files["pcb-Drill.drl"];
+        let drill = &files["pcb-Rout.drl"];
         assert!(
-            drill.contains("T1C0.500\n"),
+            drill.contains("T01C0.500\n"),
             "one narrow tool carries both slots"
         );
         assert!(
-            drill.contains("X9.850Y10.000G85X10.150Y10.000\n"),
+            drill.contains("G00X9.850Y10.000\nM15\nG01X10.150Y10.000\nM16\n"),
             "an unrotated oval spans along x"
         );
         assert!(
-            drill.contains("X30.000Y10.150G85X30.000Y9.850\n"),
+            drill.contains("G00X30.000Y10.150\nM15\nG01X30.000Y9.850\nM16\n"),
             "a rotated footprint rotates its slot"
         );
         assert!(drill.ends_with("M30\n"));
@@ -12757,7 +12762,7 @@ mod tests {
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
         let files = gerber_files(&project)?;
-        let drill = &files["pcb-PTH.drl"];
+        let drill = &files["pcb-Plated.drl"];
         assert!(
             drill.contains("X10.000Y10.000\n"),
             "drill coordinates are measured from the recorded origin"
@@ -12774,7 +12779,7 @@ mod tests {
         project.board.drill_origin = Point::new(-5.0, 0.0);
         let files = gerber_files(&project)?;
         assert!(
-            files["pcb-PTH.drl"].contains("X35.000Y20.000\n"),
+            files["pcb-Plated.drl"].contains("X35.000Y20.000\n"),
             "a negative origin shifts the other way"
         );
         Ok(())
@@ -15601,10 +15606,10 @@ mod tests {
     fn gerber_files_footprint_unplated_pegs_export_only_to_npth_drill() -> Result<(), String> {
         let project = peg_footprint_project()?;
         let files = gerber_files(&project)?;
-        let plated = &files["pcb-PTH.drl"];
+        let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
         assert!(
-            plated.contains("T1C0.800\n"),
+            plated.contains("T01C0.800\n"),
             "numbered through-hole pads stay on the plated drill file"
         );
         assert!(
@@ -15612,7 +15617,7 @@ mod tests {
             "peg coordinates must not appear in the plated drill file: {plated}"
         );
         assert!(
-            npth.contains("T1C3.000\n"),
+            npth.contains("T01C3.000\n"),
             "both pegs share one unplated tool"
         );
         assert!(
@@ -15735,10 +15740,10 @@ mod tests {
         });
         project.validate()?;
         let files = gerber_files(&project)?;
-        let plated = &files["pcb-PTH.drl"];
+        let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
-        assert!(plated.contains("T1C0.300\n") && !plated.contains("T1C3.000\n"));
-        assert!(npth.contains("T1C3.000\n") && !npth.contains("0.300"));
+        assert!(plated.contains("T01C0.300\n") && !plated.contains("T01C3.000\n"));
+        assert!(npth.contains("T01C3.000\n") && !npth.contains("0.300"));
         Ok(())
     }
 
@@ -15771,10 +15776,11 @@ mod tests {
         });
         project.validate()?;
         let files = gerber_files(&project)?;
-        let plated = &files["pcb-PTH.drl"];
+        let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
         for text in [plated.as_str(), npth.as_str()] {
-            assert!(text.contains("FMAT,2\n"));
+            assert!(text.starts_with("M48\n"));
+            assert!(!text.contains("FMAT") && !text.contains(",TZ"));
             assert!(text.ends_with("M30\n"));
         }
         let (p_tools, p_hits) = parse_excellon_drill(plated)?;
@@ -15829,18 +15835,23 @@ mod tests {
     #[test]
     fn panel_two_by_two_sample_board_drill_and_placement() -> Result<(), String> {
         let p = sample_board_with_two_by_two_panel()?;
-        let single_drill = gerber_files(&p)?
-            .get("pcb-Drill.drl")
-            .ok_or("single-board drill missing")?
-            .clone();
-        let single_hits = single_drill
-            .lines()
-            .filter(|line| line.starts_with('X'))
-            .count();
+        let hit_count = |files: &BTreeMap<String, String>| -> usize {
+            ["pcb-Plated.drl", "pcb-NPTH.drl"]
+                .iter()
+                .filter_map(|name| files.get(*name))
+                .flat_map(|text| text.lines())
+                .filter(|line| line.starts_with('X'))
+                .count()
+        };
+        let single_hits = hit_count(&gerber_files(&p)?);
         let files = panel_fabrication_files(&p)?;
+        assert!(
+            !files.contains_key("pcb-Drill.drl"),
+            "the panel set ships the split drill files only"
+        );
         let drill = files
-            .get("pcb-Drill.drl")
-            .ok_or("panel drill file missing")?;
+            .get("pcb-NPTH.drl")
+            .ok_or("panel unplated drill file missing")?;
         assert!(
             drill.contains("MechanicalDrill,Breakout"),
             "breakaway holes must carry the breakout aperture function"
@@ -15849,7 +15860,7 @@ mod tests {
             drill.contains("MechanicalDrill,Tooling"),
             "tooling holes must carry the tooling aperture function"
         );
-        let panel_hits = drill.lines().filter(|line| line.starts_with('X')).count();
+        let panel_hits = hit_count(&files);
         assert!(
             panel_hits > single_hits * 4,
             "panel drill must repeat every board hit on each copy plus mechanical holes"
@@ -16395,7 +16406,7 @@ mod tests {
         assert!(blind.contains("Plated,1,2,Blind"));
         assert!(buried.contains("Plated,3,4,Buried"));
         let through = files
-            .get("pcb-PTH.drl")
+            .get("pcb-Plated.drl")
             .ok_or("through drill file missing")?;
         assert!(through.contains("Plated,1,6,PTH") || through.contains("PTH"));
         assert_eq!(
@@ -16574,7 +16585,7 @@ mod tests {
             ViaCovering::Tented,
             Some(ViaCovering::Plugged),
         )?)?;
-        let drill = &files["pcb-PTH.drl"];
+        let drill = &files["pcb-Plated.drl"];
         assert!(
             drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ib\n"),
             "{drill}"
@@ -16593,7 +16604,7 @@ mod tests {
             "each via tool clears its attribute so later tools do not inherit it"
         );
         assert_eq!(
-            drill.matches("\nT1C0.300\n").count() + drill.matches("\nT2C0.300\n").count(),
+            drill.matches("\nT01C0.300\n").count() + drill.matches("\nT02C0.300\n").count(),
             2,
             "one tool per covering: {drill}"
         );
