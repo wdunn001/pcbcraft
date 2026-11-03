@@ -234,7 +234,6 @@ pub fn bundled_packages() -> &'static [PackageDef] {
     LIST.get_or_init(|| {
         serde_json::from_str::<Vec<PackageDef>>(include_str!("../data/packages.json"))
             .ok()
-            .filter(|l| l.iter().all(|d| availability(d).is_ok()))
             .unwrap_or_default()
     })
 }
