@@ -280,7 +280,9 @@ pub(crate) fn impedance_target_findings(project: &Project) -> Vec<Finding> {
             severity: project.rule_severity("impedance_target", "error"),
             message: finding_message(project, track.net, track, computed, target, &sample),
             objects: vec![track.id],
-            hint: None,
+            hint: Some(
+                "Change the track width or the gap, or set a different target on the net.".into(),
+            ),
         });
     }
     out
@@ -456,6 +458,33 @@ mod tests {
         add_track(&mut p, 10, 0.15);
         p.validate()?;
         assert!(codes(&p).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn impedance_target_finding_has_a_fix_hint() -> Result<(), String> {
+        let mut p = four_layer_stack();
+        add_track(&mut p, 10, 0.15);
+        p.validate()?;
+        let findings = impedance_target_findings(&p);
+        assert!(!findings.is_empty(), "expected an impedance target finding");
+        let finding = &findings[0];
+        assert_eq!(
+            finding.hint.as_deref(),
+            Some("Change the track width or the gap, or set a different target on the net.")
+        );
+        let sample = stack_sample(&p, Layer::Front).ok_or("stack sample")?;
+        let good = imp::width_for_ohms(50.0, |w| {
+            imp::microstrip(w, sample.height, sample.copper, sample.er).map(|m| m.ohms)
+        })
+        .ok_or("solve 50 ohm width")?;
+        p.board.tracks.clear();
+        add_track(&mut p, 11, good);
+        p.validate()?;
+        assert!(
+            impedance_target_findings(&p).is_empty(),
+            "no finding when target is met"
+        );
         Ok(())
     }
 }

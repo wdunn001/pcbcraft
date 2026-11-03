@@ -205,6 +205,19 @@ fn copper_gerber_name(layer: &str) -> Option<&'static str> {
     }
 }
 
+fn plot_gerber_name(kind: &str, layer: &str) -> Option<&'static str> {
+    match (kind, layer) {
+        ("mask_plot", "F.Mask") => Some("pcb-F.Mask.gbr"),
+        ("mask_plot", "B.Mask") => Some("pcb-B.Mask.gbr"),
+        ("paste_plot", "F.Paste") => Some("pcb-F.Paste.gbr"),
+        ("paste_plot", "B.Paste") => Some("pcb-B.Paste.gbr"),
+        ("silk_plot", "F.SilkS") => Some("pcb-F.SilkS.gbr"),
+        ("silk_plot", "B.SilkS") => Some("pcb-B.SilkS.gbr"),
+        ("profile_plot", "Edge.Cuts") => Some("pcb-Edge.gbr"),
+        _ => None,
+    }
+}
+
 fn isolation_gcode_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
     let opts = isolation_options_from_value(&artifact.settings)?;
     let files = if let Some(machine_id) = artifact.machine.as_deref() {
@@ -436,7 +449,38 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
             Ok(GeneratedOutput::Text(text))
         }
         "mask_plot" | "silk_plot" | "paste_plot" | "profile_plot" => {
-            Err("layer plot artifacts are not available yet; see issue #325".into())
+            let kind = artifact.kind.as_str();
+            let layer = match kind {
+                "mask_plot" => artifact
+                    .layers
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("F.Mask"),
+                "silk_plot" => artifact
+                    .layers
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("F.SilkS"),
+                "paste_plot" => artifact
+                    .layers
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("F.Paste"),
+                "profile_plot" => artifact
+                    .layers
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("Edge.Cuts"),
+                _ => "F.Cu",
+            };
+            let file = plot_gerber_name(kind, layer)
+                .ok_or_else(|| format!("{kind} for layer {layer} is not available"))?;
+            let files = gerber_files(p)?;
+            let text = files
+                .get(file)
+                .ok_or_else(|| format!("gerber export has no layer named {file}"))?
+                .clone();
+            Ok(GeneratedOutput::Text(text))
         }
         "drill_plated" | "drill_unplated" => {
             let key = if artifact.kind == "drill_plated" {
@@ -749,6 +793,251 @@ mod generate_tests {
                 &placement_artifact_with(serde_json::json!({"flavour": "nope"})),
             )
             .is_err()
+        );
+        Ok(())
+    }
+
+    fn plot_project() -> Project {
+        use pcbcraft_doc::{Component, Footprint, Pad};
+        use pcbcraft_geom::Point;
+        use pcbcraft_library::FootprintPad;
+        let pad = FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.0, 0.5),
+            layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+            drill: None,
+            roundrect_ratio: None,
+            raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
+        };
+        let mut project = Project::default();
+        project.components.push(Component {
+            id: 1,
+            reference: "C1".into(),
+            value: "cap".into(),
+            kind: "capacitor".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin::default()],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "C0402".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![pad],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                    box_body: Default::default(),
+                    retained: Default::default(),
+                },
+            }),
+            fields: vec![],
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
+            sheet: 0,
+        });
+        project.board.footprints.push(Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 0.5,
+                net: None,
+                castellated: None,
+                geometry: Some(FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: Point::default(),
+                    rotation: 0.0,
+                    size: Point::new(1.0, 0.5),
+                    layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    raw_source: String::new(),
+                    chamfer: None,
+                    polygon: Vec::new(),
+                }),
+            }],
+            side: None,
+            preserved: Default::default(),
+        });
+        project
+    }
+
+    #[test]
+    fn a_mask_plot_artifact_makes_the_top_mask_file() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "top mask".into(),
+            kind: "mask_plot".into(),
+            layers: vec!["F.Mask".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-F.Mask.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(
+            text.contains("%TF.FileFunction,Soldermask,Top*%"),
+            "top mask must have the Soldermask,Top file function tag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_mask_plot_artifact_makes_the_bottom_mask_file() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "bottom mask".into(),
+            kind: "mask_plot".into(),
+            layers: vec!["B.Mask".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-B.Mask.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(
+            text.contains("%TF.FileFunction,Soldermask,Bot*%"),
+            "bottom mask must have the Soldermask,Bot file function tag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_paste_plot_artifact_makes_the_bottom_paste_file() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "bottom paste".into(),
+            kind: "paste_plot".into(),
+            layers: vec!["B.Paste".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-B.Paste.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(
+            text.contains("%TF.FileFunction,Paste,Bot*%"),
+            "bottom paste must have the Paste,Bot file function tag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_silk_plot_artifact_makes_legend_files() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "top silk".into(),
+            kind: "silk_plot".into(),
+            layers: vec!["F.SilkS".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-F.SilkS.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(
+            text.contains("%TF.FileFunction,Legend,Top*%"),
+            "top silk must have the Legend,Top file function tag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_profile_plot_artifact_makes_the_outline() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "outline".into(),
+            kind: "profile_plot".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-Edge.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(
+            text.contains("%TF.FileFunction,Profile,NP*%"),
+            "outline must have the Profile,NP file function tag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_plot_artifact_on_a_layer_it_cannot_make_is_refused() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "mask on inner layer".into(),
+            kind: "mask_plot".into(),
+            layers: vec!["In1.Cu".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-In1.Cu.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let result = generate(&project, &artifact);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => return Err("expected error for unsupported layer".into()),
+        };
+        assert!(
+            err.contains("In1.Cu"),
+            "error must name the layer it cannot make: {err}"
         );
         Ok(())
     }
