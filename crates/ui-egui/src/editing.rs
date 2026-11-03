@@ -34,6 +34,8 @@ pub(super) struct EditState {
     pub pastes: u32,
     /// The array dialog (see arrange.rs).
     pub arrange: crate::arrange::ArrangeState,
+    /// The Round corners dialog (see track_round_ui.rs).
+    pub round: crate::track_round_ui::RoundState,
     /// Centre of the objects when they were copied; Paste from the menu moves
     /// the copies from here to where the menu was opened.
     pub clip_origin: Option<Point>,
