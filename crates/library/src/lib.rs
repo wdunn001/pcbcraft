@@ -36,6 +36,7 @@ pub mod online_import;
 pub mod open_library;
 pub mod open_pool;
 pub mod package_key;
+mod pad_kind;
 pub mod param_body;
 pub mod part_import;
 mod part_record_validation;
@@ -113,6 +114,7 @@ pub use model_transform::{
     refresh_model_raw_source,
 };
 pub use package_key::{PITCH_TOLERANCE_MM, PackageFamily, PackageKey, SPAN_TOLERANCE_MM};
+pub use pad_kind::{MIN_NOTCH_MM, NotchPlace, PadKind, notched_rectangle};
 pub use param_body::ParamBody;
 pub use part_compare::{
     FootprintPadCompare, MAX_PART_COMPARE_OTHERS, PartCompareEntry, PartFieldRow, PartPinCompare,

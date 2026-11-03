@@ -85,6 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Install window-system packages
         run: .github/scripts/install-linux-deps.sh 
@@ -104,6 +105,14 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Lint
         run: cargo xtask lint --json
+      # A pull request that changes the app, the engine or the site needs a change file, unless it
+      # carries the docs-only label. The files feed the changelog page and the release notes.
+      - name: Require a change file
+        if: github.event_name == 'pull_request'
+        env:
+          CHANGESET_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: cargo xtask changeset require
 
   clippy:
     name: Clippy
@@ -435,8 +444,10 @@ jobs:
       run:
         working-directory: site
     steps:
+      # Full history: the changelog takes each entry's date from the git history of its change file.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -444,6 +455,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run test:contrast
       - run: npm run test:features
+      - run: npm run test:changelog
       - run: npm run test:docs-map
       - run: npm run check
       - run: npm run build

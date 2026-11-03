@@ -33,6 +33,7 @@ mod hover_affordance;
 mod icons;
 mod impedance_panel;
 mod keymap;
+mod layer_picker;
 mod layer_record_panel;
 mod layer_visibility;
 mod layers_tree;
@@ -2279,7 +2280,9 @@ impl App {
             self.message = format!("autosave: {error}");
         }
         if let Some((p, r, checks)) = snapshot {
+            let was_bottom = self.route_on_bottom();
             self.project = p;
+            self.keep_route_layer_valid(was_bottom);
             self.revision = r;
             self.checks = checks;
             if self
@@ -3314,20 +3317,8 @@ impl App {
                     Some(net)
                 };
             }
-            KeyAction::LayerNext => {
-                self.route_layer = match self.route_layer {
-                    pcbcraft_doc::Layer::Front => pcbcraft_doc::Layer::Back,
-                    pcbcraft_doc::Layer::Back => pcbcraft_doc::Layer::Front,
-                    other => other,
-                };
-            }
-            KeyAction::LayerPrev => {
-                self.route_layer = match self.route_layer {
-                    pcbcraft_doc::Layer::Front => pcbcraft_doc::Layer::Back,
-                    pcbcraft_doc::Layer::Back => pcbcraft_doc::Layer::Front,
-                    other => other,
-                };
-            }
+            KeyAction::LayerNext => self.step_route_layer(true),
+            KeyAction::LayerPrev => self.step_route_layer(false),
             KeyAction::RepeatLastCommand => {
                 if let Some((command, params)) = self.last_repeat.clone() {
                     self.run(&command, params);
@@ -5152,20 +5143,9 @@ impl App {
                 }
             }
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(t!("settings.settings_tab.route_on"));
-            ui.selectable_value(
-                &mut self.route_layer,
-                pcbcraft_doc::Layer::Front,
-                t!("settings.settings_tab.top"),
-            )
-            .on_hover_text(t!("settings.settings_tab.top.tip"));
-            ui.selectable_value(
-                &mut self.route_layer,
-                pcbcraft_doc::Layer::Back,
-                t!("settings.settings_tab.bottom"),
-            )
-            .on_hover_text(t!("settings.settings_tab.bottom.tip"));
+            self.route_on_picker(ui);
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.pad_labels"));
@@ -5402,7 +5382,7 @@ impl App {
         {
             self.run(
                 "zone.place",
-                json!({"net": pour_net, "layer":"F.Cu","outline":[
+                json!({"net": pour_net, "layer":self.route_layer_param(),"outline":[
                     {"x":self.pour_x,"y":self.pour_y},
                     {"x":self.pour_x+self.pour_w,"y":self.pour_y},
                     {"x":self.pour_x+self.pour_w,"y":self.pour_y+self.pour_h},
@@ -6668,7 +6648,7 @@ impl App {
             if keepout {
                 args["keepout"] = json!(true);
                 if self.pours.keepout_layer_only {
-                    args["layer"] = json!(self.route_layer);
+                    args["layer"] = self.route_layer_param();
                 }
             } else if self.area_limited {
                 args["max_height"] = json!(self.area_height);

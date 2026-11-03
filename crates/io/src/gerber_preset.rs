@@ -13,8 +13,8 @@
 //!
 //! # Do not
 //! - Edit the text of a Gerber file here; only its name changes.
-use crate::{ProjectDrillHit, fab_export, gerber, gerber_job, project_drill_hits};
-use pcbcraft_doc::{Layer, Project};
+use crate::{ProjectDrillHit, fab_export, gerber_job, project_drill_hits};
+use pcbcraft_doc::Project;
 use pcbcraft_geom::Point;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -452,21 +452,15 @@ pub fn gerber_files_with(
     if !options.drill_map {
         files.remove("pcb-DrillMap.gbr");
     }
-    for index in 1..copper.saturating_sub(1) {
-        let layer = Layer::from_index(index)?;
-        // The plotter calls layer 2 the bottom face; between the outer layers
-        // every copper layer is inner.
-        let text = gerber::gerber_copper(p, layer)?.replace(
-            &format!("Copper,L{},Bot", index + 1),
-            &format!("Copper,L{},Inr", index + 1),
-        );
-        files.insert(format!("pcb-In{index}.Cu.gbr"), text);
-    }
-    if copper > 2
-        && let Some(text) = files.get_mut("pcb-B.Cu.gbr")
-    {
-        // The bottom layer is the last of the stack; older plots stamped L2.
-        *text = text.replace("Copper,L2,Bot", &format!("Copper,L{copper},Bot"));
+    // The bundle already holds every inner copper layer with its pours, arcs
+    // and net attributes under the project's layer name; file it under the
+    // inner-layer role instead of plotting a second, poorer copy.
+    let bottom = usize::from(copper.max(2)) - 1;
+    for index in 1..bottom {
+        let label = crate::copper_file_label(p, index, bottom);
+        if let Some(text) = files.remove(&format!("pcb-{label}.gbr")) {
+            files.insert(format!("pcb-In{index}.Cu.gbr"), text);
+        }
     }
     apply_drill_options(p, options, &mut files)?;
     if options.job_file {

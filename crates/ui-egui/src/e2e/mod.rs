@@ -16,6 +16,7 @@ mod builds;
 mod checks;
 mod compare;
 mod context_menus;
+mod copper_layers;
 mod datasheet;
 mod drill_table;
 mod editing;

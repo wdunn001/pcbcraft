@@ -92,14 +92,14 @@ impl App {
                     "from_n":{"footprint":from,"pad":mate_from},
                     "to_p":{"footprint":id,"pad":pad},
                     "to_n":{"footprint":id,"pad":mate_to},
-                    "layer":self.route_layer,
+                    "layer":self.route_layer_param(),
                     "mode":mode,
                 }),
             );
         } else {
             self.run(
                 "track.route",
-                json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer,"mode":mode}),
+                json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer_param(),"mode":mode}),
             );
         }
         self.tool = Tool::Select;

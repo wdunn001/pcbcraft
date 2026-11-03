@@ -214,11 +214,7 @@ impl App {
     /// Refusal when other-net copper sits closer than the clearance rule allows.
     fn via_crowding(&self, plan: &ViaPlan, radius: f64) -> Option<String> {
         let p = &self.project;
-        let count = p.copper_layer_count();
-        let last = count.saturating_sub(1);
-        let slot = |l: Layer| {
-            if l == Layer::Back { last } else { l.index() }
-        };
+        let slot = |l: Layer| l.index();
         let in_span = |s: u8| s >= plan.span.0 && s <= plan.span.1;
         let at = plan.position;
         let too_close = |other: Id, gap: f64| {
@@ -248,12 +244,8 @@ impl App {
         for f in &p.board.footprints {
             for pad in &f.pads {
                 if !(plan.span.0..=plan.span.1).any(|s| {
-                    let layer = if s == last {
-                        Layer::Back
-                    } else {
-                        Layer::from_index(s).unwrap_or(Layer::Front)
-                    };
-                    f.pad_on_copper(pad, layer)
+                    let layer = Layer::from_index(s).unwrap_or(Layer::Front);
+                    p.pad_on_copper(f, pad, layer)
                 }) {
                     continue;
                 }
