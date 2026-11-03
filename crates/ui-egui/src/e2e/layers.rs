@@ -705,6 +705,7 @@ fn a_newcomer_sees_where_the_last_page_ends() -> Result<(), String> {
         revision: 1,
         parts_selected: 0,
         show_empty: false,
+        stale: None,
     };
     let mut view = layers_tree::TreeView::default();
     let rows = layers_tree::rows(&env, &mut view);

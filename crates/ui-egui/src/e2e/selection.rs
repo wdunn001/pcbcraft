@@ -140,6 +140,7 @@ fn a_newcomer_selects_a_via_and_sees_which_layers_it_crosses() -> Result<(), Str
         revision: app.revision,
         parts_selected: 0,
         show_empty: false,
+        stale: None,
     };
     let mut view = app.tree.clone();
     view.query = "via".to_owned();
