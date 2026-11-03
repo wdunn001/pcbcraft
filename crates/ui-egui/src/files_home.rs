@@ -349,6 +349,9 @@ impl App {
     /// # Do not
     /// - Write a file named `design.pcbcraft` in the working folder without asking.
     pub(crate) fn save_or_ask(&mut self) {
+        if self.webfs_save() {
+            return;
+        }
         if self.project_never_saved() {
             self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
         } else {
@@ -372,10 +375,12 @@ impl App {
         let save = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::S);
         let open = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
         if ctx.input_mut(|i| i.consume_shortcut(&save_as)) {
-            self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+            if !self.webfs_save() {
+                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+            }
         } else if ctx.input_mut(|i| i.consume_shortcut(&save)) {
             self.save_or_ask();
-        } else if ctx.input_mut(|i| i.consume_shortcut(&open)) {
+        } else if ctx.input_mut(|i| i.consume_shortcut(&open)) && !self.webfs_open() {
             self.show_files(Page::Open);
         }
     }
@@ -418,7 +423,11 @@ impl App {
                 self.select(None);
                 self.change_tab(Tab::Schematic);
             }
-            Command::Open => self.show_files(Page::Open),
+            Command::Open => {
+                if !self.webfs_open() {
+                    self.show_files(Page::Open);
+                }
+            }
             Command::Save => self.save_or_ask(),
             Command::SaveAs => self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]),
             Command::Import => self.files_home.page = Page::Import,

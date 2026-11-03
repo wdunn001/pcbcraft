@@ -2,12 +2,25 @@
 use pcbcraft_io::OpenKind;
 use std::sync::MutexGuard;
 
-/// Browser or desktop hooks for byte-oriented project I/O.
+/// Browser, desktop or test provider for byte-oriented project I/O.
 ///
 /// # Implementations
 /// - crates/mcp/src/project_host.rs
 /// - apps/pcbcraft-web/src/wasm_host.rs
+/// - crates/ui-egui/src/e2e/webfs.rs
+///
+/// The UI asks the provider and never touches the file system itself. A provider
+/// that moves bytes (`takes_bytes` is true) picks files to open, downloads one
+/// file under a suggested name, or downloads several named files as one zip. The
+/// native provider moves no bytes: it answers false and the desktop keeps its
+/// path-based dialogs.
 pub trait ProjectHost {
+    /// True when this provider opens and saves through bytes (picker, download).
+    fn takes_bytes(&self) -> bool {
+        false
+    }
+    /// Ask the user to pick a file; the bytes arrive later through `pick_open`.
+    fn request_open(&mut self) {}
     /// Return the next user-picked file, if one is ready.
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)>;
     /// Download one file in the browser, or write through native paths when unset.
@@ -22,7 +35,7 @@ pub trait ProjectHost {
     }
 }
 
-/// Desktop default: filesystem and MCP paths stay in the existing menu handlers.
+/// Desktop provider: moves no bytes, so filesystem and MCP paths stay in the existing dialogs.
 pub struct NativeHost;
 
 /// Contract: crates/mcp/src/project_host.rs
@@ -83,6 +96,9 @@ pub fn replace_session_from_open(
 
 /// Contract: crates/mcp/src/project_host.rs
 impl ProjectHost for MemHost {
+    fn takes_bytes(&self) -> bool {
+        true
+    }
     fn pick_open(&mut self) -> Option<(String, Vec<u8>)> {
         if self.open_queue.is_empty() {
             None

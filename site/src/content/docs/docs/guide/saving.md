@@ -47,7 +47,7 @@ Every edit is one undoable step. Use **Edit**, then **Undo**, or press **Ctrl+Z*
 
 ## Limits
 
-- The browser build cannot save. It says that saving needs the desktop app.
+- The browser build has no disk. File, Open picks a design file (or drop one on the window), and Save or Save as downloads the design as a `.pcbcraft` file. Export of a picture, a board interchange file, a bill of materials or the Gerber files downloads too (several files arrive as one zip). Other exports still need the desktop app.
 - There is no Save as command. To keep a second copy, copy the file in your file manager.
 
 ## What you should see

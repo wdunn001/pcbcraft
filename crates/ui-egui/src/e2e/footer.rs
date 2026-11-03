@@ -16,6 +16,10 @@ fn app_with_sample(browser: bool, name: &str) -> (App, egui::Context, String) {
     };
     let mut app = App::create(shared, preferences, None, None);
     app.browser = browser;
+    if browser {
+        // The browser build saves through the host: a download, no file path.
+        app = app.with_project_host(Box::new(pcbcraft_mcp::MemHost::new()));
+    }
     app.refresh();
     let file = std::env::temp_dir()
         .join(format!(
@@ -80,16 +84,14 @@ fn unsaved_dot_story(browser: bool) -> Result<(), String> {
         paints_text(&ctx, &mut app, &name)?,
         "the footer names the open project ({name})"
     );
-    if !browser {
-        authoring::tests::tap(&ctx, &mut app, "File")?;
-        authoring::tests::tap(&ctx, &mut app, "Save")?;
-        assert_eq!(
-            dots(&ctx, &mut app),
-            0,
-            "a saved project shows no dot: {}",
-            app.message
-        );
-    }
+    authoring::tests::tap(&ctx, &mut app, "File")?;
+    authoring::tests::tap(&ctx, &mut app, "Save")?;
+    assert_eq!(
+        dots(&ctx, &mut app),
+        0,
+        "a saved project shows no dot: {}",
+        app.message
+    );
     edit_the_design(&ctx, &mut app)?;
     assert_eq!(
         dots(&ctx, &mut app),
@@ -99,16 +101,17 @@ fn unsaved_dot_story(browser: bool) -> Result<(), String> {
     );
     authoring::tests::tap(&ctx, &mut app, "File")?;
     authoring::tests::tap(&ctx, &mut app, "Save")?;
-    let after_save = dots(&ctx, &mut app);
-    if browser {
-        assert_eq!(
-            after_save, 1,
-            "the browser build cannot write the file yet, so the dot stays: {}",
-            app.message
-        );
-    } else {
-        assert_eq!(after_save, 0, "saving takes the dot away: {}", app.message);
-    }
+    assert_eq!(
+        dots(&ctx, &mut app),
+        0,
+        "saving takes the dot away: {}",
+        app.message
+    );
+    assert!(
+        app.message.starts_with("Saved to"),
+        "the footer says it plainly: {}",
+        app.message
+    );
     let _ = std::fs::remove_file(&file);
     Ok(())
 }

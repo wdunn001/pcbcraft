@@ -1391,14 +1391,15 @@ fn a_newcomer_sees_the_mark_on_the_start_page() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_sees_that_saving_needs_the_desktop_app() -> Result<(), String> {
+fn a_newcomer_sees_that_exporting_needs_the_desktop_app() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.browser = true;
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    for tool in ["save", "open", "export"] {
+    {
+        let tool = "export";
         app.tool_call(tool, json!({"path": "design.pcbcraft"}));
         assert!(
             paints_text(&ctx, &mut app, "need the desktop app")?,

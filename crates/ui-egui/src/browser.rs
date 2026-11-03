@@ -2,7 +2,8 @@
 //!
 //! The wasm build keeps the design in memory only: there is no disk to open
 //! from or save to. Instead of failing inside the engine, those commands are
-//! stopped here and the status strip says they need the desktop app.
+//! stopped here and the status strip says they need the desktop app. Open and Save
+//! are not refused: they go through the project host (`webfs.rs`).
 //!
 //! Local rules: the wording lives in the text catalog (`web.*` keys in
 //! `../../text/strings/en.txt`). The flag is `App::browser`, true on wasm32
@@ -12,14 +13,16 @@
 ///
 /// # Rules
 /// - Only names that touch the disk belong here; edits stay available.
+/// - Open and Save are not listed: the browser reaches them through the project host
+///   (`webfs.rs`), never through a path.
 ///
 /// # Dependencies
-/// - `crates/mcp/src/lib.rs` tool names (`open`, `save`, `export`)
+/// - `crates/mcp/src/lib.rs` tool names (`export`)
 ///
 /// # Do not
 /// - Add a tool that only changes the in-memory design.
 pub(crate) fn needs_desktop(tool: &str) -> bool {
-    matches!(tool, "open" | "save" | "export")
+    matches!(tool, "export")
 }
 
 /// The status line shown when a disk action is refused in the browser.
