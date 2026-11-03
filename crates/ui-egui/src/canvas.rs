@@ -1284,6 +1284,26 @@ impl App {
         self.pick_object_any(pos, zoom)
             .filter(|id| !crate::layers_tree::is_locked(&self.project, &self.tree.locked, *id))
             .filter(|id| !self.sheet_row_hidden(*id))
+            .filter(|id| self.pcb_object_visible(*id))
+    }
+    /// True when the PCB object at `id` is painted on the canvas: its layer group
+    /// is shown and the relevant sub-layer is on. Locked or sheet-row-hidden objects
+    /// are checked elsewhere; this method only handles layer visibility.
+    fn pcb_object_visible(&self, id: Id) -> bool {
+        if let Some(t) = self.project.board.tracks.iter().find(|t| t.id == id) {
+            return self.layer_part_shown(t.layer, crate::layer_visibility::SubLayer::Tracks);
+        }
+        if let Some(f) = self.project.board.footprints.iter().find(|f| f.id == id) {
+            return self.part_shown(f);
+        }
+        if let Some(z) = self.project.board.zones.iter().find(|z| z.id == id) {
+            return self.layer_part_shown(z.layer, crate::layer_visibility::SubLayer::Zones);
+        }
+        if let Some(v) = self.project.board.vias.iter().find(|v| v.id == id) {
+            return self.via_shown(v);
+        }
+        // Cutouts, texts, and other board elements are always pickable.
+        true
     }
     /// True when the sheet row an object belongs to is switched off with the eye,
     /// so the canvas draws nothing there to pick.
