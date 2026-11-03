@@ -232,6 +232,8 @@ pub(crate) struct Env<'a> {
     pub parts_selected: usize,
     /// Show the fixed rows of a page even when they hold nothing.
     pub show_empty: bool,
+    /// Ids of artifact records whose file is out of date; none when not known.
+    pub stale: Option<&'a BTreeSet<Id>>,
 }
 
 /// The canvas toggles each tab's layer rows may switch.
@@ -301,6 +303,8 @@ pub(crate) struct TreeView {
     offset: f32,
     viewport: f32,
     cache: Option<(u64, std::rc::Rc<Vec<Row>>)>,
+    /// Out of date artifact records, worked out once per document change.
+    pub(crate) stale: Option<crate::artifact_rows::StaleCache>,
 }
 
 impl TreeView {
@@ -349,6 +353,7 @@ impl Default for TreeView {
             offset: 0.0,
             viewport: 400.0,
             cache: None,
+            stale: None,
         }
     }
 }
@@ -377,7 +382,7 @@ fn segment(path: &str, seg: &str) -> String {
     }
 }
 
-fn row(path: &str, seg: &str, kind: RowKind, label: String) -> Row {
+pub(crate) fn row(path: &str, seg: &str, kind: RowKind, label: String) -> Row {
     Row {
         key: segment(path, seg),
         depth: 0,
@@ -1489,7 +1494,9 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
 /// for expanded rows.
 fn children(env: &Env, key: &str) -> Vec<Row> {
     match env.tab {
-        TreeTab::Layout => layout_children(env, key),
+        TreeTab::Layout => {
+            crate::artifact_rows::with_artifact_rows(env, key, layout_children(env, key))
+        }
         TreeTab::Schematic => schematic_children(env, key),
     }
 }
@@ -2455,6 +2462,9 @@ pub(crate) fn related_weakly(env: &Env, r: &Row) -> bool {
     let (Some(sel), Some(rel)) = (env.subject, env.relations) else {
         return false;
     };
+    if crate::artifact_rows::row_is_lit_weakly(env, r) {
+        return true;
+    }
     if let Some(id) = r.select
         && crate::selection::object_level(sel, rel, id) == crate::selection::Level::Weak
     {
@@ -2549,7 +2559,8 @@ fn paint_row(
         if r.kind == RowKind::Net && r.net == Some(*n));
     let selected = (r.marks && r.select.is_some() && r.select == env.selected)
         || view.selected_key.as_deref() == Some(r.key.as_str())
-        || net_selected;
+        || net_selected
+        || crate::artifact_rows::row_is_selected(env, r);
     let weak = !selected && related_weakly(env, r);
     let outside = outside_reach(env, r);
     let searching = !view.query.trim().is_empty();
@@ -3697,6 +3708,7 @@ pub(crate) fn explain(tab: TreeTab, r: &Row) -> String {
         (_, "components") => t!("tree.explain.parts"),
         (_, "drills") => t!("tree.explain.drills"),
         ("drill", _) => t!("tree.explain.drill_size"),
+        ("artifact", _) => t!("tree.explain.artifact"),
         ("via", _) => t!("tree.explain.via"),
         ("hole", _) => t!("tree.explain.hole"),
         (_, "edge") => t!("tree.explain.edge"),
@@ -3896,6 +3908,7 @@ impl crate::App {
         };
         self.adopt_legacy_selection();
         let relations = crate::selection::relations(&self.project, &self.subject);
+        let stale = self.tree.stale_ids(&self.project, self.revision);
         let actions = {
             let env = Env {
                 project: &self.project,
@@ -3910,6 +3923,7 @@ impl crate::App {
                 revision: self.revision,
                 parts_selected: self.selected_part_components().len(),
                 show_empty: self.tree.show_empty,
+                stale: Some(&stale),
             };
             show(ui, &env, &mut self.tree)
         };
@@ -4134,7 +4148,7 @@ impl crate::App {
             self.page_properties(ui, page.parse().unwrap_or(0), false);
         } else if key == "root" || key.ends_with("/root") {
             self.board_root_properties(ui);
-        } else if let Some(rest) = key.strip_prefix("artifact:") {
+        } else if let Some(rest) = last.strip_prefix("artifact:") {
             self.artifact_properties(ui, rest);
         } else if !key.contains("/net:")
             && key.contains('/')
@@ -4302,6 +4316,7 @@ mod tests {
             revision: 1,
             parts_selected: 0,
             show_empty: false,
+            stale: None,
         }
     }
 

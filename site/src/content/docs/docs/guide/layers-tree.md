@@ -75,6 +75,18 @@ Right-click on the drawing opens a different menu for the item under the pointer
 2. Type a part reference, a net name or a layer name.
 3. The tree keeps only the matching rows. Delete the text to see everything again.
 
+## See the files a layer makes
+
+A design can record the files it makes, such as a copper plot, a placement file or a drill file. The Layers tree lists each one under the layer it comes from.
+
+1. Open **Copper** under **Layer 1 · Top**. A copper plot of the top layer is listed first, above the nets.
+2. A file that no longer matches the design shows **Out of date** instead of its name on disk. This happens when you change a layer it is made from, or when it was never made.
+3. Click the file. Properties shows its kind, layers, settings and state, and the rows of that file light up in the tree, in Manufacture and on the drawing.
+4. Click **Make this file** to make it again. The mark goes away.
+5. Click **Show in Manufacture** to open the Manufacture tab with the file picked in the **Output files** list.
+
+Drill files are listed under **Drills**, one for each set of layers and hole size. Files that belong to no layer, such as a bill of materials, are listed under **Output files**.
+
 ## What you should see
 
 - The Active tag follows the row you click.

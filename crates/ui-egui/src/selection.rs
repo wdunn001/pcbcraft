@@ -85,7 +85,7 @@ impl Selection {
         if let Some(id) = last.strip_prefix("net:").and_then(|n| n.parse::<Id>().ok()) {
             return Self::Net(id);
         }
-        if let Some(rest) = key.strip_prefix("artifact:") {
+        if let Some(rest) = last.strip_prefix("artifact:") {
             return Self::Artifact(rest.to_owned());
         }
         let first = key.split('/').next().unwrap_or("");
@@ -128,7 +128,14 @@ impl Selection {
                     Some(format!("nets/net:{id}"))
                 }
             }
-            Self::Artifact(rest) => Some(format!("artifact:{rest}")),
+            Self::Artifact(rest) => {
+                let own = format!("artifact:{rest}");
+                if current.is_some_and(|c| c.rsplit('/').next() == Some(own.as_str())) {
+                    current.map(str::to_owned)
+                } else {
+                    Some(own)
+                }
+            }
         }
     }
 
@@ -203,6 +210,9 @@ pub(crate) fn relations(project: &Project, selection: &Selection) -> Relations {
                         out.objects.insert(v.id);
                     }
                 }
+            } else if let Some(reach) = crate::artifact_rows::reach(project, rest) {
+                out.layers = reach.layers;
+                out.objects = reach.objects;
             }
         }
         _ => {}
