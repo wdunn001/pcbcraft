@@ -7653,37 +7653,41 @@ pub fn footprint_library_text(
         if smd { "smd" } else { "through_hole" }
     ));
     for pad in &footprint.pads {
-        out.push_str(&format!(
-            "  (pad {} {} {} (at {} {} {}) (size {} {})",
-            lib_text(&pad.number),
-            lib_token(&pad.pad_type, "smd"),
-            lib_token(&pad.shape, "circle"),
-            pad.position.x,
-            pad.position.y,
-            pad.rotation,
-            pad.size.x,
-            pad.size.y
-        ));
-        if let Some(drill) = &pad.drill {
-            if drill.size.x != drill.size.y {
-                out.push_str(&format!(" (drill oval {} {}", drill.size.x, drill.size.y));
-            } else {
-                out.push_str(&format!(" (drill {}", drill.size.x));
+        if !pad.raw_source.is_empty() {
+            append_indented_source(&mut out, &pad.raw_source, "  ");
+        } else {
+            out.push_str(&format!(
+                "  (pad {} {} {} (at {} {} {}) (size {} {})",
+                lib_text(&pad.number),
+                lib_token(&pad.pad_type, "smd"),
+                lib_token(&pad.shape, "circle"),
+                pad.position.x,
+                pad.position.y,
+                pad.rotation,
+                pad.size.x,
+                pad.size.y
+            ));
+            if let Some(drill) = &pad.drill {
+                if drill.size.x != drill.size.y {
+                    out.push_str(&format!(" (drill oval {} {}", drill.size.x, drill.size.y));
+                } else {
+                    out.push_str(&format!(" (drill {}", drill.size.x));
+                }
+                if drill.offset.x != 0.0 || drill.offset.y != 0.0 {
+                    out.push_str(&format!(" (offset {} {})", drill.offset.x, drill.offset.y));
+                }
+                out.push(')');
             }
-            if drill.offset.x != 0.0 || drill.offset.y != 0.0 {
-                out.push_str(&format!(" (offset {} {})", drill.offset.x, drill.offset.y));
+            out.push_str(" (layers");
+            for layer in &pad.layers {
+                out.push_str(&format!(" {}", lib_text(layer)));
             }
             out.push(')');
+            if let Some(ratio) = pad.roundrect_ratio {
+                out.push_str(&format!(" (roundrect_rratio {ratio})"));
+            }
+            out.push_str(")\n");
         }
-        out.push_str(" (layers");
-        for layer in &pad.layers {
-            out.push_str(&format!(" {}", lib_text(layer)));
-        }
-        out.push(')');
-        if let Some(ratio) = pad.roundrect_ratio {
-            out.push_str(&format!(" (roundrect_rratio {ratio})"));
-        }
-        out.push_str(")\n");
     }
     for graphic in &footprint.graphics {
         out.push_str(&format!("  {}\n", lib_graphic(graphic, false)));
@@ -7709,6 +7713,7 @@ pub fn footprint_library_text(
             out.push_str(&format!("  (solder_paste_margin {value})\n"));
         }
     }
+    append_retained_nodes(&mut out, &footprint.retained, "  ");
     out.push_str("  (embedded_fonts no)\n)\n");
     if out.len() as u64 > MAX_FILE_BYTES {
         return Err("footprint library text exceeds the file size limit".into());
