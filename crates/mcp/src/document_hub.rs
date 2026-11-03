@@ -174,7 +174,7 @@ impl DocumentHub {
 
     fn open_path(&self, raw: &str) -> Result<Value, String> {
         let normalized = normalize_path(raw)?;
-        let project = pcbcraft_io::load(Path::new(raw))?;
+        let project = pcbcraft_io::load_for_open(Path::new(raw))?;
         let mut state = self
             .inner
             .lock()
@@ -213,7 +213,7 @@ impl DocumentHub {
             let mut locked = session
                 .lock()
                 .map_err(|_| "session unavailable after internal failure".to_string())?;
-            let payload = locked.replace(project).map_err(|e| e.to_string())?;
+            let payload = locked.open_project(project).map_err(|e| e.to_string())?;
             (payload, locked.revision)
         };
         state.slots[index].path = normalized;

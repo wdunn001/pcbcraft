@@ -12,6 +12,8 @@ mod layer_names;
 mod machine_profile;
 mod material;
 mod net_members;
+mod net_merge;
+pub use net_merge::NetMerge;
 mod net_properties;
 mod outline;
 mod package_def;
@@ -1125,8 +1127,9 @@ pub struct Wire {
     pub to: PinRef,
 }
 /// A named annotation attached to a logical net: a local, global,
-/// hierarchical or power label. Connectivity stays explicit: the label names a
-/// net that a command already assigned; it never creates a net by matching names.
+/// hierarchical or power label. A label names one net by id. Placing a label
+/// with a typed name finds the net of that name or creates it, so two labels of
+/// one name always end up on one net.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Label {
     pub id: Id,
@@ -1142,8 +1145,15 @@ pub struct Label {
     /// kind. A bus label names a group of nets, so it carries no single net.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub text: String,
+    /// Symbol drawn for a power label: one of [`Label::POWER_STYLES`]. Empty
+    /// means the default (`bar`, or `ground` on a net named like ground).
+    /// Every other kind leaves it empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub style: String,
 }
 impl Label {
+    /// The symbols a power label can take: ground, bar, arrow and negative.
+    pub const POWER_STYLES: [&'static str; 4] = ["ground", "bar", "arrow", "negative"];
     pub const KINDS: [&'static str; 6] = [
         "label",
         "global",
@@ -6907,6 +6917,11 @@ impl Project {
                 }
             } else if !self.nets.iter().any(|n| n.id == l.net) {
                 return Err("label references an unknown net".into());
+            }
+            if !l.style.is_empty()
+                && (l.kind != "power" || !Label::POWER_STYLES.contains(&l.style.as_str()))
+            {
+                return Err("only a power label takes ground, bar, arrow or negative".into());
             }
             if !l.position.valid() {
                 return Err("label position is out of range".into());

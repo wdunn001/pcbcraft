@@ -2,9 +2,10 @@
 
 use crate::canvas::snap;
 use crate::{App, Tab, Tool};
-use pcbcraft_doc::{DrawnWire, Id, PinRef};
+use pcbcraft_doc::{DrawnWire, Id, Label, PinRef};
 use pcbcraft_geom::Point;
 use pcbcraft_geom::point_segment;
+use pcbcraft_text::t;
 use serde_json::{Value, json};
 
 /// Which schematic label tool is armed.
@@ -13,6 +14,40 @@ pub(super) enum SchematicLabelKind {
     Local,
     Power,
 }
+
+/// What the armed Label or Power tool will place with the next click.
+///
+/// # Rules
+/// - `name` is the net name typed for a Label; empty means use the net under
+///   the click.
+/// - `power_net` is the net a Power symbol sets, and `style` indexes
+///   `Label::POWER_STYLES`.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/editing.rs (`EditState` holds one)
+/// - crates/doc/src/lib.rs (`Label::POWER_STYLES` names the symbols)
+///
+/// # Do not
+/// - Keep a net id here: only names, so a deleted net cannot dangle.
+#[derive(Clone, Debug)]
+pub(super) struct LabelDraft {
+    pub name: String,
+    pub power_net: String,
+    pub style: usize,
+}
+
+impl Default for LabelDraft {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            power_net: "3V3".to_string(),
+            style: 1,
+        }
+    }
+}
+
+/// Supply names offered as one-click presets next to the Power net field.
+const POWER_PRESETS: [&str; 5] = ["3V3", "5V", "12V", "VCC", "GND"];
 
 /// A `wire.place` the engine refused until the user picks or names a net.
 #[derive(Clone, Debug)]
@@ -246,7 +281,37 @@ impl App {
 
     fn schematic_label_click(&mut self, pos: Point, zoom: f32, kind: SchematicLabelKind) {
         let at = snap(pos);
-        let mut net = self.net_at_schematic_point(at, zoom).or(self.highlight_net);
+        let position = json!({"x": at.x, "y": at.y});
+        let clicked = self.net_at_schematic_point(at, zoom);
+        if kind == SchematicLabelKind::Power {
+            let name = self.edit.label.power_net.trim().to_string();
+            if name.is_empty() {
+                self.message = t!("schematic.power.need_net");
+                return;
+            }
+            let style = Label::POWER_STYLES
+                .get(self.edit.label.style)
+                .copied()
+                .unwrap_or("bar");
+            let mut params = json!({"kind": "power", "name": name, "style": style,
+                "position": position, "rotation": 0.0});
+            if let Some(net) = clicked {
+                params["net"] = json!(net);
+            }
+            self.run("label.place", params);
+            return;
+        }
+        let typed = self.edit.label.name.trim().to_string();
+        if !typed.is_empty() {
+            let mut params = json!({"kind": "label", "name": typed,
+                "position": position, "rotation": 0.0});
+            if let Some(net) = clicked {
+                params["net"] = json!(net);
+            }
+            self.run("label.place", params);
+            return;
+        }
+        let mut net = clicked.or(self.highlight_net);
         if net.is_none() {
             net = self.bus_member_at(at, zoom);
         }
@@ -407,6 +472,89 @@ impl App {
             }
         }
         self.wire_place_pending = Some(pending);
+    }
+
+    /// The small panel over the sheet while the Label or Power tool is armed:
+    /// the net name to type, or the power style and net to pick.
+    ///
+    /// # Rules
+    /// - Shown only on the Schematic tab with a label tool armed.
+    /// - Edits the draft only; the next canvas click places the label.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/a11y.rs (`Named` gives each field its spoken name)
+    /// - crates/text/strings/en.txt (every label and tooltip)
+    ///
+    /// # Do not
+    /// - Place anything from here; placing is the canvas click.
+    pub(super) fn label_options(&mut self, ctx: &egui::Context) {
+        use crate::a11y::Named;
+        let Tool::SchematicLabel(kind) = self.tool else {
+            return;
+        };
+        if self.tab != Tab::Schematic {
+            return;
+        }
+        let at = self.canvas_rect.right_top() + egui::vec2(-12.0, 12.0);
+        egui::Area::new(egui::Id::new("label-options"))
+            .order(egui::Order::Foreground)
+            .pivot(egui::Align2::RIGHT_TOP)
+            .fixed_pos(at)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| match kind {
+                    SchematicLabelKind::Local => {
+                        ui.horizontal(|ui| {
+                            ui.label(t!("schematic.label.name"));
+                            ui.add(
+                                crate::targets::text_field(&mut self.edit.label.name)
+                                    .hint_text(t!("schematic.label.name.hint"))
+                                    .desired_width(160.0),
+                            )
+                            .on_hover_text(t!("schematic.label.name.tip"))
+                            .named(&t!("schematic.label.name"));
+                        });
+                    }
+                    SchematicLabelKind::Power => {
+                        ui.horizontal(|ui| {
+                            ui.label(t!("schematic.power.net"));
+                            ui.add(
+                                crate::targets::text_field(&mut self.edit.label.power_net)
+                                    .desired_width(90.0),
+                            )
+                            .on_hover_text(t!("schematic.power.net.tip"))
+                            .named(&t!("schematic.power.net"));
+                        });
+                        ui.horizontal(|ui| {
+                            for preset in POWER_PRESETS {
+                                if ui
+                                    .button(preset)
+                                    .on_hover_text(t!("schematic.power.preset.tip", name = preset))
+                                    .clicked()
+                                {
+                                    self.edit.label.power_net = preset.to_string();
+                                }
+                            }
+                        });
+                        let names = [
+                            t!("schematic.power.style.ground"),
+                            t!("schematic.power.style.bar"),
+                            t!("schematic.power.style.arrow"),
+                            t!("schematic.power.style.negative"),
+                        ];
+                        let chosen = self.edit.label.style.min(names.len() - 1);
+                        egui::ComboBox::from_label(t!("schematic.power.style"))
+                            .selected_text(names[chosen].clone())
+                            .show_ui(ui, |ui| {
+                                for (i, name) in names.iter().enumerate() {
+                                    ui.selectable_value(&mut self.edit.label.style, i, name);
+                                }
+                            })
+                            .response
+                            .named(&t!("schematic.power.style"))
+                            .on_hover_text(t!("schematic.power.style.tip"));
+                    }
+                });
+            });
     }
 
     pub(super) fn bus_name_prompt(&mut self, ctx: &egui::Context) {

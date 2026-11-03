@@ -650,6 +650,72 @@ fn rail_symbol(
     );
 }
 
+/// Paint a supply symbol standing on `base`: a stem up that ends in an
+/// arrowhead, with the net name above.
+fn arrow_symbol(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: Camera,
+    base: Point,
+    name: &str,
+    sc: &SheetColours,
+) {
+    let stroke = Stroke::new(2.5, sc.wire);
+    let top = Point::new(base.x, base.y - 5.0);
+    painter.line_segment(
+        [camera.screen(base, rect), camera.screen(top, rect)],
+        stroke,
+    );
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            camera.screen(Point::new(top.x, top.y - 0.4), rect),
+            camera.screen(Point::new(top.x - 1.3, top.y + 1.6), rect),
+            camera.screen(Point::new(top.x + 1.3, top.y + 1.6), rect),
+        ],
+        sc.wire,
+        stroke,
+    ));
+    painter.text(
+        camera.screen(Point::new(top.x, top.y - 1.0), rect),
+        Align2::CENTER_BOTTOM,
+        name,
+        crate::fonts::Role::Mono.font(),
+        sc.wire,
+    );
+}
+
+/// Paint a negative supply symbol hanging from `top`: a stem down, a bar
+/// across its foot and the net name under it.
+fn negative_symbol(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: Camera,
+    top: Point,
+    name: &str,
+    sc: &SheetColours,
+) {
+    let stroke = Stroke::new(2.5, sc.wire);
+    let foot = Point::new(top.x, top.y + 5.0);
+    painter.line_segment(
+        [camera.screen(top, rect), camera.screen(foot, rect)],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            camera.screen(Point::new(foot.x - 1.6, foot.y), rect),
+            camera.screen(Point::new(foot.x + 1.6, foot.y), rect),
+        ],
+        stroke,
+    );
+    painter.text(
+        camera.screen(Point::new(foot.x, foot.y + 0.8), rect),
+        Align2::CENTER_TOP,
+        name,
+        crate::fonts::Role::Mono.font(),
+        sc.wire,
+    );
+}
+
 /// A filled junction dot where three or more wire ends meet.
 fn junction(painter: &egui::Painter, rect: Rect, camera: Camera, at: Point, sc: &SheetColours) {
     painter.circle_filled(camera.screen(at, rect), 4.5, sc.wire);
@@ -783,9 +849,17 @@ pub(super) fn paint_power(
         .filter(|l| l.kind == "power" && p.on_schematic_page(page, l.id))
     {
         let name = p.net_name(l.net);
-        match kinds.get(&l.net) {
-            Some(PowerKind::Ground) => ground_symbol(painter, rect, camera, l.position, name, sc),
-            _ => rail_symbol(painter, rect, camera, l.position, name, sc),
+        match l.style.as_str() {
+            "ground" => ground_symbol(painter, rect, camera, l.position, name, sc),
+            "bar" => rail_symbol(painter, rect, camera, l.position, name, sc),
+            "arrow" => arrow_symbol(painter, rect, camera, l.position, name, sc),
+            "negative" => negative_symbol(painter, rect, camera, l.position, name, sc),
+            _ => match kinds.get(&l.net) {
+                Some(PowerKind::Ground) => {
+                    ground_symbol(painter, rect, camera, l.position, name, sc)
+                }
+                _ => rail_symbol(painter, rect, camera, l.position, name, sc),
+            },
         }
     }
 }
