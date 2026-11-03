@@ -33,7 +33,7 @@ pub(crate) struct Row {
     pub(crate) loudness: Loudness,
     /// Library findings name the footprint they are about.
     pub(crate) footprint: Option<String>,
-    /// Library findings carry a plain way to fix them.
+    /// A plain way to fix the finding, when the check provides one.
     pub(crate) hint: String,
 }
 
@@ -108,7 +108,11 @@ impl FindingSet {
                         .unwrap_or_default(),
                     loudness,
                     footprint: None,
-                    hint: String::new(),
+                    hint: f
+                        .get("hint")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned(),
                 });
             }
         }
@@ -177,5 +181,56 @@ impl App {
     pub(crate) fn findings(&mut self) -> FindingSet {
         self.refresh_footprint_quality();
         FindingSet::build(&self.checks, &self.library.quality.findings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Issue #110: a DRC finding that carries a fix hint keeps that hint
+    /// when the finding set is built from the checks JSON.
+    #[test]
+    fn a_drc_finding_keeps_its_fix_hint() -> Result<(), String> {
+        let checks = json!({
+            "drc": [
+                {
+                    "code": "hole_to_copper_npth",
+                    "severity": "error",
+                    "message": "m",
+                    "objects": [1],
+                    "hint": "Move the copper away from the hole."
+                },
+                {
+                    "code": "clearance",
+                    "severity": "error",
+                    "message": "n",
+                    "objects": [2]
+                }
+            ]
+        });
+        let set = FindingSet::build(&checks, &[]);
+        let rows: Vec<Row> = set
+            .visible(bottom_sheet::SeverityFilter::All)
+            .cloned()
+            .collect();
+        let with_hint = rows
+            .iter()
+            .find(|r| r.code == "hole_to_copper_npth")
+            .ok_or("the hint finding is in the set")?;
+        assert_eq!(
+            with_hint.hint, "Move the copper away from the hole.",
+            "the fix hint survived into the row"
+        );
+        let without = rows
+            .iter()
+            .find(|r| r.code == "clearance")
+            .ok_or("the plain finding is in the set")?;
+        assert!(
+            without.hint.is_empty(),
+            "a finding without a hint has an empty hint"
+        );
+        Ok(())
     }
 }

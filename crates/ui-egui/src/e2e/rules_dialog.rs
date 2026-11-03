@@ -178,3 +178,52 @@ fn a_newcomer_is_told_a_mounting_hole_sits_too_close_to_copper() -> Result<(), S
     );
     Ok(())
 }
+
+/// Issue #110: Run checks on a hole that is too close to copper and the results
+/// list shows the fix hint alongside the finding.
+#[test]
+fn a_newcomer_is_told_how_to_fix_a_hole_too_close_to_copper() -> Result<(), String> {
+    let (ctx, mut app) = board();
+    app.run("board.fab_limits.set", json!({"hole_to_copper_npth": 0.4}));
+    tap_strip(&ctx, &mut app, "button:Mounting hole")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.canvas_click(Point::new(-25.0, -17.0), 1.0);
+    app.tool = Tool::Select;
+    let net = app.project.nets.first().ok_or("the sample has nets")?.id;
+    app.run(
+        "track.add",
+        json!({
+            "net": net,
+            "start": {"x": -35.0, "y": -15.05},
+            "end": {"x": -15.0, "y": -15.05},
+            "width": 0.2,
+            "layer": "F.Cu"
+        }),
+    );
+    app.refresh();
+    let findings = pcbcraft_rules::drc(&app.project);
+    let has_finding = findings.iter().any(|f| f.code == "hole_to_copper_npth");
+    assert!(
+        has_finding,
+        "the engine reports the close copper: {}",
+        app.message
+    );
+    let has_hint = findings
+        .iter()
+        .find(|f| f.code == "hole_to_copper_npth")
+        .and_then(|f| f.hint.as_ref())
+        .is_some();
+    assert!(has_hint, "the check provides a fix hint: {}", app.message);
+    open_from_menu(&ctx, &mut app)?;
+    tap_id(&ctx, &mut app, "button:Run checks")?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let hint_shown = paints_text(&ctx, &mut app, "Move the copper away from the hole.")?;
+    assert!(
+        hint_shown,
+        "the results show how to fix it: {}",
+        app.message
+    );
+    Ok(())
+}
