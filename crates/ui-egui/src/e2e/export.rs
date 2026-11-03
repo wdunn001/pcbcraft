@@ -377,6 +377,34 @@ fn a_newcomer_gets_a_bring_up_checklist_for_the_board() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_exports_the_per_net_signal_integrity_results() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    // The SI export is in the full list, not the common items.
+    file_export(&ctx, &mut app, "More…")?;
+    authoring::tests::tap(&ctx, &mut app, "Signal integrity results (CSV)")?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    let results = std::fs::read_to_string(dir.path().join("si-net-results.csv"))
+        .map_err(|e| e.to_string())?;
+    assert!(
+        results.contains("NET,CLASS") && results.contains("IMPEDANCE_OHM"),
+        "the per-net results list nets with impedance columns: {results}"
+    );
+    // The impedance table is a separate export used in the fab package.
+    authoring::tests::tap(&ctx, &mut app, "File")?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    authoring::tests::tap(&ctx, &mut app, "More…")?;
+    authoring::tests::tap(&ctx, &mut app, "Impedance table (CSV)")?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    let table = std::fs::read_to_string(dir.path().join("impedance-table.csv"))
+        .map_err(|e| e.to_string())?;
+    assert!(
+        table.contains("method:"),
+        "the impedance table states its method: {table}"
+    );
+    Ok(())
+}
+#[test]
 fn a_newcomer_sees_no_format_in_the_file_menu() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());
