@@ -277,9 +277,13 @@ pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
     let paper = Some(settings.size.clone())
         .filter(|s| !s.is_empty())
         .or_else(|| p.meta.get("paper").map(|s| s.trim().to_ascii_uppercase()));
+    // The Main sheet holds every page side by side, so a paper size that cannot
+    // hold them all gives way to the smallest one that can.
+    let main_of_many = page == 0 && !p.sheets.is_empty();
     let picked = paper
         .as_deref()
         .and_then(|name| SHEET_SIZES.iter().find(|s| s.0 == name))
+        .filter(|s| !main_of_many || fits(s.1, s.2))
         .or_else(|| SHEET_SIZES.iter().find(|s| fits(s.1, s.2)))
         .copied()
         .unwrap_or(SHEET_SIZES[SHEET_SIZES.len() - 1]);

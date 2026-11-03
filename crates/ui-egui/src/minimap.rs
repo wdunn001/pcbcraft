@@ -721,7 +721,16 @@ impl App {
         {
             return o.clone();
         }
-        let overview = build_overview(&self.project, self.tab == Tab::Pcb, page);
+        let pcb = self.tab == Tab::Pcb;
+        let overview = if !pcb && page == 0 && !self.project.sheets.is_empty() {
+            build_overview(
+                &crate::page_scope::main_sheet_project(&self.project),
+                pcb,
+                page,
+            )
+        } else {
+            build_overview(&self.project, pcb, page)
+        };
         self.minimap.cache = Some((key, overview.clone()));
         overview
     }
@@ -832,8 +841,15 @@ impl App {
         };
         let view = view_box(camera, canvas.size());
         let finding_ids = finding_ids(&self.checks, pcb);
+        let main_project;
+        let map_project = if !pcb && page == 0 && !self.project.sheets.is_empty() {
+            main_project = crate::page_scope::main_sheet_project(&self.project);
+            &main_project
+        } else {
+            &self.project
+        };
         let marks = build_marks(
-            &self.project,
+            map_project,
             pcb,
             page,
             &finding_ids,

@@ -139,14 +139,14 @@ impl App {
             self.message = t!("schematic.port.no_net");
             return;
         };
-        let page = self.schematic_page();
+        let (page, local) = self.spot_to_page(snap(pos));
         self.tool_call(
             "schematic.place_port",
             json!({
                 "name": name,
                 "net": net,
                 "sheet": page,
-                "position": snap(pos),
+                "position": local,
             }),
         );
     }

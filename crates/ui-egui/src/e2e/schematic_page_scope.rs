@@ -102,6 +102,8 @@ fn loneliest(app: &App, page: Id) -> Result<(Id, Point), String> {
 
 /// Centre the view on `at` and click there with the real pointer.
 fn click_world(ctx: &egui::Context, app: &mut App, at: Point) -> Result<(), String> {
+    // Zoom in to working size: the whole circuit is too small to click one part.
+    app.schematic.zoom = 8.0;
     app.schematic.center = at;
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     let screen = app.schematic.screen(at, app.canvas_rect);
@@ -213,7 +215,12 @@ fn a_newcomer_sees_the_whole_circuit_as_one_sheet_on_main() -> Result<(), String
 fn a_newcomer_selects_a_part_from_another_page_on_main() -> Result<(), String> {
     let (ctx, mut app) = showcase()?;
     let page = page_id(&app, "Sensors and indicators")?;
-    let (part, at) = loneliest(&app, page)?;
+    let (part, _) = loneliest(&app, page)?;
+    let at = app
+        .sheet_view()
+        .component(part)
+        .ok_or("placed part missing")?
+        .position;
     click_world(&ctx, &mut app, at)?;
     assert_eq!(app.schematic_page(), 0, "the view stays on Main");
     assert_eq!(
@@ -243,5 +250,166 @@ fn a_newcomer_selects_a_part_from_another_page_on_main() -> Result<(), String> {
         1,
         "only that part changed"
     );
+    Ok(())
+}
+
+/// The box around every part of each page, as Main places them.
+fn placed_boxes(app: &App) -> Vec<(Id, Id, (Point, Point))> {
+    app.project
+        .components
+        .iter()
+        .filter_map(|c| app.bounds_of(c.id).map(|b| (c.sheet, c.id, b)))
+        .collect()
+}
+
+fn touch(a: (Point, Point), b: (Point, Point)) -> bool {
+    a.0.x <= b.1.x && a.1.x >= b.0.x && a.0.y <= b.1.y && a.1.y >= b.0.y
+}
+
+#[test]
+fn a_newcomer_sees_no_overlap_between_pages_on_main() -> Result<(), String> {
+    let (_ctx, app) = showcase()?;
+    let boxes = placed_boxes(&app);
+    assert_eq!(
+        boxes.len(),
+        app.project.components.len(),
+        "every part has a box"
+    );
+    for (i, a) in boxes.iter().enumerate() {
+        for b in &boxes[i + 1..] {
+            if a.0 != b.0 {
+                assert!(
+                    !touch(a.2, b.2),
+                    "part {} of page {} touches part {} of page {} on Main",
+                    a.1,
+                    a.0,
+                    b.1,
+                    b.0
+                );
+            }
+        }
+    }
+    let instances = crate::page_scope::main_instances(&app.project);
+    assert!(
+        instances.iter().skip(1).all(|i| i.offset.x > 0.0),
+        "later pages sit to the right of Main: {instances:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_selects_the_right_part_on_main_after_placement() -> Result<(), String> {
+    let (ctx, mut app) = showcase()?;
+    let page = page_id(&app, "Sensors and indicators")?;
+    // The page-two part whose own coordinates sit closest to a part of another page.
+    let mut best: Option<(f64, Id)> = None;
+    for c in app.project.components.iter().filter(|c| c.sheet == page) {
+        for o in app.project.components.iter().filter(|o| o.sheet != page) {
+            let d = o.position.distance(c.position);
+            if best.is_none_or(|(k, _)| d < k) {
+                best = Some((d, c.id));
+            }
+        }
+    }
+    let (_, part) = best.ok_or("no parts to compare")?;
+    let own = app.project.component(part).ok_or("part missing")?.position;
+    assert!(
+        app.project
+            .components
+            .iter()
+            .any(|o| o.sheet != page && o.position.distance(own) < 12.0),
+        "a part of another page sits near the same page coordinates"
+    );
+    let placed = {
+        let sheet = app.sheet_view();
+        sheet.component(part).ok_or("placed part missing")?.position
+    };
+    assert!(placed.x > own.x + 10.0, "Main moved the part to the right");
+    click_world(&ctx, &mut app, placed)?;
+    assert_eq!(
+        app.selected,
+        Some(part),
+        "the click selects the part of page two"
+    );
+    assert_eq!(app.schematic_page(), 0, "the view stays on Main");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_drags_a_part_on_main_and_it_lands_in_page_coordinates() -> Result<(), String> {
+    let (ctx, mut app) = showcase()?;
+    let page = page_id(&app, "Sensors and indicators")?;
+    let part = {
+        // A part whose middle is not covered by a pin or a label.
+        let ids: Vec<Id> = app
+            .project
+            .components
+            .iter()
+            .filter(|c| c.sheet == page)
+            .map(|c| c.id)
+            .collect();
+        let mut found = None;
+        for id in ids {
+            let (lo, hi) = app.bounds_of(id).ok_or("part has no box")?;
+            let mid = Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+            if matches!(app.hit_at(mid, 3.0), canvas::gestures::Hit::Part(h) if h == id) {
+                found = Some(id);
+                break;
+            }
+        }
+        found.ok_or("no part can be pressed in its middle")?
+    };
+    let before = app.project.component(part).ok_or("part missing")?.position;
+    let placed = {
+        let sheet = app.sheet_view();
+        sheet.component(part).ok_or("placed part missing")?.position
+    };
+    app.schematic.zoom = 8.0;
+    app.schematic.center = placed;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let from = super::modifiers::centre_of(&app, part)?;
+    let world = app.schematic.world(from, app.canvas_rect);
+    assert!(
+        matches!(
+            app.hit_at(world, app.schematic.zoom),
+            canvas::gestures::Hit::Part(_)
+        ),
+        "the press lands on the part"
+    );
+    let to = from + Vec2::new(5.0 * app.schematic.zoom, 0.0);
+    super::modifiers::drag(&ctx, &mut app, from, to, egui::Modifiers::NONE);
+    let after = app.project.component(part).ok_or("part missing")?.position;
+    let moved = after.x - before.x;
+    assert!(
+        (moved - 5.0).abs() <= 1.0 && (after.y - before.y).abs() <= 1.0,
+        "the part moved by the drag (about 5 mm), not by the page offset: {before:?} to {after:?}"
+    );
+    assert_eq!(
+        app.project.component(part).map(|c| c.sheet),
+        Some(page),
+        "the part keeps its own page"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_fits_the_whole_circuit_on_main() -> Result<(), String> {
+    let (ctx, mut app) = showcase()?;
+    // Push the view away so the Fit control shows.
+    app.schematic.center = Point::new(900.0, 900.0);
+    app.schematic.zoom *= 2.0;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "icon:canvas-fit")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let sheet = app.sheet_view();
+    for c in &sheet.components {
+        let at = app.schematic.screen(c.position, app.canvas_rect);
+        assert!(
+            app.canvas_rect.contains(at),
+            "part {} of page {} is inside the window after Fit",
+            c.id,
+            c.sheet
+        );
+    }
     Ok(())
 }

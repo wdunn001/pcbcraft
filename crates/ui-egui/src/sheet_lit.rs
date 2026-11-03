@@ -98,12 +98,12 @@ impl App {
         painter: &egui::Painter,
         rect: Rect,
         camera: Camera,
+        p: &Project,
         page: Id,
     ) {
         let Some(lit) = self.sheet_lit() else {
             return;
         };
-        let p = &self.project;
         let stroke = Stroke::new(3.5, self.accent());
         for w in p.wires.iter().filter(|w| {
             lit.nets.contains(&w.net) && crate::page_scope::object_in_view(p, page, w.id)
