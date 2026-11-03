@@ -97,7 +97,19 @@ pub fn polygon_union(polys: &[Ring]) -> Vec<Ring> {
     rings_from_shapes(&acc)
 }
 
-/// Parts of the subject rings that lie outside every clip ring.
+/// Parts of the subject rings that lie outside every clip ring. This is the geometric basis
+/// for copper rubout: the clip rings are the copper shapes grown by the tool radius, and the
+/// result is the area the bit can safely clear.
+///
+/// # Rules
+/// - Empty subject returns an empty result.
+/// - Clip rings are unioned first to handle overlaps.
+///
+/// # Dependencies
+/// - crates/geom/src/overlay.rs (polygon_union, ring_to_shape)
+///
+/// # Do not
+/// - Assume the output is in the same order as the input subject rings.
 pub fn polygon_difference(subject: &[Ring], clip: &[Ring]) -> Vec<Ring> {
     let mut shapes: Vec<Vec<Vec<Point>>> = vec![];
     for ring in subject {
