@@ -8635,6 +8635,22 @@ fn zip_bytes(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
 mod tests {
 
     use super::*;
+    #[cfg(not(target_arch = "wasm32"))]
+    fn assert_gerber_files_parse(files: &BTreeMap<String, String>) -> Result<(), String> {
+        use std::io::BufReader;
+        for (name, text) in files {
+            if name.ends_with(".gbr") {
+                let reader = BufReader::new(text.as_bytes());
+                match gerber_parser::parse(reader) {
+                    Ok(_) => {}
+                    Err((_, e)) => {
+                        return Err(format!("gerber_parser failed on {name}: {:?}", e));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
     #[test]
     fn design_block_round_trip_preserves_template_sheet() -> Result<(), String> {
         let mut project = Project::default();
@@ -10575,6 +10591,7 @@ mod tests {
         project.unit = "inch".into();
         project.validate()?;
         let files = gerber_files(&project)?;
+        assert_gerber_files_parse(&files)?;
         let back = &files["pcb-B.Cu.gbr"];
         assert!(
             back.contains("MOIN*%"),
@@ -10798,6 +10815,7 @@ mod tests {
         });
         project.validate()?;
         let files = gerber_files(&project)?;
+        assert_gerber_files_parse(&files)?;
         assert_eq!(
             files.keys().collect::<Vec<_>>(),
             vec![
