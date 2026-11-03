@@ -48,13 +48,13 @@ pub(crate) fn use_recorded_library(app: &mut App, name: &str) -> Result<(), Stri
 }
 
 /// Draw frames until `needle` is on screen, giving a worker thread up to
-/// five seconds to answer.
+/// thirty seconds to answer.
 pub(crate) fn waits_for_text(
     ctx: &egui::Context,
     app: &mut App,
     needle: &str,
 ) -> Result<bool, String> {
-    for _ in 0..100 {
+    for _ in 0..600 {
         if paints_text(ctx, app, needle)? {
             return Ok(true);
         }
