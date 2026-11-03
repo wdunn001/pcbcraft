@@ -743,6 +743,37 @@ fn command_tip(id: &str) -> String {
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+/// The part of the window that belongs to one open design.
+///
+/// Why: switching design tabs must bring back the workbench tab and the
+/// selection that design had, not the ones of the design you just left.
+///
+/// # Rules
+/// - One per hub index, grown on demand by `App::adopt_active_document`.
+/// - A design never shown yet starts on the Schematic with nothing selected.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/lib.rs (`App::tool_call` saves and restores it)
+///
+/// # Do not
+/// - Hold the design itself here; the engine session stays in the hub.
+#[derive(Clone, Copy, Debug)]
+struct DocView {
+    tab: Tab,
+    selected: Option<Id>,
+    selected_unit: u32,
+}
+
+impl Default for DocView {
+    fn default() -> Self {
+        Self {
+            tab: Tab::Schematic,
+            selected: None,
+            selected_unit: 1,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
     Files,
@@ -1196,6 +1227,14 @@ impl Camera {
 pub use assistant::Host;
 pub struct App {
     session: SharedSession,
+    /// The open designs, shared with the control bridge; `None` in the browser build.
+    hub: Option<pcbcraft_mcp::DocumentHub>,
+    /// What each open design last showed, by hub index (see [`DocView`]).
+    doc_views: Vec<DocView>,
+    /// Hub index of the design this window shows now.
+    doc_active: usize,
+    /// The tab the Files page was reached from; the design's own view while Files shows.
+    tab_before_files: Tab,
     assistant: assistant::State,
     project: Project,
     revision: u64,
@@ -1792,6 +1831,24 @@ impl App {
         self.recovery_open = !self.recovery_offer.is_empty();
     }
 
+    /// Let this window hold several open designs through `hub`.
+    ///
+    /// Why: the control bridge and the window must share one list of designs, so
+    /// File > Open adds a design tab and the tab strip switches between them.
+    ///
+    /// # Rules
+    /// - Call it once, with the hub whose active session this window was created from.
+    /// - With one design open no strip shows; the second design adds it.
+    ///
+    /// # Dependencies
+    /// - crates/mcp/src/document_hub.rs (`DocumentHub` owns the sessions)
+    ///
+    /// # Do not
+    /// - Call it in the browser build, where designs are not opened from disk.
+    pub fn with_hub(mut self, hub: pcbcraft_mcp::DocumentHub) -> Self {
+        self.hub = Some(hub);
+        self
+    }
     pub fn with_project_path(mut self, path: Option<String>) -> Self {
         if let Some(path) = path {
             self.path = path;
@@ -2140,6 +2197,10 @@ impl App {
             height,
             cutout_radius: 1.6,
             path: files_home::DEFAULT_PROJECT_PATH.into(),
+            hub: None,
+            doc_views: Vec::new(),
+            doc_active: 0,
+            tab_before_files: Tab::Schematic,
             saved_revision: None,
             command: "component.add".into(),
             params: "{\"kind\":\"resistor\",\"position\":{\"x\":30,\"y\":20}}".into(),
@@ -2457,8 +2518,24 @@ impl App {
             self.message = browser::refusal();
             return false;
         }
-        let result = pcbcraft_mcp::call_tool(&self.session, name, &args);
+        let outgoing = DocView {
+            // Files is a page of the window, not of one design.
+            tab: if self.tab == Tab::Files {
+                self.tab_before_files
+            } else {
+                self.tab
+            },
+            selected: self.selected,
+            selected_unit: self.selected_unit,
+        };
+        let result = match &self.hub {
+            Some(hub) => hub.call_tool(name, &args),
+            None => pcbcraft_mcp::call_tool(&self.session, name, &args),
+        };
         let success = result.get("isError").and_then(Value::as_bool) != Some(true);
+        if success {
+            self.adopt_active_document(name, outgoing);
+        }
         self.message = if success {
             t!("dialogs.tool_call.name_complete", name = name)
         } else {
@@ -2490,6 +2567,125 @@ impl App {
             self.open_setup_wizard();
         }
         success
+    }
+
+    /// Follow the hub when a call moved its active design.
+    ///
+    /// Why: `open` of a second file and `design.activate` change which engine
+    /// session is active; the window must show that one with its own view.
+    ///
+    /// # Rules
+    /// - Stores `outgoing` for the design left behind and restores the stored view of the new one.
+    /// - Only `design.activate` takes the path from the hub; `open` keeps the path the caller typed.
+    ///
+    /// # Dependencies
+    /// - crates/mcp/src/document_hub.rs (`active_index`, `active_session`, `documents`)
+    ///
+    /// # Do not
+    /// - Call it when no hub is set; it returns at once then.
+    fn adopt_active_document(&mut self, name: &str, outgoing: DocView) {
+        let Some(hub) = self.hub.clone() else {
+            return;
+        };
+        let (Ok(index), Ok(session), Ok(docs)) =
+            (hub.active_index(), hub.active_session(), hub.documents())
+        else {
+            return;
+        };
+        if index == self.doc_active {
+            return;
+        }
+        while self.doc_views.len() < docs.len().max(index + 1).max(self.doc_active + 1) {
+            self.doc_views.push(DocView::default());
+        }
+        self.doc_views[self.doc_active] = outgoing;
+        let incoming = self.doc_views[index];
+        self.doc_active = index;
+        self.session = session;
+        // A revision no design has makes the next refresh reload everything.
+        self.revision = u64::MAX;
+        if name == "design.activate"
+            && let Some(doc) = docs.get(index)
+        {
+            self.path = doc.path.clone();
+            self.saved_revision = doc.saved_revision;
+        }
+        self.tab = incoming.tab;
+        self.selected = incoming.selected;
+        self.selected_unit = incoming.selected_unit;
+        self.tree.selected_key = None;
+        self.edit.extra.clear();
+        self.tool = Tool::Select;
+        self.drag = None;
+        self.needs_fit = true;
+        self.adopt_legacy_selection();
+    }
+    /// The strip of open designs under the app bar, shown from the second design on.
+    ///
+    /// Why: a person with two designs open needs one click to move between them and
+    /// a sign of which have edits that are not saved.
+    ///
+    /// # Rules
+    /// - One tab per open design; the active one is underlined, a copper dot marks unsaved edits.
+    /// - A click runs `design.activate`, the same tool the control bridge offers.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/ui_kit/tab_bar.rs (the tab row)
+    /// - crates/mcp/src/document_hub.rs (`documents`)
+    ///
+    /// # Do not
+    /// - Draw it for a single design; the window keeps its old look then.
+    fn document_tabs(&mut self, ui: &mut egui::Ui) {
+        let Some(hub) = self.hub.clone() else {
+            return;
+        };
+        let Ok(docs) = hub.documents() else {
+            return;
+        };
+        if docs.len() < 2 {
+            return;
+        }
+        let tips: Vec<String> = docs
+            .iter()
+            .map(|d| {
+                if d.dirty {
+                    t!("shell.document_tabs.switch_unsaved", name = d.name)
+                } else {
+                    t!("shell.document_tabs.switch", name = d.name)
+                }
+            })
+            .collect();
+        let items: Vec<ui_kit::tab_bar::TabItem<'_>> = docs
+            .iter()
+            .zip(&tips)
+            .map(|(d, tip)| ui_kit::tab_bar::TabItem {
+                dirty: d.dirty,
+                ..ui_kit::tab_bar::TabItem::new(&d.name, tip)
+            })
+            .collect();
+        let tokens = theme::tokens(ui.ctx());
+        let mut index = hub.active_index().unwrap_or(0);
+        let was = index;
+        egui::Panel::top("document-tabs")
+            .exact_size(theme::BAR_HEIGHT)
+            .frame(
+                egui::Frame::NONE
+                    .fill(tokens.ground)
+                    .inner_margin(egui::Margin::symmetric(8, 0)),
+            )
+            .show(ui, |ui| {
+                ui_kit::tab_bar::tab_bar(
+                    ui,
+                    "document-tabs",
+                    &mut index,
+                    &items,
+                    ui_kit::tab_bar::TabSize::Aside,
+                    None,
+                );
+            });
+        if index != was {
+            self.tool_call("design.activate", json!({"index": index}));
+        }
     }
 
     fn colours(&self) -> palette::ThemeColours {
@@ -8138,6 +8334,7 @@ impl App {
         self.datasheet_pane.ui(&ctx);
         self.edit_events(&ctx);
         self.header(ui);
+        self.document_tabs(ui);
         self.footer(ui);
         self.renumber_window(&ctx);
         self.rules_dialog_window(&ctx);

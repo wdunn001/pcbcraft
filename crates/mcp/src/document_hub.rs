@@ -338,6 +338,89 @@ impl DocumentHub {
     }
 }
 
+/// One open design as the document tab strip shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DocumentSummary {
+    /// Position of the design in the hub, starting at 0.
+    pub index: usize,
+    /// File path, empty for a design that was never saved.
+    pub path: String,
+    /// Tab label: project name, else file name, else a plain untitled label.
+    pub name: String,
+    /// Engine revision of the design now.
+    pub revision: u64,
+    /// Revision last written to disk or loaded, `None` before either.
+    pub saved_revision: Option<u64>,
+    /// True when the design has edits that are not saved.
+    pub dirty: bool,
+}
+
+impl DocumentHub {
+    /// Index of the design that receives tool calls.
+    ///
+    /// The desktop window reads it after each call to see whether a call
+    /// moved the active design, and then swaps its own per-design view.
+    ///
+    /// # Rules
+    /// - Returns an error when the lock is poisoned.
+    /// - The index is always below the number of open designs.
+    ///
+    /// # Dependencies
+    /// - crates/mcp/src/document_hub.rs (`HubState` holds the index)
+    ///
+    /// # Do not
+    /// - Cache the value across tool calls; `open` and `design.activate` change it.
+    pub fn active_index(&self) -> Result<usize, String> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| "session unavailable after internal failure".to_string())?
+            .active)
+    }
+
+    /// List every open design with its title and unsaved-edits flag.
+    ///
+    /// The document tab strip draws one tab per entry and a dot on the
+    /// entries that are dirty, from the same rule the `design.list_open` tool uses.
+    ///
+    /// # Rules
+    /// - At most eight entries, in tab order.
+    /// - Returns an error when a lock is poisoned.
+    ///
+    /// # Dependencies
+    /// - crates/engine/src/design_document.rs (`display_title`, `is_dirty`)
+    ///
+    /// # Do not
+    /// - Hold the result across edits; ask again each frame.
+    pub fn documents(&self) -> Result<Vec<DocumentSummary>, String> {
+        let state = self
+            .inner
+            .lock()
+            .map_err(|_| "session unavailable after internal failure".to_string())?;
+        let mut out = Vec::with_capacity(state.slots.len());
+        for (index, slot) in state.slots.iter().enumerate() {
+            let locked = slot
+                .session
+                .lock()
+                .map_err(|_| "session unavailable after internal failure".to_string())?;
+            out.push(DocumentSummary {
+                index,
+                path: slot.path.clone(),
+                name: display_title(&locked.project.name, &slot.path),
+                revision: locked.revision,
+                saved_revision: slot.saved_revision,
+                dirty: is_dirty(
+                    slot.saved_revision,
+                    locked.revision,
+                    &slot.path,
+                    project_has_content(&locked.project),
+                ),
+            });
+        }
+        Ok(out)
+    }
+}
+
 fn string_param<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
         .and_then(Value::as_str)
@@ -384,13 +467,5 @@ impl DocumentHub {
             .lock()
             .map_err(|_| "session unavailable after internal failure".to_string())?
             .revision)
-    }
-
-    pub fn active_index(&self) -> Result<usize, String> {
-        Ok(self
-            .inner
-            .lock()
-            .map_err(|_| "session unavailable after internal failure".to_string())?
-            .active)
     }
 }

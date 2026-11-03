@@ -21,6 +21,12 @@ Open the sample with `cargo run -p pcbcraft -- --sample` and make a change, for 
 
 The status strip tells you what happened. Saving again replaces the file with the current design.
 
+## Keep several designs open
+
+1. Open a design with **File**, **Open**. If a design is already open, the new one opens beside it.
+2. Click a name in the strip of design tabs under the menu bar to switch. Each design comes back on the tab it was on, Schematic or Layout.
+3. A copper dot after a name means that design has changes you have not saved. Save it and the dot goes.
+
 ## Find the file
 
 1. Click the **Files** tab.

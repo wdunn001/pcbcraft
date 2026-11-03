@@ -1413,111 +1413,161 @@ fn a_newcomer_sees_that_saving_needs_the_desktop_app() -> Result<(), String> {
     Ok(())
 }
 
-#[test]
-fn a_newcomer_switches_design_tabs_and_sees_their_own_view() -> Result<(), String> {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, None);
-    app.refresh();
-    let ctx = egui::Context::default();
+/// A window that holds several designs the way the desktop does: one hub,
+/// the window created from its active session, and a settings folder of its own.
+struct DesignTabs {
+    ctx: egui::Context,
+    app: App,
+    hub: pcbcraft_mcp::DocumentHub,
+    first: String,
+    second: String,
+    _dir: tempfile::TempDir,
+}
 
+fn design_tabs() -> Result<DesignTabs, String> {
+    let (config, _) = private_config("design-tabs")?;
+    let mut session = pcbcraft_engine::Session::default();
+    session.config = config;
+    let project = session.project.clone();
+    let hub = pcbcraft_mcp::DocumentHub::new(session, None)?;
+    let mut app = App::create(hub.active_session()?, Preferences::default(), None, None)
+        .with_hub(hub.clone());
+    app.refresh();
+    app.home_open = false;
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let first = dir.path().join("first.pcbcraft");
     let second = dir.path().join("second.pcbcraft");
-    pcbcraft_io::save(&app.project, &first).map_err(|e| e.to_string())?;
-    pcbcraft_io::save(&app.project, &second).map_err(|e| e.to_string())?;
+    pcbcraft_io::save(&project, &first).map_err(|e| e.to_string())?;
+    pcbcraft_io::save(&project, &second).map_err(|e| e.to_string())?;
+    Ok(DesignTabs {
+        ctx: egui::Context::default(),
+        app,
+        hub,
+        first: first.to_string_lossy().into_owned(),
+        second: second.to_string_lossy().into_owned(),
+        _dir: dir,
+    })
+}
 
-    app.tool_call("open", json!({"path": first.to_string_lossy()}));
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-
-    app.tool_call(
-        "execute",
-        json!({"command": "net.create", "params": {"name": "FIRST"}}),
-    );
-    app.change_tab(Tab::Pcb);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+/// File > Open, type the path, press Enter: the way a person opens a design.
+fn open_from_file_menu(w: &mut DesignTabs, path: &str) -> Result<(), String> {
+    authoring::tests::tap(&w.ctx, &mut w.app, "File")?;
+    authoring::tests::tap(&w.ctx, &mut w.app, "Open…")?;
+    type_into(&w.ctx, &mut w.app, "textinput:Project path", path)?;
     assert_eq!(
-        app.tab,
-        Tab::Pcb,
-        "first design is on Layout: {}",
-        app.message
-    );
-
-    app.tool_call("open", json!({"path": second.to_string_lossy()}));
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.tool_call(
-        "execute",
-        json!({"command": "net.create", "params": {"name": "SECOND"}}),
-    );
-    app.change_tab(Tab::Schematic);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert_eq!(
-        app.tab,
+        w.app.tab,
         Tab::Schematic,
-        "second design is on Schematic: {}",
-        app.message
+        "opening {path} lands on the drawing: {}",
+        w.app.message
+    );
+    Ok(())
+}
+
+/// Copper dots painted in the document tab strip this frame.
+fn dirty_dots(w: &mut DesignTabs) -> usize {
+    frame(&w.ctx, &mut w.app, vec![], egui::Modifiers::NONE);
+    let output = frame(&w.ctx, &mut w.app, vec![], egui::Modifiers::NONE);
+    let copper = theme::tokens(&w.ctx).copper;
+    let top = App::APP_BAR_HEIGHT;
+    let bottom = top + theme::BAR_HEIGHT;
+    output
+        .shapes
+        .iter()
+        .filter(|shape| {
+            matches!(
+                &shape.shape,
+                egui::Shape::Circle(c)
+                    if c.fill == copper && c.center.y > top && c.center.y < bottom
+            )
+        })
+        .count()
+}
+
+#[test]
+fn a_newcomer_switches_design_tabs_and_sees_their_own_view() -> Result<(), String> {
+    let mut w = design_tabs()?;
+    let (first, second) = (w.first.clone(), w.second.clone());
+    open_from_file_menu(&mut w, &first)?;
+    authoring::tests::tap(&w.ctx, &mut w.app, "Layout")?;
+    assert_eq!(w.app.tab, Tab::Pcb, "the first design is on Layout");
+
+    open_from_file_menu(&mut w, &second)?;
+    for name in ["first.pcbcraft", "second.pcbcraft"] {
+        assert!(
+            paints_text(&w.ctx, &mut w.app, name)?,
+            "a tab for {name} is on screen: {}",
+            w.app.message
+        );
+    }
+    assert_eq!(
+        w.hub.active_index()?,
+        1,
+        "the second design is the active one"
+    );
+    assert_eq!(
+        w.app.tab,
+        Tab::Schematic,
+        "the second design is on Schematic"
     );
 
-    app.tool_call("design.activate", json!({"index": 0}));
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&w.ctx, &mut w.app, "first.pcbcraft")?;
+    assert_eq!(w.hub.active_index()?, 0, "the first tab activates design 0");
     assert_eq!(
-        app.tab,
+        w.app.tab,
         Tab::Pcb,
         "switching back to design 0 restores its Layout tab: {}",
-        app.message
+        w.app.message
     );
 
-    app.tool_call("design.activate", json!({"index": 1}));
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&w.ctx, &mut w.app, "second.pcbcraft")?;
     assert_eq!(
-        app.tab,
+        w.hub.active_index()?,
+        1,
+        "the second tab activates design 1"
+    );
+    assert_eq!(
+        w.app.tab,
         Tab::Schematic,
         "switching to design 1 restores its Schematic tab: {}",
-        app.message
+        w.app.message
     );
-
     Ok(())
 }
 
 #[test]
 fn a_newcomer_sees_the_dirty_dot_disappear_after_save() -> Result<(), String> {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, None);
-    app.refresh();
-    let ctx = egui::Context::default();
-
-    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let path = dir.path().join("dirty.pcbcraft");
-    pcbcraft_io::save(&app.project, &path).map_err(|e| e.to_string())?;
-
-    app.tool_call("open", json!({"path": path.to_string_lossy()}));
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-
-    app.tool_call(
-        "execute",
-        json!({"command": "net.create", "params": {"name": "DIRTY"}}),
+    let mut w = design_tabs()?;
+    let (first, second) = (w.first.clone(), w.second.clone());
+    open_from_file_menu(&mut w, &first)?;
+    open_from_file_menu(&mut w, &second)?;
+    assert_eq!(
+        dirty_dots(&mut w),
+        0,
+        "two freshly opened designs show no dot"
     );
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
 
-    let listed = pcbcraft_mcp::call_tool(&app.session, "design.list_open", &json!({}));
+    authoring::tests::tap(&w.ctx, &mut w.app, "Layout")?;
+    open_tree_row(&w.ctx, &mut w.app, "root");
     assert!(
-        listed
-            .pointer("/structuredContent/documents/0/dirty")
-            .and_then(serde_json::Value::as_bool)
-            == Some(true),
-        "the document should be dirty after an edit: {listed}"
+        scrolled_to(&w.ctx, &mut w.app, "SHAPE")?,
+        "board settings has a Shape section: {}",
+        w.app.message
+    );
+    authoring::tests::tap(&w.ctx, &mut w.app, "Circle")?;
+    assert_eq!(
+        dirty_dots(&mut w),
+        1,
+        "the edited design, and only it, shows the dot: {}",
+        w.app.message
     );
 
-    app.tool_call("save", json!({"path": path.to_string_lossy()}));
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-
-    let listed = pcbcraft_mcp::call_tool(&app.session, "design.list_open", &json!({}));
-    assert!(
-        listed
-            .pointer("/structuredContent/documents/0/dirty")
-            .and_then(serde_json::Value::as_bool)
-            == Some(false),
-        "the document should be clean after save: {listed}"
+    authoring::tests::tap(&w.ctx, &mut w.app, "File")?;
+    authoring::tests::tap(&w.ctx, &mut w.app, "Save")?;
+    assert_eq!(
+        dirty_dots(&mut w),
+        0,
+        "saving takes the dot away: {}",
+        w.app.message
     );
-
     Ok(())
 }

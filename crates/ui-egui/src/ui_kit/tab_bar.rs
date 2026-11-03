@@ -65,6 +65,8 @@ pub struct TabItem<'a> {
     pub icon: Option<Icon>,
     /// Optional count or status badge after the label.
     pub badge: Option<(String, BadgeKind)>,
+    /// A copper dot after the label: the design behind the tab has unsaved edits.
+    pub dirty: bool,
 }
 
 impl<'a> TabItem<'a> {
@@ -75,6 +77,7 @@ impl<'a> TabItem<'a> {
             tip,
             icon: None,
             badge: None,
+            dirty: false,
         }
     }
 }
@@ -83,6 +86,9 @@ impl<'a> TabItem<'a> {
 pub fn tab_id(_ui: &Ui, salt: impl Hash + std::fmt::Debug, index: usize) -> Id {
     Id::new(salt).with(index)
 }
+
+/// Radius of the unsaved-edits dot.
+const DIRTY_DOT: f32 = 3.5;
 
 fn label_font(active: bool) -> egui::FontId {
     if active {
@@ -112,7 +118,12 @@ fn tab_width(ui: &Ui, item: &TabItem<'_>, size: TabSize) -> f32 {
         .badge
         .as_ref()
         .map_or(0.0, |(text, _)| 6.0 + chip::badge_size(ui, text).x);
-    text + icon + badge + 2.0 * size.padding()
+    let dot = if item.dirty {
+        6.0 + DIRTY_DOT * 2.0
+    } else {
+        0.0
+    };
+    text + icon + badge + dot + 2.0 * size.padding()
 }
 
 /// A bar of tabs; `current` is the index of the active one.
@@ -192,7 +203,12 @@ pub fn tab_bar(
                 let badge_width = item
                     .badge
                     .as_ref()
-                    .map_or(0.0, |(text, _)| 6.0 + chip::badge_size(ui, text).x);
+                    .map_or(0.0, |(text, _)| 6.0 + chip::badge_size(ui, text).x)
+                    + if item.dirty {
+                        6.0 + DIRTY_DOT * 2.0
+                    } else {
+                        0.0
+                    };
                 let galley = if squeeze < 1.0 {
                     let room = (rect.width() - 2.0 * pad - icon_width - badge_width).max(0.0);
                     let mut job =
@@ -214,6 +230,11 @@ pub fn tab_bar(
                 ui.painter()
                     .galley(pos2(cx, cy - galley.size().y / 2.0), galley.clone(), ink);
                 cx += galley.size().x;
+                if item.dirty {
+                    ui.painter()
+                        .circle_filled(pos2(cx + 6.0 + DIRTY_DOT, cy), DIRTY_DOT, t.copper);
+                    cx += 6.0 + DIRTY_DOT * 2.0;
+                }
                 if let Some((text, kind)) = &item.badge {
                     let bs = chip::badge_size(ui, text);
                     let br = Rect::from_min_size(pos2(cx + 6.0, cy - bs.y / 2.0), bs);

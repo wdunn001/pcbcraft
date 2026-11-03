@@ -1036,6 +1036,10 @@ settings.settings_tab.at = At
 
 # lib.rs dock_frame
 
+# lib.rs document_tabs
+shell.document_tabs.switch = Switch to {name}
+shell.document_tabs.switch_unsaved = Switch to {name}. It has changes that are not saved.
+
 # lib.rs workbench_tabs
 docks.workbench_tabs.files = Files
 docks.workbench_tabs.schematic = Schematic

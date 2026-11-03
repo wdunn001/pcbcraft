@@ -333,6 +333,7 @@ impl App {
     /// Go to the Files tab on `page`.
     pub(crate) fn show_files(&mut self, page: Page) {
         if self.tab != Tab::Files {
+            self.tab_before_files = self.tab;
             self.change_tab(Tab::Files);
         }
         self.files_home.page = page;

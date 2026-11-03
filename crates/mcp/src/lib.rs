@@ -11,7 +11,7 @@ mod prompts;
 mod resources;
 mod tool_files;
 use base64::Engine as _;
-pub use document_hub::DocumentHub;
+pub use document_hub::{DocumentHub, DocumentSummary};
 use pcbcraft_engine::user_config::UserConfig;
 use pcbcraft_engine::{Command, Session};
 pub use project_host::{MemHost, NativeHost, ProjectHost, replace_session_from_open};

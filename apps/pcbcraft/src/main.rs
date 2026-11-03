@@ -93,6 +93,7 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             Ok(Box::new(
                 pcbcraft_ui_egui::App::new(cc, shared, capture, tab.as_deref(), light)
+                    .with_hub(hub)
                     .with_project_path(project_path)
                     .with_capture_select(select)
                     .with_left_tab(left)
