@@ -328,6 +328,37 @@ impl App {
                         self.run("footprint.set_locked", json!({"id": id, "locked": locked}));
                     }
                 }
+                {
+                    let mut in_bom = c.include_in_bom;
+                    let was_in_bom = in_bom;
+                    toggle_row(
+                        ui,
+                        ROW,
+                        &t!("props.manufacturing.include_in_bom"),
+                        &t!("props.manufacturing.include_in_bom.tip"),
+                        &mut in_bom,
+                    );
+                    if in_bom != was_in_bom {
+                        self.run("component.set_in_bom", json!({"id": id, "include": in_bom}));
+                    }
+                }
+                {
+                    let mut in_placement = c.include_in_placement;
+                    let was_in_placement = in_placement;
+                    toggle_row(
+                        ui,
+                        ROW,
+                        &t!("props.manufacturing.include_in_placement"),
+                        &t!("props.manufacturing.include_in_placement.tip"),
+                        &mut in_placement,
+                    );
+                    if in_placement != was_in_placement {
+                        self.run(
+                            "component.set_in_placement",
+                            json!({"id": id, "include": in_placement}),
+                        );
+                    }
+                }
                 let sheet = Self::datasheet_url(c.field(&t!("board.inspector.datasheet")));
                 form_row(ui, ROW, &t!("props.datasheet"), None, None, |ui| {
                     if ghost_button(
@@ -508,16 +539,28 @@ impl App {
                     self.height = nh;
                     self.run("board.resize", json!({"width": nw, "height": nh}));
                 }
-                form_row(
+                let mut nc = clearance;
+                let cc = form_row(
                     ui,
                     ROW,
                     &t!("props.clearance"),
                     Some(&t!("props.clearance.hint")),
                     None,
                     |ui| {
-                        value_text(ui, &format!("{clearance:.2} mm"));
+                        number_field(
+                            ui,
+                            "board-clearance",
+                            &mut nc,
+                            &spec,
+                            "Board clearance",
+                            &t!("props.clearance.hint"),
+                        )
+                        .changed()
                     },
                 );
+                if cc {
+                    self.run("board.clearance.set", json!({"clearance": nc}));
+                }
             },
         );
         self.board_shape_section(ui);

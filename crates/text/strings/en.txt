@@ -2401,6 +2401,11 @@ props.placement.speed = Speed
 props.placement.speed.tip = How fast the machine places this part, as a percent of its global speed. Slow down tall or delicate parts.
 props.manufacturing = Manufacturing
 props.manufacturing.tip = How the part is built and where its datasheet is.
+props.manufacturing.include_in_bom = Include in parts list
+props.manufacturing.include_in_bom.tip = When ticked this part is listed in the bill of materials. Unticking it keeps the part on the board but drops it from the parts list.
+props.manufacturing.include_in_placement = Include in placement file
+props.manufacturing.include_in_placement.tip = When ticked this part is listed in the pick-and-place and machine placement files. Unticking it leaves the part on the board but drops it from the placement run.
+
 props.datasheet = Datasheet
 props.sourcing = Sourcing
 props.sourcing.tip = Who makes this part, what it is called and where to buy it. These facts go into the bill of materials.
@@ -2445,6 +2450,9 @@ props.sourcing.new_supplier.add = Add supplier
 props.sourcing.new_supplier.add.tip = Add this supplier and number to the part. Both boxes need text.
 props.board = Board
 props.board.tip = The size of the board and its copper spacing.
+props.board.clearance = Clearance
+props.board.clearance.tip = Minimum copper spacing for the whole board. Tighter clearance lets more copper fit but raises the risk of shorts.
+
 props.shape = Shape
 props.shape.tip = Pick a shape for the board edge, such as a circle or an L. The board is cut to this shape in every output.
 shape.rectangle = Rectangle
