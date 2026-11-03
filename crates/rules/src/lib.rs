@@ -28,6 +28,7 @@ mod drill;
 mod finding_set;
 mod hole_copper;
 mod impedance_target;
+mod mask_dam;
 mod pad_kinds;
 mod pair_properties;
 mod parallel_crosstalk;
@@ -97,6 +98,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("cut_hits_via", "error"),
     ("mask_covers_pad", "warning"),
     ("mask_web", "warning"),
+    ("mask_dam", "warning"),
     ("notch_feature", "error"),
     ("pour_fill", "error"),
     ("thermal_starved", "warning"),
@@ -1275,7 +1277,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("power_not_driven", "warning"),
                 message: format!(
                     "{} has a power input but no power source; drive it from a power output, \
-                     a power label or a connector pin",
+                     a power symbol or a connector pin",
                     net.name
                 ),
                 objects: vec![net.id],
@@ -2207,6 +2209,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(courtyard::courtyard_findings(project));
     result.extend(silk::silk_findings(project));
     result.extend(pad_kinds::pad_kind_findings(project));
+    result.extend(mask_dam::mask_dam_findings(project));
     result.extend(drill::drill_findings(project));
     result.extend(drill::drill_spacing_findings(project));
     result.extend(hole_copper::hole_to_copper_findings(project));

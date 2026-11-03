@@ -415,7 +415,7 @@ impl App {
         let muted = self.muted();
         let project = self.project.clone();
         let make_dir = self.make_directory();
-        let browser = self.browser;
+        let browser = self.host.takes_bytes();
         egui::Window::new(d.mode.title())
             .id(egui::Id::new("file-dialog"))
             .open(&mut open)
@@ -557,6 +557,9 @@ impl App {
     }
 
     fn export_output(&mut self, ctx: &egui::Context, f: &FormatSpec, d: &DialogState) -> bool {
+        if self.host.takes_bytes() {
+            return self.webfs_export(f, d);
+        }
         let directory = self.make_directory();
         if f.id == "bom" {
             return self.write_bom(ctx, d, &directory);
@@ -943,10 +946,9 @@ fn detail(
     }
     ui.add_space(10.0);
     let (label, tip) = match d.mode {
-        Mode::Export if f.id == "bom" && browser => (
-            "Copy",
-            "The browser build cannot write files yet: copy the list to the clipboard.",
-        ),
+        Mode::Export if f.id == "bom" && browser => {
+            ("Download", "Download the bill of materials as a file.")
+        }
         Mode::Export => ("Export", "Write this file now."),
         Mode::Import => (
             "Import",

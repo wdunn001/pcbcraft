@@ -52,7 +52,7 @@ Clicking a layer row also pins the view, except for Board edge and user layers. 
 2. Press **Page Up** or **Page Down** to move the pin one layer at a time.
 3. Press **Esc**, click the cross on the Viewing chip, or use **Reset view** to drop the pin.
 4. To dim everything that is not on a layer, press **F** over its row. Press **F** again to bring it all back. On a copper layer the other layer stays on screen, faint, and vias stay bright because they join both faces.
-5. On the Schematic tab, click a layer row such as Symbols or Power ports. Its parts and the nets wired to them light up in the accent colour, and the tab does not change.
+5. On the Schematic tab, click a layer row such as Symbols or Power symbols. Its parts and the nets wired to them light up in the accent colour, and the tab does not change.
 
 Hovering a row shows the same see-through view while the pointer stays there. Nothing is pinned until you click.
 

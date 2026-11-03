@@ -60,6 +60,7 @@ mod placement_machine_ui;
 mod plot_viewer;
 mod pour_panel;
 mod project_settings;
+mod project_status;
 mod properties;
 mod reference_panel;
 mod route_drag;
@@ -89,6 +90,7 @@ mod via_covering;
 mod via_span;
 mod via_tool;
 mod wall_clock;
+mod webfs;
 mod wire_canvas;
 mod workspace;
 use crate::a11y::Named;
@@ -507,7 +509,7 @@ fn tool_hint(tool: &Tool) -> String {
             "Click a wire or pin to place a net label.".to_string() + &common
         }
         Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power) => {
-            "Click a wire or pin to place a power label.".to_string() + &common
+            "Click a wire or pin to place a power symbol.".to_string() + &common
         }
         Tool::Bus => {
             "Click two or more points for the bus path, then name it.".to_string() + &common
@@ -1345,7 +1347,7 @@ pub struct App {
     schematic: Camera,
     /// Schematic page on the canvas; 0 is the Main page. See `pages.rs`.
     active_page: Id,
-    /// The net each page's Add power port picker holds.
+    /// The net each page's Add power symbol picker holds.
     power_pick: std::collections::BTreeMap<Id, Id>,
     /// Name the Port tool places on the next canvas click.
     port_pick_name: String,
@@ -1361,6 +1363,9 @@ pub struct App {
     message: String,
     /// True in the browser build, where disk actions are refused (see browser.rs).
     browser: bool,
+    /// Where Open, Save and Export go: the native paths, the browser, or a test (see webfs.rs).
+    host: Box<dyn pcbcraft_mcp::ProjectHost>,
+    webfs: webfs::State,
     value: String,
     x: f64,
     y: f64,
@@ -2135,6 +2140,8 @@ impl App {
                 t!("status.ready")
             },
             browser: cfg!(target_arch = "wasm32"),
+            host: Box::new(pcbcraft_mcp::NativeHost),
+            webfs: webfs::State::default(),
             value: String::new(),
             x: 0.0,
             y: 0.0,
@@ -2462,7 +2469,7 @@ impl App {
         let result = pcbcraft_mcp::call_tool(&self.session, name, &args);
         let success = result.get("isError").and_then(Value::as_bool) != Some(true);
         self.message = if success {
-            t!("dialogs.tool_call.name_complete", name = name)
+            project_status::done_sentence(name, &args).unwrap_or_default()
         } else {
             result
                 .pointer("/content/0/text")
@@ -3202,7 +3209,9 @@ impl App {
                 self.tool_call("redo", json!({}));
             }
             KeyAction::Save => {
-                self.tool_call("save", json!({"path": self.path}));
+                if !self.webfs_save() {
+                    self.tool_call("save", json!({"path": self.path}));
+                }
             }
             KeyAction::CommandPalette => {
                 self.command_open = !self.command_open;
@@ -3734,11 +3743,9 @@ impl App {
                                             .button(t!("dialogs.start_home.open"))
                                             .on_hover_text(t!("dialogs.start_home.open.tip"))
                                             .clicked()
+                                            && self.tool_call("open", json!({"path": self.path}))
                                         {
-                                            self.tool_call("open", json!({"path": self.path}));
-                                            if self.message.starts_with("open") {
-                                                self.home_open = false;
-                                            }
+                                            self.home_open = false;
                                         }
                                     });
                                 });
@@ -3767,8 +3774,7 @@ impl App {
                                         .clicked()
                                     {
                                         self.path = design;
-                                        self.tool_call("open", json!({"path": self.path}));
-                                        if self.message.starts_with("open") {
+                                        if self.tool_call("open", json!({"path": self.path})) {
                                             self.home_open = false;
                                         }
                                     }
@@ -3805,7 +3811,9 @@ impl App {
                 .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
-                self.show_files(files_home::Page::Open);
+                if !self.webfs_open() {
+                    self.show_files(files_home::Page::Open);
+                }
                 ui.close();
             }
             if ui
@@ -3828,7 +3836,9 @@ impl App {
                 .on_hover_text(t!("menu.file.save_as.tip"))
                 .clicked()
             {
-                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                if !self.webfs_save() {
+                    self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                }
                 ui.close();
             }
             if ui
@@ -7487,6 +7497,7 @@ impl App {
                 use ui_kit::{icons as kit_icons, status_item::status_item};
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
+                    self.footer_project(ui);
                     let status =
                         status_item(ui, None, &self.message, &t!("status.message.tip"), false);
                     a11y::announce_status(ui.ctx(), &status, &self.message);
@@ -8133,6 +8144,7 @@ impl App {
             ctx.request_repaint();
             return;
         }
+        self.webfs_frame(&ctx);
         self.file_shortcuts(&ctx);
         self.shortcuts(&ctx);
         if self.compare_open {
@@ -8397,9 +8409,9 @@ mod tests {
         label: &str,
         mut done: impl FnMut(&App) -> bool,
     ) -> Result<bool, String> {
-        for _ in 0..5 {
+        for _ in 0..12 {
             authoring::tests::tap(ctx, app, label)?;
-            if frames_until(ctx, app, 80, &mut done) {
+            if frames_until(ctx, app, 240, &mut done) {
                 return Ok(true);
             }
         }
@@ -8525,7 +8537,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Save")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            app.message.starts_with("save"),
+            app.message.starts_with("Saved to"),
             "saving answers: {}",
             app.message
         );
@@ -8547,7 +8559,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Undo")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            app.message.starts_with("undo"),
+            app.message.starts_with("Undid"),
             "undo answers: {}",
             app.message
         );

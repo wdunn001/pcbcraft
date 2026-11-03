@@ -666,7 +666,7 @@ fn a_newcomer_cannot_undo_before_the_first_edit() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "Undo")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        !app.message.starts_with("undo"),
+        !app.message.starts_with("Undid"),
         "Undo is greyed out with nothing to undo: {}",
         app.message
     );
@@ -1391,14 +1391,15 @@ fn a_newcomer_sees_the_mark_on_the_start_page() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_sees_that_saving_needs_the_desktop_app() -> Result<(), String> {
+fn a_newcomer_sees_that_exporting_needs_the_desktop_app() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.browser = true;
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    for tool in ["save", "open", "export"] {
+    {
+        let tool = "export";
         app.tool_call(tool, json!({"path": "design.pcbcraft"}));
         assert!(
             paints_text(&ctx, &mut app, "need the desktop app")?,

@@ -1127,7 +1127,7 @@ pub struct Wire {
     pub to: PinRef,
 }
 /// A named annotation attached to a logical net: a local, global,
-/// hierarchical or power label. A label names one net by id. Placing a label
+/// hierarchical or power symbol. A label names one net by id. Placing a label
 /// with a typed name finds the net of that name or creates it, so two labels of
 /// one name always end up on one net.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -1145,14 +1145,14 @@ pub struct Label {
     /// kind. A bus label names a group of nets, so it carries no single net.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub text: String,
-    /// Symbol drawn for a power label: one of [`Label::POWER_STYLES`]. Empty
+    /// Symbol drawn for a power symbol: one of [`Label::POWER_STYLES`]. Empty
     /// means the default (`bar`, or `ground` on a net named like ground).
     /// Every other kind leaves it empty.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub style: String,
 }
 impl Label {
-    /// The symbols a power label can take: ground, bar, arrow and negative.
+    /// The symbols a power symbol can take: ground, bar, arrow and negative.
     pub const POWER_STYLES: [&'static str; 4] = ["ground", "bar", "arrow", "negative"];
     pub const KINDS: [&'static str; 6] = [
         "label",
@@ -6921,7 +6921,7 @@ impl Project {
             if !l.style.is_empty()
                 && (l.kind != "power" || !Label::POWER_STYLES.contains(&l.style.as_str()))
             {
-                return Err("only a power label takes ground, bar, arrow or negative".into());
+                return Err("only a power symbol takes ground, bar, arrow or negative".into());
             }
             if !l.position.valid() {
                 return Err("label position is out of range".into());
