@@ -1603,18 +1603,18 @@ impl App {
             }
             Tool::Measure => self.measure_click(pos, zoom),
             Tool::Place(kind) => {
-                self.run("component.add", json!({"kind":kind,"position":snap(pos)}))
+                let params = self.on_current_page(json!({"kind":kind,"position":snap(pos)}));
+                self.run("component.add", params)
             }
             Tool::LibraryPlace(path, symbol, _) => {
-                self.run(
-                    "component.place_library",
-                    json!({"path":path,"symbol":symbol,"position":snap(pos)}),
-                );
+                let params =
+                    self.on_current_page(json!({"path":path,"symbol":symbol,"position":snap(pos)}));
+                self.run("component.place_library", params);
             }
-            Tool::CustomPlace(name, _) => self.run(
-                "component.place_custom",
-                json!({"name":name,"position":snap(pos)}),
-            ),
+            Tool::CustomPlace(name, _) => {
+                let params = self.on_current_page(json!({"name":name,"position":snap(pos)}));
+                self.run("component.place_custom", params)
+            }
             Tool::Move => {
                 if let Some(id) = self.selected {
                     let mut params = json!({"id":id,"position":snap(pos)});
