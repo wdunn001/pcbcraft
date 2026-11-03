@@ -2398,6 +2398,9 @@ impl App {
             self.toggle_view_from_below();
             return;
         }
+        if self.main_refuses(command, &params) {
+            return;
+        }
         let known = board_side::footprint_ids(&self.project);
         let result = self
             .session

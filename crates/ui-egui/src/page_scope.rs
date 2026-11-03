@@ -324,6 +324,53 @@ pub(crate) fn page_of_object(project: &Project, object: Id) -> Option<Id> {
 }
 
 impl App {
+    /// True when this window is Main and the project has named pages.
+    ///
+    /// Why: Main shows every page as one sheet and also holds parts of its own. The other pages'
+    /// items are read-only there. A project with no named page has only Main, which is editable.
+    ///
+    /// # Rules
+    /// - Only the Schematic tab; the board is never a grouping.
+    pub(crate) fn main_is_grouping(&self) -> bool {
+        self.tab == Tab::Schematic && self.schematic_page() == 0 && !self.project.sheets.is_empty()
+    }
+
+    /// Refuse an edit of another page's item from Main, and say why.
+    ///
+    /// Why: Main shows every page as one sheet and keeps parts of its own. The other pages' items
+    /// are shown there but belong to their pages, so they are changed on their own page.
+    ///
+    /// # Rules
+    /// - Refuses a command that names, by `id` or `ids`, a part, port, label, wire or pad of a named page.
+    /// - Lets through everything about Main's own items, new parts placed on Main, nets, pages and settings.
+    ///
+    /// # Do not
+    /// - Call it for selection or view changes; those stay allowed on Main.
+    pub(crate) fn main_refuses(&mut self, _command: &str, params: &serde_json::Value) -> bool {
+        if !self.main_is_grouping() {
+            return false;
+        }
+        let ids = params
+            .get("id")
+            .into_iter()
+            .chain(
+                params
+                    .get("ids")
+                    .and_then(|v| v.as_array())
+                    .into_iter()
+                    .flatten(),
+            )
+            .filter_map(|v| v.as_u64());
+        let on_another_page = ids
+            .into_iter()
+            .any(|id| page_of_object(&self.project, id).is_some_and(|page| page != 0));
+        if on_another_page {
+            self.message = t!("schematic.main.read_only");
+            return true;
+        }
+        false
+    }
+
     /// Open the page of object `id` when the current page cannot show it.
     ///
     /// Why: a list click on a part of another page must not select something
@@ -449,6 +496,11 @@ impl App {
     pub(crate) fn spot_to_page(&self, at: Point) -> (Id, Point) {
         if self.tab != Tab::Schematic || self.schematic_page() != 0 {
             return (self.schematic_page(), at);
+        }
+        // Main keeps its own parts beside the other pages. What is drawn on Main belongs to Main,
+        // wherever the pointer is; another page's items are not edited from here.
+        if self.main_is_grouping() {
+            return (0, at);
         }
         let page = page_at(&self.project, at);
         let o = self.main_offset(page);

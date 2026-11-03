@@ -237,18 +237,23 @@ fn a_newcomer_selects_a_part_from_another_page_on_main() -> Result<(), String> {
         paints_text(&ctx, &mut app, &reference)?,
         "Properties show {reference}"
     );
+    let value_before = app
+        .project
+        .component(part)
+        .ok_or("part missing")?
+        .value
+        .clone();
     type_into(&ctx, &mut app, "textinput:Value", "SEL-TEST")?;
     let c = app.project.component(part).ok_or("part missing")?;
-    assert_eq!(c.value, "SEL-TEST", "the edit reached the part");
+    assert_eq!(
+        c.value, value_before,
+        "Main does not change a part that belongs to another page"
+    );
     assert_eq!(c.sheet, page, "the part still belongs to its own page");
     assert_eq!(
-        app.project
-            .components
-            .iter()
-            .filter(|c| c.value == "SEL-TEST")
-            .count(),
-        1,
-        "only that part changed"
+        app.message,
+        t!("schematic.main.read_only"),
+        "Main says where the part can be changed"
     );
     Ok(())
 }
@@ -336,7 +341,7 @@ fn a_newcomer_selects_the_right_part_on_main_after_placement() -> Result<(), Str
 }
 
 #[test]
-fn a_newcomer_drags_a_part_on_main_and_it_lands_in_page_coordinates() -> Result<(), String> {
+fn a_newcomer_cannot_drag_another_pages_part_on_main() -> Result<(), String> {
     let (ctx, mut app) = showcase()?;
     let page = page_id(&app, "Sensors and indicators")?;
     let part = {
@@ -379,15 +384,60 @@ fn a_newcomer_drags_a_part_on_main_and_it_lands_in_page_coordinates() -> Result<
     let to = from + Vec2::new(5.0 * app.schematic.zoom, 0.0);
     super::modifiers::drag(&ctx, &mut app, from, to, egui::Modifiers::NONE);
     let after = app.project.component(part).ok_or("part missing")?.position;
-    let moved = after.x - before.x;
-    assert!(
-        (moved - 5.0).abs() <= 1.0 && (after.y - before.y).abs() <= 1.0,
-        "the part moved by the drag (about 5 mm), not by the page offset: {before:?} to {after:?}"
+    assert_eq!(
+        after, before,
+        "Main does not move a part that belongs to another page"
     );
     assert_eq!(
         app.project.component(part).map(|c| c.sheet),
         Some(page),
         "the part keeps its own page"
+    );
+    assert_eq!(
+        app.message,
+        t!("schematic.main.read_only"),
+        "Main says where the part can be moved"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_adds_a_part_to_main_and_it_stays_on_main() -> Result<(), String> {
+    let (ctx, mut app) = showcase()?;
+    assert_eq!(app.schematic_page(), 0, "the view is Main");
+    let known = app.project.components.len();
+    // Aim the click over another page's area: the part still belongs to Main.
+    let page = page_id(&app, "Sensors and indicators")?;
+    let (other, _) = loneliest(&app, page)?;
+    let over = app
+        .sheet_view()
+        .component(other)
+        .ok_or("placed part missing")?
+        .position;
+    app.tool = Tool::Place("resistor".into());
+    click_world(&ctx, &mut app, Point::new(over.x + 40.0, over.y + 40.0))?;
+    assert_eq!(
+        app.project.components.len(),
+        known + 1,
+        "Main takes a part of its own"
+    );
+    let added = app.project.components.last().ok_or("nothing was added")?;
+    assert_eq!(
+        added.sheet, 0,
+        "the part belongs to Main, not to the page under it"
+    );
+    let id = added.id;
+    let before = added.position;
+    app.tool = Tool::Select;
+    app.selected = Some(id);
+    app.run(
+        "component.move",
+        json!({"id": id, "position": Point::new(before.x + 10.0, before.y)}),
+    );
+    assert_ne!(
+        app.project.component(id).map(|c| c.position),
+        Some(before),
+        "a part of Main can be moved on Main"
     );
     Ok(())
 }

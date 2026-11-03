@@ -3876,3 +3876,4 @@ schematic.port.direction.input = Input
 schematic.port.direction.output = Output
 schematic.port.direction.bidirectional = Both
 schematic.port.direction.passive = Passive
+schematic.main.read_only = This part belongs to another page. Open that page to change it.

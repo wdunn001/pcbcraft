@@ -130,8 +130,8 @@ fn a_newcomer_places_a_part_on_the_second_page_and_it_stays_there() -> Result<()
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let labels = canvas_labels(&app);
     assert!(
-        !labels.iter().any(|t| t.contains(&reference)),
-        "Main does not show a part that belongs to the other page: {labels:?}"
+        labels.iter().any(|t| t.contains(&reference)),
+        "Main shows the part of the other page, read only: {labels:?}"
     );
     Ok(())
 }
