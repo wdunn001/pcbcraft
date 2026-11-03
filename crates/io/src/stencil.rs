@@ -449,8 +449,8 @@ mod stencil_tests {
         let fab = crate::gerber::gerber_paste(&p, Layer::Back)?;
         let stencil = gerber_paste_stencil(&p, Layer::Back)?;
         assert!(
-            fab.contains("X-30000000Y20000000"),
-            "fab paste mirrors bottom x"
+            fab.contains("X30000000Y20000000"),
+            "fab paste keeps design x on the bottom"
         );
         assert!(
             stencil.contains("X30000000Y20000000"),

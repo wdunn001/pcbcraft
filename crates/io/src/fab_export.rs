@@ -416,6 +416,7 @@ impl GerberLayer {
              %TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n\
              %TF.FileFunction,{file_function}*%\n\
              %TF.FilePolarity,{polarity}*%\n\
+             %TF.SameCoordinates,PCBCraft*%\n\
              %FSLAX46Y46*%\n\
              {mo}\n\
              %LPD*%\n\
@@ -864,7 +865,6 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     let inch = p.unit == "inch";
     let scale = if inch { 1.0 / 25.4 } else { 1.0 };
-    let mirror = |x: f64, y: f64, back: bool| -> (f64, f64) { if back { (-x, y) } else { (x, y) } };
 
     let mut front = GerberLayer::new(scale);
     let mut back = GerberLayer::new(scale);
@@ -883,24 +883,13 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         let code = file.code(Ap::Circle(w.max(1)))?;
         file.push_attrs(net_name(p, t.net), None);
         if let Some(arc) = t.curve() {
-            let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
-            let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
-            let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
-            let clockwise = if is_back {
-                arc.sweep > 0.0
-            } else {
-                arc.sweep < 0.0
-            };
+            let (sx, sy) = (t.start.x, t.start.y);
+            let (ex, ey) = (t.end.x, t.end.y);
+            let (cx, cy) = (arc.center.x, arc.center.y);
+            let clockwise = arc.sweep < 0.0;
             file.arc_segment(code, sx, sy, ex, ey, cx, cy, clockwise)?;
         } else {
-            file.stroke(
-                code,
-                &[
-                    mirror(t.start.x, t.start.y, is_back),
-                    mirror(t.end.x, t.end.y, is_back),
-                ],
-                false,
-            )?;
+            file.stroke(code, &[(t.start.x, t.start.y), (t.end.x, t.end.y)], false)?;
         }
     }
 
@@ -931,7 +920,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 front.flash(front_code, world.x, world.y)?;
             }
             if back_code != 0 {
-                let (x, y) = mirror(world.x, world.y, true);
+                let (x, y) = (world.x, world.y);
                 back.push_attrs(net, part);
                 back.flash(back_code, x, y)?;
             }
@@ -968,11 +957,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             }
             if mask_on_back && !mask_ring.is_empty() {
                 let code = mask_back.code(Ap::Region(region_kind))?;
-                let mirrored: Vec<(f64, f64)> = mask_ring
-                    .iter()
-                    .map(|(x, y)| mirror(*x, *y, true))
-                    .collect();
-                mask_back.fill(code, &outline_ring(&mirrored))?;
+                mask_back.fill(code, &outline_ring(&mask_ring))?;
             }
 
             if pad_is_smd(pad) {
@@ -981,9 +966,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                     paste_front.flash(code, world.x, world.y)?;
                 }
                 if is_back && !paste_ring.is_empty() {
-                    let (x, y) = mirror(world.x, world.y, true);
                     let code = paste_back.code(pad_ap(pad))?;
-                    paste_back.flash(code, x, y)?;
+                    paste_back.flash(code, world.x, world.y)?;
                 }
             }
         }
@@ -1000,9 +984,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             front.flash(front_code, v.position.x, v.position.y)?;
         }
         if reaches_bottom {
-            let (x, y) = mirror(v.position.x, v.position.y, true);
             back.push_attrs(net_name(p, v.net), None);
-            back.flash(back_code, x, y)?;
+            back.flash(back_code, v.position.x, v.position.y)?;
         }
 
         let open_top = reaches_top && via_mask_opening_on_face(v, &p.board, true);
@@ -1021,10 +1004,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 mask_front.fill(code_f, &outline_ring(&ring))?;
             }
             if open_bottom {
-                let mirrored: Vec<(f64, f64)> =
-                    ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
                 let code_b = mask_back.code(Ap::Circle(1))?;
-                mask_back.fill(code_b, &outline_ring(&mirrored))?;
+                mask_back.fill(code_b, &outline_ring(&ring))?;
             }
         }
     }

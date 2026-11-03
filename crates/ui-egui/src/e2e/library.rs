@@ -1068,6 +1068,90 @@ fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
     Ok(())
 }
 
+/// Fixture file inside the library crate's test fixtures.
+fn library_fixture(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../library/tests/fixtures")
+        .join(name)
+}
+
+#[test]
+fn a_newcomer_exports_a_part_with_unknown_nodes_and_loses_none_of_them() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("symbol-editor")?;
+    {
+        let mut session = shared.lock().map_err(|_| "session unavailable")?;
+        session
+            .execute(
+                "library.import_symbol_file",
+                json!({"path": library_fixture("unknown-nodes.kicad_sym").to_string_lossy()}),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    app.refresh();
+    authoring::tests::tap(&ctx, &mut app, "Library")?;
+    let export_file = std::env::temp_dir().join(format!(
+        "pcbcraft-lossless-symbol-{}.kicad_sym",
+        std::process::id()
+    ));
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Symbol export file",
+        &export_file.to_string_lossy(),
+    )?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    let text = std::fs::read_to_string(&export_file)
+        .map_err(|e| format!("export wrote no symbol file: {e}"))?;
+    let _ = std::fs::remove_file(&export_file);
+    assert!(
+        text.contains("(power_flag_hint yes)"),
+        "the exported symbol file keeps the node the app does not edit: {text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_exports_a_footprint_and_keeps_its_pad_details_and_extra_nodes() -> Result<(), String>
+{
+    let (shared, mut app, ctx) = authoring::tests::editor("footprint-editor")?;
+    {
+        let mut session = shared.lock().map_err(|_| "session unavailable")?;
+        session
+            .execute(
+                "library.import_footprint_file",
+                json!({"path": library_fixture("unknown-nodes.kicad_mod").to_string_lossy()}),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    app.refresh();
+    authoring::tests::tap(&ctx, &mut app, "Library")?;
+    let folder = std::env::temp_dir().join(format!("pcbcraft-lossless-fp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Footprint export folder",
+        &folder.to_string_lossy(),
+    )?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    let text = std::fs::read_to_string(folder.join("UnknownNodes.kicad_mod"))
+        .map_err(|e| format!("export wrote no footprint file: {e}"))?;
+    let _ = std::fs::remove_dir_all(&folder);
+    for needle in [
+        "(private_layers \"In1.Cu\" \"In2.Cu\")",
+        "(net_tie_pad_groups \"1, 2\")",
+        "(thermal_bridge_angle 45)",
+    ] {
+        assert!(
+            text.contains(needle),
+            "the exported footprint lost {needle}"
+        );
+    }
+    Ok(())
+}
+
 /// Draw frames until the collection browser has read its folders.
 fn waits_for_collections(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
     waits_for_library_read(ctx, app)

@@ -49,6 +49,8 @@ pub(super) struct EditState {
     pub hint: String,
     /// The rename-a-net prompt, open after a double-click on a net label.
     pub rename: Option<crate::canvas::gestures::Rename>,
+    /// The net name or power symbol the armed Label or Power tool will place.
+    pub label: crate::wire_canvas::LabelDraft,
 }
 
 /// Distance, dx, dy and angle between two points, as one plain sentence.

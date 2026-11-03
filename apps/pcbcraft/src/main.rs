@@ -37,8 +37,8 @@ fn main() -> eframe::Result {
         }
     }
     if let Some(path) = option("--project") {
-        let result = pcbcraft_io::load(std::path::Path::new(&path))
-            .and_then(|project| session.replace(project).map_err(|e| e.to_string()));
+        let result = pcbcraft_io::load_for_open(std::path::Path::new(&path))
+            .and_then(|project| session.open_project(project).map_err(|e| e.to_string()));
         if let Err(e) = result {
             eprintln!("project: {e}");
             std::process::exit(1);

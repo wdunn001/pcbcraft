@@ -189,17 +189,17 @@ pub use export_validate::{
     stored_zip_entry, stored_zip_entry_names, validate_fabrication_package_file,
     validate_ipc2581_document, validate_odb_package,
 };
-pub use fab_drawing::fab_drawing_pdf;
+pub use fab_drawing::{fab_drawing_pdf, fab_drawing_svg};
 pub use fab_export::{DrillFunction, via_mask_opening, via_mask_opening_on_face};
 pub use firmware_target::{firmware_config_compare, firmware_target_files};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
 use gerber::coordinate;
-/// Gerber file generation for copper and silk layers.
+/// Gerber file generation for copper, solder mask, paste and silk layers.
 /// # Dependencies
 /// - crates/io/src/gerber.rs
-pub use gerber::{gerber_copper, gerber_silk};
+pub use gerber::{gerber_copper, gerber_mask, gerber_paste, gerber_silk};
 /// Gerber job file generation and zipping.
 /// # Dependencies
 /// - crates/io/src/gerber_job.rs
@@ -359,13 +359,25 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 /// # Do not
 /// - Call with paths to non-JSON files
 pub fn load(path: &Path) -> Result<Project, String> {
+    let project = load_for_open(path)?;
+    project.validate()?;
+    Ok(project)
+}
+
+/// Read a project file and migrate it, without validating it.
+/// # Rules
+/// - The caller validates; `Session::open_project` folds nets that share a
+///   name first and then validates, because `Project::validate` refuses a
+///   repeated net name.
+/// # Do not
+/// - Hand the result to anything that assumes a valid project.
+pub fn load_for_open(path: &Path) -> Result<Project, String> {
     let text = read_text(path)?;
     let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     // The document model reads copper layer names against the stackup itself
     // (legacy files without the naming marker keep their index-derived names).
     let mut project: Project = serde_json::from_value(root).map_err(|e| e.to_string())?;
     migrate_loaded_project(&mut project)?;
-    project.validate()?;
     Ok(project)
 }
 /// Read a text file at the given path, enforcing the 8 MiB size limit.
@@ -3295,14 +3307,54 @@ fn excellon_drill_file(
     Ok(drill)
 }
 
+/// File label of one copper layer in the fabrication bundle, for example
+/// `F.Cu`, `In1.Cu` or `B.Cu`. Inner layers use the project's own layer name
+/// with anything outside letters, digits, `.` and `_` replaced by `_`.
+///
+/// # Rules
+/// - `index` 0 is the top layer and `bottom` the last one; both have fixed labels.
+/// - An empty cleaned name falls back to `In<index>.Cu`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs Project::layer_name (the project's name for a layer)
+///
+/// # Do not
+/// - Use the label to find a layer's position; the caller keeps the index.
+pub(crate) fn copper_file_label(p: &Project, index: usize, bottom: usize) -> String {
+    if index == 0 {
+        "F.Cu".into()
+    } else if index == bottom {
+        "B.Cu".into()
+    } else {
+        let raw = pcbcraft_doc::Layer::from_index(index as u8)
+            .map(|l| p.layer_name(l))
+            .unwrap_or_else(|_| format!("In{index}.Cu"));
+        let clean: String = raw
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '.' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        if clean.is_empty() {
+            format!("In{index}.Cu")
+        } else {
+            clean
+        }
+    }
+}
+
 /// RS-274X copper/outline layers plus an Excellon drill file, as filename to
 /// text. One copper file per copper layer (`pcb-F.Cu.gbr`, `pcb-In<n>.Cu.gbr`,
 /// `pcb-B.Cu.gbr`) carries that layer's poured regions, tracks, via and pad
 /// copper (`gerber_files_report` also returns the warnings); the outline
 /// layer carries the board edge and circular cutouts; the drill file carries
 /// every plated and unplated hole, round holes as single hits and oval holes
-/// as routed slots. Back-copper coordinates are
-/// mirrored about x=0 as fabrication houses expect for bottom-side films.
+/// as routed slots. Every file is written in design coordinates as seen from
+/// the top: no layer is mirrored, so back copper lines up with the drills.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     gerber_files_at(p, &gerber_job::now_utc())
 }
@@ -3668,43 +3720,11 @@ fn gerber_files_core(
     // outer ones are inner layers; the last one is the bottom.
     let layer_count = usize::from(p.copper_layer_count()).max(2);
     let bottom = layer_count - 1;
-    let layer_label = |index: usize| -> String {
-        if index == 0 {
-            "F.Cu".into()
-        } else if index == bottom {
-            "B.Cu".into()
-        } else {
-            let raw = pcbcraft_doc::Layer::from_index(index as u8)
-                .map(|l| p.layer_name(l))
-                .unwrap_or_else(|_| format!("In{index}.Cu"));
-            let clean: String = raw
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || c == '.' || c == '_' {
-                        c
-                    } else {
-                        '_'
-                    }
-                })
-                .collect();
-            if clean.is_empty() {
-                format!("In{index}.Cu")
-            } else {
-                clean
-            }
-        }
-    };
+    let layer_label = |index: usize| -> String { copper_file_label(p, index, bottom) };
     let mut copper: Vec<LayerFile> = (0..layer_count)
         .map(|i| LayerFile::named(scale, &layer_label(i), max_ops_limit))
         .collect();
     let mut warnings: Vec<String> = Vec::new();
-    let mirror_for = |x: f64, y: f64, index: usize| -> (f64, f64) {
-        if index == bottom {
-            (-x + 0.0, y)
-        } else {
-            (x, y)
-        }
-    };
     // Pours first, so a clear-polarity hole never erases a track or pad that is
     // written after it. The fill is what ships: gaps round foreign copper,
     // thermal spokes and the island policy are already applied.
@@ -3761,8 +3781,7 @@ fn gerber_files_core(
         gerber_pour::order_containers_first(&mut layer_pieces);
         for piece in &layer_pieces {
             for (ring_index, ring) in piece.iter().enumerate() {
-                let points: Vec<(f64, f64)> =
-                    ring.iter().map(|q| mirror_for(q.x, q.y, index)).collect();
+                let points: Vec<(f64, f64)> = ring.iter().map(|q| (q.x, q.y)).collect();
                 if ring_index > 0 {
                     file.body.push_str("%LPC*%\n");
                 }
@@ -3776,8 +3795,7 @@ fn gerber_files_core(
     for (index, at, diameter, function) in plane_flashes {
         let w = (diameter * 1_000.0).round() as u64;
         let code = copper[index].code_fn(Ap::Circle(w.max(1)), Some(function))?;
-        let (x, y) = mirror_for(at.x, at.y, index);
-        copper[index].flash(code, x, y)?;
+        copper[index].flash(code, at.x, at.y)?;
     }
     for t in &p.board.tracks {
         let index = usize::from(t.layer.index()).min(bottom);
@@ -3786,14 +3804,10 @@ fn gerber_files_core(
         let code = file.code(Ap::Track(w.max(1)))?;
         if let Some(arc) = t.curve() {
             if opts.arcs {
-                let (sx, sy) = mirror_for(t.start.x, t.start.y, index);
-                let (ex, ey) = mirror_for(t.end.x, t.end.y, index);
-                let (cx, cy) = mirror_for(arc.center.x, arc.center.y, index);
-                let clockwise = if index == bottom {
-                    arc.sweep > 0.0
-                } else {
-                    arc.sweep < 0.0
-                };
+                let (sx, sy) = (t.start.x, t.start.y);
+                let (ex, ey) = (t.end.x, t.end.y);
+                let (cx, cy) = (arc.center.x, arc.center.y);
+                let clockwise = arc.sweep < 0.0;
                 file.arc_stroke(code, sx, sy, ex, ey, cx, cy, clockwise)?;
                 report.record_written();
             } else {
@@ -3801,19 +3815,12 @@ fn gerber_files_core(
                 report.record_flattened(worst);
                 let points: Vec<(f64, f64)> = pcbcraft_doc::arc_polyline(&arc, opts.max_deviation)
                     .into_iter()
-                    .map(|pt| mirror_for(pt.x, pt.y, index))
+                    .map(|pt| (pt.x, pt.y))
                     .collect();
                 file.stroke(code, &points, false)?;
             }
         } else {
-            file.stroke(
-                code,
-                &[
-                    mirror_for(t.start.x, t.start.y, index),
-                    mirror_for(t.end.x, t.end.y, index),
-                ],
-                false,
-            )?;
+            file.stroke(code, &[(t.start.x, t.start.y), (t.end.x, t.end.y)], false)?;
         }
     }
     for f in &p.board.footprints {
@@ -3837,10 +3844,7 @@ fn gerber_files_core(
                 vec![0]
             };
             for index in targets {
-                let aperture = gerber::pad_aperture(pad, world, f, |point| {
-                    let (px, py) = mirror_for(point.x, point.y, index);
-                    pcbcraft_geom::Point::new(px, py)
-                })?;
+                let aperture = gerber::pad_aperture(pad, world, f, |point| point)?;
                 let function = gerber_fidelity::pad_copper_aperture_function(
                     p,
                     pcbcraft_doc::Layer::from_index(index as u8)?,
@@ -3848,8 +3852,7 @@ fn gerber_files_core(
                     pad,
                 );
                 let code = copper[index].code_shaped(&aperture, function)?;
-                let (x, y) = mirror_for(world.x, world.y, index);
-                copper[index].flash(code, x, y)?;
+                copper[index].flash(code, world.x, world.y)?;
             }
         }
     }
@@ -3859,8 +3862,7 @@ fn gerber_files_core(
         for layer in p.via_span_layers(v) {
             let index = usize::from(layer.index()).min(bottom);
             let code = copper[index].code(ap.clone())?;
-            let (x, y) = mirror_for(v.position.x, v.position.y, index);
-            copper[index].flash(code, x, y)?;
+            copper[index].flash(code, v.position.x, v.position.y)?;
         }
     }
     let mut outline = LayerFile::new(scale, max_ops_limit);
@@ -3955,7 +3957,7 @@ fn gerber_files_core(
                 &comment,
                 &format!("Copper,L{},{side}", index + 1),
                 "Positive",
-                index != bottom,
+                true,
             ),
         );
     }
@@ -6122,8 +6124,11 @@ pub fn dxf_entities(text: &str) -> Result<Vec<DxfEntity>, String> {
 /// - Coordinates are in the project's native units (typically mm).
 pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
+    if assembly_drawing::view_is_assembly(view) {
+        return assembly_drawing::drawing_svg(p, view);
+    }
     if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
+        return Err("view must be pcb, schematic, assembly-top, or assembly-bottom".into());
     }
     let content_bounds = preview_bounds(p, view);
     let (min, max) = content_bounds;
@@ -7618,10 +7623,26 @@ fn lib_layer(layer: &str) -> String {
     lib_text(layer)
 }
 
+/// Append stored source text under `indent`. Lines after the first lose the
+/// indent they carried in their original file, so writing the same text twice
+/// never makes it drift to the right.
 fn append_indented_source(out: &mut String, source: &str, indent: &str) {
-    for line in source.trim().lines() {
+    let lines: Vec<&str> = source.trim().lines().collect();
+    let carried = lines
+        .iter()
+        .skip(1)
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    for (i, line) in lines.iter().enumerate() {
         out.push_str(indent);
-        out.push_str(line);
+        out.push_str(if i == 0 {
+            line
+        } else {
+            let cut = line.len() - line.trim_start().len();
+            &line[cut.min(carried)..]
+        });
         out.push('\n');
     }
 }
@@ -7632,9 +7653,51 @@ fn append_retained_nodes(out: &mut String, retained: &[String], indent: &str) {
     }
 }
 
+/// True when the pad's stored source text still reads back as exactly this
+/// pad, so the original text can be written instead of a regenerated copy.
+fn pad_source_is_current(pad: &pcbcraft_library::FootprintPad) -> bool {
+    if pad.raw_source.trim().is_empty() {
+        return false;
+    }
+    let wrapped = format!("(footprint \"probe\"\n{}\n)", pad.raw_source);
+    let Ok(read) = pcbcraft_library::read_footprint(&wrapped) else {
+        return false;
+    };
+    let [first] = read.pads.as_slice() else {
+        return false;
+    };
+    let mut a = first.clone();
+    let mut b = pad.clone();
+    a.raw_source.clear();
+    b.raw_source.clear();
+    a == b
+}
+
+/// True when the model's stored source text still reads back as this model.
+fn model_source_is_current(model: &pcbcraft_library::Model3D) -> bool {
+    if model.raw_source.trim().is_empty() {
+        return false;
+    }
+    let wrapped = format!("(footprint \"probe\"\n{}\n)", model.raw_source);
+    let Ok(read) = pcbcraft_library::read_footprint(&wrapped) else {
+        return false;
+    };
+    let Some(first) = read.model else {
+        return false;
+    };
+    let mut a = first;
+    let mut b = model.clone();
+    a.raw_source.clear();
+    b.raw_source.clear();
+    a == b
+}
+
 /// Format one footprint definition as a footprint library text file. The
 /// result re-parses to the same pads, artwork, model reference and rule
-/// overrides; placed footprint and board state are untouched.
+/// overrides; placed footprint and board state are untouched. Pads and the
+/// model whose stored source still matches their fields are written from
+/// that source, and nodes the reader kept as `retained` follow the body, so
+/// an unedited definition loses nothing.
 pub fn footprint_library_text(
     footprint: &pcbcraft_library::FootprintDefinition,
 ) -> Result<String, String> {
@@ -7662,6 +7725,10 @@ pub fn footprint_library_text(
         if smd { "smd" } else { "through_hole" }
     ));
     for pad in &footprint.pads {
+        if pad_source_is_current(pad) {
+            append_indented_source(&mut out, &pad.raw_source, "  ");
+            continue;
+        }
         out.push_str(&format!(
             "  (pad {} {} {} (at {} {} {}) (size {} {})",
             lib_text(&pad.number),
@@ -7697,7 +7764,13 @@ pub fn footprint_library_text(
     for graphic in &footprint.graphics {
         out.push_str(&format!("  {}\n", lib_graphic(graphic, false)));
     }
-    if let Some(model) = &footprint.model {
+    if let Some(model) = footprint
+        .model
+        .as_ref()
+        .filter(|m| model_source_is_current(m))
+    {
+        append_indented_source(&mut out, &model.raw_source, "  ");
+    } else if let Some(model) = &footprint.model {
         let triple = |v: &[f64; 3]| format!("(xyz {} {} {})", v[0], v[1], v[2]);
         out.push_str(&format!(
             "  (model {} (offset {}) (scale {}) (rotate {}))\n",
@@ -7718,6 +7791,7 @@ pub fn footprint_library_text(
             out.push_str(&format!("  (solder_paste_margin {value})\n"));
         }
     }
+    append_retained_nodes(&mut out, &footprint.retained, "  ");
     out.push_str("  (embedded_fonts no)\n)\n");
     if out.len() as u64 > MAX_FILE_BYTES {
         return Err("footprint library text exceeds the file size limit".into());
@@ -8883,6 +8957,7 @@ mod tests {
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
             text: String::new(),
+            style: String::new(),
         });
         project.validate()?;
         let pcb = postscript(&project, "pcb")?;
@@ -9470,6 +9545,7 @@ mod tests {
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
             text: String::new(),
+            style: String::new(),
         });
         project.validate()?;
         for view in ["pcb", "schematic"] {
@@ -10459,8 +10535,8 @@ mod tests {
             "the format statement declares inches"
         );
         assert!(
-            back.contains("X-1000000Y1000000D02*"),
-            "25.4 mm becomes exactly one inch, mirrored on the back: {back}"
+            back.contains("X1000000Y1000000D02*"),
+            "25.4 mm becomes exactly one inch, unmirrored on the back: {back}"
         );
         assert!(
             back.contains("C,0.020000*%"),
@@ -10736,11 +10812,11 @@ mod tests {
             "back layer states its coordinate format and unit"
         );
         assert!(
-            back.contains("X-30000000Y10000000D01*\n"),
-            "the back track end carries the mirrored coordinate"
+            back.contains("X30000000Y10000000D01*\n"),
+            "the back track end keeps the design coordinate"
         );
         assert!(
-            back.contains("X-30000000Y10000000D03*\n"),
+            back.contains("X30000000Y10000000D03*\n"),
             "the via must flash on the back layer too"
         );
         let outline = &files["pcb-Edge.gbr"];
@@ -14383,6 +14459,7 @@ mod tests {
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
             text: Default::default(),
+            style: String::new(),
         });
         project.labels.push(pcbcraft_doc::Label {
             id: 5,
@@ -14391,6 +14468,7 @@ mod tests {
             position: Point::new(20.0, 5.0),
             rotation: 0.0,
             text: Default::default(),
+            style: String::new(),
         });
         project.no_connects.push(pcbcraft_doc::NoConnectFlag {
             id: 6,
@@ -14597,70 +14675,121 @@ mod tests {
         bad.version = 999;
         assert!(bad.validate().is_err());
     }
+    fn without_source_text(
+        mut footprint: pcbcraft_library::FootprintDefinition,
+    ) -> pcbcraft_library::FootprintDefinition {
+        footprint.raw_source.clear();
+        for pad in &mut footprint.pads {
+            pad.raw_source.clear();
+        }
+        if let Some(model) = &mut footprint.model {
+            model.raw_source.clear();
+        }
+        footprint
+    }
+    fn symbol_without_source_text(
+        mut symbol: pcbcraft_library::SymbolDefinition,
+    ) -> pcbcraft_library::SymbolDefinition {
+        symbol.raw_source.clear();
+        // A derived symbol is written with its inherited drawing folded in.
+        symbol.extends = None;
+        symbol
+    }
+    const FOOTPRINT_FIXTURES: [&str; 3] = [
+        include_str!("../../library/tests/fixtures/R_0805_2012Metric.kicad_mod"),
+        include_str!("../../library/tests/fixtures/DIP-8_W7.62mm.kicad_mod"),
+        include_str!("../../library/tests/fixtures/unknown-nodes.kicad_mod"),
+    ];
+    const SYMBOL_FIXTURES: [&str; 4] = [
+        include_str!("../../library/tests/fixtures/device.kicad_sym"),
+        include_str!("../../library/tests/fixtures/lm358.kicad_sym"),
+        include_str!("../../library/tests/fixtures/dual-common-supply.kicad_sym"),
+        include_str!("../../library/tests/fixtures/unknown-nodes.kicad_sym"),
+    ];
     #[test]
     fn footprint_library_text_round_trips_through_the_reader() -> Result<(), String> {
-        for source in [
-            include_str!("../../library/tests/fixtures/R_0805_2012Metric.kicad_mod"),
-            include_str!("../../library/tests/fixtures/DIP-8_W7.62mm.kicad_mod"),
-        ] {
+        for source in FOOTPRINT_FIXTURES {
             let footprint = pcbcraft_library::read_footprint(source).map_err(|e| e.to_string())?;
             let text = footprint_library_text(&footprint)?;
             let again = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
-            assert_eq!(again.name, footprint.name);
-            assert_eq!(again.description, footprint.description);
-            assert_eq!(again.keywords, footprint.keywords);
-            assert_eq!(again.pads.len(), footprint.pads.len());
-            for (a, b) in again.pads.iter().zip(&footprint.pads) {
-                assert_eq!(a.number, b.number);
-                assert_eq!(a.pad_type, b.pad_type);
-                assert_eq!(a.shape, b.shape);
-                assert_eq!(a.position, b.position);
-                assert_eq!(a.rotation, b.rotation);
-                assert_eq!(a.size, b.size);
-                assert_eq!(a.layers, b.layers);
-                assert_eq!(a.drill, b.drill);
-                assert_eq!(a.roundrect_ratio, b.roundrect_ratio);
-            }
-            assert_eq!(again.graphics, footprint.graphics);
             assert_eq!(
-                again
-                    .model
-                    .as_ref()
-                    .map(|m| (&m.path, m.offset, m.scale, m.rotate)),
-                footprint
-                    .model
-                    .as_ref()
-                    .map(|m| (&m.path, m.offset, m.scale, m.rotate))
+                without_source_text(again),
+                without_source_text(footprint.clone()),
+                "{} changed across a write",
+                footprint.name
             );
-            assert_eq!(again.rules, footprint.rules);
+            let third = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
+            assert_eq!(
+                footprint_library_text(&third)?,
+                text,
+                "{} text is not stable across a second write",
+                footprint.name
+            );
         }
         Ok(())
     }
     #[test]
     fn symbol_library_text_round_trips_through_the_reader() -> Result<(), String> {
-        for source in [
-            include_str!("../../library/tests/fixtures/device.kicad_sym"),
-            include_str!("../../library/tests/fixtures/lm358.kicad_sym"),
-        ] {
+        for source in SYMBOL_FIXTURES {
             let symbols = pcbcraft_library::read_symbols(source).map_err(|e| e.to_string())?;
-            for symbol in symbols
-                .iter()
-                .filter(|s| !s.pins.is_empty() && !s.graphics.is_empty())
-            {
+            assert!(!symbols.is_empty());
+            for symbol in &symbols {
                 let text = symbol_library_text(symbol)?;
                 let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
                 assert_eq!(again.len(), 1, "{} wrote stray symbols", symbol.name);
-                let again = &again[0];
-                assert_eq!(again.name, symbol.name);
-                assert_eq!(again.reference, symbol.reference);
-                assert_eq!(again.value, symbol.value);
-                assert_eq!(again.description, symbol.description);
-                assert_eq!(again.keywords, symbol.keywords);
-                assert_eq!(again.footprint, symbol.footprint);
-                assert_eq!(again.pins, symbol.pins);
-                assert_eq!(again.graphics, symbol.graphics);
+                let again = again.into_iter().next().ok_or("no symbol")?;
+                assert_eq!(
+                    symbol_without_source_text(again.clone()),
+                    symbol_without_source_text(symbol.clone()),
+                    "{} changed across a write",
+                    symbol.name
+                );
+                assert_eq!(symbol_library_text(&again)?, text);
             }
         }
+        Ok(())
+    }
+    #[test]
+    fn library_fixtures_survive_lossless_write_round_trip() -> Result<(), String> {
+        let footprint = pcbcraft_library::read_footprint(include_str!(
+            "../../library/tests/fixtures/unknown-nodes.kicad_mod"
+        ))
+        .map_err(|e| e.to_string())?;
+        assert_eq!(footprint.retained.len(), 2, "both unknown nodes are kept");
+        let text = footprint_library_text(&footprint)?;
+        for needle in [
+            "(private_layers \"In1.Cu\" \"In2.Cu\")",
+            "(net_tie_pad_groups \"1, 2\")",
+            "(uuid \"11111111-1111-1111-1111-111111111111\")",
+            "(thermal_bridge_angle 45)",
+        ] {
+            assert!(text.contains(needle), "footprint write lost {needle}");
+        }
+        let symbol = pcbcraft_library::read_symbols(include_str!(
+            "../../library/tests/fixtures/unknown-nodes.kicad_sym"
+        ))
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or("no symbol")?;
+        assert_eq!(symbol.retained.len(), 1);
+        assert!(symbol_library_text(&symbol)?.contains("(power_flag_hint yes)"));
+        Ok(())
+    }
+    #[test]
+    fn an_edited_pad_is_regenerated_instead_of_spliced() -> Result<(), String> {
+        let mut footprint = pcbcraft_library::read_footprint(include_str!(
+            "../../library/tests/fixtures/unknown-nodes.kicad_mod"
+        ))
+        .map_err(|e| e.to_string())?;
+        footprint.pads[0].size.x = 1.5;
+        let text = footprint_library_text(&footprint)?;
+        assert!(
+            !text.contains("11111111-1111"),
+            "the stale source was written"
+        );
+        let again = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
+        assert_eq!(again.pads[0].size.x, 1.5);
         Ok(())
     }
 
@@ -15225,7 +15354,7 @@ mod tests {
     }
     /// Reads back the aperture macros and flashes of a writer-generated file and
     /// returns each flashed outline in board coordinates (y-down).
-    fn gerber_outlines(text: &str, height: f64) -> Result<Vec<Vec<Point>>, String> {
+    fn gerber_outlines(text: &str) -> Result<Vec<Vec<Point>>, String> {
         let mut macros: BTreeMap<String, Vec<Point>> = BTreeMap::new();
         let mut apertures: BTreeMap<String, Vec<Point>> = BTreeMap::new();
         let mut current: Option<String> = None;
@@ -15270,7 +15399,7 @@ mod tests {
                     outlines.push(
                         vertices
                             .iter()
-                            .map(|v| Point::new(at.x + v.x, height - (at.y + v.y)))
+                            .map(|v| Point::new(at.x + v.x, at.y + v.y))
                             .collect(),
                     );
                 }
@@ -15314,7 +15443,7 @@ mod tests {
         assert!(text.contains("%ADD10C,0.25*%"), "track aperture");
         // Oracle: macro vertices plus flash points must reproduce the outlines
         // the document gives for the rotated footprint, chamfer cuts included.
-        let outlines = gerber_outlines(&text, project.board.height)?;
+        let outlines = gerber_outlines(&text)?;
         let f = &project.board.footprints[0];
         assert_eq!(outlines.len(), 2);
         for (pad, outline) in f.pads.iter().zip(&outlines) {

@@ -264,3 +264,109 @@ fn fab_bundle_golden_fixtures_cover_each_gerber_layer_type() -> Result<(), Strin
     }
     Ok(())
 }
+
+/// Flash positions in millimetres, read by the independent parser.
+fn flashes_of(text: &str, name: &str) -> Result<Vec<(i64, i64)>, String> {
+    use gerber_parser::gerber_types::{Command, DCode, FunctionCode, Operation};
+    let doc = gerber_parser::parse(BufReader::new(text.as_bytes()))
+        .map_err(|(_, e)| format!("{name}: {e}"))?;
+    let (mut x, mut y) = (0.0f64, 0.0f64);
+    let mut out = Vec::new();
+    for command in doc.commands() {
+        let Command::FunctionCode(FunctionCode::DCode(DCode::Operation(op))) = command else {
+            continue;
+        };
+        let (Operation::Interpolate(c, _) | Operation::Move(c) | Operation::Flash(c)) = op;
+        if let Some(c) = c {
+            if let Some(v) = c.x {
+                x = f64::from(v);
+            }
+            if let Some(v) = c.y {
+                y = f64::from(v);
+            }
+        }
+        if matches!(op, Operation::Flash(_)) {
+            out.push(((x * 1e3).round() as i64, (y * 1e3).round() as i64));
+        }
+    }
+    out.sort_unstable();
+    Ok(out)
+}
+
+/// Hole positions of a drill file as thousandths of a millimetre.
+fn drill_hits(text: &str) -> Vec<(i64, i64)> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix('X') else {
+            continue;
+        };
+        let Some((x, y)) = rest.split_once('Y') else {
+            continue;
+        };
+        if let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>()) {
+            out.push(((x * 1e3).round() as i64, (y * 1e3).round() as i64));
+        }
+    }
+    out.sort_unstable();
+    out
+}
+
+#[test]
+fn back_copper_is_not_mirrored_and_lines_up_with_the_drills() -> Result<(), String> {
+    let files = fab_files()?;
+    let top = flashes_of(&files["pcb-F.Cu.gbr"], "F.Cu")?;
+    let bottom = flashes_of(&files["pcb-B.Cu.gbr"], "B.Cu")?;
+    let drills = drill_hits(&files["pcb-Plated.drl"]);
+    assert!(!bottom.is_empty(), "the back copper has flashes");
+    assert!(
+        bottom.iter().all(|(x, _)| *x >= 0),
+        "no bottom coordinate is mirrored into negative x: {bottom:?}"
+    );
+    for hole in &drills {
+        assert!(top.contains(hole), "top copper covers hole {hole:?}");
+        assert!(bottom.contains(hole), "bottom copper covers hole {hole:?}");
+    }
+    Ok(())
+}
+
+#[test]
+fn every_gerber_layer_shares_one_coordinate_token() -> Result<(), String> {
+    let files = fab_files()?;
+    let mut checked = 0;
+    for (name, text) in &files {
+        if !name.ends_with(".gbr") || name == "pcb-DrillMap.gbr" {
+            continue;
+        }
+        assert!(
+            text.contains("%TF.SameCoordinates,PCBCraft*%"),
+            "{name} declares the shared coordinate system"
+        );
+        checked += 1;
+    }
+    assert!(
+        checked >= 8,
+        "copper, mask, paste, silk and edge were checked"
+    );
+    Ok(())
+}
+
+/// Largest x word in a file, in file units.
+fn max_x_word(text: &str) -> i64 {
+    text.lines()
+        .filter_map(|l| l.strip_prefix('X'))
+        .filter_map(|l| l.split(|c: char| !c.is_ascii_digit() && c != '-').next())
+        .filter_map(|n| n.parse::<i64>().ok())
+        .max()
+        .unwrap_or(i64::MIN)
+}
+
+#[test]
+fn bottom_mask_matches_top_mask_for_a_through_hole_board() -> Result<(), String> {
+    let files = fab_files()?;
+    assert_eq!(
+        max_x_word(&files["pcb-B.Mask.gbr"]),
+        max_x_word(&files["pcb-F.Mask.gbr"]),
+        "both mask films open the same through pads at the same x"
+    );
+    Ok(())
+}
