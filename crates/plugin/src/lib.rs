@@ -15,6 +15,7 @@
 pub mod export;
 pub mod manifest;
 pub mod pin_map;
+pub mod pin_map_detail;
 pub mod registry;
 
 pub use export::{ExportTemplate, load_export_template, render_pin_map};
@@ -22,4 +23,5 @@ pub use manifest::{
     ExportTemplateEntry, ImporterEntry, PluginManifest, load_manifest, parse_manifest,
 };
 pub use pin_map::{PinMapRow, pin_map_rows};
+pub use pin_map_detail::{PinDetail, PinDetailRow, pin_map_detail};
 pub use registry::{export_output_name, export_template_path, load_registry};
