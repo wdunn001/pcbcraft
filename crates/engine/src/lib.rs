@@ -1278,9 +1278,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "label.set",
-            "Retype a net label, point it at a different net, or change the symbol style of a power label in place; junctions must stay on matching wire",
+            "Retype a net label, point it at a different net or a typed net name (made when new), or change the symbol style of a power label in place; junctions must stay on matching wire",
             schema(
-                json!({"id":id_schema(),"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"style":{"type":"string","enum":["ground","bar","arrow","negative"]}}),
+                json!({"id":id_schema(),"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"name":{"type":"string"},"style":{"type":"string","enum":["ground","bar","arrow","negative"]}}),
                 &["id"],
             ),
         ),
@@ -7528,6 +7528,9 @@ struct LabelSetParams {
     kind: Option<String>,
     #[serde(default)]
     net: Option<Id>,
+    /// A typed net name: joins the net of that name, or makes it when new.
+    #[serde(default)]
+    name: Option<String>,
     #[serde(default)]
     style: Option<String>,
 }
@@ -16863,10 +16866,32 @@ fn run_command_part_11(
         }
         "label.set" => {
             let a: LabelSetParams = parse(params)?;
-            if a.kind.is_none() && a.net.is_none() && a.style.is_none() {
+            if a.kind.is_none() && a.net.is_none() && a.name.is_none() && a.style.is_none() {
                 return Err(Error::Invalid(
-                    "provide a kind, net or style to change".into(),
+                    "provide a kind, net, name or style to change".into(),
                 ));
+            }
+            if a.net.is_some() && a.name.is_some() {
+                return Err(Error::Invalid(
+                    "give the net by id or by name, not both".into(),
+                ));
+            }
+            let mut a = a;
+            if let Some(raw) = a.name.take() {
+                let name = checked_net_name(&raw)?;
+                let found = p.nets.iter().find(|n| n.name == name).map(|n| n.id);
+                a.net = Some(match found {
+                    Some(id) => id,
+                    None => {
+                        let id = allocate(next)?;
+                        p.nets.push(Net {
+                            id,
+                            name,
+                            ..Default::default()
+                        });
+                        id
+                    }
+                });
             }
             if a.kind
                 .as_ref()
@@ -24131,6 +24156,41 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.labels.len(), 5);
         assert_eq!(s.project.no_connects.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn a_label_typed_name_joins_or_makes_a_net_in_one_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let lab = s.execute(
+            "label.place",
+            json!({"kind":"label","net":a,"position":{"x":30.0,"y":20.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let net_of = |s: &Session| s.project.labels.iter().find(|l| l.id == lab).map(|l| l.net);
+        s.execute("label.set", json!({"id":lab,"name":"B"}), None)?;
+        assert_eq!(net_of(&s), Some(b), "a name in use joins that net");
+        let nets = s.project.nets.len();
+        s.execute("label.set", json!({"id":lab,"name":" FRESH "}), None)?;
+        assert_eq!(s.project.nets.len(), nets + 1, "a new name makes a net");
+        let fresh = net_of(&s).ok_or_else(missing)?;
+        assert_eq!(s.project.net_name(fresh), "FRESH");
+        s.undo()?;
+        assert_eq!(net_of(&s), Some(b), "one undo restores net and label");
+        assert_eq!(s.project.nets.len(), nets, "one undo removes the new net");
+        for params in [
+            json!({"id":lab,"name":""}),
+            json!({"id":lab,"name":"X","net":a}),
+        ] {
+            assert!(s.execute("label.set", params, None).is_err());
+        }
         Ok(())
     }
     #[test]

@@ -692,7 +692,7 @@ pub const ROWS: &[Row] = &[
     row(
         TK::Select,
         None,
-        &[T::Part, T::Via],
+        &[T::Part, T::Via, T::NetLabel],
         Drag,
         None,
         CA::MovePart,
