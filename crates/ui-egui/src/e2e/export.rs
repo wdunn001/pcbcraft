@@ -707,6 +707,11 @@ fn a_newcomer_exports_a_complete_fab_package() -> Result<(), String> {
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
+    // The package is now picked but not exported; tap the Export button.
+    authoring::tests::tap(&ctx, &mut app, "Export package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     let zip = std::fs::read_dir(dir.path())
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)

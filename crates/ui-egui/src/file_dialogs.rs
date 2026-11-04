@@ -24,6 +24,7 @@ use crate::App;
 use crate::bom_export;
 use pcbcraft_doc::{BOM_EXCLUDE_FIELD, Id, Project};
 use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope};
+use pcbcraft_text::t;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -451,9 +452,10 @@ impl App {
                                         ui.label(egui::RichText::new(&p.tip).color(muted));
                                         ui.add_space(8.0);
                                         ui.label(
-                                            crate::fonts::caption("Files this package writes")
+                                            crate::fonts::caption(t!("export.package.files"))
                                                 .color(muted),
-                                        );
+                                        )
+                                        .on_hover_text(t!("export.package.files.tip"));
                                         if let Some(def) =
                                             pcbcraft_io::find_package(&project, &p.id)
                                         {
@@ -468,17 +470,15 @@ impl App {
                                                 Err(e) => {
                                                     ui.label(
                                                         egui::RichText::new(e)
-                                                            .color(egui::Color32::RED),
+                                                            .color(ui.visuals().error_fg_color),
                                                     );
                                                 }
                                             }
                                         }
                                         ui.add_space(8.0);
                                         if ui
-                                            .button("Export package")
-                                            .on_hover_text(
-                                                "Write this package into the make folder.",
-                                            )
+                                            .button(t!("export.package.go"))
+                                            .on_hover_text(t!("export.package.go.tip"))
                                             .clicked()
                                         {
                                             d.package = d.package_pick.clone();
