@@ -51,6 +51,10 @@ pub struct FabRules {
     /// drill tool, when the preset records one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plating_allowance: Option<f64>,
+    /// Courtyard margin added when a footprint has no courtyard graphics,
+    /// in millimetres. Falls back to 0.25 when unset (nominal IPC-7351).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub courtyard_excess: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -111,6 +115,9 @@ impl FabRules {
                 .solder
                 .as_ref()
                 .is_none_or(|s| !s.is_empty() && s.len() <= 64)
+            && self
+                .courtyard_excess
+                .is_none_or(|c| c.is_finite() && (0.0..=2.0).contains(&c))
     }
 
     pub fn drill_tool(&self, finished_drill: f64) -> f64 {

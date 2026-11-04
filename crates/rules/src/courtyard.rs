@@ -13,7 +13,8 @@
 //! - A footprint with no courtyard uses the bounding box of
 //!   `Footprint::drawing_points` grown by `FALLBACK_MARGIN_MM`, and the
 //!   message says the courtyard is estimated.
-//! - The margin is a constant until the owner asks for a configurable value.
+//! - The margin comes from board rules `courtyard_excess` when set, otherwise
+//!   the fallback constant.
 //!
 //! Dependencies: `crates/doc/src/lib.rs` (`Footprint`, `Project`),
 //! `crates/library/src/lib.rs` (`Graphic`).
@@ -53,6 +54,15 @@ fn courtyard_side(f: &Footprint, layer: &str) -> Option<Layer> {
     } else {
         Layer::Front
     })
+}
+
+fn courtyard_margin(project: &Project) -> f64 {
+    project
+        .board
+        .rules
+        .as_ref()
+        .and_then(|r| r.courtyard_excess)
+        .unwrap_or(FALLBACK_MARGIN_MM)
 }
 
 fn to_world(f: &Footprint, p: Point) -> Point {
@@ -167,7 +177,7 @@ fn yards_of(project: &Project, f: &Footprint) -> Vec<Yard> {
             hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
         }
         if !points.is_empty() {
-            let m = FALLBACK_MARGIN_MM;
+            let m = courtyard_margin(project);
             let corners = [
                 Point::new(lo.x - m, lo.y - m),
                 Point::new(hi.x + m, lo.y - m),
@@ -343,8 +353,8 @@ pub(crate) fn courtyard_findings(project: &Project) -> Vec<Finding> {
             for y in yard_a.iter().chain(yard_b.iter()) {
                 if y.estimated {
                     message.push_str(&format!(
-                        "; the courtyard of {} is estimated from its pads and drawing plus {FALLBACK_MARGIN_MM} mm",
-                        y.label
+                        "; the courtyard of {} is estimated from its pads and drawing plus {:.2} mm",
+                        y.label, courtyard_margin(project)
                     ));
                 }
             }
@@ -656,5 +666,31 @@ mod tests {
         let pairs = courtyard_pairs(&p);
         let findings = found(&p);
         assert_eq!(pairs.len(), findings.len());
+    }
+
+    #[test]
+    fn a_recorded_courtyard_excess_replaces_the_default_margin() -> Result<(), String> {
+        // With excess 0.5: estimate is 4.25 either side, so parts 8.4 mm apart
+        // overlap by 0.1 mm and 8.6 mm apart do not.
+        let mut p = Project::default();
+        p.board.rules = Some(FabRules {
+            courtyard_excess: Some(0.5),
+            ..FabRules::default()
+        });
+        part(&mut p, 2, Point::new(0.0, 0.0), 0.0, None, "", None);
+        part(&mut p, 3, Point::new(8.4, 0.0), 0.0, None, "", None);
+        let f = found(&p);
+        assert_eq!(f.len(), 1, "should overlap with 0.5 excess");
+        assert!(f[0].message.contains("overlap by 0.100 mm"));
+        p.board.footprints[1].position = Point::new(8.6, 0.0);
+        assert!(found(&p).is_empty(), "should not overlap at 8.6");
+        // Without the setting, the old 8.1 / 7.9 cases still pass.
+        let mut p2 = Project::default();
+        part(&mut p2, 2, Point::new(0.0, 0.0), 0.0, None, "", None);
+        part(&mut p2, 3, Point::new(7.9, 0.0), 0.0, None, "", None);
+        assert_eq!(found(&p2).len(), 1);
+        p2.board.footprints[1].position = Point::new(8.1, 0.0);
+        assert!(found(&p2).is_empty());
+        Ok(())
     }
 }
