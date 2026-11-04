@@ -26,6 +26,7 @@ mod manifest;
 mod privacy;
 mod scan;
 mod spdx;
+mod strip;
 mod zip_read;
 
 pub use bundle::refused_path;
@@ -39,6 +40,7 @@ pub use scan::{
     BundleFile, BundledPart, PublicationScanInput, PublicationScanResult, ScanOutcome, ScanRequest,
     scan,
 };
+pub use strip::{StripNote, strip_text};
 
 pub use check::{
     CONTROLLED_ROLES, CONTROLLED_TAGS, CheckResult, CheckVerdict, Stage0Report,
