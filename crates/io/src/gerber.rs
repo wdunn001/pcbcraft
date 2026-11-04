@@ -11,6 +11,7 @@
 //! of a package and its drill files share one coordinate system.
 use crate::board_mesh::{graphic_layer, map_ring, pad_sides, thin_polyline};
 use crate::gerber_fidelity::{attach_gerber_md5_in_header, smd_aperture_function};
+use crate::silk_font;
 use pcbcraft_doc::fill::{PlatedConnectKind, pad_exports_on_layer, plated_item_connected_on_layer};
 use pcbcraft_doc::{Footprint, Layer, Pad, Project};
 use pcbcraft_geom::Point;
@@ -868,8 +869,17 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
         }
     }
     for text in &p.board.texts {
-        if text.layer == layer {
+        if text.layer != layer {
+            continue;
+        }
+        if text.text.contains("${") {
             dropped_text += 1;
+            continue;
+        }
+        let width = (text.size * 0.12).clamp(0.1, 0.5);
+        let segs = silk_font::text_strokes(&text.text, text.position, text.size, text.rotation);
+        for (start, end) in segs {
+            strokes.push(Stroke { start, end, width });
         }
     }
     if layer == Layer::Front {
@@ -1576,6 +1586,52 @@ mod tests {
         assert_eq!(
             first, second,
             "two exports under the same fixed clock must be byte-identical"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn board_text_is_written_into_the_silk_file() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.texts.push(pcbcraft_doc::BoardText {
+            id: 1,
+            text: "L".into(),
+            position: Point::new(20.0, 20.0),
+            size: 2.0,
+            layer: Layer::Front,
+            rotation: 0.0,
+            component: None,
+        });
+        project.validate()?;
+        let silk = crate::with_fixed_clock(0, || gerber_silk(&project, Layer::Front))?;
+        assert!(
+            !silk.contains("left out because this writer has no stroke font"),
+            "board text should not be counted as dropped"
+        );
+        // L at (20,20) size 2.0: vertical stroke (20,20)-(20,22), horizontal (20,22)-(21.2,22)
+        // In 4.6 fixed point: X20000000Y20000000, X20000000Y22000000, X21200000Y22000000
+        assert!(
+            silk.contains("X20000000Y20000000D02*")
+                && silk.contains("X20000000Y22000000D01*")
+                && silk.contains("X21200000Y22000000D01*"),
+            "silk file must contain the L letter strokes"
+        );
+        // A text on the Back layer is absent from the Front file
+        let mut project2 = Project::default();
+        project2.board.texts.push(pcbcraft_doc::BoardText {
+            id: 1,
+            text: "B".into(),
+            position: Point::new(20.0, 20.0),
+            size: 2.0,
+            layer: Layer::Back,
+            rotation: 0.0,
+            component: None,
+        });
+        project2.validate()?;
+        let front_silk = crate::with_fixed_clock(0, || gerber_silk(&project2, Layer::Front))?;
+        assert!(
+            !front_silk.contains("X20000000Y20000000*"),
+            "back layer text must not appear in the front silk file"
         );
         Ok(())
     }

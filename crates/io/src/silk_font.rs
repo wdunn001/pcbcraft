@@ -133,6 +133,134 @@ const PLUS: [UnitSegment; 2] = [((0.0, 0.5), (1.0, 0.5)), ((0.5, 0.0), (0.5, 1.0
 /// Slash: a diagonal from top-right to bottom-left.
 const SLASH: [UnitSegment; 1] = [((1.0, 0.0), (0.0, 1.0))];
 
+// Letter glyphs (uppercase; lowercase maps to uppercase).
+const LETTER_A: [UnitSegment; 3] = [
+    ((0.0, 1.0), (0.5, 0.0)),
+    ((0.5, 0.0), (1.0, 1.0)),
+    ((0.2, 0.5), (0.8, 0.5)),
+];
+const LETTER_B: [UnitSegment; 6] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 0.0), (0.8, 0.0)),
+    ((0.8, 0.0), (0.8, 0.5)),
+    ((0.0, 0.5), (0.8, 0.5)),
+    ((0.8, 0.5), (0.8, 1.0)),
+    ((0.0, 1.0), (0.8, 1.0)),
+];
+const LETTER_C: [UnitSegment; 3] = [
+    ((1.0, 0.0), (0.0, 0.0)),
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 1.0), (1.0, 1.0)),
+];
+const LETTER_D: [UnitSegment; 4] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 0.0), (0.8, 0.0)),
+    ((0.8, 0.0), (0.8, 1.0)),
+    ((0.8, 1.0), (0.0, 1.0)),
+];
+const LETTER_E: [UnitSegment; 4] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 0.0), (1.0, 0.0)),
+    ((0.0, 0.5), (1.0, 0.5)),
+    ((0.0, 1.0), (1.0, 1.0)),
+];
+const LETTER_F: [UnitSegment; 3] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 0.0), (1.0, 0.0)),
+    ((0.0, 0.5), (1.0, 0.5)),
+];
+const LETTER_G: [UnitSegment; 5] = [
+    ((1.0, 0.0), (0.0, 0.0)),
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 1.0), (1.0, 1.0)),
+    ((1.0, 1.0), (1.0, 0.5)),
+    ((1.0, 0.5), (0.5, 0.5)),
+];
+const LETTER_H: [UnitSegment; 3] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((1.0, 0.0), (1.0, 1.0)),
+    ((0.0, 0.5), (1.0, 0.5)),
+];
+const LETTER_I: [UnitSegment; 3] = [
+    ((0.0, 0.0), (1.0, 0.0)),
+    ((0.5, 0.0), (0.5, 1.0)),
+    ((0.0, 1.0), (1.0, 1.0)),
+];
+const LETTER_J: [UnitSegment; 3] = [
+    ((0.0, 0.0), (1.0, 0.0)),
+    ((1.0, 0.0), (1.0, 1.0)),
+    ((1.0, 1.0), (0.5, 1.0)),
+];
+const LETTER_K: [UnitSegment; 3] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 0.5), (1.0, 0.0)),
+    ((0.0, 0.5), (1.0, 1.0)),
+];
+const LETTER_L: [UnitSegment; 2] = [((0.0, 0.0), (0.0, 1.0)), ((0.0, 1.0), (1.0, 1.0))];
+const LETTER_M: [UnitSegment; 4] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 0.0), (0.5, 1.0)),
+    ((0.5, 1.0), (1.0, 0.0)),
+    ((1.0, 0.0), (1.0, 1.0)),
+];
+const LETTER_N: [UnitSegment; 3] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 0.0), (1.0, 1.0)),
+    ((1.0, 0.0), (1.0, 1.0)),
+];
+// O reuses the ZERO box shape.
+const LETTER_P: [UnitSegment; 4] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 0.0), (1.0, 0.0)),
+    ((1.0, 0.0), (1.0, 0.5)),
+    ((0.0, 0.5), (1.0, 0.5)),
+];
+const LETTER_Q: [UnitSegment; 5] = [
+    ((0.0, 0.0), (1.0, 0.0)),
+    ((1.0, 0.0), (1.0, 1.0)),
+    ((1.0, 1.0), (0.0, 1.0)),
+    ((0.0, 1.0), (0.0, 0.0)),
+    ((0.7, 0.7), (1.0, 1.0)),
+];
+const LETTER_R: [UnitSegment; 5] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 0.0), (1.0, 0.0)),
+    ((1.0, 0.0), (1.0, 0.5)),
+    ((0.0, 0.5), (1.0, 0.5)),
+    ((1.0, 0.5), (1.0, 1.0)),
+];
+const LETTER_S: [UnitSegment; 5] = [
+    ((1.0, 0.0), (0.0, 0.0)),
+    ((0.0, 0.0), (0.0, 0.5)),
+    ((0.0, 0.5), (1.0, 0.5)),
+    ((1.0, 0.5), (1.0, 1.0)),
+    ((1.0, 1.0), (0.0, 1.0)),
+];
+const LETTER_T: [UnitSegment; 2] = [((0.0, 0.0), (1.0, 0.0)), ((0.5, 0.0), (0.5, 1.0))];
+const LETTER_U: [UnitSegment; 3] = [
+    ((0.0, 0.0), (0.0, 1.0)),
+    ((0.0, 1.0), (1.0, 1.0)),
+    ((1.0, 1.0), (1.0, 0.0)),
+];
+const LETTER_V: [UnitSegment; 2] = [((0.0, 0.0), (0.5, 1.0)), ((0.5, 1.0), (1.0, 0.0))];
+const LETTER_W: [UnitSegment; 4] = [
+    ((0.0, 0.0), (0.25, 1.0)),
+    ((0.25, 1.0), (0.5, 0.0)),
+    ((0.5, 0.0), (0.75, 1.0)),
+    ((0.75, 1.0), (1.0, 0.0)),
+];
+const LETTER_X: [UnitSegment; 2] = [((0.0, 0.0), (1.0, 1.0)), ((1.0, 0.0), (0.0, 1.0))];
+const LETTER_Y: [UnitSegment; 3] = [
+    ((0.0, 0.0), (0.5, 0.5)),
+    ((1.0, 0.0), (0.5, 0.5)),
+    ((0.5, 0.5), (0.5, 1.0)),
+];
+const LETTER_Z: [UnitSegment; 3] = [
+    ((0.0, 0.0), (1.0, 0.0)),
+    ((1.0, 0.0), (0.0, 1.0)),
+    ((0.0, 1.0), (1.0, 1.0)),
+];
+
 /// Fallback box for unknown characters.
 const BOX: [UnitSegment; 4] = [
     ((0.0, 0.0), (1.0, 0.0)),
@@ -162,12 +290,38 @@ fn char_segments(ch: char) -> &'static [UnitSegment] {
         '7' => &SEVEN,
         '8' => &EIGHT,
         '9' => &NINE,
+        'A' | 'a' => &LETTER_A,
+        'B' | 'b' => &LETTER_B,
+        'C' | 'c' => &LETTER_C,
+        'D' | 'd' => &LETTER_D,
+        'E' | 'e' => &LETTER_E,
+        'F' | 'f' => &LETTER_F,
+        'G' | 'g' => &LETTER_G,
+        'H' | 'h' => &LETTER_H,
+        'I' | 'i' => &LETTER_I,
+        'J' | 'j' => &LETTER_J,
+        'K' | 'k' => &LETTER_K,
+        'L' | 'l' => &LETTER_L,
+        'M' | 'm' => &LETTER_M,
+        'N' | 'n' => &LETTER_N,
+        'O' | 'o' => &ZERO,
+        'P' | 'p' => &LETTER_P,
+        'Q' | 'q' => &LETTER_Q,
+        'R' | 'r' => &LETTER_R,
+        'S' | 's' => &LETTER_S,
+        'T' | 't' => &LETTER_T,
+        'U' | 'u' => &LETTER_U,
+        'V' | 'v' => &LETTER_V,
+        'W' | 'w' => &LETTER_W,
+        'X' | 'x' => &LETTER_X,
+        'Y' | 'y' => &LETTER_Y,
+        'Z' | 'z' => &LETTER_Z,
         '-' => &DASH,
         '.' => &DOT,
         '_' => &UNDERSCORE,
         '+' => &PLUS,
         '/' => &SLASH,
-        ' ' => &[], // space has no strokes
+        ' ' => &[],
         _ => &BOX,
     }
 }
@@ -266,5 +420,31 @@ mod tests {
         assert_eq!(eight.len(), 7);
         let zero = text_strokes("0", Point::new(0.0, 0.0), 2.0, 0.0);
         assert_eq!(zero.len(), 6);
+    }
+
+    #[test]
+    fn the_letter_l_is_a_vertical_and_a_horizontal_stroke() {
+        let strokes = text_strokes("L", Point::new(10.0, 10.0), 2.0, 0.0);
+        assert_eq!(strokes.len(), 2);
+        // First stroke: vertical from (10,10) to (10,12)
+        let (s1, e1) = strokes[0];
+        assert!((s1.x - 10.0).abs() < 0.001);
+        assert!((e1.x - 10.0).abs() < 0.001);
+        assert!((s1.y - 10.0).abs() < 0.001 || (e1.y - 10.0).abs() < 0.001);
+        assert!((s1.y - 12.0).abs() < 0.001 || (e1.y - 12.0).abs() < 0.001);
+        // Second stroke: horizontal from (10,12) to (11.2,12)
+        let (s2, e2) = strokes[1];
+        assert!((s2.y - 12.0).abs() < 0.001);
+        assert!((e2.y - 12.0).abs() < 0.001);
+        assert!((s2.x - 10.0).abs() < 0.001 || (e2.x - 10.0).abs() < 0.001);
+        assert!((s2.x - 11.2).abs() < 0.001 || (e2.x - 11.2).abs() < 0.001);
+    }
+
+    #[test]
+    fn every_letter_has_at_least_one_stroke() {
+        for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars() {
+            let strokes = text_strokes(&ch.to_string(), Point::new(0.0, 0.0), 2.0, 0.0);
+            assert!(!strokes.is_empty(), "letter {} has no strokes", ch);
+        }
     }
 }
