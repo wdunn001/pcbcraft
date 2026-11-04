@@ -30,6 +30,7 @@ use crate::ui_kit::segmented::{Segment, segmented};
 use crate::ui_kit::select::select;
 use crate::ui_kit::tab_bar::TabItem;
 use crate::{App, fonts, human_code, theme};
+use pcbcraft_rules::CHECK_CODES;
 use pcbcraft_text::t;
 use serde_json::json;
 
@@ -48,22 +49,15 @@ const DOMAINS: [(&str, &[&str]); 4] = [
 ];
 
 /// Checks whose strictness can be chosen here.
-const RULE_CODES: [&str; 14] = [
-    "clearance",
-    "copper_short",
-    "board_edge",
-    "track_width",
-    "track_length",
-    "unrouted",
-    "missing_footprint",
-    "min_track",
-    "min_space",
-    "min_drill",
-    "annular_ring",
-    "silk_text_height",
-    "single_pin_net",
-    "unassigned_pin",
-];
+///
+/// Returns the codes published by the engine so the Rules tab always lists every
+/// check the engine knows about. New checks added to `pcbcraft_rules::CHECK_CODES`
+/// appear here automatically, with no update to this window. If a check code has
+/// no human name string in `check.<code>`, `human_code` falls back to the code with
+/// underscores turned into spaces, which is readable and correct for that case.
+fn rule_codes() -> Vec<&'static str> {
+    CHECK_CODES.iter().map(|(code, _)| *code).collect()
+}
 
 /// Most findings drawn at once; the rest are counted in a line under the list.
 const LIST_CAP: usize = 200;
@@ -320,7 +314,7 @@ impl App {
         self.rules_dialog.filter = filter;
         ui.add_space(theme::SPACE[1]);
         let mut any = false;
-        for code in RULE_CODES {
+        for code in rule_codes() {
             let level = self.project.rule_severity.get(code).cloned();
             let off = level.as_deref() == Some("off");
             let keep = match filter {
@@ -436,4 +430,31 @@ fn tally<'a>(rows: impl Iterator<Item = &'a Row>) -> (usize, usize, usize) {
         }
     }
     n
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #110: the Rules tab lists every published check, not a hardcoded
+    /// subset. The function returns exactly the engine's CHECK_CODES, so any
+    /// new check appears here without touching this window.
+    #[test]
+    fn rule_codes_cover_every_published_check() -> Result<(), String> {
+        let codes = rule_codes();
+        assert_eq!(
+            codes.len(),
+            CHECK_CODES.len(),
+            "the window lists every published check"
+        );
+        assert!(
+            codes.contains(&"hole_to_copper_pth"),
+            "plated hole-to-copper appears in the list"
+        );
+        assert!(
+            codes.contains(&"copper_sliver"),
+            "copper sliver appears in the list"
+        );
+        Ok(())
+    }
 }
