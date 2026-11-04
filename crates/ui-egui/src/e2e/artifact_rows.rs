@@ -229,3 +229,43 @@ fn a_newcomer_opens_a_layers_drill_file_from_the_tree() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_reads_which_side_a_placement_file_is_for() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    let (copper, place) = add_plots(&mut app)?;
+    // Pick the bottom placement file.
+    app.select_subject(Selection::Artifact(crate::artifact_rows::rest_of(
+        app.project
+            .artifacts
+            .iter()
+            .find(|a| a.id == place)
+            .ok_or("the placement record should exist")?,
+    )));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Bottom")?,
+        "the placement Properties card shows its side is Bottom: {}",
+        app.message
+    );
+    assert!(
+        scrolled_to(&ctx, &mut app, "Side")?,
+        "the placement Properties card shows a Side row: {}",
+        app.message
+    );
+    // Pick the copper plot.
+    app.select_subject(Selection::Artifact(crate::artifact_rows::rest_of(
+        app.project
+            .artifacts
+            .iter()
+            .find(|a| a.id == copper)
+            .ok_or("the copper plot record should exist")?,
+    )));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Top")?,
+        "the copper plot Properties card shows its side is Top: {}",
+        app.message
+    );
+    Ok(())
+}
