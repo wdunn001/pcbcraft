@@ -3124,6 +3124,7 @@ settings.project.classes.rise_time.clear = Clear
 settings.project.classes.rise_time.clear.tip = Stop using a rise time for this class.
 settings.project.classes.impedance_target = Target impedance
 settings.project.classes.impedance_target.tip = The impedance every wire in this class should have. The impedance check warns when a track misses it by more than the allowed error.
+settings.project.classes.impedance_target.set = Set a target
 settings.project.classes.impedance_target.clear = Clear
 settings.project.classes.impedance_target.clear.tip = Stop using an impedance target for this class.
 settings.project.classes.impedance_tolerance = Allowed error

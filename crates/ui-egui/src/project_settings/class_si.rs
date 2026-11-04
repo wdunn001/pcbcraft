@@ -157,7 +157,7 @@ impl App {
                 let resp = form_row(ui, FormWidth::Page, &imp_name, Some(&imp_tip), None, |ui| {
                     secondary(
                         ui,
-                        &t!("settings.project.rules.set_limit"),
+                        &t!("settings.project.classes.impedance_target.set"),
                         &t!(
                             "settings.project.classes.set.tip",
                             name = imp_name.to_lowercase()
