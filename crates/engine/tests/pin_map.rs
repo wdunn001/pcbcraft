@@ -22,7 +22,7 @@ fn firmware_fixture_project() -> Project {
         id: 1,
         reference: "U1".into(),
         value: "STM32F405".into(),
-        kind: "ic_mcu".into(),
+        kind: "mcu".into(),
         position: Point { x: 0.0, y: 0.0 },
         rotation: 0.0,
         pins: vec![
@@ -107,7 +107,7 @@ fn pinmap_export_returns_csv_and_check_reports_a_swap() -> Result<(), String> {
     let export = session
         .execute("pinmap.export", json!({"format": "csv"}), None)
         .map_err(|e| format!("export failed: {e}"))?;
-    let text = export
+    let text = export["result"]
         .get("text")
         .and_then(Value::as_str)
         .ok_or("export has no text")?;
@@ -128,7 +128,7 @@ fn pinmap_export_returns_csv_and_check_reports_a_swap() -> Result<(), String> {
     let check = session
         .execute("pinmap.check", json!({"text": swapped}), None)
         .map_err(|e| format!("check failed: {e}"))?;
-    let count = check
+    let count = check["result"]
         .get("count")
         .and_then(Value::as_u64)
         .ok_or("check has no count")?;
@@ -157,12 +157,12 @@ fn a_newcomer_exports_the_pin_map_of_the_board() -> Result<(), String> {
     let export = session
         .execute("pinmap.export", json!({"format": "json"}), None)
         .map_err(|e| format!("export failed: {e}"))?;
-    let rows = export
+    let rows = export["result"]
         .get("rows")
         .and_then(Value::as_u64)
         .ok_or("export has no rows")?;
     assert_eq!(rows, 10, "expected 10 pin rows");
-    let text = export
+    let text = export["result"]
         .get("text")
         .and_then(Value::as_str)
         .ok_or("export has no text")?;
