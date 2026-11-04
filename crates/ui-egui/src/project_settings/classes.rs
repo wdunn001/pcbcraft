@@ -205,6 +205,7 @@ impl App {
                         self.settings_run("netclass.set", json!({"class": id, key: v}));
                     }
                 }
+                self.settings_class_si(ui, class);
                 ui.add_space(4.0);
                 self.settings_class_nets(ui, class);
             },
