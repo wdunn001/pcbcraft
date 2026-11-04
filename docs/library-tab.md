@@ -80,13 +80,13 @@ finds its family library, so the library name is not needed.
 
 ## Machines
 
-The Parts | Machines switch at the left of the Library tool bar changes the centre between the part pages and the machine library. The library holds every machine a person can use, shown as cards with a source badge:
+The Library page has two tabs in its left panel, Parts and Machines. The Machines tab holds the machine library. Its left panel has a search box, a Kind list (All kinds, Pick and place, Laser, Mill, UV printer, Reflow oven), a Source list (Built in, My machines, This project, Shared folder) with a count on each row, and Show hidden machines. Add machine and Import are pinned at the bottom of the panel. The centre is a two column grid of machine cards. The right panel shows the selected machine with a Selected machine section and a Summary section. The library holds every machine a person can use, shown as cards with a source badge:
 
 - Built in: ships with the program. A built-in machine can be hidden (Show hidden machines lists it again) but never changed or deleted. To change one, Duplicate it and edit the copy.
 - My machines: files in the `machines` folder beside the preferences, shared by every project on this computer.
 - This project: the copy a project keeps. A project always holds its own copy of each machine it uses, so its output does not change when the library does.
 
-Filters narrow the cards by kind (pick and place, laser, mill) and source, and a search box matches name, maker, model and id. A card offers Add to this project, Duplicate, Hide or Show (built in), Save to my machines (project copies), Remove (my machines) and, when the library machine has a newer version than the project copy, Update from library.
+Clicking a kind or source row narrows the cards, and the search box matches name, maker, model and id. Clicking a card selects it. A card offers Edit (off for now) and Duplicate. The right panel offers Add to this project, Edit a copy, Export (off for now), Hide or Show (built in), Save to my machines (project copies), Remove (my machines) and, when the library machine has a newer version than the project copy, Update from library. The tool bar has Add machine, Duplicate, Import (off for now), Export (off for now), Check for updates and Sort by Name (off for now). Import, Export, Edit and Sort stay off until the engine has commands for them. The Shared folder row lists nothing until a shared folder exists.
 
 Add machine opens a window to start from a library machine or a blank machine of one kind, name it, and choose whether it goes on the project and whether it is kept in My machines.
 

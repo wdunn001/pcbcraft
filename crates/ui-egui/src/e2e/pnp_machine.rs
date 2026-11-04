@@ -30,7 +30,7 @@ fn open_machines(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
     app.change_tab(Tab::Library);
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(ctx, app, "Machines")?;
-    type_into(ctx, app, "textinput:Search machines", "neoden yy1")?;
+    type_into(ctx, app, "textinput:Name, maker or model", "neoden yy1")?;
     authoring::tests::tap(ctx, app, "Add to this project")?;
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::PlotFiles);

@@ -58,9 +58,14 @@ fn a_newcomer_sees_built_in_machines_as_ordinary_library_cards() -> Result<(), S
         "the laser filter leaves out pick and place machines"
     );
     authoring::tests::tap(&ctx, &mut app, "All kinds")?;
-    authoring::tests::tap(&ctx, &mut app, "Built in")?;
-    authoring::tests::tap(&ctx, &mut app, "All sources")?;
-    type_into(&ctx, &mut app, "textinput:Search machines", "neoden 4")?;
+    authoring::tests::tap(&ctx, &mut app, "This project")?;
+    assert!(
+        paints_text(&ctx, &mut app, "No machines to show")?,
+        "no machine is on the project yet: {}",
+        painted(&ctx, &mut app)
+    );
+    authoring::tests::tap(&ctx, &mut app, "This project")?;
+    type_into(&ctx, &mut app, "textinput:Name, maker or model", "neoden 4")?;
     assert!(
         paints_text(&ctx, &mut app, "NeoDen 4")?,
         "{}",
@@ -93,7 +98,12 @@ fn a_newcomer_adds_their_placer_from_a_built_in_and_picks_it_for_an_output() -> 
     let (ctx, mut app, folder) = library_app()?;
     let out = folder.join("out");
     app.make_dir = out.to_string_lossy().into_owned();
-    type_into(&ctx, &mut app, "textinput:Search machines", "neoden yy1")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Name, maker or model",
+        "neoden yy1",
+    )?;
     authoring::tests::tap(&ctx, &mut app, "Add to this project")?;
     assert!(
         app.project
@@ -127,7 +137,12 @@ fn a_newcomer_adds_their_placer_from_a_built_in_and_picks_it_for_an_output() -> 
 #[test]
 fn a_newcomer_duplicates_a_machine_and_changes_a_nozzle() -> Result<(), String> {
     let (ctx, mut app, folder) = library_app()?;
-    type_into(&ctx, &mut app, "textinput:Search machines", "neoden yy1")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Name, maker or model",
+        "neoden yy1",
+    )?;
     authoring::tests::tap(&ctx, &mut app, "Duplicate")?;
     let copy = app
         .project
@@ -210,7 +225,12 @@ fn a_newcomer_sees_that_a_project_copy_is_behind_the_library() -> Result<(), Str
     std::fs::write(&file, pcbcraft_io::machine_profile_to_toml(&newer)?)
         .map_err(|e| e.to_string())?;
     app.libws.machines.stale = true;
-    type_into(&ctx, &mut app, "textinput:Search machines", "shop mill")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Name, maker or model",
+        "shop mill",
+    )?;
     assert!(
         paints_text(&ctx, &mut app, "The project copy is behind the library.")?,
         "the card says the copy is behind: {}",
@@ -237,10 +257,7 @@ fn a_newcomer_sees_that_a_project_copy_is_behind_the_library() -> Result<(), Str
 fn a_newcomer_adds_a_blank_machine_from_the_add_machine_window() -> Result<(), String> {
     let (ctx, mut app, folder) = library_app()?;
     authoring::tests::tap(&ctx, &mut app, "Add machine")?;
-    tap_id(&ctx, &mut app, "combobox:Machine to copy")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "NeoDen YY1")?;
-    authoring::tests::tap(&ctx, &mut app, "Blank machine")?;
+    authoring::tests::tap(&ctx, &mut app, "Nothing, a blank machine")?;
     type_into(
         &ctx,
         &mut app,
@@ -248,8 +265,6 @@ fn a_newcomer_adds_a_blank_machine_from_the_add_machine_window() -> Result<(), S
         "Bench mill",
     )?;
     tap_id(&ctx, &mut app, "checkbox:Keep in my machines")?;
-    tap_id(&ctx, &mut app, "combobox:Kind of machine")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Mill")?;
     authoring::tests::tap(&ctx, &mut app, "Create")?;
     assert!(
@@ -271,6 +286,16 @@ fn a_newcomer_adds_a_blank_machine_from_the_add_machine_window() -> Result<(), S
     Ok(())
 }
 
+/// How many times `needle` is painted as a whole line of text this frame.
+fn painted_count(ctx: &egui::Context, app: &mut App, needle: &str) -> usize {
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    output
+        .shapes
+        .iter()
+        .filter(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == needle))
+        .count()
+}
+
 /// The Library page has two navigation tabs in its left strip, Parts and Machines, as the other
 /// pages have Layers and Library. There is no "Library" tab there and no switch in the tool bar.
 #[test]
@@ -288,7 +313,6 @@ fn a_newcomer_moves_between_the_parts_and_machines_tabs_of_the_library_page() ->
     for _ in 0..3 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
-    // Both tabs are in the strip; the old single "Library" label is not.
     let text = painted(&ctx, &mut app);
     assert!(
         text.contains("Parts"),
@@ -306,7 +330,6 @@ fn a_newcomer_moves_between_the_parts_and_machines_tabs_of_the_library_page() ->
         machine_controls, 1,
         "Machines appears once, as the tab in the left strip, and not again as a tool bar switch"
     );
-    // The Machines tab shows the machine library: filters on the left, cards in the middle.
     authoring::tests::tap(&ctx, &mut app, "Machines")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
@@ -314,17 +337,113 @@ fn a_newcomer_moves_between_the_parts_and_machines_tabs_of_the_library_page() ->
         "the Machines tab shows the machine cards: {}",
         painted(&ctx, &mut app)
     );
-    assert!(
-        paints_text(&ctx, &mut app, "Add machine")?,
-        "the Machines tab has the Add machine button"
-    );
-    // The Parts tab brings the part browser back.
     authoring::tests::tap(&ctx, &mut app, "Parts")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         !painted(&ctx, &mut app).contains("NeoDen YY1"),
         "the Parts tab no longer shows the machine cards"
     );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
+
+/// A newcomer opens the Machines tab and the left panel holds the machine lists and Add machine,
+/// not the part search.
+#[test]
+fn a_newcomer_sees_the_machine_lists_and_add_machine_in_the_left_panel() -> Result<(), String> {
+    let (ctx, mut app, folder) = library_app()?;
+    let text = painted(&ctx, &mut app);
+    for word in [
+        "KIND",
+        "SOURCE",
+        "All kinds",
+        "Pick and place",
+        "Laser",
+        "Mill",
+        "UV printer",
+        "Reflow oven",
+        "Built in",
+        "My machines",
+        "This project",
+        "Shared folder",
+        "Add machine",
+        "Import",
+        "MACHINE LIBRARY",
+    ] {
+        assert!(text.contains(word), "the Machines tab shows {word}: {text}");
+    }
+    assert!(
+        !text.contains("Keyword or part number"),
+        "the part search is not in the Machines tab: {text}"
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
+
+/// A newcomer clicks a kind row and the cards narrow to that kind.
+#[test]
+fn a_newcomer_clicks_a_kind_row_and_the_machine_cards_filter() -> Result<(), String> {
+    let (ctx, mut app, folder) = library_app()?;
+    assert!(paints_text(&ctx, &mut app, "NeoDen YY1")?);
+    authoring::tests::tap(&ctx, &mut app, "Laser")?;
+    assert!(
+        paints_text(&ctx, &mut app, "ComMarker B6 MOPA")?,
+        "the laser card stays: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "NeoDen YY1")?,
+        "the pick and place card leaves: {}",
+        painted(&ctx, &mut app)
+    );
+    authoring::tests::tap(&ctx, &mut app, "All kinds")?;
+    assert!(paints_text(&ctx, &mut app, "NeoDen YY1")?);
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
+
+/// A newcomer clicks a card and the right panel shows that machine.
+#[test]
+fn a_newcomer_clicks_a_machine_card_and_the_right_panel_shows_it() -> Result<(), String> {
+    let (ctx, mut app, folder) = library_app()?;
+    let first = painted_count(&ctx, &mut app, "NeoDen 4");
+    authoring::tests::tap(&ctx, &mut app, "NeoDen 4")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let selected = app.libws.machines.selected.clone();
+    assert_eq!(
+        selected.as_deref(),
+        Some("neoden-4"),
+        "the card is selected: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        painted_count(&ctx, &mut app, "NeoDen 4") > first,
+        "the right panel adds the machine name to the card's own: {}",
+        painted(&ctx, &mut app)
+    );
+    for word in ["SELECTED MACHINE", "SUMMARY", "Work area", "300 x 300 mm"] {
+        assert!(
+            paints_text(&ctx, &mut app, word)?,
+            "the right panel shows {word}: {}",
+            painted(&ctx, &mut app)
+        );
+    }
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
+
+/// A newcomer clicks Add machine in the left panel and the Add machine window opens.
+#[test]
+fn a_newcomer_clicks_add_machine_and_the_window_opens() -> Result<(), String> {
+    let (ctx, mut app, folder) = library_app()?;
+    assert!(!paints_text(&ctx, &mut app, "Create")?);
+    authoring::tests::tap(&ctx, &mut app, "Add machine")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Create")?,
+        "the window has its Create button: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(paints_text(&ctx, &mut app, "Nothing, a blank machine")?);
     let _ = std::fs::remove_dir_all(folder);
     Ok(())
 }
