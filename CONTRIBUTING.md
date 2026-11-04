@@ -2,11 +2,10 @@
 
 ## Contributions welcome
 
-PCBCraft is actively maintained and accepting contributions. The project uses a
-mix of human contributors and automated tools, and anyone can take part by
-following the rules in this file. You do not need an invitation or prior
-contact; find an open issue, claim it, and open a pull request. Issues tagged
-`ready` are waiting for a worker.
+PCBCraft is actively maintained and accepts contributions. People and automated
+tools both contribute. Anyone can take part by following the rules in this file.
+You do not need an invitation or prior contact. Find an open issue and claim it.
+Then open a pull request. Issues tagged `ready` are waiting for a worker.
 
 If you are new here, read the "Worker" section below and the issue [#1](https://github.com/wdunn001/pcbcraft/issues/1) for a quick start.
 
