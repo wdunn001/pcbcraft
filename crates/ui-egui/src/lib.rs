@@ -58,6 +58,7 @@ mod page_scope;
 mod pages;
 mod palette;
 mod parts_table;
+mod parts_table_variant;
 mod placement_machine_ui;
 mod plot_viewer;
 mod pour_panel;
