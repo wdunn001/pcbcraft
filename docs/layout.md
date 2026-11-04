@@ -67,3 +67,7 @@ Arm Via and click anywhere inside the board outline to drop a via. The via takes
 The Layers tree is the one place to pick the layer. Click the row of a copper layer (Top, each inner layer by the name the stackup gives it, or Bottom) and it gets the Active tag; new tracks, routes and pours go there. The `]` and `[` keys step to the next and previous copper layer and wrap at the ends. Adding or removing an inner pair keeps you on the bottom if you were on the bottom.
 
 Commands that name a layer take `F.Cu`, `B.Cu` (always the last copper layer), `In1.Cu` and so on, or a stackup row name. The checks and the unrouted-connection list read every copper layer, and a plated through-hole pad joins a track on any of them.
+
+## Inner layer roles
+
+When a board has inner copper layers, the designer can mark each one as a ground plane or a power plane, or leave it as signal routing. This is set in the Layers panel by selecting a copper layer and choosing its role. A pour drawn on a layer marked as a plane is understood as a plane pour in the checks and in the stackup report, so the user can tell at a glance that a layer carries power or ground. Only inner copper layers can carry a role; the top and bottom layers are always signal. The role travels with the layer when the stackup is reordered.
