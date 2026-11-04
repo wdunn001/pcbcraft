@@ -51,7 +51,7 @@ pub(crate) fn hex_colour(text: &str) -> Option<Color32> {
 /// # Do not
 /// - Call from the board paint path; this is schematic-only.
 fn on_page(p: &Project, page: Id, object: Id) -> bool {
-    p.on_schematic_page(page, object)
+    crate::page_scope::object_in_view(p, page, object)
 }
 
 /// Target of a right-click context menu on the canvas.
@@ -137,9 +137,9 @@ pub(crate) fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Poin
 
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, the whole drawing sheet on the schematic tab.
-pub(crate) fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
+pub(crate) fn view_bounds(project: &Project, pcb: bool, page: Id) -> (Point, Point) {
     if !pcb {
-        return sheet::sheet_bounds(project);
+        return sheet::sheet_bounds(project, page);
     }
     let mut pts: Vec<Point> = Vec::new();
     if let Some(ring) = &project.board.outline {
@@ -444,39 +444,53 @@ impl App {
             return;
         }
         self.select(id);
-        if self.tab == Tab::Schematic
-            && let Some(c) = id.and_then(|id| self.project.component(id))
-            && let Some(view) = c
-                .schematic_views()
-                .into_iter()
-                .filter(|view| view.sheet == self.schematic_page())
-                .filter(|view| {
-                    let local = Point::new(pos.x - view.position.x, pos.y - view.position.y)
-                        .rotate(view.rotation);
-                    let points = view.drawing_points();
-                    let margin = 8.0 / zoom as f64;
-                    let min = points
-                        .iter()
-                        .fold(Point::new(f64::INFINITY, f64::INFINITY), |m, p| {
-                            Point::new(m.x.min(p.x), m.y.min(p.y))
-                        });
-                    let max = points
-                        .iter()
-                        .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |m, p| {
-                            Point::new(m.x.max(p.x), m.y.max(p.y))
-                        });
-                    local.x >= min.x - margin
-                        && local.x <= max.x + margin
-                        && local.y >= min.y - margin
-                        && local.y <= max.y + margin
+        let sheet = self.sheet_view();
+        let unit = if self.tab == Tab::Schematic {
+            id.and_then(|id| sheet.component(id))
+                .and_then(|c| {
+                    c.schematic_views()
+                        .into_iter()
+                        .filter(|view| {
+                            crate::page_scope::in_view(
+                                &self.project,
+                                self.schematic_page(),
+                                view.sheet,
+                            )
+                        })
+                        .filter(|view| {
+                            let local =
+                                Point::new(pos.x - view.position.x, pos.y - view.position.y)
+                                    .rotate(view.rotation);
+                            let points = view.drawing_points();
+                            let margin = 8.0 / zoom as f64;
+                            let min = points
+                                .iter()
+                                .fold(Point::new(f64::INFINITY, f64::INFINITY), |m, p| {
+                                    Point::new(m.x.min(p.x), m.y.min(p.y))
+                                });
+                            let max = points
+                                .iter()
+                                .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |m, p| {
+                                    Point::new(m.x.max(p.x), m.y.max(p.y))
+                                });
+                            local.x >= min.x - margin
+                                && local.x <= max.x + margin
+                                && local.y >= min.y - margin
+                                && local.y <= max.y + margin
+                        })
+                        .min_by(|a, b| {
+                            a.position
+                                .distance(pos)
+                                .total_cmp(&b.position.distance(pos))
+                        })
                 })
-                .min_by(|a, b| {
-                    a.position
-                        .distance(pos)
-                        .total_cmp(&b.position.distance(pos))
-                })
-        {
-            self.selected_unit = view.library_symbol.as_ref().map(|s| s.unit).unwrap_or(1);
+                .map(|view| view.library_symbol.as_ref().map(|s| s.unit).unwrap_or(1))
+        } else {
+            None
+        };
+        drop(sheet);
+        if let Some(unit) = unit {
+            self.selected_unit = unit;
             self.load_properties();
         }
     }
@@ -574,7 +588,9 @@ impl App {
         let fitted_at: Option<(i32, i32)> = ui.ctx().data(|d| d.get_temp(fit_key));
         let resized = fitted_at.is_some_and(|last| last != size);
         if (self.needs_fit || resized) && rect.width() > 40.0 && rect.height() > 40.0 {
-            let (lo, hi) = view_bounds(&self.project, self.tab == Tab::Pcb);
+            let sheet = self.sheet_view();
+            let (lo, hi) = view_bounds(&sheet, self.tab == Tab::Pcb, self.schematic_page());
+            drop(sheet);
             let (keep_mirror, keep_turns, keep_up) = (camera.mirror, camera.turns, camera.up);
             let panel = if keep_turns % 2 == 1 {
                 (rect.height(), rect.width())
@@ -592,7 +608,7 @@ impl App {
             && rect.width() > 40.0
             && rect.height() > 40.0
             && let Some(id) = self.selected
-            && let Some((lo, hi)) = selection_bounds(&self.project, id)
+            && let Some((lo, hi)) = selection_bounds(&self.sheet_view(), id)
         {
             let (keep_mirror, keep_turns, keep_up) = (camera.mirror, camera.turns, camera.up);
             let panel = if keep_turns % 2 == 1 {
@@ -652,6 +668,9 @@ impl App {
             }
         }
         let mut visible = self.project.clone();
+        if self.tab == Tab::Schematic && self.schematic_page() == 0 {
+            crate::page_scope::apply_main_layout(&mut visible);
+        }
         if let Some((id, pos)) = self.drag {
             if let Some(c) = visible.components.iter_mut().find(|c| c.id == id) {
                 if self.selected_unit == 1 {
@@ -1304,11 +1323,12 @@ impl App {
     fn pick_object_any(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {
             let page = self.schematic_page();
-            self.project
+            let sheet = self.sheet_view();
+            sheet
                 .components
                 .iter()
                 .flat_map(|c| c.schematic_views())
-                .filter(|c| c.sheet == page)
+                .filter(|c| crate::page_scope::in_view(&sheet, page, c.sheet))
                 .filter(|c| {
                     let local =
                         Point::new(pos.x - c.position.x, pos.y - c.position.y).rotate(c.rotation);
@@ -1398,7 +1418,12 @@ impl App {
     }
     pub(crate) fn pick_pin(&self, pos: Point, zoom: f32) -> Option<PinRef> {
         let page = self.schematic_page();
-        for c in self.project.components.iter().filter(|c| c.sheet == page) {
+        let sheet = self.sheet_view();
+        for c in sheet
+            .components
+            .iter()
+            .filter(|c| crate::page_scope::in_view(&sheet, page, c.sheet))
+        {
             for pin in &c.pins {
                 if c.pin_position(&pin.number)
                     .is_some_and(|p| p.distance(pos) * (zoom as f64) < 12.0)
@@ -1568,7 +1593,7 @@ impl App {
                 if self.tab == Tab::Schematic
                     && let Some(pin) = self.pick_pin(pos, zoom)
                 {
-                    if let Some(at) = self.project.pin_position(&pin) {
+                    if let Some(at) = self.sheet_view().pin_position(&pin) {
                         self.wire_route = vec![at];
                     }
                     self.tool = Tool::Wire(Some(pin));
@@ -1603,7 +1628,7 @@ impl App {
             }
             Tool::Move => {
                 if let Some(id) = self.selected {
-                    let mut params = json!({"id":id,"position":snap(pos)});
+                    let mut params = json!({"id":id,"position":self.item_to_page(id, snap(pos))});
                     if self.project.component(id).is_some() {
                         params["unit"] = json!(self.selected_unit);
                     }
@@ -1916,7 +1941,11 @@ impl App {
                 );
             }
         }
-        for port in p.ports.iter().filter(|port| port.sheet == page) {
+        for port in p
+            .ports
+            .iter()
+            .filter(|port| crate::page_scope::in_view(p, page, port.sheet))
+        {
             let at = camera.screen(port.position, rect);
             painter.text(
                 at,
@@ -1944,7 +1973,7 @@ impl App {
             .components
             .iter()
             .flat_map(|c| c.schematic_views())
-            .filter(|c| c.sheet == page)
+            .filter(|c| crate::page_scope::in_view(p, page, c.sheet))
             .filter(|_| shown("Symbols") && row_shown("symbols"))
         {
             self.symbol(
@@ -1957,10 +1986,14 @@ impl App {
                 false,
             );
         }
-        self.paint_sheet_lit(painter, rect, camera, page);
+        self.paint_sheet_lit(painter, rect, camera, p, page);
         let outlines = sheet::hit_outlines(p, page, rect, camera, &kinds);
         sheet::hover_outline(painter, &outlines, sc.select);
-        if p.components.iter().all(|c| c.sheet != page) {
+        if !p
+            .components
+            .iter()
+            .any(|c| crate::page_scope::in_view(p, page, c.sheet))
+        {
             painter.text(
                 rect.center() - Vec2::new(0.0, 25.0),
                 Align2::CENTER_CENTER,
@@ -2879,7 +2912,7 @@ mod tests {
     #[test]
     fn a_fresh_view_frames_the_whole_board_instead_of_a_corner_of_it() -> Result<(), String> {
         let mut s = pcbcraft_engine::Session::default();
-        let bounds = view_bounds(&s.project, true);
+        let bounds = view_bounds(&s.project, true, 0);
         let camera = fit_camera(bounds.0, bounds.1, (1200.0, 700.0));
         assert!(
             camera.zoom > 1.0,
@@ -2892,13 +2925,13 @@ mod tests {
             None,
         )
         .map_err(|e| e.to_string())?;
-        let (lo, hi) = view_bounds(&s.project, true);
+        let (lo, hi) = view_bounds(&s.project, true, 0);
         assert!(hi.x > 290.0, "the outline drives the frame");
         let camera = fit_camera(lo, hi, (1200.0, 700.0));
         assert!(camera.zoom < 6.0, "a big board zooms out to fit");
         assert!(camera.zoom >= 0.02, "zoom stays bounded");
         let mut empty = pcbcraft_engine::Session::default();
-        let (lo, hi) = view_bounds(&empty.project, false);
+        let (lo, hi) = view_bounds(&empty.project, false, 0);
         assert!(hi.x > lo.x, "an empty sheet still has a frame");
         empty
             .execute(
@@ -2907,7 +2940,7 @@ mod tests {
                 None,
             )
             .map_err(|e| e.to_string())?;
-        let (_lo, hi) = view_bounds(&empty.project, false);
+        let (_lo, hi) = view_bounds(&empty.project, false, 0);
         assert!(hi.x > 110.0, "the schematic frame follows the drawn parts");
         Ok(())
     }

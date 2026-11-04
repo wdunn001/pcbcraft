@@ -53,6 +53,7 @@ mod motion;
 mod number_entry;
 mod outline_arcs;
 mod pad_tool;
+mod page_scope;
 mod pages;
 mod palette;
 mod parts_table;
@@ -2395,6 +2396,9 @@ impl App {
     fn run(&mut self, command: &str, params: Value) {
         if command == board_side::VIEW_FROM_BELOW {
             self.toggle_view_from_below();
+            return;
+        }
+        if self.main_refuses(command, &params) {
             return;
         }
         let known = board_side::footprint_ids(&self.project);

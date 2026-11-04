@@ -513,8 +513,9 @@ impl App {
         let mut params = self.pad_draft.add_params();
         let at = crate::canvas::snap(pos);
         if self.tab == Tab::Schematic {
-            params["schematic_position"] = json!({"x": at.x, "y": at.y});
-            params["sheet"] = json!(self.schematic_page());
+            let (page, local) = self.spot_to_page(at);
+            params["schematic_position"] = json!({"x": local.x, "y": local.y});
+            params["sheet"] = json!(page);
             self.run("pad.add", params);
             // The sheet shows the part, not the footprint the board made for it.
             if let Some(component) = self
