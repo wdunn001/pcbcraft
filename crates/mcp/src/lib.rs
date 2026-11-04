@@ -12,6 +12,7 @@ mod resources;
 mod tool_files;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
+use pcbcraft_doc::{chamfered_outline, default_corner_leg};
 use pcbcraft_engine::user_config::UserConfig;
 use pcbcraft_engine::{Command, Session};
 pub use project_host::{MemHost, NativeHost, ProjectHost, replace_session_from_open};
@@ -842,7 +843,12 @@ pub(crate) fn invoke_session(
         }
         "undo" => s.undo().map_err(|e| e.to_string())?,
         "redo" => s.redo().map_err(|e| e.to_string())?,
-        "new_design" => s.replace(Default::default()).map_err(|e| e.to_string())?,
+        "new_design" => {
+            let mut p: pcbcraft_doc::Project = Default::default();
+            let leg = default_corner_leg(0.25);
+            p.board.outline = Some(chamfered_outline(p.board.width, p.board.height, leg));
+            s.replace(p).map_err(|e| e.to_string())?
+        }
         "sample_design" => s
             .replace(Session::sample().map_err(|e| e.to_string())?.project)
             .map_err(|e| e.to_string())?,
@@ -1384,6 +1390,36 @@ mod tests {
                 "{name}"
             );
         }
+        Ok(())
+    }
+    #[test]
+    fn new_design_starts_with_a_chamfered_outline() -> Result<(), String> {
+        let session = shared(Session::default());
+        call_tool(&session, "new_design", &json!({}));
+        let inspect = call_tool(&session, "inspect_design", &json!({}));
+        let outline = inspect["structuredContent"]["project"]["board"]["outline"]
+            .as_array()
+            .ok_or("new_design should set a chamfered outline")?;
+        assert_eq!(outline.len(), 8, "chamfered outline has 8 vertices");
+        // The chamfered outline for a 60x40 board with leg 0.75 should start at (0.75, 0).
+        let first = &outline[0];
+        let x = first["x"].as_f64().ok_or("vertex should have x")?;
+        let y = first["y"].as_f64().ok_or("vertex should have y")?;
+        assert!(
+            (x - 0.75).abs() < 1e-6,
+            "chamfer leg should be 0.75 mm (x={x})"
+        );
+        assert!(
+            (y - 0.0).abs() < 1e-6,
+            "first vertex should be on the bottom edge (y={y})"
+        );
+        // The sample design should still work.
+        call_tool(&session, "sample_design", &json!({}));
+        let inspect2 = call_tool(&session, "inspect_design", &json!({}));
+        assert!(
+            inspect2["structuredContent"]["project"]["name"] == "LED indicator",
+            "sample_design should load the sample project"
+        );
         Ok(())
     }
     #[test]
