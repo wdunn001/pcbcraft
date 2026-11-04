@@ -141,8 +141,8 @@ impl App {
                         .into(),
                         Item::new(
                             CanvasAct::MarkNoConnect,
-                            "Mark no connect",
-                            "Mark this pin deliberately unconnected, or clear an existing mark.",
+                            t!("schematic.no_connect.menu_label"),
+                            t!("schematic.no_connect.menu_label.tip"),
                         )
                         .icon(icons::CLOSE)
                         .into(),
@@ -441,7 +441,9 @@ impl App {
                     unit: None,
                 }));
             }
-            (CanvasAct::MarkNoConnect, _) => self.tool = Tool::NoConnect,
+            (CanvasAct::MarkNoConnect, CanvasMenuKind::Pin(pin)) => {
+                self.toggle_no_connect(pin.clone())
+            }
             (CanvasAct::Properties, _) => self.load_properties(),
             (CanvasAct::StartRoute, CanvasMenuKind::Pad(id, pad)) => {
                 self.tool = Tool::Route(Some((*id, pad.clone())));
