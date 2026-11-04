@@ -135,6 +135,22 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The top bar holds the brand and the menus, sitting above the 34 px bar.
+    for needle in ["PCBCraft", "File", "Edit", "Help"] {
+        let row =
+            text_row(&ctx, &mut app, needle).ok_or_else(|| format!("{needle} is not on screen"))?;
+        assert!(
+            row < App::APP_BAR_HEIGHT,
+            "{needle} sits in the 34 px bar, found at {row}"
+        );
+    }
+    // The loaded design name appears in the footer, not in the bar itself.
+    let project_name = app.footer_project_name();
+    assert!(
+        !project_name.is_empty(),
+        "the project name is painted: {}",
+        app.message
+    );
     assert!(
         paints_text(&ctx, &mut app, "Library")?,
         "the left dock is the library browser: {}",
