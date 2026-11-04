@@ -227,3 +227,38 @@ fn a_newcomer_is_told_how_to_fix_a_hole_too_close_to_copper() -> Result<(), Stri
     );
     Ok(())
 }
+
+/// Issue #110: a check added to the engine after this window shipped must appear
+/// in the strictness rows. The window reads the engine's published codes, so
+/// turning the new check off makes it visible in the Off filter.
+#[test]
+fn a_newcomer_finds_a_newly_added_check_in_the_off_list() -> Result<(), String> {
+    let (ctx, mut app) = board();
+    app.run(
+        "rules.severity",
+        json!({"code": "hole_to_copper_pth", "severity": "off"}),
+    );
+    open_from_menu(&ctx, &mut app)?;
+    tap_id(&ctx, &mut app, "tab:Rules")?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let off_segment = ["button", "radiobutton", "menuitem", "selectable"]
+        .iter()
+        .find(|role| {
+            paints_text(&ctx, &mut app, "Off").unwrap_or(false)
+                && tap_id(&ctx, &mut app, &format!("{role}:Off")).is_ok()
+        });
+    if off_segment.is_none() {
+        authoring::tests::tap(&ctx, &mut app, "Off")?;
+    }
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "Plated hole to copper")?,
+        "the new check appears in the Off filter: {}",
+        app.message
+    );
+    Ok(())
+}
