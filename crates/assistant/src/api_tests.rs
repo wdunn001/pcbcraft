@@ -824,12 +824,59 @@ fn slow_openai_stream() -> HttpFn {
         Ok(HttpResponse::ok(Vec::new()))
     })
 }
+fn slow_anthropic_stream() -> HttpFn {
+    Arc::new(move |r: &HttpRequest| {
+        if r.method == "GET" {
+            return Ok(HttpResponse::ok(b"{\"data\":[]}".to_vec()));
+        }
+        let Some(out) = &r.stream_out else {
+            return Ok(HttpResponse::ok(
+                json!({"content":[{"type":"text","text":"late"}], "stop_reason":"end_turn"})
+                    .to_string()
+                    .into_bytes(),
+            ));
+        };
+        let data = serde_json::to_string(&json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "text_delta", "text": "x" },
+        }))
+        .unwrap_or_else(|_| r#"{}"#.to_string());
+        let chunk = format!("data: {}\r\n\r\n", data);
+        out.send(Ok(HttpStreamPart::Chunk(chunk.into_bytes())))
+            .map_err(|_| "The stream ended early.".to_string())?;
+        std::thread::sleep(Duration::from_secs(30));
+        let _ = out.send(Ok(HttpStreamPart::End { status: 200 }));
+        Ok(HttpResponse::ok(Vec::new()))
+    })
+}
 
 #[test]
 fn stop_cancels_an_openai_stream_within_a_second() -> Result<(), String> {
     let http = slow_openai_stream();
     let (ctx, _) = host("ok");
     let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
+    say(&mut b, "wait");
+    std::thread::sleep(Duration::from_millis(50));
+    let t = pcbcraft_clock::instant_now();
+    b.cancel();
+    let end = t + Duration::from_secs(1);
+    while pcbcraft_clock::instant_now() < end {
+        for e in b.poll() {
+            if matches!(e, Event::TurnEnded { reason } if reason == "cancelled") {
+                assert!(t.elapsed() < Duration::from_secs(1));
+                return Ok(());
+            }
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    Err("Stop did not cancel the stream within one second.".into())
+}
+#[test]
+fn stop_cancels_an_anthropic_stream_within_a_second() -> Result<(), String> {
+    let http = slow_anthropic_stream();
+    let (ctx, _) = host("ok");
+    let mut b = ApiBackend::start(cfg(Protocol::Anthropic), ctx, http)?;
     say(&mut b, "wait");
     std::thread::sleep(Duration::from_millis(50));
     let t = pcbcraft_clock::instant_now();
