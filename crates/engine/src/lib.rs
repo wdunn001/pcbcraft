@@ -13,6 +13,7 @@
 mod artifacts;
 mod authoring;
 mod backdrill;
+mod bus_entry;
 mod calc;
 pub mod collab;
 pub mod compliance_lists;
@@ -3044,6 +3045,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(images::commands())
         .chain(packages::commands())
         .chain(outline::commands())
+        .chain(bus_entry::commands())
         .chain(wire_reconnect::commands())
         .chain(tuning::commands())
         .chain(sim::commands())
@@ -10610,6 +10612,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = outline::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = bus_entry::run(p, next, command, params) {
         return result;
     }
     if let Some(result) = wire_reconnect::run(p, next, command, params) {
