@@ -43,6 +43,7 @@ mod library_workspace;
 mod machine_library;
 mod minimap;
 mod modifiers;
+mod net_class_si;
 mod nets;
 mod online;
 mod outline_arcs;

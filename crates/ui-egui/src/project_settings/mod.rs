@@ -23,6 +23,7 @@
 //! - Hold rule data here; the project is the only copy.
 //! - Close on a click outside the dialog (see `ui_kit/dialog.rs`).
 mod board;
+mod class_si;
 mod classes;
 mod electrical;
 mod machines;
