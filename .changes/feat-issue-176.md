@@ -1,8 +1,8 @@
 ---
-type: fix
+type: feature
 area: io
 issues: [176]
-user_visible: true
-docs: [crates/io/src/fab_export.rs]
-summary: Mask and paste Gerber files now include creation date and header hash.
+user_visible: false
+docs: [crates/io/src/silk_font.rs]
+summary: Added a stroke font for silkscreen text with seven-segment digit shapes.
 ---
