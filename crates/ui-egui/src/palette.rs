@@ -38,6 +38,10 @@ pub(crate) struct CanvasColours {
     pub net_tie: Color32,
     pub mask: Color32,
     pub wire: Color32,
+    /// Laser engrave marks on the board surface.
+    pub engrave: Color32,
+    /// Fabrication outline shown to the board fab.
+    pub fabrication: Color32,
 }
 
 /// Every colour of one theme: shell text, backgrounds, accent and canvas.
@@ -185,6 +189,8 @@ pub(crate) fn canvas_colours(dark: bool) -> CanvasColours {
             net_tie: Color32::from_rgb(216, 180, 255),
             mask: Color32::from_rgb(96, 170, 130),
             wire: Color32::from_rgb(126, 153, 161),
+            engrave: Color32::from_rgb(60, 200, 190),
+            fabrication: Color32::from_rgb(180, 170, 255),
         }
     } else {
         CanvasColours {
@@ -197,6 +203,8 @@ pub(crate) fn canvas_colours(dark: bool) -> CanvasColours {
             net_tie: Color32::from_rgb(112, 56, 176),
             mask: Color32::from_rgb(30, 110, 70),
             wire: Color32::from_rgb(70, 96, 106),
+            engrave: Color32::from_rgb(0, 130, 120),
+            fabrication: Color32::from_rgb(80, 70, 160),
         }
     }
 }

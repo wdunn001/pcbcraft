@@ -3183,8 +3183,10 @@ impl LayerRecord {
     }
 }
 /// What a drawn layer tells a machine to do: a cutter follows cut and
-/// perforation layers, a UV printer prints silk and mask layers, and "other"
-/// layers are reference or documentation art.
+/// perforation layers, a UV printer prints silk and mask layers, engrave
+/// marks are laser-etched on the surface, fabrication layers show the
+/// board outline for the fab, and "other" layers are reference or
+/// documentation art.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ArtKind {
     #[serde(rename = "cut")]
@@ -3195,6 +3197,12 @@ pub enum ArtKind {
     Silk,
     #[serde(rename = "mask")]
     Mask,
+    /// Laser-engraved marks on the board surface.
+    #[serde(rename = "engrave")]
+    Engrave,
+    /// Board outline shown to the fabrication house.
+    #[serde(rename = "fabrication")]
+    Fabrication,
     #[serde(rename = "other")]
     Other,
 }
@@ -3206,6 +3214,8 @@ impl ArtKind {
             Self::Perforation => "perforation",
             Self::Silk => "silk screen",
             Self::Mask => "solder mask",
+            Self::Engrave => "engrave",
+            Self::Fabrication => "fabrication",
             Self::Other => "drawing",
         }
     }
@@ -3496,6 +3506,7 @@ pub struct ArtLayer {
     /// Display name, unique per board, for example "Card Outline".
     pub name: String,
     /// What this layer tells a machine to do.
+    #[serde(default = "art_kind_default")]
     pub kind: ArtKind,
     /// True draws the layer as evenly spaced dots: a perforation the board
     /// snaps along, or a light print guide.
@@ -3540,6 +3551,9 @@ fn art_dot_size() -> f64 {
 }
 fn art_text_size() -> f64 {
     1.0
+}
+fn art_kind_default() -> ArtKind {
+    ArtKind::Other
 }
 fn board_finish() -> String {
     "HASL".into()
@@ -8901,6 +8915,53 @@ mod art_tests {
         }))
         .map_err(|e| e.to_string())?;
         assert!(lib.parts.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn old_layer_json_without_kind_field_parses_as_other() -> Result<(), String> {
+        let layer: ArtLayer = serde_json::from_value(serde_json::json!({
+            "id": 3,
+            "name": "silkscreen top",
+            "side": "top",
+            "visible": true,
+            "locked": false,
+            "shapes": []
+        }))
+        .map_err(|e| e.to_string())?;
+        assert!(matches!(layer.kind, ArtKind::Other));
+        let saved = serde_json::to_value(&layer).map_err(|e| e.to_string())?;
+        assert_eq!(
+            saved["kind"], "other",
+            "the default kind is written on save"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn engrave_and_fabrication_layer_kinds_round_trip() -> Result<(), String> {
+        let engrave: ArtLayer = serde_json::from_value(serde_json::json!({
+            "id": 4,
+            "name": "logo engrave",
+            "side": "top",
+            "kind": "engrave",
+            "shapes": []
+        }))
+        .map_err(|e| e.to_string())?;
+        assert!(matches!(engrave.kind, ArtKind::Engrave));
+        let fab: ArtLayer = serde_json::from_value(serde_json::json!({
+            "id": 5,
+            "name": "board outline",
+            "side": "top",
+            "kind": "fabrication",
+            "shapes": []
+        }))
+        .map_err(|e| e.to_string())?;
+        assert!(matches!(fab.kind, ArtKind::Fabrication));
+        let engrave_saved = serde_json::to_value(&engrave).map_err(|e| e.to_string())?;
+        assert_eq!(engrave_saved["kind"], "engrave");
+        let fab_saved = serde_json::to_value(&fab).map_err(|e| e.to_string())?;
+        assert_eq!(fab_saved["kind"], "fabrication");
         Ok(())
     }
 }
