@@ -38,6 +38,7 @@ mod pads;
 mod part;
 mod part_records;
 mod part_save;
+mod pin_map;
 pub mod placement;
 mod plugins;
 pub mod profiles;
@@ -2521,6 +2522,22 @@ pub fn commands() -> Vec<CommandSpec> {
                     "directory":{"type":"string","minLength":1,"maxLength":4096,"description":"when set, write the export file here"}
                 }),
                 &["root", "plugin_id", "template_id"],
+            ),
+        ),
+        (
+            "pinmap.export",
+            "Export the firmware pin map as CSV or JSON text without editing the project",
+            schema(
+                json!({"format":{"type":"string","enum":["csv","json"],"default":"csv"}}),
+                &[],
+            ),
+        ),
+        (
+            "pinmap.check",
+            "Compare an imported pin map CSV against the design and report mismatches",
+            schema(
+                json!({"text":{"type":"string","minLength":1,"maxLength":1048576}}),
+                &["text"],
             ),
         ),
         (
@@ -8911,7 +8928,13 @@ fn bus_members(
 fn command_never_edits(command: &str) -> bool {
     matches!(
         command,
-        "library.export" | "selection.copy_text" | "plugins.export" | "plugins.list" | "bom.export"
+        "library.export"
+            | "selection.copy_text"
+            | "plugins.export"
+            | "pinmap.export"
+            | "pinmap.check"
+            | "plugins.list"
+            | "bom.export"
     ) || machines::writes_folder_only(command)
         || collab::reads_the_design(command)
 }
@@ -10893,6 +10916,8 @@ fn run_command(
         | "rules.profile_apply"
         | "plugins.list"
         | "plugins.export"
+        | "pinmap.export"
+        | "pinmap.check"
         | "board.layer_add"
         | "board.layer_rename"
         | "board.layer_kind_set"
@@ -20312,6 +20337,8 @@ fn run_command_part_17(
         "rules.profile_apply" => profiles::profile_apply(p, next, params).map_err(Error::Invalid),
         "plugins.list" => plugins::plugins_list(params).map_err(Error::Invalid),
         "plugins.export" => plugins::plugins_export(p, params).map_err(Error::Invalid),
+        "pinmap.export" => pin_map::pin_map_export(p, params).map_err(Error::Invalid),
+        "pinmap.check" => pin_map::pin_map_check(p, params).map_err(Error::Invalid),
         "board.layer_add" => {
             let a: LayerAddParams = parse(params)?;
             if a.name.trim().is_empty() || a.name.len() > 64 {
