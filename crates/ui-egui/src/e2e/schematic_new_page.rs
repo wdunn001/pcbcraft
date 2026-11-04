@@ -25,9 +25,10 @@ fn ms(start: &pcbcraft_clock::Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1000.0
 }
 
-/// The longest one step may take, in milliseconds. A healthy step on the showcase takes a few
-/// hundred in this unoptimised test build. The broken one took ten seconds, every time.
-const STEP_BUDGET_MS: f64 = 1500.0;
+/// The most one step may take, in milliseconds. The tests run unoptimised on busy machines.
+/// A loaded CI runner reaches about 2.5 seconds. The freeze this guards against took 9 to 11
+/// seconds even on an idle machine, so this budget still catches it.
+const STEP_BUDGET_MS: f64 = 6000.0;
 
 /// Draw `frames` frames and return the longest one, in milliseconds.
 fn slowest_frame(ctx: &egui::Context, app: &mut App, frames: usize) -> f64 {
