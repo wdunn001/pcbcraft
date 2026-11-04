@@ -1112,9 +1112,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "schematic.place_port",
-            "Place a named hierarchy port for a net on a schematic page; a port name already used on another page must carry the same net, which is how a net is handed between pages",
+            "Place a named hierarchy port for a net on a schematic page; a port name already used on another page must carry the same net, which is how a net is handed between pages; the port may carry a signal direction: input, output, bidirectional or passive",
             schema(
-                json!({"name":{"type":"string"},"net":id_schema(),"sheet":{"type":"integer","minimum":0},"position":point_schema()}),
+                json!({"name":{"type":"string"},"net":id_schema(),"sheet":{"type":"integer","minimum":0},"position":point_schema(),"direction":{"type":"string","enum":["input","output","bidirectional","passive"]}}),
                 &["name", "net", "sheet", "position"],
             ),
         ),
@@ -7500,6 +7500,10 @@ struct SetPageSetting {
 fn valid_hex_colour(text: &str) -> bool {
     text.len() == 7 && text.starts_with('#') && text[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
+/// True when the port direction is one of the four allowed signal directions.
+fn valid_port_direction(text: &str) -> bool {
+    matches!(text, "input" | "output" | "bidirectional" | "passive")
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RemoveSheet {
@@ -7528,6 +7532,8 @@ struct PortParams {
     net: Id,
     sheet: Id,
     position: Point,
+    #[serde(default)]
+    direction: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15785,6 +15791,13 @@ fn run_command_part_9(
                     p.net_name(other.net)
                 )));
             }
+            if let Some(d) = &a.direction
+                && !valid_port_direction(d)
+            {
+                return Err(Error::Invalid(
+                    "port direction must be input, output, bidirectional or passive".into(),
+                ));
+            }
             let id = allocate(next)?;
             p.ports.push(Port {
                 id,
@@ -15792,7 +15805,7 @@ fn run_command_part_9(
                 net: a.net,
                 sheet: a.sheet,
                 position: a.position,
-                direction: "bidirectional".to_owned(),
+                direction: a.direction.unwrap_or_else(|| "bidirectional".to_owned()),
                 interchange_uuid: None,
             });
             Ok(json!({"id":id,"name":a.name,"sheet":a.sheet}))
@@ -15876,6 +15889,11 @@ fn run_command_part_9(
         }
         "schematic.set_port_direction" => {
             let a: SetPortDirection = parse(params)?;
+            if !valid_port_direction(&a.direction) {
+                return Err(Error::Invalid(
+                    "port direction must be input, output, bidirectional or passive".into(),
+                ));
+            }
             let index = p
                 .ports
                 .iter()
@@ -46494,5 +46512,128 @@ mod tests {
         for cmd in &commands {
             assert!(seen.insert(cmd.id), "duplicate command id: {}", cmd.id);
         }
+    }
+}
+
+#[cfg(test)]
+mod port_direction_tests {
+    use super::*;
+
+    #[test]
+    fn port_direction_defaults_to_bidirectional() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let net = 4;
+        let id = s.execute(
+            "schematic.place_port",
+            json!({"name":"P1","net":net,"sheet":0,"position":{"x":5.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let port = s
+            .project
+            .ports
+            .iter()
+            .find(|p| p.id == id)
+            .ok_or_else(missing)?;
+        assert_eq!(port.direction, "bidirectional");
+        Ok(())
+    }
+
+    #[test]
+    fn port_direction_round_trips_through_save_and_load() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let net = 4;
+        let id = s.execute(
+            "schematic.place_port",
+            json!({"name":"P1","net":net,"sheet":0,"position":{"x":5.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "schematic.set_port_direction",
+            json!({"id":id,"direction":"input"}),
+            None,
+        )?;
+        let json_str =
+            serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&json_str).map_err(|e| Error::Invalid(e.to_string()))?;
+        let port = loaded
+            .ports
+            .iter()
+            .find(|p| p.id == id)
+            .ok_or_else(missing)?;
+        assert_eq!(port.direction, "input");
+        Ok(())
+    }
+
+    #[test]
+    fn set_port_direction_is_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let net = 4;
+        let id = s.execute(
+            "schematic.place_port",
+            json!({"name":"P1","net":net,"sheet":0,"position":{"x":5.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "schematic.set_port_direction",
+            json!({"id":id,"direction":"output"}),
+            None,
+        )?;
+        let port = s
+            .project
+            .ports
+            .iter()
+            .find(|p| p.id == id)
+            .ok_or_else(missing)?;
+        assert_eq!(port.direction, "output");
+        s.undo()?;
+        let port = s
+            .project
+            .ports
+            .iter()
+            .find(|p| p.id == id)
+            .ok_or_else(missing)?;
+        assert_eq!(port.direction, "bidirectional");
+        Ok(())
+    }
+
+    #[test]
+    fn a_bad_port_direction_is_refused_and_changes_nothing() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let net = 4;
+        let id = s.execute(
+            "schematic.place_port",
+            json!({"name":"P1","net":net,"sheet":0,"position":{"x":5.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect();
+        assert!(
+            s.execute(
+                "schematic.set_port_direction",
+                json!({"id":id,"direction":"invalid"}),
+                None
+            )
+            .is_err(),
+            "invalid direction must be refused"
+        );
+        assert_eq!(s.inspect(), before);
+        assert!(
+            s.execute(
+                "schematic.place_port",
+                json!({"name":"P2","net":net,"sheet":0,"position":{"x":9.0,"y":40.0},"direction":"invalid"}),
+                None
+            )
+            .is_err(),
+            "invalid direction on place must be refused"
+        );
+        Ok(())
     }
 }
