@@ -10,10 +10,11 @@
 //! - `mask_web` looks only at pairs where one pad is exposed or notched, so a
 //!   fine-pitch part that was fine before stays quiet. The gap is measured
 //!   between the mask openings (outline grown by the mask margin, 0.05 mm when
-//!   the footprint states none) on the same side.
-//! - `notch_feature` measures the narrowest part of a notched pad: the gap
-//!   between two edges of its polygon that do not touch. The limit is the
-//!   board's `min_track`, or `DEFAULT_MIN_FEATURE_MM` without fabrication rules.
+//!   the footprint states none) on the same side. The web limit comes from
+//!   the recorded `mask_dam` or 0.1 mm when no fabrication rules are set.
+//! - `notch_feature` measures the narrowest part of a notched pad, between
+//!   edges that do not touch; the limit is the board's `min_track` or 0.1 mm
+//!   without rules.
 //!
 //! # Dependencies
 //! - crates/rules/src/lib.rs (`Finding`, `drc`)
@@ -124,6 +125,12 @@ pub(super) fn ring_gap(a: &[Point], b: &[Point]) -> f64 {
 /// - Report a pair whose openings overlap; copper touching is a clearance matter.
 pub(crate) fn pad_kind_findings(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
+    let web_limit = project
+        .board
+        .rules
+        .as_ref()
+        .and_then(|r| r.mask_dam)
+        .unwrap_or(MASK_WEB_MM);
     for side in [Layer::Front, Layer::Back] {
         let list = openings(project, side);
         for (i, a) in list.iter().enumerate() {
@@ -137,7 +144,7 @@ pub(crate) fn pad_kind_findings(project: &Project) -> Vec<Finding> {
                     continue;
                 }
                 let web = copper - a.margin - b.margin;
-                if web + 1e-6 < MASK_WEB_MM {
+                if web + 1e-6 < web_limit {
                     result.push(Finding {
                         code: "mask_web",
                         severity: project.rule_severity("mask_web", "warning"),
@@ -146,7 +153,7 @@ pub(crate) fn pad_kind_findings(project: &Project) -> Vec<Finding> {
                             a.number,
                             b.number,
                             web.max(0.0),
-                            MASK_WEB_MM
+                            web_limit
                         ),
                         objects: vec![a.footprint, b.footprint],
                         hint: Some("Move the pads apart or cover the mask between them.".into()),
@@ -295,5 +302,38 @@ mod tests {
             "a 0.6 mm notch is fine"
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_mask_web_uses_the_recorded_bridge_limit() {
+        let mut p = Project::default();
+        p.board
+            .footprints
+            .push(pad_at(1, Point::new(10.0, 10.0), &EXPOSED, vec![]));
+        p.board
+            .footprints
+            .push(pad_at(2, Point::new(11.5, 10.0), &PLAIN, vec![]));
+        // Copper gap 0.5 mm, margins 0.05+0.05, web = 0.4 mm.
+        p.board.rules = Some(pcbcraft_doc::FabRules {
+            mask_dam: Some(0.45),
+            ..pcbcraft_doc::FabRules::default()
+        });
+        assert!(
+            codes(&p).contains(&"mask_web"),
+            "web 0.4 mm is below the 0.45 mm recorded limit"
+        );
+        p.board.rules = Some(pcbcraft_doc::FabRules {
+            mask_dam: Some(0.4),
+            ..pcbcraft_doc::FabRules::default()
+        });
+        assert!(
+            !codes(&p).contains(&"mask_web"),
+            "web 0.4 mm meets the 0.4 mm recorded limit"
+        );
+        p.board.rules = None;
+        assert!(
+            !codes(&p).contains(&"mask_web"),
+            "with no rules the old 0.1 mm constant applies"
+        );
     }
 }
