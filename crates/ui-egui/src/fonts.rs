@@ -79,6 +79,21 @@ impl Role {
     }
 }
 
+/// A font at an exact point size, fixed-width when `mono` is set.
+///
+/// Why: text drawn on the sheet or the board is sized by the zoom, not by a role. This is the one
+/// place a raw point size becomes a font, so the guard test can keep every other file free of them.
+///
+/// # Do not
+/// - Call it from a panel or dialog; use a `Role` there. Drawing text goes through `canvas::text_style`.
+pub fn scaled(mono: bool, points: f32) -> FontId {
+    if mono {
+        FontId::monospace(points)
+    } else {
+        FontId::proportional(points)
+    }
+}
+
 /// The Plex Medium family (500).
 pub fn medium() -> FontFamily {
     FontFamily::Name(PLEX_MEDIUM.into())

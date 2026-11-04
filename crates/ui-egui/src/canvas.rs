@@ -19,6 +19,7 @@ use super::*;
 use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Id, Layer, PinRef, Project};
 use pcbcraft_geom::point_segment;
+use text_style::{TextRole, font_mm, role_font};
 mod board_art;
 mod context;
 pub(crate) mod gestures;
@@ -28,6 +29,7 @@ mod layout_art;
 /// view controls so they sit inside the margin the rulers leave.
 pub(crate) const RULER_SIZE: f32 = 22.0;
 pub(crate) mod sheet;
+pub(crate) mod text_style;
 mod underlay;
 
 /// A `#rrggbb` stroke colour, or None for empty or malformed text.
@@ -515,7 +517,7 @@ impl App {
             let center = camera.screen(origin.offset(position.rotate(-rotation)), rect);
             let galley = painter.layout_no_wrap(
                 text.clone(),
-                FontId::proportional((size.y as f32 * camera.zoom).clamp(6.0, 36.0)),
+                font_mm(size.y as f32, camera.zoom, false),
                 color,
             );
             let top_left = Align2::CENTER_CENTER.anchor_size(center, galley.size()).min;
@@ -1241,7 +1243,7 @@ impl App {
                             camera.screen(*at, rect),
                             Align2::LEFT_TOP,
                             text,
-                            FontId::proportional((*size as f32 * camera.zoom).clamp(6.0, 36.0)),
+                            font_mm(*size as f32, camera.zoom, false),
                             colour,
                         );
                     }
@@ -1855,7 +1857,7 @@ impl App {
                 at + offset,
                 anchor,
                 p.net_name(w.net),
-                FontId::monospace(12.0),
+                role_font(TextRole::NetName, camera.zoom),
                 sc.wire,
             );
         }
@@ -1896,7 +1898,7 @@ impl App {
                     camera.screen(*anchor, rect),
                     Align2::LEFT_TOP,
                     &g.text,
-                    FontId::proportional(g.width as f32),
+                    font_mm(g.width as f32, camera.zoom, false),
                     sc.text,
                 );
             }
@@ -1936,7 +1938,7 @@ impl App {
                     at,
                     Align2::CENTER_BOTTOM,
                     text,
-                    FontId::monospace(12.0),
+                    role_font(TextRole::NetName, camera.zoom),
                     sc.wire,
                 );
             }
@@ -1951,7 +1953,7 @@ impl App {
                 at,
                 Align2::CENTER_CENTER,
                 format!("[{}]", port.name),
-                FontId::monospace(12.0),
+                role_font(TextRole::PortName, camera.zoom),
                 sc.wire,
             );
         }
@@ -2102,7 +2104,7 @@ impl App {
                         at(label_at) + shift,
                         anchor,
                         &pin.name,
-                        FontId::monospace(10.0),
+                        role_font(TextRole::PinName, camera.zoom),
                         sc.muted,
                     );
                 }
@@ -2155,7 +2157,7 @@ impl App {
                             at(Point::new(x, 1.4)),
                             Align2::CENTER_TOP,
                             name,
-                            FontId::monospace(10.0),
+                            role_font(TextRole::PinName, camera.zoom),
                             text_colour,
                         );
                     }
@@ -2220,7 +2222,7 @@ impl App {
                 spot,
                 Align2::CENTER_CENTER,
                 &pin.number,
-                FontId::monospace(11.0),
+                role_font(TextRole::PinNumber, camera.zoom),
                 sc.pin,
             );
             if is_connector {
@@ -2239,7 +2241,7 @@ impl App {
                         Align2::RIGHT_CENTER
                     },
                     name,
-                    FontId::monospace(10.0),
+                    role_font(TextRole::PinName, camera.zoom),
                     text_colour,
                 );
             }
@@ -2259,7 +2261,7 @@ impl App {
             center - Vec2::new(0.0, label_offset),
             Align2::CENTER_BOTTOM,
             &c.reference,
-            FontId::monospace(15.0),
+            role_font(TextRole::Reference, camera.zoom),
             text_colour,
         );
         if !ghost {
@@ -2267,7 +2269,7 @@ impl App {
                 center + Vec2::new(0.0, label_offset),
                 Align2::CENTER_TOP,
                 &c.value,
-                FontId::monospace(12.0),
+                role_font(TextRole::Value, camera.zoom),
                 text_colour,
             );
         }
@@ -2610,7 +2612,7 @@ impl App {
                                     center + Vec2::new(reach + 4.0, 0.0),
                                     Align2::LEFT_CENTER,
                                     label,
-                                    FontId::monospace(10.0),
+                                    role_font(TextRole::PadLabel, camera.zoom),
                                     art.silk,
                                 );
                             } else {
@@ -2639,14 +2641,14 @@ impl App {
                     above,
                     Align2::CENTER_BOTTOM,
                     &c.reference,
-                    FontId::proportional(13.0),
+                    role_font(TextRole::BoardReference, camera.zoom),
                     art.text.linear_multiply(stack.silk_alpha(on_bottom) * lit),
                 );
                 painter.text(
                     below,
                     Align2::CENTER_TOP,
                     &c.value,
-                    FontId::proportional(10.5),
+                    role_font(TextRole::BoardValue, camera.zoom),
                     art.muted.linear_multiply(stack.silk_alpha(on_bottom) * lit),
                 );
             }
