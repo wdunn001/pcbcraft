@@ -525,3 +525,78 @@ fn a_newcomer_sees_the_map_the_same_way_up_as_the_board_view() -> Result<(), Str
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_cancels_a_peek_with_escape() -> Result<(), String> {
+    let (mut app, ctx) = open(Tab::Pcb);
+    app.preferences.reduced_motion = true;
+
+    // Part 1: Esc during a drag cancels the jump.
+    let at = (app.pcb.center, app.pcb.zoom);
+    authoring::tests::tap_icon(&ctx, &mut app, "canvas-map")?;
+    settle(&ctx, &mut app, 2);
+    let f = map_frame(&app)?;
+    let from = f.to_map(pcbcraft_geom::Point::new(15.0, 10.0));
+    let to = f.to_map(pcbcraft_geom::Point::new(35.0, 25.0));
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(from)],
+        egui::Modifiers::NONE,
+    );
+    press_at(&ctx, &mut app, from, true);
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(to)],
+        egui::Modifiers::NONE,
+    );
+    frame(
+        &ctx,
+        &mut app,
+        vec![
+            egui::Event::PointerMoved(to + Vec2::new(2.0, 2.0)),
+            key(egui::Key::Escape, true),
+        ],
+        egui::Modifiers::NONE,
+    );
+    press_at(&ctx, &mut app, to, false);
+    settle(&ctx, &mut app, 3);
+    assert_eq!(
+        at,
+        (app.pcb.center, app.pcb.zoom),
+        "Esc during a drag leaves the view unchanged"
+    );
+    assert!(app.minimap.region.is_none(), "the region box is dropped");
+
+    // Part 2: Esc with the map open and no drag hides it.
+    // The map is already closed by the Esc during the drag.
+    // Open it again to test Esc with no drag.
+    authoring::tests::tap_icon(&ctx, &mut app, "canvas-map")?;
+    settle(&ctx, &mut app, 2);
+    assert!(app.minimap_visible(), "the map is open again");
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Escape, true)],
+        egui::Modifiers::NONE,
+    );
+    settle(&ctx, &mut app, 2);
+    assert!(!app.minimap_visible(), "Esc hides an unpinned peek");
+
+    // Part 3: Esc does not hide a pinned map.
+    authoring::tests::tap_icon(&ctx, &mut app, "canvas-map")?;
+    settle(&ctx, &mut app, 2);
+    authoring::tests::tap_icon(&ctx, &mut app, "minimap-pin")?;
+    settle(&ctx, &mut app, 2);
+    assert!(app.map_prefs().pinned, "the map is pinned");
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Escape, true)],
+        egui::Modifiers::NONE,
+    );
+    settle(&ctx, &mut app, 2);
+    assert!(app.minimap_visible(), "Esc does not hide a pinned map");
+    Ok(())
+}
