@@ -7,6 +7,9 @@ use egui::{Color32, Context, Id, Pos2, Rect, Sense, TextureHandle, TextureOption
 use pcbcraft_datasheet::{CharBox, DocSearch, Document, Selection, char_at_point, selected_text};
 use pcbcraft_text::t;
 
+/// How long a source rectangle flashes after Show source, in seconds of context time.
+const FLASH_SECONDS: f64 = 1.5;
+
 const SEARCH_MAX: usize = 128;
 
 /// State for the in-app datasheet reader.
@@ -24,6 +27,7 @@ pub(crate) struct Pane {
     texture: Option<(usize, TextureHandle)>,
     page_rect: Rect,
     page_response_id: Id,
+    flash: Option<(usize, [f32; 4], f64)>,
 }
 
 impl Default for Pane {
@@ -42,6 +46,7 @@ impl Default for Pane {
             texture: None,
             page_rect: Rect::NOTHING,
             page_response_id: Id::new("datasheet-page-unassigned"),
+            flash: None,
         }
     }
 }
@@ -99,6 +104,40 @@ impl Pane {
             .to_owned();
         self.open_bytes(name, bytes, ctx);
         true
+    }
+    /// Jump to the page that carries a value and flash its source rectangle.
+    ///
+    /// # Rules
+    /// - Clamps `page_index` to the document page count.
+    /// - Forces a layer reload on the target page.
+    /// - Stores the flash with the current context time so paint_highlights
+    ///   can fade it over 1.5 seconds.
+    ///
+    /// # Dependencies
+    /// - crates/datasheet/src/lib.rs (Document::page_count)
+    /// - crates/clock/src/lib.rs (now_secs, provided by caller as the `now` argument)
+    ///
+    /// # Do not
+    /// - Call with a negative page or a rectangle outside the page bounds.
+    #[allow(dead_code)]
+    pub(crate) fn show_source(&mut self, page_index: usize, rect: [f32; 4], now: f64) {
+        let pages = self.doc.as_ref().map(|d| d.page_count()).unwrap_or(1);
+        let page = if page_index >= pages {
+            pages - 1
+        } else {
+            page_index
+        };
+        self.page = page;
+        self.texture = None;
+        self.layer_page = usize::MAX;
+        self.open = true;
+        self.flash = Some((page, rect, now));
+    }
+
+    /// The flash rectangle that is currently active, for tests.
+    #[cfg(test)]
+    pub(crate) fn flash_rect(&self) -> Option<(usize, [f32; 4])> {
+        self.flash.as_ref().map(|(p, r, _)| (*p, *r))
     }
 
     fn reload_layer(&mut self) {
@@ -177,6 +216,23 @@ impl Pane {
         let search_col = Color32::from_rgba_unmultiplied(255, 220, 60, 120);
         let active_col = Color32::from_rgba_unmultiplied(255, 140, 0, 160);
         let sel_col = Color32::from_rgba_unmultiplied(80, 160, 255, 140);
+        let now = ui.ctx().input(|i| i.time);
+        if let Some((flash_page, flash_rect, start)) = self.flash {
+            let elapsed = now - start;
+            if flash_page == self.page && elapsed < FLASH_SECONDS {
+                let alpha = 160.0 * (1.0 - elapsed / FLASH_SECONDS);
+                let col = Color32::from_rgba_unmultiplied(255, 140, 0, alpha as u8);
+                let screen = self.page_to_screen(
+                    rect,
+                    flash_rect[0],
+                    flash_rect[1],
+                    flash_rect[2],
+                    flash_rect[3],
+                );
+                painter.rect_filled(screen, 0.0, col);
+                ui.ctx().request_repaint();
+            }
+        }
         for (i, hit) in self.search.hits.iter().enumerate() {
             if hit.page != self.page {
                 continue;
@@ -241,6 +297,14 @@ impl Pane {
 
     /// Draw the reader window when open.
     pub(crate) fn ui(&mut self, ctx: &Context) {
+        // A flash that has run its 1.5 seconds is dropped, so nothing keeps asking for repaints.
+        let now = ctx.input(|i| i.time);
+        if self
+            .flash
+            .is_some_and(|(_, _, start)| now - start >= FLASH_SECONDS)
+        {
+            self.flash = None;
+        }
         if !self.open {
             return;
         }
