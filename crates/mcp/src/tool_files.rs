@@ -139,7 +139,11 @@ pub fn write_tool_files(
         }
         "ipc356.write" => {
             let text = pcbcraft_io::ipc356_netlist(project)?;
-            Ok(vec![("test.brd".into(), text.into_bytes())])
+            let csv = pcbcraft_io::testpoints_csv(project)?;
+            Ok(vec![
+                ("test.brd".into(), text.into_bytes()),
+                ("testpoints.csv".into(), csv.into_bytes()),
+            ])
         }
         "netlist.write" => {
             let text = pcbcraft_io::netlist_text(project)?;

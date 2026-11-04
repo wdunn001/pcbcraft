@@ -494,7 +494,15 @@ fn render_content(
             kind: c.kind.clone(),
             bytes: crate::odb_package(p)?,
         }]),
-        "ipc356" => one("txt", crate::ipc356_netlist(p)?),
+        "ipc356" => {
+            let mut out = one("txt", crate::ipc356_netlist(p)?)?;
+            out.push(text_entry(
+                name(None, None, Some("csv"))?,
+                &c.kind,
+                crate::testpoints_csv(p)?,
+            ));
+            Ok(out)
+        }
         "step" => one("step", crate::step_board(p)?),
         "idf_board" => one("emn", crate::idf_board(p)?),
         "dxf_board" => one("dxf", crate::dxf_board(p)?),
