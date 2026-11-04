@@ -684,6 +684,32 @@ fn a_newcomer_drags_a_pad_into_place() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_gives_a_footprint_a_3d_box_body() -> Result<(), String> {
+    let (_shared, mut app, ctx) = authoring::tests::editor("footprint-editor")?;
+    let box_body = |app: &App| -> Result<bool, String> {
+        match app.library.editor.draft.as_ref() {
+            Some(Draft::Footprint(f)) => Ok(f.box_body.is_some()),
+            _ => Err("the footprint draft is missing".into()),
+        }
+    };
+    assert!(
+        !box_body(&app)?,
+        "a new footprint starts without a box body"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Box body")?;
+    assert!(
+        box_body(&app)?,
+        "ticking Box body gives the footprint a 3D box body"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Box body")?;
+    assert!(
+        !box_body(&app)?,
+        "clearing Box body removes the 3D box body"
+    );
+    Ok(())
+}
+
+#[test]
 fn library_editor_canvas_and_form_show_the_same_pin_position_after_drag() -> Result<(), String> {
     let (_shared, mut app, ctx) = authoring::tests::editor("symbol-editor")?;
     authoring::tests::tap(&ctx, &mut app, "Fit")?;
