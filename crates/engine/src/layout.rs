@@ -244,6 +244,12 @@ fn report(p: &Project, scope: &Scope) -> Result<Value, Error> {
                 entry.1 += w.from.distance(w.to);
                 m
             });
+    let mut routed: BTreeMap<Id, f64> = BTreeMap::new();
+    for track in &p.board.tracks {
+        let entry = routed.entry(track.net).or_insert(0.0);
+        *entry +=
+            ((track.end.x - track.start.x).powi(2) + (track.end.y - track.start.y).powi(2)).sqrt();
+    }
     let mut net_ids: Vec<Id> = p
         .board
         .footprints
@@ -254,7 +260,8 @@ fn report(p: &Project, scope: &Scope) -> Result<Value, Error> {
     net_ids.sort_unstable();
     net_ids.dedup();
     let mut nets = vec![];
-    let (mut total_hpwl, mut total_rats, mut total_open, mut total_open_count) = (0.0, 0.0, 0.0, 0);
+    let (mut total_hpwl, mut total_rats, mut total_open, mut total_open_count, mut total_routed) =
+        (0.0, 0.0, 0.0, 0, 0.0);
     for net in net_ids {
         let points = wirelength::net_pad_points(p, net);
         if points.len() < 2 {
@@ -272,11 +279,14 @@ fn report(p: &Project, scope: &Scope) -> Result<Value, Error> {
         total_rats += rats;
         total_open += open_len;
         total_open_count += open_count;
+        let routed_len = routed.get(&net).copied().unwrap_or(0.0);
+        total_routed += routed_len;
         nets.push((
             p.net_name(net).to_string(),
             net,
             json!({"net": net, "name": p.net_name(net), "pads": points.len(),
-                   "hpwl_mm": r(h), "ratsnest_mm": r(rats), "unrouted": open_count, "unrouted_mm": r(open_len)}),
+                   "hpwl_mm": r(h), "ratsnest_mm": r(rats), "unrouted": open_count, "unrouted_mm": r(open_len),
+                   "routed_mm": r(routed_len)}),
         ));
     }
     nets.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
@@ -288,7 +298,7 @@ fn report(p: &Project, scope: &Scope) -> Result<Value, Error> {
         "gaps": gaps,
         "alignment_groups": alignment,
         "nets": nets.into_iter().map(|n| n.2).collect::<Vec<_>>(),
-        "totals": {"hpwl_mm": r(total_hpwl), "ratsnest_mm": r(total_rats), "unrouted": total_open_count, "unrouted_mm": r(total_open)},
+        "totals": {"hpwl_mm": r(total_hpwl), "ratsnest_mm": r(total_rats), "unrouted": total_open_count, "unrouted_mm": r(total_open), "routed_mm": r(total_routed)},
         "off_board": off_board,
         "overlaps": overlapping,
     }))

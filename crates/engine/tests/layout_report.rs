@@ -428,3 +428,85 @@ fn report_counts_unrouted_connections_per_net() -> Result<(), Error> {
     );
     Ok(())
 }
+
+#[test]
+fn report_routed_length_is_the_track_sum() -> Result<(), Error> {
+    let (mut s, u1, c1, _) = board()?;
+    let j1 = s
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "J1")
+        .map(|c| c.id)
+        .ok_or(Error::Invalid("no J1 component".into()))?;
+    place(&mut s, u1, 10.0, 10.0)?;
+    place(&mut s, c1, 20.0, 10.0)?;
+    place(&mut s, j1, 30.0, 10.0)?;
+    let c1_fp = fp_of(&s, c1)?;
+    let j1_fp = fp_of(&s, j1)?;
+    // Read pad world positions to compute expected Manhattan distance.
+    let c1_pad = s
+        .project
+        .footprint(c1_fp)
+        .ok_or(Error::Invalid("no C1 footprint".into()))?
+        .pad_position("2")
+        .ok_or(Error::Invalid("no C1 pad 2".into()))?;
+    let j1_pad = s
+        .project
+        .footprint(j1_fp)
+        .ok_or(Error::Invalid("no J1 footprint".into()))?
+        .pad_position("2")
+        .ok_or(Error::Invalid("no J1 pad 2".into()))?;
+    let expected = (j1_pad.x - c1_pad.x).abs() + (j1_pad.y - c1_pad.y).abs();
+    // Route the GND net between C1 pad 2 and J1 pad 2.
+    s.execute(
+        "track.route",
+        json!({"from":{"footprint":c1_fp,"pad":"2"},"to":{"footprint":j1_fp,"pad":"2"},"layer":"F.Cu"}),
+        None,
+    )?;
+    let r =
+        s.execute("layout.report", json!({"scope":{"layers":["F.Cu"]}}), None)?["result"].clone();
+    let gnd = s
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "GND")
+        .map(|n| n.id)
+        .ok_or(Error::Invalid("no GND net".into()))?;
+    let vcc = s
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "VCC")
+        .map(|n| n.id)
+        .ok_or(Error::Invalid("no VCC net".into()))?;
+    let net_row = |net: u64| -> Option<&Value> {
+        r["nets"]
+            .as_array()
+            .and_then(|a| a.iter().find(|n| n["net"] == json!(net)))
+    };
+    let gnd_row = net_row(gnd).ok_or(Error::Invalid("no GND row".into()))?;
+    let vcc_row = net_row(vcc).ok_or(Error::Invalid("no VCC row".into()))?;
+    // The routed length is the sum of the two orthogonal segments, which
+    // equals the Manhattan distance between the two pad positions.
+    let gnd_routed = gnd_row["routed_mm"].as_f64().unwrap_or(-1.0);
+    assert!(
+        (gnd_routed - expected).abs() < 0.001,
+        "GND routed {gnd_routed} expected {expected}"
+    );
+    // The GND airwire is closed by the track.
+    assert_eq!(gnd_row["unrouted"], json!(0), "GND is fully routed");
+    // VCC has no tracks.
+    let vcc_routed = vcc_row["routed_mm"].as_f64().unwrap_or(-1.0);
+    assert!(
+        vcc_routed.abs() < 0.001,
+        "VCC is not routed, got {vcc_routed}"
+    );
+    // The total routed length equals the single net with copper.
+    let total_routed = r["totals"]["routed_mm"].as_f64().unwrap_or(-1.0);
+    assert!(
+        (total_routed - expected).abs() < 0.001,
+        "total routed {total_routed} expected {expected}"
+    );
+    Ok(())
+}
