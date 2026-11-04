@@ -275,6 +275,7 @@ impl App {
         if apply {
             self.run("board.set_shape", draft.params());
         }
+        self.outline_vertex_table(ui);
         ui.data_mut(|d| d.insert_temp(draft_id, draft));
     }
 }
