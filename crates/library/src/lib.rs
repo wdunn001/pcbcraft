@@ -2,6 +2,7 @@
 pub mod cad;
 pub mod cad_cache;
 pub mod component_kind;
+pub mod connector_config;
 pub mod connector_partnumber;
 pub mod datasheet_extract;
 pub use connector_partnumber::{
