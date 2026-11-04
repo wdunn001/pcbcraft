@@ -29042,7 +29042,7 @@ mod tests {
         assert!(
             s.execute(
                 "board.layer_add",
-                json!({"name":"x", "kind":"engrave"}),
+                json!({"name":"x", "kind":"teleport"}),
                 None
             )
             .is_err(),
