@@ -95,6 +95,11 @@ fn map_frame(app: &App) -> Result<MapFrame, String> {
     Ok(MapFrame {
         bounds: o.bounds,
         rect: rect_of(app, "minimap-surface")?,
+        orient: crate::minimap::Orient::of(if app.tab == Tab::Pcb {
+            app.pcb
+        } else {
+            app.schematic
+        }),
     })
 }
 
@@ -479,5 +484,44 @@ fn a_newcomer_peeks_at_another_schematic_sheet() -> Result<(), String> {
     let power_parts = build_overview(&app.project, false, page).parts.len();
     assert_eq!(power_parts, 1);
     assert!(main_parts >= 1);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_the_map_the_same_way_up_as_the_board_view() -> Result<(), String> {
+    let (mut app, ctx) = open(Tab::Pcb);
+    app.preferences.reduced_motion = true;
+    authoring::tests::tap_icon(&ctx, &mut app, "canvas-map")?;
+    settle(&ctx, &mut app, 2);
+    assert!(app.minimap_visible(), "the Map button opens the peek");
+    let map = map_frame(&app)?;
+    let canvas = app.canvas_rect;
+    // The part farthest from the board's middle, up or down.
+    let (lo, hi) = map.bounds;
+    let mid_y = (lo.y + hi.y) / 2.0;
+    let far = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .map(|f| f.position)
+        .max_by(|a, b| {
+            (a.y - mid_y)
+                .abs()
+                .partial_cmp(&(b.y - mid_y).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .ok_or("the sample board has parts")?;
+    assert!(
+        (far.y - mid_y).abs() > 1.0,
+        "the part sits clearly above or below the middle"
+    );
+    let in_view_is_high =
+        app.pcb.screen(far, canvas).y < app.pcb.screen(Point::new(far.x, mid_y), canvas).y;
+    let on_map_is_high = map.to_map(far).y < map.to_map(Point::new(far.x, mid_y)).y;
+    assert_eq!(
+        in_view_is_high, on_map_is_high,
+        "a part above the middle of the board in the view is above the middle on the map"
+    );
     Ok(())
 }
