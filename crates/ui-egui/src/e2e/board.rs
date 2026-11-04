@@ -1246,9 +1246,21 @@ fn a_newcomer_right_clicks_a_pin_and_marks_no_connect() -> Result<(), String> {
     right_click(&ctx, &mut app, screen);
     authoring::tests::tap(&ctx, &mut app, "Mark no connect")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The menu item acts on the pin at once. It does not arm a tool. This pin is wired, so it
+    // is refused with a plain sentence and no flag is added.
     assert!(
-        matches!(app.tool, Tool::NoConnect),
-        "Mark no connect arms the no-connect tool: {}",
+        matches!(app.tool, Tool::Select),
+        "Mark no connect leaves the Select tool in place: {}",
+        app.message
+    );
+    assert!(
+        app.project.no_connects.is_empty(),
+        "no flag is added to a wired pin: {}",
+        app.message
+    );
+    assert!(
+        app.message.contains("wired to something"),
+        "the person is told why: {}",
         app.message
     );
     Ok(())
