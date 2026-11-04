@@ -9,6 +9,7 @@ mod a11y;
 mod arrange;
 mod artifact_rows;
 mod assistant;
+mod attachment_rows;
 mod authoring;
 pub mod board3d;
 mod board_side;

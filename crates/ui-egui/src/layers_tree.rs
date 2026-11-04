@@ -1493,12 +1493,13 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
 /// The rows directly under `key` (empty for the virtual root). Only called
 /// for expanded rows.
 fn children(env: &Env, key: &str) -> Vec<Row> {
-    match env.tab {
+    let built = match env.tab {
         TreeTab::Layout => {
             crate::artifact_rows::with_artifact_rows(env, key, layout_children(env, key))
         }
         TreeTab::Schematic => schematic_children(env, key),
-    }
+    };
+    crate::attachment_rows::with_attachment_rows(env, key, built)
 }
 
 fn component_row(path: &str, c: &pcbcraft_doc::Component) -> Row {
@@ -3730,6 +3731,8 @@ pub(crate) fn explain(tab: TreeTab, r: &Row) -> String {
         ("layer", _) => t!("tree.explain.net_layer"),
         ("label", _) if r.key.contains("layer:power") => t!("tree.explain.power_port"),
         ("label", _) => t!("tree.explain.label"),
+        ("files", _) => t!("tree.explain.files"),
+        ("notes", _) => t!("tree.explain.notes"),
         _ => String::new(),
     }
 }

@@ -1149,3 +1149,47 @@ fn a_newcomer_focuses_a_drawn_layer_and_the_rest_fades() -> Result<(), String> {
     assert!(restored, "full strength returns when focus clears");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sees_attached_files_and_notes_in_the_tree() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    // Attach a file.
+    let attached = app.tool_call(
+        "file.attach",
+        json!({"name": "datasheet.pdf", "data": "fake pdf content"}),
+    );
+    assert!(attached, "file.attach failed: {}", app.message);
+    // Set a project note.
+    let noted = app.tool_call(
+        "project.set_meta",
+        json!({"key": "notes", "value": "Test board for evaluation"}),
+    );
+    assert!(noted, "project.set_meta failed: {}", app.message);
+    app.refresh();
+    // The Attached files section appears.
+    assert!(
+        scrolled_to_left(&ctx, &mut app, "Attached files")?,
+        "the Attached files section is in the tree: {}",
+        app.message
+    );
+    // Open the group; the file row appears.
+    app.tree.expanded.insert("files".to_owned());
+    assert!(
+        scrolled_to_left(&ctx, &mut app, "datasheet.pdf")?,
+        "the attached file row is in the tree: {}",
+        app.message
+    );
+    // The Project notes row appears.
+    assert!(
+        scrolled_to_left(&ctx, &mut app, "Project notes")?,
+        "the Project notes row is in the tree: {}",
+        app.message
+    );
+    // The note preview is shown.
+    assert!(
+        scrolled_to_left(&ctx, &mut app, "Test board for evaluation")?,
+        "the note preview is shown: {}",
+        app.message
+    );
+    Ok(())
+}
