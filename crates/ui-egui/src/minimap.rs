@@ -92,6 +92,14 @@ impl Overview {
         let h = (self.bounds.1.y - self.bounds.0.y).max(1.0);
         (w / h) as f32
     }
+    /// Width over height of the map as the view shows it: a quarter turn swaps the two sides.
+    pub(crate) fn aspect_for(&self, turns: u8) -> f32 {
+        if turns % 2 == 1 {
+            1.0 / self.aspect()
+        } else {
+            self.aspect()
+        }
+    }
 }
 
 /// What changes often and costs little: findings, the selection, a lit net.
@@ -315,41 +323,92 @@ pub(crate) fn build_marks(
     marks
 }
 
-/// How the world rectangle maps into a map rectangle, keeping its shape.
+/// How the view is oriented: the same three switches the camera has.
+///
+/// # Rules
+/// - The map is drawn the way the main view is drawn, so a board seen from below, turned or
+///   with +y up looks the same in both.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Orient {
+    /// Look from the other side: screen x runs the other way.
+    pub mirror: bool,
+    /// World +y points up the screen (the board view).
+    pub up: bool,
+    /// Quarter turns, 0 to 3.
+    pub turns: u8,
+}
+
+impl Orient {
+    /// The orientation of a camera.
+    pub(crate) fn of(camera: Camera) -> Self {
+        Self {
+            mirror: camera.mirror,
+            up: camera.up,
+            turns: camera.turns % 4,
+        }
+    }
+    fn camera(self) -> Camera {
+        Camera {
+            center: Point::default(),
+            zoom: 1.0,
+            mirror: self.mirror,
+            turns: self.turns,
+            up: self.up,
+        }
+    }
+}
+
+/// How the world rectangle maps into a map rectangle, keeping its shape and the view's orientation.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MapFrame {
     pub bounds: (Point, Point),
     pub rect: Rect,
+    pub orient: Orient,
 }
 
 impl MapFrame {
-    fn scale(&self) -> f64 {
+    /// The world rectangle's size once it is turned: a quarter turn swaps width and height.
+    fn shown_size(&self) -> (f64, f64) {
         let w = (self.bounds.1.x - self.bounds.0.x).max(1e-6);
         let h = (self.bounds.1.y - self.bounds.0.y).max(1e-6);
+        if self.orient.turns % 2 == 1 {
+            (h, w)
+        } else {
+            (w, h)
+        }
+    }
+    fn centre(&self) -> Point {
+        Point::new(
+            (self.bounds.0.x + self.bounds.1.x) / 2.0,
+            (self.bounds.0.y + self.bounds.1.y) / 2.0,
+        )
+    }
+    fn scale(&self) -> f64 {
+        let (w, h) = self.shown_size();
         ((self.rect.width() as f64) / w).min((self.rect.height() as f64) / h)
     }
     /// The part of `rect` the world rectangle fills.
+    #[cfg(test)]
     pub(crate) fn inner(&self) -> Rect {
         let s = self.scale();
-        let w = ((self.bounds.1.x - self.bounds.0.x) * s) as f32;
-        let h = ((self.bounds.1.y - self.bounds.0.y) * s) as f32;
-        Rect::from_center_size(self.rect.center(), Vec2::new(w, h))
+        let (w, h) = self.shown_size();
+        Rect::from_center_size(
+            self.rect.center(),
+            Vec2::new((w * s) as f32, (h * s) as f32),
+        )
     }
     pub(crate) fn to_map(self, p: Point) -> Pos2 {
-        let inner = self.inner();
         let s = self.scale();
-        Pos2::new(
-            inner.min.x + ((p.x - self.bounds.0.x) * s) as f32,
-            inner.min.y + ((p.y - self.bounds.0.y) * s) as f32,
-        )
+        let c = self.centre();
+        let (x, y) = self.orient.camera().turn(p.x - c.x, p.y - c.y);
+        self.rect.center() + Vec2::new((x * s) as f32, (y * s) as f32)
     }
     pub(crate) fn to_world(self, pos: Pos2) -> Point {
-        let inner = self.inner();
         let s = self.scale().max(1e-9);
-        Point::new(
-            self.bounds.0.x + (pos.x - inner.min.x) as f64 / s,
-            self.bounds.0.y + (pos.y - inner.min.y) as f64 / s,
-        )
+        let c = self.centre();
+        let d = pos - self.rect.center();
+        let (x, y) = self.orient.camera().unturn(d.x as f64 / s, d.y as f64 / s);
+        Point::new(c.x + x, c.y + y)
     }
 }
 
@@ -787,7 +846,12 @@ impl App {
             self.minimap.hover_open = true;
         }
         let overview = self.cached_overview(page);
-        let size = map_size(prefs.width, overview.aspect(), canvas.size());
+        let orient = Orient::of(if pcb { self.pcb } else { self.schematic });
+        let size = map_size(
+            prefs.width,
+            overview.aspect_for(orient.turns),
+            canvas.size(),
+        );
         let sheets = self.sheet_names();
         let tabs_h = if !pcb && sheets.len() > 1 { 28.0 } else { 0.0 };
         let total = Vec2::new(
@@ -838,6 +902,7 @@ impl App {
         let frame = MapFrame {
             bounds: overview.bounds,
             rect: area_rect,
+            orient,
         };
         let view = view_box(camera, canvas.size());
         let finding_ids = finding_ids(&self.checks, pcb);
@@ -1351,7 +1416,13 @@ impl App {
                 if let Some(Grab::Resize { width }) = self.minimap.grab
                     && resp.dragged()
                 {
-                    let aspect = overview.aspect();
+                    let turns = if self.tab == Tab::Pcb {
+                        self.pcb
+                    } else {
+                        self.schematic
+                    }
+                    .turns;
+                    let aspect = overview.aspect_for(turns);
                     let delta = ui.input(|i| i.pointer.delta());
                     let _ = width;
                     let base = map_size(prefs.width, aspect, canvas.size()).x;
@@ -1620,6 +1691,7 @@ mod tests {
         MapFrame {
             bounds: (Point::new(0.0, 0.0), Point::new(100.0, 50.0)),
             rect: Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(200.0, 200.0)),
+            orient: Orient::default(),
         }
     }
 
@@ -1633,6 +1705,65 @@ mod tests {
         assert!((back.x - 30.0).abs() < 1e-3 && (back.y - 20.0).abs() < 1e-3);
         let corner = f.to_map(Point::new(100.0, 50.0));
         assert!((corner.x - inner.max.x).abs() < 1e-3 && (corner.y - inner.max.y).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_map_follows_the_views_up_mirror_and_turns() {
+        let high = Point::new(50.0, 50.0); // the top edge of the board when +y is up
+        let flat = frame();
+        // y down: a high y lands low on the map.
+        assert!(flat.to_map(high).y > flat.rect.center().y);
+        // +y up (the board view): the same point lands high on the map, as it does in the view.
+        let up = MapFrame {
+            orient: Orient {
+                up: true,
+                ..Orient::default()
+            },
+            ..frame()
+        };
+        assert!(
+            up.to_map(high).y < up.rect.center().y,
+            "the board view draws +y upward"
+        );
+        // Mirrored: a high x lands on the left.
+        let mirrored = MapFrame {
+            orient: Orient {
+                mirror: true,
+                ..Orient::default()
+            },
+            ..frame()
+        };
+        assert!(mirrored.to_map(Point::new(90.0, 25.0)).x < mirrored.rect.center().x);
+        // A quarter turn swaps the sides the world rectangle fills.
+        let turned = MapFrame {
+            orient: Orient {
+                turns: 1,
+                ..Orient::default()
+            },
+            ..frame()
+        };
+        let inner = turned.inner();
+        assert!(
+            (inner.height() / inner.width() - 2.0).abs() < 1e-3,
+            "100 by 50 turns to 50 by 100"
+        );
+        // Every orientation round trips a point.
+        for mirror in [false, true] {
+            for up in [false, true] {
+                for turns in 0..4u8 {
+                    let f = MapFrame {
+                        orient: Orient { mirror, up, turns },
+                        ..frame()
+                    };
+                    let p = Point::new(30.0, 20.0);
+                    let back = f.to_world(f.to_map(p));
+                    assert!(
+                        (back.x - 30.0).abs() < 1e-3 && (back.y - 20.0).abs() < 1e-3,
+                        "mirror {mirror} up {up} turns {turns}: {back:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
