@@ -379,3 +379,52 @@ fn the_commands_are_listed_with_schemas() {
         );
     }
 }
+
+#[test]
+fn report_counts_unrouted_connections_per_net() -> Result<(), Error> {
+    let (mut s, u1, c1, _) = board()?;
+    let j1 = s
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "J1")
+        .map(|c| c.id)
+        .ok_or(Error::Invalid("no J1 component".into()))?;
+    place(&mut s, u1, 10.0, 10.0)?;
+    place(&mut s, c1, 20.0, 10.0)?;
+    place(&mut s, j1, 30.0, 10.0)?;
+    let wires = pcbcraft_rules::airwires(&s.project);
+    assert_eq!(wires.len(), 3, "the fixture must have 3 airwires");
+    let r =
+        s.execute("layout.report", json!({"scope":{"layers":["F.Cu"]}}), None)?["result"].clone();
+    let unrouted = |net: u64| -> usize {
+        r["nets"]
+            .as_array()
+            .and_then(|a| a.iter().find(|n| n["net"] == json!(net)))
+            .and_then(|n| n["unrouted"].as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(0)
+    };
+    let vcc = s
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "VCC")
+        .map(|n| n.id)
+        .ok_or(Error::Invalid("no VCC net".into()))?;
+    let gnd = s
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "GND")
+        .map(|n| n.id)
+        .ok_or(Error::Invalid("no GND net".into()))?;
+    assert_eq!(unrouted(vcc), 2, "VCC has 2 open airwires");
+    assert_eq!(unrouted(gnd), 1, "GND has 1 open airwire");
+    let total_unrouted = r["totals"]["unrouted"].as_u64().unwrap_or(0) as usize;
+    assert_eq!(
+        total_unrouted, 3,
+        "totals must report 3 unrouted connections"
+    );
+    Ok(())
+}

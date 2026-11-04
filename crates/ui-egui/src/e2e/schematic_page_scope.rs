@@ -442,6 +442,91 @@ fn a_newcomer_adds_a_part_to_main_and_it_stays_on_main() -> Result<(), String> {
     Ok(())
 }
 
+/// Heights in points of every text on the sheet whose words read `label`, painted at `zoom`.
+fn text_heights(app: &mut App, label: &str, zoom: f32) -> Vec<f32> {
+    app.schematic.zoom = zoom;
+    let ctx = egui::Context::default();
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 940.0),
+            )),
+            ..Default::default()
+        },
+        |root_ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
+                let rect = ui.max_rect();
+                app.paint_schematic(ui.painter(), rect, app.schematic, &app.project);
+            });
+        },
+    );
+    output.textures_delta.clear();
+    output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == label => Some(text.galley.size().y),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_newcomer_zooms_out_and_the_power_symbol_names_shrink_with_the_drawing() -> Result<(), String> {
+    let (_ctx, mut app) = showcase()?;
+    for label in ["GND", "3V3", "VBAT"] {
+        let far = text_heights(&mut app, label, 3.0);
+        assert!(!far.is_empty(), "{label} is painted on the sheet");
+        let tallest = far.iter().copied().fold(0.0_f32, f32::max);
+        assert!(
+            tallest < 10.0,
+            "every {label} is small when zoomed far out, none stays at a fixed size; sizes over 10: {:?}",
+            far.iter()
+                .copied()
+                .filter(|h| *h >= 10.0)
+                .collect::<Vec<_>>()
+        );
+        let near = text_heights(&mut app, label, 14.0);
+        let near_tallest = near.iter().copied().fold(0.0_f32, f32::max);
+        assert!(
+            near_tallest > tallest * 1.8,
+            "{label} is larger when zoomed in: {near_tallest} against {tallest}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_works_on_main_and_a_frame_does_not_stall() -> Result<(), String> {
+    // Main lays out every page. A frame there once took seconds, because each item asked for the
+    // whole layout again. The limits are far above a healthy run and far below the broken one.
+    let (ctx, mut app) = showcase()?;
+    assert_eq!(app.schematic_page(), 0, "the view is Main");
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let start = pcbcraft_clock::instant_now();
+    for _ in 0..10 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let frame_ms = start.elapsed().as_secs_f64() * 100.0;
+    assert!(
+        frame_ms < 1000.0,
+        "a frame on Main takes {frame_ms:.0} ms; it should take a few tens"
+    );
+    let start = pcbcraft_clock::instant_now();
+    for _ in 0..10 {
+        std::hint::black_box(app.hit_at(Point::new(100.0, 100.0), 1.0));
+    }
+    let hit_ms = start.elapsed().as_secs_f64() * 100.0;
+    assert!(
+        hit_ms < 250.0,
+        "a hit test on Main takes {hit_ms:.0} ms; it should take well under one"
+    );
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_fits_the_whole_circuit_on_main() -> Result<(), String> {
     let (ctx, mut app) = showcase()?;

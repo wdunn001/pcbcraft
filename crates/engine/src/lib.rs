@@ -21742,8 +21742,17 @@ fn run_command_part_20(
         }
         "board.resize" => {
             let a: Resize = parse(params)?;
+            let old_w = p.board.width;
+            let old_h = p.board.height;
+            let leg = match p.board.outline.as_ref() {
+                Some(o) => pcbcraft_doc::chamfer_leg_of(o, old_w, old_h),
+                None => None,
+            };
             p.board.width = a.width;
             p.board.height = a.height;
+            if let Some(leg) = leg {
+                p.board.outline = Some(pcbcraft_doc::chamfered_outline(a.width, a.height, leg));
+            }
             Ok(json!({"width":a.width,"height":a.height}))
         }
         "board.clearance.set" => {
@@ -39037,6 +39046,44 @@ mod tests {
             "a 12 mm notch cannot fit across a 10 mm board"
         );
         assert!(small.project.board.outline.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn board_resize_keeps_a_chamfered_outline() -> Result<(), Error> {
+        let mut s = Session::default();
+        let leg = 1.5;
+        let outline = pcbcraft_doc::chamfered_outline(60.0, 40.0, leg);
+        s.execute(
+            "board.set_outline",
+            json!({"points": outline.iter().map(|p| json!([p.x, p.y])).collect::<Vec<_>>()}),
+            None,
+        )?;
+        assert!(s.project.board.outline.is_some());
+        s.execute("board.resize", json!({"width": 80.0, "height": 50.0}), None)?;
+        assert_eq!(s.project.board.width, 80.0);
+        assert_eq!(s.project.board.height, 50.0);
+        let new_outline = s
+            .project
+            .board
+            .outline
+            .ok_or_else(|| Error::Invalid("outline disappeared".into()))?;
+        let expected = pcbcraft_doc::chamfered_outline(80.0, 50.0, leg);
+        assert_eq!(new_outline.len(), expected.len());
+        for (a, b) in new_outline.iter().zip(expected.iter()) {
+            assert!((a.x - b.x).abs() < 1e-6, "x mismatch: {} vs {}", a.x, b.x);
+            assert!((a.y - b.y).abs() < 1e-6, "y mismatch: {} vs {}", a.y, b.y);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn board_resize_preserves_none_outline() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("board.resize", json!({"width": 80.0, "height": 50.0}), None)?;
+        assert_eq!(s.project.board.width, 80.0);
+        assert_eq!(s.project.board.height, 50.0);
+        assert!(s.project.board.outline.is_none());
         Ok(())
     }
 

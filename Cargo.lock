@@ -3455,6 +3455,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "pcbcraft-doc",
+ "pcbcraft-geom",
  "pcbcraft-io",
  "pcbcraft-library",
  "serde",

@@ -1129,7 +1129,7 @@ struct Camera {
     zoom: f32,
     /// Look at the board from the other side: screen x runs the other way.
     mirror: bool,
-    /// Quarter turns clockwise on screen.
+    /// Quarter turns: clockwise on the schematic, counter-clockwise on the board view.
     turns: u8,
     /// World +y points up the screen (the board view). Off, y runs down.
     up: bool,
@@ -1142,7 +1142,11 @@ impl Camera {
             if self.up { -dy } else { dy },
         );
         for _ in 0..(self.turns % 4) {
-            (x, y) = (-y, x);
+            if self.up {
+                (x, y) = (y, -x);
+            } else {
+                (x, y) = (-y, x);
+            }
         }
         (x, y)
     }
@@ -1150,7 +1154,11 @@ impl Camera {
     fn unturn(self, dx: f64, dy: f64) -> (f64, f64) {
         let (mut x, mut y) = (dx, dy);
         for _ in 0..(self.turns % 4) {
-            (x, y) = (y, -x);
+            if self.up {
+                (x, y) = (-y, x);
+            } else {
+                (x, y) = (y, -x);
+            }
         }
         (
             if self.mirror { -x } else { x },
@@ -1338,6 +1346,9 @@ pub struct App {
     pinned_view: Option<draw_target::Target>,
     /// Whether the board lacks schematic changes, by revision; see `sync_notice.rs`.
     sync_behind: Option<(u64, bool)>,
+    /// The project as Main lays it out, kept until the project changes. Building it clones the whole
+    /// project, and a frame asks for it many times, so it is built once per change. See `page_scope.rs`.
+    main_view: std::sync::Mutex<page_scope::MainViewCache>,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
     /// The Rules and checks window, opened from the Edit menu.
@@ -2110,6 +2121,7 @@ impl App {
             rules_dialog: rules_dialog::State::default(),
             setup_wizard: setup_wizard::State::default(),
             active_page: 0,
+            main_view: std::sync::Mutex::new(page_scope::MainViewCache::default()),
             power_pick: std::collections::BTreeMap::new(),
             port_pick_name: String::new(),
             page_left: 0.0,
@@ -10160,6 +10172,67 @@ mod tests {
         );
         eprintln!("bench: five frames {painted:?}");
         Ok(())
+    }
+    #[test]
+    fn camera_quarter_turn_runs_counter_clockwise_on_the_board_view() {
+        let cam = Camera {
+            center: Point::new(0.0, 0.0),
+            zoom: 1.0,
+            mirror: false,
+            turns: 1,
+            up: true,
+        };
+        let rect = Rect::from_min_max(egui::Pos2::new(0.0, 0.0), egui::Pos2::new(200.0, 200.0));
+        let s = cam.screen(Point::new(10.0, 0.0), rect);
+        assert!(
+            (s.x - 100.0).abs() < 0.001 && (s.y - 90.0).abs() < 0.001,
+            "turns 1 up true: (10,0) should map to (100,90), got ({}, {})",
+            s.x,
+            s.y
+        );
+        let cam0 = Camera { turns: 0, ..cam };
+        let s0 = cam0.screen(Point::new(10.0, 0.0), rect);
+        assert!(
+            (s0.x - 110.0).abs() < 0.001 && (s0.y - 100.0).abs() < 0.001,
+            "turns 0: (10,0) should map to (110,100), got ({}, {})",
+            s0.x,
+            s0.y
+        );
+        let s1 = cam0.screen(Point::new(0.0, 10.0), rect);
+        assert!(
+            (s1.x - 100.0).abs() < 0.001 && (s1.y - 90.0).abs() < 0.001,
+            "turns 0: (0,10) should map to (100,90), got ({}, {})",
+            s1.x,
+            s1.y
+        );
+    }
+
+    #[test]
+    fn camera_screen_and_world_are_inverse_with_y_up() {
+        let p = Point::new(12.5, -3.0);
+        for turns in 0..4 {
+            for mirror in [false, true] {
+                let cam = Camera {
+                    center: Point::new(0.0, 0.0),
+                    zoom: 1.0,
+                    mirror,
+                    turns,
+                    up: true,
+                };
+                let rect =
+                    Rect::from_min_max(egui::Pos2::new(0.0, 0.0), egui::Pos2::new(200.0, 200.0));
+                let screen = cam.screen(p, rect);
+                let back = cam.world(screen, rect);
+                assert!(
+                    (back.x - p.x).abs() < 1e-6 && (back.y - p.y).abs() < 1e-6,
+                    "turns {} mirror {}: world(screen(p)) != p, got ({}, {})",
+                    turns,
+                    mirror,
+                    back.x,
+                    back.y
+                );
+            }
+        }
     }
 }
 

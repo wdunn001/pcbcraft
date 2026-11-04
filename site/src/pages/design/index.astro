@@ -1,0 +1,133 @@
+---
+// Design preview: the approved interface mockups, grouped by tab, each with a short summary.
+// Rules: every image is a design mockup, not a capture of the running app. The page says so at the
+// top and on each card. Summaries describe the design as drawn; they do not claim a feature ships.
+// Dependencies: ../../assets/design/*.png, ../../layouts/MarketingLayout.astro.
+// Do not: add a mockup without a summary, or describe one as available before it is built.
+import { Image } from 'astro:assets';
+import MarketingLayout from '../../layouts/MarketingLayout.astro';
+import { url } from '../../lib/site';
+
+const imgs = import.meta.glob('../../assets/design/*.png', { eager: true, import: 'default' }) as Record<string, ImageMetadata>;
+const pic = (id: string) => imgs[`../../assets/design/${id}.png`];
+
+interface Shot { id: string; title: string; text: string }
+interface Group { id: string; title: string; intro: string; shots: Shot[] }
+
+const groups: Group[] = [
+  {
+    id: 'files', title: 'Files', intro: 'The first tab. It is where a project starts.',
+    shots: [
+      { id: 'files', title: 'Projects home', text: 'The page for the open project. It shows its parts, nets, board size and check count, then the project files and the recent projects. A button opens the sample project.' },
+    ],
+  },
+  {
+    id: 'schematic', title: 'Schematic', intro: 'Draw the circuit as pages of symbols and wires.',
+    shots: [
+      { id: 'schematic', title: 'Schematic with the Layers tree', text: 'Each schematic page is its own sheet. The left tree lists the page contents, then the project-wide Parts and Nets. Every row has an eye and a lock.' },
+      { id: 'schematic-tools-add', title: 'Add menu', text: 'One menu places the things a schematic needs: net labels, power symbols, buses, ports, no-connect marks and junctions. A power symbol is a symbol on a net that becomes tracks and pads in the layout.' },
+    ],
+  },
+  {
+    id: 'layout', title: 'Layout', intro: 'Place parts and route copper on a real board outline.',
+    shots: [
+      { id: 'layout', title: 'Layout with the Layers tree', text: 'The tree groups Copper, Silkscreen, Mask and paste, Board, User layers, Parts and Nets. Selecting a layer fades the others, because layers are physical.' },
+      { id: 'routing-style', title: 'Routing style', text: 'Corner and junction style cascade from the project default to a layer override to the Route tool. A net class can carry a style too. Inherit means the nearest higher setting applies.' },
+      { id: 'autolayout-setup', title: 'Auto layout', text: 'Choose a scope of net, layer or board, then set how hard to search. Preview shows the result in cyan. Nothing changes until Apply. Locked tracks and parts are never moved.' },
+      { id: 'minimap', title: 'Minimap', text: 'Hold a key to peek at a map of the whole board. Drag a region and release to go there. The map can also stay in a corner, be pinned open or move to its own window.' },
+      { id: '3d', title: '3D view', text: 'The board turns into a 3D model with its parts. Orbit, Pick part and Measure are the tools. Drag to turn, scroll to zoom and export the 3D model.' },
+    ],
+  },
+  {
+    id: 'analyze', title: 'Analyze', intro: 'Checks, rules, signal and power integrity and instruments share one layout: a list on the left, results in the middle, settings and the Assistant on the right.',
+    shots: [
+      { id: 'analyze-checks', title: 'Checks', text: 'Design rule, electrical and placement checks run from one list. Each finding names the nets and parts involved.' },
+      { id: 'analyze-net-classes', title: 'Rules and net classes', text: 'Rule sets and net classes are edited here. A class holds width, clearance and impedance targets for the nets that belong to it.' },
+      { id: 'analyze-pdn', title: 'Power delivery', text: 'The impedance of a power rail is plotted against frequency with a target line. The target comes from the rail voltage, the ripple allowed and the load current.' },
+      { id: 'analyze-reflections', title: 'Reflections', text: 'A signal edge is shown along a trace with its overshoot and ringing. It helps you decide where a series resistor or a termination is needed.' },
+      { id: 'analyze-scope', title: 'Scope', text: 'An oscilloscope style view reads digital levels and decodes UART, SPI, I2C and CAN. A power rail can be probed in the same view.' },
+      { id: 'analyze-rf', title: 'RF: spectrum, Smith chart and link budget', text: 'The spectrum shows the carrier. The Smith chart shows the match of a load to its line. A link budget turns distance, power and antenna gain into a received level.' },
+      { id: 'analyze-antenna', title: 'Antenna patterns', text: 'A radiation pattern view is planned for the antenna. It is marked future in the list.' },
+      { id: 'analyze-firmware', title: 'Firmware', text: 'A firmware image can be loaded and run against the design in simulation. Pins and peripherals appear as signals in the Scope.' },
+      { id: 'analyze-hitl', title: 'Hardware link', text: 'The same checks can run on a real board connected to the computer. Measured signals appear next to the simulated ones.' },
+      { id: 'analyze-ide-link', title: 'IDE link', text: 'PCBCraft does not edit code. This page links the design to your own editor so pin names and build results stay in step.' },
+    ],
+  },
+  {
+    id: 'manufacture', title: 'Manufacture', intro: 'Turn the finished design into files and machine jobs.',
+    shots: [
+      { id: 'manufacture', title: 'Outputs and machine jobs', text: 'Fabrication files, assembly files and machine jobs sit in one list. Each shows whether it is current or stale. A preview shows toolpaths, drill holes and the board stock.' },
+      { id: 'machine-project', title: 'Machine settings for the project', text: 'The machine used for each step is chosen here. Settings such as feed rate, spindle speed and cut depth apply per sub-layer.' },
+      { id: 'machine-library', title: 'Machine library', text: 'Machines are saved configurations sorted by kind: pick and place, laser, mill, UV printer and reflow oven. Built-in machines can be used as they are, duplicated or edited as your own copy, then added to the project.' },
+    ],
+  },
+  {
+    id: 'library', title: 'Library', intro: 'The last tab holds parts and machines, with two tabs on the left.',
+    shots: [
+      { id: 'library', title: 'Parts library', text: 'A part shows its symbol, footprint and 3D body together with key parameters, lifecycle and supplier numbers. You can place it, add it to the project or compare it with another part.' },
+      { id: 'share-publish', title: 'Publish', text: 'A design or a part can be published to a library you added. You choose a licence for each layer of the work. Checks run before publishing, and local paths and keys are removed.' },
+    ],
+  },
+  {
+    id: 'menus', title: 'Menus, Preferences and settings', intro: 'The top menus and the screens that hold your own settings.',
+    shots: [
+      { id: 'menu-file', title: 'File menu', text: 'New, open, recent, save, import, export and project settings. Compare opens a second design against the current one.' },
+      { id: 'menu-edit', title: 'Edit menu', text: 'Undo, redo, copy, paste and delete sit with the layout tools. Update board from schematic and Preferences are at the end.' },
+      { id: 'menu-view', title: 'View menu', text: 'Zoom, panels, grid and rulers are toggled here. Go to jumps to any of the six tabs.' },
+      { id: 'menu-help', title: 'Help menu', text: 'The guide, tours, keyboard shortcuts and a command search that runs any command by name.' },
+      { id: 'prefs-appearance', title: 'Preferences: Appearance', text: 'Theme, accent colour, interface size, grid, pad labels and the minimap look. Changes apply at once.' },
+      { id: 'prefs-keys', title: 'Preferences: Keys', text: 'Every shortcut is listed with its area. Change one by pressing the new key. A key already in use asks before it is taken over.' },
+      { id: 'settings-layer', title: 'Layer settings', text: 'Selecting a layer opens its settings in Properties: name, side, colour, material, thickness, routing style and display options.' },
+      { id: 'settings-page', title: 'Page settings', text: 'Selecting a schematic page opens its title block, symbol counts, power symbols and drawing defaults.' },
+    ],
+  },
+];
+---
+
+<MarketingLayout title="Design preview" description="Mockups of the PCBCraft interface, tab by tab, with a short note on what each screen is for.">
+  <section class="head">
+    <div class="wrap">
+      <p class="eyebrow">Design preview</p>
+      <h1>Where the interface is going</h1>
+      <p class="lede">These images are design mockups. They are not captures of the running app. Some screens already exist, some are partly built and some are planned. The <a href={url('features/')}>feature list</a> shows what works today.</p>
+      <nav class="jump" aria-label="Sections">
+        {groups.map((g) => <a href={`#${g.id}`}>{g.title}</a>)}
+      </nav>
+    </div>
+  </section>
+
+  {groups.map((g) => (
+    <section class="wrap group" id={g.id} aria-labelledby={`${g.id}-h`}>
+      <h2 id={`${g.id}-h`}>{g.title}</h2>
+      <p class="intro">{g.intro}</p>
+      <div class="grid">
+        {g.shots.map((s) => (
+          <figure class="card">
+            <a href={pic(s.id).src} target="_blank" rel="noopener" title={`Open ${s.title} at full size`}>
+              <Image src={pic(s.id)} alt={`Mockup: ${s.title}`} widths={[640, 960, 1280]} sizes="(max-width: 56rem) 100vw, 48rem" loading="lazy" decoding="async" />
+            </a>
+            <figcaption>
+              <h3>{s.title}</h3>
+              <p>{s.text}</p>
+              <span class="tag mono">Design mockup</span>
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    </section>
+  ))}
+</MarketingLayout>
+
+<style>
+  .head { padding: 3.5rem 0 1.5rem; }
+  .jump { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1.4rem; }
+  .jump a { border: 1px solid var(--line, currentColor); border-radius: 999px; padding: 0.3rem 0.9rem; text-decoration: none; }
+  .group { padding-top: 2.5rem; }
+  .intro { max-width: 50rem; margin: 0 0 1.2rem; }
+  .grid { display: grid; gap: 1.6rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); }
+  .card { margin: 0; display: flex; flex-direction: column; gap: 0.7rem; }
+  .card img { width: 100%; height: auto; display: block; border-radius: 0.5rem; border: 1px solid var(--line, currentColor); }
+  .card h3 { margin: 0 0 0.3rem; font-size: 1.1rem; }
+  .card p { margin: 0 0 0.5rem; }
+  .tag { font-size: 0.75rem; opacity: 0.75; }
+</style>

@@ -1,5 +1,6 @@
 mod support;
 
+use pcbcraft_geom::Point;
 use pcbcraft_publication::{CheckVerdict, stage0_from_manifest_and_files, stage0_from_zip};
 use std::collections::BTreeMap;
 use support::{good_part_bundle_zip, manifest_for_files, sample_symbol_bytes};
@@ -220,5 +221,71 @@ fn near_duplicate_size_flags_human_queue() -> Result<(), String> {
         .iter()
         .any(|r| r.rule == "near_duplicate" && matches!(r.verdict, CheckVerdict::Flag(_)));
     assert!(flagged);
+    Ok(())
+}
+
+#[test]
+fn a_bom_line_missing_from_the_project_fails_bom_rule() -> Result<(), String> {
+    let mut files = BTreeMap::new();
+    let project = pcbcraft_doc::Project {
+        components: vec![
+            pcbcraft_doc::component_template("resistor", 1, "R1".into(), Point::default())
+                .ok_or("component_template")?,
+        ],
+        ..pcbcraft_doc::Project::default()
+    };
+    let design_json = serde_json::to_string(&project).map_err(|e| e.to_string())?;
+    files.insert("design.json".into(), design_json.into_bytes());
+    let mut manifest = manifest_for_files(&files);
+    manifest.files[0].role = "project".into();
+    manifest.bom_summary = Some(pcbcraft_publication::BomSummary {
+        lines: vec![pcbcraft_publication::BomLine {
+            designator: "R99".into(),
+            value: "10k".into(),
+            mpn: String::new(),
+            manufacturer: String::new(),
+            datasheet_url: None,
+        }],
+    });
+    let json = manifest.to_json_pretty()?;
+    files.insert("publication.json".into(), json.into_bytes());
+    let report = stage0_from_manifest_and_files(
+        std::str::from_utf8(files.get("publication.json").ok_or("missing")?).map_err(|_| "utf8")?,
+        &files,
+    );
+    assert!(!report.passes());
+    assert!(
+        report
+            .failure_reasons()
+            .iter()
+            .any(|line| line.contains("R99")),
+        "expected bom failure mentioning R99, got {:?}",
+        report.failure_reasons()
+    );
+    Ok(())
+}
+
+#[test]
+fn a_look_alike_name_fails_names_rule() -> Result<(), String> {
+    let mut files = BTreeMap::new();
+    files.insert("device.kicad_sym".into(), sample_symbol_bytes());
+    let mut manifest = manifest_for_files(&files);
+    manifest.identity.id = "part".into();
+    manifest.identity.name = "p\u{0430}rt".into();
+    let json = manifest.to_json_pretty()?;
+    files.insert("publication.json".into(), json.into_bytes());
+    let report = stage0_from_manifest_and_files(
+        std::str::from_utf8(files.get("publication.json").ok_or("missing")?).map_err(|_| "utf8")?,
+        &files,
+    );
+    assert!(!report.passes());
+    assert!(
+        report
+            .failure_reasons()
+            .iter()
+            .any(|line| line.contains("confusable")),
+        "expected names failure mentioning confusable, got {:?}",
+        report.failure_reasons()
+    );
     Ok(())
 }

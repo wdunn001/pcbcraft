@@ -33,7 +33,9 @@ use super::*;
 /// - Use it for the Layers tree rows; those group items by their own page.
 pub(crate) fn in_view(project: &Project, view: Id, item_page: Id) -> bool {
     if view == 0 {
-        return main_instances(project).iter().any(|i| i.page == item_page);
+        // Main shows every page. Asking the page list is cheap; laying the pages out is not, and
+        // this runs once per item on every paint and every hit test.
+        return main_uses(project).any(|(page, _)| page == item_page);
     }
     view == item_page
 }
@@ -323,6 +325,33 @@ pub(crate) fn page_of_object(project: &Project, object: Id) -> Option<Id> {
         .find(|page| project.on_schematic_page(*page, object))
 }
 
+/// The project as Main lays it out, with what it was built from.
+#[derive(Default)]
+pub(crate) struct MainViewCache {
+    /// The engine revision, the part count and the page count the view was built from.
+    key: Option<(u64, usize, usize)>,
+    /// The laid out project, shared with every caller until the project changes.
+    view: Option<std::sync::Arc<Project>>,
+}
+
+/// The project a window should read: the real one, or Main's placed copy of it.
+pub(crate) enum SheetView<'a> {
+    /// The real project, for any page but Main.
+    Own(&'a Project),
+    /// Main's laid out copy, shared from the cache.
+    Placed(std::sync::Arc<Project>),
+}
+
+impl std::ops::Deref for SheetView<'_> {
+    type Target = Project;
+    fn deref(&self) -> &Project {
+        match self {
+            Self::Own(p) => p,
+            Self::Placed(p) => p,
+        }
+    }
+}
+
 impl App {
     /// True when this window is Main and the project has named pages.
     ///
@@ -413,14 +442,30 @@ impl App {
     ///
     /// # Do not
     /// - Write through it; edits go to `self.project` in page coordinates.
-    pub(crate) fn sheet_view(&self) -> std::borrow::Cow<'_, Project> {
+    pub(crate) fn sheet_view(&self) -> SheetView<'_> {
         if self.tab != Tab::Schematic
             || self.schematic_page() != 0
             || self.project.sheets.is_empty()
         {
-            return std::borrow::Cow::Borrowed(&self.project);
+            return SheetView::Own(&self.project);
         }
-        std::borrow::Cow::Owned(main_sheet_project(&self.project))
+        let key = (
+            self.revision,
+            self.project.components.len(),
+            self.project.sheets.len(),
+        );
+        let mut cache = self
+            .main_view
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if cache.key != Some(key) || cache.view.is_none() {
+            cache.view = Some(std::sync::Arc::new(main_sheet_project(&self.project)));
+            cache.key = Some(key);
+        }
+        match &cache.view {
+            Some(view) => SheetView::Placed(std::sync::Arc::clone(view)),
+            None => SheetView::Own(&self.project),
+        }
     }
 }
 
