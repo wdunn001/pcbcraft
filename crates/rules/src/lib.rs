@@ -27,6 +27,7 @@ mod diffpair_impedance;
 mod drill;
 mod finding_set;
 mod hole_copper;
+mod impedance_fix;
 mod impedance_target;
 mod mask_dam;
 mod pad_kinds;
@@ -52,6 +53,7 @@ pub use compliance::{
 
 pub use courtyard::{CourtyardPair, courtyard_pairs};
 pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
+pub use impedance_fix::suggested_width;
 
 #[derive(Clone, Debug, Serialize)]
 /// One check result: a rule code, severity, message and the objects involved.
