@@ -188,6 +188,7 @@ pub use drill_table::{DRILL_TABLE_HEADER, DrillRow, SpanKind, drill_table, drill
 pub use enclosure::{EnclosureScan, PlanarFace, ScanBounds, ScannedDatum, read_enclosure_step};
 pub use export_package::{
     PackageOutput, availability, build_package, bundled_packages, find_package,
+    preview_package_files,
 };
 pub use export_validate::{
     stored_zip_entry, stored_zip_entry_names, validate_fabrication_package_file,

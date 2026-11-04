@@ -243,6 +243,42 @@ pub fn find_package(p: &Project, id: &str) -> Option<PackageDef> {
         .or_else(|| bundled_packages().iter().find(|d| d.id == id).cloned())
 }
 
+/// Lists the file names a package will write, as a pure function.
+///
+/// Why: the Export as... dialog shows what a package will write before the user
+/// commits to writing it, and a disabled package (one whose writer is missing)
+/// still shows its intended file names so the user knows what it would hold.
+///
+/// # Rules
+/// - Returns the real file names if the package is available.
+/// - Returns template-expanded names if a writer is missing.
+/// - Fails loudly on an unknown variant, just like `build_package`.
+///
+/// # Dependencies
+/// - crates/io/src/export_package.rs (`availability`, `build_package`, `Tokens::of`, `expand`)
+///
+/// # Do not
+/// - Write to disk or call any writer; this is a preview only.
+pub fn preview_package_files(
+    p: &Project,
+    def: &PackageDef,
+    variant: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let a = availability(def)?;
+    if a.available {
+        return build_package(p, def, variant).map(|out| out.entries);
+    }
+    // A writer is missing; show what it would write by expanding the templates.
+    let t = Tokens::of(p, variant);
+    let mut names = Vec::new();
+    for c in &def.files {
+        let name = expand(&c.name, &t, None, None, None).unwrap_or_else(|_| c.name.clone());
+        names.push(name);
+    }
+    names.sort();
+    Ok(names)
+}
+
 /// Values the name tokens take for one export.
 #[derive(Clone, Debug)]
 pub struct Tokens {
