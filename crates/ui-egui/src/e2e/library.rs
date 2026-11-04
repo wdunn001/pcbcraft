@@ -365,8 +365,9 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
         .components
         .len();
     app.place_online_for_test(&ctx, part, "schematic", Point::new(20.0, 20.0));
-    // The worker thread can be slow on a busy runner, so wait up to 30 seconds.
-    for _ in 0..600 {
+    // The worker thread can be slow on a busy runner (a full suite there has run for fifteen
+    // minutes), so wait up to 90 seconds.
+    for _ in 0..1800 {
         frame(&ctx, &mut app, vec![], none);
         let now = shared
             .lock()

@@ -37,18 +37,29 @@ fn a_newcomer_types_a_chip_number_clicks_the_card_and_gets_a_real_part() -> Resu
         "the chip number alone finds the part: {}",
         app.message
     );
-    tap_id(
-        &ctx,
-        &mut app,
-        "button:STM#F#R#Tx, Open library \u{b7} CC-BY-SA #.#",
-    )?;
-    // The part resolves on the library worker thread: wait for it to land in
-    // the project, however busy the machine is.
-    waits_until(&ctx, &mut app, |_| {
+    // The card can move while the library worker answers, and a tap that lands on the old
+    // position places nothing. The part resolves on the worker thread, so after each tap give
+    // it a moment to land in the project, and tap again if it did not.
+    let placed = || {
         shared
             .lock()
             .is_ok_and(|session| !session.project.components.is_empty())
-    });
+    };
+    for _ in 0..4 {
+        tap_id(
+            &ctx,
+            &mut app,
+            "button:STM#F#R#Tx, Open library \u{b7} CC-BY-SA #.#",
+        )?;
+        let started = pcbcraft_clock::instant_now();
+        while !placed() && started.elapsed() < std::time::Duration::from_secs(15) {
+            frame(&ctx, &mut app, vec![], none);
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        if placed() {
+            break;
+        }
+    }
     let session = shared.lock().map_err(|_| "session")?;
     let part = session
         .project
