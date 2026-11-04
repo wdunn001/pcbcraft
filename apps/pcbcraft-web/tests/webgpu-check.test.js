@@ -10,21 +10,24 @@ function fakeDocument(webgl2) {
   const notice = { hidden: true };
   const crashed = { hidden: true };
   const canvas = { hidden: false };
+  const loading = { hidden: false };
   const button = { listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; } };
   return {
     notice,
     crashed,
     canvas,
+    loading,
     button,
     createElement: () => ({ getContext: (kind) => (webgl2 && kind === "webgl2" ? {} : null) }),
     getElementById: (id) =>
-      ({ "needs-webgpu": notice, "web-crashed": crashed, pcbcraft: canvas, "web-reload": button })[id] || null,
+      ({ "needs-webgpu": notice, "web-crashed": crashed, pcbcraft: canvas, "web-loading": loading, "web-reload": button })[id] || null,
   };
 }
 
 function the_message_shows_with_neither_webgpu_nor_webgl2() {
   const doc = fakeDocument(false);
   assert.strictEqual(pcbcraftNeedsGraphics({}, doc), true);
+  assert.strictEqual(doc.loading.hidden, true, "the loading view gives way to the message");
   assert.strictEqual(doc.notice.hidden, false, "the message is shown");
   assert.strictEqual(doc.canvas.hidden, true, "the canvas is hidden");
 }
