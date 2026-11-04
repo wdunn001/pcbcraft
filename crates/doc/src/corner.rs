@@ -44,7 +44,8 @@ pub fn default_corner_leg(track_width_mm: f64) -> f64 {
 /// # Do not
 /// - Do not use this for track corners; that is a separate rule.
 pub fn chamfered_outline(width: f64, height: f64, leg: f64) -> Vec<Point> {
-    let max_leg = (width.min(height) / 2.0) - 0.01;
+    // A board smaller than 0.02 mm has no room for a leg; keep the upper bound from going negative.
+    let max_leg = ((width.min(height) / 2.0) - 0.01).max(0.0);
     let leg = leg.clamp(0.0, max_leg);
     let w = width;
     let h = height;
@@ -113,5 +114,15 @@ mod tests {
             Point::new(0.0, 40.0),
         ];
         assert_eq!(chamfer_leg_of(&plain, 60.0, 40.0), None);
+    }
+    #[test]
+    fn a_board_smaller_than_the_least_leg_gets_no_chamfer_and_no_panic() {
+        let outline = chamfered_outline(0.01, 5.0, 1.0);
+        assert_eq!(outline.len(), 8, "still eight vertices");
+        assert!(
+            outline.iter().all(|p| p.x.is_finite() && p.y.is_finite()),
+            "every vertex is finite"
+        );
+        assert_eq!(outline[0], Point::new(0.0, 0.0), "the leg is zero");
     }
 }
