@@ -116,8 +116,8 @@ fn a_newcomer_rotates_the_board_view() -> Result<(), String> {
     let rect = app.canvas_rect;
     let (a, b) = (app.pcb.screen(origin, rect), app.pcb.screen(wide, rect));
     assert!(
-        b.y > a.y && (b.x - a.x).abs() < 0.5,
-        "the width now runs down the screen"
+        b.y < a.y && (b.x - a.x).abs() < 0.5,
+        "the width now runs up the screen"
     );
     let back = app.pcb.world(app.pcb.screen(wide, rect), rect);
     assert!(
