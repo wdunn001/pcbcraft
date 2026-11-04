@@ -4533,10 +4533,34 @@ pub fn manufacturability_lines(p: &Project) -> Vec<String> {
             pad_ring = Some(pad_ring.map_or(ring, |r: f64| r.min(ring)));
         }
     }
+    let blind_buried_count = p
+        .board
+        .vias
+        .iter()
+        .filter(|v| fab_export::partial_via_span(p, v).is_some())
+        .count();
     let mut lines = vec![
         format!(
             "Board size: {:.3} x {:.3} mm",
             p.board.width, p.board.height
+        ),
+        format!("Copper layers: {}", p.copper_layer_count()),
+        format!("Board thickness: {:.3} mm", p.board.thickness),
+        format!(
+            "Surface finish: {}",
+            if p.board.finish.is_empty() {
+                "none recorded"
+            } else {
+                &p.board.finish
+            }
+        ),
+        format!(
+            "Blind or buried vias: {}",
+            if blind_buried_count > 0 {
+                blind_buried_count.to_string()
+            } else {
+                "none".to_string()
+            }
         ),
         format!("Holes: {plated} plated, {unplated} unplated, {slots} slots"),
     ];
@@ -11275,6 +11299,89 @@ mod tests {
         assert!(
             text.contains("SIG,\"D1.1 R1.1\"\n"),
             "the net lists every pin on it: {text}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn manufacturability_lines_name_layers_thickness_finish_and_blind_vias() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.thickness = 1.2;
+        project.board.finish = "ENIG".into();
+        project.validate()?;
+        let lines = manufacturability_lines(&project);
+        assert!(
+            lines.iter().any(|l| l == "Board thickness: 1.200 mm"),
+            "board thickness prints with three decimals: {:?}",
+            lines
+        );
+        assert!(
+            lines.iter().any(|l| l == "Surface finish: ENIG"),
+            "surface finish prints when set: {:?}",
+            lines
+        );
+        assert!(
+            lines.iter().any(|l| l == "Blind or buried vias: none"),
+            "no blind vias prints none: {:?}",
+            lines
+        );
+        assert!(
+            lines.iter().any(|l| l == "Copper layers: 2"),
+            "default board has two copper layers: {:?}",
+            lines
+        );
+
+        let mut four = Project::default();
+        for i in 1..=4 {
+            four.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: format!("L{i}"),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+                ..Default::default()
+            });
+            if i < 4 {
+                four.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                    name: format!("P{i}"),
+                    kind: "prepreg".into(),
+                    thickness: 0.2,
+                    copper_role: None,
+                    ..Default::default()
+                });
+            }
+        }
+        four.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "N1".into(),
+            ..Default::default()
+        });
+        let via = pcbcraft_doc::Via {
+            id: 10,
+            net: 1,
+            position: Point::new(5.0, 5.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: Some(
+                pcbcraft_doc::Layer::from_index(0).unwrap_or(pcbcraft_doc::Layer::Front),
+            ),
+            to_layer: Some(pcbcraft_doc::Layer::from_index(1).unwrap_or(pcbcraft_doc::Layer::Back)),
+            covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
+        };
+        four.board.vias.push(via);
+        four.validate()?;
+        let lines2 = manufacturability_lines(&four);
+        assert!(
+            lines2.iter().any(|l| l == "Blind or buried vias: 1"),
+            "one blind via prints the count: {:?}",
+            lines2
+        );
+        assert!(
+            lines2.iter().any(|l| l == "Copper layers: 4"),
+            "four-layer board reports four copper layers: {:?}",
+            lines2
         );
         Ok(())
     }
