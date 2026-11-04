@@ -720,6 +720,15 @@ library.library_editor.delete_graphic = Delete graphic
 library.library_editor.delete_graphic.tip = Take this drawn line or shape out of the footprint. It only changes the footprint you are editing.
 library.library_editor.footprint_editor = Footprint editor
 library.library_editor.save_footprint_to_project_library = Save footprint to project library
+library.library_editor.box_body = Box body
+library.library_editor.box_body.tip = Add a 3D box body to represent this component. Width, depth, and height are in millimetres.
+library.library_editor.box_body_width = Body width (mm)
+library.library_editor.box_body_width.tip = Width of the 3D box body representing the component, in millimetres.
+library.library_editor.box_body_depth = Body depth (mm)
+library.library_editor.box_body_depth.tip = Depth of the 3D box body representing the component, in millimetres.
+library.library_editor.box_body_height = Body height (mm)
+library.library_editor.box_body_height.tip = Height of the 3D box body representing the component, in millimetres.
+
 library.library_editor.save_footprint_to_project_library.tip = Store this footprint in the current project library.
 library.library_editor.pads = Pads
 library.library_editor.add_pad = Add pad

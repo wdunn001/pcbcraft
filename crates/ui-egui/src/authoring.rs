@@ -15,8 +15,8 @@ use crate::a11y::Named;
 use egui::{Pos2, Sense};
 use pcbcraft_geom::point_segment;
 use pcbcraft_library::{
-    ChamferCorners, Drill, FootprintDefinition, FootprintPad, Graphic, MAX_PAD_POLYGON_VERTICES,
-    PadChamfer, SymbolDefinition, SymbolPin, UnitGraphic,
+    ChamferCorners, Drill, FootprintBoxBody, FootprintDefinition, FootprintPad, Graphic,
+    MAX_PAD_POLYGON_VERTICES, PadChamfer, SymbolDefinition, SymbolPin, UnitGraphic,
 };
 use std::collections::BTreeSet;
 
@@ -1959,6 +1959,20 @@ impl App {
                 ui.heading(t!("library.library_editor.footprint_editor"));
                 text(ui, &t!("library.library_editor.name"), &mut def.name);
                 text(ui, &t!("library.library_editor.description"), &mut def.description);
+                let mut has_body = def.box_body.is_some();
+                if ui.checkbox(&mut has_body, t!("library.library_editor.box_body")).changed() {
+                    if has_body {
+                        def.box_body = Some(FootprintBoxBody { width: 1.0, depth: 1.0, height: 1.0 });
+                    } else {
+                        def.box_body = None;
+                    }
+                }
+                if let Some(body) = &mut def.box_body {
+                    number(ui, &t!("library.library_editor.box_body_width"), &mut body.width);
+                    number(ui, &t!("library.library_editor.box_body_depth"), &mut body.depth);
+                    number(ui, &t!("library.library_editor.box_body_height"), &mut body.height);
+                }
+
                 if let Err(e) = def.validate() {
                     ui.colored_label(Color32::LIGHT_RED, e.to_string());
                 }
