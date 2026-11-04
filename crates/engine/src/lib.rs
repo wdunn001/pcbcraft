@@ -58,6 +58,7 @@ pub mod user_config;
 #[cfg(feature = "vendor-handoff")]
 mod vendor_handoff;
 mod via_protection;
+mod wire_reconnect;
 pub mod wirelength;
 pub use artifacts::artifact_is_stale;
 pub use collab::{
@@ -3049,6 +3050,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(images::commands())
         .chain(packages::commands())
         .chain(outline::commands())
+        .chain(wire_reconnect::commands())
         .chain(tuning::commands())
         .chain(sim::commands())
         .chain(datasheet_annotations::commands())
@@ -10605,6 +10607,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = outline::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = wire_reconnect::run(p, next, command, params) {
         return result;
     }
     if let Some(result) = datasheet_annotations::run_design(p, command, params) {
