@@ -509,25 +509,8 @@ impl App {
             kind_label(&a.kind),
             t!("artifact.kind.tip"),
         );
-        fact(
-            ui,
-            t!("artifact.layers"),
-            if a.layers.is_empty() {
-                t!("artifact.layers.usual")
-            } else {
-                a.layers.join(", ")
-            },
-            t!("artifact.layers.tip"),
-        );
         let facts = crate::properties::artifact_kind::kind_facts(&a);
-        if facts.is_empty() {
-            fact(
-                ui,
-                t!("artifact.settings"),
-                settings_text(&a),
-                t!("artifact.settings.tip"),
-            );
-        } else {
+        if !facts.is_empty() {
             for f in facts {
                 let label = pcbcraft_text::lookup(f.label_key, &[]);
                 let tip_key = format!("{}.tip", f.label_key);
@@ -539,6 +522,26 @@ impl App {
                 };
                 fact(ui, label, value, tip);
             }
+        } else {
+            fact(
+                ui,
+                t!("artifact.layers"),
+                if a.layers.is_empty() {
+                    t!("artifact.layers.usual")
+                } else {
+                    a.layers.join(", ")
+                },
+                t!("artifact.layers.tip"),
+            );
+        }
+        let settings = settings_text(&a);
+        if settings != t!("artifact.settings.defaults") {
+            fact(
+                ui,
+                t!("artifact.settings"),
+                settings,
+                t!("artifact.settings.tip"),
+            );
         }
         fact(
             ui,
