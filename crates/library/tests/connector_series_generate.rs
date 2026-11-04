@@ -257,6 +257,49 @@ fn parametric_body_z0_and_json_round_trip() -> Result<(), String> {
 }
 
 #[test]
+fn parametric_body_lowest_face_at_z_zero_for_every_series() -> Result<(), String> {
+    let configs = [
+        ("TSW", 1, 1, "07", None, 2.54),
+        ("TSW", 32, 2, "07", None, 2.54),
+        ("SSW", 1, 1, "07", None, 2.54),
+        ("SSW", 40, 2, "07", None, 2.54),
+        ("BTH", 3, 2, "", Some("01"), 0.50),
+        ("BTH", 150, 2, "", Some("01"), 0.50),
+    ];
+    for (series, positions, rows, lead, stack, pitch) in configs {
+        let opts = ConnectorSeriesOptions {
+            positions_per_row: positions,
+            rows,
+            lead_code: lead.into(),
+            stack_code: stack.map(|s| s.into()),
+            alignment_posts: false,
+        };
+        let part = generate_connector_part(series, &opts)
+            .map_err(|e| format!("{series} {positions}x{rows}: {e:?}"))?;
+        let (min, _) = part.parametric.body_above_board_bounds();
+        if !near(min[2], 0.0) {
+            return Err(format!(
+                "{series} {positions}x{rows}: body lowest face at z={:.4}, expected 0.0",
+                min[2]
+            ));
+        }
+        if !body_fits_courtyard(&part.parametric, &part.footprint) {
+            return Err(format!(
+                "{series} {positions}x{rows}: body does not fit courtyard"
+            ));
+        }
+        let expected_l = pcbcraft_library::housing_length_mm(positions, pitch);
+        if !near(part.parametric.housing_length_mm, expected_l) {
+            return Err(format!(
+                "{series} {positions}x{rows}: housing length {:.4}, expected {:.4}",
+                part.parametric.housing_length_mm, expected_l
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn invalid_lead_code_names_field() -> Result<(), String> {
     let err = generate_connector_part(
         "TSW",
