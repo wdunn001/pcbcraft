@@ -4,6 +4,16 @@ One native window for schematic, board layout, libraries and checks. Every edit
 goes through a typed engine command. The desktop, the CLI and MCP call the same
 commands.
 
+
+## Why PCBCraft
+
+PCBCraft is built from scratch with MCP-first design: every edit is a typed
+command that the desktop, the CLI, and any automation can use. It runs as a
+native app, a browser tab, or a headless service, all calling the same engine.
+The toolchain is modern Rust with no legacy C codebase to maintain. The goal
+is a complete EDA workflow in one window, not a collection of separate tools.
+
+
 MIT OR Apache-2.0. UI toolkit: pinned `craft-ui` from `storytold/craft-libs`.
 GPL-3.0-or-later. UI toolkit: pinned `craft-ui` from `wdunn001/craft-libs`.
 
