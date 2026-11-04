@@ -37,6 +37,8 @@ fn kind_icon(kind: &str) -> Icon {
         match kind {
             "cnc_mill" => icons::PATH,
             "uv_printer" => icons::LAYERS,
+            "reflow_oven" => icons::OVEN,
+            "other" => icons::GEAR,
             _ => icons::CHIP,
         }
     }
@@ -51,6 +53,7 @@ fn kind_label(kind: &str) -> String {
         "cnc_mill" => t!("libws.machines.kind.cnc_mill"),
         "uv_printer" => t!("libws.machines.kind.uv_printer"),
         "reflow_oven" => t!("libws.machines.kind.reflow_oven"),
+        "other" => t!("libws.machines.kind.other"),
         other => other.replace('_', " "),
     }
 }
@@ -85,6 +88,16 @@ fn summary_line(c: &Value, catalog: &pcbcraft_text::Catalog) -> String {
     if nozzles > 0 {
         line.push_str(" \u{b7} ");
         line.push_str(&catalog.plural("libws.machines.summary.nozzles", nozzles));
+    }
+    let watts = num("/rated_power_w");
+    if watts > 0.0 {
+        line.push_str(" \u{b7} ");
+        line.push_str(&t!("libws.machines.summary.power", watts = watts));
+    }
+    let max_c = num("/max_temp_c");
+    if max_c > 0.0 {
+        line.push_str(" \u{b7} ");
+        line.push_str(&t!("libws.machines.summary.max_temp", celsius = max_c));
     }
     line
 }
@@ -479,6 +492,41 @@ impl App {
                                 if nozzles > 0 {
                                     row(ui, t!("libws.machines.props.nozzles"), &|ui| {
                                         mono(ui, nozzles.to_string());
+                                    });
+                                }
+                                if num("/rated_power_w") > 0.0 {
+                                    row(ui, t!("libws.machines.props.power"), &|ui| {
+                                        mono(
+                                            ui,
+                                            t!(
+                                                "libws.machines.summary.power",
+                                                watts = num("/rated_power_w")
+                                            ),
+                                        );
+                                    });
+                                }
+                                if num("/max_temp_c") > 0.0 {
+                                    row(ui, t!("libws.machines.props.max_temp"), &|ui| {
+                                        mono(
+                                            ui,
+                                            t!(
+                                                "libws.machines.summary.max_temp",
+                                                celsius = num("/max_temp_c")
+                                            ),
+                                        );
+                                    });
+                                }
+                                let heating = card_text(&c, "heating");
+                                if !heating.is_empty() {
+                                    row(ui, t!("libws.machines.props.heating"), &|ui| {
+                                        value(ui, heating.to_owned());
+                                    });
+                                }
+                                let profiles =
+                                    c.get("profile_count").and_then(Value::as_u64).unwrap_or(0);
+                                if profiles > 0 {
+                                    row(ui, t!("libws.machines.props.profiles"), &|ui| {
+                                        mono(ui, profiles.to_string());
                                     });
                                 }
                             });

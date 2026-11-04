@@ -2670,7 +2670,7 @@ pub fn commands() -> Vec<CommandSpec> {
                     "preset":{"type":"string","minLength":1,"maxLength":64},
                     "id":{"type":"string","minLength":1,"maxLength":64},
                     "profile":{"type":"object","maxProperties":256},
-                    "kind":{"type":"string","enum":["pick_place","laser_galvo","laser_gantry","cnc_mill","uv_printer"]},
+                    "kind":{"type":"string","enum":["pick_place","laser_galvo","laser_gantry","cnc_mill","uv_printer","reflow_oven","other"]},
                     "name":{"type":"string","minLength":1,"maxLength":128},
                     "based_on":{"type":"string","minLength":1,"maxLength":64},
                     "keep_in_my_machines":{"type":"boolean"},
@@ -2704,7 +2704,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "machine.library_list",
             "List the machine library: built-in machines, the person's own machines and the project's copies, with kind, source and whether a project copy is behind. Reads only",
             schema(
-                json!({"scope":{"type":"string","enum":["all","built_in","mine","project"]},"kind":{"type":"string","enum":["pick_place","laser_galvo","laser_gantry","cnc_mill","uv_printer"]},"query":{"type":"string","maxLength":128},"include_hidden":{"type":"boolean"}}),
+                json!({"scope":{"type":"string","enum":["all","built_in","mine","project"]},"kind":{"type":"string","enum":["pick_place","laser_galvo","laser_gantry","cnc_mill","uv_printer","reflow_oven","other"]},"query":{"type":"string","maxLength":128},"include_hidden":{"type":"boolean"}}),
                 &[],
             ),
         ),
@@ -13443,7 +13443,14 @@ fn run_command_part_5(
                     "impedance tolerance must be between 0 and 50 percent".into(),
                 ));
             }
-            if a.impedance_tolerance_pct.is_some() && a.target_impedance.is_none() {
+            // A tolerance needs a target: one sent with it, or one the class already has. The
+            // pair target and the single-ended target both count.
+            let class_has_target = p.net_classes.iter().any(|k| {
+                k.id == a.class && (k.target_impedance.is_some() || k.impedance_target.is_some())
+            });
+            let sent_target = a.target_impedance.is_some()
+                || params.get("impedance_target").is_some_and(|v| !v.is_null());
+            if a.impedance_tolerance_pct.is_some() && !sent_target && !class_has_target {
                 return Err(Error::Invalid(
                     "an impedance tolerance needs an impedance target".into(),
                 ));

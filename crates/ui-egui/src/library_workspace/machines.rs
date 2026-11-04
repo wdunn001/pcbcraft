@@ -29,12 +29,14 @@ use crate::ui_kit::{
 };
 
 /// Machine kinds a person can start a blank machine from, as (engine id, catalog key).
-const KINDS: [&str; 5] = [
+const KINDS: [&str; 7] = [
     "pick_place",
     "laser_galvo",
     "laser_gantry",
     "cnc_mill",
     "uv_printer",
+    "reflow_oven",
+    "other",
 ];
 
 /// The plain name of a machine kind for the Add machine list.
@@ -44,18 +46,21 @@ fn kind_name(kind: &str) -> String {
         "laser_galvo" => t!("libws.machines.add.kind.laser_galvo"),
         "laser_gantry" => t!("libws.machines.add.kind.laser_gantry"),
         "cnc_mill" => t!("libws.machines.kind.cnc_mill"),
-        _ => t!("libws.machines.add.kind.uv_printer"),
+        "uv_printer" => t!("libws.machines.add.kind.uv_printer"),
+        "reflow_oven" => t!("libws.machines.kind.reflow_oven"),
+        _ => t!("libws.machines.kind.other"),
     }
 }
 
 /// The kind rows of the left list, as kind filters. The first row is all kinds.
-const KIND_ROWS: [&str; 6] = [
+const KIND_ROWS: [&str; 7] = [
     "",
     "pick_place",
     "laser",
     "cnc_mill",
     "uv_printer",
     "reflow_oven",
+    "other",
 ];
 
 /// The source rows of the left list, as source words of the engine.
@@ -84,9 +89,13 @@ fn kind_row_words(i: usize) -> (String, String) {
             t!("libws.machines.kind.uv_printer"),
             t!("libws.machines.kind.uv_printer.tip"),
         ),
-        _ => (
+        5 => (
             t!("libws.machines.kind.reflow_oven"),
             t!("libws.machines.kind.reflow_oven.tip"),
+        ),
+        _ => (
+            t!("libws.machines.kind.other"),
+            t!("libws.machines.kind.other.tip"),
         ),
     }
 }
@@ -146,8 +155,20 @@ impl Default for AddForm {
     }
 }
 
-/// The kind filters of the Add machine list: all, pick and place, laser, mill.
-const ADD_KIND_FILTERS: [&str; 4] = ["", "pick_place", "laser", "cnc_mill"];
+impl AddForm {
+    /// The form set to a blank Reflow oven, for the capture scene.
+    pub(crate) fn blank_oven() -> Self {
+        Self {
+            from: 3,
+            kind_pick: KINDS.iter().position(|k| *k == "reflow_oven").unwrap_or(0),
+            name: "Bench oven".to_owned(),
+            ..Self::default()
+        }
+    }
+}
+
+/// The kind filters of the Add machine list: every kind row of the left list.
+const ADD_KIND_FILTERS: [&str; 7] = KIND_ROWS;
 
 /// View state of the Machines view.
 #[derive(Default)]
@@ -622,23 +643,10 @@ impl App {
                     t!("libws.machines.add.search"),
                 )
             });
-            let labels = [
-                t!("libws.machines.filter.all"),
-                t!("libws.machines.kind.pick_place"),
-                t!("libws.machines.kind.laser"),
-                t!("libws.machines.kind.cnc_mill"),
-            ];
-            let tips = [
-                t!("libws.machines.filter.all.tip"),
-                t!("libws.machines.kind.pick_place.tip"),
-                t!("libws.machines.kind.laser.tip"),
-                t!("libws.machines.kind.cnc_mill.tip"),
-            ];
-            let items: Vec<Segment<'_>> = labels
-                .iter()
-                .zip(&tips)
-                .map(|(l, tip)| Segment::text(l, tip))
-                .collect();
+            let words: Vec<(String, String)> =
+                (0..ADD_KIND_FILTERS.len()).map(kind_row_words).collect();
+            let items: Vec<Segment<'_>> =
+                words.iter().map(|(l, tip)| Segment::text(l, tip)).collect();
             segmented(ui, "add-machine-kind-filter", &mut form.kind_filter, &items);
             if choices.is_empty() {
                 ui.label(

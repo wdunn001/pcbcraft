@@ -190,9 +190,9 @@ pub fn duplicate_machine(source: &MachineProfile, id: &str, name: &str) -> Machi
 pub fn blank_machine(kind: &str, id: &str, name: &str) -> Result<MachineProfile, String> {
     let dialect = match kind {
         "laser_galvo" | "laser_gantry" => "laser_job",
-        "cnc_mill" | "pick_place" | "uv_printer" => "",
+        "cnc_mill" | "pick_place" | "uv_printer" | "reflow_oven" | "other" => "",
         _ => return Err(
-            "a machine kind must be pick_place, laser_galvo, laser_gantry, cnc_mill or uv_printer"
+            "a machine kind must be pick_place, laser_galvo, laser_gantry, cnc_mill, uv_printer, reflow_oven or other"
                 .into(),
         ),
     };
@@ -380,10 +380,12 @@ mod tests {
             "laser_gantry",
             "cnc_mill",
             "uv_printer",
+            "reflow_oven",
+            "other",
         ] {
             blank_machine(kind, "blank", "Blank")?;
         }
-        assert!(blank_machine("oven", "blank", "Blank").is_err());
+        assert!(blank_machine("toaster", "blank", "Blank").is_err());
         Ok(())
     }
 }

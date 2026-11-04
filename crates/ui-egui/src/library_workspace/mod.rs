@@ -174,7 +174,8 @@ impl App {
 
     /// Stage a Library tab scene for a `--capture` image: `library-overview`, `library-datasheet`,
     /// `library-vendors`, `library-3d`, `library-edit`, `library-compare`, `library-machines` or
-    /// `library-machines-add`.
+    /// `library-machines-add`, `library-machines-oven` (the Puhui T-962A card selected) or
+    /// `library-machines-add-oven` (the Add machine window on a blank Reflow oven).
     ///
     /// # Rules
     /// - Opens the built-in resistor and LED, so the compare scene has two parts.
@@ -182,10 +183,17 @@ impl App {
     pub(crate) fn capture_library_scene(&mut self, scene: &str) {
         let ctx = egui::Context::default();
         self.change_tab(Tab::Library);
-        if scene == "library-machines" || scene == "library-machines-add" {
+        if scene.starts_with("library-machines") {
             self.show_library_machines();
             if scene == "library-machines-add" {
                 self.libws.machines.add = Some(machines::AddForm::default());
+            }
+            if scene == "library-machines-oven" {
+                self.libws.machines.kind = 5;
+                self.libws.machines.selected = Some("puhui-t-962a".to_owned());
+            }
+            if scene == "library-machines-add-oven" {
+                self.libws.machines.add = Some(machines::AddForm::blank_oven());
             }
             return;
         }
