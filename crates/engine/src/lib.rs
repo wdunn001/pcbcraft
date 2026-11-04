@@ -3000,14 +3000,6 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"id":{"type":"integer","minimum":1}}), &[]),
         ),
         (
-            "firmware.config.compare",
-            "Compare an existing flight-controller config.h pin map with the firmware design attached to the project; read-only",
-            schema(
-                json!({"config":{"type":"string","minLength":1,"maxLength":262144,"description":"full config.h text to compare"}}),
-                &["config"],
-            ),
-        ),
-        (
             "cam.isolation",
             "Generate isolation milling G-code for one copper side without editing the project; returns named file bodies and a time estimate",
             schema(
@@ -3928,11 +3920,6 @@ fn render_kind(
             "touchstone.s2p".into(),
             pcbcraft_io::touchstone_text(p)?.into_bytes(),
         )),
-        "firmware_target" => {
-            for (name, bytes) in pcbcraft_io::firmware_target_files(p).map_err(Error::Invalid)? {
-                out.push((name, bytes));
-            }
-        }
         #[cfg(feature = "plugin-firmware-target")]
         kind if firmware_plugin::export_kind(kind) => {
             out.extend(firmware_plugin::export_kind_files(p, kind)?);
@@ -10345,19 +10332,6 @@ fn cam_isolation_command(command: &str) -> bool {
     command == "cam.isolation" || command == "cam.isolation_paths"
 }
 
-#[cfg(not(feature = "plugin-firmware-target"))]
-fn firmware_config_compare(p: &Project, params: &Value) -> Result<Value, String> {
-    let text = params
-        .get("config")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "config must hold the config.h text".to_string())?;
-    if text.len() > 262_144 {
-        return Err("config text is too long".into());
-    }
-    let mismatches = pcbcraft_io::firmware_config_compare(p, text)?;
-    Ok(json!({"mismatches": mismatches, "count": mismatches.len()}))
-}
-
 fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Error> {
     match command {
         "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
@@ -10366,8 +10340,6 @@ fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Er
         c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
         c if layout::handles(c) => layout::run(p, c, params),
         c if publication::handles(c) => publication::run(p, params).map_err(Error::Invalid),
-        #[cfg(not(feature = "plugin-firmware-target"))]
-        "firmware.config.compare" => firmware_config_compare(p, params).map_err(Error::Invalid),
         #[cfg(feature = "plugin-firmware-target")]
         c if firmware_plugin::handles(c) => {
             firmware_plugin::run(p, c, params).map_err(Error::Invalid)
