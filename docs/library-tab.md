@@ -61,6 +61,10 @@ click the card. The part is placed with its pins, the package its symbol names, 
 when the symbol states them: Manufacturer, MPN, Datasheet and Description. A chip number also
 finds its family library, so the library name is not needed.
 
+On the Schematic tab a card places the part on the page that was open when the card was clicked.
+The placement commands `part.place` and `library.place_online` take a `sheet` page id for this.
+Without one the part goes on Main.
+
 - Many chips are stored as a small symbol that inherits its pins from a parent symbol in another
   file of the same library. Both files are fetched and both are named in the project's library
   notices (`read_symbol_with_parents` in `crates/library/src/symbol_inherit.rs`).
