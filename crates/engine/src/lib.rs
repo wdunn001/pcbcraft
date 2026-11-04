@@ -3106,6 +3106,28 @@ pub struct Session {
     /// Where recents, library sources and conversations live. Detached by
     /// default; the application entry points set the real folder.
     pub config: user_config::UserConfig,
+    /// The last board check results and the design they were made for.
+    board_checks: std::sync::Arc<std::sync::Mutex<Option<BoardChecks>>>,
+}
+
+/// Board check results kept between edits: the design as the board checks read it, the
+/// design findings (copper rules, custom checks, height limits) and the airwires.
+///
+/// Why: the checks run again after every edit. Adding a schematic page or renaming one
+/// cannot change a copper finding, but the copper checks pour every zone and cost seconds
+/// on a large board.
+///
+/// # Rules
+/// - `design` is the project with the schematic page names and page settings cleared. Those
+///   are the only parts of a project the board checks never read.
+/// - The results are reused only when the project, so cleared, equals `design` exactly.
+///
+/// # Do not
+/// - Clear another field of `design` without checking that no board check reads it.
+struct BoardChecks {
+    design: Project,
+    findings: Vec<Value>,
+    airwires: Vec<pcbcraft_rules::Airwire>,
 }
 impl Default for Session {
     fn default() -> Self {
@@ -3116,6 +3138,7 @@ impl Default for Session {
             undo: VecDeque::new(),
             redo: VecDeque::new(),
             config: user_config::UserConfig::detached(),
+            board_checks: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
     }
 }
@@ -3393,16 +3416,41 @@ impl Session {
         }
         Ok(out)
     }
-    pub fn checks(&self) -> Value {
-        let mut drc: Vec<Value> = serde_json::to_value(pcbcraft_rules::drc(&self.project))
+    /// The copper findings and airwires of the open design, from the last run when nothing
+    /// they read has changed since.
+    fn board_check_results(&self) -> (Vec<Value>, Vec<pcbcraft_rules::Airwire>) {
+        let mut design = self.project.clone();
+        design.sheets.clear();
+        design.page_settings.clear();
+        design.root_sheet_name = None;
+        let mut kept = self
+            .board_checks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(seen) = kept.as_ref()
+            && seen.design == design
+        {
+            return (seen.findings.clone(), seen.airwires.clone());
+        }
+        let mut findings: Vec<Value> = serde_json::to_value(pcbcraft_rules::drc(&self.project))
             .unwrap_or_else(|_| json!([]))
             .as_array()
             .cloned()
             .unwrap_or_default();
-        drc.extend(custom_findings(&self.project));
-        drc.extend(height_findings(&self.project));
+        findings.extend(custom_findings(&self.project));
+        findings.extend(height_findings(&self.project));
+        let airwires = pcbcraft_rules::airwires(&self.project);
+        *kept = Some(BoardChecks {
+            design,
+            findings: findings.clone(),
+            airwires: airwires.clone(),
+        });
+        (findings, airwires)
+    }
+    pub fn checks(&self) -> Value {
+        let (drc, airwires) = self.board_check_results();
         let compliance = pcbcraft_rules::compliance_check(&self.project);
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"peripheral":pcbcraft_rules::peripheral(&self.project),"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power symbol or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, labels with no wires or pins, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. When fabrication rules are recorded on the board, track width, drill size, annular ring, copper-to-routed-edge spacing, unlike-net spacing, aspect ratio, and drawn silk text height are compared to those limits, and copper pour neck widths thinner than the minimum track are reported. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. Pin-type rules, hole-to-hole spacing against a fab table, mask dams, and hierarchy are not fully checked."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"peripheral":pcbcraft_rules::peripheral(&self.project),"compliance":compliance,"airwires":airwires,"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power symbol or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, labels with no wires or pins, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. When fabrication rules are recorded on the board, track width, drill size, annular ring, copper-to-routed-edge spacing, unlike-net spacing, aspect ratio, and drawn silk text height are compared to those limits, and copper pour neck widths thinner than the minimum track are reported. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. Pin-type rules, hole-to-hole spacing against a fab table, mask dams, and hierarchy are not fully checked."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();

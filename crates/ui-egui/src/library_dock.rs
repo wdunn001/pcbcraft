@@ -175,13 +175,25 @@ enum Intent {
     Place {
         target: String,
         at: Point,
+        /// The schematic page that was open when the card was picked.
+        sheet: Option<Id>,
     },
     Import,
     /// Place an online part with `library.place_online`; the worker's answer is its parameters.
     Online {
         target: String,
         at: Point,
+        /// The schematic page that was open when the card was picked.
+        sheet: Option<Id>,
     },
+}
+
+/// Add the schematic page a part is placed on to the parameters of a placement.
+fn with_sheet(mut params: Value, sheet: Option<Id>) -> Value {
+    if let Some(sheet) = sheet {
+        params["sheet"] = json!(sheet);
+    }
+    params
 }
 
 /// A read of an installed part's definitions on a worker.
@@ -2102,31 +2114,56 @@ impl App {
     /// - An installed part is read on a worker first, then placed.
     fn dock_place(&mut self, ctx: &egui::Context, card: &Card, target: &str, at: Point) {
         let at = canvas::snap(at);
+        let sheet = self.dock_sheet(target);
         match card {
             Card::Project(d) => {
                 self.run(
                     "part.place",
-                    json!({"target": target, "position": at, "name": d.name}),
+                    with_sheet(
+                        json!({"target": target, "position": at, "name": d.name}),
+                        sheet,
+                    ),
                 );
                 self.dock_after_place(target);
             }
             Card::BuiltIn(kind, _) => {
                 self.run(
                     "part.place",
-                    json!({"target": target, "position": at, "kind": kind}),
+                    with_sheet(
+                        json!({"target": target, "position": at, "kind": kind}),
+                        sheet,
+                    ),
                 );
                 self.dock_after_place(target);
             }
-            Card::Online(part, _) => self.dock_fetch_online(ctx, part, target, at),
+            Card::Online(part, _) => self.dock_fetch_online(ctx, part, target, at, sheet),
             Card::Installed(i) => self.dock_fetch(
                 ctx,
                 i,
                 Intent::Place {
                     target: target.to_owned(),
                     at,
+                    sheet,
                 },
             ),
         }
+    }
+
+    /// The schematic page a card placed now belongs to: the page being drawn on, when the
+    /// part goes on the schematic and that page is not Main.
+    ///
+    /// # Rules
+    /// - A board placement has no page; the part joins Main until it is moved.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/pages.rs (`on_current_page`, the one rule for the target page)
+    fn dock_sheet(&self, target: &str) -> Option<Id> {
+        if target != "schematic" {
+            return None;
+        }
+        self.on_current_page(json!({}))
+            .get("sheet")
+            .and_then(Value::as_u64)
     }
 
     /// After a board placement the selection is the new footprint, so the
@@ -2210,6 +2247,7 @@ impl App {
         part: &PartResult,
         target: &str,
         at: Point,
+        sheet: Option<Id>,
     ) {
         let Some(source) = self.part_sources.open() else {
             self.message = t!("library.dock.online_off");
@@ -2224,6 +2262,7 @@ impl App {
             intent: Intent::Online {
                 target: target.to_owned(),
                 at,
+                sheet,
             },
             name: part.mpn.clone(),
             rx: reply,
@@ -2261,7 +2300,8 @@ impl App {
         target: &str,
         at: Point,
     ) {
-        self.dock_fetch_online(ctx, part, target, at);
+        let sheet = self.dock_sheet(target);
+        self.dock_fetch_online(ctx, part, target, at, sheet);
     }
 
     /// A worker read finished: import or place the part.
@@ -2273,8 +2313,8 @@ impl App {
                 return;
             }
         };
-        if let Intent::Online { target, at } = intent {
-            let mut params = value;
+        if let Intent::Online { target, at, sheet } = intent {
+            let mut params = with_sheet(value, sheet);
             params["target"] = json!(if target == "board" {
                 "layout"
             } else {
@@ -2290,7 +2330,8 @@ impl App {
             params["footprint"] = value["footprint"].clone();
         }
         match intent {
-            Intent::Place { target, at } => {
+            Intent::Place { target, at, sheet } => {
+                params = with_sheet(params, sheet);
                 params["target"] = json!(target);
                 params["position"] = json!(at);
                 self.run("part.place", params);

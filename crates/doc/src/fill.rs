@@ -95,7 +95,7 @@ pub fn zone_fills(project: &Project) -> Result<Vec<ZoneFill>, String> {
 pub fn zone_fill(project: &Project, zone: &CopperZone) -> Result<ZoneFill, String> {
     let settings = zone.pour_settings();
     let layer = zone.layer;
-    let mut fill = ZoneFill {
+    let fill = ZoneFill {
         zone: zone.id,
         net: zone.net,
         layer,
@@ -128,6 +128,25 @@ pub fn zone_fill(project: &Project, zone: &CopperZone) -> Result<ZoneFill, Strin
             zone.id
         ));
     }
+    let key = memo::key(project, zone, &items, &settings, fill.min_width, &outline);
+    if let Some(done) = memo::find(key) {
+        return Ok(done);
+    }
+    let done = pour(project, zone, &settings, items, fill, outline)?;
+    memo::keep(key, &done);
+    Ok(done)
+}
+
+/// Pour one zone from scratch: everything `zone_fill` does after it has looked in the memo.
+fn pour(
+    project: &Project,
+    zone: &CopperZone,
+    settings: &ZonePour,
+    items: Vec<Item>,
+    mut fill: ZoneFill,
+    outline: Ring,
+) -> Result<ZoneFill, String> {
+    let layer = zone.layer;
 
     // Keepouts go first: subtracting them after the knockouts leaves ragged
     // copper along their edges.
@@ -300,6 +319,174 @@ pub fn zone_fill(project: &Project, zone: &CopperZone) -> Result<ZoneFill, Strin
     }
     fill.pieces = kept;
     Ok(fill)
+}
+
+/// A memory of the pours already computed.
+///
+/// Why: a pour is the slowest thing the checks do, and the checks run again after every edit,
+/// including edits that cannot change a pour (a new schematic page, a part parked off the
+/// board). Each run also asks for the same zone several times. Without a memory, one page
+/// added to the showcase board waited for the same five pours over and over.
+///
+/// # Rules
+/// - The key is built from everything the pour reads: the zone, its settings, the minimum
+///   width, the board edge, the board cutouts, the keepout areas, and every copper item on
+///   the layer that is near enough to the zone to touch it, with the clearance it demands.
+///   Copper farther away than its own clearance and the relief gap cannot change the result,
+///   so a part moved far from the zone keeps the answer.
+/// - A hit returns a copy of the stored pour. A miss is computed as before.
+/// - The memory holds the latest [`MEMO_SIZE`] pours of the thread; the oldest goes first.
+///
+/// # Dependencies
+/// - crates/doc/src/fill.rs (`pour` reads exactly what `key` hashes).
+///
+/// # Do not
+/// - Read a new input in `pour` without adding it to `key`.
+mod memo {
+    use super::{CopperZone, Item, Kind, Project, Ring, ZoneFill, ZonePour, board_piece};
+    use pcbcraft_geom::Point;
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    /// Pours kept per thread.
+    const MEMO_SIZE: usize = 64;
+
+    /// Two independent 64-bit hashes of the same input, so a clash is out of reach.
+    pub(super) type Key = (u64, u64);
+
+    thread_local! {
+        static POURS: RefCell<VecDeque<(Key, ZoneFill)>> = const { RefCell::new(VecDeque::new()) };
+    }
+
+    struct Fingerprint(DefaultHasher, DefaultHasher);
+
+    impl Fingerprint {
+        fn new() -> Self {
+            let mut second = DefaultHasher::new();
+            second.write_u8(0x5a);
+            Self(DefaultHasher::new(), second)
+        }
+        fn number(&mut self, value: f64) {
+            self.0.write_u64(value.to_bits());
+            self.1.write_u64(value.to_bits());
+        }
+        fn word(&mut self, value: u64) {
+            self.0.write_u64(value);
+            self.1.write_u64(value);
+        }
+        fn point(&mut self, p: Point) {
+            self.number(p.x);
+            self.number(p.y);
+        }
+        fn text(&mut self, text: &str) {
+            text.hash(&mut self.0);
+            text.hash(&mut self.1);
+        }
+        fn finish(self) -> Key {
+            (self.0.finish(), self.1.finish())
+        }
+    }
+
+    fn corners(points: impl Iterator<Item = Point>) -> Option<(Point, Point)> {
+        points.fold(None, |box_, p| {
+            Some(match box_ {
+                None => (p, p),
+                Some((lo, hi)) => (
+                    Point::new(lo.x.min(p.x), lo.y.min(p.y)),
+                    Point::new(hi.x.max(p.x), hi.y.max(p.y)),
+                ),
+            })
+        })
+    }
+
+    /// The memory key of pouring `zone` among `items`.
+    pub(super) fn key(
+        project: &Project,
+        zone: &CopperZone,
+        items: &[Item],
+        settings: &ZonePour,
+        min_width: f64,
+        outline: &Ring,
+    ) -> Key {
+        let mut print = Fingerprint::new();
+        print.text(&serde_json::to_string(zone).unwrap_or_default());
+        print.text(&serde_json::to_string(&project.board.rule_areas).unwrap_or_default());
+        print.text(&serde_json::to_string(&project.board.cutouts).unwrap_or_default());
+        print.number(project.board.clearance);
+        print.number(min_width);
+        for ring in board_piece(project) {
+            for p in ring {
+                print.point(p);
+            }
+        }
+        let zone_box = corners(
+            outline
+                .iter()
+                .copied()
+                .chain(zone.cutouts.iter().flatten().copied()),
+        );
+        for item in items {
+            let clearance = project.required_clearance_at(
+                zone.net, item.net, item.at, item.at, zone.layer, zone.layer,
+            );
+            let reach = clearance.max(settings.relief_gap).max(0.0) + 1.0;
+            let near = match (zone_box, corners(item.piece.iter().flatten().copied())) {
+                (Some((zlo, zhi)), Some((ilo, ihi))) => {
+                    ilo.x - reach <= zhi.x
+                        && ihi.x + reach >= zlo.x
+                        && ilo.y - reach <= zhi.y
+                        && ihi.y + reach >= zlo.y
+                }
+                _ => true,
+            };
+            if !near {
+                continue;
+            }
+            print.word(item.id);
+            print.word(item.net);
+            print.word(match item.kind {
+                Kind::Pad => 1,
+                Kind::Via => 2,
+                Kind::Track => 3,
+                Kind::Zone => 4,
+                Kind::Hole => 5,
+            });
+            print.point(item.at);
+            print.number(item.rotation);
+            print.number(clearance);
+            for ring in &item.piece {
+                print.word(ring.len() as u64);
+                for p in ring {
+                    print.point(*p);
+                }
+            }
+        }
+        print.finish()
+    }
+
+    /// The pour stored under `key`, if the memory still has it.
+    pub(super) fn find(key: Key) -> Option<ZoneFill> {
+        POURS.with(|pours| {
+            pours
+                .borrow()
+                .iter()
+                .find(|(seen, _)| *seen == key)
+                .map(|(_, fill)| fill.clone())
+        })
+    }
+
+    /// Store a computed pour; the oldest one goes when the memory is full.
+    pub(super) fn keep(key: Key, fill: &ZoneFill) {
+        POURS.with(|pours| {
+            let mut pours = pours.borrow_mut();
+            pours.retain(|(seen, _)| *seen != key);
+            if pours.len() >= MEMO_SIZE {
+                pours.pop_front();
+            }
+            pours.push_back((key, fill.clone()));
+        });
+    }
 }
 
 /// A pad or via that joins the pour through thermal spokes.
