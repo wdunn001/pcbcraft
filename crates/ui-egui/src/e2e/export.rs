@@ -466,6 +466,11 @@ fn a_newcomer_exports_a_fab_package_from_export() -> Result<(), String> {
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
+    // The package is now picked but not exported; tap the Export button.
+    authoring::tests::tap(&ctx, &mut app, "Export package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     let zip = std::fs::read_dir(dir.path())
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)
@@ -483,6 +488,53 @@ fn a_newcomer_exports_a_fab_package_from_export() -> Result<(), String> {
         "Protel-style layer and drill names"
     );
     assert!(!app.edit.dialog.open, "the dialog closes after the export");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_package_preview_in_dialog() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    // The window sizes itself over a few frames; the Packages group is the last in the list.
+    let listed = in_format_list(&ctx, &mut app, "Prototype fab (Gerber + drill)")?;
+    assert!(listed, "the fab package is listed under Packages");
+    authoring::tests::tap(&ctx, &mut app, "Prototype fab (Gerber + drill)")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(
+        app.edit.dialog.package_pick, "fab_prototype",
+        "picking the package sets package_pick"
+    );
+    assert!(
+        app.edit.dialog.open,
+        "the dialog is still open after picking"
+    );
+    // No zip should exist yet; the package is only picked, not exported.
+    let zips: Vec<String> = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with("-fab-A.zip"))
+        .collect();
+    assert!(zips.is_empty(), "no fab zip exists before exporting");
+    // Now tap Export to actually write the package.
+    authoring::tests::tap(&ctx, &mut app, "Export package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let zip = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.ends_with("-fab-A.zip"))
+        .ok_or("no fab zip was written after exporting")?;
+    assert!(
+        std::fs::read(dir.path().join(&zip)).is_ok(),
+        "the zip file is readable"
+    );
+    assert!(!app.edit.dialog.open, "the dialog closes after exporting");
     Ok(())
 }
 

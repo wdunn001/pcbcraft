@@ -3937,3 +3937,6 @@ shape.vertex_table_note = Showing the first {count} points
 shape.vertex_table_note.tip = This board has more than {count} outline points; only the first are shown here.
 shape.plain_rectangle = This board is a plain rectangle. Pick a shape above to edit points.
 shape.plain_rectangle.tip = The vertex positions are read-only until you pick a shape from the Shape section.
+export.package.files = Files this package writes
+export.package.files.tip = The files this package will write into the make folder.
+export.package.go.tip = Write this package into the make folder.
