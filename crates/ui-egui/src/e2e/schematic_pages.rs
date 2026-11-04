@@ -96,6 +96,53 @@ fn a_newcomer_sees_one_schematic_page_at_a_time() -> Result<(), String> {
     Ok(())
 }
 
+/// Height in points of the text `label` painted on the sheet at `zoom`, or None when it is not painted.
+fn painted_text_height(app: &mut App, label: &str, zoom: f32) -> Option<f32> {
+    app.schematic.zoom = zoom;
+    let ctx = egui::Context::default();
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 940.0),
+            )),
+            ..Default::default()
+        },
+        |root_ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
+                let rect = ui.max_rect();
+                app.paint_schematic(ui.painter(), rect, app.schematic, &app.project);
+            });
+        },
+    );
+    output.textures_delta.clear();
+    output.shapes.iter().find_map(|shape| match &shape.shape {
+        egui::Shape::Text(text) if text.galley.text() == label => Some(text.galley.size().y),
+        _ => None,
+    })
+}
+
+#[test]
+fn a_newcomer_zooms_in_and_the_part_text_grows_with_the_drawing() -> Result<(), String> {
+    let mut app = start();
+    add_part(&mut app, "R_ZOOM", 20.0);
+    let near = painted_text_height(&mut app, "R_ZOOM", 12.0)
+        .ok_or("the reference is not painted at 12")?;
+    let mid =
+        painted_text_height(&mut app, "R_ZOOM", 6.0).ok_or("the reference is not painted at 6")?;
+    assert!(
+        near > mid * 1.5,
+        "the reference is larger when zoomed in: {near} at 12 px/mm and {mid} at 6 px/mm"
+    );
+    let far = painted_text_height(&mut app, "R_ZOOM", 0.2)
+        .ok_or("the reference is not painted far out")?;
+    assert!(
+        far > 0.0 && far <= mid,
+        "far out it is still painted, no larger than before: {far}"
+    );
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_places_a_part_on_the_second_page_and_it_stays_there() -> Result<(), String> {
     let mut app = start();

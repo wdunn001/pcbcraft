@@ -37,7 +37,7 @@ impl App {
                     camera.screen(*anchor, rect),
                     Align2::LEFT_TOP,
                     &g.text,
-                    FontId::proportional((g.width as f32 * camera.zoom).clamp(6.0, 48.0)),
+                    text_style::font_mm(g.width as f32, camera.zoom, false),
                     color,
                 );
             }
