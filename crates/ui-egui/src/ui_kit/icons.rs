@@ -293,6 +293,27 @@ pub const LAYERS: Icon = Icon(|p, r, c| {
     line(p, r, c, &[(2.0, 11.5), (8.0, 14.5), (14.0, 11.5)]);
 });
 
+/// An oven box with a heat line along the top, for reflow ovens.
+pub const OVEN: Icon = Icon(|p, r, c| {
+    line(
+        p,
+        r,
+        c,
+        &[
+            (2.5, 5.0),
+            (13.5, 5.0),
+            (13.5, 13.0),
+            (2.5, 13.0),
+            (2.5, 5.0),
+        ],
+    );
+    line(p, r, c, &[(5.0, 8.0), (11.0, 8.0)]);
+    line(p, r, c, &[(5.0, 10.5), (11.0, 10.5)]);
+    line(p, r, c, &[(5.0, 2.0), (5.0, 3.5)]);
+    line(p, r, c, &[(8.0, 2.0), (8.0, 3.5)]);
+    line(p, r, c, &[(11.0, 2.0), (11.0, 3.5)]);
+});
+
 /// A tray with an arrow down, for import.
 pub const DOWNLOAD: Icon = Icon(|p, r, c| {
     line(p, r, c, &[(8.0, 2.5), (8.0, 10.0)]);

@@ -1,0 +1,32 @@
+# Source: Puhui Technology (Taian) user manual for the T962A infrared IC heater, technical parameter table and feature list. Net weight from a reseller review page.
+# Retrieved: 2026-11-04
+id = "puhui-t-962a"
+name = "Puhui T-962A"
+kind = "reflow_oven"
+vendor = "Puhui"
+model = "T-962A"
+notes = "Infrared reflow oven with a drawer. Soldering area, power, temperature range and cycle time come from the maker's manual. Some seller pages list 800 W and 180 x 235 mm. Those figures are not the T-962A figures. The manual prints its mains line as 110 V at 50 Hz and 220 V at 60 Hz. That pairing is unverified, so check the label on the unit. Cycle time is 1 to 8 minutes. Net weight is 12.5 kg on one reseller page. Outside dimensions are unverified and not recorded. PCBCraft does not model the reflow profiles."
+version = 1
+source = "Puhui Technology (Taian) T962A user manual"
+retrieved = "2026-11-04"
+
+[work_area]
+x = 300.0
+y = 320.0
+origin = "lower-left"
+y_up = true
+
+[output]
+format = ""
+dialect = ""
+units = "mm"
+line_ending = "lf"
+mirror_bottom = false
+mirror_axis = "x"
+invert = false
+
+[reflow_oven]
+rated_power_w = 1500.0
+max_temp_c = 280.0
+heating = "Infrared heating with circulating hot air"
+profile_count = 8

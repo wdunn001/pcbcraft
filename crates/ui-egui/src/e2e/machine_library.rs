@@ -447,3 +447,96 @@ fn a_newcomer_clicks_add_machine_and_the_window_opens() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(folder);
     Ok(())
 }
+
+/// A newcomer sees the built-in Puhui T-962A under the Reflow oven kind with its work area.
+#[test]
+fn a_newcomer_finds_the_puhui_t_962a_under_reflow_oven_and_adds_it_to_the_project()
+-> Result<(), String> {
+    let (ctx, mut app, folder) = library_app()?;
+    tap_left(&ctx, &mut app, "Reflow oven")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Puhui T-962A")?,
+        "the oven card is listed: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "NeoDen YY1")?,
+        "other kinds leave: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "300 x 320 mm")?,
+        "the sourced work area shows: {}",
+        painted(&ctx, &mut app)
+    );
+    authoring::tests::tap(&ctx, &mut app, "Add to this project")?;
+    assert!(
+        app.project
+            .machine_profiles
+            .iter()
+            .any(|m| m.id == "puhui-t-962a" && m.kind == "reflow_oven"),
+        "the oven joins the project: {}",
+        app.message
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
+
+/// A newcomer makes a blank reflow oven and sees its card.
+#[test]
+fn a_newcomer_creates_a_blank_reflow_oven_and_sees_its_card() -> Result<(), String> {
+    let (ctx, mut app, folder) = library_app()?;
+    authoring::tests::tap(&ctx, &mut app, "Add machine")?;
+    authoring::tests::tap(&ctx, &mut app, "Nothing, a blank machine")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Name of the new machine",
+        "Garage oven",
+    )?;
+    tap_id(&ctx, &mut app, "checkbox:Keep in my machines")?;
+    authoring::tests::tap(&ctx, &mut app, "Reflow oven")?;
+    authoring::tests::tap(&ctx, &mut app, "Create")?;
+    assert!(
+        app.project
+            .machine_profiles
+            .iter()
+            .any(|m| m.id == "garage-oven" && m.kind == "reflow_oven"),
+        "the new oven joins the project: {}",
+        app.message
+    );
+    assert!(folder.join("machines").join("garage-oven.toml").is_file());
+    assert!(
+        paints_text(&ctx, &mut app, "Garage oven")?,
+        "its card is listed: {}",
+        painted(&ctx, &mut app)
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
+
+/// A newcomer records a machine of another sort with the Other machine kind.
+#[test]
+fn a_newcomer_adds_an_other_machine() -> Result<(), String> {
+    let (ctx, mut app, folder) = library_app()?;
+    authoring::tests::tap(&ctx, &mut app, "Add machine")?;
+    authoring::tests::tap(&ctx, &mut app, "Nothing, a blank machine")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Name of the new machine",
+        "Vacuum table",
+    )?;
+    authoring::tests::tap(&ctx, &mut app, "Other machine")?;
+    authoring::tests::tap(&ctx, &mut app, "Create")?;
+    assert!(
+        app.project
+            .machine_profiles
+            .iter()
+            .any(|m| m.id == "vacuum-table" && m.kind == "other"),
+        "the other machine joins the project: {}",
+        app.message
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
