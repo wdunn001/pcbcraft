@@ -1346,6 +1346,9 @@ pub struct App {
     pinned_view: Option<draw_target::Target>,
     /// Whether the board lacks schematic changes, by revision; see `sync_notice.rs`.
     sync_behind: Option<(u64, bool)>,
+    /// The project as Main lays it out, kept until the project changes. Building it clones the whole
+    /// project, and a frame asks for it many times, so it is built once per change. See `page_scope.rs`.
+    main_view: std::sync::Mutex<page_scope::MainViewCache>,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
     /// The Rules and checks window, opened from the Edit menu.
@@ -2118,6 +2121,7 @@ impl App {
             rules_dialog: rules_dialog::State::default(),
             setup_wizard: setup_wizard::State::default(),
             active_page: 0,
+            main_view: std::sync::Mutex::new(page_scope::MainViewCache::default()),
             power_pick: std::collections::BTreeMap::new(),
             port_pick_name: String::new(),
             page_left: 0.0,
