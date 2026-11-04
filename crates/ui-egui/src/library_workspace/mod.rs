@@ -39,6 +39,7 @@ mod datasheet;
 mod edit;
 pub(crate) mod facts;
 pub(crate) mod machines;
+mod machines_view;
 mod model;
 mod overview;
 mod vendors;
@@ -172,7 +173,8 @@ impl App {
     }
 
     /// Stage a Library tab scene for a `--capture` image: `library-overview`, `library-datasheet`,
-    /// `library-vendors`, `library-3d`, `library-edit` or `library-compare`.
+    /// `library-vendors`, `library-3d`, `library-edit`, `library-compare`, `library-machines` or
+    /// `library-machines-add`.
     ///
     /// # Rules
     /// - Opens the built-in resistor and LED, so the compare scene has two parts.
@@ -180,6 +182,13 @@ impl App {
     pub(crate) fn capture_library_scene(&mut self, scene: &str) {
         let ctx = egui::Context::default();
         self.change_tab(Tab::Library);
+        if scene == "library-machines" || scene == "library-machines-add" {
+            self.show_library_machines();
+            if scene == "library-machines-add" {
+                self.libws.machines.add = Some(machines::AddForm::default());
+            }
+            return;
+        }
         let demo = scene == "library-3d" || scene == "library-edit";
         if demo {
             self.capture_demo_part();
@@ -389,6 +398,7 @@ impl App {
             ui.add_space(Self::PAGE_GUTTER);
             ui.spacing_mut().item_spacing.x = 8.0;
             if self.library_on_machines() {
+                self.machine_lib_toolbar(ui);
                 return;
             }
             if secondary_button(
@@ -741,6 +751,10 @@ impl App {
     /// - A part placed in this project edits through the Sourcing section, one undo step per edit.
     /// - Any other part is read-only here and says how to make it editable.
     pub(crate) fn library_properties(&mut self, ui: &mut egui::Ui) {
+        if self.library_on_machines() {
+            self.machine_lib_properties(ui);
+            return;
+        }
         let Some(card) = self.library_showing() else {
             return;
         };

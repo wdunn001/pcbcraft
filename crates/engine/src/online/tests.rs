@@ -416,3 +416,31 @@ fn place_online_refuses_positions_out_of_range() -> Result<(), Error> {
     assert!(s.execute("library.place_online", params, None).is_err());
     Ok(())
 }
+
+#[test]
+fn place_online_puts_the_part_on_the_page_it_is_given() -> Result<(), Error> {
+    let mut s = Session::default();
+    s.execute("schematic.new_sheet", json!({"name": "Page 1"}), None)?;
+    let page = s.project.sheets.first().ok_or_else(missing)?.id;
+    let mut params = place_params("schematic", 40.0, 30.0)?;
+    params["sheet"] = json!(page);
+    let out = s.execute("library.place_online", params, None)?;
+    let id = out["result"]["component"].as_u64().ok_or_else(missing)?;
+    let placed = s.project.component(id).ok_or_else(missing)?;
+    assert_eq!(placed.sheet, page, "the part is on the page it was given");
+    // Without a page the part stays on Main.
+    let out = s.execute(
+        "library.place_online",
+        place_params("schematic", 80.0, 30.0)?,
+        None,
+    )?;
+    let id = out["result"]["component"].as_u64().ok_or_else(missing)?;
+    assert_eq!(s.project.component(id).ok_or_else(missing)?.sheet, 0);
+    // A page that does not exist is refused and changes nothing.
+    let revision = s.revision;
+    let mut params = place_params("schematic", 10.0, 10.0)?;
+    params["sheet"] = json!(9999);
+    assert!(s.execute("library.place_online", params, None).is_err());
+    assert_eq!(s.revision, revision);
+    Ok(())
+}

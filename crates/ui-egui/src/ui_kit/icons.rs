@@ -218,6 +218,130 @@ pub const OK: Icon = Icon(|p, r, c| {
     line(p, r, c, &[(5.0, 8.2), (7.2, 10.4), (11.0, 5.8)]);
 });
 
+/// A chip with pins, for parts and pick and place machines.
+pub const CHIP: Icon = Icon(|p, r, c| {
+    p.rect_stroke(
+        Rect::from_min_max(pt(r, 4.5, 4.5), pt(r, 11.5, 11.5)),
+        egui::CornerRadius::same(1),
+        Stroke::new(ICON_STROKE, c),
+        egui::StrokeKind::Inside,
+    );
+    for v in [6.5, 9.5] {
+        line(p, r, c, &[(v, 2.0), (v, 4.5)]);
+        line(p, r, c, &[(v, 11.5), (v, 14.0)]);
+        line(p, r, c, &[(2.0, v), (4.5, v)]);
+        line(p, r, c, &[(11.5, v), (14.0, v)]);
+    }
+});
+
+/// A gear, for the machine library.
+pub const GEAR: Icon = Icon(|p, r, c| {
+    p.circle_stroke(
+        pt(r, 8.0, 8.0),
+        2.2 * r.width() / 16.0,
+        Stroke::new(ICON_STROKE, c),
+    );
+    p.circle_stroke(
+        pt(r, 8.0, 8.0),
+        4.6 * r.width() / 16.0,
+        Stroke::new(ICON_STROKE, c),
+    );
+    for (a, b) in [
+        ((8.0, 1.5), (8.0, 3.4)),
+        ((8.0, 12.6), (8.0, 14.5)),
+        ((1.5, 8.0), (3.4, 8.0)),
+        ((12.6, 8.0), (14.5, 8.0)),
+    ] {
+        line(p, r, c, &[a, b]);
+    }
+});
+
+/// A lightning bolt, for lasers.
+pub const BOLT: Icon = Icon(|p, r, c| {
+    line(
+        p,
+        r,
+        c,
+        &[
+            (9.0, 1.5),
+            (3.5, 9.0),
+            (8.0, 9.0),
+            (7.0, 14.5),
+            (12.5, 7.0),
+            (8.0, 7.0),
+            (9.0, 1.5),
+        ],
+    );
+});
+
+/// A cut path with a start dot, for mills.
+pub const PATH: Icon = Icon(|p, r, c| {
+    p.circle_filled(pt(r, 3.5, 12.0), 1.4, c);
+    line(p, r, c, &[(3.5, 12.0), (7.0, 9.5), (9.0, 6.5), (12.5, 5.0)]);
+    p.circle_filled(pt(r, 12.5, 5.0), 1.4, c);
+});
+
+/// Stacked layers, for printers.
+pub const LAYERS: Icon = Icon(|p, r, c| {
+    line(
+        p,
+        r,
+        c,
+        &[(8.0, 2.5), (14.0, 5.5), (8.0, 8.5), (2.0, 5.5), (8.0, 2.5)],
+    );
+    line(p, r, c, &[(2.0, 8.5), (8.0, 11.5), (14.0, 8.5)]);
+    line(p, r, c, &[(2.0, 11.5), (8.0, 14.5), (14.0, 11.5)]);
+});
+
+/// A tray with an arrow down, for import.
+pub const DOWNLOAD: Icon = Icon(|p, r, c| {
+    line(p, r, c, &[(8.0, 2.5), (8.0, 10.0)]);
+    line(p, r, c, &[(4.5, 7.0), (8.0, 10.5), (11.5, 7.0)]);
+    line(p, r, c, &[(3.0, 13.0), (13.0, 13.0)]);
+});
+
+/// A tray with an arrow up, for export.
+pub const UPLOAD: Icon = Icon(|p, r, c| {
+    line(p, r, c, &[(8.0, 10.5), (8.0, 3.0)]);
+    line(p, r, c, &[(4.5, 6.0), (8.0, 2.5), (11.5, 6.0)]);
+    line(p, r, c, &[(3.0, 13.0), (13.0, 13.0)]);
+});
+
+/// Two overlapping sheets, for duplicate.
+pub const COPY: Icon = Icon(|p, r, c| {
+    p.rect_stroke(
+        Rect::from_min_max(pt(r, 5.5, 5.5), pt(r, 13.0, 13.0)),
+        egui::CornerRadius::same(1),
+        Stroke::new(ICON_STROKE, c),
+        egui::StrokeKind::Inside,
+    );
+    line(p, r, c, &[(3.0, 10.0), (3.0, 3.0), (10.0, 3.0)]);
+});
+
+/// A circular arrow, for refresh and updates.
+pub const REFRESH: Icon = Icon(|p, r, c| {
+    line(
+        p,
+        r,
+        c,
+        &[
+            (13.0, 8.0),
+            (12.4, 10.6),
+            (10.6, 12.4),
+            (8.0, 13.0),
+            (5.4, 12.4),
+            (3.6, 10.6),
+            (3.0, 8.0),
+            (3.6, 5.4),
+            (5.4, 3.6),
+            (8.0, 3.0),
+            (10.6, 3.6),
+            (12.0, 5.0),
+        ],
+    );
+    line(p, r, c, &[(12.5, 2.5), (12.0, 5.0), (9.5, 5.0)]);
+});
+
 /// The icon rectangle centred in `outer`.
 pub fn icon_rect(outer: Rect) -> Rect {
     Rect::from_center_size(outer.center(), Vec2::splat(ICON_SIZE))
