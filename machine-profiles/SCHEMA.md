@@ -10,7 +10,7 @@ Each built-in preset file starts with `# Source:` and `# Retrieved:` comment lin
 | --- | --- | --- |
 | `id` | string | Stable slug, 1 to 64 bytes, `[a-z0-9-]` only. |
 | `name` | string | Display name, 1 to 128 bytes. |
-| `kind` | string | One of `laser_galvo`, `laser_gantry`, `cnc_mill`, `pick_place`, `uv_printer`. |
+| `kind` | string | One of `laser_galvo`, `laser_gantry`, `cnc_mill`, `pick_place`, `uv_printer`, `reflow_oven`, `other`. |
 | `vendor` | string | Up to 128 bytes. |
 | `model` | string | Up to 128 bytes. |
 | `notes` | string | Optional free text, up to 4096 bytes. |
@@ -92,6 +92,14 @@ Each `[[pick_place.placement_rule]]` chooses a nozzle for a part from its short 
 
 Tables `[uv_printer.print]`, `[uv_printer.artwork]`, `[uv_printer.limits]` with bed size, DPI options, channels, bleed, pad clearance, and pixel caps.
 
+## Reflow oven (`reflow_oven`)
+
+The soldering area is the `[work_area]` table. Table `[reflow_oven]` holds `rated_power_w`, `max_temp_c`, `heating` (plain words) and `profile_count` (ready-made profiles in the oven). Reflow profiles themselves are not modelled.
+
+## Other machine (`other`)
+
+A machine of any other sort. It has a name, vendor, model, a work area and notes. It carries no kind table and writes no output.
+
 ## Built-in presets
 
 | `id` | Kind |
@@ -103,3 +111,4 @@ Tables `[uv_printer.print]`, `[uv_printer.artwork]`, `[uv_printer.limits]` with 
 | `snapmaker-artisan-200w-cnc` | mill |
 | `commarker-b6-mopa` | laser galvo |
 | `commarker-b6-mopa-150` | laser galvo (150 mm lens only) |
+| `puhui-t-962a` | reflow oven (numbers from the maker's manual) |

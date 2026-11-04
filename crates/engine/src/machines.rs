@@ -352,6 +352,10 @@ fn card(m: &MachineProfile, hidden: bool) -> Value {
         "hidden": hidden,
         "work_area": {"x": m.work_area.x, "y": m.work_area.y},
         "nozzles": m.pick_place.nozzle.len(),
+        "rated_power_w": m.reflow_oven.rated_power_w,
+        "max_temp_c": m.reflow_oven.max_temp_c,
+        "heating": m.reflow_oven.heating,
+        "profile_count": m.reflow_oven.profile_count,
         "dialect": m.output.dialect,
         "has_writer": pcbcraft_io::has_placement_writer(&m.output.dialect),
     })
