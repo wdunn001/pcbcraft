@@ -86,3 +86,45 @@ fn a_newcomer_undoes_a_rise_time_change() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_gives_a_class_a_target_impedance_and_an_allowed_error() -> Result<(), String> {
+    let (ctx, mut app) = board();
+    open_tab(&ctx, &mut app)?;
+    press(&ctx, &mut app, "New class")?;
+    assert_eq!(
+        app.project.net_classes.len(),
+        1,
+        "a class was added: {}",
+        app.message
+    );
+    press(&ctx, &mut app, "Set a target")?;
+    type_into(&ctx, &mut app, "spinbutton:Target impedance", "50")?;
+    assert_eq!(
+        app.project.net_classes[0].impedance_target,
+        Some(50.0),
+        "the impedance target was stored: {}",
+        app.message
+    );
+    type_into(&ctx, &mut app, "spinbutton:Target impedance", "120")?;
+    type_into(&ctx, &mut app, "spinbutton:Allowed error", "20")?;
+    assert_eq!(
+        app.project.net_classes[0].impedance_target,
+        Some(120.0),
+        "the target follows the edit: {}",
+        app.message
+    );
+    assert_eq!(
+        app.project.net_classes[0].impedance_tolerance_pct,
+        Some(20.0),
+        "the allowed error was stored: {}",
+        app.message
+    );
+    press(&ctx, &mut app, "Clear")?;
+    assert!(
+        app.project.net_classes[0].impedance_target.is_none(),
+        "Clear removed the target: {}",
+        app.message
+    );
+    Ok(())
+}
