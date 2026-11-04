@@ -43,6 +43,7 @@ mod parametric_body;
 mod placement_flavour;
 #[cfg(feature = "plugin-firmware-target")]
 pub mod plugins;
+mod silk_font;
 mod solidcraft;
 mod solidcraft_enclosure;
 mod solidcraft_format;
@@ -196,7 +197,8 @@ pub use fab_drawing::{fab_drawing_pdf, fab_drawing_svg};
 pub use fab_export::{DrillFunction, via_mask_opening, via_mask_opening_on_face};
 pub use firmware_target::{firmware_config_compare, firmware_target_files};
 pub use generate::{
-    GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
+    GeneratedOutput, download_entries, generate, migrate_loaded_project, output_hash,
+    write_generated,
 };
 use gerber::coordinate;
 /// Gerber file generation for copper, solder mask, paste and silk layers.

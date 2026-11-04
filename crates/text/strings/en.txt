@@ -1513,6 +1513,7 @@ check.board_edge = Board edge
 check.clearance = Clearance
 check.copper_short = Copper short
 check.copper_to_edge = Copper to edge
+check.copper_to_vscore = Copper to scored edge
 check.cut_hits_via = Cut hits via
 check.cutout_clearance = Cutout clearance
 check.diffpair_gap = Diffpair gap
