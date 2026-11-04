@@ -86,3 +86,41 @@ fn a_newcomer_undoes_a_rise_time_change() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_gives_a_class_a_target_impedance_and_a_wrong_track_is_flagged() -> Result<(), String>
+{
+    let (ctx, mut app) = board();
+    open_tab(&ctx, &mut app)?;
+    press(&ctx, &mut app, "New class")?;
+    assert_eq!(
+        app.project.net_classes.len(),
+        1,
+        "a class was added: {}",
+        app.message
+    );
+    press(&ctx, &mut app, "Set a limit")?;
+    type_into(&ctx, &mut app, "spinbutton:Target impedance", "50")?;
+    let target = app.project.net_classes[0].impedance_target;
+    assert_eq!(
+        target,
+        Some(50.0),
+        "the impedance target was stored: {}",
+        app.message
+    );
+    let findings = pcbcraft_rules::drc(&app.project);
+    let has_impedance_finding = findings.iter().any(|f| f.code == "impedance_target");
+    assert!(
+        has_impedance_finding,
+        "a 0.3 mm trace is far above 50 ohm, so the check must fire"
+    );
+    type_into(&ctx, &mut app, "spinbutton:Target impedance", "120")?;
+    type_into(&ctx, &mut app, "spinbutton:Allowed error", "50")?;
+    let findings = pcbcraft_rules::drc(&app.project);
+    let has_impedance_finding = findings.iter().any(|f| f.code == "impedance_target");
+    assert!(
+        !has_impedance_finding,
+        "a 0.3 mm trace is inside a 60..180 ohm band, so the check must stay quiet"
+    );
+    Ok(())
+}

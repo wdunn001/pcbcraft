@@ -28,6 +28,28 @@ fn ns_spec() -> NumberSpec<'static> {
     }
 }
 
+fn ohm_spec() -> NumberSpec<'static> {
+    NumberSpec {
+        unit: "ohm",
+        min: 10.0,
+        max: 200.0,
+        step: 1.0,
+        places: 0,
+        width: 104.0,
+    }
+}
+
+fn pct_spec() -> NumberSpec<'static> {
+    NumberSpec {
+        unit: "%",
+        min: 0.0,
+        max: 50.0,
+        step: 1.0,
+        places: 0,
+        width: 104.0,
+    }
+}
+
 impl App {
     /// Signal integrity settings for one net class.
     ///
@@ -95,6 +117,82 @@ impl App {
                         json!({"class": id, "rise_time": 1e-9}),
                     );
                 }
+            }
+        }
+        let imp_name = t!("settings.project.classes.impedance_target");
+        let imp_tip = t!("settings.project.classes.impedance_target.tip");
+        match class.impedance_target {
+            Some(z) => {
+                let mut v = z;
+                let resp = form_row(ui, FormWidth::Page, &imp_name, None, None, |ui| {
+                    number_field(
+                        ui,
+                        ("ps-class-imp", id),
+                        &mut v,
+                        &ohm_spec(),
+                        &imp_name,
+                        &imp_tip,
+                    )
+                });
+                if resp.changed() {
+                    self.settings_run("netclass.set", json!({"class": id, "impedance_target": v}));
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    if ghost(
+                        ui,
+                        &t!("settings.project.classes.impedance_target.clear"),
+                        &t!("settings.project.classes.impedance_target.clear.tip"),
+                        true,
+                    )
+                    .clicked()
+                    {
+                        self.settings_run(
+                            "netclass.set",
+                            json!({"class": id, "impedance_target": null, "impedance_tolerance_pct": null}),
+                        );
+                    }
+                });
+            }
+            None => {
+                let resp = form_row(ui, FormWidth::Page, &imp_name, Some(&imp_tip), None, |ui| {
+                    secondary(
+                        ui,
+                        &t!("settings.project.rules.set_limit"),
+                        &t!(
+                            "settings.project.classes.set.tip",
+                            name = imp_name.to_lowercase()
+                        ),
+                        true,
+                    )
+                });
+                if resp.clicked() {
+                    self.settings_run(
+                        "netclass.set",
+                        json!({"class": id, "impedance_target": 50.0}),
+                    );
+                }
+            }
+        }
+        if class.impedance_target.is_some() {
+            let tol_name = t!("settings.project.classes.impedance_tolerance");
+            let tol_tip = t!("settings.project.classes.impedance_tolerance.tip");
+            let tol = class.impedance_tolerance_pct.unwrap_or(10.0);
+            let mut v = tol;
+            let resp = form_row(ui, FormWidth::Page, &tol_name, Some(&tol_tip), None, |ui| {
+                number_field(
+                    ui,
+                    ("ps-class-tol", id),
+                    &mut v,
+                    &pct_spec(),
+                    &tol_name,
+                    &tol_tip,
+                )
+            });
+            if resp.changed() {
+                self.settings_run(
+                    "netclass.set",
+                    json!({"class": id, "impedance_tolerance_pct": v}),
+                );
             }
         }
     }
