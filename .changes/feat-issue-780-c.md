@@ -1,8 +1,8 @@
 ---
 type: test
-area: library
+area: ui
 issues: [780]
 user_visible: false
 docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Generated 3D body sits at z=0 inside the courtyard for every series.
+summary: An end-to-end story searches for the TSW header series and generates a footprint with the right pads.
 ---
