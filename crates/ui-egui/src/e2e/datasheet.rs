@@ -171,7 +171,8 @@ fn show_source_jumps_to_the_page_and_flashes_the_rectangle() -> Result<(), Strin
         Some((0, [10.0, 20.0, 60.0, 40.0])),
         "the flash should be set on the first frame"
     );
-    for _ in 0..60 {
+    // One test frame advances about a sixtieth of a second, so 120 frames pass 1.5 seconds.
+    for _ in 0..120 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
     assert!(

@@ -7,6 +7,9 @@ use egui::{Color32, Context, Id, Pos2, Rect, Sense, TextureHandle, TextureOption
 use pcbcraft_datasheet::{CharBox, DocSearch, Document, Selection, char_at_point, selected_text};
 use pcbcraft_text::t;
 
+/// How long a source rectangle flashes after Show source, in seconds of context time.
+const FLASH_SECONDS: f64 = 1.5;
+
 const SEARCH_MAX: usize = 128;
 
 /// State for the in-app datasheet reader.
@@ -216,8 +219,8 @@ impl Pane {
         let now = ui.ctx().input(|i| i.time);
         if let Some((flash_page, flash_rect, start)) = self.flash {
             let elapsed = now - start;
-            if flash_page == self.page && elapsed < 1.5 {
-                let alpha = 160.0 * (1.0 - elapsed / 1.5);
+            if flash_page == self.page && elapsed < FLASH_SECONDS {
+                let alpha = 160.0 * (1.0 - elapsed / FLASH_SECONDS);
                 let col = Color32::from_rgba_unmultiplied(255, 140, 0, alpha as u8);
                 let screen = self.page_to_screen(
                     rect,
@@ -294,6 +297,14 @@ impl Pane {
 
     /// Draw the reader window when open.
     pub(crate) fn ui(&mut self, ctx: &Context) {
+        // A flash that has run its 1.5 seconds is dropped, so nothing keeps asking for repaints.
+        let now = ctx.input(|i| i.time);
+        if self
+            .flash
+            .is_some_and(|(_, _, start)| now - start >= FLASH_SECONDS)
+        {
+            self.flash = None;
+        }
         if !self.open {
             return;
         }
