@@ -70,7 +70,7 @@ fn nearest_plane_row(project: &Project, signal_row: usize, step: i32) -> Option<
 }
 
 #[derive(Clone)]
-enum Geometry {
+pub(super) enum Geometry {
     Microstrip {
         method: &'static str,
         reference: String,
@@ -86,14 +86,14 @@ enum Geometry {
 }
 
 #[derive(Clone)]
-struct StackSample {
-    height: f64,
-    er: f64,
-    copper: f64,
-    geometry: Geometry,
+pub(super) struct StackSample {
+    pub(super) height: f64,
+    pub(super) er: f64,
+    pub(super) copper: f64,
+    pub(super) geometry: Geometry,
 }
 
-fn stack_sample(project: &Project, layer: Layer) -> Option<StackSample> {
+pub(super) fn stack_sample(project: &Project, layer: Layer) -> Option<StackSample> {
     let copper = copper_thickness(project, layer);
     if project.board.layer_records.is_empty() {
         let (height, er) = project
@@ -190,7 +190,7 @@ fn copper_thickness(project: &Project, layer: Layer) -> f64 {
         .unwrap_or(DEFAULT_COPPER_MM)
 }
 
-fn pair_for_net(project: &Project, net: Id) -> Option<&DiffPair> {
+pub(super) fn pair_for_net(project: &Project, net: Id) -> Option<&DiffPair> {
     project
         .board
         .diff_pairs
@@ -229,7 +229,7 @@ fn finding_message(
     )
 }
 
-fn segment_impedance(
+pub(super) fn segment_impedance(
     _project: &Project,
     track: &Track,
     pair: Option<&DiffPair>,
@@ -275,14 +275,20 @@ pub(crate) fn impedance_target_findings(project: &Project) -> Vec<Finding> {
         if !outside_band(computed, target, tolerance_pct) {
             continue;
         }
+        let hint = if let Some(w) = super::impedance_fix::suggested_width(project, track.id) {
+            Some(format!(
+                "Set the track width to {:.3} mm to reach {:.1} ohm.",
+                w, target
+            ))
+        } else {
+            Some("Change the track width or the gap, or set a different target on the net.".into())
+        };
         out.push(Finding {
             code: "impedance_target",
             severity: project.rule_severity("impedance_target", "error"),
             message: finding_message(project, track.net, track, computed, target, &sample),
             objects: vec![track.id],
-            hint: Some(
-                "Change the track width or the gap, or set a different target on the net.".into(),
-            ),
+            hint,
         });
     }
     out
@@ -469,9 +475,11 @@ mod tests {
         let findings = impedance_target_findings(&p);
         assert!(!findings.is_empty(), "expected an impedance target finding");
         let finding = &findings[0];
-        assert_eq!(
-            finding.hint.as_deref(),
-            Some("Change the track width or the gap, or set a different target on the net.")
+        let hint = finding.hint.as_deref().ok_or("hint is None")?;
+        assert!(
+            hint.starts_with("Set the track width to ") && hint.ends_with(" ohm."),
+            "hint should suggest a width: {}",
+            hint
         );
         let sample = stack_sample(&p, Layer::Front).ok_or("stack sample")?;
         let good = imp::width_for_ohms(50.0, |w| {
