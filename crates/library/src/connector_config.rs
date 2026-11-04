@@ -8,7 +8,7 @@
 //! - crates/library/src/connector_partnumber.rs
 //! - crates/library/src/connector_series_generate.rs
 //! - crates/library/src/connector_series_data.rs
-use crate::connector_partnumber::FieldError;
+use crate::connector_partnumber::{FieldError, FieldKind, SeriesSpec};
 use crate::connector_series_data::series_spec;
 use crate::connector_series_generate::ConnectorSeriesOptions;
 use std::collections::BTreeMap;
@@ -40,6 +40,115 @@ pub fn options_from_fields(
             valid_values: vec!["TSW".into(), "SSW".into(), "BTH".into()],
         }]),
     }
+}
+
+/// One configurable field with its allowed choices.
+///
+/// # Rules
+/// - `fixed` fields have one option and are shown as read-only text.
+/// - `optional` fields may be left unset; they are omitted from the part number.
+pub struct FieldChoice {
+    /// Stable field id matching the part-number spec.
+    pub id: String,
+    /// Human-readable label for the UI.
+    pub label: String,
+    /// Allowed (code, label) pairs; empty for fixed fields.
+    pub options: Vec<(String, String)>,
+    /// True when the field may be omitted from the part number.
+    pub optional: bool,
+    /// True when the field has a single fixed value.
+    pub fixed: bool,
+}
+
+/// List the configurable fields for a series part number.
+///
+/// # Rules
+/// - Literal fields become fixed choices with one option.
+/// - Pitch positions generate one option per allowed count (pitch digit 1 only).
+/// - Enum and optional enum fields list their allowed codes and labels.
+///
+/// # Dependencies
+/// - crates/library/src/connector_partnumber.rs
+pub fn field_choices(spec: &SeriesSpec) -> Vec<FieldChoice> {
+    let mut choices = Vec::new();
+    for field in &spec.fields {
+        let choice = match &field.kind {
+            FieldKind::Literal { text } => FieldChoice {
+                id: field.id.clone(),
+                label: field.label.clone(),
+                options: vec![(text.clone(), text.clone())],
+                optional: false,
+                fixed: true,
+            },
+            FieldKind::PitchPositions => {
+                let mut opts = Vec::new();
+                let min = spec.limits.min_positions_per_row;
+                let max = spec.limits.max_positions_per_row;
+                for n in min..=max {
+                    let code = format!("1{:02}", n);
+                    let label = format!("{} positions per row", n);
+                    opts.push((code, label));
+                }
+                FieldChoice {
+                    id: field.id.clone(),
+                    label: field.label.clone(),
+                    options: opts,
+                    optional: false,
+                    fixed: false,
+                }
+            }
+            FieldKind::Enum { values } => {
+                let opts: Vec<(String, String)> = values
+                    .iter()
+                    .map(|v| (v.code.clone(), v.label.clone()))
+                    .collect();
+                FieldChoice {
+                    id: field.id.clone(),
+                    label: field.label.clone(),
+                    options: opts,
+                    optional: false,
+                    fixed: false,
+                }
+            }
+            FieldKind::OptionalEnum { values } => {
+                let opts: Vec<(String, String)> = values
+                    .iter()
+                    .map(|v| (v.code.clone(), v.label.clone()))
+                    .collect();
+                FieldChoice {
+                    id: field.id.clone(),
+                    label: field.label.clone(),
+                    options: opts,
+                    optional: true,
+                    fixed: false,
+                }
+            }
+        };
+        choices.push(choice);
+    }
+    choices
+}
+
+/// Parse typed text and return the series and field values it identifies.
+///
+/// # Rules
+/// - Uses partial parsing so incomplete part numbers still fill known fields.
+/// - Returns None for the series when the prefix does not match any spec.
+/// - The literal series field is not included in the returned values map.
+///
+/// # Dependencies
+/// - crates/library/src/connector_partnumber.rs
+pub fn fill_from_text(
+    specs: &[SeriesSpec],
+    text: &str,
+) -> (Option<String>, BTreeMap<String, String>, Vec<FieldError>) {
+    let (part, errors) = crate::connector_partnumber::parse_partial(specs, text);
+    let series = if part.series_id.is_empty() {
+        None
+    } else {
+        Some(part.series_id)
+    };
+    (series, part.values, errors)
 }
 
 fn map_tsw_ssw(
@@ -210,6 +319,7 @@ fn positions_from_bth_code(code: &str) -> Result<u32, Vec<FieldError>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::connector_partnumber::first_slice_specs;
     use crate::connector_series_generate::generate_connector_part;
 
     fn fields_tsw() -> BTreeMap<String, String> {
@@ -288,6 +398,75 @@ mod tests {
 
         let generated = generate_connector_part("BTH", &opts).map_err(|e| format!("{e:?}"))?;
         assert!(generated.part_number.starts_with("BTH-"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_partial_part_number_fills_the_fields_it_understands() -> Result<(), String> {
+        let specs = first_slice_specs().map_err(|e| format!("{e:?}"))?;
+
+        // Partial: missing plating and row
+        let (series, values, errors) = fill_from_text(&specs, "TSW-110-07");
+        assert_eq!(series, Some("tsw".into()));
+        assert_eq!(values.get("pitch_positions"), Some(&"110".into()));
+        assert_eq!(values.get("lead"), Some(&"07".into()));
+        assert!(!errors.is_empty());
+        assert_eq!(errors[0].field, "plating");
+
+        // Complete part number
+        let (series, values, errors) = fill_from_text(&specs, "TSW-110-07-G-S");
+        assert_eq!(series, Some("tsw".into()));
+        assert_eq!(values.get("pitch_positions"), Some(&"110".into()));
+        assert_eq!(values.get("lead"), Some(&"07".into()));
+        assert_eq!(values.get("plating"), Some(&"G".into()));
+        assert_eq!(values.get("row"), Some(&"S".into()));
+        assert!(errors.is_empty());
+
+        // Unknown prefix
+        let (series, _values, errors) = fill_from_text(&specs, "ZZZ-1");
+        assert_eq!(series, None);
+        assert!(!errors.is_empty());
+        assert_eq!(errors[0].field, "series");
+        assert!(errors[0].valid_values.contains(&"TSW".into()));
+        Ok(())
+    }
+
+    #[test]
+    fn field_choices_list_every_control() -> Result<(), String> {
+        let specs = first_slice_specs().map_err(|e| format!("{e:?}"))?;
+        let tsw_spec = specs
+            .iter()
+            .find(|s| s.id == "tsw")
+            .ok_or("tsw spec missing")?;
+        let choices = field_choices(tsw_spec);
+
+        // Find the lead choice
+        let lead = choices
+            .iter()
+            .find(|c| c.id == "lead")
+            .ok_or("lead choice missing")?;
+        assert!(!lead.fixed);
+        assert!(!lead.optional);
+        let has_07 = lead.options.iter().any(|(code, _)| code == "07");
+        assert!(has_07, "lead should have option 07");
+
+        // Find the row choice
+        let row = choices
+            .iter()
+            .find(|c| c.id == "row")
+            .ok_or("row choice missing")?;
+        let has_s = row.options.iter().any(|(code, _)| code == "S");
+        let has_d = row.options.iter().any(|(code, _)| code == "D");
+        assert!(has_s, "row should have option S");
+        assert!(has_d, "row should have option D");
+
+        // The series field should be fixed
+        let series = choices
+            .iter()
+            .find(|c| c.id == "series")
+            .ok_or("series choice missing")?;
+        assert!(series.fixed);
+        assert_eq!(series.options.len(), 1);
         Ok(())
     }
 }
