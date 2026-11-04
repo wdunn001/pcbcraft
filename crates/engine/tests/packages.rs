@@ -198,3 +198,67 @@ fn a_project_package_is_saved_validated_and_exported() -> Result<(), String> {
     assert_eq!(back.packages, s.project.packages);
     Ok(())
 }
+
+#[test]
+fn a_package_is_duplicated_under_a_new_id() -> Result<(), String> {
+    let mut s = Session::sample().map_err(|e| e.to_string())?;
+    let r = s
+        .execute(
+            "package.duplicate",
+            json!({"id": "fab_prototype", "new_id": "my_fab", "name": "My fab"}),
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+    assert_eq!(r["result"]["id"], "my_fab");
+    assert_eq!(r["result"]["source"], "fab_prototype");
+    // The duplicate appears in the list with source "project" and the right name.
+    let list = s
+        .query("package.list", json!({}), None)
+        .map_err(|e| e.to_string())?;
+    let all = list["result"]["packages"].as_array().ok_or("packages")?;
+    assert_eq!(all.len(), 11);
+    let mine = all
+        .iter()
+        .find(|p| p["id"] == "my_fab")
+        .ok_or("my_fab not in list")?;
+    assert_eq!(mine["source"], "project");
+    assert_eq!(mine["name"], "My fab");
+    assert!(mine["available"].as_bool().ok_or("available")?);
+    let original = all
+        .iter()
+        .find(|p| p["id"] == "fab_prototype")
+        .ok_or("fab_prototype not in list")?;
+    assert_eq!(
+        mine["contents"].as_array().ok_or("contents")?.len(),
+        original["contents"].as_array().ok_or("contents")?.len()
+    );
+    // Duplicating to a bundled id errors and leaves the list unchanged.
+    let err = s
+        .execute(
+            "package.duplicate",
+            json!({"id": "my_fab", "new_id": "fab_prototype"}),
+            None,
+        )
+        .err()
+        .ok_or("bundled id must error")?
+        .to_string();
+    assert!(err.contains("bundled"), "error names the issue: {err}");
+    // Duplicating a non-existent id errors.
+    let err = s
+        .execute(
+            "package.duplicate",
+            json!({"id": "nope", "new_id": "foo"}),
+            None,
+        )
+        .err()
+        .ok_or("missing id must error")?
+        .to_string();
+    assert!(err.contains("nope"), "error names the id: {err}");
+    // The list still has exactly 11 packages after the errors.
+    let list2 = s
+        .query("package.list", json!({}), None)
+        .map_err(|e| e.to_string())?;
+    let all2 = list2["result"]["packages"].as_array().ok_or("packages")?;
+    assert_eq!(all2.len(), 11);
+    Ok(())
+}
