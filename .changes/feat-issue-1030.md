@@ -1,7 +1,8 @@
 ---
-issue: 1030
-type: feat
+type: test
+area: layout
+issues: [1030]
+user_visible: false
+docs: n/a: a test note, nothing a guide describes
+summary: A story for the signal integrity severity control is held back because the control does not exist yet.
 ---
-
-Strengthened e2e story to use a real signal integrity check severity control
-and assert the acceptance. (BLOCKED: no such control exists in the UI.)

@@ -527,6 +527,99 @@ fn a_newcomer_works_on_main_and_a_frame_does_not_stall() -> Result<(), String> {
     Ok(())
 }
 
+/// Drag the primary button from `from` to `to` over the canvas, with `space` held or not.
+fn drag_on_canvas(
+    ctx: &egui::Context,
+    app: &mut App,
+    from: egui::Pos2,
+    to: egui::Pos2,
+    space: bool,
+) {
+    let key = |pressed: bool| egui::Event::Key {
+        key: egui::Key::Space,
+        physical_key: Some(egui::Key::Space),
+        pressed,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let button = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    if space {
+        frame(ctx, app, vec![key(true)], egui::Modifiers::NONE);
+    }
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::PointerMoved(from)],
+        egui::Modifiers::NONE,
+    );
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::PointerMoved(from), button(from, true)],
+        egui::Modifiers::NONE,
+    );
+    for step in 1..=6 {
+        let at = from + (to - from) * (step as f32 / 6.0);
+        frame(
+            ctx,
+            app,
+            vec![egui::Event::PointerMoved(at)],
+            egui::Modifiers::NONE,
+        );
+    }
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::PointerMoved(to), button(to, false)],
+        egui::Modifiers::NONE,
+    );
+    if space {
+        frame(ctx, app, vec![key(false)], egui::Modifiers::NONE);
+    }
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+}
+
+#[test]
+fn a_newcomer_holds_space_and_drags_to_pan_the_view() -> Result<(), String> {
+    let (ctx, mut app) = showcase()?;
+    for _ in 0..5 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let from = app.canvas_rect.center();
+    let to = from + Vec2::new(120.0, 60.0);
+    let parts = app.project.components.len();
+    let first = app.project.components.first().map(|c| c.position);
+    let before = app.schematic.center;
+
+    drag_on_canvas(&ctx, &mut app, from, to, true);
+    let after = app.schematic.center;
+    assert!(
+        (after.x - before.x).abs() > 1.0 || (after.y - before.y).abs() > 1.0,
+        "dragging with Space held moves the view: {before:?} to {after:?}"
+    );
+    assert_eq!(app.project.components.len(), parts, "the pan adds no part");
+    assert_eq!(
+        app.project.components.first().map(|c| c.position),
+        first,
+        "the pan moves no part"
+    );
+
+    // The same drag without Space is not a pan.
+    let before = app.schematic.center;
+    drag_on_canvas(&ctx, &mut app, from, to, false);
+    let after = app.schematic.center;
+    assert!(
+        (after.x - before.x).abs() < 0.01 && (after.y - before.y).abs() < 0.01,
+        "a plain drag leaves the view where it is: {before:?} to {after:?}"
+    );
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_fits_the_whole_circuit_on_main() -> Result<(), String> {
     let (ctx, mut app) = showcase()?;

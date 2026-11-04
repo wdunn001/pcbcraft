@@ -39,6 +39,7 @@ mod stub;
 pub mod testpoint;
 pub mod toolpath_gap;
 mod track_radius;
+mod vscore_edge;
 mod width_advice;
 
 pub use companion::{companion_findings, companion_findings_for_rules};
@@ -135,6 +136,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("hole_to_copper_npth", "error"),
     ("min_npth", "error"),
     ("copper_sliver", "error"),
+    ("copper_to_vscore", "error"),
     ("length_group_skew", "error"),
     ("stub_length", "error"),
     ("backdrill_must_not_cut", "error"),
@@ -2791,6 +2793,7 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
             }
         }
     }
+    result.extend(vscore_edge::vscore_edge_findings(project));
     if let Some(max_ratio) = rules.max_aspect_ratio {
         let mut smallest = f64::INFINITY;
         for via in &board.vias {

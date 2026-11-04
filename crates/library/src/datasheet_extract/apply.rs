@@ -25,12 +25,17 @@ pub fn build_part_patch(bundle: &DatasheetExtractBundle) -> Result<PartFieldPatc
     Ok(patch)
 }
 
-pub fn apply_patch_to_symbol(symbol: &mut SymbolDefinition, patch: &PartFieldPatch) {
+pub fn apply_patch_to_symbol(symbol: &mut SymbolDefinition, patch: &PartFieldPatch) -> usize {
+    let mut renamed = 0;
     for pin in &mut symbol.pins {
-        if let Some(name) = patch.pin_names.get(&pin.number) {
+        if let Some(name) = patch.pin_names.get(&pin.number)
+            && pin.name != *name
+        {
             pin.name.clone_from(name);
+            renamed += 1;
         }
     }
+    renamed
 }
 
 fn effective_pin_name(row: &ReviewedField<ExtractedPinRow>) -> Option<String> {
@@ -127,7 +132,8 @@ mod tests {
             unsupported: Vec::new(),
             retained: vec![],
         };
-        apply_patch_to_symbol(&mut symbol, &patch);
+        let renamed = apply_patch_to_symbol(&mut symbol, &patch);
+        assert_eq!(renamed, 1);
         assert_eq!(symbol.pins[0].name, "VOUT");
         Ok(())
     }

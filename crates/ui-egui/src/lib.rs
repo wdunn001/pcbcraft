@@ -356,6 +356,11 @@ fn shortcut_rows() -> Vec<(String, String, String)> {
             t!("shortcut.context.canvas"),
         ),
         (
+            t!("shortcut.keys.space_drag"),
+            t!("shortcut.pan_the_view"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
             t!("shortcut.keys.scroll"),
             t!("shortcut.zoom_the_view"),
             t!("shortcut.context.canvas"),

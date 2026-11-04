@@ -1,8 +1,8 @@
 ---
 type: feature
-area: output
+area: io
 issues: [147]
-user_visible: true
-docs: []
-summary: Add mask, paste, silk, and outline plot artifact writers that generate gerber files for each layer.
+user_visible: false
+docs: [crates/io/src/generate.rs]
+summary: Artifact download entries are built in pure code for browser export.
 ---

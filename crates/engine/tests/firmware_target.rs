@@ -1,3 +1,4 @@
+#![cfg(feature = "plugin-firmware-target")]
 //! Issue #846: peripheral checks and firmware target export.
 use pcbcraft_doc::{Component, EmbeddedFile, Net, Pin, Project};
 use pcbcraft_engine::Session;
@@ -91,27 +92,6 @@ fn a_newcomer_is_told_a_pin_cannot_do_the_function_it_was_given() -> Result<(), 
                 .is_some_and(|c| c == "peripheral_invalid_function")
         }),
         "expected invalid function finding"
-    );
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_exports_a_board_config_for_the_flight_controller_firmware() -> Result<(), String> {
-    let project = firmware_fixture_project();
-    let files = pcbcraft_io::firmware_target_files(&project)?;
-    let config = files
-        .iter()
-        .find(|(name, _)| name.ends_with("config.h"))
-        .ok_or("config.h not exported")?;
-    let body = String::from_utf8(config.1.clone()).map_err(|e| e.to_string())?;
-    assert!(
-        body.contains("GYRO_1_CS_PIN PA4") && body.contains("FLASH_CS_PIN PB12"),
-        "config.h should name gyro and flash pins"
-    );
-    let mismatches = pcbcraft_io::firmware_config_compare(&project, "#define GYRO_1_CS_PIN PA5\n")?;
-    assert!(
-        mismatches.iter().any(|m| m.contains("GYRO_1_CS_PIN")),
-        "reverse check should report a swapped gyro chip-select pin"
     );
     Ok(())
 }

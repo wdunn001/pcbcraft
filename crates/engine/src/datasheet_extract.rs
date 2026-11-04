@@ -10,8 +10,8 @@
 use super::*;
 use pcbcraft_library::datasheet_extract::{
     DatasheetExtractBundle, ExtractedOrderingCode, ExtractedPackageDimension, ExtractedPinRow,
-    ExtractedRatingRow, ReviewDecision, TextDocument, bounded_field_text,
-    extract_from_text_document, set_decision,
+    ExtractedRatingRow, ReviewDecision, TextDocument, apply_patch_to_symbol, bounded_field_text,
+    build_part_patch, extract_from_text_document, set_decision,
 };
 
 /// Register the datasheet.extract and datasheet.review command specs.
@@ -51,6 +51,10 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             "decision": { "type": "string", "enum": ["accept", "reject", "edit"] },
             "edited": { "type": "object" }
     });
+    let apply_properties = json!({
+        "part": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_-]+$" },
+        "symbol": { "type": "string", "minLength": 1, "maxLength": 128 }
+    });
     vec![
         CommandSpec {
             id: "datasheet.extract",
@@ -67,6 +71,11 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             id: "datasheet.review",
             description: "Apply an accept, edit or reject decision to one row in a previously extracted datasheet bundle",
             input_schema: schema(review_properties, &["part", "table", "index", "decision"]),
+        },
+        CommandSpec {
+            id: "datasheet.apply_review",
+            description: "Apply accepted and edited datasheet values to a library symbol, renaming pins and setting the ordering code property",
+            input_schema: schema(apply_properties, &["part", "symbol"]),
         },
     ]
 }
@@ -92,6 +101,9 @@ pub(super) fn run_design(
     }
     if command == "datasheet.review" {
         return Some(review_row(p, params));
+    }
+    if command == "datasheet.apply_review" {
+        return Some(apply_review_command(p, params));
     }
     None
 }
@@ -189,6 +201,47 @@ fn review_row(p: &mut Project, params: &Value) -> Result<Value, Error> {
         "table": a.table,
         "index": a.index,
         "decision": a.decision
+    }))
+}
+
+/// Apply the reviewed datasheet bundle to a library symbol.
+///
+/// # Rules
+/// - loads the bundle for the given part name
+/// - builds a patch from accepted and edited values only
+/// - finds the symbol in the project library by name
+/// - applies the patch and returns the count of renamed pins
+///
+/// # Dependencies
+/// - crates/library/src/datasheet_extract/apply.rs
+fn apply_review_command(p: &mut Project, params: &Value) -> Result<Value, Error> {
+    let a: ApplyParams = parse(params)?;
+    if !is_valid_part_name(&a.part) {
+        return Err(Error::Invalid(
+            "part name must be 1 to 64 bytes of [A-Za-z0-9_-]".into(),
+        ));
+    }
+    if a.symbol.is_empty() || a.symbol.len() > 128 {
+        return Err(Error::Invalid("symbol name must be 1 to 128 bytes".into()));
+    }
+
+    let bundle = load_bundle(p, &a.part)?;
+    let patch = build_part_patch(&bundle).map_err(Error::Invalid)?;
+
+    let symbol = p
+        .library
+        .symbols
+        .iter_mut()
+        .find(|s| s.name == a.symbol)
+        .ok_or_else(|| Error::Invalid(format!("no such library symbol {}", a.symbol)))?;
+
+    let renamed = apply_patch_to_symbol(symbol, &patch);
+    let ordering_code = patch.properties.get("Ordering code").cloned();
+
+    Ok(json!({
+        "symbol": a.symbol,
+        "renamed_pins": renamed,
+        "ordering_code": ordering_code
     }))
 }
 
@@ -335,4 +388,237 @@ struct ReviewParams {
     index: usize,
     decision: String,
     edited: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApplyParams {
+    part: String,
+    symbol: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Session;
+    use pcbcraft_geom::Point;
+    use pcbcraft_library::datasheet_extract::{
+        DatasheetExtractBundle, DatasheetRect, DatasheetSourceRecord, ExtractedPinRow,
+        ReviewedField,
+    };
+    use pcbcraft_library::{SymbolDefinition, SymbolPin};
+
+    fn make_symbol(name: &str) -> SymbolDefinition {
+        SymbolDefinition {
+            name: name.into(),
+            reference: name.into(),
+            value: name.into(),
+            description: String::new(),
+            keywords: String::new(),
+            footprint: String::new(),
+            set: String::new(),
+            pins: vec![
+                SymbolPin {
+                    number: "1".into(),
+                    name: "A".into(),
+                    position: Point::new(0.0, 0.0),
+                    angle: 0.0,
+                    length: 2.54,
+                    electrical_type: "passive".into(),
+                    unit: 1,
+                    body_style: 1,
+                    graphical_style: "line".into(),
+                    visible: true,
+                },
+                SymbolPin {
+                    number: "2".into(),
+                    name: "B".into(),
+                    position: Point::new(0.0, 0.0),
+                    angle: 0.0,
+                    length: 2.54,
+                    electrical_type: "passive".into(),
+                    unit: 1,
+                    body_style: 1,
+                    graphical_style: "line".into(),
+                    visible: true,
+                },
+            ],
+            graphics: Vec::new(),
+            extends: None,
+            raw_source: String::new(),
+            unsupported: Vec::new(),
+            retained: vec![],
+        }
+    }
+
+    fn make_pin_row(
+        pin_number: &str,
+        pin_name: &str,
+        decision: ReviewDecision,
+    ) -> Result<ReviewedField<ExtractedPinRow>, String> {
+        let source = DatasheetSourceRecord::new(
+            0,
+            3,
+            DatasheetRect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 100.0,
+                y1: 80.0,
+            },
+            format!("{} {}", pin_number, pin_name).as_str(),
+            None,
+        )?;
+        let mut row = ReviewedField::new(ExtractedPinRow {
+            pin_number: pin_number.into(),
+            pin_name: pin_name.into(),
+            source,
+        });
+        row.decision = decision;
+        Ok(row)
+    }
+
+    fn make_bundle_with_pins(
+        pins: Vec<(String, String, ReviewDecision)>,
+    ) -> Result<DatasheetExtractBundle, String> {
+        let mut bundle = DatasheetExtractBundle::default();
+        for (num, name, decision) in pins {
+            bundle.pin_table.push(make_pin_row(&num, &name, decision)?);
+        }
+        Ok(bundle)
+    }
+
+    #[test]
+    fn rejected_values_are_never_written_to_the_part() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.library.symbols.push(make_symbol("IC"));
+
+        let bundle = make_bundle_with_pins(vec![
+            ("1".to_string(), "IN+".to_string(), ReviewDecision::Rejected),
+            ("2".to_string(), "GND".to_string(), ReviewDecision::Accepted),
+        ])?;
+        let json = serde_json::to_string(&bundle).map_err(|e| e.to_string())?;
+        s.project.files.push(pcbcraft_doc::EmbeddedFile {
+            name: "datasheet-extract-TESTIC.json".to_string(),
+            data: json,
+            encoding: String::new(),
+        });
+
+        let result = s
+            .execute(
+                "datasheet.apply_review",
+                json!({
+                    "part": "TESTIC",
+                    "symbol": "IC"
+                }),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+        assert_eq!(result["result"]["renamed_pins"], 1);
+
+        let symbol = s
+            .project
+            .library
+            .symbols
+            .iter()
+            .find(|sym| sym.name == "IC")
+            .ok_or("symbol not found")?;
+        assert_eq!(symbol.pins[0].name, "A");
+        assert_eq!(symbol.pins[1].name, "GND");
+        Ok(())
+    }
+
+    #[test]
+    fn accepted_values_store_page_and_rectangle() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.library.symbols.push(make_symbol("IC"));
+
+        let bundle = make_bundle_with_pins(vec![(
+            "1".to_string(),
+            "VCC".to_string(),
+            ReviewDecision::Accepted,
+        )])?;
+        let json = serde_json::to_string(&bundle).map_err(|e| e.to_string())?;
+        s.project.files.push(pcbcraft_doc::EmbeddedFile {
+            name: "datasheet-extract-TESTIC.json".to_string(),
+            data: json,
+            encoding: String::new(),
+        });
+
+        let result = s
+            .execute(
+                "datasheet.apply_review",
+                json!({
+                    "part": "TESTIC",
+                    "symbol": "IC"
+                }),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+        assert_eq!(result["result"]["renamed_pins"], 1);
+
+        let attachment = s
+            .project
+            .files
+            .iter()
+            .find(|f| f.name == "datasheet-extract-TESTIC.json")
+            .ok_or("attachment not found")?;
+        let bundle: DatasheetExtractBundle =
+            serde_json::from_str(&attachment.data).map_err(|e| e.to_string())?;
+        let row = bundle.pin_table.first().ok_or("no pin rows")?;
+        assert_eq!(row.value.source.page_label, 3);
+        assert_eq!(row.value.source.rect.x0, 10.0);
+        assert_eq!(row.value.source.rect.y1, 80.0);
+        Ok(())
+    }
+
+    #[test]
+    fn datasheet_apply_is_one_undo_step() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.library.symbols.push(make_symbol("IC"));
+
+        let bundle = make_bundle_with_pins(vec![(
+            "1".to_string(),
+            "VCC".to_string(),
+            ReviewDecision::Accepted,
+        )])?;
+        let json = serde_json::to_string(&bundle).map_err(|e| e.to_string())?;
+        s.project.files.push(pcbcraft_doc::EmbeddedFile {
+            name: "datasheet-extract-TESTIC.json".to_string(),
+            data: json,
+            encoding: String::new(),
+        });
+
+        let result = s
+            .execute(
+                "datasheet.apply_review",
+                json!({
+                    "part": "TESTIC",
+                    "symbol": "IC"
+                }),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+        assert_eq!(result["result"]["renamed_pins"], 1);
+
+        let symbol = s
+            .project
+            .library
+            .symbols
+            .iter()
+            .find(|sym| sym.name == "IC")
+            .ok_or("symbol not found")?;
+        assert_eq!(symbol.pins[0].name, "VCC");
+
+        s.undo().map_err(|e| e.to_string())?;
+
+        let symbol = s
+            .project
+            .library
+            .symbols
+            .iter()
+            .find(|sym| sym.name == "IC")
+            .ok_or("symbol not found")?;
+        assert_eq!(symbol.pins[0].name, "A");
+        Ok(())
+    }
 }
