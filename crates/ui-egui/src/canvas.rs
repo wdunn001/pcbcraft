@@ -572,9 +572,17 @@ impl App {
         if self.tab == Tab::Schematic {
             self.page_switcher(ui);
         }
+        // Holding Space turns a plain drag into a pan. The canvas then senses hover only, so no
+        // tool, selection or route gesture sees the drag; the pan itself reads the raw pointer.
+        let space_pan =
+            ui.input(|i| i.key_down(egui::Key::Space)) && !ui.ctx().egui_wants_keyboard_input();
         let (response, painter) = ui.allocate_painter(
             ui.available_size(),
-            Sense::click_and_drag().union(Sense::hover()),
+            if space_pan {
+                Sense::hover()
+            } else {
+                Sense::click_and_drag().union(Sense::hover())
+            },
         );
         let rect = response.rect;
         self.canvas_rect = rect;
@@ -646,6 +654,19 @@ impl App {
             let d = ui.input(|i| i.pointer.delta());
             ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
             camera.pan_screen(d);
+        }
+        if space_pan && response.contains_pointer() {
+            let dragging = ui.input(|i| i.pointer.primary_down());
+            ui.ctx().set_cursor_icon(if dragging {
+                egui::CursorIcon::Grabbing
+            } else {
+                egui::CursorIcon::Grab
+            });
+            if dragging {
+                let d = ui.input(|i| i.pointer.delta());
+                ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
+                camera.pan_screen(d);
+            }
         }
         if self.tab == Tab::Pcb {
             self.pcb = camera;

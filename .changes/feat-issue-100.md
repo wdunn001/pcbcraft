@@ -1,5 +1,5 @@
 ---
-type: feat
+type: feature
 area: io
 issues: [100]
 user_visible: true

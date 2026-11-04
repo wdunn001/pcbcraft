@@ -1,9 +1,8 @@
-### feature: drive align and array from the Edit menu (e2e)
-
-A new end-to-end story, `a_newcomer_aligns_two_parts_from_the_edit_menu`,
-sets up two footprints, box-selects them, opens the real Edit menu,
-chooses "Align and distribute" → "Align top", and then opens the
-"Array..." dialog and clicks "Make array". The test asserts that both
-footprints share the same Y coordinate after aligning and that the array
-creates the expected number of new parts. Production code was not
-changed; the menu entries already existed in `crates/ui-egui/src/arrange.rs`.
+---
+type: test
+area: layout
+issues: [452]
+user_visible: false
+docs: n/a: a test only, no behaviour changed
+summary: A story drives Align and distribute and Array from the Edit menu and checks the parts line up and the copies appear.
+---
