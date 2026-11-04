@@ -384,7 +384,16 @@ fn draw_assembly(
     } else {
         draw_lbl::ASSEMBLY_TOP_TITLE
     };
-    simple_title_block(page, p, Point::new(bmax.x + 6.0, bmin.y), title)?;
+    let title_origin = Point::new(bmax.x + 6.0, bmin.y);
+    simple_title_block(page, p, title_origin, title)?;
+    if let Some(note) = crate::conformal_coat_assembly_note(p) {
+        page.text(
+            Point::new(title_origin.x, title_origin.y - 4.0),
+            1.4,
+            ink,
+            &note,
+        )?;
+    }
     Ok(())
 }
 
@@ -667,6 +676,58 @@ mod tests {
             assert!(name.ends_with(".pdf"), "{name}");
             assert!(bytes.starts_with(b"%PDF-1.4"), "{name} is a PDF");
         }
+        Ok(())
+    }
+    #[test]
+    fn a_newcomer_configures_conformal_coat_keepout_and_sees_it_on_the_assembly_drawing()
+    -> Result<(), String> {
+        let mut project = two_sided_project()?;
+        // Add a drawn layer with a shape
+        let layer_id = 99;
+        project.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: layer_id,
+            name: "CoatingKeepout".into(),
+            kind: pcbcraft_doc::ArtKind::Other,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![pcbcraft_doc::ArtShape::Rect {
+                x: 5.0,
+                y: 5.0,
+                width: 10.0,
+                height: 10.0,
+                rotate: 0.0,
+            }],
+        });
+        // Configure the conformal coat keep-out
+        project.board.conformal_coat_keepout = Some(pcbcraft_doc::ConformalCoatKeepout {
+            layer: layer_id,
+            plot_name: "CoatingKeepout".into(),
+            side: "top".into(),
+            polarity: "positive".into(),
+        });
+        project.validate()?;
+        // Export assembly drawing and check the note is present
+        let top = drawing_svg(&project, "assembly-top")?;
+        assert!(
+            top.contains("Conformal coating keep-out"),
+            "assembly drawing shows the conformal coat note: {top}"
+        );
+        assert!(
+            top.contains("CoatingKeepout"),
+            "assembly drawing names the keep-out layer: {top}"
+        );
+        // Also verify the Gerber plot is generated
+        let gerber = crate::conformal_coat_keepout_gerber(&project)?;
+        assert!(
+            gerber.contains("ConformalCoatingKeepout"),
+            "Gerber has the FileFunction attribute: {gerber}"
+        );
+        assert!(
+            gerber.contains("positive"),
+            "Gerber declares the polarity: {gerber}"
+        );
         Ok(())
     }
 }
