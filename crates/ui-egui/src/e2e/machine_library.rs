@@ -270,3 +270,61 @@ fn a_newcomer_adds_a_blank_machine_from_the_add_machine_window() -> Result<(), S
     let _ = std::fs::remove_dir_all(folder);
     Ok(())
 }
+
+/// The Library page has two navigation tabs in its left strip, Parts and Machines, as the other
+/// pages have Layers and Library. There is no "Library" tab there and no switch in the tool bar.
+#[test]
+fn a_newcomer_moves_between_the_parts_and_machines_tabs_of_the_library_page() -> Result<(), String>
+{
+    let (config, folder) = private_config("machine-tabs")?;
+    let mut app = App::create(session_with(&config), Preferences::default(), None, None);
+    app.refresh();
+    if !app.open_showcase() {
+        return Err(format!("the showcase did not open: {}", app.message));
+    }
+    app.home_open = false;
+    app.change_tab(Tab::Library);
+    let ctx = egui::Context::default();
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    // Both tabs are in the strip; the old single "Library" label is not.
+    let text = painted(&ctx, &mut app);
+    assert!(
+        text.contains("Parts"),
+        "the Parts tab is in the left strip: {text}"
+    );
+    assert!(
+        text.contains("Machines"),
+        "the Machines tab is in the left strip: {text}"
+    );
+    let machine_controls = interactive_rects(&ctx, &mut app)
+        .iter()
+        .filter(|(name, _)| name.ends_with("Machines"))
+        .count();
+    assert_eq!(
+        machine_controls, 1,
+        "Machines appears once, as the tab in the left strip, and not again as a tool bar switch"
+    );
+    // The Machines tab shows the machine library: filters on the left, cards in the middle.
+    authoring::tests::tap(&ctx, &mut app, "Machines")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "NeoDen YY1")?,
+        "the Machines tab shows the machine cards: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Add machine")?,
+        "the Machines tab has the Add machine button"
+    );
+    // The Parts tab brings the part browser back.
+    authoring::tests::tap(&ctx, &mut app, "Parts")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        !painted(&ctx, &mut app).contains("NeoDen YY1"),
+        "the Parts tab no longer shows the machine cards"
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
