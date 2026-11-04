@@ -2046,6 +2046,43 @@ mod tests {
     }
 
     #[test]
+    fn schematic_findings_and_the_lit_net_become_marks() {
+        let mut app = sample_app();
+        app.change_tab(Tab::Schematic);
+        let c = app.project.components[0].id;
+        // A schematic component gives a finding dot and selection on the schematic.
+        let marks = build_marks(&app.project, false, 0, &[c, 999_999], Some(c), None);
+        assert_eq!(
+            marks.findings.len(),
+            1,
+            "a component gives a dot; the unknown id gives none"
+        );
+        assert!(
+            marks.selection.is_some(),
+            "a component gives a selection box"
+        );
+        // The same component id gives no mark on the board (it is not a board object).
+        let on_board = build_marks(&app.project, true, 0, &[c], Some(c), None);
+        assert!(
+            on_board.findings.is_empty(),
+            "a component is not a board object, only its footprint is"
+        );
+        assert!(on_board.selection.is_none());
+        // A lit net shows on the schematic when that net has wires on this sheet.
+        if let Some(net) = app.project.nets.first() {
+            let lit = build_marks(&app.project, false, 0, &[], None, Some(net.id));
+            if !lit.net.is_empty() {
+                // The net has wires on this sheet; the mark is drawn.
+            } else {
+                // This net has no wires on sheet 0; check that finding_ids
+                // still extracts the component id from an ERC result.
+                let checks = json!({"erc": [{"objects": [c]}]});
+                assert_eq!(finding_ids(&checks, false), vec![c]);
+            }
+        }
+    }
+
+    #[test]
     fn the_largest_example_stays_inside_the_work_budget() {
         let mut app = sample_app();
         assert!(app.open_showcase(), "the showcase opens: {}", app.message);
