@@ -44,7 +44,7 @@ impl App {
     ///
     /// # Do not
     /// - Use this on the board tab.
-    pub(crate) fn label_under(&self, pos: Point, zoom: f32) -> Option<&Label> {
+    pub(crate) fn label_under(&self, pos: Point, zoom: f32) -> Option<Label> {
         let page = self.schematic_page();
         let reach = |l: &Label| {
             if l.kind == "junction" {
@@ -53,10 +53,11 @@ impl App {
                 f64::from(crate::targets::MIN_TARGET) / 2.0
             }
         };
-        self.project
+        let sheet = self.sheet_view();
+        sheet
             .labels
             .iter()
-            .filter(|l| self.project.schematic_label_page(l) == page)
+            .filter(|l| crate::page_scope::in_view(&sheet, page, sheet.schematic_label_page(l)))
             .filter(|l| l.kind != "bus")
             .filter(|l| l.position.distance(pos) * f64::from(zoom) <= reach(l))
             .min_by(|a, b| {
@@ -64,12 +65,13 @@ impl App {
                     .distance(pos)
                     .total_cmp(&b.position.distance(pos))
             })
+            .cloned()
     }
 
     /// True when `label` is closer to `pos` than the pin is, so the label wins
     /// the press and the pin keeps starting wires only where no label sits.
     pub(crate) fn label_beats_pin(&self, label: &Label, pin: &PinRef, pos: Point) -> bool {
-        self.project
+        self.sheet_view()
             .pin_position(pin)
             .is_none_or(|at| label.position.distance(pos) < at.distance(pos))
     }
@@ -77,7 +79,7 @@ impl App {
     /// A press on a label: select it and give back where it stands.
     pub(crate) fn label_press(&mut self, id: Id) -> Option<Point> {
         let at = self
-            .project
+            .sheet_view()
             .labels
             .iter()
             .find(|l| l.id == id)
@@ -100,6 +102,7 @@ impl App {
     /// does nothing.
     pub(crate) fn label_drag_end(&mut self, id: Id, origin: Point, to: Point) {
         if to != origin {
+            let to = self.item_to_page(id, to);
             self.run("label.move", json!({"id": id, "position": to}));
         }
     }

@@ -98,18 +98,16 @@ impl App {
         painter: &egui::Painter,
         rect: Rect,
         camera: Camera,
+        p: &Project,
         page: Id,
     ) {
         let Some(lit) = self.sheet_lit() else {
             return;
         };
-        let p = &self.project;
         let stroke = Stroke::new(3.5, self.accent());
-        for w in p
-            .wires
-            .iter()
-            .filter(|w| lit.nets.contains(&w.net) && p.on_schematic_page(page, w.id))
-        {
+        for w in p.wires.iter().filter(|w| {
+            lit.nets.contains(&w.net) && crate::page_scope::object_in_view(p, page, w.id)
+        }) {
             if let Some(path) = p.wire_path(w) {
                 painter.add(egui::Shape::line(
                     path.iter().map(|pt| camera.screen(*pt, rect)).collect(),
@@ -122,7 +120,7 @@ impl App {
             .iter()
             .filter(|c| lit.parts.contains(&c.id))
             .flat_map(|c| c.schematic_views())
-            .filter(|c| c.sheet == page)
+            .filter(|c| crate::page_scope::in_view(p, page, c.sheet))
         {
             self.symbol(painter, rect, camera, &c, true, false);
         }

@@ -161,7 +161,7 @@ impl App {
         };
         let mut points = self.wire_route.clone();
         if points.is_empty()
-            && let Some(at) = self.project.pin_position(&start)
+            && let Some(at) = self.sheet_view().pin_position(&start)
         {
             points.push(at);
         }
@@ -174,6 +174,18 @@ impl App {
             self.tool = Tool::Select;
             return;
         }
+        let (Some(a), Some(z)) = (
+            self.project.component(start.component).map(|c| c.sheet),
+            self.project.component(end.component).map(|c| c.sheet),
+        ) else {
+            return;
+        };
+        if a != z {
+            self.message = t!("schematic.wire.other_page");
+            self.clear_wire_draft();
+            return;
+        }
+        let points = self.points_to_page(a, &points);
         let params = json!({
             "points": points,
             "pins": [{"component": start.component, "pin": start.pin}, {"component": end.component, "pin": end.pin}]
@@ -191,6 +203,15 @@ impl App {
         if points.last().copied() != Some(at) {
             points.push(at);
         }
+        let page = self
+            .project
+            .drawn_wires
+            .iter()
+            .find(|w| w.id == wire_id)
+            .map_or(0, |w| self.project.schematic_drawn_wire_page(w));
+        let off = self.main_offset(page);
+        let points = self.points_to_page(page, &points);
+        let at = Point::new(at.x - off.x, at.y - off.y);
         let mut params = json!({
             "points": points,
             "tee": {"wire": wire_id, "at": {"x": at.x, "y": at.y}}
@@ -219,12 +240,12 @@ impl App {
                 if start_pin == pin {
                     return;
                 }
-                let Some(at) = self.project.pin_position(&pin) else {
+                let Some(at) = self.sheet_view().pin_position(&pin) else {
                     self.message = "That pin has no position.".into();
                     return;
                 };
                 self.finish_wire_to_pin(pin, at);
-            } else if let Some(at) = self.project.pin_position(&pin) {
+            } else if let Some(at) = self.sheet_view().pin_position(&pin) {
                 self.wire_route = vec![at];
                 self.tool = Tool::Wire(Some(pin));
             }
@@ -252,18 +273,23 @@ impl App {
 
     /// The drawn wires that sit on schematic page `page`, so a pick or a snap
     /// never reaches a wire of another page.
-    fn on_this_page_wires(&self, page: Id) -> impl Iterator<Item = &DrawnWire> {
-        self.project
+    fn on_this_page_wires(&self, page: Id) -> Vec<DrawnWire> {
+        let sheet = self.sheet_view();
+        sheet
             .drawn_wires
             .iter()
-            .filter(move |w| self.project.schematic_drawn_wire_page(w) == page)
+            .filter(|w| {
+                crate::page_scope::in_view(&sheet, page, sheet.schematic_drawn_wire_page(w))
+            })
+            .cloned()
+            .collect()
     }
 
     fn pick_wire_tee(&self, pos: Point, zoom: f32) -> Option<(Id, Point)> {
         let reach = 5.0 / zoom as f64;
         let mut best: Option<(Id, Point, f64)> = None;
         let page = self.schematic_page();
-        for w in self.on_this_page_wires(page) {
+        for w in &self.on_this_page_wires(page) {
             for pair in w.points.windows(2) {
                 let dist = point_segment(pos, pair[0], pair[1]);
                 if dist > reach {
@@ -281,8 +307,9 @@ impl App {
 
     fn schematic_label_click(&mut self, pos: Point, zoom: f32, kind: SchematicLabelKind) {
         let at = snap(pos);
-        let position = json!({"x": at.x, "y": at.y});
         let clicked = self.net_at_schematic_point(at, zoom);
+        let (_, local) = self.spot_to_page(at);
+        let position = json!({"x": local.x, "y": local.y});
         if kind == SchematicLabelKind::Power {
             let name = self.edit.label.power_net.trim().to_string();
             if name.is_empty() {
@@ -325,13 +352,13 @@ impl App {
         };
         self.run(
             "label.place",
-            json!({"kind": label_kind, "net": net, "position": {"x": at.x, "y": at.y}, "rotation": 0.0}),
+            json!({"kind": label_kind, "net": net, "position": position, "rotation": 0.0}),
         );
     }
 
     fn bus_member_at(&self, pos: Point, zoom: f32) -> Option<Id> {
         let reach = 5.0 / zoom as f64;
-        for w in self.on_this_page_wires(self.schematic_page()) {
+        for w in &self.on_this_page_wires(self.schematic_page()) {
             if w.net.is_some() {
                 continue;
             }
@@ -365,7 +392,7 @@ impl App {
             return self.project.pin(&pin)?.net;
         }
         let reach = 5.0 / zoom as f64;
-        for w in self.on_this_page_wires(self.schematic_page()) {
+        for w in &self.on_this_page_wires(self.schematic_page()) {
             for pair in w.points.windows(2) {
                 if point_segment(pos, pair[0], pair[1]) <= reach {
                     return w.net;
@@ -597,8 +624,9 @@ impl App {
                 self.bus_name_prompt = Some(ask);
                 return;
             }
-            let points: Vec<Value> = ask
-                .points
+            let page = ask.points.first().map_or(0, |p| self.spot_to_page(*p).0);
+            let points: Vec<Value> = self
+                .points_to_page(page, &ask.points)
                 .iter()
                 .map(|p| json!({"x": p.x, "y": p.y}))
                 .collect();

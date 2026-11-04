@@ -37,6 +37,7 @@ mod return_path;
 mod silk;
 mod stub;
 pub mod testpoint;
+pub mod toolpath_gap;
 mod track_radius;
 mod width_advice;
 
@@ -49,6 +50,7 @@ pub use compliance::{
     compliance_check, export_trade_report, export_trade_report_with_ruleset, load_list_snapshot,
 };
 
+pub use courtyard::{CourtyardPair, courtyard_pairs};
 pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
 
 #[derive(Clone, Debug, Serialize)]
@@ -80,6 +82,10 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("single_pin_net", "warning"),
     ("pin_conflict", "error"),
     ("undriven_input", "warning"),
+    ("power_not_driven", "warning"),
+    ("missing_decoupling", "warning"),
+    ("missing_pullup", "warning"),
+    ("dangling_label", "warning"),
     ("clearance", "error"),
     ("copper_short", "error"),
     ("pad_clearance_bound", "error"),
@@ -136,6 +142,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("via_count", "warning"),
     ("decoupling_distance", "warning"),
     ("keepout", "error"),
+    ("toolpath_gap", "warning"),
 ];
 
 #[derive(Clone, Debug, Serialize)]
@@ -6109,8 +6116,8 @@ mod tests {
 mod pour_tests {
     use super::*;
     use pcbcraft_doc::{
-        CopperZone, DiffPair, Footprint, Keepout, Net, NetClass, Pad, RuleArea, RuleRegion, Track,
-        Via, ZoneIslands, ZonePour, component_template,
+        CopperZone, DiffPair, Footprint, Keepout, Label, Net, NetClass, Pad, RuleArea, RuleRegion,
+        Track, Via, ZoneIslands, ZonePour, component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
 
@@ -6607,6 +6614,66 @@ mod pour_tests {
                 .any(|(code, _)| *code == "courtyard_overlap"),
             "fab sibling codes are published for severity UI wiring"
         );
+    }
+
+    #[test]
+    fn check_codes_lists_the_design_intent_codes() {
+        let design_intent = [
+            "power_not_driven",
+            "missing_decoupling",
+            "missing_pullup",
+            "dangling_label",
+        ];
+        for code in design_intent {
+            let entry = CHECK_CODES.iter().find(|(c, _)| *c == code);
+            assert!(
+                entry.is_some(),
+                "CHECK_CODES must list the design-intent code {}",
+                code
+            );
+            assert_eq!(
+                entry.map(|e| e.1).unwrap_or("none"),
+                "warning",
+                "design-intent code {} must default to warning",
+                code
+            );
+        }
+    }
+
+    #[test]
+    fn check_code_defaults_match_the_findings() -> Result<(), String> {
+        // Build the same project as erc_reports_dangling_label_with_no_wires_or_pins
+        // and confirm the finding's severity matches CHECK_CODES.
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "CLK".into(),
+            ..Default::default()
+        });
+        p.labels.push(Label {
+            id: 2,
+            kind: "label".into(),
+            net: 1,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            text: String::new(),
+            style: String::new(),
+        });
+        p.validate()?;
+        let findings = erc(&p);
+        let finding = match findings.iter().find(|f| f.code == "dangling_label") {
+            Some(f) => f,
+            None => return Err("dangling_label finding must exist".into()),
+        };
+        let expected = match CHECK_CODES.iter().find(|(c, _)| *c == "dangling_label") {
+            Some(e) => e.1,
+            None => return Err("CHECK_CODES must list dangling_label".into()),
+        };
+        assert_eq!(
+            finding.severity, expected,
+            "finding severity must match the CHECK_CODES default"
+        );
+        Ok(())
     }
 
     /// A small deterministic generator, so the equivalence test below covers
