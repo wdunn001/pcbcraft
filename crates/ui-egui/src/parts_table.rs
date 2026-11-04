@@ -24,6 +24,7 @@
 //! - Keep the edited text on `App`.
 use super::*;
 use crate::a11y::Named;
+use crate::parts_table_variant;
 use crate::ui_kit::{
     button::{Size, ghost_button, secondary_button},
     icons as kit_icons,
@@ -114,6 +115,7 @@ pub(crate) struct PartsTableState {
     fill_text: String,
     export_path: String,
     grouped: bool,
+    variant: Option<String>,
 }
 
 /// One part as the grid shows it. `quantity` is 0 for a single part and the number of
@@ -396,6 +398,31 @@ impl App {
             rows.clone()
         };
         state.selected.retain(|id| rows.iter().any(|r| r.id == *id));
+        let has_variants = !self.project.variants.is_empty();
+        if has_variants {
+            let names: Vec<String> = self
+                .project
+                .variants
+                .iter()
+                .map(|v| v.name.clone())
+                .collect();
+            let mut idx = 0usize;
+            if let Some(ref vn) = state.variant {
+                idx = names
+                    .iter()
+                    .position(|n| n == vn)
+                    .map(|p| p + 1)
+                    .unwrap_or(0);
+            }
+            if let Some(new_idx) = parts_table_variant::variant_picker(ui, &names, &mut idx) {
+                if new_idx == 0 {
+                    state.variant = None;
+                } else {
+                    state.variant = Some(names[new_idx - 1].clone());
+                }
+            }
+            ui.add_space(8.0);
+        }
         let mut edit: Option<(&'static str, Value)> = None;
         let mut export = false;
         let mut fill = false;
@@ -456,7 +483,9 @@ impl App {
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 egui::Grid::new("parts-table-grid")
-                    .num_columns(PartColumn::ALL.len() + 1)
+                    .num_columns(
+                        PartColumn::ALL.len() + 1 + if state.variant.is_some() { 1 } else { 0 },
+                    )
                     .spacing([12.0, 6.0])
                     .striped(true)
                     .show(ui, |ui| {
@@ -488,6 +517,9 @@ impl App {
                                 };
                             }
                         }
+                        if state.variant.is_some() {
+                            ui.label(t!("parts_table.col_dnp"));
+                        }
                         ui.end_row();
                         ui.label("");
                         for column in PartColumn::ALL {
@@ -498,6 +530,9 @@ impl App {
                             )
                             .named(&name)
                             .on_hover_text(t!("parts_table.filter.tip"));
+                        }
+                        if state.variant.is_some() {
+                            ui.label("");
                         }
                         ui.end_row();
                         for row in &shown {
@@ -550,6 +585,23 @@ impl App {
                                             json!({"id": row.id, "mpn": text}),
                                         ),
                                     });
+                                }
+                            }
+                            if let Some(ref vn) = state.variant {
+                                let is_dnp = self
+                                    .project
+                                    .variants
+                                    .iter()
+                                    .find(|v| v.name == *vn)
+                                    .map(|v| v.dnp.contains(&row.id))
+                                    .unwrap_or(false);
+                                if let Some(new_dnp) =
+                                    parts_table_variant::dnp_cell(ui, row.id, &row.cells[0], is_dnp)
+                                {
+                                    edit = Some((
+                                        "variant.set_dnp",
+                                        json!({"name": vn, "ids": [row.id], "dnp": new_dnp}),
+                                    ));
                                 }
                             }
                             ui.end_row();
