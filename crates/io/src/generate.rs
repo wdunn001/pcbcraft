@@ -616,6 +616,66 @@ pub fn write_generated(
     }
 }
 
+/// Build the named download entries for an artifact, for use by the browser
+/// host. This is the pure counterpart of [`write_generated`], producing the
+/// same file names but returning bytes in memory instead of writing them to
+/// disk.
+///
+/// # Rules
+/// - Artifact paths are never joined with `..` segments.
+/// - Files are sorted by name so exports are deterministic.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` for `Artifact`.
+///
+/// # Do not
+/// - Call `std::fs` or `Path::join`; use plain string formatting.
+pub fn download_entries(
+    artifact: &Artifact,
+    output: &GeneratedOutput,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    match output {
+        GeneratedOutput::Text(text) => Ok(vec![(artifact.path.clone(), text.as_bytes().to_vec())]),
+        GeneratedOutput::Bytes(bytes) => Ok(vec![(artifact.path.clone(), bytes.clone())]),
+        GeneratedOutput::Files(map) => {
+            let mut entries = Vec::new();
+            for (name, body) in map {
+                if name.contains("..") {
+                    return Err("generated file name escapes the output folder".into());
+                }
+                let rel = if artifact.path.ends_with('/') {
+                    format!("{}{}", artifact.path, name)
+                } else if artifact.path.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", artifact.path, name)
+                };
+                entries.push((rel, body.as_bytes().to_vec()));
+            }
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            Ok(entries)
+        }
+        GeneratedOutput::BinaryFiles(map) => {
+            let mut entries = Vec::new();
+            for (name, body) in map {
+                if name.contains("..") {
+                    return Err("generated file name escapes the output folder".into());
+                }
+                let rel = if artifact.path.ends_with('/') {
+                    format!("{}{}", artifact.path, name)
+                } else if artifact.path.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", artifact.path, name)
+                };
+                entries.push((rel, body.clone()));
+            }
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            Ok(entries)
+        }
+    }
+}
+
 fn write_parent(path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -1153,6 +1213,114 @@ mod generate_tests {
             !text.contains("C0.400"),
             "unplated drill must not list the 0.4mm via tool: {text}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_text_output_downloads_as_one_file_named_by_the_artifact_path() -> Result<(), String> {
+        let artifact = Artifact {
+            id: 1,
+            name: "top copper".into(),
+            kind: "copper_gerber".into(),
+            layers: vec!["Front".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-F.Cu.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let output = GeneratedOutput::Text("G04*\n".into());
+        let entries = download_entries(&artifact, &output)?;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0, "pcb-F.Cu.gbr");
+        assert_eq!(entries[0].1, b"G04*\n");
+        Ok(())
+    }
+
+    #[test]
+    fn a_package_output_downloads_inside_its_folder() -> Result<(), String> {
+        let artifact = Artifact {
+            id: 1,
+            name: "assembly".into(),
+            kind: "assembly_drawing".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "assembly/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let mut files = BTreeMap::new();
+        files.insert("top.pdf".into(), b"%PDF-1.4 top".to_vec());
+        files.insert("bottom.pdf".into(), b"%PDF-1.4 bottom".to_vec());
+        let output = GeneratedOutput::BinaryFiles(files);
+        let entries = download_entries(&artifact, &output)?;
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].0, "assembly/bottom.pdf");
+        assert_eq!(entries[1].0, "assembly/top.pdf");
+        assert_eq!(entries[0].1, b"%PDF-1.4 bottom");
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_name_that_climbs_out_is_refused() -> Result<(), String> {
+        let artifact = Artifact {
+            id: 1,
+            name: "bad".into(),
+            kind: "bom_csv".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "make/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let mut files = BTreeMap::new();
+        files.insert("../x.csv".into(), "data".into());
+        let output = GeneratedOutput::Files(files);
+        let result = download_entries(&artifact, &output);
+        assert!(
+            result.is_err(),
+            "expected error for path escaping the output folder"
+        );
+        assert!(
+            matches!(result, Err(e) if e.contains("escapes")),
+            "error message should mention escaping"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn download_entries_match_write_generated_names() -> Result<(), String> {
+        let artifact = Artifact {
+            id: 1,
+            name: "gerbers".into(),
+            kind: "package".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-out".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let mut files = BTreeMap::new();
+        files.insert("F.Cu.gbr".into(), "G04 top\n".into());
+        files.insert("B.Cu.gbr".into(), "G04 bottom\n".into());
+        let output = GeneratedOutput::Files(files);
+
+        // Get download entries (pure, no filesystem)
+        let entries = download_entries(&artifact, &output)?;
+        let download_names: Vec<String> = entries.iter().map(|e| e.0.clone()).collect();
+
+        // Write to a temp directory and collect the names that were written
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let written = write_generated(dir.path(), &artifact, &output)?;
+
+        assert_eq!(download_names, written);
         Ok(())
     }
 }
