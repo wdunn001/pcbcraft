@@ -34,6 +34,7 @@
 
 use super::*;
 use crate::library_builtin;
+use crate::library_workspace::Active;
 use pcbcraft_library::sources::PartResult;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 use std::collections::{BTreeMap, BTreeSet};
@@ -348,6 +349,8 @@ enum CardAction {
     Source,
     /// Open the part's page in the Library tab.
     OpenInLibrary,
+    /// Add the part to the compare list and open the Library tab.
+    Compare,
 }
 
 /// Run `work` off the frame and hand back where its answer will arrive. In
@@ -1868,6 +1871,15 @@ impl App {
                 .icon(glyph::INFO)
                 .into(),
             );
+            about.push(
+                Item::new(
+                    CardAction::Compare,
+                    t!("library.dock.compare"),
+                    t!("library.dock.compare.tip"),
+                )
+                .icon(glyph::COMPARE)
+                .into(),
+            );
             Menu::new().group(place).group(edit).group(about).entries()
         }) {
             action = Some(picked);
@@ -2028,6 +2040,10 @@ impl App {
                     source = source,
                     licence = licence
                 );
+            }
+            CardAction::Compare => {
+                self.library_open_part(ctx, card);
+                self.libws.active = Active::Compare;
             }
         }
     }
