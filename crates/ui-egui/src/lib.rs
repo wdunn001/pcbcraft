@@ -5660,6 +5660,13 @@ impl App {
             self.write_make_files("gerber.export");
         }
         if ui
+            .button(t!("settings.settings_tab.fab_complete"))
+            .on_hover_text(t!("settings.settings_tab.fab_complete.tip"))
+            .clicked()
+        {
+            self.write_fab_complete();
+        }
+        if ui
             .button(t!("settings.settings_tab.parts_list_csv"))
             .on_hover_text(t!("settings.settings_tab.parts_list_csv.tip"))
             .clicked()
@@ -7111,6 +7118,23 @@ impl App {
             self.message = t!(
                 "status.write_job_file.label_saved_in_directory",
                 label = label,
+                directory = directory
+            );
+        }
+    }
+    /// Write the complete fab package (Gerber, drill, BOM, CPL, readme) into the make folder.
+    fn write_fab_complete(&mut self) {
+        let directory = self.make_directory();
+        if std::fs::create_dir_all(&directory).is_err() {
+            self.message = t!("status.write_fab_complete.that_folder_could_not_be");
+            return;
+        }
+        if self.tool_call(
+            "package.export",
+            json!({"id": "fab_complete", "directory": &directory}),
+        ) {
+            self.message = t!(
+                "status.write_fab_complete.saved_in_directory",
                 directory = directory
             );
         }
