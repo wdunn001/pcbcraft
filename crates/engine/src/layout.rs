@@ -16,7 +16,7 @@
 //! - Alignment groups are two or more in-scope parts whose centres share an x
 //!   (a column) or a y (a row) within `ALIGN_TOLERANCE_MM`.
 //! - Wirelength numbers come from `crates/engine/src/wirelength.rs`; `unrouted_mm`
-//!   is what is still open after existing copper, from `pcbcraft_rules::airwires`.
+//!   is the length still open after existing copper. The key `unrouted` is the count of open airwires on the net.
 //!
 //! Dependencies: `crates/engine/src/scope.rs`, `crates/engine/src/wirelength.rs`,
 //! `crates/rules/src/lib.rs` (`airwires`), `crates/doc/src/lib.rs`.
@@ -42,7 +42,7 @@ pub(super) fn handles(command: &str) -> bool {
 pub(super) fn commands() -> Vec<CommandSpec> {
     vec![CommandSpec {
         id: "layout.report",
-        description: "Read-only layout report for a scope: part positions and boxes, nearest-neighbour gaps, alignment rows and columns, per-net half-perimeter and ratsnest length with totals, parts off the board and overlapping parts. Deterministic JSON; changes nothing",
+        description: "Read-only layout report for a scope: part positions and boxes, nearest-neighbour gaps, alignment rows and columns, per-net half-perimeter, ratsnest length and unrouted connection count with totals, parts off the board and overlapping parts. Deterministic JSON; changes nothing",
         input_schema: schema(json!({"scope": scope::schema()}), &["scope"]),
     }]
 }
@@ -235,11 +235,13 @@ fn report(p: &Project, scope: &Scope) -> Result<Value, Error> {
         }
     }
 
-    let unrouted: BTreeMap<Id, f64> =
+    let unrouted: BTreeMap<Id, (usize, f64)> =
         pcbcraft_rules::airwires(p)
             .iter()
             .fold(BTreeMap::new(), |mut m, w| {
-                *m.entry(w.net).or_insert(0.0) += w.from.distance(w.to);
+                let entry = m.entry(w.net).or_insert((0, 0.0));
+                entry.0 += 1;
+                entry.1 += w.from.distance(w.to);
                 m
             });
     let mut net_ids: Vec<Id> = p
@@ -252,7 +254,7 @@ fn report(p: &Project, scope: &Scope) -> Result<Value, Error> {
     net_ids.sort_unstable();
     net_ids.dedup();
     let mut nets = vec![];
-    let (mut total_hpwl, mut total_rats, mut total_open) = (0.0, 0.0, 0.0);
+    let (mut total_hpwl, mut total_rats, mut total_open, mut total_open_count) = (0.0, 0.0, 0.0, 0);
     for net in net_ids {
         let points = wirelength::net_pad_points(p, net);
         if points.len() < 2 {
@@ -265,15 +267,16 @@ fn report(p: &Project, scope: &Scope) -> Result<Value, Error> {
             ))
         })?;
         let h = wirelength::hpwl(&points);
-        let open = unrouted.get(&net).copied().unwrap_or(0.0);
+        let (open_count, open_len) = unrouted.get(&net).copied().unwrap_or((0, 0.0));
         total_hpwl += h;
         total_rats += rats;
-        total_open += open;
+        total_open += open_len;
+        total_open_count += open_count;
         nets.push((
             p.net_name(net).to_string(),
             net,
             json!({"net": net, "name": p.net_name(net), "pads": points.len(),
-                   "hpwl_mm": r(h), "ratsnest_mm": r(rats), "unrouted_mm": r(open)}),
+                   "hpwl_mm": r(h), "ratsnest_mm": r(rats), "unrouted": open_count, "unrouted_mm": r(open_len)}),
         ));
     }
     nets.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
@@ -285,7 +288,7 @@ fn report(p: &Project, scope: &Scope) -> Result<Value, Error> {
         "gaps": gaps,
         "alignment_groups": alignment,
         "nets": nets.into_iter().map(|n| n.2).collect::<Vec<_>>(),
-        "totals": {"hpwl_mm": r(total_hpwl), "ratsnest_mm": r(total_rats), "unrouted_mm": r(total_open)},
+        "totals": {"hpwl_mm": r(total_hpwl), "ratsnest_mm": r(total_rats), "unrouted": total_open_count, "unrouted_mm": r(total_open)},
         "off_board": off_board,
         "overlaps": overlapping,
     }))
