@@ -384,7 +384,7 @@ board.draw_tool_options.words_to_print = words to print
 board.draw_tool_options.words_to_print.tip = The words a click will print on the active layer.
 board.draw_tool_options.mounting_hole_size = Mounting hole size
 # lib.rs tool_hint
-board.tool_hint.middle_drag_pan_scroll_zoom = · middle-drag: pan · scroll: zoom · Esc: back to select
+board.tool_hint.middle_drag_pan_scroll_zoom = · middle-drag or hold Space and drag: pan · scroll: zoom · Esc: back to select
 board.tool_hint.lmb_select_an_object_drag = LMB: select an object · drag: move the selected object{common}
 board.tool_hint.lmb_place_the_symbol_at = LMB: place the symbol at the cursor{common}
 board.tool_hint.lmb_place_the_symbol_package = LMB: place the symbol package at the cursor{common}
@@ -1601,6 +1601,7 @@ shortcut.delete_every_selected_object = Delete every selected object
 shortcut.return_to_the_select_tool = Return to the select tool and close open palettes
 shortcut.pan_the_view = Pan the view
 shortcut.keys.middle_drag = Middle-drag
+shortcut.keys.space_drag = Hold Space and drag
 shortcut.zoom_the_view = Zoom the view
 shortcut.keys.scroll = Scroll
 
