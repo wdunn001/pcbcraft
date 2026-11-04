@@ -1168,25 +1168,26 @@ fn a_newcomer_sees_attached_files_and_notes_in_the_tree() -> Result<(), String> 
     app.refresh();
     // The Attached files section appears.
     assert!(
-        paints_text(&ctx, &mut app, "Attached files")?,
+        scrolled_to_left(&ctx, &mut app, "Attached files")?,
         "the Attached files section is in the tree: {}",
         app.message
     );
-    // The file row appears.
+    // Open the group; the file row appears.
+    app.tree.expanded.insert("files".to_owned());
     assert!(
-        paints_text(&ctx, &mut app, "datasheet.pdf")?,
+        scrolled_to_left(&ctx, &mut app, "datasheet.pdf")?,
         "the attached file row is in the tree: {}",
         app.message
     );
     // The Project notes row appears.
     assert!(
-        paints_text(&ctx, &mut app, "Project notes")?,
+        scrolled_to_left(&ctx, &mut app, "Project notes")?,
         "the Project notes row is in the tree: {}",
         app.message
     );
     // The note preview is shown.
     assert!(
-        paints_text(&ctx, &mut app, "Test board for evaluation")?,
+        scrolled_to_left(&ctx, &mut app, "Test board for evaluation")?,
         "the note preview is shown: {}",
         app.message
     );
