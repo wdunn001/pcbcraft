@@ -1645,6 +1645,7 @@ pub fn commands() -> Vec<CommandSpec> {
                     "mask_dam":{"type":"number","exclusiveMinimum":0,"maximum":100},
                     "max_aspect_ratio":{"type":"number","exclusiveMinimum":1,"maximum":50},
                     "plating_allowance":{"type":"number","minimum":0,"maximum":0.5},
+                    "courtyard_excess":{"type":"number","minimum":0,"maximum":2},
                     "preset":{"type":"string","maxLength":64},
                     "source_url":{"type":"string","maxLength":512},
                     "retrieved":{"type":"string","maxLength":32}
@@ -1676,6 +1677,7 @@ pub fn commands() -> Vec<CommandSpec> {
                     "mask_dam":{"type":"number","exclusiveMinimum":0,"maximum":100},
                     "max_aspect_ratio":{"type":"number","exclusiveMinimum":1,"maximum":50},
                     "plating_allowance":{"type":"number","minimum":0,"maximum":0.5},
+                    "courtyard_excess":{"type":"number","minimum":0,"maximum":2},
                     "preset":{"type":"string","maxLength":64},
                     "source_url":{"type":"string","maxLength":512},
                     "retrieved":{"type":"string","maxLength":32}
@@ -8513,6 +8515,8 @@ struct FabLimitsSetParams {
     #[serde(default)]
     plating_allowance: Option<f64>,
     #[serde(default)]
+    courtyard_excess: Option<f64>,
+    #[serde(default)]
     preset: Option<String>,
     #[serde(default)]
     source_url: Option<String>,
@@ -8541,6 +8545,7 @@ impl FabLimitsSetParams {
             || self.mask_dam.is_some()
             || self.max_aspect_ratio.is_some()
             || self.plating_allowance.is_some()
+            || self.courtyard_excess.is_some()
             || self.preset.is_some()
             || self.source_url.is_some()
             || self.retrieved.is_some()
@@ -8580,6 +8585,14 @@ fn apply_fab_limits(rules: &mut FabRules, a: &FabLimitsSetParams) -> Result<(), 
             ));
         }
         rules.plating_allowance = Some(pad);
+    }
+    if let Some(excess) = a.courtyard_excess {
+        if !excess.is_finite() || !(0.0..=2.0).contains(&excess) {
+            return Err(Error::Invalid(
+                "courtyard excess must be between 0 and 2 mm".into(),
+            ));
+        }
+        rules.courtyard_excess = Some(excess);
     }
     if let Some(name) = a.preset.clone() {
         if name.is_empty() || name.len() > 64 {
@@ -46494,5 +46507,40 @@ mod tests {
         for cmd in &commands {
             assert!(seen.insert(cmd.id), "duplicate command id: {}", cmd.id);
         }
+    }
+
+    #[test]
+    fn board_rules_courtyard_excess_is_validated() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let rev = s.revision;
+        let r = s.execute(
+            "board.rules.set",
+            json!({"courtyard_excess":3.0}),
+            Some(rev),
+        );
+        if r.is_ok() {
+            return Err(Error::Invalid(
+                "expected board.rules.set to reject courtyard excess of 3.0mm".into(),
+            ));
+        }
+        match r.err() {
+            Some(Error::Invalid(m)) => {
+                if !m.contains("courtyard excess") {
+                    return Err(Error::Invalid(format!(
+                        "expected courtyard excess message, got: {}",
+                        m
+                    )));
+                }
+            }
+            Some(other) => {
+                return Err(Error::Invalid(format!(
+                    "expected Invalid error, got: {:?}",
+                    other
+                )));
+            }
+            None => return Err(Error::Invalid("expected error from board.rules.set".into())),
+        }
+        assert_eq!(s.revision, rev);
+        Ok(())
     }
 }

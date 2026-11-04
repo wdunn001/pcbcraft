@@ -98,3 +98,22 @@ fn class_pair_rule_key_sorts_ids_and_valid_checks_bounds() {
     };
     assert!(!zero.valid());
 }
+
+#[test]
+fn courtyard_excess_survives_save_and_load() -> T {
+    let rules = FabRules {
+        courtyard_excess: Some(0.5),
+        ..FabRules::default()
+    };
+    assert!(rules.valid());
+    let text = serde_json::to_string(&rules).map_err(|e| e.to_string())?;
+    let back: FabRules = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    assert_eq!(back.courtyard_excess, Some(0.5));
+    // Out of range fails valid
+    let bad = FabRules {
+        courtyard_excess: Some(5.0),
+        ..FabRules::default()
+    };
+    assert!(!bad.valid());
+    Ok(())
+}
