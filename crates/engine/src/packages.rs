@@ -47,6 +47,14 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             ),
         },
         CommandSpec {
+            id: "package.duplicate",
+            description: "Duplicate an existing package (bundled or saved in the project) under a new id, so it can be edited without changing the original. The new id must not already be in use or be a bundled id. If a name is not given, the duplicate is called '<old name> copy'",
+            input_schema: schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":32},"new_id":{"type":"string","minLength":1,"maxLength":32},"name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id", "new_id"],
+            ),
+        },
+        CommandSpec {
             id: "package.export",
             description: "Write one export package under a directory: a ZIP, a folder with manifest.json, or a single file, named from the package's templates. Give the package by id (bundled or saved in the project) or inline as a record. Runs each content through the existing writers; the archive is deterministic (manifest first, fixed stamps). Records the revision and content hash for a package given by id. Refuses a package whose writer is not written yet",
             input_schema: schema(
@@ -77,6 +85,14 @@ struct ExportParams {
     directory: String,
     #[serde(default)]
     variant: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DuplicateParams {
+    id: String,
+    new_id: String,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 fn def_from(v: &Value) -> Result<PackageDef, Error> {
@@ -168,6 +184,25 @@ pub(super) fn run(
             }
             p.package_runs.retain(|r| r.package != a.id);
             Ok(json!({"id": a.id}))
+        })(),
+        "package.duplicate" => (|| {
+            let a: DuplicateParams = parse(params)?;
+            let source = find_package(p, &a.id)
+                .ok_or_else(|| Error::Invalid(format!("no package has id {}", a.id)))?;
+            if bundled_packages().iter().any(|b| b.id == a.new_id) {
+                return Err(Error::Invalid(format!(
+                    "{} is a bundled package id; duplicate it under a new id",
+                    a.new_id
+                )));
+            }
+            let mut dup = source.clone();
+            dup.id = a.new_id.clone();
+            dup.name = a.name.unwrap_or_else(|| format!("{} copy", source.name));
+            let mut list = p.packages.clone();
+            list.push(dup);
+            validate_packages(&list).map_err(Error::Invalid)?;
+            p.packages = list;
+            Ok(json!({"id": a.new_id, "source": a.id}))
         })(),
         "package.export" => (|| {
             if !mutating {
