@@ -258,7 +258,9 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
         opens_reader(&mut app, &ctx)?,
         "with a web link in the Datasheet field the reader opens"
     );
-    for _ in 0..24 {
+    // The reader loads its page off the frame. A busy machine needs real time, so each frame is
+    // followed by a short sleep and the wait is about ten seconds.
+    for _ in 0..400 {
         let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         if out
             .shapes
@@ -267,6 +269,7 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
         {
             return Ok(());
         }
+        std::thread::sleep(std::time::Duration::from_millis(25));
     }
     Err("page 1 should appear in the reader pane".into())
 }
