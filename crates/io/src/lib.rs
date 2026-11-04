@@ -43,6 +43,7 @@ mod parametric_body;
 mod placement_flavour;
 #[cfg(feature = "plugin-firmware-target")]
 pub mod plugins;
+mod silk_font;
 mod solidcraft;
 mod solidcraft_enclosure;
 mod solidcraft_format;
