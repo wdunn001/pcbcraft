@@ -19,6 +19,7 @@ toml.workspace = true
 
 [dev-dependencies]
 pcbcraft-io.workspace = true
+pcbcraft-geom.workspace = true
 tempfile.workspace = true
 serde.workspace = true
 toml.workspace = true
