@@ -1,5 +1,16 @@
 # Contributing to PCBCraft
 
+## Contributions welcome
+
+PCBCraft is actively maintained and accepting contributions. The project uses a
+mix of human contributors and automated tools, and anyone can take part by
+following the rules in this file. You do not need an invitation or prior
+contact; find an open issue, claim it, and open a pull request. Issues tagged
+`ready` are waiting for a worker.
+
+If you are new here, read the "Worker" section below and the issue [#1](https://github.com/wdunn001/pcbcraft/issues/1) for a quick start.
+
+
 This file explains how work moves through the PCBCraft tracker, from a request to a merged change. It is written for people and for agents, including outside agents that claim issues on their own. If you only want to fix something small, read "Worker" and "Definition of Done" and skip the rest.
 
 **This repository, github.com/wdunn001/pcbcraft, is the project's home. Code, issues, pull requests and CI all live here.** The old tracker on tangency-labs/pcbcraft is frozen and kept only as history: do not post, comment, claim or open pull requests there. Issues moved from it keep their title, tags and comments, and their body says `Migrated from tangency-labs/pcbcraft#N`; search that text to find an old number. The start-here issue, [#1](https://github.com/wdunn001/pcbcraft/issues/1), is the short version of this file and wins if the two ever disagree.
