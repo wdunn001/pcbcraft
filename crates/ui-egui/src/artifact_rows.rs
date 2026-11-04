@@ -519,12 +519,27 @@ impl App {
             },
             t!("artifact.layers.tip"),
         );
-        fact(
-            ui,
-            t!("artifact.settings"),
-            settings_text(&a),
-            t!("artifact.settings.tip"),
-        );
+        let facts = crate::properties::artifact_kind::kind_facts(&a);
+        if facts.is_empty() {
+            fact(
+                ui,
+                t!("artifact.settings"),
+                settings_text(&a),
+                t!("artifact.settings.tip"),
+            );
+        } else {
+            for f in facts {
+                let label = pcbcraft_text::lookup(f.label_key, &[]);
+                let tip_key = format!("{}.tip", f.label_key);
+                let tip = pcbcraft_text::lookup(&tip_key, &[]);
+                let value = if f.value.starts_with("artifact.fact.") {
+                    pcbcraft_text::lookup(&f.value, &[])
+                } else {
+                    f.value.clone()
+                };
+                fact(ui, label, value, tip);
+            }
+        }
         fact(
             ui,
             t!("artifact.path"),
