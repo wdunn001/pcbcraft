@@ -60,7 +60,7 @@ fn open_flavour(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), S
 }
 
 #[test]
-fn a_newcomer_exports_a_distributor_bom() -> Result<(), String> {
+fn a_newcomer_exports_a_bom_in_a_vendor_format() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = showcase(dir.path());
     stamp_part_numbers(&mut app);
@@ -94,7 +94,7 @@ fn a_newcomer_exports_a_distributor_bom() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_is_told_which_parts_lack_a_supplier_number() -> Result<(), String> {
+fn a_newcomer_sees_blank_columns_explained_when_a_part_number_is_missing() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = showcase(dir.path());
     open_flavour(&ctx, &mut app, "Prototype assembly, house part numbers")?;
