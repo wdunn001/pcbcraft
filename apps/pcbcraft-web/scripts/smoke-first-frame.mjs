@@ -103,9 +103,22 @@ page.on('response', (res) => {
 
 await page.goto(`${origin}${base}`, { waitUntil: 'networkidle', timeout: 120_000 });
 await page.waitForTimeout(8_000);
+// A busy shared runner can take longer than the fixed wait to start the 26 MB module. Give the
+// canvas up to 90 s to appear. If it never does, the checks below report it as a failure.
+await page
+  .waitForFunction(
+    () => {
+      const canvas = document.querySelector('#pcbcraft');
+      return canvas !== null && !canvas.hidden;
+    },
+    null,
+    { timeout: 90_000 },
+  )
+  .catch(() => {});
 
 const needsWebGpu = await page.locator('#needs-webgpu').isVisible();
-const canvasHidden = await page.locator('#pcbcraft').evaluate((el) => el.hidden);
+// Read the canvas without a locator wait, so a page that never made one fails the check at once.
+const canvasHidden = await page.evaluate(() => document.querySelector('#pcbcraft')?.hidden ?? true);
 if (needsWebGpu || canvasHidden) {
   failures.push('the WebGPU notice appeared or the canvas stayed hidden after load');
 }

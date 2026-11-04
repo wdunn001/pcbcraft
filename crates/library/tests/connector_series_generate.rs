@@ -149,6 +149,102 @@ fn bth_stack_height_matches_table() -> Result<(), String> {
 }
 
 #[test]
+fn bth_footprint_passes_validate_for_all_position_counts() -> Result<(), String> {
+    for positions in 3..=150 {
+        for stack_code in [Some("01"), Some("02")] {
+            for alignment_posts in [false, true] {
+                let part = generate_connector_part(
+                    "BTH",
+                    &ConnectorSeriesOptions {
+                        positions_per_row: positions,
+                        rows: 2,
+                        lead_code: String::new(),
+                        stack_code: stack_code.map(|s| s.to_string()),
+                        alignment_posts,
+                    },
+                )
+                .map_err(|e| {
+                    format!("BTH {positions} stack={stack_code:?} posts={alignment_posts}: {e:?}")
+                })?;
+                part.footprint.validate().map_err(|e| {
+                    format!(
+                        "BTH {positions} stack={stack_code:?} posts={alignment_posts} validate: {e}"
+                    )
+                })?;
+                if !body_fits_courtyard(&part.parametric, &part.footprint) {
+                    return Err(format!(
+                        "BTH {positions} stack={stack_code:?} posts={alignment_posts}: body does not fit courtyard"
+                    ));
+                }
+                let signal_pads: usize = part
+                    .footprint
+                    .pads
+                    .iter()
+                    .filter(|p| p.number.chars().all(|c| c.is_ascii_digit()))
+                    .count();
+                let expected_signal = (positions * 2) as usize;
+                if signal_pads != expected_signal {
+                    return Err(format!(
+                        "BTH {positions} stack={stack_code:?} posts={alignment_posts}: expected {expected_signal} signal pads, got {signal_pads}"
+                    ));
+                }
+                let expected_total = if alignment_posts {
+                    expected_signal + 2
+                } else {
+                    expected_signal
+                };
+                if part.footprint.pads.len() != expected_total {
+                    return Err(format!(
+                        "BTH {positions} stack={stack_code:?} posts={alignment_posts}: expected {expected_total} total pads, got {}",
+                        part.footprint.pads.len()
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn mated_height_equals_board_gap_plus_stack_code() -> Result<(), String> {
+    let part01 = generate_connector_part(
+        "BTH",
+        &ConnectorSeriesOptions {
+            positions_per_row: 10,
+            rows: 2,
+            lead_code: String::new(),
+            stack_code: Some("01".into()),
+            alignment_posts: false,
+        },
+    )
+    .map_err(|e| format!("BTH stack 01: {e:?}"))?;
+    if !near(part01.mated_stack_height_mm.unwrap_or(0.0), 5.0) {
+        return Err(format!(
+            "BTH stack 01: expected mated height 5.0, got {:?}",
+            part01.mated_stack_height_mm
+        ));
+    }
+    let part02 = generate_connector_part(
+        "BTH",
+        &ConnectorSeriesOptions {
+            positions_per_row: 10,
+            rows: 2,
+            lead_code: String::new(),
+            stack_code: Some("02".into()),
+            alignment_posts: false,
+        },
+    )
+    .map_err(|e| format!("BTH stack 02: {e:?}"))?;
+    if !near(part02.mated_stack_height_mm.unwrap_or(0.0), 6.0) {
+        return Err(format!(
+            "BTH stack 02: expected mated height 6.0, got {:?}",
+            part02.mated_stack_height_mm
+        ));
+    }
+    Ok(())
+}
+
+#[test]
 fn parametric_body_z0_and_json_round_trip() -> Result<(), String> {
     let part = generate_connector_part("SSW", &options_tsw(4, 1)).map_err(|e| format!("{e:?}"))?;
     assert_eq!(part.model.path, PARAMETRIC_MODEL_PATH);

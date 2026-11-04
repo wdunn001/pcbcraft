@@ -147,14 +147,14 @@ impl App {
             self.message = t!("schematic.port.no_net");
             return;
         };
-        let page = self.schematic_page();
+        let (page, local) = self.spot_to_page(snap(pos));
         self.tool_call(
             "schematic.place_port",
             json!({
                 "name": name,
                 "net": net,
                 "sheet": page,
-                "position": snap(pos),
+                "position": local,
             }),
         );
     }
@@ -233,11 +233,12 @@ impl App {
     /// - Use this on the board tab.
     pub(crate) fn port_under(&self, pos: Point, zoom: f32) -> Option<Id> {
         let page = self.schematic_page();
+        let sheet = self.sheet_view();
         let reach = 8.0;
-        self.project
+        sheet
             .ports
             .iter()
-            .filter(|p| p.sheet == page)
+            .filter(|p| crate::page_scope::in_view(&sheet, page, p.sheet))
             .filter(|p| p.position.distance(pos) * f64::from(zoom) <= reach)
             .min_by(|a, b| {
                 a.position

@@ -323,6 +323,56 @@ fn a_newcomer_cannot_click_a_track_the_hidden_layer_does_not_paint() -> Result<(
     Ok(())
 }
 
+/// How many circles the board outline handles paint for `app` as it stands.
+fn outline_handle_circles(app: &App) -> usize {
+    let ctx = egui::Context::default();
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 940.0),
+            )),
+            ..Default::default()
+        },
+        |root_ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
+                let rect = ui.max_rect();
+                let painter = ui.painter().clone();
+                app.paint_outline_handles(&painter, rect, app.pcb);
+            });
+        },
+    );
+    output.textures_delta.clear();
+    output
+        .shapes
+        .iter()
+        .filter(|s| matches!(s.shape, egui::Shape::Circle(_)))
+        .count()
+}
+
+#[test]
+fn a_newcomer_sees_the_board_outline_handles_only_on_the_board() -> Result<(), String> {
+    let (_ctx, mut app) = pcb_app();
+    app.tool = Tool::Select;
+    app.project.board.outline = Some(vec![
+        Point::new(0.0, 0.0),
+        Point::new(40.0, 0.0),
+        Point::new(40.0, 30.0),
+        Point::new(0.0, 30.0),
+    ]);
+    assert!(
+        outline_handle_circles(&app) > 0,
+        "the Layout tab paints the outline handles"
+    );
+    app.change_tab(Tab::Schematic);
+    assert_eq!(
+        outline_handle_circles(&app),
+        0,
+        "the Schematic tab paints no board outline handles"
+    );
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_hides_a_layer_and_gets_it_back_as_it_was() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
