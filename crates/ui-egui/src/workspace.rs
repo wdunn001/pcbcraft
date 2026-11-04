@@ -22,6 +22,8 @@ pub(crate) struct RegionTab {
     pub(crate) id: &'static str,
     pub(crate) label: fn() -> String,
     pub(crate) tip: fn() -> String,
+    /// Small icon before the label, when the tab has one.
+    pub(crate) icon: Option<crate::ui_kit::icons::Icon>,
 }
 
 /// What the user chose for the regions of one workspace.
@@ -84,32 +86,38 @@ const BOTTOM_TABS: [RegionTab; 4] = [
         id: "findings",
         label: || t!("sheet.tab_findings"),
         tip: || t!("sheet.tab_findings.tip"),
+        icon: None,
     },
     RegionTab {
         id: "output",
         label: || t!("sheet.tab_output"),
         tip: || t!("sheet.tab_output.tip"),
+        icon: None,
     },
     RegionTab {
         id: "console",
         label: || t!("sheet.tab_console"),
         tip: || t!("sheet.tab_console.tip"),
+        icon: None,
     },
     RegionTab {
         id: "parts",
         label: || t!("sheet.tab_parts"),
         tip: || t!("sheet.tab_parts.tip"),
+        icon: None,
     },
 ];
 const LAYERS_TAB: RegionTab = RegionTab {
     id: "layers",
     label: || t!("library.browser.tab_layers"),
     tip: || t!("library.browser.tab_layers.tip"),
+    icon: None,
 };
 const LIBRARY_TAB: RegionTab = RegionTab {
     id: "library",
     label: || t!("library.browser.tab_library"),
     tip: || t!("library.browser.tab_library.tip"),
+    icon: None,
 };
 const DRAWING_TABS: [RegionTab; 2] = [LAYERS_TAB, LIBRARY_TAB];
 /// The Library page's own tabs: the part browser, then the machine library.
@@ -117,17 +125,20 @@ const PARTS_TAB: RegionTab = RegionTab {
     id: "library",
     label: || t!("libws.view.parts"),
     tip: || t!("libws.view.parts.tip"),
+    icon: Some(crate::ui_kit::icons::CHIP),
 };
 const LIBRARY_MACHINES_TAB: RegionTab = RegionTab {
     id: "machines",
     label: || t!("libws.view.machines"),
     tip: || t!("libws.view.machines.tip"),
+    icon: Some(crate::ui_kit::icons::GEAR),
 };
 const LIBRARY_PAGE_TABS: [RegionTab; 2] = [PARTS_TAB, LIBRARY_MACHINES_TAB];
 const FILES_TAB: RegionTab = RegionTab {
     id: "files",
     label: || t!("files.nav.tab"),
     tip: || t!("files.nav.tab.tip"),
+    icon: None,
 };
 const FILES_ONLY: [RegionTab; 1] = [FILES_TAB];
 const MANUFACTURE_TABS: [RegionTab; 2] = [
@@ -135,11 +146,13 @@ const MANUFACTURE_TABS: [RegionTab; 2] = [
         id: "outputs",
         label: || t!("workspace.tab_outputs"),
         tip: || t!("workspace.tab_outputs.tip"),
+        icon: None,
     },
     RegionTab {
         id: "machines",
         label: || t!("workspace.tab_machines"),
         tip: || t!("workspace.tab_machines.tip"),
+        icon: None,
     },
 ];
 

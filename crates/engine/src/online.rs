@@ -39,6 +39,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         map.insert("target".into(), json!({"type":"string","enum":["schematic","layout"],"description":"the view the part was dropped on"}));
         map.insert("position".into(), point_schema());
         map.insert("schematic_position".into(), point_schema());
+        map.insert("sheet".into(), json!({"type":"integer","minimum":0,"description":"the schematic page the part goes on; Main when left out"}));
         map.insert("reference".into(), json!({"type":"string","maxLength":64}));
         map.insert("value".into(), json!({"type":"string","maxLength":256}));
         map.insert(
@@ -141,6 +142,9 @@ struct PlaceParams {
     rotation: Option<f64>,
     #[serde(default)]
     fields: Vec<FieldRef>,
+    /// The schematic page the part goes on; Main when absent.
+    #[serde(default)]
+    sheet: Option<Id>,
 }
 
 /// What an import did, for the command's answer.
@@ -223,6 +227,7 @@ fn place_command(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value
             "reference {r} is empty, too long or already in use"
         )));
     }
+    super::check_sheet(p, a.sheet)?;
     if a.target == Target::Layout && a.footprint.is_none() {
         return Err(Error::Invalid(
             "a part needs a footprint to be placed on the layout".into(),
@@ -244,6 +249,7 @@ fn place_command(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value
         a.value,
     )?;
     let placed = turn_placed(&placed, p, a.rotation)?;
+    super::put_on_sheet(&placed, p, a.sheet)?;
     let id = placed["id"].as_u64().ok_or_else(missing)?;
     for f in &a.fields {
         let component = p

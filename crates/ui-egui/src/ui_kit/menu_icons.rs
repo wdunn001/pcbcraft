@@ -335,3 +335,9 @@ pub const MUTE: Icon = Icon(|p, r, c| {
     p.circle_stroke(pt(r, 8.0, 8.0), 5.8, stroke(c));
     line(p, r, c, &[(3.9, 12.1), (12.1, 3.9)]);
 });
+
+/// Two side-by-side sheets, for compare.
+pub const COMPARE: Icon = Icon(|p, r, c| {
+    outline(p, r, c, (1.5, 2.5), (7.5, 13.5));
+    outline(p, r, c, (8.5, 2.5), (14.5, 13.5));
+});
