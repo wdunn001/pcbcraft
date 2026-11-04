@@ -1689,17 +1689,7 @@ impl App {
             ),
             Tool::NoConnect => {
                 if let Some(pin) = self.pick_pin(pos, zoom) {
-                    if let Some(id) = self
-                        .project
-                        .no_connects
-                        .iter()
-                        .find(|f| f.pin == pin)
-                        .map(|f| f.id)
-                    {
-                        self.run("object.delete", json!({"id": id}));
-                    } else {
-                        self.run("pin.no_connect", json!({"pin": pin}));
-                    }
+                    self.toggle_no_connect(pin);
                 }
             }
             Tool::Port => self.place_hierarchy_port(pos),

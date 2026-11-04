@@ -3,8 +3,10 @@
 //! placing that keeps going until Esc.
 
 use super::super::*;
+use super::board::right_click;
 use super::modifiers::{centre_of, click, drag, sample};
 use super::support::*;
+use crate::authoring;
 use egui::Modifiers;
 
 /// A pin on screen that already sits on a net, as a world point.
@@ -149,5 +151,70 @@ fn a_newcomer_moves_a_part_by_dragging_it() -> Result<(), String> {
         app.message
     );
     assert!(matches!(app.tool, Tool::Select), "no tool was needed");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_marks_a_pin_no_connect() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    // Add a resistor to get a fresh unconnected pin.
+    let c = app.schematic.center;
+    app.run(
+        "component.add",
+        json!({ "kind": "resistor", "position": Point::new(c.x, c.y + 8.0) }),
+    );
+    frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    let id = app
+        .project
+        .components
+        .last()
+        .map(|p| p.id)
+        .ok_or("no part")?;
+    let part = app.project.component(id).ok_or("no part")?;
+    let pin_num = part.pins.first().map(|p| &p.number).ok_or("no pin")?;
+    let at = part.pin_position(pin_num).ok_or("pin has no position")?;
+    let screen = super::modifiers::screen_of(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Mark no connect")?;
+    assert_eq!(
+        app.project.no_connects.len(),
+        1,
+        "the pin is flagged: {}",
+        app.message
+    );
+    assert!(
+        matches!(app.tool, Tool::Select),
+        "the tool is still Select, not No connect: {}",
+        app.message
+    );
+    // Toggle it off.
+    let screen = super::modifiers::screen_of(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Mark no connect")?;
+    assert!(
+        app.project.no_connects.is_empty(),
+        "the flag is cleared: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_is_told_why_a_wired_pin_cannot_be_no_connect() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    // Find a pin that is already on a wire.
+    let pin = pin_on_a_net(&app)?;
+    let screen = super::modifiers::screen_of(&app, pin);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Mark no connect")?;
+    assert!(
+        app.project.no_connects.is_empty(),
+        "no flag was added for a wired pin: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "This pin is wired to something")?,
+        "the connected message is shown"
+    );
     Ok(())
 }

@@ -52,6 +52,7 @@ mod minimap;
 mod model_transform;
 mod modifier_ui;
 mod motion;
+mod no_connect;
 mod number_entry;
 mod outline_arcs;
 mod pad_tool;
