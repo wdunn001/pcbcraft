@@ -5,6 +5,7 @@
     target_arch = "wasm32",
     allow(dead_code, unused_imports, unused_variables)
 )]
+use crate::board_edge::write_dxf_edge;
 use pcbcraft_doc::{Project, ProjectLibrary};
 use pcbcraft_geom::Point;
 use serde::{Deserialize, Serialize};
@@ -5778,8 +5779,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         (q.x, q.y)
     }
     let mut w = DxfWriter::new();
-    let corners = board_edge_points(p);
-    w.polyline("Edge", &corners, true)?;
+    write_dxf_edge(&mut w, p)?;
     for c in &p.board.cutouts {
         w.circle("Edge", c.center.x, c.center.y, c.radius)?;
     }
