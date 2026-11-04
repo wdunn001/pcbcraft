@@ -81,8 +81,6 @@ impl Default for AddForm {
 /// View state of the Machines view.
 #[derive(Default)]
 pub(crate) struct MachineLib {
-    /// True when the Library tab shows machines instead of parts.
-    pub(crate) on: bool,
     kind: usize,
     source: usize,
     query: String,
@@ -128,20 +126,31 @@ impl App {
         self.libws.machines.stale = true;
     }
 
-    /// The Parts and Machines switch at the left of the Library tool bar.
-    pub(crate) fn library_view_switch(&mut self, ui: &mut egui::Ui) {
-        let parts = t!("libws.view.parts");
-        let machines = t!("libws.view.machines");
-        let (parts_tip, machines_tip) = (t!("libws.view.parts.tip"), t!("libws.view.machines.tip"));
-        let mut selected = usize::from(self.libws.machines.on);
-        let items = [
-            Segment::text(&parts, &parts_tip),
-            Segment::text(&machines, &machines_tip),
-        ];
-        if segmented(ui, "library-view-switch", &mut selected, &items).changed() {
-            self.libws.machines.on = selected == 1;
-            self.libws.machines.stale = true;
-        }
+    /// True when the Library page's Machines tab is the one showing.
+    pub(crate) fn library_on_machines(&mut self) -> bool {
+        self.region().left_tab == "machines"
+    }
+
+    /// Open the Library page on its Machines tab.
+    pub(crate) fn show_library_machines(&mut self) {
+        self.set_library_left_tab("machines");
+        self.libws.machines.stale = true;
+    }
+
+    /// The left body of the Machines tab: the kind and source filters, the search, Show hidden
+    /// machines and Add machine. The cards are in the centre.
+    pub(crate) fn library_machines_left(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical()
+            .id_salt("library-machines-filters")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Frame::NONE
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = theme::SPACE[3];
+                        self.machine_lib_filters(ui);
+                    });
+            });
     }
 
     /// The centre of the Library tab when it shows machines.
@@ -154,7 +163,6 @@ impl App {
             .show(ui, |ui| {
                 frame.show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = theme::SPACE[3];
-                    self.machine_lib_filters(ui);
                     self.machine_lib_cards(ui);
                 });
             });

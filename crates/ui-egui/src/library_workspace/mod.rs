@@ -388,8 +388,7 @@ impl App {
         ui.horizontal_centered(|ui| {
             ui.add_space(Self::PAGE_GUTTER);
             ui.spacing_mut().item_spacing.x = 8.0;
-            self.library_view_switch(ui);
-            if self.libws.machines.on {
+            if self.library_on_machines() {
                 return;
             }
             if secondary_button(
@@ -486,7 +485,7 @@ impl App {
     /// The centre of the Library tab: the open-part tabs, the part header, the page tabs and
     /// the page; or the empty state, or the compare table.
     pub(crate) fn library_center(&mut self, ui: &mut egui::Ui) {
-        if self.libws.machines.on {
+        if self.library_on_machines() {
             self.library_machines_page(ui);
             return;
         }

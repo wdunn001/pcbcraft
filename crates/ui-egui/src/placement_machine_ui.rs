@@ -382,8 +382,7 @@ impl App {
         )
         .clicked()
         {
-            self.libws.machines.on = true;
-            self.libws.machines.stale = true;
+            self.show_library_machines();
             self.change_tab(Tab::Library);
         }
     }

@@ -112,7 +112,18 @@ const LIBRARY_TAB: RegionTab = RegionTab {
     tip: || t!("library.browser.tab_library.tip"),
 };
 const DRAWING_TABS: [RegionTab; 2] = [LAYERS_TAB, LIBRARY_TAB];
-const LIBRARY_ONLY: [RegionTab; 1] = [LIBRARY_TAB];
+/// The Library page's own tabs: the part browser, then the machine library.
+const PARTS_TAB: RegionTab = RegionTab {
+    id: "library",
+    label: || t!("libws.view.parts"),
+    tip: || t!("libws.view.parts.tip"),
+};
+const LIBRARY_MACHINES_TAB: RegionTab = RegionTab {
+    id: "machines",
+    label: || t!("libws.view.machines"),
+    tip: || t!("libws.view.machines.tip"),
+};
+const LIBRARY_PAGE_TABS: [RegionTab; 2] = [PARTS_TAB, LIBRARY_MACHINES_TAB];
 const FILES_TAB: RegionTab = RegionTab {
     id: "files",
     label: || t!("files.nav.tab"),
@@ -184,10 +195,13 @@ impl Workspace for LibraryWorkspace {
         app.library_toolbar(ui);
     }
     fn left_tabs(&self) -> &'static [RegionTab] {
-        &LIBRARY_ONLY
+        &LIBRARY_PAGE_TABS
     }
     fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
-        drawing_left(app, tab, ui);
+        match tab {
+            "machines" => app.library_machines_left(ui),
+            _ => drawing_left(app, tab, ui),
+        }
     }
     fn center(&self, app: &mut App, ui: &mut egui::Ui) {
         app.library_center(ui);
@@ -335,6 +349,15 @@ impl App {
             .layouts
             .entry(ws.id().to_owned())
             .or_insert_with(|| ws.default_layout())
+    }
+
+    /// Make `tab` the showing left tab of the Library page, whichever page is open now.
+    pub(crate) fn set_library_left_tab(&mut self, tab: &str) {
+        self.preferences
+            .layouts
+            .entry(LIBRARY.id().to_owned())
+            .or_insert_with(|| LIBRARY.default_layout())
+            .left_tab = tab.to_owned();
     }
 
     /// View > Reset layout: forget every saved region layout.
