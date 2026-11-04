@@ -36,9 +36,12 @@ fn main() {
 #[cfg(target_arch = "wasm32")]
 fn main() {
     wasm_bindgen_futures::spawn_local(async {
-        if let Err(error) = start().await {
-            web_sys::console::error_1(&error);
-            show_crash_notice();
+        match start().await {
+            Ok(()) => hide_loading_view(),
+            Err(error) => {
+                web_sys::console::error_1(&error);
+                show_crash_notice();
+            }
         }
     });
 }
@@ -194,6 +197,17 @@ impl eframe::App for WithFonts {
 ///
 /// # Do not
 /// - Panic or return an error; this runs on the failure path and inside the panic hook.
+/// Take the loading view off the page: the app has started and draws its own first frame.
+#[cfg(target_arch = "wasm32")]
+fn hide_loading_view() {
+    if let Some(view) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id("web-loading"))
+    {
+        let _ = view.set_attribute("hidden", "");
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 fn show_crash_notice() {
     let Some(document) = web_sys::window().and_then(|window| window.document()) else {
@@ -205,6 +219,7 @@ fn show_crash_notice() {
     if let Some(canvas) = document.get_element_by_id("pcbcraft") {
         let _ = canvas.set_attribute("hidden", "");
     }
+    hide_loading_view();
 }
 
 /// Session passed into the UI on first paint: recovery snapshot or the demo board.
@@ -321,6 +336,11 @@ mod tests {
             "web.reload.tip",
             "web.download_desktop",
             "web.download_desktop.tip",
+            "web.loading.title",
+            "web.loading.download",
+            "web.loading.compile",
+            "web.loading.start",
+            "web.loading.slow",
         ] {
             assert!(catalog.defines(key), "{key} missing from the catalog");
             assert!(
@@ -332,6 +352,13 @@ mod tests {
         assert!(script.contains("needs-webgpu"));
         assert!(script.contains("web-crashed"));
         assert!(html.contains("id=\"web-reload\""));
+        // The loading view names its stages from data attributes the start script reads.
+        assert!(html.contains("id=\"web-loading\""));
+        assert!(html.contains("data-download="));
+        assert!(html.contains("data-compile="));
+        assert!(html.contains("data-start="));
+        let start = include_str!("../pcbcraft-start.js");
+        assert!(start.contains("web-loading"));
     }
 
     /// The trunk config gates the wasm on the page check and drops the preloads

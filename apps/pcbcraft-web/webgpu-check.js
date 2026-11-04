@@ -22,6 +22,11 @@ function pcbcraftShow(doc, id) {
   if (notice) {
     notice.hidden = false;
   }
+  // A notice replaces the loading view: it must not stay on top of the message.
+  var loading = doc.getElementById("web-loading");
+  if (loading) {
+    loading.hidden = true;
+  }
   var canvas = doc.getElementById("pcbcraft");
   if (canvas) {
     canvas.hidden = true;
