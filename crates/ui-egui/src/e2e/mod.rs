@@ -17,6 +17,7 @@ mod bom_flavours;
 mod builds;
 mod checks;
 mod compare;
+mod connector_series;
 mod context_menus;
 mod copper_layers;
 mod datasheet;
