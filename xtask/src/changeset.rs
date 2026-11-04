@@ -498,6 +498,15 @@ pub fn run_changeset(root: &Path, args: &[String]) -> Result<(), String> {
                 .collect();
             let files = changed_files(&base)?;
             require(&files, &labels).map_err(|e| format!("{e}\n{}", help()))?;
+            // A file the changelog cannot read is dropped from the page without a word, so every
+            // change file this pull request adds must parse.
+            for path in files.iter().filter(|f| is_changeset_path(f)) {
+                let Some(text) = std::fs::read_to_string(root.join(path)).ok() else {
+                    continue;
+                };
+                let slug = path.trim_start_matches(".changes/").trim_end_matches(".md");
+                parse(slug, &text).map_err(|e| format!("{path}: {e}\n{}", help()))?;
+            }
             println!(
                 "change file present or not needed ({} changed files)",
                 files.len()
