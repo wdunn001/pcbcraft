@@ -1960,7 +1960,11 @@ impl App {
                 text(ui, &t!("library.library_editor.name"), &mut def.name);
                 text(ui, &t!("library.library_editor.description"), &mut def.description);
                 let mut has_body = def.box_body.is_some();
-                if ui.checkbox(&mut has_body, t!("library.library_editor.box_body")).changed() {
+                if ui
+                    .checkbox(&mut has_body, t!("library.library_editor.box_body"))
+                    .on_hover_text(t!("library.library_editor.box_body.tip"))
+                    .changed()
+                {
                     if has_body {
                         def.box_body = Some(FootprintBoxBody { width: 1.0, depth: 1.0, height: 1.0 });
                     } else {
