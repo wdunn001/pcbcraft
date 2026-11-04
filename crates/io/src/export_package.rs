@@ -160,12 +160,7 @@ pub static CONTENT_FORMATS: &[ContentFormat] = &[
         "paste stencil output is a stub",
         420,
     ),
-    waiting(
-        "revision_notes",
-        "Revision notes",
-        "the revision notes generator does not exist yet",
-        425,
-    ),
+    ready("revision_notes", "Revision notes"),
 ];
 
 /// The writer row for `id`.
@@ -577,11 +572,12 @@ pub fn build_package(
         BTreeMap::new()
     };
     let mut entries: Vec<PackageEntry> = Vec::new();
-    for c in def
-        .files
-        .iter()
-        .filter(|c| !matches!(c.format.as_str(), "gerber_job" | "fab_readme"))
-    {
+    for c in def.files.iter().filter(|c| {
+        !matches!(
+            c.format.as_str(),
+            "gerber_job" | "fab_readme" | "revision_notes"
+        )
+    }) {
         entries.extend(render_content(p, c, &t, variant, &gerbers)?);
     }
     // The job file and the readme describe the files, so they are written last, from the
@@ -611,6 +607,17 @@ pub fn build_package(
         names.push(n.clone());
         names.sort();
         entries.push(text_entry(n, &c.kind, crate::fab_readme_text(p, &names)?));
+    }
+    for c in def.files.iter().filter(|c| c.format == "revision_notes") {
+        let n = expand(&c.name, &t, None, Some("NOTES"), Some("txt"))?;
+        let mut names: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
+        names.push(n.clone());
+        names.sort();
+        entries.push(text_entry(
+            n,
+            &c.kind,
+            crate::package_revision_notes(p, &def.id, variant, &names, None)?,
+        ));
     }
     if entries.is_empty() {
         return Err(format!("{} wrote no files", def.name));
