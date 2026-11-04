@@ -18,7 +18,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.import_footprint_dir","Read every footprint library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_symbol_dir","Read every symbol library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor symbol folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_part","Copy a part's symbol and, when it has one, its footprint into the project library as one undoable step, keeping the licence notice; the symbol is linked to the footprint by name",schema(json!({"symbol":{"type":"object","description":"a symbol definition as library readers emit it"},"footprint":{"type":"object","description":"a footprint definition as library readers emit it"},"notice":{"type":"string","description":"licence or attribution line kept with the project library"}}),&["symbol"])),
-        ("part.place","Import a part if it is not in the project library yet and place it as one undoable step. On the schematic the symbol goes at the position; on the board the footprint goes at the position and the part joins the schematic parked below the drawing, not yet wired",schema(json!({"target":{"type":"string","enum":["schematic","board"]},"position":point_schema(),"name":{"type":"string","description":"a symbol already in the project library"},"kind":{"type":"string","description":"a built-in part kind such as resistor"},"symbol":{"type":"object"},"footprint":{"type":"object"},"notice":{"type":"string"},"reference":{"type":"string"},"value":{"type":"string"}}),&["target","position"])),
+        ("part.place","Import a part if it is not in the project library yet and place it as one undoable step. On the schematic the symbol goes at the position; on the board the footprint goes at the position and the part joins the schematic parked below the drawing, not yet wired",schema(json!({"target":{"type":"string","enum":["schematic","board"]},"position":point_schema(),"name":{"type":"string","description":"a symbol already in the project library"},"kind":{"type":"string","description":"a built-in part kind such as resistor"},"symbol":{"type":"object"},"footprint":{"type":"object"},"notice":{"type":"string"},"reference":{"type":"string"},"value":{"type":"string"},"sheet":id_schema()}),&["target","position"])),
         ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"},"sheet":id_schema()}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
@@ -109,6 +109,8 @@ struct PlacePartParams {
     notice: Option<String>,
     reference: Option<String>,
     value: Option<String>,
+    /// The schematic page the part goes on; Main when absent.
+    sheet: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3325,6 +3327,7 @@ pub(super) fn run(
             if a.target != "schematic" && a.target != "board" {
                 return Err(Error::Invalid("target must be schematic or board".into()));
             }
+            check_sheet(p, a.sheet)?;
             let at = if a.target == "board" {
                 parked_position(p)
             } else {
@@ -3352,6 +3355,7 @@ pub(super) fn run(
                     c.value = value;
                 }
                 p.components.push(c);
+                put_on_sheet(&json!({"id": id}), p, a.sheet)?;
                 id
             } else {
                 let name = match a.symbol {
@@ -3379,6 +3383,7 @@ pub(super) fn run(
                 let placed =
                     place_definition(p, next, "project".into(), def, at, a.reference, a.value)?;
                 let id = placed["id"].as_u64().ok_or_else(missing)?;
+                put_on_sheet(&placed, p, a.sheet)?;
                 if let Some(footprint) = footprint
                     && let Some(c) = p.components.iter_mut().find(|c| c.id == id)
                 {

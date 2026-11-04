@@ -24,6 +24,7 @@ use crate::App;
 use crate::bom_export;
 use pcbcraft_doc::{BOM_EXCLUDE_FIELD, Id, Project};
 use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope};
+use pcbcraft_text::t;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -132,6 +133,8 @@ pub(crate) struct DialogState {
     pub format: String,
     /// Package the user clicked this frame; it is exported then cleared.
     pub package: String,
+    /// Package the user has picked for preview; empty for none.
+    pub package_pick: String,
     pub values: BTreeMap<String, String>,
     /// File to read or write for Import and Save as.
     pub path: String,
@@ -441,13 +444,55 @@ impl App {
                         ui.set_width(520.0);
                         match spec(&d.format) {
                             None => {
-                                ui.label(
-                                    egui::RichText::new(match d.mode {
-                                        Mode::Import => "Pick what you want to bring in.",
-                                        _ => "Pick a format on the left.",
-                                    })
-                                    .color(muted),
-                                );
+                                if !d.package_pick.is_empty() {
+                                    let pkgs = packages();
+                                    let pkg = pkgs.iter().find(|p| p.id == d.package_pick);
+                                    if let Some(p) = pkg {
+                                        ui.label(crate::fonts::title(&p.label));
+                                        ui.label(egui::RichText::new(&p.tip).color(muted));
+                                        ui.add_space(8.0);
+                                        ui.label(
+                                            crate::fonts::caption(t!("export.package.files"))
+                                                .color(muted),
+                                        )
+                                        .on_hover_text(t!("export.package.files.tip"));
+                                        if let Some(def) =
+                                            pcbcraft_io::find_package(&project, &p.id)
+                                        {
+                                            match pcbcraft_io::preview_package_files(
+                                                &project, &def, None,
+                                            ) {
+                                                Ok(names) => {
+                                                    for name in names {
+                                                        ui.label(name);
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    ui.label(
+                                                        egui::RichText::new(e)
+                                                            .color(ui.visuals().error_fg_color),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        ui.add_space(8.0);
+                                        if ui
+                                            .button(t!("export.package.go"))
+                                            .on_hover_text(t!("export.package.go.tip"))
+                                            .clicked()
+                                        {
+                                            d.package = d.package_pick.clone();
+                                        }
+                                    }
+                                } else {
+                                    ui.label(
+                                        egui::RichText::new(match d.mode {
+                                            Mode::Import => "Pick what you want to bring in.",
+                                            _ => "Pick a format on the left.",
+                                        })
+                                        .color(muted),
+                                    );
+                                }
                             }
                             Some(f) => {
                                 detail(ui, &mut d, f, &project, &make_dir, muted, browser, &mut go)
@@ -838,6 +883,7 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
             {
                 d.format = f.id.to_owned();
                 d.values = defaults(project, f);
+                d.package_pick = String::new();
                 if d.mode == Mode::SaveAs {
                     d.path = String::new();
                 }
@@ -867,7 +913,7 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
                 .on_disabled_hover_text(tip.as_str())
                 .on_hover_text(tip.as_str());
             if r.clicked() {
-                d.package = p.id.clone();
+                d.package_pick = p.id.clone();
             }
         }
     }

@@ -18,7 +18,7 @@ pub use net_merge::NetMerge;
 mod corner;
 mod net_properties;
 mod outline;
-pub use constraint::{Constraint, ConstraintKind, ConstraintValue, driven_target};
+pub use constraint::{Constraint, ConstraintKind, ConstraintValue, MAX_CONSTRAINTS, driven_target};
 pub use corner::{chamfer_leg_of, chamfered_outline, default_corner_leg};
 mod package_def;
 mod panel;
@@ -4417,6 +4417,9 @@ pub struct Project {
     /// moves everything that depends on it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bindings: Vec<Binding>,
+    /// Named distance constraints between board holes and vias.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<Constraint>,
     /// Maximum board distance from a connector signal pad to a protection
     /// device pad on the same net.
     #[serde(
@@ -4734,6 +4737,7 @@ impl Default for Project {
             decoupling: DecouplingRule::default(),
             parameters: Default::default(),
             bindings: vec![],
+            constraints: vec![],
             esd_max_distance_mm: default_esd_max_distance_mm(),
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
@@ -5277,7 +5281,10 @@ impl Project {
     /// dissolve groups left with fewer than two members. Runs after every
     /// engine command so deletes never leave dangling ids.
     pub fn prune_object_refs(&mut self) {
-        if self.object_groups.is_empty() && self.locked_objects.is_empty() {
+        if self.object_groups.is_empty()
+            && self.locked_objects.is_empty()
+            && self.constraints.is_empty()
+        {
             return;
         }
         let alive = |p: &Project, id: Id| p.is_groupable(id);
@@ -5292,6 +5299,7 @@ impl Project {
             .collect();
         let locked = std::mem::take(&mut self.locked_objects);
         self.locked_objects = locked.into_iter().filter(|id| alive(self, *id)).collect();
+        self.prune_constraints();
     }
     /// The copper span of a via as (upper, lower) layers; an unset end is the
     /// outer layer on that side of this board.
@@ -6056,6 +6064,7 @@ impl Project {
         self.validate_part_links()?;
         self.export_trade.validate()?;
         self.validate_parameters()?;
+        self.validate_constraints()?;
         validate_sheet_instances(self)?;
         self.validate_manufacturers()?;
         self.compliance_settings.validate()?;

@@ -510,3 +510,133 @@ fn report_routed_length_is_the_track_sum() -> Result<(), Error> {
     );
     Ok(())
 }
+
+#[test]
+fn fully_routed_net_reports_zero_unrouted() -> Result<(), Error> {
+    // Hand-computed: routing GND between C1 pad 2 and J1 pad 2 closes the
+    // single GND airwire, leaving only the two VCC airwires. The GND row
+    // must show unrouted 0 and unrouted_mm 0.0, and the totals must count
+    // only the two open VCC connections.
+    let (mut s, u1, c1, _) = board()?;
+    let j1 = s
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "J1")
+        .map(|c| c.id)
+        .ok_or(Error::Invalid("no J1 component".into()))?;
+    place(&mut s, u1, 10.0, 10.0)?;
+    place(&mut s, c1, 20.0, 10.0)?;
+    place(&mut s, j1, 30.0, 10.0)?;
+    let c1_fp = fp_of(&s, c1)?;
+    let j1_fp = fp_of(&s, j1)?;
+    s.execute(
+        "track.route",
+        json!({"from":{"footprint":c1_fp,"pad":"2"},"to":{"footprint":j1_fp,"pad":"2"},"layer":"F.Cu"}),
+        None,
+    )?;
+    let r =
+        s.execute("layout.report", json!({"scope":{"layers":["F.Cu"]}}), None)?["result"].clone();
+    let gnd = s
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "GND")
+        .map(|n| n.id)
+        .ok_or(Error::Invalid("no GND net".into()))?;
+    let vcc = s
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "VCC")
+        .map(|n| n.id)
+        .ok_or(Error::Invalid("no VCC net".into()))?;
+    let row = |net: u64| -> Option<&Value> {
+        r["nets"]
+            .as_array()
+            .and_then(|a| a.iter().find(|n| n["net"] == json!(net)))
+    };
+    let gnd_row = row(gnd).ok_or(Error::Invalid("no GND row".into()))?;
+    let vcc_row = row(vcc).ok_or(Error::Invalid("no VCC row".into()))?;
+    assert_eq!(gnd_row["unrouted"], json!(0), "GND is fully routed");
+    let gnd_open = gnd_row["unrouted_mm"].as_f64().unwrap_or(-1.0);
+    assert!(gnd_open.abs() < 0.001, "GND unrouted_mm is zero");
+    assert_eq!(
+        vcc_row["unrouted"],
+        json!(2),
+        "VCC still has two open connections"
+    );
+    assert_eq!(
+        r["totals"]["unrouted"],
+        json!(2),
+        "totals count only the unrouted VCC connections"
+    );
+    Ok(())
+}
+
+#[test]
+fn locked_and_hidden_items_are_counted_like_other_items() -> Result<(), Error> {
+    // Hand-computed: locking U1 must not change any wirelength value because
+    // the report walks every placed pad. Flipping J1 moves its pads to the
+    // opposite side, but the report must still include those pads in every
+    // net row; the scope layers F.Cu and B.Cu ensure both sides are reported.
+    let (mut s, u1, c1, _) = board()?;
+    let j1 = s
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "J1")
+        .map(|c| c.id)
+        .ok_or(Error::Invalid("no J1 component".into()))?;
+    place(&mut s, u1, 10.0, 10.0)?;
+    place(&mut s, c1, 20.0, 10.0)?;
+    place(&mut s, j1, 30.0, 10.0)?;
+    let baseline =
+        s.execute("layout.report", json!({"scope":{"layers":["F.Cu"]}}), None)?["result"].clone();
+    let u1_fp = fp_of(&s, u1)?;
+    s.execute("object.set_locked", json!({"id":u1_fp,"locked":true}), None)?;
+    let after_lock =
+        s.execute("layout.report", json!({"scope":{"layers":["F.Cu"]}}), None)?["result"].clone();
+    assert_eq!(
+        baseline["nets"].to_string(),
+        after_lock["nets"].to_string(),
+        "locking a footprint changes no wirelength value"
+    );
+    let j1_fp = fp_of(&s, j1)?;
+    s.execute("footprint.flip", json!({"id":j1_fp}), None)?;
+    let after_flip = s.execute(
+        "layout.report",
+        json!({"scope":{"layers":["F.Cu","B.Cu"]}}),
+        None,
+    )?["result"]
+        .clone();
+    // Both nets must still appear with their pad counts after the flip.
+    let nets = after_flip["nets"]
+        .as_array()
+        .ok_or(Error::Invalid("no nets".into()))?;
+    let gnd = s
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "GND")
+        .map(|n| n.id)
+        .ok_or(Error::Invalid("no GND net".into()))?;
+    let vcc = s
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "VCC")
+        .map(|n| n.id)
+        .ok_or(Error::Invalid("no VCC net".into()))?;
+    let gnd_row = nets
+        .iter()
+        .find(|n| n["net"] == json!(gnd))
+        .ok_or(Error::Invalid("GND row missing after flip".into()))?;
+    let vcc_row = nets
+        .iter()
+        .find(|n| n["net"] == json!(vcc))
+        .ok_or(Error::Invalid("VCC row missing after flip".into()))?;
+    assert_eq!(gnd_row["pads"], json!(2));
+    assert_eq!(vcc_row["pads"], json!(3));
+    Ok(())
+}

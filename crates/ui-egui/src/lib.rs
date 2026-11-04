@@ -52,6 +52,7 @@ mod minimap;
 mod model_transform;
 mod modifier_ui;
 mod motion;
+mod no_connect;
 mod number_entry;
 mod outline_arcs;
 mod pad_tool;
@@ -4274,7 +4275,12 @@ impl App {
         let labels: Vec<(String, String)> = tabs.iter().map(|t| ((t.label)(), (t.tip)())).collect();
         let items: Vec<ui_kit::tab_bar::TabItem<'_>> = labels
             .iter()
-            .map(|(label, tip)| ui_kit::tab_bar::TabItem::new(label, tip))
+            .zip(tabs)
+            .map(|((label, tip), tab)| {
+                let mut item = ui_kit::tab_bar::TabItem::new(label, tip);
+                item.icon = tab.icon;
+                item
+            })
             .collect();
         let mut current = tabs
             .iter()
