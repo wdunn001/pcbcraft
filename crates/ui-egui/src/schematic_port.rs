@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::canvas::snap;
+use crate::canvas::text_style::{TextRole, role_font};
 use crate::fonts;
 use crate::tool_modifiers::Held;
 use crate::ui_kit::{
@@ -198,7 +199,7 @@ impl App {
                 frame.left_top() + egui::vec2(4.0, 2.0),
                 Align2::LEFT_TOP,
                 &sheet.name,
-                crate::fonts::Role::Caption.font(),
+                role_font(TextRole::Value, camera.zoom),
                 sc.text,
             );
             let ports: Vec<_> = p
@@ -212,7 +213,7 @@ impl App {
                     camera.screen(at, rect),
                     Align2::LEFT_CENTER,
                     format!("[{}]", port.name),
-                    crate::fonts::Role::Mono.font(),
+                    role_font(TextRole::PortName, camera.zoom),
                     sc.wire,
                 );
             }

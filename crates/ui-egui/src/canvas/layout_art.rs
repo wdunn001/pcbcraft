@@ -453,7 +453,10 @@ impl App {
                         a.lerp(b, 0.5) + Vec2::new(0.0, -7.0),
                         Align2::CENTER_BOTTOM,
                         name,
-                        crate::fonts::Role::Mono.font(),
+                        super::text_style::role_font(
+                            super::text_style::TextRole::BoardValue,
+                            camera.zoom,
+                        ),
                         art.ratsnest,
                     );
                 }
