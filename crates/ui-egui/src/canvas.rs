@@ -1179,11 +1179,13 @@ impl App {
                 pcbcraft_doc::ArtKind::Perforation => self.colours().canvas.pad,
                 pcbcraft_doc::ArtKind::Silk => self.ink(),
                 pcbcraft_doc::ArtKind::Mask => self.colours().canvas.mask,
+                pcbcraft_doc::ArtKind::Engrave => self.colours().canvas.engrave,
+                pcbcraft_doc::ArtKind::Fabrication => self.colours().canvas.fabrication,
                 pcbcraft_doc::ArtKind::Other => self.ink().linear_multiply(0.55),
             };
             let colour = colour.linear_multiply(self.art_alpha(&layer.name));
             let stroke = Stroke::new(1.2, colour);
-            let dotted = layer.dotted;
+            let dotted = layer.dotted || layer.kind == pcbcraft_doc::ArtKind::Fabrication;
             for shape in &layer.shapes {
                 match shape {
                     pcbcraft_doc::ArtShape::Line { start, end } => {

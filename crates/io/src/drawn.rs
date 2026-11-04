@@ -413,6 +413,8 @@ fn svg_layer_text(layer: &ArtLayer) -> Result<String, String> {
         ArtKind::Perforation => ("#ff0000", "none"),
         ArtKind::Silk => ("#000000", "none"),
         ArtKind::Mask => ("#00a000", "none"),
+        ArtKind::Engrave => ("#33ccff", "none"),
+        ArtKind::Fabrication => ("#cc99ff", "none"),
         ArtKind::Other => ("#808080", "none"),
     };
     let width_mm = format!("{width:.3}mm");
@@ -606,9 +608,11 @@ pub fn drawn_layer_plots(p: &Project) -> Result<DrawnLayerPlots, String> {
                 add(format!("{stem}.gbr"), gerber_layer_text(layer)?)?;
                 add(format!("{stem}.dxf"), dxf_layer_text(layer, &stem)?)?;
             }
-            ArtKind::Other => {
+            ArtKind::Engrave | ArtKind::Other => {
                 add(format!("{stem}.dxf"), dxf_layer_text(layer, &stem)?)?;
             }
+            // Fabrication outline never reaches any machine output.
+            ArtKind::Fabrication => {}
         }
     }
     Ok(plots)

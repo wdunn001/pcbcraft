@@ -2375,7 +2375,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "board.layer_add",
             "Add a layer the designer draws for their own machines: a named cut line, perforation, silk screen, solder mask or reference layer that a laser, mill or UV printer follows beside the copper",
             schema(
-                json!({"name":{"type":"string","maxLength":64},"kind":{"type":"string","enum":["cut","perforation","silk","mask","other"],"description":"what this layer tells a machine to do; defaults to other"},"dot_pitch":{"type":"number","minimum":0.1,"maximum":20,"description":"centre-to-centre distance between the dots of a dotted layer, in millimetres; defaults to 1.0"},"dot_size":{"type":"number","minimum":0.05,"maximum":10,"description":"diameter of each dot of a dotted layer, in millimetres; defaults to 0.5"}}),
+                json!({"name":{"type":"string","maxLength":64},"kind":{"type":"string","enum":["cut","perforation","silk","mask","engrave","fabrication","other"],"description":"what this layer tells a machine to do; defaults to other"},"dot_pitch":{"type":"number","minimum":0.1,"maximum":20,"description":"centre-to-centre distance between the dots of a dotted layer, in millimetres; defaults to 1.0"},"dot_size":{"type":"number","minimum":0.05,"maximum":10,"description":"diameter of each dot of a dotted layer, in millimetres; defaults to 0.5"}}),
                 &["name"],
             ),
         ),
@@ -2389,9 +2389,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.layer_kind_set",
-            "Change what a drawn layer tells a machine to do: cut, perforation, silk, mask or other",
+            "Change what a drawn layer tells a machine to do: cut, perforation, silk, mask, engrave, fabrication or other",
             schema(
-                json!({"layer":id_schema(),"kind":{"type":"string","enum":["cut","perforation","silk","mask","other"]}}),
+                json!({"layer":id_schema(),"kind":{"type":"string","enum":["cut","perforation","silk","mask","engrave","fabrication","other"]}}),
                 &["layer", "kind"],
             ),
         ),
@@ -6630,16 +6630,18 @@ struct LayerShapeParams {
 /// Map a layer job kind string to `ArtKind` for laser or art exports.
 ///
 /// # Rules
-/// - Accepts cut, perforation, silk, mask or other only.
+/// - Accepts cut, perforation, silk, mask, engrave, fabrication or other only.
 fn art_kind(name: &str) -> Result<pcbcraft_doc::ArtKind, Error> {
     match name {
         "cut" => Ok(pcbcraft_doc::ArtKind::Cut),
         "perforation" => Ok(pcbcraft_doc::ArtKind::Perforation),
         "silk" => Ok(pcbcraft_doc::ArtKind::Silk),
         "mask" => Ok(pcbcraft_doc::ArtKind::Mask),
+        "engrave" => Ok(pcbcraft_doc::ArtKind::Engrave),
+        "fabrication" => Ok(pcbcraft_doc::ArtKind::Fabrication),
         "other" => Ok(pcbcraft_doc::ArtKind::Other),
         _ => Err(Error::Invalid(
-            "layer job must be cut, perforation, silk, mask or other".into(),
+            "layer job must be cut, perforation, silk, mask, engrave, fabrication or other".into(),
         )),
     }
 }

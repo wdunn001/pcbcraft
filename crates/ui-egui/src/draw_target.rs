@@ -213,6 +213,14 @@ impl App {
                         t!("draw.purpose.art_mask"),
                         t!("draw.purpose.art_mask.about"),
                     ),
+                    Some(ArtKind::Engrave) => (
+                        t!("draw.purpose.art_engrave"),
+                        t!("draw.purpose.art_engrave.about"),
+                    ),
+                    Some(ArtKind::Fabrication) => (
+                        t!("draw.purpose.art_fabrication"),
+                        t!("draw.purpose.art_fabrication.about"),
+                    ),
                     Some(ArtKind::Other) => {
                         (t!("draw.purpose.other"), t!("draw.purpose.other.about"))
                     }
