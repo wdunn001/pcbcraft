@@ -1,0 +1,5 @@
+# Drill tool chart for Dual amplifier · editable libraries
+TOOL,DIAMETER_MM,SLOT_MM,PLATED,HOLES
+T1,0.800,0.000,yes,7
+T2,0.800,0.200,yes,1
+TOTAL,,,,8
