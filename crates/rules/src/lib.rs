@@ -25,6 +25,7 @@ mod courtyard;
 mod decoupling;
 mod diffpair_impedance;
 mod drill;
+mod extremes;
 mod finding_set;
 mod hole_copper;
 mod impedance_fix;
@@ -53,6 +54,7 @@ pub use compliance::{
 };
 
 pub use courtyard::{CourtyardPair, courtyard_pairs};
+pub use extremes::{smallest_copper_gap, smallest_mask_web};
 pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
 pub use impedance_fix::suggested_width;
 
@@ -214,7 +216,7 @@ fn push_on_copper_layers(project: &Project, item: Copper, out: &mut Vec<Copper>)
         out.push(copy);
     }
 }
-fn copper(project: &Project) -> Vec<Copper> {
+pub(crate) fn copper(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
     for f in &project.board.footprints {
         let local = project
@@ -866,7 +868,7 @@ fn touching(a: &Copper, b: &Copper) -> bool {
         && !a.hole.as_ref().is_some_and(|hole| hole_contains(hole, b))
         && !b.hole.as_ref().is_some_and(|hole| hole_contains(hole, a))
 }
-fn gap(a: &Copper, b: &Copper) -> f64 {
+pub(crate) fn gap(a: &Copper, b: &Copper) -> f64 {
     match (&a.outline, &b.outline) {
         (Some(a_points), Some(b_points)) => {
             let mut distance = f64::INFINITY;

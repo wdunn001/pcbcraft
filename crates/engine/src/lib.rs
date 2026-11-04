@@ -3830,10 +3830,20 @@ fn render_kind(
             "plot-report.csv".into(),
             pcbcraft_io::plot_csv(p)?.into_bytes(),
         )),
-        "report" => out.push((
-            "board-report.txt".into(),
-            pcbcraft_io::report_text(p)?.into_bytes(),
-        )),
+        "report" => {
+            let mut text = pcbcraft_io::report_text(p)?;
+            if let Some(gap) = pcbcraft_rules::smallest_copper_gap(p) {
+                text = text + &format!("\nSmallest copper gap: {:.3} mm", gap);
+            } else {
+                text += "\nSmallest copper gap: none to measure";
+            }
+            if let Some(web) = pcbcraft_rules::smallest_mask_web(p) {
+                text = text + &format!("\nSmallest mask bridge: {:.3} mm", web);
+            } else {
+                text += "\nSmallest mask bridge: none to measure";
+            }
+            out.push(("board-report.txt".into(), text.into_bytes()));
+        }
         "ps" => out.push((
             "pcb.ps".into(),
             pcbcraft_io::postscript(p, "pcb")?.into_bytes(),
@@ -23737,6 +23747,37 @@ mod tests {
             .to_string_lossy()
             .into_owned()
     }
+    #[test]
+    fn report_export_includes_smallest_copper_gap_and_mask_web() -> Result<(), Error> {
+        let mut s = Session::default();
+        // Add two components to create copper on the board
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?;
+        let mut skipped = vec![];
+        let result = render_kind(&s.project, "report", None, None, &mut skipped, None)?;
+        let text = String::from_utf8(result[0].1.clone())
+            .map_err(|e| Error::Invalid(format!("utf-8: {}", e)))?;
+        assert!(
+            text.contains("Smallest copper gap:"),
+            "report should contain copper gap info: {}",
+            text
+        );
+        assert!(
+            text.contains("Smallest mask bridge:"),
+            "report should contain mask bridge info: {}",
+            text
+        );
+        Ok(())
+    }
+
     #[test]
     fn drawn_wires_keep_vertices_bind_nets_and_undo_cleanly() -> Result<(), Error> {
         let mut s = Session::default();
