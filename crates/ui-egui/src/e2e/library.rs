@@ -1350,3 +1350,54 @@ fn a_newcomer_switches_the_collection_between_symbols_and_footprints_and_names_a
     let _ = std::fs::remove_dir_all(&folder);
     Ok(())
 }
+
+#[test]
+fn a_newcomer_views_and_edits_a_3d_model_for_a_part_in_the_library() -> Result<(), String> {
+    let (_own, _shared, mut app, ctx) = libraries_page("3d-model")?;
+    // Create a footprint and save it to the project library.
+    let mut fp = authoring::new_footprint();
+    fp.name = "HasModel".into();
+    app.tool_call("library.footprint.upsert", json!({"definition": fp}));
+    // Set a 3D model on the footprint.
+    app.tool_call(
+        "library.footprint.set_model",
+        json!({"name": "HasModel", "path": "wedge.gltf"}),
+    );
+    // Create a symbol with that footprint.
+    let mut sym = authoring::new_symbol();
+    sym.name = "Test part".into();
+    sym.footprint = "HasModel".into();
+    app.tool_call("library.symbol.upsert", json!({"definition": sym.clone()}));
+    app.refresh();
+    // Open the part in the library workspace.
+    app.library_open_part(&ctx, &library_dock::Card::Project(Box::new(sym)));
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    // Navigate to the 3D model tab.
+    tap_id(&ctx, &mut app, "tab:#D model")?;
+    // Verify the 3D model transform panel shows.
+    assert!(
+        paints_text(&ctx, &mut app, "Model file")?,
+        "the library preview shows the 3D model transform panel for footprints with models"
+    );
+    // Verify the model path is shown.
+    assert!(
+        paints_text(&ctx, &mut app, "wedge.gltf")?,
+        "the model path appears in the preview"
+    );
+    // Verify the transform controls are present.
+    assert!(
+        paints_text(&ctx, &mut app, "Offset")?,
+        "the model transform panel has offset controls"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Scale")?,
+        "the model transform panel has scale controls"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Rotation")?,
+        "the model transform panel has rotation controls"
+    );
+    Ok(())
+}
