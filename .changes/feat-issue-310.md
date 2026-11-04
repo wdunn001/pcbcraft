@@ -1,8 +1,8 @@
 ---
-type: docs
+type: feature
 area: packaging
 issues: [310]
-user_visible: false
+user_visible: true
 docs: [docs/ci.md]
-summary: The CI guide now says that store listing and upload for Flatpak and Snap need owner secrets and are out of scope.
+summary: Flatpak and Snap packages are built in CI and attached to draft releases.
 ---

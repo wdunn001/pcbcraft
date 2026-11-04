@@ -137,10 +137,12 @@ jobs:
           for f in pcbcraft-linux-x86_64.tar.gz pcbcraft-linux-aarch64.tar.gz \
             pcbcraft-windows-x86_64.msi pcbcraft-windows-x86_64-portable.zip \
             pcbcraft-windows-x86_64.zip pcbcraft-macos-universal.tar.gz \
-            pcbcraft-macos-universal.dmg pcbcraft-web.zip; do
+            pcbcraft-macos-universal.dmg pcbcraft-web.zip \
+            pcbcraft-linux-x86_64.flatpak pcbcraft-linux-aarch64.flatpak \
+            pcbcraft-linux-x86_64.snap pcbcraft-linux-aarch64.snap; do
             test -s "$f" || { echo "missing version-less copy $f" >&2; exit 1; }
           done
-          ls -l pcbcraft-linux-* pcbcraft-windows-* pcbcraft-macos-* pcbcraft-web.zip
+          ls -l pcbcraft-linux-* pcbcraft-windows-* pcbcraft-macos-* pcbcraft-web.zip pcbcraft-*.flatpak pcbcraft-*.snap
       - name: Checksums
         working-directory: dist
         run: |

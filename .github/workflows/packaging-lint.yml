@@ -1,0 +1,76 @@
+# Validate packaging scripts, manifests and metadata are present and well-formed.
+# Runs on pull requests and pushes to main; does not build binaries.
+name: Packaging lint
+
+on:
+  pull_request:
+    paths:
+      - 'packaging/**'
+      - '.github/workflows/build-dist.yml'
+      - '.github/workflows/release.yml'
+      - 'docs/ci.md'
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/**'
+      - '.github/workflows/build-dist.yml'
+      - '.github/workflows/release.yml'
+      - 'docs/ci.md'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Packaging lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify packaging scripts exist
+        run: |
+          set -euo pipefail
+          for f in \
+            packaging/linux/package.sh \
+            packaging/linux/flatpak-bundle.sh \
+            packaging/linux/snap-pack.sh \
+            packaging/windows/package.ps1; do
+            test -f "$f" || { echo "missing packaging script: $f" >&2; exit 1; }
+          done
+          echo "all packaging scripts present"
+      - name: Verify packaging manifests exist
+        run: |
+          set -euo pipefail
+          for f in \
+            packaging/linux/nfpm.yaml \
+            packaging/linux/flatpak/io.github.tangency_labs.pcbcraft.bundle.yml \
+            packaging/linux/snap/snapcraft.yaml; do
+            test -f "$f" || { echo "missing packaging manifest: $f" >&2; exit 1; }
+          done
+          echo "all packaging manifests present"
+      - name: Verify Linux desktop metadata exists
+        run: |
+          set -euo pipefail
+          APP_ID="io.github.tangency_labs.pcbcraft"
+          for f in \
+            "assets/platforms/linux/${APP_ID}.desktop" \
+            "assets/platforms/linux/${APP_ID}.metainfo.xml.in" \
+            "assets/platforms/linux/${APP_ID}.mime.xml"; do
+            test -f "$f" || { echo "missing Linux metadata: $f" >&2; exit 1; }
+          done
+          echo "all Linux desktop metadata present"
+      - name: Smoke patterns for release.yml
+        run: |
+          set -euo pipefail
+          grep -q 'flatpak-bundle.sh' .github/workflows/build-dist.yml || { echo "build-dist.yml does not call flatpak-bundle.sh" >&2; exit 1; }
+          grep -q 'snap-pack.sh' .github/workflows/build-dist.yml || { echo "build-dist.yml does not call snap-pack.sh" >&2; exit 1; }
+          grep -q '\.flatpak' .github/workflows/release.yml || { echo "release.yml does not handle flatpak artifacts" >&2; exit 1; }
+          grep -q '\.snap' .github/workflows/release.yml || { echo "release.yml does not handle snap artifacts" >&2; exit 1; }
+          echo "release workflow smoke patterns pass"
+      - name: Verify docs/ci.md mentions flatpak and snap
+        run: |
+          set -euo pipefail
+          grep -q 'flatpak' docs/ci.md || { echo "docs/ci.md does not mention flatpak" >&2; exit 1; }
+          grep -q 'snap' docs/ci.md || { echo "docs/ci.md does not mention snap" >&2; exit 1; }
+          echo "documentation smoke patterns pass"
