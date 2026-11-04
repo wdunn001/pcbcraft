@@ -474,10 +474,11 @@ impl App {
                 let path=preview.get("path").and_then(Value::as_str).unwrap_or("").to_owned();
                 if preview.get("source_truncated").and_then(Value::as_bool)==Some(true) {right.label(t!("library.collection_browser.original_nodes_exceed_inline_editing"));}
                 if self.library.kind {
-                    if let Some(def)=preview.get("definition").and_then(|v|serde_json::from_value::<FootprintDefinition>(v.clone()).ok()) {
+                    if let Some(mut def)=preview.get("definition").and_then(|v|serde_json::from_value::<FootprintDefinition>(v.clone()).ok()) {
                         right.heading(&def.name);right.label(&def.description);
                         if right.add_enabled(preview.get("source_truncated").and_then(Value::as_bool)!=Some(true),egui::Button::new(t!("library.collection_browser.edit_a_copy"))).clicked() {let mut copy=def.clone();copy.name.push_str("_custom");self.library.editor.notice=Some(format!("Edited copy of {} from {}. KiCad-derived data credits the KiCad community contributors; custom sources retain their original license. Official collections: https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints.\n{}",def.name,path,include_str!("../../library/tests/fixtures/LICENSE-kicad-libraries.md")));self.library.editor.draft=Some(super::authoring::Draft::Footprint(copy));self.library.editor.mode=2;}
                         self.library_preview(right,None,Some(&def));
+                        let name=def.name.clone();crate::model_transform::footprint_model_transform_panel(right, self, &name, &mut def);
                         right.label(t!("library.collection_browser.len_pads_len2_graphics", len = def.pads.len(), len2 = def.graphics.len()));
                         let supported=pcbcraft_doc::validate_footprint_support(&def);
                         if let Err(e)=&supported {right.label(e);}
@@ -511,6 +512,7 @@ impl App {
             "library.collection_browser.placement_single_multi_unit_symbols"
         ));
     }
+
     pub(super) fn library_preview(
         &mut self,
         ui: &mut egui::Ui,
