@@ -179,6 +179,10 @@ impl App {
         rect: Rect,
         camera: Camera,
     ) {
+        // The handles are board geometry. The sheet shares this canvas, so they must not show there.
+        if self.tab != Tab::Pcb {
+            return;
+        }
         let Some(points) = outline_points(&self.project) else {
             return;
         };

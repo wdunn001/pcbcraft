@@ -3930,6 +3930,7 @@ impl crate::App {
         for action in actions {
             match action {
                 Action::Select(id) => {
+                    self.follow_object_page(id);
                     self.select(Some(id));
                     if !matches!(self.tab, crate::Tab::Pcb | crate::Tab::Schematic) {
                         self.change_tab(crate::Tab::Pcb);

@@ -150,9 +150,12 @@ impl App {
         let near = |d: f64, px: f64| d * zoom as f64 <= px;
         if self.tab == Tab::Schematic {
             let page = self.schematic_page();
+            let sheet = self.sheet_view();
             let label = self.label_under(pos, zoom);
             if let Some(pin) = self.pick_pin(pos, zoom)
-                && !label.is_some_and(|l| self.label_beats_pin(l, &pin, pos))
+                && !label
+                    .as_ref()
+                    .is_some_and(|l| self.label_beats_pin(l, &pin, pos))
             {
                 return Hit::Pin(pin);
             }
@@ -166,16 +169,16 @@ impl App {
             if let Some(port) = self.port_under(pos, zoom) {
                 return Hit::Port(port);
             }
-            for w in &self.project.drawn_wires {
-                if self.project.schematic_drawn_wire_page(w) != page {
+            for w in &sheet.drawn_wires {
+                if !crate::page_scope::in_view(&sheet, page, sheet.schematic_drawn_wire_page(w)) {
                     continue;
                 }
                 if let Some(i) = w.points.iter().position(|p| near(p.distance(pos), 6.0)) {
                     return Hit::Node(w.id, i);
                 }
             }
-            for w in &self.project.drawn_wires {
-                if self.project.schematic_drawn_wire_page(w) != page {
+            for w in &sheet.drawn_wires {
+                if !crate::page_scope::in_view(&sheet, page, sheet.schematic_drawn_wire_page(w)) {
                     continue;
                 }
                 for (i, pair) in w.points.windows(2).enumerate() {
@@ -372,7 +375,7 @@ impl App {
             Hit::Part(id) | Hit::Other(id) => boxed(*id).map(|o| (o, vec![])),
             Hit::NetLabel(id) => boxed(*id).map(|o| (o, vec![])),
             Hit::Pin(p) => self
-                .project
+                .sheet_view()
                 .pin_position(p)
                 .map(|at| (dot(at, 6.0), vec![])),
             Hit::Pad(f, pad) => {
@@ -386,20 +389,23 @@ impl App {
                 Some((dot(at, (r as f32 * camera.zoom).max(5.0)), vec![]))
             }
             Hit::Junction(id) => {
-                let l = self.project.labels.iter().find(|l| l.id == *id)?;
+                let sheet = self.sheet_view();
+                let l = sheet.labels.iter().find(|l| l.id == *id)?;
                 Some((dot(l.position, 5.0), vec![]))
             }
             Hit::Node(w, i) => {
-                let wire = self.project.drawn_wires.iter().find(|x| x.id == *w)?;
+                let sheet = self.sheet_view();
+                let wire = sheet.drawn_wires.iter().find(|x| x.id == *w)?;
                 Some((dot(*wire.points.get(*i)?, 5.0), vec![]))
             }
             Hit::WireSegment(w, i) => {
-                let wire = self.project.drawn_wires.iter().find(|x| x.id == *w)?;
+                let sheet = self.sheet_view();
+                let wire = sheet.drawn_wires.iter().find(|x| x.id == *w)?;
                 let (a, b) = (*wire.points.get(*i)?, *wire.points.get(i + 1)?);
                 let net = wire
                     .net
                     .map(|n| {
-                        self.project
+                        sheet
                             .drawn_wires
                             .iter()
                             .filter(|o| o.net == Some(n))
@@ -484,7 +490,7 @@ impl App {
         };
         match (action, &hit) {
             (ClickAction::StartWire, Hit::Pin(pin)) => {
-                if let Some(at) = self.project.pin_position(pin) {
+                if let Some(at) = self.sheet_view().pin_position(pin) {
                     self.wire_route = vec![at];
                 }
                 self.tool = Tool::Wire(Some(pin.clone()));
@@ -516,12 +522,7 @@ impl App {
                     self.select_at(pos, zoom);
                 }
                 if let Some(id) = self.selected {
-                    let original = self
-                        .project
-                        .component(id)
-                        .and_then(|c| c.unit_placement(self.selected_unit).map(|p| p.0))
-                        .or_else(|| self.project.footprint(id).map(|f| f.position))
-                        .unwrap_or(pos);
+                    let original = self.drag_origin(id).unwrap_or(pos);
                     self.drag_offset = Point::new(original.x - pos.x, original.y - pos.y);
                     self.drag = Some((id, original));
                     press.origin = original;
@@ -631,6 +632,7 @@ impl App {
                 {
                     self.move_selection(at.x - origin.x, at.y - origin.y);
                 } else {
+                    let at = self.item_to_page(id, at);
                     let mut params = json!({"id":id,"position":at});
                     if self.project.component(id).is_some() {
                         params["unit"] = json!(self.selected_unit);

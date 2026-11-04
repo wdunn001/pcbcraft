@@ -122,7 +122,8 @@ impl App {
     /// A box around one object in world millimetres, for box select and the
     /// selection outline.
     pub(super) fn bounds_of(&self, id: Id) -> Option<(Point, Point)> {
-        let p = &self.project;
+        let view = self.sheet_view();
+        let p: &Project = &view;
         let b = &p.board;
         if self.tab == Tab::Schematic {
             if let Some(c) = p.component(id) {
@@ -214,7 +215,7 @@ impl App {
             .filter(|id| !self.sheet_row_hidden(*id))
             .filter(|id| {
                 self.tab != Tab::Schematic
-                    || self.project.on_schematic_page(self.schematic_page(), *id)
+                    || crate::page_scope::object_in_view(&self.project, self.schematic_page(), *id)
             })
             .filter(|id| {
                 self.bounds_of(*id)
@@ -310,10 +311,11 @@ impl App {
 
     /// Where a part sits before a drag moves it.
     pub(super) fn drag_origin(&self, id: Id) -> Option<Point> {
-        self.project
-            .component(id)
+        let view = self.sheet_view();
+        let p: &Project = &view;
+        p.component(id)
             .and_then(|c| c.unit_placement(self.selected_unit).map(|p| p.0))
-            .or_else(|| self.project.footprint(id).map(|f| f.position))
+            .or_else(|| p.footprint(id).map(|f| f.position))
     }
 
     /// Slide every selected object by the same distance.
@@ -566,7 +568,12 @@ impl App {
             }
         } else {
             let page = self.schematic_page();
-            for c in self.project.components.iter().filter(|c| c.sheet == page) {
+            let sheet = self.sheet_view();
+            for c in sheet
+                .components
+                .iter()
+                .filter(|c| crate::page_scope::in_view(&sheet, page, c.sheet))
+            {
                 for pin in &c.pins {
                     if let Some(at) = c.pin_position(&pin.number) {
                         consider(at);
