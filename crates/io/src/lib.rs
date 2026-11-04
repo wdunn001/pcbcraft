@@ -3488,6 +3488,8 @@ fn gerber_files_core(
         arcs: String,
         ops: usize,
         scale: f64,
+        /// Drill origin in millimetres; coordinates are written relative to it.
+        origin: Point,
         /// Operations the file may carry.
         limit: usize,
         /// Plain file label for error text, for example `F.Cu`.
@@ -3498,10 +3500,10 @@ fn gerber_files_core(
         current: Option<u32>,
     }
     impl LayerFile {
-        fn new(scale: f64, limit: usize) -> Self {
-            Self::named(scale, "layer", limit)
+        fn new(scale: f64, origin: Point, limit: usize) -> Self {
+            Self::named(scale, "layer", origin, limit)
         }
-        fn named(scale: f64, name: &str, limit: usize) -> Self {
+        fn named(scale: f64, name: &str, origin: Point, limit: usize) -> Self {
             Self {
                 apertures: BTreeMap::new(),
                 ap_fn: BTreeMap::new(),
@@ -3512,6 +3514,7 @@ fn gerber_files_core(
                 scale,
                 limit,
                 name: name.to_owned(),
+                origin,
                 notes: Vec::new(),
                 current: None,
             }
@@ -3587,8 +3590,8 @@ fn gerber_files_core(
             self.select(code);
             self.body.push_str(&format!(
                 "X{}Y{}D03*\n",
-                coordinate(x * self.scale),
-                coordinate(y * self.scale)
+                coordinate((x - self.origin.x) * self.scale),
+                coordinate((y - self.origin.y) * self.scale)
             ));
             Ok(())
         }
@@ -3601,16 +3604,16 @@ fn gerber_files_core(
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
                     "X{}Y{}D0{}*\n",
-                    coordinate(x * self.scale),
-                    coordinate(y * self.scale),
+                    coordinate((x - self.origin.x) * self.scale),
+                    coordinate((y - self.origin.y) * self.scale),
                     if i == 0 { 2 } else { 1 }
                 ));
             }
             if closed && let Some((x, y)) = points.first() {
                 self.body.push_str(&format!(
                     "X{}Y{}D01*\n",
-                    coordinate(x * self.scale),
-                    coordinate(y * self.scale)
+                    coordinate((x - self.origin.x) * self.scale),
+                    coordinate((y - self.origin.y) * self.scale)
                 ));
             }
             Ok(())
@@ -3641,11 +3644,11 @@ fn gerber_files_core(
             self.body.push_str("G75*\n");
             self.body.push_str(&format!(
                 "X{}Y{}D02*\nG0{}*\nX{}Y{}I{}J{}D01*\nG01*\n",
-                coordinate(sx * self.scale),
-                coordinate(sy * self.scale),
+                coordinate((sx - self.origin.x) * self.scale),
+                coordinate((sy - self.origin.y) * self.scale),
                 if clockwise { 2 } else { 3 },
-                coordinate(ex * self.scale),
-                coordinate(ey * self.scale),
+                coordinate((ex - self.origin.x) * self.scale),
+                coordinate((ey - self.origin.y) * self.scale),
                 coordinate((cx - sx) * self.scale),
                 coordinate((cy - sy) * self.scale),
             ));
@@ -3661,8 +3664,8 @@ fn gerber_files_core(
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
                     "X{}Y{}D0{}*\n",
-                    coordinate(x * self.scale),
-                    coordinate(y * self.scale),
+                    coordinate((x - self.origin.x) * self.scale),
+                    coordinate((y - self.origin.y) * self.scale),
                     if i == 0 { 2 } else { 1 }
                 ));
             }
@@ -3672,8 +3675,8 @@ fn gerber_files_core(
             {
                 self.body.push_str(&format!(
                     "X{}Y{}D01*\n",
-                    coordinate(fx * self.scale),
-                    coordinate(fy * self.scale)
+                    coordinate((fx - self.origin.x) * self.scale),
+                    coordinate((fy - self.origin.y) * self.scale)
                 ));
             }
             self.body.push_str("G37*\n");
@@ -3762,7 +3765,7 @@ fn gerber_files_core(
     let bottom = layer_count - 1;
     let layer_label = |index: usize| -> String { copper_file_label(p, index, bottom) };
     let mut copper: Vec<LayerFile> = (0..layer_count)
-        .map(|i| LayerFile::named(scale, &layer_label(i), max_ops_limit))
+        .map(|i| LayerFile::named(scale, &layer_label(i), p.board.drill_origin, max_ops_limit))
         .collect();
     let mut warnings: Vec<String> = Vec::new();
     // Pours first, so a clear-polarity hole never erases a track or pad that is
@@ -3905,7 +3908,7 @@ fn gerber_files_core(
             copper[index].flash(code, v.position.x, v.position.y)?;
         }
     }
-    let mut outline = LayerFile::new(scale, max_ops_limit);
+    let mut outline = LayerFile::new(scale, p.board.drill_origin, max_ops_limit);
     let edge_code = outline.code(Ap::Circle(100))?;
     if let Some(points) = &p.board.outline {
         if opts.arcs {
@@ -4063,9 +4066,15 @@ fn gerber_files_core(
     let shift = |v: f64| gerber::coordinate(v * scale);
     let (dx, dy) = (shift(origin.x), shift(origin.y));
     for (name, text) in files.iter_mut() {
-        if name.ends_with(".gbr") && name != "pcb-DrillMap.gbr" {
-            *text = gerber_origin::shift_gerber(text, dx, dy);
+        if !name.ends_with(".gbr") || name == "pcb-DrillMap.gbr" {
+            continue;
         }
+        // Copper layers and edge already carry the origin in their LayerFile;
+        // shifting them again would double-apply it.
+        if name.ends_with(".Cu.gbr") || name == "pcb-Edge.gbr" {
+            continue;
+        }
+        *text = gerber_origin::shift_gerber(text, dx, dy);
     }
     // The job file is built from the files that exist, so it lists itself
     // last and never drifts from the package it travels in.
@@ -12824,6 +12833,104 @@ mod tests {
         assert!(
             files["pcb-Plated.drl"].contains("X35.000Y20.000\n"),
             "a negative origin shifts the other way"
+        );
+        Ok(())
+    }
+    #[test]
+    fn an_inch_project_shifts_copper_with_one_rounding() -> Result<(), String> {
+        let smd = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.0, 0.5),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
+        };
+        let mut project = Project {
+            unit: "inch".into(),
+            ..Default::default()
+        };
+        project.board.drill_origin = Point::new(5.00005, 0.0);
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 1,
+            reference: "C1".into(),
+            value: "cap".into(),
+            kind: "capacitor".into(),
+            position: Point::new(10.0001, 0.0),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                name: String::new(),
+                offset: Point::new(0.0, 0.0),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+                appearances: Default::default(),
+            }],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "C0402".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![smd.clone()],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                    box_body: Default::default(),
+                    retained: Default::default(),
+                },
+            }),
+            fields: vec![],
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(10.0001, 0.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::new(0.0, 0.0),
+                diameter: 0.5,
+                net: None,
+                castellated: None,
+                geometry: Some(smd),
+            }],
+            preserved: Default::default(),
+        });
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        let copper = &files["pcb-F.Cu.gbr"];
+        // Single rounding: (10.0001 - 5.00005) / 25.4 = 0.19685236 in -> 196852 file units.
+        // Double rounding (old path) gives 196853, which is wrong.
+        assert!(
+            copper.contains("X196852"),
+            "copper coordinates use one rounding step, not two"
+        );
+        assert!(
+            !copper.contains("X196853"),
+            "double rounding (round then shift) must not appear"
         );
         Ok(())
     }
