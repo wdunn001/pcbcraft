@@ -729,7 +729,7 @@ mod tests {
     #[test]
     fn every_bundled_package_names_only_known_formats() -> Result<(), String> {
         let list = bundled_packages();
-        assert_eq!(list.len(), 10, "the starting set has ten packages");
+        assert_eq!(list.len(), 11, "the starting set has eleven packages");
         let mut ids = std::collections::BTreeSet::new();
         for d in list {
             assert!(ids.insert(d.id.clone()), "duplicate id {}", d.id);

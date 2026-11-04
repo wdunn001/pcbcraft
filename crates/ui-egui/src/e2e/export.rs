@@ -643,3 +643,42 @@ fn a_newcomer_exports_a_compliance_report() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_exports_a_complete_fab_package() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    let listed = in_format_list(&ctx, &mut app, "Complete fab package")?;
+    assert!(listed, "the complete fab package is listed under Packages");
+    authoring::tests::tap(&ctx, &mut app, "Complete fab package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let zip = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.ends_with("-fab-complete-A.zip"))
+        .ok_or("no complete fab zip was written into the make folder")?;
+    let bytes = std::fs::read(dir.path().join(&zip)).map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.contains("manifest.json"),
+        "the zip carries its manifest"
+    );
+    assert!(
+        text.contains(".GTL") && text.contains(".TXT"),
+        "Protel-style layer and drill names"
+    );
+    assert!(
+        text.contains("bom"),
+        "the package includes the bill of materials"
+    );
+    assert!(
+        text.contains("cpl"),
+        "the package includes the pick and place file"
+    );
+    assert!(!app.edit.dialog.open, "the dialog closes after the export");
+    Ok(())
+}

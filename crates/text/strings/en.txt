@@ -1202,6 +1202,8 @@ status.write_uv_print_files.label_saved_in_directory = {label} saved in {directo
 # lib.rs write_job_file
 status.write_job_file.that_folder_could_not_be = that folder could not be created
 status.write_job_file.label_saved_in_directory = {label} saved in {directory}
+status.write_fab_complete.that_folder_could_not_be = that folder could not be created
+status.write_fab_complete.saved_in_directory = Complete fab package saved in {directory}
 status.panel_export_saved = Panel files saved in {directory}: {files}
 
 # lib.rs capture
@@ -1250,6 +1252,8 @@ settings.settings_tab.pick_and_place_file = Pick and place file
 settings.settings_tab.pick_and_place_file.tip = Where every part sits, which way it faces and which side it goes on, for the assembly machine.
 settings.settings_tab.design_report = Design report
 settings.settings_tab.design_report.tip = A readable summary of the whole design: board, every part and every connection.
+settings.settings_tab.fab_complete = Complete fab package
+settings.settings_tab.fab_complete.tip = Everything the fab needs in one ZIP: Gerber layers, drill files, parts list, pick and place file, and a readme explaining each file. It lands in the make folder.
 settings.settings_tab.drill_map_csv = Drill map (CSV)
 settings.settings_tab.drill_map_csv.tip = Every hole on the board counted and grouped by size, so you can sanity-check the drill sizes before the board goes away.
 settings.settings_tab.drill_map = Drill map

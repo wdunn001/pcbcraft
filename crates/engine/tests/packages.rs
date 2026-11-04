@@ -150,7 +150,7 @@ fn a_package_with_a_missing_writer_refuses_and_writes_nothing() -> Result<(), St
         .query("package.list", json!({}), None)
         .map_err(|e| e.to_string())?;
     let all = list["result"]["packages"].as_array().ok_or("packages")?;
-    assert_eq!(all.len(), 10);
+    assert_eq!(all.len(), 11);
     let flags: Vec<(&str, bool)> = all
         .iter()
         .filter_map(|p| Some((p["id"].as_str()?, p["available"].as_bool()?)))
@@ -216,7 +216,7 @@ fn a_package_is_duplicated_under_a_new_id() -> Result<(), String> {
         .query("package.list", json!({}), None)
         .map_err(|e| e.to_string())?;
     let all = list["result"]["packages"].as_array().ok_or("packages")?;
-    assert_eq!(all.len(), 11);
+    assert_eq!(all.len(), 12);
     let mine = all
         .iter()
         .find(|p| p["id"] == "my_fab")
@@ -254,11 +254,11 @@ fn a_package_is_duplicated_under_a_new_id() -> Result<(), String> {
         .ok_or("missing id must error")?
         .to_string();
     assert!(err.contains("nope"), "error names the id: {err}");
-    // The list still has exactly 11 packages after the errors.
+    // The list still has exactly 12 packages after the errors.
     let list2 = s
         .query("package.list", json!({}), None)
         .map_err(|e| e.to_string())?;
     let all2 = list2["result"]["packages"].as_array().ok_or("packages")?;
-    assert_eq!(all2.len(), 11);
+    assert_eq!(all2.len(), 12);
     Ok(())
 }

@@ -35,6 +35,57 @@
     ]
   },
   {
+    "id": "fab_complete",
+    "name": "Complete fab package",
+    "audience": "Online prototype makers that take a single ZIP with Gerber layers, drill files, parts list, pick and place file, and a readme describing every file.",
+    "container": "zip",
+    "archive": "{project}-fab-complete-{rev}.zip",
+    "files": [
+      {
+        "kind": "gerbers",
+        "format": "gerber_layers",
+        "name": "{project}.{ext}",
+        "options": {
+          "naming": "protel"
+        }
+      },
+      {
+        "kind": "gerbers",
+        "format": "gerber_drill",
+        "name": "{project}-{layer}.{ext}",
+        "options": {
+          "naming": "protel"
+        }
+      },
+      {
+        "kind": "gerbers",
+        "format": "drill_map",
+        "name": "{project}-{layer}.{ext}"
+      },
+      {
+        "kind": "bom",
+        "format": "bom_csv",
+        "name": "{project}-bom-{rev}.{ext}",
+        "options": {
+          "profile": "generic"
+        }
+      },
+      {
+        "kind": "placement",
+        "format": "cpl_csv",
+        "name": "{project}-cpl-{rev}.{ext}",
+        "options": {
+          "profile": "prototype"
+        }
+      },
+      {
+        "kind": "report",
+        "format": "fab_readme",
+        "name": "{project}-{layer}.{ext}"
+      }
+    ]
+  },
+  {
     "id": "fab_x2",
     "name": "Fab, Gerber X2 with job file",
     "audience": "Board makers that read Gerber X2 with a job file; plain .gbr names, no folders.",
