@@ -73,12 +73,7 @@ pub(crate) fn points_mm(mm: f32, zoom: f32) -> f32 {
 
 /// The font for text `mm` tall at `zoom`, fixed-width when `mono` is set.
 pub(crate) fn font_mm(mm: f32, zoom: f32, mono: bool) -> FontId {
-    let points = points_mm(mm, zoom);
-    if mono {
-        FontId::monospace(points)
-    } else {
-        FontId::proportional(points)
-    }
+    crate::fonts::scaled(mono, points_mm(mm, zoom))
 }
 
 /// The font for a role at `zoom` pixels per millimetre. This is what painters call.
