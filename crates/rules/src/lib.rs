@@ -37,6 +37,7 @@ mod parallel_crosstalk;
 mod peripheral;
 mod return_path;
 mod silk;
+mod silk_line;
 mod stub;
 pub mod testpoint;
 pub mod toolpath_gap;
@@ -133,6 +134,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("courtyard_overlap", "error"),
     ("silk_over_pad", "error"),
     ("silk_to_copper", "warning"),
+    ("silk_line", "warning"),
     ("drill_overlap", "error"),
     ("hole_to_hole", "error"),
     ("hole_to_copper_via", "error"),
@@ -2221,6 +2223,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(fab_findings(project, board));
     result.extend(courtyard::courtyard_findings(project));
     result.extend(silk::silk_findings(project));
+    result.extend(silk_line::silk_line_findings(project));
     result.extend(pad_kinds::pad_kind_findings(project));
     result.extend(mask_dam::mask_dam_findings(project));
     result.extend(drill::drill_findings(project));
