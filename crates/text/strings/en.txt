@@ -3886,6 +3886,13 @@ schematic.port.direction.bidirectional = Both
 schematic.port.direction.passive = Passive
 schematic.main.read_only = This part belongs to another page. Open that page to change it.
 
+# art layer properties (issue #98)
+tree.art_layer.missing = Layer not found
+tree.art_layer.help = Edit the kind and dotted flag of this drawn layer.
+tree.art_layer.kind = Kind
+tree.art_layer.kind.tip = What this layer tells a machine to do.
+tree.art_layer.dotted = Dotted
+tree.art_layer.dotted.tip = Draw shapes on this layer as dashed lines.
 artifact.fact.side = Side
 artifact.fact.side.tip = Which side of the board this output covers.
 artifact.fact.layer = Layer

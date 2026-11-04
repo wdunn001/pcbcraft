@@ -1193,3 +1193,84 @@ fn a_newcomer_sees_attached_files_and_notes_in_the_tree() -> Result<(), String> 
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_makes_a_drawn_layer_a_dotted_perforation() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.tool_call("board.layer_add", json!({"name": "Snap", "kind": "other"}));
+    app.refresh();
+    let id = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.name == "Snap")
+        .map(|l| l.id)
+        .ok_or("the Snap layer should be added")?;
+    app.tree.expanded.insert("user".to_owned());
+    let focus_key = format!("user/art:{id}");
+    press_on(&ctx, &mut app, &focus_key, egui::Key::Enter);
+    tap_properties_segment(&ctx, &mut app, "Kind", 1, 5)?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_properties(&ctx, &mut app, "checkbox:Dotted")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let layer = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.id == id)
+        .ok_or("the Snap layer should still exist")?;
+    assert_eq!(
+        layer.kind,
+        pcbcraft_doc::ArtKind::Perforation,
+        "the kind picker sets the layer kind"
+    );
+    assert!(layer.dotted, "the Dotted checkbox sets the dotted flag");
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    let layer = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.id == id)
+        .ok_or("the Snap layer should still exist after undo")?;
+    assert!(!layer.dotted, "undo reverses the dotted flag");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_deletes_a_drawn_layer_from_the_tree_and_undoes_it() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.tool_call("board.layer_add", json!({"name": "Snap", "kind": "other"}));
+    app.refresh();
+    let id = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.name == "Snap")
+        .map(|l| l.id)
+        .ok_or("the Snap layer should be added")?;
+    app.tree.expanded.insert("user".to_owned());
+    let focus_key = format!("user/art:{id}");
+    press_on(&ctx, &mut app, &focus_key, egui::Key::Enter);
+    app.tool_call("board.layer_delete", json!({"layer": id}));
+    app.refresh();
+    assert!(
+        app.project.board.user_layers.is_empty(),
+        "layer_delete removes the layer"
+    );
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    assert!(
+        app.project
+            .board
+            .user_layers
+            .iter()
+            .any(|l| l.name == "Snap"),
+        "undo restores the layer"
+    );
+    Ok(())
+}

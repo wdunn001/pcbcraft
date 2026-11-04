@@ -4167,6 +4167,11 @@ impl crate::App {
             || last.starts_with("diel:")
         {
             self.stack_properties(ui, last);
+        } else if let Some(id) = last.strip_prefix("art:") {
+            let id = id.parse::<u64>().unwrap_or(0);
+            if self.project.board.user_layers.iter().any(|l| l.id == id) {
+                self.art_layer_properties(ui, id);
+            }
         } else if last.starts_with("net:") || key == "nets" {
             ui.label(crate::fonts::title(t!("tree.net_settings")));
             self.nets_tab(ui);
