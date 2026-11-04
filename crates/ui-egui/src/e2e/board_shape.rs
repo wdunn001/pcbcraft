@@ -182,3 +182,72 @@ fn a_newcomer_edits_a_vertex_in_the_vertex_table() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_is_told_why_an_open_outline_is_refused() -> Result<(), String> {
+    let (_ctx, mut app) = board_settings()?;
+    // Fewer than three points: the outline cannot close.
+    let before = app.project.board.outline.clone();
+    app.tool_call(
+        "board.set_outline",
+        json!({"points": [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}]}),
+    );
+    assert!(
+        app.message.contains("needs at least three"),
+        "the message explains the point count: {}",
+        app.message
+    );
+    assert_eq!(
+        app.project.board.outline, before,
+        "the outline did not change"
+    );
+    // Duplicate points: two are the same.
+    app.tool_call(
+        "board.set_outline",
+        json!({"points": [
+            {"x": 0.0, "y": 0.0},
+            {"x": 10.0, "y": 0.0},
+            {"x": 10.0, "y": 0.0}
+        ]}),
+    );
+    assert!(
+        app.message.contains("must be distinct"),
+        "the message explains the duplicate: {}",
+        app.message
+    );
+    // Self-crossing: a pinwheel that crosses itself.
+    app.tool_call(
+        "board.set_outline",
+        json!({"points": [
+            {"x": 5.0, "y": 0.0},
+            {"x": 10.0, "y": 15.0},
+            {"x": 0.0, "y": 6.0},
+            {"x": 10.0, "y": 6.0},
+            {"x": 0.0, "y": 15.0}
+        ]}),
+    );
+    assert!(
+        app.message.contains("crosses itself"),
+        "the message explains the crossing: {}",
+        app.message
+    );
+    assert_eq!(
+        app.project.board.outline, before,
+        "the outline still has not changed"
+    );
+    // Now a valid outline should succeed.
+    let ok = app.tool_call(
+        "board.set_outline",
+        json!({"points": [
+            {"x": 0.0, "y": 0.0},
+            {"x": 10.0, "y": 0.0},
+            {"x": 10.0, "y": 10.0}
+        ]}),
+    );
+    assert!(ok, "a valid outline is accepted: {}", app.message);
+    assert!(
+        app.project.board.outline.is_some(),
+        "the outline is now set"
+    );
+    Ok(())
+}

@@ -2042,7 +2042,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "board.set_outline",
             "Trace a free-form closed board outline of 3 to 64 distinct vertices, optionally bending segments into arcs; the rectangular width and height follow the outline's bounding box, and fabrication layers cut the board to the traced shape",
             schema(
-                json!({"points":{"type":"array","items":point_schema(),"minItems":3,"maxItems":64},"arcs":{"type":"array","maxItems":64,"description":"optional, one entry per segment (vertex i to i+1, the last closing to vertex 0): a point the arc passes through, or null for a straight segment","items":{"oneOf":[point_schema(),{"type":"null"}]}}}),
+                json!({"points":{"type":"array","items":point_schema(),"maxItems":64},"arcs":{"type":"array","maxItems":64,"description":"optional, one entry per segment (vertex i to i+1, the last closing to vertex 0): a point the arc passes through, or null for a straight segment","items":{"oneOf":[point_schema(),{"type":"null"}]}}}),
                 &["points"],
             ),
         ),
@@ -13927,7 +13927,7 @@ fn run_command_part_6(
                     .map(|q| (q.x.to_bits(), q.y.to_bits()))
                     .collect();
                 if distinct.len() != points.len() {
-                    return Err(Error::Invalid("outline vertices must be distinct".into()));
+                    return Err(Error::Invalid("Outline vertices must be distinct.".into()));
                 }
                 let min_x = points.iter().map(|q| q.x).fold(f64::INFINITY, f64::min);
                 let min_y = points.iter().map(|q| q.y).fold(f64::INFINITY, f64::min);
@@ -14342,7 +14342,7 @@ fn run_command_part_7(
                     .map(|q| (q.x.to_bits(), q.y.to_bits()))
                     .collect();
                 if distinct.len() != points.len() {
-                    return Err(Error::Invalid("outline vertices must be distinct".into()));
+                    return Err(Error::Invalid("Outline vertices must be distinct.".into()));
                 }
                 let min_x = points.iter().map(|q| q.x).fold(f64::INFINITY, f64::min);
                 let min_y = points.iter().map(|q| q.y).fold(f64::INFINITY, f64::min);
@@ -19162,7 +19162,9 @@ fn run_command_part_15(
         "board.set_outline" => {
             let a: OutlineParams = parse(params)?;
             if a.points.len() < 3 || a.points.len() > 64 {
-                return Err(Error::Invalid("an outline needs 3 to 64 vertices".into()));
+                return Err(Error::Invalid(
+                    "The outline needs at least three points.".into(),
+                ));
             }
             let distinct: std::collections::BTreeSet<(u64, u64)> = a
                 .points
@@ -19170,7 +19172,7 @@ fn run_command_part_15(
                 .map(|p| (p.x.to_bits(), p.y.to_bits()))
                 .collect();
             if distinct.len() != a.points.len() {
-                return Err(Error::Invalid("outline vertices must be distinct".into()));
+                return Err(Error::Invalid("Outline vertices must be distinct.".into()));
             }
             if !a
                 .points
@@ -19190,8 +19192,13 @@ fn run_command_part_15(
                 ));
             }
             pcbcraft_doc::validate_outline_arcs(&a.points, &a.arcs).map_err(Error::Invalid)?;
+            // The arc check above looks at a ring only when there are arcs; a straight outline that
+            // crosses itself needs its own test here, so the command refuses it with the same words.
+            if a.arcs.is_empty() && !pcbcraft_geom::polygon_is_simple(&a.points) {
+                return Err(Error::Invalid("The outline crosses itself.".into()));
+            }
             let (lo, hi) = pcbcraft_doc::outline_extent(&a.points, &a.arcs)
-                .ok_or_else(|| Error::Invalid("an outline needs 3 to 64 vertices".into()))?;
+                .ok_or_else(|| Error::Invalid("The outline needs at least three points.".into()))?;
             let (min_x, min_y) = (lo.x, lo.y);
             let (max_x, max_y) = (hi.x, hi.y);
             let shift = |q: &Point| Point::new(q.x - min_x, q.y - min_y);
