@@ -9,6 +9,7 @@
 //!
 //! Dependencies: `crates/ui-egui/src/canvas.rs` calls in from `paint_schematic`
 //! and `symbol`; `crates/doc/src/lib.rs` supplies `Project`, `Wire`, `Label`.
+use super::text_style::{TextRole, role_font};
 use super::*;
 use egui::{Align2, Color32, FontId};
 use std::collections::HashMap;
@@ -634,7 +635,7 @@ fn ground_symbol(
         camera.screen(Point::new(top.x, top.y + 2.4), rect),
         Align2::CENTER_TOP,
         name,
-        FontId::monospace(12.0),
+        role_font(TextRole::NetName, camera.zoom),
         sc.wire,
     );
 }
@@ -666,7 +667,7 @@ fn rail_symbol(
         camera.screen(Point::new(top.x, top.y - 0.8), rect),
         Align2::CENTER_BOTTOM,
         name,
-        FontId::monospace(12.0),
+        role_font(TextRole::NetName, camera.zoom),
         sc.wire,
     );
 }
@@ -700,7 +701,7 @@ fn arrow_symbol(
         camera.screen(Point::new(top.x, top.y - 1.0), rect),
         Align2::CENTER_BOTTOM,
         name,
-        crate::fonts::Role::Mono.font(),
+        role_font(TextRole::NetName, camera.zoom),
         sc.wire,
     );
 }
@@ -732,7 +733,7 @@ fn negative_symbol(
         camera.screen(Point::new(foot.x, foot.y + 0.8), rect),
         Align2::CENTER_TOP,
         name,
-        crate::fonts::Role::Mono.font(),
+        role_font(TextRole::NetName, camera.zoom),
         sc.wire,
     );
 }

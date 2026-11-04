@@ -1924,7 +1924,7 @@ impl App {
                     at + egui::vec2(6.0, 0.0),
                     Align2::LEFT_CENTER,
                     p.net_name(l.net),
-                    crate::fonts::Role::Mono.font(),
+                    role_font(TextRole::NetName, camera.zoom),
                     sc.wire,
                 );
             } else {
@@ -2620,7 +2620,7 @@ impl App {
                                     center,
                                     Align2::CENTER_CENTER,
                                     label,
-                                    crate::fonts::Role::Mono.font(),
+                                    role_font(TextRole::PadLabel, camera.zoom),
                                     art.on_copper,
                                 );
                             }
