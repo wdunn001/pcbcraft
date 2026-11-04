@@ -276,8 +276,8 @@ pub use neoden_yy1::{
 /// # Dependencies
 /// - crates/io/src/package.rs
 pub use package::{
-    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
-    package_zip,
+    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry,
+    attach_revision_notes_entry, package_manifest, package_revision_notes, package_zip,
 };
 /// Panel fabrication file and placement text generation.
 /// # Dependencies
