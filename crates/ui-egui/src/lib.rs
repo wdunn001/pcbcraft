@@ -7,6 +7,7 @@
 )]
 mod a11y;
 mod arrange;
+mod art_layer_panel;
 mod artifact_rows;
 mod assistant;
 mod attachment_rows;
@@ -7260,6 +7261,13 @@ impl App {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.datum_inspector(ui, id));
+                    } else if let Some(id) = self
+                        .selected
+                        .filter(|id| self.project.board.user_layers.iter().any(|l| l.id == *id))
+                    {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.art_layer_properties(ui, id));
                     } else if let Some(id) = self.selected {
                         let c = self.project.component(id).cloned().or_else(|| {
                             self.project
