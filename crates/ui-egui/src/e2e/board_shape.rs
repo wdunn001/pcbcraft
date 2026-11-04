@@ -137,3 +137,48 @@ fn a_newcomer_makes_an_l_shaped_board() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_edits_a_vertex_in_the_vertex_table() -> Result<(), String> {
+    let (ctx, mut app) = board_settings()?;
+    assert!(
+        scrolled_to(&ctx, &mut app, "SHAPE")?,
+        "board settings has a Shape section: {}",
+        app.message
+    );
+    // Pick a preset that makes the outline editable.
+    authoring::tests::tap(&ctx, &mut app, "L shape")?;
+    assert!(
+        scrolled_to(&ctx, &mut app, "Point 1")?,
+        "the vertex table appears after picking a shape: {}",
+        app.message
+    );
+    // Record the outline, then type a new X into a vertex row.
+    let before = app.project.board.outline.clone().unwrap_or_default();
+    type_into(&ctx, &mut app, "spinbutton:X of point #", "5")?;
+    let after = app.project.board.outline.clone().unwrap_or_default();
+    assert_eq!(
+        before.len(),
+        after.len(),
+        "editing a vertex keeps the point count"
+    );
+    // Digits are folded in control ids, so which row the typing reaches is the helper's choice.
+    // Exactly one vertex moved, to the typed X, and its Y stayed where it was.
+    let moved: Vec<usize> = (0..before.len())
+        .filter(|i| {
+            (before[*i].x - after[*i].x).abs() > 1e-6 || (before[*i].y - after[*i].y).abs() > 1e-6
+        })
+        .collect();
+    assert_eq!(moved.len(), 1, "exactly one vertex moved: {}", app.message);
+    let i = moved[0];
+    assert!(
+        (after[i].x - 5.0).abs() < 1e-6,
+        "the vertex moved to the typed X: {}",
+        app.message
+    );
+    assert!(
+        (after[i].y - before[i].y).abs() < 1e-6,
+        "the vertex kept its Y"
+    );
+    Ok(())
+}
