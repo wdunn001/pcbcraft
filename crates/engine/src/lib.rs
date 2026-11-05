@@ -48,6 +48,7 @@ pub mod recents;
 pub mod recovery;
 mod registry;
 mod route;
+mod route_auto;
 pub mod scope;
 mod selection_clip;
 mod sim;
@@ -3077,6 +3078,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(part_save::commands())
         .chain(publication::commands())
         .chain(teardrop::commands())
+        .chain(route_auto::commands())
         .chain(pads::commands())
         .chain(calc::commands())
         .chain(vendor_handoff_commands())
@@ -10723,6 +10725,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = teardrop::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = route_auto::run(p, next, command, params) {
         return result;
     }
     if let Some(result) = pads::run(p, next, command, params) {
