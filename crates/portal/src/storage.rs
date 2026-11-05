@@ -21,7 +21,7 @@ use crate::schema::{
 /// - Delete published objects except through a takedown workflow.
 ///
 /// # Implementations
-/// - none yet
+/// - crates/portal/src/blob_memory.rs (in-memory, for tests and small installs)
 pub trait BlobStore: Send + Sync {
     fn put(&self, content_hash: &str, data: &[u8]) -> Result<(), PortalError>;
     fn get(&self, content_hash: &str) -> Result<Vec<u8>, PortalError>;

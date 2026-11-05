@@ -394,9 +394,9 @@ pub(crate) fn interactive_rects(ctx: &egui::Context, app: &mut App) -> Vec<(Stri
 }
 
 /// Make the tall-screen mode last for one scope, even when a story bails out.
-struct TallScope;
+pub(crate) struct TallScope;
 impl TallScope {
-    fn enter() -> Self {
+    pub(crate) fn enter() -> Self {
         TALL_SCREEN.with(|tall| tall.set(true));
         Self
     }
