@@ -684,6 +684,8 @@ pub(crate) struct State {
     pub show_findings: Option<bool>,
     pub show_selection: Option<bool>,
     pub show_net: Option<bool>,
+    /// How many finding dots the last minimap frame drew (read by stories).
+    pub drawn_findings: usize,
 }
 
 fn tab_key(tab: Tab) -> &'static str {
@@ -921,6 +923,12 @@ impl App {
             self.selected,
             self.highlight_net,
         );
+        // Record how many finding dots the map will draw, so stories can see them.
+        self.minimap.drawn_findings = if self.minimap.show_findings.unwrap_or(true) {
+            marks.findings.len()
+        } else {
+            0
+        };
         let mut next_prefs = prefs.clone();
         let mut go: Option<(Camera, String)> = None;
         egui::Area::new(egui::Id::new("minimap"))

@@ -597,6 +597,69 @@ fn a_newcomer_sees_package_preview_in_dialog() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_exports_an_assembly_package() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    let listed = in_format_list(&ctx, &mut app, "Assembly, online prototype house")?;
+    assert!(listed, "the assembly prototype package is listed");
+    authoring::tests::tap(&ctx, &mut app, "Assembly, online prototype house")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    authoring::tests::tap(&ctx, &mut app, "Export package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let entries: Vec<_> = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    let has_bom = entries.iter().any(|n| n.contains("-bom-A"));
+    let has_cpl = entries.iter().any(|n| n.contains("-cpl-A"));
+    assert!(has_bom, "the bom file was written");
+    assert!(has_cpl, "the cpl file was written");
+    assert!(!app.edit.dialog.open, "the dialog closes after the export");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_disabled_package_with_missing_writer() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    let listed = in_format_list(&ctx, &mut app, "Solder paste stencil")?;
+    assert!(listed, "the stencil package is listed");
+    authoring::tests::tap(&ctx, &mut app, "Solder paste stencil").ok();
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        app.edit.dialog.package_pick.is_empty(),
+        "tapping the disabled stencil package leaves package_pick empty"
+    );
+    assert!(app.edit.dialog.open, "the dialog is still open");
+    let entries: Vec<_> = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    let has_stencil = entries.iter().any(|n| n.contains("-stencil-A"));
+    assert!(!has_stencil, "no stencil file was written");
+    let packages = pcbcraft_io::bundled_packages();
+    let stencil_def = packages
+        .iter()
+        .find(|p| p.id == "stencil")
+        .ok_or("stencil package not found")?;
+    let avail = pcbcraft_io::availability(stencil_def).map_err(|e| e.to_string())?;
+    assert!(!avail.available, "stencil is not available");
+    let reasons = avail.reasons.join(" ");
+    assert!(reasons.contains("#420"), "the reason names issue #420");
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_opens_an_interchange_board_file() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);

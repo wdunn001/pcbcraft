@@ -218,3 +218,89 @@ fn a_newcomer_is_told_why_a_wired_pin_cannot_be_no_connect() -> Result<(), Strin
     );
     Ok(())
 }
+
+/// Where on the canvas a newcomer clicks to drop a note: an open patch near the top left.
+fn open_patch(app: &App) -> egui::Pos2 {
+    app.canvas_rect.left_top() + egui::vec2(160.0, 140.0)
+}
+
+#[test]
+fn a_newcomer_adds_text_to_the_sheet() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    let before = app.project.graphics.len();
+    tap_strip(&ctx, &mut app, "icon:tool-text")?;
+    assert!(
+        matches!(app.tool, Tool::SheetText),
+        "Add then Text arms the text tool: {}",
+        app.message
+    );
+    let at = open_patch(&app);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    assert!(
+        on_screen(&ctx, &mut app, "textinput:Sheet text"),
+        "a click on the sheet opens the note field"
+    );
+    type_into(&ctx, &mut app, "textinput:Sheet text", "Power stage")?;
+    let note = app
+        .project
+        .graphics
+        .iter()
+        .find(|g| g.shape == "text" && g.text == "Power stage")
+        .ok_or_else(|| format!("no note on the sheet: {}", app.message))?;
+    assert_eq!(note.layer, "schematic", "the note belongs to the schematic");
+    assert_eq!(app.project.graphics.len(), before + 1, "one note was added");
+    assert!(
+        matches!(app.tool, Tool::Select),
+        "the tool goes back to Select after the note is placed"
+    );
+    assert!(
+        !on_screen(&ctx, &mut app, "textinput:Sheet text"),
+        "the note field closes once the note is placed"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_drops_a_note_with_esc() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    let before = app.project.graphics.len();
+    tap_strip(&ctx, &mut app, "icon:tool-text")?;
+    let at = open_patch(&app);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Text("Never placed".to_owned())],
+        Modifiers::NONE,
+    );
+    key(&ctx, &mut app, egui::Key::Escape);
+    assert_eq!(
+        app.project.graphics.len(),
+        before,
+        "Esc places nothing: {}",
+        app.message
+    );
+    assert!(matches!(app.tool, Tool::Select), "Esc goes back to Select");
+    assert!(
+        !on_screen(&ctx, &mut app, "textinput:Sheet text"),
+        "Esc closes the note field"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_places_nothing_for_an_empty_note() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    let before = app.project.graphics.len();
+    tap_strip(&ctx, &mut app, "icon:tool-text")?;
+    let at = open_patch(&app);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    key(&ctx, &mut app, egui::Key::Enter);
+    assert_eq!(
+        app.project.graphics.len(),
+        before,
+        "an empty note places nothing: {}",
+        app.message
+    );
+    Ok(())
+}
