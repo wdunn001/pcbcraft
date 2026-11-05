@@ -292,8 +292,8 @@ pub fn number_field(
         });
     }
     ui.data_mut(|d| d.insert_temp(id, edit));
-    outer = outer.union(response.clone());
-    outer.on_hover_text(tip)
+    // The text edit leads the union, so the tooltip belongs to the widget a person points at.
+    response.union(outer).on_hover_text(tip)
 }
 
 fn round_to(value: f64, places: usize) -> f64 {

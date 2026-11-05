@@ -340,6 +340,69 @@ fn a_newcomer_edits_the_project_properties_on_the_files_tab() -> Result<(), Stri
         "the units are stored: {}",
         app.message
     );
+    for section in ["button:General", "button:Board"] {
+        tap_id(&ctx, &mut app, section)?;
+        tap_id(&ctx, &mut app, section)?;
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "Layers")?,
+        "a section folds and opens again: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_the_design_file_of_a_project_that_has_no_file_yet() -> Result<(), String> {
+    let recents = IsolatedRecents::new()?;
+    let mut app = App::create(
+        session_with(&recents.config),
+        Preferences::default(),
+        None,
+        None,
+    );
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Files);
+    let ctx = egui::Context::default();
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    for words in ["design.pcbcraft", "Not saved yet"] {
+        assert!(
+            paints_text(&ctx, &mut app, words)?,
+            "the table shows {words}"
+        );
+    }
+    tap_id(&ctx, &mut app, "button:design.pcbcraft")?;
+    assert_eq!(
+        app.tab,
+        Tab::Schematic,
+        "the design file opens the drawing: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_a_part_from_the_library_beside_the_project_summary() -> Result<(), String> {
+    let recents = IsolatedRecents::new()?;
+    let (ctx, mut app, _) = files_tab(&recents)?;
+    tap_id(
+        &ctx,
+        &mut app,
+        "button:Protection diode, Built in \u{b7} MIT OR Apache-#.#",
+    )?;
+    assert_eq!(
+        app.tab,
+        Tab::Schematic,
+        "a part picked on the Files tab takes you to the drawing: {}",
+        app.message
+    );
+    assert!(
+        matches!(app.tool, Tool::Place(_)),
+        "and the part is ready to place"
+    );
     Ok(())
 }
 

@@ -273,7 +273,12 @@ fn a_newcomer_adds_a_machine_to_the_project() -> Result<(), String> {
         app.message
     );
     waits_for_control(&ctx, &mut app, "button:Remove")?;
-    press(&ctx, &mut app, "Edit")?;
+    for _ in 0..3 {
+        if on_screen(&ctx, &mut app, "textinput:Name") {
+            break;
+        }
+        press(&ctx, &mut app, "Edit")?;
+    }
     type_into(&ctx, &mut app, "textinput:Name", "Bench mill")?;
     assert_eq!(
         app.project.machine_profiles[0].name, "Bench mill",
