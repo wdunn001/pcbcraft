@@ -4300,3 +4300,4 @@ schematic.shape.rect.tip = Draw a rectangle defined by two opposite corners.
 schematic.shape.circle = Circle
 schematic.shape.circle.tip = Draw a circle; the second click sets the radius.
 board.tool_hint.lmb_place_sheet_shape = Place {name}. Click to start, click again to place. {common}
+webfs.pdf_opened = Opened {name} in the datasheet reader.
