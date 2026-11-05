@@ -273,6 +273,9 @@ board.footer.x_y_mm = {x}, {y} mm
 board.footer.x_y_mm.tip = Where the mouse points on the board, in millimetres.
 board.footer.zoom_pct = {zoom_pct}%
 board.footer.zoom_pct.tip = How close the drawing is zoomed in. Scroll to change it.
+board.footer.unrouted = {count} unrouted, {mm} mm
+board.footer.unrouted.tip = Connections still open and their straight line length
+
 board.footer.tool_tool_words = Tool: {tool_words}
 board.footer.tool_tool_words.tip = What a click on the drawing does right now. Click here to go back to picking things, or press Esc.
 board.footer.search = SEARCH
