@@ -54,8 +54,7 @@ fn browser_app(fetch: Arc<CannedFetch>, keys: Arc<PageKeys>) -> App {
     app.browser = true;
     app.refresh();
     app.preferences.aside_lower_tab = 1;
-    app.assistant.settings_open = true;
-    app.change_tab(Tab::Settings);
+    app.open_preferences(crate::preferences::TAB_ASSISTANT);
     app
 }
 
@@ -101,6 +100,7 @@ fn a_newcomer_adds_a_key_and_the_assistant_answers_in_the_browser() -> Result<()
         !prefs.contains("test-key"),
         "the key is not in the preferences"
     );
+    authoring::tests::tap(&ctx, &mut app, "Done")?;
     app.change_tab(Tab::Pcb);
     settle(&ctx, &mut app);
     app.assistant.input = "hello".into();
@@ -135,6 +135,8 @@ fn a_newcomer_clears_their_key() -> Result<(), String> {
     let name = pcbcraft_assistant::key_id(&id);
     assert!(keys.get(&name)?.is_some(), "the key was stored");
     assert!(paints_text(&ctx, &mut app, "key stored")?);
+    authoring::tests::tap(&ctx, &mut app, "Edit")?;
+    settle(&ctx, &mut app);
     authoring::tests::tap(&ctx, &mut app, "Clear key")?;
     settle(&ctx, &mut app);
     assert!(keys.get(&name)?.is_none(), "the key is gone from the store");

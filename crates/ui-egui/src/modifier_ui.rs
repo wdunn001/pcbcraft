@@ -13,13 +13,16 @@
 //! # Dependencies
 //! - `crates/ui-egui/src/tool_modifiers.rs` bindings, rows and hotkeys.
 //! - `crates/ui-egui/src/canvas/gestures.rs` calls [`status_hint`].
-//! - `crates/ui-egui/src/lib.rs` calls [`tip`], [`menu_rows`] and [`keys_section`].
+//! - `crates/ui-egui/src/preferences/keys.rs` calls [`keys_card`]; `lib.rs` calls [`tip`] and [`menu_rows`].
 //!
 //! # Do not
 //! - Hard-code a chord in a string; build it from the binding.
 
-use crate::a11y::{self, Named};
-use crate::targets::TapButton;
+use crate::ui_kit::button::{self, Size};
+use crate::ui_kit::form_row::{FormWidth, form_row};
+use crate::ui_kit::icons;
+use crate::ui_kit::select::select;
+use crate::{fonts, theme};
 use egui::Key;
 use pcbcraft_text::t;
 
@@ -260,7 +263,8 @@ pub fn key_name(key: Key) -> String {
     }
 }
 
-/// The Keys section of Edit > Preferences: one row per hotkey and per modifier.
+/// The tool modifiers card of Edit > Preferences > Keys: one row per tool hotkey and per
+/// modifier action.
 ///
 /// # Rules
 /// - Changes apply on the next frame and are saved with the preferences.
@@ -268,127 +272,123 @@ pub fn key_name(key: Key) -> String {
 ///
 /// # Dependencies
 /// - `crates/ui-egui/src/lib.rs` `Preferences::modifiers`.
+/// - crates/ui-egui/src/ui_kit/form_row.rs
+/// - crates/ui-egui/src/ui_kit/select.rs
 ///
 /// # Do not
 /// - Offer a hotkey that another hotkey or the editor already uses.
-pub fn keys_section(app: &mut crate::App, ui: &mut egui::Ui) {
+pub fn keys_card(app: &mut crate::App, ui: &mut egui::Ui) {
     let platform = Platform::of(ui.ctx());
-    ui.add_space(16.0);
-    egui::CollapsingHeader::new(t!("modifier.prefs.title"))
-        .default_open(false)
-        .show(ui, |ui| keys_rows(app, ui, platform))
-        .header_response
-        .on_hover_text(t!("modifier.prefs.title.tip"));
-}
-
-/// The rows inside the Keys section.
-fn keys_rows(app: &mut crate::App, ui: &mut egui::Ui, platform: Platform) {
-    ui.label(
-        egui::RichText::new(t!("modifier.prefs.intro"))
-            .small()
-            .color(app.muted()),
-    );
-    ui.add_space(4.0);
+    let tk = theme::tokens(ui.ctx());
+    ui.label(fonts::caption(t!("modifier.prefs.intro")).color(tk.muted));
+    ui.add_space(theme::SPACE[0]);
     let mut message: Option<String> = None;
     for h in Hotkey::ALL {
         let current = app.preferences.modifiers.key_for(h);
-        let mut chosen = current;
-        ui.horizontal(|ui| {
-            ui.label(hotkey_words(h));
-            egui::ComboBox::from_id_salt(("hotkey", h.id()))
-                .selected_text(key_name(current))
-                .show_ui(ui, |ui| {
-                    for key in choosable_keys(h) {
-                        ui.selectable_value(&mut chosen, key, key_name(key));
-                    }
-                })
-                .response
-                .named(&hotkey_words(h))
-                .on_hover_text(t!("modifier.prefs.hotkey.tip"));
-            if app.preferences.modifiers.key_for(h) != h.default_key() {
-                let reset = ui
-                    .tap_button(t!("modifier.prefs.reset"))
-                    .on_hover_text(t!("modifier.prefs.reset.tip"));
-                a11y::name_control(&reset, "Reset tool key", None);
-                if reset.clicked() {
-                    app.preferences.modifiers.reset_key(h);
-                }
+        let keys = choosable_keys(h);
+        let names: Vec<String> = keys.iter().map(|k| key_name(*k)).collect();
+        let options: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut at = keys.iter().position(|k| *k == current).unwrap_or(0);
+        let before = at;
+        let words = hotkey_words(h);
+        form_row(ui, FormWidth::Page, &words, None, None, |ui| {
+            select(
+                ui,
+                ("hotkey", h.id()),
+                &mut at,
+                &options,
+                &words,
+                &t!("modifier.prefs.hotkey.tip"),
+                120.0,
+            );
+            if current != h.default_key()
+                && button::ghost_button(
+                    ui,
+                    Some(icons::REFRESH),
+                    &t!("modifier.prefs.reset"),
+                    &t!("modifier.prefs.reset.tip"),
+                    Size::Small,
+                    true,
+                )
+                .clicked()
+            {
+                app.preferences.modifiers.reset_key(h);
             }
         });
-        if chosen != current
-            && let Err(why) = app.preferences.modifiers.set_key(h, chosen)
+        if at != before
+            && let Some(chosen) = keys.get(at)
+            && let Err(why) = app.preferences.modifiers.set_key(h, *chosen)
         {
             message = Some(why);
         }
     }
-    ui.add_space(4.0);
     for action in ModAction::ALL {
         let current = app.preferences.modifiers.chords_for(&binding_of(action));
-        let shown = match current.as_slice() {
-            [] => t!("modifier.chord.off"),
-            list => list
-                .iter()
-                .map(|c| c.label_for(platform))
-                .collect::<Vec<_>>()
-                .join(" / "),
-        };
-        ui.horizontal(|ui| {
-            ui.label(effect(action));
-            let mut pick: Option<Option<ModifierCombo>> = None;
-            egui::ComboBox::from_id_salt(("chord", action.id()))
-                .selected_text(shown)
-                .show_ui(ui, |ui| {
-                    for c in ModifierCombo::CHOICES {
-                        if ui.selectable_label(false, c.label_for(platform)).clicked() {
-                            pick = Some(Some(c));
-                        }
-                    }
-                    if ui
-                        .selectable_label(false, t!("modifier.chord.off"))
-                        .clicked()
-                    {
-                        pick = Some(None);
-                    }
-                })
-                .response
-                .named(&effect(action))
-                .on_hover_text(t!("modifier.prefs.chord.tip"));
-            if let Some(p) = pick {
-                app.preferences.modifiers.set_chord(action, p);
-            }
-            if app.preferences.modifiers.is_custom(action) {
-                let reset = ui
-                    .tap_button(t!("modifier.prefs.reset"))
-                    .on_hover_text(t!("modifier.prefs.reset.tip"));
-                a11y::name_control(&reset, "Reset modifier chord", None);
-                if reset.clicked() {
-                    app.preferences.modifiers.reset_chord(action);
-                }
+        let mut labels: Vec<String> = ModifierCombo::CHOICES
+            .iter()
+            .map(|c| c.label_for(platform))
+            .collect();
+        labels.push(t!("modifier.chord.off"));
+        let options: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let off = ModifierCombo::CHOICES.len();
+        let mut at = current
+            .first()
+            .and_then(|first| ModifierCombo::CHOICES.iter().position(|c| c == first))
+            .unwrap_or(off);
+        let before = at;
+        let words = effect(action);
+        form_row(ui, FormWidth::Page, &words, None, None, |ui| {
+            select(
+                ui,
+                ("chord", action.id()),
+                &mut at,
+                &options,
+                &words,
+                &t!("modifier.prefs.chord.tip"),
+                200.0,
+            );
+            if app.preferences.modifiers.is_custom(action)
+                && button::ghost_button(
+                    ui,
+                    Some(icons::REFRESH),
+                    &t!("modifier.prefs.reset"),
+                    &t!("modifier.prefs.reset.tip"),
+                    Size::Small,
+                    true,
+                )
+                .clicked()
+            {
+                app.preferences.modifiers.reset_chord(action);
             }
         });
+        if at != before {
+            let pick = ModifierCombo::CHOICES.get(at).copied();
+            app.preferences.modifiers.set_chord(action, pick);
+        }
     }
     for (_, a, b) in tm::conflicts(&app.preferences.modifiers) {
         ui.label(
-            egui::RichText::new(t!(
+            fonts::caption(t!(
                 "modifier.prefs.clash",
                 first = effect(a),
                 second = effect(b)
             ))
-            .small()
-            .color(egui::Color32::from_rgb(240, 90, 80)),
+            .color(tk.red),
         );
     }
     if let Some(m) = message {
-        ui.label(
-            egui::RichText::new(m)
-                .small()
-                .color(egui::Color32::from_rgb(240, 90, 80)),
-        );
+        ui.label(fonts::caption(m).color(tk.red));
     }
-    if ui
-        .button(t!("modifier.prefs.reset_all"))
-        .on_hover_text(t!("modifier.prefs.reset_all.tip"))
-        .clicked()
+    ui.add_space(theme::SPACE[1]);
+    if button::secondary_button(
+        ui,
+        None,
+        &t!("modifier.prefs.reset_all"),
+        &t!("modifier.prefs.reset_all.tip"),
+        Size::Normal,
+        true,
+    )
+    .clicked()
     {
         app.preferences.modifiers.reset_all();
     }
