@@ -882,14 +882,13 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
             strokes.push(Stroke { start, end, width });
         }
     }
-    if layer == Layer::Front {
-        // Board art layers carry no side of their own, so they print on top.
-        for art in p
-            .board
-            .user_layers
-            .iter()
-            .filter(|l| l.visible && l.kind == pcbcraft_doc::ArtKind::Silk)
-        {
+    {
+        // A drawn silk layer prints on the side it sits on.
+        for art in p.board.user_layers.iter().filter(|l| {
+            l.visible
+                && l.kind == pcbcraft_doc::ArtKind::Silk
+                && (l.side == pcbcraft_doc::ArtSide::Top) == (layer == Layer::Front)
+        }) {
             for shape in &art.shapes {
                 let path: Vec<Point> = match shape {
                     pcbcraft_doc::ArtShape::Line { start, end } => vec![*start, *end],

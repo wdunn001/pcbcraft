@@ -102,6 +102,7 @@ mod tests {
 
     fn add_cut_layer(p: &mut Project) {
         p.board.user_layers.push(ArtLayer {
+            side: Default::default(),
             id: 10,
             name: "Cut".into(),
             kind: ArtKind::Cut,
