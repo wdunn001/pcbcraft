@@ -18,6 +18,8 @@ struct FootprintKey {
 
 #[derive(Clone, Debug, PartialEq)]
 struct FootprintOutline {
+    /// 3D model file path when the footprint carries one.
+    model_path: Option<String>,
     height_mm: f64,
     ring: Vec<Point>,
 }
@@ -89,16 +91,25 @@ fn catalog(p: &Project) -> Result<BTreeMap<FootprintKey, FootprintOutline>, Stri
             continue;
         };
         entries
-            .entry(key)
+            .entry(key.clone())
             .and_modify(|existing| {
                 if height > existing.height_mm {
                     existing.height_mm = height;
                 }
             })
             .or_insert(FootprintOutline {
+                model_path: None,
                 height_mm: height,
                 ring,
             });
+        if let Some(model) = component
+            .library_footprint
+            .as_ref()
+            .and_then(|l| l.definition.model.as_ref())
+            && let Some(entry) = entries.get_mut(&key)
+        {
+            entry.model_path = Some(model.path.clone());
+        }
     }
     if entries.is_empty() {
         return Err("board has no placed footprints to export".into());
@@ -125,6 +136,16 @@ pub fn idf_library(p: &Project) -> Result<String, String> {
             idf_float(outline.height_mm)
         ));
         out.push_str(&outline_lines(&outline.ring));
+        if let Some(model_path) = &outline.model_path {
+            out.push_str(".3D\n");
+            out.push_str(&format!(
+                "{} {} STEP {} 0.000 0.000 0.000 0.000 0.000 0.000 1.000\n",
+                idf_token(&key.geometry),
+                idf_token(&key.part),
+                idf_token(model_path)
+            ));
+            out.push_str(".END_3D\n");
+        }
         out.push_str(".END_ELECTRICAL\n");
     }
     Ok(out)
