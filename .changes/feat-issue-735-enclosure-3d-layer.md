@@ -1,8 +1,8 @@
 ---
 type: feature
-area: board
+area: ui
 issues: [735]
 user_visible: true
-docs: n/a: UI feature with inline tooltips, no separate docs required
-summary: Import a SolidCraft enclosure or assembly to show around the board in the 3D view as a separate layer that never enters fabrication outputs.
+docs: n/a: the toggle explains itself in its tooltip and no page lists 3D layers
+summary: Show an imported SolidCraft enclosure as its own layer in the 3D view with an Enclosure toggle.
 ---

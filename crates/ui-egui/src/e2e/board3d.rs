@@ -428,47 +428,51 @@ fn a_newcomer_sees_a_flipped_part_hang_below_the_board() -> Result<(), String> {
 
 #[test]
 fn a_newcomer_shows_an_enclosure_around_the_board() -> Result<(), String> {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, None);
-    app.refresh();
-    app.tool_call("sample_design", json!({}));
-    app.refresh();
-    // Attach a board export as the enclosure file (auto-aligned)
-    let mesh = pcbcraft_io::board_mesh(&app.project, pcbcraft_io::MeshLayers::default())
-        .map_err(|e| format!("build mesh: {e}"))?;
+    let (ctx, mut app, _) = open_3d()?;
+    assert!(
+        !paints_text(&ctx, &mut app, "Enclosure")?,
+        "the Enclosure toggle stays hidden while the board has no enclosure"
+    );
+    let mesh = pcbcraft_io::board_mesh(&app.project, pcbcraft_io::MeshLayers::default())?;
     let json = pcbcraft_io::solidcraft_board(
         &app.project,
         &mesh,
         pcbcraft_io::SolidcraftLayers::default(),
-    )
-    .map_err(|e| format!("export: {e}"))?;
-    app.tool_call("enclosure.import", json!({ "data": json }))
-        .map_err(|e| format!("import: {e}"))?;
-    app.refresh();
-    app.change_tab(Tab::Board3d);
-    let ctx = egui::Context::default();
+    )?;
+    let path =
+        std::env::temp_dir().join(format!("pcbcraft-case-{}.solidcraft", std::process::id()));
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    let imported = app.tool_call(
+        "board.enclosure.import",
+        json!({ "path": path.to_string_lossy() }),
+    );
+    std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    assert!(imported, "the enclosure file imports");
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
-    assert!(
-        app.project.board.enclosure.is_some(),
-        "the project carries an enclosure after import"
+    let visible = |app: &App| app.project.board.enclosure.as_ref().map(|e| e.visible);
+    let enclosure_parts = |app: &App| app.view3d.part_count_in_family("enclosure");
+    assert_eq!(
+        visible(&app),
+        Some(true),
+        "an imported enclosure starts shown"
     );
     assert!(
-        paints_text(&ctx, &mut app, "Enclosure layer")?,
-        "the 3D tab shows the Enclosure layer toggle"
+        enclosure_parts(&app) > 0,
+        "the 3D view draws the enclosure bodies"
     );
-    // Toggle the enclosure off
-    tap_left(&ctx, &mut app, "Enclosure layer")?;
-    assert!(
-        !app.project.board.enclosure.as_ref().unwrap().visible,
-        "toggling the checkbox hides the enclosure"
-    );
-    // Toggle it back on
-    tap_left(&ctx, &mut app, "Enclosure layer")?;
-    assert!(
-        app.project.board.enclosure.as_ref().unwrap().visible,
-        "toggling again shows the enclosure"
-    );
+    tap_id(&ctx, &mut app, "checkbox:Enclosure")?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(visible(&app), Some(false), "the toggle hides the enclosure");
+    assert_eq!(enclosure_parts(&app), 0, "a hidden enclosure draws nothing");
+    tap_id(&ctx, &mut app, "checkbox:Enclosure")?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(visible(&app), Some(true), "the toggle shows it again");
+    assert!(enclosure_parts(&app) > 0, "the bodies are back");
     Ok(())
 }

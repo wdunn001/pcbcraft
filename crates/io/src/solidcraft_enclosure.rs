@@ -477,16 +477,14 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn enclosure_move_is_one_undo_step() -> Check {
-        let mut project = sample_project();
-        let mesh = board_mesh(&project, MeshLayers::default())?;
-        let json = solidcraft_board(&project, &mesh, SolidcraftLayers::default())?;
-        attach_enclosure_file(&mut project, json.as_bytes())?;
-        let mut enc = BoardEnclosure {
+    fn attached_enclosure(project: &mut Project) -> Result<BoardEnclosure, String> {
+        let mesh = board_mesh(project, MeshLayers::default())?;
+        let json = solidcraft_board(project, &mesh, SolidcraftLayers::default())?;
+        attach_enclosure_file(project, json.as_bytes())?;
+        Ok(BoardEnclosure {
             file: ENCLOSURE_ATTACHMENT_NAME.into(),
             source_path: String::new(),
-            auto_aligned: false,
+            auto_aligned: true,
             offset: [0.0; 3],
             scale: [1.0; 3],
             rotate: [0.0; 3],
@@ -500,17 +498,67 @@ mod tests {
             mesh_path: None,
             linked_datums: Vec::new(),
             notice: None,
-        };
-        project.board.enclosure = Some(enc.clone());
-        let before = serde_json::to_string(&project)?;
-        enc.offset = [5.0, 10.0, 0.0];
-        project.board.enclosure = Some(enc.clone());
-        let after = serde_json::to_string(&project)?;
-        assert_ne!(before, after, "project changed when enclosure moved");
-        enc.offset = [0.0; 3];
-        project.board.enclosure = Some(enc);
-        let restored = serde_json::to_string(&project)?;
-        assert_eq!(before, restored, "one undo step restored prior placement");
+        })
+    }
+
+    #[test]
+    fn append_adds_one_part_per_enclosure_body() -> Check {
+        let mut project = sample_project();
+        let enc = attached_enclosure(&mut project)?;
+        let bodies = solidcraft_scene_with_placement(
+            &enclosure_bytes(&project, &enc)?,
+            &identity_placement(),
+        )?
+        .iter()
+        .filter(|b| !b.indices.is_empty())
+        .count();
+        assert!(bodies > 0, "the export holds at least one body");
+        let mut parts = Vec::new();
+        append_enclosure_parts(&mut parts, &project, &enc)?;
+        assert_eq!(parts.len(), bodies, "one part per enclosure body");
+        assert!(
+            parts
+                .iter()
+                .all(|p| p.family.as_deref() == Some("enclosure")),
+            "every appended part is marked as enclosure"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn append_adds_nothing_when_the_enclosure_is_hidden() -> Check {
+        let mut project = sample_project();
+        let mut enc = attached_enclosure(&mut project)?;
+        enc.visible = false;
+        let mut parts = Vec::new();
+        append_enclosure_parts(&mut parts, &project, &enc)?;
+        assert!(parts.is_empty(), "a hidden enclosure adds no parts");
+        Ok(())
+    }
+
+    #[test]
+    fn append_reports_a_missing_attachment_in_words() -> Check {
+        let mut project = sample_project();
+        let enc = attached_enclosure(&mut project)?;
+        project.files.clear();
+        let mut parts = Vec::new();
+        let err = append_enclosure_parts(&mut parts, &project, &enc)
+            .err()
+            .ok_or("a missing attachment is an error")?;
+        assert!(err.contains("no enclosure attachment"), "{err}");
+        assert!(parts.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_project_without_an_enclosure_adds_nothing() -> Check {
+        let project = sample_project();
+        let mut mesh = board_mesh(&project, MeshLayers::default())?;
+        let before = mesh.parts.len();
+        if let Some(enc) = &project.board.enclosure {
+            append_enclosure_parts(&mut mesh.parts, &project, enc)?;
+        }
+        assert_eq!(mesh.parts.len(), before);
         Ok(())
     }
 }

@@ -7988,6 +7988,9 @@ impl App {
         if let Some(id) = board3d::show(&mut self.view3d, ui, &mut env) {
             self.select(Some(id));
         }
+        if let Some(visible) = self.view3d.enclosure_visible_request.take() {
+            self.tool_call("board.enclosure.set_view", json!({ "visible": visible }));
+        }
     }
 
     fn show(&mut self, ui: &mut egui::Ui) {
