@@ -2,7 +2,7 @@
 type: feature
 area: ui
 issues: [1115]
-user_visible: false
-docs: n/a: a text function with tests and no status line shows it yet
-summary: A function writes the unrouted count and length for the Layout status line text.
+user_visible: true
+docs: n/a: one more item in the Layout status bar and no page lists its items
+summary: The Layout status bar shows how many connections are still unrouted and their straight line length, in windows at least 640 points wide.
 ---
