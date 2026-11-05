@@ -263,3 +263,40 @@ fn write_output(out: &PackageOutput, directory: &Path) -> Result<String, Error> 
     }
     Ok(output_hash(&GeneratedOutput::Bytes(all)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fab_prototype_export_produces_files_and_hash() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-pkg-fabproto-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let result = s.execute(
+            "package.export",
+            json!({
+                "id": "fab_prototype",
+                "directory": directory.to_string_lossy()
+            }),
+            None,
+        )?;
+        let written: Vec<String> = result["result"]["written"]
+            .as_array()
+            .ok_or_else(|| Error::Invalid("no written list".into()))?
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        assert!(!written.is_empty(), "fab_prototype export wrote no files");
+        assert!(
+            written.iter().any(|n| n.ends_with(".zip")),
+            "expected a ZIP archive in the written list"
+        );
+        let hash = result["result"]["hash"]
+            .as_str()
+            .ok_or_else(|| Error::Invalid("missing hash in package.export result".into()))?;
+        assert_eq!(hash.len(), 64, "hash must be a 64-character hex string");
+        Ok(())
+    }
+}
