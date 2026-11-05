@@ -62,10 +62,22 @@ const groups: Group[] = [
     ],
   },
   {
-    id: 'library', title: 'Library', intro: 'The last tab holds parts and machines, with two tabs on the left.',
+    id: 'library', title: 'Library', intro: 'The last tab holds parts and machines, with tabs on the left. A Schematics tab for saved templates is planned.',
     shots: [
       { id: 'library', title: 'Parts library', text: 'A part shows its symbol, footprint and 3D body together with key parameters, lifecycle and supplier numbers. You can place it, add it to the project or compare it with another part.' },
+      { id: 'library-datasheet', title: 'Datasheet reader', text: 'The cached datasheet opens beside the key details read from it. The page, zoom and search bar sit above the PDF. The line a search finds is highlighted.' },
+      { id: 'library-vendors', title: 'Vendors and sources', text: 'Each supplier row shows the stock and the price at one, ten, 100 and 1,000 pieces. A notice says these are cached prices with their date. Sources list where the part and its prices come from.' },
+      { id: 'library-3d', title: '3D model', text: 'The part model sits on its pads in an orbit view with Top, Front, Side and Iso buttons. Offset, rotation and scale line the model up. A pad overlay says when the centres match.' },
+      { id: 'library-edit', title: 'Edit symbol and footprint', text: 'The symbol and the footprint are edited side by side in the tab. A pin map matches each symbol pin to a footprint pad. Check part and Save part sit in the toolbar.' },
+      { id: 'library-compare', title: 'Compare parts', text: 'Two parts are shown in columns with the differing rows highlighted. A part with no value for a row is marked Not listed. Prices follow the chosen quantity.' },
+      { id: 'library-filter-control', title: 'Library filter', text: 'One button group chooses Symbols, Footprints or Both under the search field. Each choice shows its count. The sheet also shows the same group style for 2D or 3D, Top or Bottom and mm or mil.' },
+      { id: 'schematic-library', title: 'Library in the Schematic tab', text: 'The Library tab of the Schematic left panel lists parts with search and filters. Picking a part places it on the sheet. Properties show the selected part.' },
+      { id: 'share-browse', title: 'Browse and install', text: 'Designs and parts from the added sources appear as cards with a licence and a version. Filters cover source, kind, licence and tags. The selected card shows who published it and what you get.' },
+      { id: 'share-installed-report', title: 'Installed and Report', text: 'The Installed list shows an update badge on each item with a newer version. Update all applies them. A project only changes when you accept. A Report window sends a problem to the library owner.' },
       { id: 'share-publish', title: 'Publish', text: 'A design or a part can be published to a library you added. You choose a licence for each layer of the work. Checks run before publishing, and local paths and keys are removed.' },
+      { id: 'library-schematics', title: 'Schematic templates (planned)', text: 'This is a design for a planned feature. A third Library tab lists saved pieces of schematic with a small preview, a note, the part count and the source. The selected template shows its parts, wires and ports, with buttons to place it on the page or add it as a new page.' },
+      { id: 'schematic-save-template', title: 'Save as template (planned)', text: 'This is a design for a planned feature. The window opens from the Schematic view for a selection or a whole page. It asks for a name and a note, shows a live preview and says where the template is kept.' },
+      { id: 'library-schematics-empty', title: 'Schematic templates, empty (planned)', text: 'This is a design for a planned feature. With no templates saved yet the tab shows one sentence on how to save the first one. A primary button starts Save as template.' },
     ],
   },
   {
