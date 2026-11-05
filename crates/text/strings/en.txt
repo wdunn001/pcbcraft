@@ -3830,6 +3830,7 @@ rules.dialog.ran = Checks ran again.
 rules.dialog.domain.all = All areas
 rules.dialog.domain.electrical = Electrical
 rules.dialog.domain.board = Board
+rules.dialog.domain.signal = Signal integrity
 rules.dialog.domain.library = Library
 rules.dialog.domain.tip = Show only the findings from {name}.
 rules.dialog.domain.row = {name}, {count}
