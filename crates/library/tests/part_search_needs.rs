@@ -185,43 +185,44 @@ fn listings() -> Vec<PartListing> {
 }
 
 #[test]
-fn fifteen_stated_needs_find_their_part_with_no_model() {
+fn fifteen_stated_needs_find_their_part_with_no_model() -> Result<(), String> {
     let listings = listings();
-    let index = PartSearchIndex::build(&listings, &BTreeMap::new())
-        .expect("index builds from fifteen listings");
+    let index = PartSearchIndex::build(&listings, &BTreeMap::new())?;
     let cases = needs();
     let recall = recall_at_k(&index, &cases, 3);
     assert!(
         recall >= 0.9,
         "recall@3 should be at least 0.9 on fifteen stated needs, got {recall}"
     );
+    Ok(())
 }
 
 #[test]
-fn each_hit_carries_reasons() {
+fn each_hit_carries_reasons() -> Result<(), String> {
     let listings = listings();
-    let index = PartSearchIndex::build(&listings, &BTreeMap::new()).expect("index builds");
+    let index = PartSearchIndex::build(&listings, &BTreeMap::new())?;
     let query = PartSearchQuery {
         need: "low noise 3.3 V regulator in a small package".into(),
         ..PartSearchQuery::default()
     };
-    let hits = index.search(&query, 3).expect("search returns hits");
-    assert!(!hits.is_empty(), "regulator search returned no hits");
+    let hits = index.search(&query, 3)?;
+    let top = hits.first().ok_or("regulator search returned no hits")?;
     assert!(
-        !hits[0].reasons.is_empty(),
+        !top.reasons.is_empty(),
         "top hit should carry match reasons"
     );
-    assert_eq!(hits[0].listing.mpn, "EX-LDO-33");
+    assert_eq!(top.listing.mpn, "EX-LDO-33");
+    Ok(())
 }
 
 #[test]
-fn the_index_reports_no_vectors() {
+fn the_index_reports_no_vectors() -> Result<(), String> {
     let listings = listings();
-    let index =
-        PartSearchIndex::build(&listings, &BTreeMap::new()).expect("index builds with no vectors");
-    let json = index.to_json().expect("index serializes");
+    let index = PartSearchIndex::build(&listings, &BTreeMap::new())?;
+    let json = index.to_json()?;
     assert!(
         !json.contains("\"vector\""),
         "index with no vectors should not contain vector fields"
     );
+    Ok(())
 }
