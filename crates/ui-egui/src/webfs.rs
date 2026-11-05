@@ -77,7 +77,7 @@ impl App {
         }
         if let Some((name, bytes)) = self.host.pick_open() {
             self.webfs.until = None;
-            self.webfs_open_bytes(&name, &bytes);
+            self.webfs_open_bytes(&name, &bytes, ctx);
         }
         if self.webfs.until.is_some_and(|until| now < until) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -86,8 +86,19 @@ impl App {
         }
     }
 
-    /// Open a design from bytes, the one path the picker and drag and drop share.
-    pub(crate) fn webfs_open_bytes(&mut self, name: &str, bytes: &[u8]) {
+    /// Open a design or PDF from bytes, the one path the picker and drag and drop share.
+    pub(crate) fn webfs_open_bytes(&mut self, name: &str, bytes: &[u8], ctx: &egui::Context) {
+        if name.to_ascii_lowercase().ends_with(".pdf") {
+            let failure = self
+                .datasheet_pane
+                .open_bytes(name.to_owned(), bytes.to_vec(), ctx);
+            if !failure.is_empty() {
+                self.message = t!("webfs.open_failed", name = name, reason = failure);
+                return;
+            }
+            self.message = t!("webfs.pdf_opened", name = name);
+            return;
+        }
         let kind = match pcbcraft_io::open_document(bytes, name) {
             Ok(kind) => kind,
             Err(e) => {
