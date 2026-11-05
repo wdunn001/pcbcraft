@@ -673,9 +673,9 @@ fn a_newcomer_sees_a_slim_bar_with_only_the_brand_and_the_menus() -> Result<(), 
 }
 
 /// Walk the accesskit tree and check that no menu contains a text input.
-fn menu_has_no_text_inputs(menu_name: &str, output: &egui::FullOutput) {
+fn menu_has_no_text_inputs(menu_name: &str, output: &egui::FullOutput) -> Result<(), String> {
     let Some(update) = &output.platform_output.accesskit_update else {
-        panic!("no accesskit update");
+        return Err("no accesskit update".to_owned());
     };
 
     // Build parent map: child -> parent
@@ -696,7 +696,7 @@ fn menu_has_no_text_inputs(menu_name: &str, output: &egui::FullOutput) {
 
     if menu_ids.is_empty() {
         // No open menu yet; nothing to check
-        return;
+        return Ok(());
     }
 
     // Check each text input node
@@ -720,9 +720,10 @@ fn menu_has_no_text_inputs(menu_name: &str, output: &egui::FullOutput) {
         }
 
         if in_menu {
-            panic!("menu {menu_name} contains a text input: {name}");
+            return Err(format!("menu {menu_name} contains a text input: {name}"));
         }
     }
+    Ok(())
 }
 
 #[test]
@@ -731,7 +732,7 @@ fn a_newcomer_finds_no_text_input_in_the_menus() -> Result<(), String> {
     for menu in ["File", "Edit", "Help"] {
         authoring::tests::tap(&ctx, &mut app, menu)?;
         let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        menu_has_no_text_inputs(menu, &out);
+        menu_has_no_text_inputs(menu, &out)?;
         frame(
             &ctx,
             &mut app,
