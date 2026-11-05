@@ -275,6 +275,8 @@ pub(crate) fn npth_size_findings(project: &Project) -> Vec<Finding> {
 mod tests {
     use super::super::*;
     use pcbcraft_doc::{FabRules, Hole, Net, Track, Via};
+    use pcbcraft_doc::{Footprint, Pad, component_template};
+    use pcbcraft_library::{Drill as LibDrill, FootprintPad};
 
     fn project(rules: FabRules) -> Project {
         let mut p = Project::default();
@@ -396,5 +398,104 @@ mod tests {
         assert_eq!(codes(&p, "min_npth"), 1);
         p.board.holes[0].diameter = 1.0;
         assert_eq!(codes(&p, "min_npth"), 0, "1.0 mm meets the 1.0 mm limit");
+    }
+
+    fn pad(number: &str, offset: Point, size: Point, drill: Point) -> Pad {
+        Pad {
+            number: number.into(),
+            offset,
+            diameter: size.x,
+            net: None,
+            castellated: None,
+            geometry: Some(FootprintPad {
+                number: number.into(),
+                pad_type: "thru_hole".into(),
+                shape: "rect".into(),
+                position: offset,
+                rotation: 0.0,
+                size,
+                layers: vec!["*.Cu".into()],
+                drill: Some(LibDrill {
+                    size: drill,
+                    offset: Point::default(),
+                }),
+                roundrect_ratio: None,
+                chamfer: None,
+                polygon: vec![],
+                raw_source: String::new(),
+            }),
+        }
+    }
+
+    fn board_with(pad: Pad) -> Project {
+        let mut p = Project::default();
+        for id in 1..=2 {
+            p.nets.push(Net {
+                id,
+                name: format!("n{id}"),
+                ..Default::default()
+            });
+        }
+        if let Some(c) = component_template("resistor", 2, "R2".into(), Point::new(0.0, 0.0)) {
+            p.components.push(c);
+        }
+        p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            id: 12,
+            component: 2,
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![pad],
+        });
+        p
+    }
+
+    #[test]
+    fn a_plated_pad_hole_closer_than_the_limit_to_foreign_copper_fires() {
+        let mut p = board_with(pad(
+            "1",
+            Point::default(),
+            Point::new(1.6, 1.6),
+            Point::new(0.8, 0.8),
+        ));
+        p.board.rules = Some(FabRules {
+            hole_to_copper_pth: Some(0.6),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 30,
+            net: 2,
+            start: Point::new(-5.0, 1.0),
+            end: Point::new(5.0, 1.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        let findings = drc(&p);
+        let pth_findings = findings
+            .iter()
+            .filter(|f| f.code == "hole_to_copper_pth")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            pth_findings.len(),
+            1,
+            "0.5 mm gap is under the 0.6 mm limit"
+        );
+        p.board.rules = Some(FabRules {
+            hole_to_copper_pth: Some(0.5),
+            ..Default::default()
+        });
+        let findings2 = drc(&p);
+        let pth_findings2 = findings2
+            .iter()
+            .filter(|f| f.code == "hole_to_copper_pth")
+            .collect::<Vec<_>>();
+        assert!(
+            pth_findings2.is_empty(),
+            "0.5 mm gap meets the 0.5 mm limit"
+        );
     }
 }
