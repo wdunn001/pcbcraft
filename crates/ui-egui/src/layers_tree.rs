@@ -2342,7 +2342,9 @@ fn header(
         }
     });
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
+    // Wraps, so a narrow aside shows the buttons on a second line instead of
+    // forcing the whole aside wider.
+    ui.horizontal_wrapped(|ui| {
         ui.add_space(PAD);
         ui.spacing_mut().item_spacing.x = 4.0;
         if ghost_button(

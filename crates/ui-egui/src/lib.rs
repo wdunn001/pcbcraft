@@ -9,6 +9,7 @@ mod a11y;
 mod arrange;
 mod art_layer_panel;
 mod artifact_rows;
+mod aside;
 mod assistant;
 mod attachment_rows;
 mod authoring;
@@ -111,8 +112,6 @@ use pcbcraft_text::t;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use targets::TapButton;
-/// Window width in points under which side docks give way to the drawing.
-const NARROW_WINDOW: f32 = 640.0;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
@@ -4274,7 +4273,7 @@ impl App {
     /// drawing (WCAG 1.4.10 reflow at 320 points). The dock steps aside and the
     /// Lib button opens the Libraries page instead.
     fn narrow_window(ctx: &egui::Context) -> bool {
-        ctx.content_rect().width() < NARROW_WINDOW
+        aside::is_narrow(ctx.content_rect().width())
     }
     /// The left aside: tabs Layers (the unified tree, default) and Library.
     /// Context: the only panel left of the drawing; the Layers tree lives in
@@ -4283,15 +4282,17 @@ impl App {
         if Self::narrow_window(ui.ctx()) {
             return;
         }
-        // The Library tab gives its browser more room; the saved width is kept per panel id.
-        let (id, width) = if self.tab == Tab::Library {
-            ("left-aside-library", 380.0)
+        // The Library tab gives its browser more room; the saved width is kept per panel id
+        // and clamped to the range the window width allows.
+        let id = if self.tab == Tab::Library {
+            "left-aside-library"
         } else {
-            ("left-aside", 320.0)
+            "left-aside"
         };
+        let widths = aside::aside_widths(ui.ctx().content_rect().width(), self.tab == Tab::Library);
         egui::Panel::left(id)
-            .default_size(width)
-            .min_size(240.0)
+            .default_size(widths.left_default)
+            .size_range(widths.left_min..=widths.left_max)
             .frame(egui::Frame::NONE.fill(ui.style().visuals.panel_fill))
             .show(ui, |ui| {
                 self.left_aside_tabs(ui);
@@ -7188,13 +7189,26 @@ impl App {
             );
         }
     }
+    /// Default width and allowed range of the right aside. The left aside is already
+    /// laid out, so what is left of the window tells how much of it the drawing keeps.
+    fn right_aside_sizes(ui: &egui::Ui) -> (f32, std::ops::RangeInclusive<f32>) {
+        let window = ui.ctx().content_rect().width();
+        let widths = aside::aside_widths(window, false);
+        let left = window - ui.available_width();
+        let most = widths.right_max_beside(left);
+        (
+            widths.right_default.clamp(widths.right_min, most),
+            widths.right_min..=most,
+        )
+    }
     fn inspector(&mut self, ui: &mut egui::Ui) {
         if self.tab == Tab::Files {
             if !Self::narrow_window(ui.ctx()) {
                 let tokens = theme::tokens(ui.ctx());
+                let (default, range) = Self::right_aside_sizes(ui);
                 egui::Panel::right("inspector")
-                    .default_size(340.0)
-                    .min_size(280.0)
+                    .default_size(default)
+                    .size_range(range)
                     .frame(
                         egui::Frame::NONE
                             .fill(tokens.panel)
@@ -7220,9 +7234,10 @@ impl App {
             return;
         }
         let tokens = theme::tokens(ui.ctx());
+        let (default, range) = Self::right_aside_sizes(ui);
         let panel = egui::Panel::right("inspector")
-            .default_size(340.0)
-            .min_size(280.0)
+            .default_size(default)
+            .size_range(range)
             .frame(
                 egui::Frame::NONE
                     .fill(tokens.panel)
@@ -8821,7 +8836,7 @@ mod tests {
             .copied()
             .ok_or("a floating Fit icon sits in the work area")?;
         assert!(
-            fit.max.x <= 1440.0 - 280.0 && fit.min.x >= LEFT_ASIDE && fit.min.y > 60.0,
+            fit.max.x <= 1440.0 - right_aside() && fit.min.x >= left_aside() && fit.min.y > 60.0,
             "the Fit icon stays inside the canvas between the asides: {fit:?}"
         );
         let first = app.project.components[0].id;
@@ -8835,7 +8850,7 @@ mod tests {
             .copied()
             .ok_or("a selected part grows a Rotate handle beside it")?;
         assert!(
-            handle.max.x <= 1440.0 - 280.0 && handle.min.x >= LEFT_ASIDE,
+            handle.max.x <= 1440.0 - right_aside() && handle.min.x >= left_aside(),
             "the handle stays inside the canvas: {handle:?}"
         );
         authoring::tests::tap_icon(&ctx, &mut app, "handle-rotate")?;

@@ -6,6 +6,7 @@ pub(crate) mod support;
 mod a11y_gate;
 mod artifact_rows;
 mod artifacts;
+mod aside_widths;
 mod assistant;
 mod assistant_browser;
 mod audit;

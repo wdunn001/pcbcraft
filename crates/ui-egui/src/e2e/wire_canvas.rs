@@ -66,7 +66,7 @@ fn a_newcomer_tees_into_a_wire_and_gets_a_junction() -> Result<(), String> {
     let left = pin_pos(&app, 0, "1")?;
     let right = pin_pos(&app, 1, "1")?;
     let mid = Point::new((left.x + right.x) / 2.0, left.y);
-    let lift = Point::new(mid.x, left.y - 6.0);
+    let lift = Point::new(mid.x, left.y - 12.0);
     let at = screen_of(&app, left);
     click(&ctx, &mut app, at, Modifiers::NONE);
     let at = screen_of(&app, lift);
