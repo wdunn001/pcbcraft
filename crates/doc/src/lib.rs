@@ -431,9 +431,11 @@ pub struct Sheet {
 pub struct PageSettings {
     /// The page these settings belong to; 0 is the Main page.
     pub sheet: Id,
-    /// Empty falls back to the project metadata `title`, then the project name.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub title: String,
+    /// The title an older file stored here. The page name is the one title of a page now, so
+    /// this is read from old files, adopted by [`Project::adopt_legacy_page_titles`] and never
+    /// written back.
+    #[serde(default, rename = "title", skip_serializing)]
+    pub legacy_title: String,
     /// The version of this sheet, such as `B` or `2.1`; printed in the title block.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub revision: String,
@@ -467,7 +469,7 @@ impl PageSettings {
     pub fn new(sheet: Id) -> Self {
         Self {
             sheet,
-            title: String::new(),
+            legacy_title: String::new(),
             revision: String::new(),
             date: String::new(),
             size: String::new(),
@@ -5769,6 +5771,41 @@ impl Project {
             }
         }
         best.1
+    }
+    /// The name page `id` was given, or `None` for a Main page nobody renamed or an unknown id.
+    pub fn page_name(&self, id: Id) -> Option<&str> {
+        if id == 0 {
+            return self.root_sheet_name.as_deref().filter(|n| !n.is_empty());
+        }
+        self.sheets
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.name.as_str())
+    }
+    /// Make the title an older file stored for a page the name of that page, when the page
+    /// still has its default name (`Main` unset, or `Page 3`) and no other page uses the
+    /// title. The stored title is dropped either way: the page name is the one title.
+    pub fn adopt_legacy_page_titles(&mut self) {
+        let settings = std::mem::take(&mut self.page_settings);
+        for mut s in settings {
+            let title = std::mem::take(&mut s.legacy_title);
+            let title = title.trim();
+            let taken = self.root_sheet_name.as_deref() == Some(title)
+                || self.sheets.iter().any(|x| x.name == title);
+            if !title.is_empty() && title.len() <= 128 && !taken {
+                if s.sheet == 0 {
+                    if self.root_sheet_name.as_deref().is_none_or(str::is_empty) {
+                        self.root_sheet_name = Some(title.to_owned());
+                    }
+                } else if let Some(sheet) = self.sheets.iter_mut().find(|x| x.id == s.sheet) {
+                    let digits = sheet.name.strip_prefix("Page ").unwrap_or("");
+                    if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
+                        sheet.name = title.to_owned();
+                    }
+                }
+            }
+            self.page_settings.push(s);
+        }
     }
     /// The settings of page `sheet`, or the defaults when it has no record.
     pub fn page_settings_of(&self, sheet: Id) -> PageSettings {

@@ -37,7 +37,7 @@ impl App {
     /// # Rules
     /// - Symbols are the parts on the page, power symbols the power symbols placed
     ///   for it, drawing the schematic graphics (they live on the Main page).
-    /// - The title block is not an object, so it has none.
+    /// - The title block is not an object, so it has none; it is a section of the page Properties.
     pub(crate) fn sheet_row_ids(&self, page: Id, row: &str) -> Vec<Id> {
         let p = &self.project;
         match row {
@@ -51,6 +51,21 @@ impl App {
                 .labels
                 .iter()
                 .filter(|l| l.kind == "power" && p.schematic_label_page(l) == page)
+                .map(|l| l.id)
+                .collect(),
+            "labels" => p
+                .labels
+                .iter()
+                .filter(|l| {
+                    ["label", "global", "hierarchical"].contains(&l.kind.as_str())
+                        && p.schematic_label_page(l) == page
+                })
+                .map(|l| l.id)
+                .collect(),
+            "buses" => p
+                .labels
+                .iter()
+                .filter(|l| l.kind == "bus" && p.schematic_label_page(l) == page)
                 .map(|l| l.id)
                 .collect(),
             "drawing" if page == 0 => p
@@ -106,7 +121,6 @@ impl App {
     pub(crate) fn set_page_setting(&mut self, page: Id, field: &str, value: &str) -> bool {
         let p = self.project.page_settings_of(page);
         let same = match field {
-            "title" => p.title == value,
             "revision" => p.revision == value,
             "date" => p.date == value,
             "size" => p.size == value,
@@ -179,26 +193,20 @@ impl App {
     /// Properties of a fixed page row.
     ///
     /// # Rules
-    /// - Title block: its six fields and Show title block. Power symbols: the
-    ///   ports with their nets, Select all, Add power symbol. Drawing: count,
+    /// - Power symbols: the page Properties, since the symbols are children of the row. Drawing: count,
     ///   defaults for new graphics, Select all. Symbols: count and Select all.
     /// - Text fields commit when they lose focus; Escape cancels.
     ///
     /// # Dependencies
     /// - `crates/ui-egui/src/layers_tree.rs` `tree_row_properties` routes here from the row's key.
     pub(crate) fn sheet_row_properties(&mut self, ui: &mut egui::Ui, page: Id, row: &str) {
+        if matches!(row, "power" | "labels" | "buses") {
+            // These groups list their items in the tree; selecting one shows the page.
+            self.page_properties(ui, page, false);
+            return;
+        }
         let name = self.page_name(page);
         let (caption, title, tip) = match row {
-            "title" => (
-                t!("props.sheet.title.caption"),
-                t!("props.sheet.title.section"),
-                t!("props.sheet.title.section.tip"),
-            ),
-            "power" => (
-                t!("props.sheet.power.caption"),
-                t!("props.sheet.power.section"),
-                t!("props.sheet.power.section.tip"),
-            ),
             "drawing" => (
                 t!("props.sheet.drawing.caption"),
                 t!("props.sheet.drawing.section"),
@@ -218,15 +226,21 @@ impl App {
             &title,
             &tip,
             |ui| match row.as_str() {
-                "title" => self.title_block_fields(ui, page),
-                "power" => self.power_port_fields(ui, page),
                 "drawing" => self.drawing_fields(ui, page),
                 _ => self.symbol_fields(ui, page),
             },
         );
     }
 
-    /// One editable text field of the page settings, saved when it loses focus.
+    /// One editable text field of the title block. The box always holds the text the sheet
+    /// paints for it, taken from `canvas::sheet::sheet_for`, the one place that decides it.
+    ///
+    /// # Rules
+    /// - While the box has focus the typed text is kept in a draft; when it loses focus the
+    ///   draft is stored as the page value, unless it equals what the sheet shows.
+    /// - Without focus there is no draft, so an undo, a rename elsewhere or an emptied box
+    ///   shows the resolved value on the next frame.
+    /// - Title edits the page name through `rename_page`; an empty title is ignored.
     fn page_text_field(
         &mut self,
         ui: &mut egui::Ui,
@@ -235,16 +249,14 @@ impl App {
         label: String,
         tip: String,
     ) {
-        let current = {
-            let s = self.project.page_settings_of(page);
-            match field {
-                "title" => s.title,
-                "revision" => s.revision,
-                "date" => s.date,
-                "company" => s.company,
-                "drawn_by" => s.drawn_by,
-                _ => String::new(),
-            }
+        let sheet = crate::canvas::sheet::sheet_for(&self.project, page);
+        let current = match field {
+            "title" => sheet.title,
+            "revision" => sheet.revision,
+            "date" => sheet.date,
+            "company" => sheet.company,
+            "drawn_by" => sheet.drawn_by,
+            _ => String::new(),
         };
         let draft_id = egui::Id::new(("page-setting-draft", page, field));
         let mut commit: Option<String> = None;
@@ -265,16 +277,28 @@ impl App {
                 if !ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     commit = Some(text);
                 }
-            } else {
+            } else if response.has_focus() {
                 ui.data_mut(|d| d.insert_temp(draft_id, text));
+            } else {
+                ui.data_mut(|d| d.remove::<String>(draft_id));
             }
         });
         if let Some(text) = commit {
-            self.set_page_setting(page, field, text.trim());
+            let text = text.trim();
+            if text == current {
+                return;
+            }
+            if field == "title" {
+                self.rename_page(page, text);
+            } else {
+                self.set_page_setting(page, field, text);
+            }
         }
     }
 
-    fn title_block_fields(&mut self, ui: &mut egui::Ui, page: Id) {
+    /// The title block section of the page Properties: the fields the sheet prints and
+    /// Show title block.
+    pub(crate) fn title_block_fields(&mut self, ui: &mut egui::Ui, page: Id) {
         for (field, label, tip) in [
             (
                 "title",
@@ -295,7 +319,8 @@ impl App {
             self.page_text_field(ui, page, field, label, tip);
         }
         let current = self.project.page_settings_of(page).size;
-        let auto = t!("props.sheet.size.auto");
+        let resolved = crate::canvas::sheet::sheet_for(&self.project, page).size;
+        let auto = t!("props.sheet.size.auto", size = resolved);
         let mut options: Vec<&str> = vec![auto.as_str()];
         options.extend(SIZES);
         let mut index = SIZES
@@ -346,8 +371,8 @@ impl App {
         }
     }
 
-    /// The count line and Select all button every selectable row shares.
-    fn count_and_select_all(&mut self, ui: &mut egui::Ui, page: Id, row: &str) {
+    /// The count line every fixed row shares. Picking the objects is done in the tree rows.
+    fn count_line(&mut self, ui: &mut egui::Ui, page: Id, row: &str) {
         let n = self.sheet_row_ids(page, row).len();
         form_row(ui, ROW, &t!("props.sheet.count"), None, None, |ui| {
             let ink = theme::tokens(ui.ctx()).text;
@@ -358,100 +383,17 @@ impl App {
             .tree
             .locked
             .contains(&layers_tree::page_row_name(page, row));
-        let button = secondary_button(
-            ui,
-            None,
-            &t!("props.sheet.select_all"),
-            &t!("props.sheet.select_all.tip"),
-            Size::Normal,
-            !locked && n > 0,
-        );
         if locked {
             ui.label(fonts::caption(t!("props.sheet.locked")));
-        }
-        if button.clicked() {
-            self.select_all_in_row(page, row);
         }
     }
 
     fn symbol_fields(&mut self, ui: &mut egui::Ui, page: Id) {
-        self.count_and_select_all(ui, page, "symbols");
-    }
-
-    fn power_port_fields(&mut self, ui: &mut egui::Ui, page: Id) {
-        let ports: Vec<(Id, String)> = self
-            .sheet_row_ids(page, "power")
-            .into_iter()
-            .filter_map(|id| {
-                let l = self.project.labels.iter().find(|l| l.id == id)?;
-                Some((id, self.project.net_name(l.net).to_owned()))
-            })
-            .collect();
-        if ports.is_empty() {
-            ui.label(fonts::caption(t!("props.sheet.power.none")));
-        }
-        let mut pick = None;
-        for (id, net) in &ports {
-            form_row(ui, ROW, net, None, None, |ui| {
-                if secondary_button(
-                    ui,
-                    None,
-                    &t!("props.sheet.power.select"),
-                    &t!("props.sheet.power.row.tip"),
-                    Size::Normal,
-                    true,
-                )
-                .clicked()
-                {
-                    pick = Some(*id);
-                }
-            });
-        }
-        if let Some(id) = pick {
-            self.select(Some(id));
-        }
-        self.count_and_select_all(ui, page, "power");
-        let nets = self.power_port_nets(page);
-        let names: Vec<&str> = nets.iter().map(|(_, n)| n.as_str()).collect();
-        let mut index = self.power_port_pick(page);
-        if !names.is_empty() {
-            let before = index;
-            form_row(ui, ROW, &t!("props.sheet.power.net"), None, None, |ui| {
-                select(
-                    ui,
-                    ("power-net", page),
-                    &mut index,
-                    &names,
-                    &t!("props.sheet.power.net"),
-                    &t!("props.sheet.power.net.tip"),
-                    140.0,
-                );
-            });
-            if index != before
-                && let Some((id, _)) = nets.get(index)
-            {
-                self.power_pick.insert(page, *id);
-            }
-        }
-        if secondary_button(
-            ui,
-            None,
-            &t!("props.sheet.power.add"),
-            &t!("props.sheet.power.add.tip"),
-            Size::Normal,
-            !nets.is_empty(),
-        )
-        .clicked()
-        {
-            if let Some((id, _)) = nets.get(index) {
-                self.power_pick.insert(page, *id);
-            }
-            self.add_power_port(page);
-        }
+        self.count_line(ui, page, "symbols");
     }
 
     fn drawing_fields(&mut self, ui: &mut egui::Ui, page: Id) {
-        self.count_and_select_all(ui, page, "drawing");
+        self.count_line(ui, page, "drawing");
         ui.add_space(theme::SPACE[1]);
         ui.label(fonts::caption(t!("props.sheet.drawing.defaults")));
         let settings = self.project.page_settings_of(page);

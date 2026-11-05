@@ -84,7 +84,9 @@ fn migrate_to(value: Value, steps: &[Step], target: u32) -> Result<Value, String
 /// gets the migration chain by calling it.
 pub fn read_project(text: &str) -> Result<Project, String> {
     let value: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
-    let project: Project = serde_json::from_value(migrate(value)?).map_err(|e| e.to_string())?;
+    let mut project: Project =
+        serde_json::from_value(migrate(value)?).map_err(|e| e.to_string())?;
+    project.adopt_legacy_page_titles();
     project.validate()?;
     Ok(project)
 }
@@ -197,6 +199,38 @@ mod tests {
         assert!(
             error.contains("no migration is known from format 2 to 3"),
             "{error}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_old_page_title_becomes_the_default_page_name_and_is_dropped_otherwise()
+    -> Result<(), String> {
+        let mut value = minimal();
+        let object = value.as_object_mut().ok_or("an object")?;
+        object.insert(
+            "sheets".into(),
+            json!([
+                {"id": 7, "name": "Page 2", "parent": null},
+                {"id": 8, "name": "Compute", "parent": null}
+            ]),
+        );
+        object.insert(
+            "page_settings".into(),
+            json!([
+                {"sheet": 0, "title": "Sensor node"},
+                {"sheet": 7, "title": "Power stage"},
+                {"sheet": 8, "title": "Ignored title"}
+            ]),
+        );
+        let project = read_project(&value.to_string())?;
+        assert_eq!(project.page_name(0), Some("Sensor node"));
+        assert_eq!(project.page_name(7), Some("Power stage"));
+        assert_eq!(project.page_name(8), Some("Compute"));
+        let text = serde_json::to_string(&project).map_err(|e| e.to_string())?;
+        assert!(
+            !text.contains("Ignored title"),
+            "the old title is not written back"
         );
         Ok(())
     }

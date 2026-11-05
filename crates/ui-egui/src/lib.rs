@@ -7379,8 +7379,8 @@ impl App {
                                     if ui_kit::button::secondary_button(
                                         ui,
                                         None,
-                                        &t!("board.inspector.delete_del"),
-                                        &command_tip("object.delete"),
+                                        &t!("board.inspector.delete"),
+                                        &t!("board.inspector.delete.tip"),
                                         ui_kit::button::Size::Normal,
                                         true,
                                     )
@@ -7816,6 +7816,31 @@ impl App {
             // `--select row:title` (or symbols, power, drawing) opens that page row.
             self.capture_select = None;
             self.select_sheet_row(0, &row);
+        }
+        if self.frames == 3
+            && let Some(rest) = self
+                .capture_select
+                .as_deref()
+                .and_then(|s| s.strip_prefix("page:"))
+                .map(str::to_owned)
+        {
+            // `--select page:Compute` shows that page (a name or an id) and selects its row in
+            // the Layers tree; `page:Compute/symbols` selects its Symbols row instead.
+            self.capture_select = None;
+            let (page, row) = rest.split_once('/').unwrap_or((rest.as_str(), ""));
+            let id = (0..=self.project.sheets.iter().map(|s| s.id).max().unwrap_or(0)).find(|id| {
+                (*id == 0 || self.project.sheets.iter().any(|s| s.id == *id))
+                    && (self.page_name(*id) == page || id.to_string() == page)
+            });
+            if let Some(id) = id {
+                self.show_page(id);
+                if row.is_empty() {
+                    self.select(None);
+                    self.tree.selected_key = Some(Self::page_row_key(id));
+                } else {
+                    self.select_sheet_row(id, row);
+                }
+            }
         }
         if self.frames == 3
             && let Some(reference) = self.capture_select.take()
