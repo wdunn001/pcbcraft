@@ -207,10 +207,10 @@ fn the_library_view_switch_fits_a_narrow_aside() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     app.region().left_tab = "library".to_owned();
     let ctx = egui::Context::default();
-    // Below 640 points the whole dock steps aside (reflow), so the narrow case is the
-    // default 320 point aside: the switch must stay inside it at the smallest windows
-    // that still draw it.
-    for width in [640.0_f32, 1000.0] {
+    // Below `aside::is_narrow` the whole dock steps aside (reflow), so the narrow case is
+    // the smallest aside: the switch must stay inside it at the smallest windows that
+    // still draw it.
+    for width in [800.0_f32, 1000.0] {
         // The first passes install the fonts; the dock draws on a later one.
         let mut output = frame_sized(&ctx, &mut app, egui::Vec2::new(width, 640.0), vec![]);
         for _ in 0..3 {

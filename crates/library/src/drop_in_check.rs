@@ -1,5 +1,5 @@
 //! Read-only drop-in replacement check: footprint, pinout, ratings and lifecycle.
-use crate::listing::{Category, Lifecycle, Unit};
+use crate::listing::{Category, Lifecycle, PartListing, Unit};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -174,6 +174,42 @@ impl DropInPart {
             return Err("temperature limits must be finite with min not above max".into());
         }
         Ok(())
+    }
+
+    /// Build a drop-in comparison snapshot from a part listing.
+    ///
+    /// Copies the electrical ratings and lifecycle from the listing but leaves
+    /// all geometry unknown: footprint is empty, pads and pins are empty, and
+    /// height is None. A part built this way will fail the footprint check
+    /// until footprint geometry is added by a later slice.
+    ///
+    /// # Rules
+    /// - Missing values in the listing become None in the snapshot.
+    /// - The listing's package_key is copied as-is.
+    ///
+    /// # Dependencies
+    /// - crates/library/src/listing.rs `PartListing`
+    ///
+    /// # Do not
+    /// - Infer footprint or pinout from the listing's description text.
+    pub fn from_listing(listing: &PartListing) -> DropInPart {
+        DropInPart {
+            footprint: String::new(),
+            package_key: listing.package_key.clone(),
+            pads: Vec::new(),
+            pins: Vec::new(),
+            pin_to_pad: std::collections::BTreeMap::new(),
+            category: listing.category,
+            lifecycle: listing.lifecycle,
+            value: listing.value,
+            value_unit: listing.value_unit,
+            tolerance_pct: listing.tolerance_pct,
+            rated_voltage_v: listing.rated_voltage_v,
+            temp_min_c: listing.temp_min_c,
+            temp_max_c: listing.temp_max_c,
+            power_w: listing.power_w,
+            height_mm: None,
+        }
     }
 }
 
@@ -756,6 +792,105 @@ mod tests {
         let mut cand = inc.clone();
         cand.height_mm = Some(0.8);
         assert!(!drop_in_check(&inc, &cand)?.drop_in);
+        Ok(())
+    }
+
+    use crate::listing::ListingSource;
+
+    #[test]
+    fn a_listing_becomes_a_drop_in_part_with_ratings() -> Result<(), String> {
+        let listing = PartListing {
+            source: ListingSource::Fixture,
+            source_id: "test".into(),
+            source_ref: "R10K".into(),
+            manufacturer: "Example".into(),
+            mpn: "R10K".into(),
+            description: "10k resistor".into(),
+            category: Category::Resistor,
+            source_category: String::new(),
+            package_key: "chip-0603".into(),
+            package_text: "0603".into(),
+            value: Some(10_000.0),
+            value_unit: Some(Unit::Ohm),
+            tolerance_pct: Some((1.0, 1.0)),
+            rated_voltage_v: Some(50.0),
+            temp_min_c: Some(-55.0),
+            temp_max_c: Some(155.0),
+            power_w: Some(0.1),
+            stock: None,
+            stock_at: None,
+            price_breaks: vec![],
+            min_order_qty: None,
+            order_multiple: None,
+            packaging: None,
+            lifecycle: Lifecycle::Active,
+            lifecycle_raw: String::new(),
+            rohs: None,
+            reach: None,
+            halogen_free: None,
+            moisture_level: None,
+            datasheet_url: None,
+            symbol: None,
+            footprint: None,
+            model3d: None,
+            attribution: None,
+        };
+        let dip = DropInPart::from_listing(&listing);
+        assert_eq!(dip.value, Some(10_000.0));
+        assert_eq!(dip.rated_voltage_v, Some(50.0));
+        assert_eq!(dip.lifecycle, Lifecycle::Active);
+        assert_eq!(dip.footprint, "");
+        Ok(())
+    }
+
+    #[test]
+    fn a_listing_alone_is_not_drop_in_without_a_footprint() -> Result<(), String> {
+        let listing = PartListing {
+            source: ListingSource::Fixture,
+            source_id: "test".into(),
+            source_ref: "R10K".into(),
+            manufacturer: "Example".into(),
+            mpn: "R10K".into(),
+            description: "10k resistor".into(),
+            category: Category::Resistor,
+            source_category: String::new(),
+            package_key: String::new(),
+            package_text: "0603".into(),
+            value: Some(10_000.0),
+            value_unit: Some(Unit::Ohm),
+            tolerance_pct: Some((1.0, 1.0)),
+            rated_voltage_v: Some(50.0),
+            temp_min_c: Some(-55.0),
+            temp_max_c: Some(155.0),
+            power_w: Some(0.1),
+            stock: None,
+            stock_at: None,
+            price_breaks: vec![],
+            min_order_qty: None,
+            order_multiple: None,
+            packaging: None,
+            lifecycle: Lifecycle::Active,
+            lifecycle_raw: String::new(),
+            rohs: None,
+            reach: None,
+            halogen_free: None,
+            moisture_level: None,
+            datasheet_url: None,
+            symbol: None,
+            footprint: None,
+            model3d: None,
+            attribution: None,
+        };
+        let inc = DropInPart::from_listing(&listing);
+        let cand = DropInPart::from_listing(&listing);
+        let report = drop_in_check(&inc, &cand)?;
+        assert!(!report.drop_in);
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.code == "footprint" && !f.pass)
+        );
         Ok(())
     }
 }
