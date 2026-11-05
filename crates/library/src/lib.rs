@@ -818,3 +818,4 @@ mod pin_graphical_tests {
         assert!(!pin.decoration_paths().is_empty());
     }
 }
+pub mod passive_series;

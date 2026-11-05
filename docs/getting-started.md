@@ -124,12 +124,14 @@ These are the shipping defaults, not a full user keymap.
 
 The desktop app hands its controls to the screen reader through AccessKit, so Narrator on Windows and VoiceOver on macOS can read the buttons, menus, tabs and settings by name. Linux support is not claimed yet. The canvas buttons Fit, Move and Rotate have names too. Nothing is sent until a screen reader asks, so the app costs nothing extra for everyone else.
 
-## Contribute on the fork
+## Contribute
 
-Branch from fork `main`, merge latest `origin/main` before the last push, push
-the feature branch only. Green GitHub Actions on that branch is the proof. Do
-not run `cargo xtask ci` on a machine that freezes under a full workspace
-build; push and read the Actions run. Rules: [CONTRIBUTING.md](../CONTRIBUTING.md),
+Branch from `main`, merge the latest `origin/main` before the last push and push
+the feature branch only. Open a pull request against `main`. The green CI run on
+that pull request is the proof. A local `cargo xtask ci` is optional and heavy: it
+builds the whole workspace. If your machine struggles, push and read the CI run.
+Every pull request also adds one change file under `.changes/`
+([.changes/README.md](../.changes/README.md)). Rules: [CONTRIBUTING.md](../CONTRIBUTING.md),
 [AGENTS.md](../AGENTS.md), [ci.md](ci.md). Onboarding:
 [issue #1](https://github.com/wdunn001/pcbcraft/issues/1).
 
