@@ -69,6 +69,7 @@ pub use collab::{
     shareable_room_command,
 };
 pub use dry_run::{ChangeSummary, DryRun};
+pub use legalize::{MAX_PASSES, Plan, plan_moves};
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
