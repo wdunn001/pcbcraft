@@ -37,7 +37,8 @@ impl App {
     /// - `crates/ui-egui/src/canvas.rs` pick_pin for the release location.
     /// - `crates/engine/src/wire_reconnect.rs` for wire.reconnect_end.
     pub(crate) fn finish_wire_end_drag(&mut self, wire: Id, index: usize, at: Point) {
-        let wire_obj = match self.sheet_view().drawn_wires.iter().find(|w| w.id == wire) {
+        let view = self.sheet_view();
+        let wire_obj = match view.drawn_wires.iter().find(|w| w.id == wire) {
             Some(w) => w,
             None => return,
         };

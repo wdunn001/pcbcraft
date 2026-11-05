@@ -64,7 +64,6 @@ pub fn action_words(action: ClickAction, what: &str) -> String {
         ClickAction::MoveSegment => t!("modifier.click.move_segment"),
         ClickAction::MovePart => t!("modifier.click.move_part", what = what),
         ClickAction::MoveWireEnd => t!("modifier.click.move_wire_end", what = what),
-        ClickAction::MoveWireEnd => t!("modifier.click.move_wire_end", what = what),
         ClickAction::BoxSelect => t!("modifier.click.box_select"),
         ClickAction::RenameLabel => t!("modifier.click.rename_label", what = what),
         ClickAction::DeleteConnection => t!("modifier.click.delete_connection"),
