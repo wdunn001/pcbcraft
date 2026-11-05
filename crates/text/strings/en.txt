@@ -1511,7 +1511,7 @@ board.stackup_section.plated_board_edge.tip = Copper plating around the board's 
 # empty-state guidance
 empty.symbols = No symbols yet. Press A to open the symbol palette, or run component.add to add one.
 empty.nets = No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import.
-empty.board = No packages on the board yet. Add symbols on the schematic and they appear on the board automatically.
+empty.board = No packages on the board yet. Add symbols on the schematic and they appear on the board automatically. To sync by hand, run board.sync.
 empty.checks = Checks run automatically on every edit; findings are listed here as soon as one appears.
 
 
