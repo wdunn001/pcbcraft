@@ -4032,3 +4032,4 @@ export.package.files = Files this package writes
 export.package.files.tip = The files this package will write into the make folder.
 export.package.go = Export package
 export.package.go.tip = Write this package into the make folder.
+export.pin_map.write_failed = The pin map file could not be written.

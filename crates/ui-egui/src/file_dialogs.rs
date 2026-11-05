@@ -623,6 +623,32 @@ impl App {
                 }
                 ok
             }
+            Some(Run::Engine("pinmap.export")) => {
+                // The command answers with the text. The dialog writes it into the make folder.
+                let answer = match self.session.lock() {
+                    Ok(mut session) => session
+                        .execute("pinmap.export", json!({"format": "csv"}), None)
+                        .map_err(|e| e.to_string()),
+                    Err(_) => Err(t!("dialogs.run.session_unavailable")),
+                };
+                match answer {
+                    Ok(value) => {
+                        let text = value["result"]["text"].as_str().unwrap_or_default();
+                        let file = std::path::Path::new(&directory).join("pin-map.csv");
+                        if std::fs::write(&file, text).is_ok() {
+                            self.message = format!("{} saved in {directory}.", f.label);
+                            true
+                        } else {
+                            self.message = t!("export.pin_map.write_failed");
+                            false
+                        }
+                    }
+                    Err(error) => {
+                        self.message = error;
+                        false
+                    }
+                }
+            }
             Some(Run::Engine("compliance.report")) => {
                 let mut params = gerber_params(f, d);
                 params["directory"] = json!(&directory);
