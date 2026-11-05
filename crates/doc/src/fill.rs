@@ -335,7 +335,7 @@ fn pour(
 ///   Copper farther away than its own clearance and the relief gap cannot change the result,
 ///   so a part moved far from the zone keeps the answer.
 /// - A hit returns a copy of the stored pour. A miss is computed as before.
-/// - The memory holds the latest [`MEMO_SIZE`] pours of the thread; the oldest goes first.
+/// - The memory holds the latest [`MEMO_SIZE`] pours of any thread; the oldest goes first.
 ///
 /// # Dependencies
 /// - crates/doc/src/fill.rs (`pour` reads exactly what `key` hashes).
@@ -345,18 +345,21 @@ fn pour(
 mod memo {
     use super::{CopperZone, Item, Kind, Project, Ring, ZoneFill, ZonePour, board_piece};
     use pcbcraft_geom::Point;
-    use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::hash::{DefaultHasher, Hash, Hasher};
+    use std::sync::{Mutex, MutexGuard, PoisonError};
 
-    /// Pours kept per thread.
+    /// Pours kept, shared by every thread so a check run on a worker finds what the
+    /// window thread poured.
     const MEMO_SIZE: usize = 64;
 
     /// Two independent 64-bit hashes of the same input, so a clash is out of reach.
     pub(super) type Key = (u64, u64);
 
-    thread_local! {
-        static POURS: RefCell<VecDeque<(Key, ZoneFill)>> = const { RefCell::new(VecDeque::new()) };
+    static POURS: Mutex<VecDeque<(Key, ZoneFill)>> = Mutex::new(VecDeque::new());
+
+    fn pours() -> MutexGuard<'static, VecDeque<(Key, ZoneFill)>> {
+        POURS.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     struct Fingerprint(DefaultHasher, DefaultHasher);
@@ -467,25 +470,20 @@ mod memo {
 
     /// The pour stored under `key`, if the memory still has it.
     pub(super) fn find(key: Key) -> Option<ZoneFill> {
-        POURS.with(|pours| {
-            pours
-                .borrow()
-                .iter()
-                .find(|(seen, _)| *seen == key)
-                .map(|(_, fill)| fill.clone())
-        })
+        pours()
+            .iter()
+            .find(|(seen, _)| *seen == key)
+            .map(|(_, fill)| fill.clone())
     }
 
     /// Store a computed pour; the oldest one goes when the memory is full.
     pub(super) fn keep(key: Key, fill: &ZoneFill) {
-        POURS.with(|pours| {
-            let mut pours = pours.borrow_mut();
-            pours.retain(|(seen, _)| *seen != key);
-            if pours.len() >= MEMO_SIZE {
-                pours.pop_front();
-            }
-            pours.push_back((key, fill.clone()));
-        });
+        let mut pours = pours();
+        pours.retain(|(seen, _)| *seen != key);
+        if pours.len() >= MEMO_SIZE {
+            pours.pop_front();
+        }
+        pours.push_back((key, fill.clone()));
     }
 }
 

@@ -600,3 +600,49 @@ fn a_newcomer_cancels_a_peek_with_escape() -> Result<(), String> {
     assert!(app.minimap_visible(), "Esc does not hide a pinned map");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sees_schematic_findings_on_the_minimap() -> Result<(), String> {
+    let (mut app, ctx) = open(Tab::Schematic);
+    app.preferences.reduced_motion = true;
+
+    // Add a component with unwired pins, which generates ERC findings.
+    app.tool_call(
+        "component.add",
+        json!({"kind":"resistor","reference":"R99","position":{"x":40,"y":40}}),
+    );
+    app.refresh();
+
+    // Open and pin the minimap so the chips are accessible.
+    authoring::tests::tap_icon(&ctx, &mut app, "canvas-map")?;
+    settle(&ctx, &mut app, 2);
+    authoring::tests::tap_icon(&ctx, &mut app, "minimap-pin")?;
+    settle(&ctx, &mut app, 2);
+
+    // The map shows finding dots for the unconnected component.
+    assert!(
+        app.minimap.drawn_findings >= 1,
+        "the minimap shows at least one finding dot: {}",
+        app.minimap.drawn_findings
+    );
+
+    // Toggle off the Findings chip; the dots disappear.
+    authoring::tests::tap_icon(&ctx, &mut app, "minimap-chip-findings")?;
+    settle(&ctx, &mut app, 2);
+    assert!(
+        app.minimap.drawn_findings == 0,
+        "with findings hidden the map shows no finding dots: {}",
+        app.minimap.drawn_findings
+    );
+
+    // Toggle the Findings chip back on; the dots return.
+    authoring::tests::tap_icon(&ctx, &mut app, "minimap-chip-findings")?;
+    settle(&ctx, &mut app, 2);
+    assert!(
+        app.minimap.drawn_findings >= 1,
+        "with findings shown again the dots return: {}",
+        app.minimap.drawn_findings
+    );
+
+    Ok(())
+}
