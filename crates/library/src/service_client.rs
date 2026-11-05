@@ -145,9 +145,6 @@ impl ServiceClient {
 /// # Rules
 /// - Encodes every byte outside A-Z a-z 0-9 - _ . ~.
 ///
-/// # Dependencies
-/// - None.
-///
 /// # Do not
 /// - Use this for query strings; it is path-only.
 fn percent_encode_mpn(mpn: &str) -> String {

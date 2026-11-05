@@ -2,7 +2,7 @@
 type: feature
 area: library
 issues: [813]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Library service client over HttpClient with recorded answers.
+user_visible: false
+docs: n/a: library code behind a transport trait and no screen uses it yet
+summary: The library has a service client that asks a part service for a listing through an HTTP transport trait, with recorded answers for tests.
 ---
