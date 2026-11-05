@@ -136,16 +136,25 @@ fn footprint_by_id_mut(p: &mut Project, id: Id) -> Option<&mut Footprint> {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::Session;
     use serde_json::json;
 
-    fn id(v: &serde_json::Value) -> u64 {
+    fn id(v: &serde_json::Value) -> Result<u64, String> {
         v["result"]["id"]
             .as_u64()
-            .expect("test fixture: missing id")
+            .ok_or_else(|| "the command answer has no id".to_string())
+    }
+
+    fn run(
+        session: &mut Session,
+        command: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        session
+            .execute(command, params, None)
+            .map_err(|e| e.to_string())
     }
 
     fn full_scope() -> Scope {
@@ -158,51 +167,45 @@ mod tests {
     }
 
     /// Create two overlapping footprints and return their ids.
-    fn make_overlapping(session: &mut Session) -> (Id, Id) {
-        let c1 = id(&session
-            .execute(
-                "component.add",
-                json!({"kind":"resistor","reference":"R1","value":"1k","position":{"x":10,"y":10}}),
-                None,
-            )
-            .expect("test fixture"));
-        let c2 = id(&session
-            .execute(
-                "component.add",
-                json!({"kind":"resistor","reference":"R2","value":"1k","position":{"x":10,"y":10}}),
-                None,
-            )
-            .expect("test fixture"));
-        session
-            .execute("board.sync", json!({}), None)
-            .expect("test fixture");
+    fn make_overlapping(session: &mut Session) -> Result<(Id, Id), String> {
+        let c1 = id(&run(
+            session,
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"1k","position":{"x":10,"y":10}}),
+        )?)?;
+        let c2 = id(&run(
+            session,
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","value":"1k","position":{"x":10,"y":10}}),
+        )?)?;
+        run(session, "board.sync", json!({}))?;
         // Move the second footprint to overlap the first.
-        let f1 = session
+        let first = session
             .project
             .board
             .footprints
             .iter()
             .find(|f| f.component == c1)
-            .expect("test fixture");
-        let f1_id = f1.id;
-        let f1_pos = f1.position;
-        let f2 = session
+            .ok_or("the first footprint is missing")?;
+        let first_id = first.id;
+        let first_pos = first.position;
+        let second = session
             .project
             .board
             .footprints
             .iter_mut()
             .find(|f| f.component == c2)
-            .expect("test fixture");
-        let f2_id = f2.id;
-        f2.position = f1_pos;
-        (f1_id, f2_id)
+            .ok_or("the second footprint is missing")?;
+        let second_id = second.id;
+        second.position = first_pos;
+        Ok((first_id, second_id))
     }
 
     #[test]
-    fn overlap_is_removed() {
+    fn overlap_is_removed() -> Result<(), String> {
         let mut s = Session::default();
         s.project.auto_sync = false;
-        let (f1, _f2) = make_overlapping(&mut s);
+        make_overlapping(&mut s)?;
         let scope = full_scope();
         let plan = plan_moves(&s.project, &scope, MAX_PASSES);
         // Apply moves to a clone.
@@ -214,41 +217,53 @@ mod tests {
         }
         let remaining = courtyard_pairs(&clone);
         assert!(remaining.is_empty(), "overlaps remain");
+        Ok(())
     }
 
     #[test]
-    fn locked_footprint_does_not_move() {
+    fn locked_footprint_does_not_move() -> Result<(), String> {
         let mut s = Session::default();
         s.project.auto_sync = false;
-        let (f1, _f2) = make_overlapping(&mut s);
-        s.execute("footprint.set_locked", json!({"id":f1,"locked":true}), None)
-            .expect("test fixture");
+        let (f1, _f2) = make_overlapping(&mut s)?;
+        run(
+            &mut s,
+            "footprint.set_locked",
+            json!({"id":f1,"locked":true}),
+        )?;
         let scope = full_scope();
         let plan = plan_moves(&s.project, &scope, MAX_PASSES);
         let moved_ids: Vec<Id> = plan.moves.iter().map(|(id, _)| *id).collect();
         assert!(!moved_ids.contains(&f1), "locked footprint moved: {f1}");
+        Ok(())
     }
 
     #[test]
-    fn same_input_gives_same_moves() {
+    fn same_input_gives_same_moves() -> Result<(), String> {
         let mut s = Session::default();
         s.project.auto_sync = false;
-        make_overlapping(&mut s);
+        make_overlapping(&mut s)?;
         let scope = full_scope();
         let plan1 = plan_moves(&s.project, &scope, MAX_PASSES);
         let plan2 = plan_moves(&s.project, &scope, MAX_PASSES);
         assert_eq!(plan1, plan2, "plans differ on same input");
+        Ok(())
     }
 
     #[test]
-    fn both_locked_gives_unresolved() {
+    fn both_locked_gives_unresolved() -> Result<(), String> {
         let mut s = Session::default();
         s.project.auto_sync = false;
-        let (f1, f2) = make_overlapping(&mut s);
-        s.execute("footprint.set_locked", json!({"id":f1,"locked":true}), None)
-            .expect("test fixture");
-        s.execute("footprint.set_locked", json!({"id":f2,"locked":true}), None)
-            .expect("test fixture");
+        let (f1, f2) = make_overlapping(&mut s)?;
+        run(
+            &mut s,
+            "footprint.set_locked",
+            json!({"id":f1,"locked":true}),
+        )?;
+        run(
+            &mut s,
+            "footprint.set_locked",
+            json!({"id":f2,"locked":true}),
+        )?;
         let scope = full_scope();
         let plan = plan_moves(&s.project, &scope, MAX_PASSES);
         assert!(
@@ -256,15 +271,17 @@ mod tests {
             "unresolved pair missing"
         );
         assert!(plan.moves.is_empty(), "moves made despite both locked");
+        Ok(())
     }
 
     #[test]
-    fn max_passes_stops_after_one_pass() {
+    fn max_passes_stops_after_one_pass() -> Result<(), String> {
         let mut s = Session::default();
         s.project.auto_sync = false;
-        make_overlapping(&mut s);
+        make_overlapping(&mut s)?;
         let scope = full_scope();
         let plan = plan_moves(&s.project, &scope, 1);
         assert_eq!(plan.passes, 1, "did not stop after one pass");
+        Ok(())
     }
 }
