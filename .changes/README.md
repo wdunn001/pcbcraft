@@ -1,6 +1,6 @@
 # Changesets
 
-Every pull request adds exactly one file here, named after its branch slug (`fix-track-snap.md`), so two pull requests never collide. The file is the release note and the proof that documentation was considered. `cargo xtask changeset check` (CI job "Changeset and docs") enforces it.
+Every pull request adds exactly one file here, named after its branch slug (`fix-track-snap.md`), so two pull requests never collide. The file is the release note and the proof that documentation was considered. The Lint job in CI runs `cargo xtask changeset require`, which fails a pull request that needs a file and has none, or whose file does not parse. Run `cargo xtask changeset check` yourself for the full rules below.
 
 ## Template
 
@@ -24,7 +24,7 @@ summary: One plain sentence a user could read.
 - `issues`: fork issue numbers, `[]` when there are none.
 - `user_visible`: `true` if a user of the app or site can notice the change.
 - `docs`: the documentation files this change updated, as a list, or `n/a: <reason of at least 20 characters>`. Each listed file must be changed in the pull request.
-- `summary`: one plain sentence a user could read. No dashes used as punctuation.
+- `summary`: one plain sentence a user could read, 10 to 200 characters. No dashes used as punctuation.
 
 Each field is one `key: value` line, split at the first colon, so other tools read the files without a YAML library (`cargo xtask changeset list` prints them as JSON).
 

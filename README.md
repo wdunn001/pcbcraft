@@ -72,7 +72,7 @@ Default keys: [docs/getting-started.md](docs/getting-started.md#keyboard).
 | [Roadmap](ROADMAP.md) | Open work by milestone |
 | [Architecture](docs/architecture.md) | Crate layers and MCP-first rules |
 | [MCP](docs/mcp.md) | Client config and request shape |
-| [CI](docs/ci.md) | GitHub Actions jobs; do not run the full suite on a laptop |
+| [CI](docs/ci.md) | CI jobs, the deploy and the nightly checks |
 | [CONTRIBUTING](CONTRIBUTING.md) | Issue tags through merge |
 | [AGENTS](AGENTS.md) | Parallel agents, UI lane, honesty rules |
 

@@ -45,7 +45,7 @@ Stages in words:
 1. **Raw ticket.** A reporter files a short issue: the request in the requester's words, the goal, links. Tags: `stage:research`, or `stage:enrich` plus `research:n/a` when there is no open standards or design question.
 2. **Research.** A researcher answers the standards, format, machine or reference-rule questions, posts a `### Research` comment, sets `research:done` and moves the issue to `stage:enrich`.
 3. **Enrichment.** An enricher verifies file and function names, lists every place to change, dependencies and order, the conflict lane, the test list, tooltips, text catalog, accessibility and logging needs, and splits the work into one-PR children. It posts `### Enrichment`, writes the full Tags line, sets `enrich:done` and replaces `stage:enrich` with `ready`.
-4. **Ready.** A worker may claim it. Workers claim only `ready` issues. Workers who share a build machine with others also need `conflict:parallel-safe`.
+4. **Ready.** A worker may claim it. Workers claim only `ready` issues. Workers who share one checkout machine with others also need `conflict:parallel-safe`.
 5. **Work.** The worker claims, branches off `main`, builds, tests, merges the latest `main` back in, opens a pull request against `main` with the build report in the body, and waits for the Actions run on the pull request.
 6. **Integration.** The integrator verifies the pull request and merges it with a merge commit when CI is green. When the Actions build on `main` is green, the change is done.
 7. **Closing.** The tracker manager closes the issue when the pull request that finishes it has merged and CI on `main` is green. Partial work leaves the issue open with the pull request linked.
@@ -164,7 +164,7 @@ Takes `ready` issues. A worker is a human or an agent that writes the code.
 ```sh
 # everything a worker may claim
 gh issue list -R wdunn001/pcbcraft --state open --label ready --label status:open
-# only what can run alongside other workers (required when you share a build machine)
+# only what can run alongside other workers (required when you share a checkout machine)
 gh issue list -R wdunn001/pcbcraft --state open --label ready --label status:open --label conflict:parallel-safe
 # the maintainer's top priorities
 gh issue list -R wdunn001/pcbcraft --state open --label priority:owner-top
@@ -206,15 +206,13 @@ A pull request that does not merge cleanly into `main` goes back to the worker.
 
 **Build and test**
 
-CI is GitHub Actions on wdunn001/pcbcraft, and it runs on every pull request. The Actions run is the proof of a green build; link it in your pull request. Running the gate yourself before pushing is optional and saves round trips:
-CI is GitHub Actions on the fork, and it runs on pull requests and on `main`, not on plain branch pushes. Open a draft pull request to get the cheap checks (format, policy, clippy, docs); mark it ready for review to run the full gate. The green run is the proof of a build; link it in your report. Running the gate yourself before pushing is optional and saves round trips:
+CI is GitHub Actions on wdunn001/pcbcraft. It runs on pull requests and on `main`, not on plain branch pushes. Open a draft pull request to get the cheap checks (Lint and the site checks); mark it ready for review to run the full gate. The green run is the proof of a build; link it in your report. Running the gate yourself before pushing is optional and saves round trips:
 
 ```sh
 cargo xtask ci
 ```
 
-It runs formatting, dependency layer checks, clippy with warnings denied, the workspace tests (including the `a_newcomer_*` end-to-end tests) and the WebAssembly check. Once the CI pipeline branch (#164) is merged, the Actions gate also runs policy, docs, MSRV and license checks, the full e2e suite and the screenshot sheet; `docs/ci.md` lists every job and its local command. If you build on a shared machine, cap parallelism (`CARGO_BUILD_JOBS=4`) and keep your own target directory; do not run full builds on a laptop when a shared build host or Actions can do it.
-It runs formatting, dependency layer checks, clippy with warnings denied, the workspace tests (including the `a_newcomer_*` end-to-end tests) and the WebAssembly check. `docs/ci.md` lists every job and its local command. CI does not capture screenshots. If you build on a shared machine, cap parallelism (`CARGO_BUILD_JOBS=4`) and keep your own target directory; do not run full builds on a laptop when a build machine or Actions can do it.
+It runs the layer check, lint policy, formatting, clippy with warnings denied, the workspace tests (including the `a_newcomer_*` end-to-end tests), the WebAssembly check and bundle, and the two documentation checks. The CI gate also runs licence checks, the full e2e control gate (`cargo xtask e2e`), the strings check and the site checks. `docs/ci.md` lists every job and its local command. The pull request CI does not capture screenshots. If you build on a shared machine, cap parallelism (`CARGO_BUILD_JOBS=4`) and keep your own target directory. A full workspace build is heavy, so let CI do it when your machine is small.
 
 For UI changes, look at the rendered result (section 6).
 
@@ -421,22 +419,21 @@ These come from the rule files in `.cursor/rules/` (listed in AGENTS.md) and app
 - **One window.** Document and workspace tabs plus docked panes. Never spawn separate schematic, board, library, checks or 3D windows. Project and selection are shared.
 - **Typed engine commands.** Everything that edits the project is a command in `crates/engine` with a JSON schema. UI, CLI and MCP call the same engine. Programmatic commands never open dialogs.
 - **Validation.** Finite, bounded coordinates and dimensions; bounded counts; stable IDs; reference integrity. An invalid command or batch leaves the document, revision and history untouched.
-- **No panics.** No `unsafe`; no production `unwrap`, `expect`, `panic`, `todo`, `unimplemented` or `unreachable`. Tests may use `?` with `Result<(), String>`; the e2e tests do. The CI pipeline branch lints these at deny and forbids source `allow` of them.
-- **Crate layering.** geom (L0) under doc and library (L1) under rules and io (L2) under engine (L3) under mcp and ui-egui (L4) under the apps. Lower crates never depend on egui, eframe, wgpu or MCP. `cargo xtask ci` checks the layers.
+- **No panics.** No `unsafe`; no production `unwrap`, `expect`, `panic`, `todo`, `unimplemented` or `unreachable`. Tests return `Result<(), String>` and use `?`; they do not call `unwrap` or `expect` either. The workspace denies those lints for all targets. `cargo xtask lint` fails on a source `allow` of these lints.
+- **Crate layering.** geom (L0) under doc and library (L1) under rules and io (L2) under engine (L3) under mcp and ui-egui (L4) under the apps. Lower crates never depend on egui, eframe, wgpu or MCP. `cargo xtask layers` checks the layers (`ci` and `lint` run it).
 - **Adapted code.** PCBCraft is MIT OR Apache-2.0, so only code under a compatible permissive license (MIT, Apache-2.0, BSD, ISC, Unlicense and the like) may be adapted. Never copy or translate GPL, LGPL or AGPL code; read it for ideas at most. Record the exact source, revision and license in ATTRIBUTION.md. Translating to Rust does not remove attribution. Check each file's license. Do not copy trademarks or proprietary assets from shared Craft dependencies; pin craft-libs revisions.
 - **Honest limits.** Do not present initial checks as complete ERC/DRC, or a basic route as a shove router. Track parity by workflows and fixtures, not by percentages.
 - **Names.** Never name other EDA tools in code, docs, UI strings, issues or pull requests. Describe formats and behaviours instead ("the board interchange format", "the plot layer format").
 - **UI.** Every control gets a tooltip. Panels keep real margins and padding. Labels are short plain words. UI strings go in `crates/text/strings/en.txt`. Status dots, arrows and ticks are painted shapes or icons, never text characters. UI changes are inspected rendered, not only in tests. The design is in [docs/design-system.md](docs/design-system.md) and [docs/page-layouts.md](docs/page-layouts.md); read them before UI work and update them when you change a documented rule.
-- **Changeset and docs.** Every pull request adds one changeset file in `.changes/` (see `.changes/README.md`) and updates the docs it touches, or states `docs: n/a: <reason>`. CI job "Changeset and docs" enforces it.
+- **Changeset and docs.** Every pull request adds one changeset file in `.changes/` (see `.changes/README.md`) and updates the docs it touches, or states `docs: n/a: <reason>`. The Lint job runs `cargo xtask changeset require` and fails a pull request that needs a change file and has none. Run `cargo xtask changeset check` yourself for the full rules.
 - **Publishing.** Do not publish releases or push to third-party repositories without authorization.
 
 ## 6. Testing
 
 - **Unit tests** live beside the code in each crate (`#[cfg(test)]` modules) and cover validation bounds, rejections and the happy path. Name them as sentences: `padstack_rejects_chamfer_ratio_out_of_range`.
 - **Golden fixtures** cover every file writer and reader. Put fixture files under `crates/<crate>/tests/fixtures/` and compare whole outputs, not substrings. For output that an independent parser exists for, read the output back with that parser as a dev-dependency. Fixtures from external libraries keep their license file beside them.
-- **End-to-end tests** are named `a_newcomer_<does something>`. They drive the real `App` headlessly with the `frame`, `tap`, `paints_text` and `scrolled_to` helpers, and every assertion message is a plain sentence that someone who has never seen the app could follow ("the matching part stays in the list"). One test per user-visible feature. They live in `crates/ui-egui/src/e2e/<area>.rs` (helpers in `src/e2e/support.rs`), one file per area (library, nets, rules, builds, board, checks, artifacts, layout, layers, shell). Put new tests in the matching area file, or add a new area file plus one `mod <area>;` line in `src/e2e/mod.rs`, and never add one to lib.rs. CI runs the full e2e suite as a required check, uploads a screenshot sheet, and fails if any control lacks a tooltip or an e2e story.
-- **Coverage.** Line coverage is gated in CI (job 'Coverage'): the bar is 70% and crates may not fall below their recorded baseline; tests must assert behaviour, and a test written only to execute code is not acceptable.
-- **End-to-end tests** are named `a_newcomer_<does something>`. They drive the real `App` headlessly with the `frame`, `tap`, `paints_text` and `scrolled_to` helpers, and every assertion message is a plain sentence that someone who has never seen the app could follow ("the matching part stays in the list"). One test per user-visible feature. They live in `crates/ui-egui/src/e2e/<area>.rs` (helpers in `src/e2e/support.rs`), one file per area (library, nets, rules, builds, board, checks, artifacts, layout, layers, shell). Put new tests in the matching area file, or add a new area file plus one `mod <area>;` line in `src/e2e/mod.rs`, and never add one to lib.rs. CI does not run the e2e suite and does not capture a screenshot sheet. Run `cargo xtask e2e` and `cargo xtask screenshots` locally when you need them.
+- **End-to-end tests** are named `a_newcomer_<does something>`. They drive the real `App` headlessly with the `frame`, `tap`, `paints_text` and `scrolled_to` helpers, and every assertion message is a plain sentence that someone who has never seen the app could follow ("the matching part stays in the list"). One test per user-visible feature. They live in `crates/ui-egui/src/e2e/<area>.rs` (helpers in `src/e2e/support.rs`), one file per area (library, nets, rules, builds, board, checks, artifacts, layout, layers, shell). Put new tests in the matching area file, or add a new area file plus one `mod <area>;` line in `src/e2e/mod.rs`, and never add one to lib.rs. CI runs the full e2e suite (job E2E) as part of the required result, and fails if any control lacks a tooltip, an id or an e2e story. The control gate is described in `docs/ci.md`. The pull request CI does not capture a screenshot sheet. Run `cargo xtask screenshots` locally when you need one.
+- **Coverage.** Line coverage is gated in the nightly workflow (job 'Coverage', `cargo xtask coverage`): the bar is 70% and crates may not fall below their recorded baseline. It is not part of the pull request CI. Tests must assert behaviour, and a test written only to execute code is not acceptable.
 - **Engine round trips** for any new document field: save and load a project carrying it and compare.
 - **Screenshots for UI changes.** Render the change and put before and after images in the pull request body. On `main` today:
   ```sh
@@ -494,7 +491,7 @@ These are proposals, not current rules. Follow sections 1 to 9 until an item mov
 - **Anchor check.** `scripts/queue.sh anchors <N>` greps every anchor in an enrichment at `main` and flags missing ones; run by the enricher before posting and by the worker before claiming.
 - **Text-rule linter before posting.** `scripts/post-check.sh <file>` fails on forbidden product names, em-dashes, AI attribution and a malformed Tags line; run it before every `gh issue comment`, `edit` or `create`.
 - **Packaged owner test with branch option.** `cargo xtask owner-test --branch <name>`, wrapping the screenshot capture, a side-by-side sheet against `main` and the one-line command to run the branch.
-- **Required check.** Mark the CI result job as a required check on `main` once the CI pipeline is merged.
+- **Required check.** Keep the CI result job as the required check on `main`.
 - **Versioned pipeline rules and agent definitions.** Partially adopted: AGENTS.md, CLAUDE.md, `.cursor/rules/`, and `docs/agents/` in the repository. Still to do: pre-post check scripts (`scripts/post-check.sh`, `scripts/queue.sh`).
 - **Budgets per agent and per stage.** Turn and cost limits on every headless worker, sized by the `size:` tag, and a cap per stage so research does not starve enrichment.
 - **Lessons loop.** Append each reviewer fail and each worker limitation to a lessons file per issue. When a review fails a branch for a reason that has failed another branch, open a `kind:chore` issue to encode the check in `cargo xtask`.

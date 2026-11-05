@@ -1,7 +1,7 @@
 # Testing standard
 
 How PCBCraft tests are written and reviewed. The mechanical parts are enforced by
-`cargo xtask test-standards` (job "Test standards", also on draft pull requests);
+`cargo xtask test-standards` (job "Test standards" in the nightly workflow);
 the rest is for authors and reviewers. Rules for documentation live in
 docs/doc-standard.md; coverage numbers in docs/ci.md. This page does not repeat them.
 
@@ -24,14 +24,14 @@ shrinking. A property test names its seed in the test, so a failure reproduces.
 
 - One story per user goal, named `a_newcomer_<does something>`, written so a novice can read it.
 - Drive the real UI by what is visible: labels, tooltips, painted text. Never set internal state to reach a screen.
-- Every visible control has a tooltip and a story; `cargo xtask e2e` fails on the ones that do not (docs/ci.md, e2e-exemptions.txt).
+- Every visible control has an id, a tooltip and a story; `cargo xtask e2e` fails on the ones that do not (docs/ci.md, e2e-exemptions.txt). Pull request CI runs it in the E2E job.
 - Every acceptance line of an issue maps to a story, and the issue names it.
 - Stories do not depend on timing. Wait for a condition ("the label is painted", "the dialog is closed") with a bounded number of frames, never a fixed count that merely seems enough, and never a sleep.
 - Screenshots: `cargo xtask screenshots` captures the views listed in `VIEWS` in xtask/src/main.rs; add a row for a new tab or dialog. A story that needs a picture uses the capture helpers in crates/ui-egui/src/e2e/support.rs.
 
 ## Unit tests
 
-- Every test asserts behaviour: `assert!`, `assert_eq!`, an `expect` or `unwrap` of a `Result`, `?` on a `Result` that can fail, or `#[should_panic]`. The check fails a `#[test]` that has none. An assertion hidden in a helper still needs one of these in the test, or an `?` on the helper's `Result`.
+- Every test asserts behaviour: `assert!`, `assert_eq!`, `?` on a `Result` that can fail, or `#[should_panic]`. A test returns `Result<(), String>`. It does not call `unwrap` or `expect`. The workspace denies both lints for tests too. The check fails a `#[test]` that has none. An assertion hidden in a helper still needs one of these in the test, or an `?` on the helper's `Result`.
 - No wall-clock time (`Instant::now`, `SystemTime::now`), no sleeps, no network and no reads or writes in the person's real folders (`dirs::`, `config_dir()`, `HOME`, `APPDATA`). Pass in a clock, answer HTTP from recordings (crates/ui-egui/src/e2e/support.rs `RecordedLibrary`), and give the code a temp directory.
 - `#[ignore = "<reason>, #<issue>"]` always names a reason and an issue number.
 - Random data uses a fixed seed. `thread_rng`, `from_entropy` and `rand::random` are not allowed in tests.
