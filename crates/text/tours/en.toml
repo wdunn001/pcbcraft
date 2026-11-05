@@ -1,2 +1,72 @@
-# In-app tour structure for English. Title, body and list labels are catalog keys
-# in strings/en.txt (each needs a matching .tip line). Real tours land in #775.
+# In-app tour structure for English. Title, body and list labels are catalog
+# keys in strings/en.txt (each needs a matching .tip line).
+
+[[tour]]
+id = "window"
+version = 1
+workspace = "files"
+trigger = "first_launch"
+
+[[tour.steps]]
+id = "tabs"
+target = "shell.tab.files"
+title = "tour.window.tabs.title"
+body = "tour.window.tabs.body"
+placement = "bottom"
+
+[[tour.steps]]
+id = "toolbar"
+target = "shell.menu.help"
+title = "tour.window.toolbar.title"
+body = "tour.window.toolbar.body"
+placement = "bottom"
+
+[[tour.steps]]
+id = "canvas"
+target = "canvas.layout"
+title = "tour.window.canvas.title"
+body = "tour.window.canvas.body"
+placement = "top"
+
+[[tour.steps]]
+id = "panel"
+target = "region.layout.parts"
+title = "tour.window.panel.title"
+body = "tour.window.panel.body"
+placement = "left"
+
+[[tour]]
+id = "place_part"
+version = 1
+workspace = "schematic"
+trigger = "manual"
+
+[[tour.steps]]
+id = "select_tool"
+target = "schematic.tool.add"
+title = "tour.place_part.select_tool.title"
+body = "tour.place_part.select_tool.body"
+placement = "bottom"
+
+[[tour.steps]]
+id = "pick_part"
+target = "region.schematic.library"
+title = "tour.place_part.pick_part.title"
+body = "tour.place_part.pick_part.body"
+placement = "left"
+wait_for = "tab:schematic"
+
+[[tour.steps]]
+id = "place"
+target = "canvas.schematic"
+title = "tour.place_part.place.title"
+body = "tour.place_part.place.body"
+placement = "top"
+wait_for = "selection:part"
+
+[[tour.steps]]
+id = "commit"
+target = "canvas.schematic"
+title = "tour.place_part.commit.title"
+body = "tour.place_part.commit.body"
+placement = "top"

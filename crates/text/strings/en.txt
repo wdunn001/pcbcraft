@@ -4312,3 +4312,43 @@ export.package.name.tip = Name this copy of the package.
 export.package.duplicate = Duplicate package
 export.package.duplicate.tip = Save a copy of this package in this project.
 export.package.duplicated = Saved a copy in this project.
+
+# Window tour
+tour.window.list = Window tour
+tour.window.list.tip = Learn the main window: tabs, toolbar, canvas and panels.
+tour.window.tabs.title = Tabs switch between work areas
+tour.window.tabs.title.tip = The five tabs: Files, Schematic, PCB, 3D and Plot Files.
+tour.window.tabs.body = Use the tabs at the top to move between files, schematic, PCB layout, 3D view and plot outputs.
+tour.window.tabs.body.tip = Each tab has its own toolbar and tools.
+tour.window.toolbar.title = The toolbar has the tools
+tour.window.toolbar.title.tip = Tool buttons change when you switch tabs.
+tour.window.toolbar.body = The buttons at the top are the tools for this tab. Click one to pick it.
+tour.window.toolbar.body.tip = Hover a tool for its tooltip and shortcut.
+tour.window.canvas.title = The canvas is where you design
+tour.window.canvas.title.tip = Draw, place and edit on the canvas.
+tour.window.canvas.body = The large area in the middle is the canvas. Design lives here.
+tour.window.canvas.body.tip = Scroll to pan, shift-scroll to zoom, right-click for context menus.
+tour.window.panel.title = Panels help you manage your design
+tour.window.panel.title.tip = The bottom sheet has parts, layers, findings and more.
+tour.window.panel.body = Click Parts at the bottom to open the parts panel, or Layers to manage layers.
+tour.window.panel.body.tip = Panels appear as tabs at the bottom of the window.
+
+# Place a part tour
+tour.place_part.list = Place a part
+tour.place_part.list.tip = Learn to place your first component on the board.
+tour.place_part.select_tool.title = Pick the place part tool
+tour.place_part.select_tool.title.tip = The tool that puts components on the board.
+tour.place_part.select_tool.body = Click the place part button on the toolbar to start.
+tour.place_part.select_tool.body.tip = The cursor will change to show the tool is active.
+tour.place_part.pick_part.title = Choose a component
+tour.place_part.pick_part.title.tip = Select which component to place.
+tour.place_part.pick_part.body = Open the library panel, search for a part, and click it to load.
+tour.place_part.pick_part.body.tip = Parts from the open library appear automatically.
+tour.place_part.place.title = Put the part on the board
+tour.place_part.place.title.tip = Click to position the component.
+tour.place_part.place.body = Move the cursor to where you want the part and click once.
+tour.place_part.place.body.tip = The part follows your cursor until you click.
+tour.place_part.commit.title = Save your work
+tour.place_part.commit.title.tip = Write the changes to the project file.
+tour.place_part.commit.body = Press control-s to save. The part is now part of your design.
+tour.place_part.commit.body.tip = Save often to keep your work safe.
