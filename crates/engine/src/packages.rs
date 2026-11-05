@@ -225,7 +225,12 @@ pub(super) fn run(
                 }
             };
             let out = build_package(p, &def, a.variant.as_deref()).map_err(Error::Invalid)?;
+            for f in &out.files {
+                pcbcraft_io::validate_fabrication_package_file("", &f.0, &f.1)
+                    .map_err(Error::Invalid)?;
+            }
             let hash = write_output(&out, Path::new(&a.directory))?;
+
             if a.id.is_some() {
                 p.package_runs.retain(|r| r.package != def.id);
                 p.package_runs.push(PackageRun {

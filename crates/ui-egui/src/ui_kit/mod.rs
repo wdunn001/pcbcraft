@@ -28,6 +28,8 @@
 //! - crates/ui-egui/src/ui_kit/panel_header.rs
 //! - crates/ui-egui/src/ui_kit/segmented.rs
 //! - crates/ui-egui/src/ui_kit/status_item.rs
+//! - crates/ui-egui/src/ui_kit/swatch.rs
+//! - crates/ui-egui/src/ui_kit/table.rs
 //! - crates/ui-egui/src/ui_kit/tab_bar.rs
 //!
 //! # Do not
@@ -54,6 +56,8 @@ pub mod section;
 pub mod segmented;
 pub mod select;
 pub mod status_item;
+pub mod swatch;
 pub mod tab_bar;
+pub mod table;
 #[cfg(test)]
 pub(crate) mod testing;

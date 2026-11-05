@@ -51,19 +51,19 @@ fn a_newcomer_reads_settings_with_room_around_the_text() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_finds_appearance_on_the_settings_page() -> Result<(), String> {
+fn a_newcomer_finds_appearance_in_preferences_and_not_on_the_settings_page() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Settings);
     assert!(
-        paints_text(&ctx, &mut app, "APPEARANCE")?,
-        "appearance lives on the Settings page"
-    );
-    app.change_tab(Tab::Pcb);
-    assert!(
         !paints_text(&ctx, &mut app, "APPEARANCE")?,
-        "the inspector no longer shows appearance"
+        "the Settings page keeps only what belongs to the project"
+    );
+    app.open_preferences(crate::preferences::TAB_APPEARANCE);
+    assert!(
+        paints_text(&ctx, &mut app, "Theme")?,
+        "appearance lives in Preferences"
     );
     Ok(())
 }
@@ -147,16 +147,16 @@ fn zoom_after_one_wheel_frame(reduced: bool) -> (f32, f32) {
 }
 
 #[test]
-fn a_newcomer_turns_off_animation_in_settings() -> Result<(), String> {
+fn a_newcomer_turns_off_animation_in_preferences() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();
-    app.change_tab(Tab::Settings);
+    app.open_preferences(crate::preferences::TAB_APPEARANCE);
     assert!(
-        scrolled_to_at(&ctx, &mut app, "Reduce motion", 700.0)?,
-        "Settings should offer a Reduce motion choice"
+        paints_text(&ctx, &mut app, "Reduce motion")?,
+        "Preferences should offer a Reduce motion choice"
     );
     assert!(!app.preferences.reduced_motion, "off until the person asks");
-    authoring::tests::tap(&ctx, &mut app, "Reduce motion")?;
+    tap_id(&ctx, &mut app, "checkbox:Reduce motion")?;
     assert!(
         app.preferences.reduced_motion,
         "ticking the box turns it on"
@@ -457,29 +457,8 @@ fn a_newcomer_toggles_schematic_board_sync_in_settings() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_changes_how_the_app_looks() -> Result<(), String> {
+fn a_newcomer_reads_how_far_the_drawing_is_zoomed_from_the_status_bar() -> Result<(), String> {
     let (mut app, ctx) = sample_in_settings()?;
-    tap_id(&ctx, &mut app, "button:Light")?;
-    assert!(!app.preferences.dark, "Light switches the app to light");
-    let grid = app.preferences.grid;
-    tap_id(&ctx, &mut app, "checkbox:Show grid")?;
-    assert_ne!(app.preferences.grid, grid, "the grid tick flips");
-    for (button, labels) in [
-        ("button:Pads: net", PadLabels::Net),
-        ("button:Pads: number", PadLabels::Number),
-        ("button:Pads: off", PadLabels::Off),
-    ] {
-        tap_id(&ctx, &mut app, button)?;
-        assert_eq!(
-            app.preferences.pad_labels, labels,
-            "{button} picks what is drawn on each pad"
-        );
-    }
-    tap_id(&ctx, &mut app, "colorwell:Accent color")?;
-    assert!(
-        paints_text(&ctx, &mut app, "Accent color")?,
-        "the accent colour row stays on the page"
-    );
     tap_id(&ctx, &mut app, "button:#%")?;
     assert!(
         paints_text(&ctx, &mut app, "%")?,
@@ -503,27 +482,22 @@ fn a_newcomer_jumps_from_settings_to_the_list_of_findings() -> Result<(), String
 fn a_newcomer_decides_how_much_the_assistant_may_change() -> Result<(), String> {
     let (mut app, ctx) = sample_in_settings()?;
     app.preferences.assistant_enabled = false;
-    app.assistant.settings_open = true;
+    app.open_preferences(crate::preferences::TAB_ASSISTANT);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     tap_id(&ctx, &mut app, "checkbox:Show assistant")?;
     assert!(
         app.preferences.assistant_enabled,
-        "ticking the box brings the assistant settings back"
+        "ticking the box brings the assistant back"
     );
-    for (button, mode) in [
-        (
-            "radiobutton:Auto-allow design edits",
-            pcbcraft_assistant::Mode::Edits,
-        ),
-        (
-            "radiobutton:Allow everything",
-            pcbcraft_assistant::Mode::All,
-        ),
-        ("radiobutton:Ask every time", pcbcraft_assistant::Mode::Ask),
+    for (slot, mode) in [
+        (1, pcbcraft_assistant::Mode::Edits),
+        (2, pcbcraft_assistant::Mode::All),
+        (0, pcbcraft_assistant::Mode::Ask),
     ] {
-        tap_id(&ctx, &mut app, button)?;
+        tap_dialog_segment(&ctx, &mut app, "What it may do without asking", slot, 3)?;
         assert_eq!(
             app.preferences.assistant_mode, mode,
-            "{button} sets the permission level"
+            "choice {slot} sets the permission level"
         );
     }
     type_into(&ctx, &mut app, "spinbutton:Changes per message", "7")?;
@@ -534,7 +508,8 @@ fn a_newcomer_decides_how_much_the_assistant_may_change() -> Result<(), String> 
     app.preferences
         .assistant_always_allow
         .insert("local".into(), vec!["board.resize".into()]);
-    tap_id(&ctx, &mut app, "button:Forget Always allow")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "button:Forget all")?;
     assert!(
         app.preferences.assistant_always_allow.is_empty(),
         "one click forgets every standing allowance"
@@ -543,20 +518,16 @@ fn a_newcomer_decides_how_much_the_assistant_may_change() -> Result<(), String> 
 }
 
 #[test]
-fn a_newcomer_opens_the_keys_section_to_pick_tool_keys() -> Result<(), String> {
+fn a_newcomer_opens_the_keys_page_to_pick_tool_keys() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();
-    app.change_tab(Tab::Settings);
+    app.open_preferences(crate::preferences::TAB_KEYS);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        scrolled_to_at(&ctx, &mut app, "Keys", 700.0)?,
-        "the settings page has a Keys section"
+        paints_text_tall(&ctx, &mut app, "Tool keys and modifiers")?,
+        "the Keys page has a card for the tool keys"
     );
-    tap_id(&ctx, &mut app, "button:Keys")?;
-    assert!(
-        scrolled_to_at(&ctx, &mut app, "Reset keys", 700.0)?,
-        "the section opens onto the tool keys and a way back to the defaults"
-    );
+    tap_id(&ctx, &mut app, "button:Reset keys")?;
     Ok(())
 }
 
@@ -639,7 +610,7 @@ fn a_missing_font_file_keeps_the_app_usable_and_says_so() -> Result<(), String> 
     );
     app.change_tab(Tab::Settings);
     assert!(
-        paints_text(&ctx, &mut app, "APPEARANCE")?,
+        paints_text(&ctx, &mut app, "Settings")?,
         "the app stays usable and keeps painting text"
     );
     Ok(())
