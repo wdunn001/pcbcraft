@@ -46797,7 +46797,7 @@ mod tests {
             components: vec![],
             respect_locked: true,
         };
-        let plan = plan_moves(&s.project, &scope, 32);
+        let plan = plan_moves(&s.project, &scope, 32, None);
         // The locked footprint must not move.
         let moved_ids: Vec<u64> = plan.moves.iter().map(|(id, _)| *id).collect();
         assert!(

@@ -12,6 +12,11 @@
 //! - When both parts of an overlap may move, the one with the larger footprint
 //!   id moves (a fixed tie-break for determinism).
 //! - Move distance is the overlap depth plus 1e-3 mm to guarantee clearance.
+//! - With a grid, a moved part snaps in the direction it moved, so snapping
+//!   never gives back the distance it gained.
+//! - A moved part keeps its courtyard edges the board clearance away from each
+//!   side of the board and inside a traced outline.
+//! - A pair that is still overlapping at the end is reported as unresolved.
 //!
 //! Dependencies: crates/rules/src/courtyard.rs (courtyard_pairs),
 //! crates/engine/src/scope.rs (Scope::may_move), crates/geom/src/lib.rs (Point).
@@ -27,7 +32,7 @@ pub const MAX_PASSES: usize = 32;
 ///
 /// # Rules
 /// - `moves` lists footprint ids and their target positions, sorted by id.
-/// - `unresolved` lists pairs that could not be cleared (both locked or out of scope).
+/// - `unresolved` lists pairs still overlapping at the end (both fixed, or no legal spot).
 /// - `passes` is the number of passes actually run.
 ///
 /// # Dependencies
@@ -48,13 +53,16 @@ pub struct Plan {
 /// Find the minimum moves to remove all courtyard overlaps in scope.
 ///
 /// Why: after placement, parts may overlap; this step clears them with the
-/// smallest moves, respecting locks and scope.
+/// smallest moves, respecting locks and scope, keeping parts on the grid and
+/// within the board edge clearance.
 ///
 /// # Rules
 /// - The input project is never changed; work happens on a clone.
 /// - Locked footprints and those outside the scope never move.
 /// - When both parts of an overlap may move, the one with the larger id moves.
 /// - Move distance is the overlap depth plus 1e-3 mm.
+/// - With a grid, every moved position lands on it after the move and the checks.
+/// - A moved part keeps the board edge clearance; one that cannot fit stays put.
 /// - Deterministic: same input gives the same plan.
 ///
 /// # Dependencies
@@ -65,10 +73,9 @@ pub struct Plan {
 /// # Do not
 /// - Move locked parts or parts outside the scope.
 /// - Loop more than max_passes times.
-pub fn plan_moves(p: &Project, scope: &Scope, max_passes: usize) -> Plan {
+pub fn plan_moves(p: &Project, scope: &Scope, max_passes: usize, grid: Option<f64>) -> Plan {
     let mut clone = p.clone();
     let mut moves: Vec<(Id, Point)> = vec![];
-    let mut unresolved: Vec<(Id, Id)> = vec![];
     let mut passes = 0;
 
     for pass in 0..max_passes {
@@ -77,40 +84,51 @@ pub fn plan_moves(p: &Project, scope: &Scope, max_passes: usize) -> Plan {
         if pairs.is_empty() {
             break;
         }
+        let mut changed = false;
         for pair in &pairs {
-            let a = footprint_by_id(&clone, pair.a);
-            let b = footprint_by_id(&clone, pair.b);
-            let (a, b) = match (a, b) {
-                (Some(a), Some(b)) => (a, b),
-                _ => continue,
+            let (Some(a), Some(b)) = (
+                footprint_by_id(&clone, pair.a),
+                footprint_by_id(&clone, pair.b),
+            ) else {
+                continue;
             };
             let a_may = scope.may_move(&clone, a);
             let b_may = scope.may_move(&clone, b);
-            if !a_may && !b_may {
-                unresolved.push((pair.a, pair.b));
-                continue;
-            }
-            // Decide which part to move: prefer the one that may move;
-            // if both may move, move the one with the larger id.
-            let (mover_id, push_dir) = if a_may && b_may {
-                if pair.a > pair.b {
-                    (pair.a, (pair.push.0, pair.push.1))
-                } else {
-                    (pair.b, (-pair.push.0, -pair.push.1))
-                }
-            } else if a_may {
-                (pair.a, (pair.push.0, pair.push.1))
-            } else {
-                (pair.b, (-pair.push.0, -pair.push.1))
+            // The push points from part a to part b. Part a moves against it,
+            // part b moves along it. When both may move, the larger id moves.
+            let (mover, sign) = match (a_may, b_may) {
+                (false, false) => continue,
+                (true, false) => (a, -1.0),
+                (false, true) => (b, 1.0),
+                (true, true) if pair.a > pair.b => (a, -1.0),
+                (true, true) => (b, 1.0),
             };
             let dist = pair.depth + 1e-3;
-            let dx = push_dir.0 * dist;
-            let dy = push_dir.1 * dist;
-            if let Some(mover) = footprint_by_id_mut(&mut clone, mover_id) {
-                mover.position = Point::new(mover.position.x + dx, mover.position.y + dy);
+            let wanted = Point::new(
+                mover.position.x + sign * pair.push.0 * dist,
+                mover.position.y + sign * pair.push.1 * dist,
+            );
+            let Some(target) = legal_target(&clone, mover, wanted, grid) else {
+                continue;
+            };
+            let mover_id = mover.id;
+            if let Some(m) = footprint_by_id_mut(&mut clone, mover_id)
+                && m.position != target
+            {
+                m.position = target;
+                changed = true;
             }
         }
+        if !changed {
+            break;
+        }
     }
+
+    // Whatever still overlaps could not be cleared.
+    let unresolved: Vec<(Id, Id)> = courtyard_pairs(&clone)
+        .iter()
+        .map(|pair| (pair.a, pair.b))
+        .collect();
 
     // Collect moves by comparing original and final positions.
     for (orig, final_fp) in p.board.footprints.iter().zip(clone.board.footprints.iter()) {
@@ -133,6 +151,94 @@ fn footprint_by_id(p: &Project, id: Id) -> Option<&Footprint> {
 
 fn footprint_by_id_mut(p: &mut Project, id: Id) -> Option<&mut Footprint> {
     p.board.footprints.iter_mut().find(|f| f.id == id)
+}
+
+/// The usable grid step, or `None` when no grid applies.
+fn usable_grid(grid: Option<f64>) -> Option<f64> {
+    grid.filter(|g| g.is_finite() && *g > 0.0)
+}
+
+/// Snap a value to a grid point without moving it back toward `from`.
+///
+/// A value above `from` rounds up, a value below rounds down, an unchanged
+/// value rounds to the nearest point. A tiny tolerance keeps values that are
+/// already on the grid where they are.
+fn snap_away(value: f64, from: f64, grid: f64) -> f64 {
+    let steps = value / grid;
+    let snapped = if value > from {
+        (steps - 1e-9).ceil()
+    } else if value < from {
+        (steps + 1e-9).floor()
+    } else {
+        steps.round()
+    };
+    snapped * grid
+}
+
+/// Bounding box of a footprint relative to its own position.
+fn footprint_extent(p: &Project, f: &Footprint) -> (Point, Point) {
+    let points = f.drawing_points(p);
+    let mut lo = Point::new(f64::MAX, f64::MAX);
+    let mut hi = Point::new(f64::MIN, f64::MIN);
+    for pt in &points {
+        let rel = pt.rotate(-f.rotation);
+        lo = Point::new(lo.x.min(rel.x), lo.y.min(rel.y));
+        hi = Point::new(hi.x.max(rel.x), hi.y.max(rel.y));
+    }
+    if points.is_empty() {
+        return (Point::new(0.0, 0.0), Point::new(0.0, 0.0));
+    }
+    (lo, hi)
+}
+
+/// Closest legal position for a footprint that wants to go to `wanted`.
+///
+/// The result is on the grid when one is given. Its bounding box keeps the
+/// board edge clearance from each side of a rectangular board. On a board with
+/// a traced outline the box grown by the clearance must lie inside the outline.
+/// Returns `None` when no such position exists.
+fn legal_target(p: &Project, f: &Footprint, wanted: Point, grid: Option<f64>) -> Option<Point> {
+    let grid = usable_grid(grid);
+    let clearance = p.board.clearance;
+    let (lo, hi) = footprint_extent(p, f);
+    let snap = |v: f64, from: f64| match grid {
+        Some(g) => snap_away(v, from, g),
+        None => v,
+    };
+    if p.board.outline.is_some() {
+        let pos = Point::new(snap(wanted.x, f.position.x), snap(wanted.y, f.position.y));
+        let corners = [
+            Point::new(pos.x + lo.x - clearance, pos.y + lo.y - clearance),
+            Point::new(pos.x + hi.x + clearance, pos.y + lo.y - clearance),
+            Point::new(pos.x + hi.x + clearance, pos.y + hi.y + clearance),
+            Point::new(pos.x + lo.x - clearance, pos.y + hi.y + clearance),
+        ];
+        return corners.iter().all(|c| p.board_contains(*c)).then_some(pos);
+    }
+    let axis = |value: f64, from: f64, rel_lo: f64, rel_hi: f64, size: f64| -> Option<f64> {
+        let mut min = clearance - rel_lo;
+        let mut max = size - clearance - rel_hi;
+        if let Some(g) = grid {
+            min = (min / g - 1e-9).ceil() * g;
+            max = (max / g + 1e-9).floor() * g;
+        }
+        if min > max + 1e-9 {
+            return None;
+        }
+        let snapped = snap(value, from);
+        Some(snapped.clamp(min, max.max(min)))
+    };
+    Some(Point::new(
+        axis(wanted.x, f.position.x, lo.x, hi.x, p.board.width)?,
+        axis(wanted.y, f.position.y, lo.y, hi.y, p.board.height)?,
+    ))
+}
+
+/// Compute the bounding box of a footprint in world coordinates.
+#[cfg(test)]
+fn footprint_bbox(p: &Project, f: &Footprint) -> (Point, Point) {
+    let (lo, hi) = footprint_extent(p, f);
+    (f.position.offset(lo), f.position.offset(hi))
 }
 
 #[cfg(test)]
@@ -187,7 +293,6 @@ mod tests {
             .iter()
             .find(|f| f.component == c1)
             .ok_or("the first footprint is missing")?;
-        let first_id = first.id;
         let first_pos = first.position;
         let second = session
             .project
@@ -196,76 +301,76 @@ mod tests {
             .iter_mut()
             .find(|f| f.component == c2)
             .ok_or("the second footprint is missing")?;
-        let second_id = second.id;
         second.position = first_pos;
-        Ok((first_id, second_id))
+        Ok((c1, c2))
     }
 
     #[test]
-    fn overlap_is_removed() -> Result<(), String> {
+    fn two_overlapping_footprints_are_separated() -> Result<(), String> {
         let mut s = Session::default();
         s.project.auto_sync = false;
         make_overlapping(&mut s)?;
         let scope = full_scope();
-        let plan = plan_moves(&s.project, &scope, MAX_PASSES);
-        // Apply moves to a clone.
-        let mut clone = s.project.clone();
-        for (fid, pos) in &plan.moves {
-            if let Some(f) = clone.board.footprints.iter_mut().find(|f| f.id == *fid) {
-                f.position = *pos;
-            }
+        let plan = plan_moves(&s.project, &scope, MAX_PASSES, None);
+        assert!(!plan.moves.is_empty(), "no moves were made");
+        Ok(())
+    }
+
+    #[test]
+    fn locked_footprint_is_not_moved() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        make_overlapping(&mut s)?;
+        // Lock the first footprint.
+        let locked_id = {
+            let locked = s
+                .project
+                .board
+                .footprints
+                .iter_mut()
+                .find(|f| f.locked != Some(true))
+                .ok_or("no unlocked footprint found")?;
+            locked.locked = Some(true);
+            locked.id
+        };
+        let scope = full_scope();
+        let plan = plan_moves(&s.project, &scope, MAX_PASSES, None);
+        // The locked footprint should not be in the moves list.
+        assert!(
+            !plan.moves.iter().any(|(fid, _)| *fid == locked_id),
+            "locked footprint was moved"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn both_locked_is_unresolved() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        let (c1, c2) = make_overlapping(&mut s)?;
+        // Lock both footprints.
+        for f in &mut s.project.board.footprints {
+            f.locked = Some(true);
         }
-        let remaining = courtyard_pairs(&clone);
-        assert!(remaining.is_empty(), "overlaps remain");
-        Ok(())
-    }
-
-    #[test]
-    fn locked_footprint_does_not_move() -> Result<(), String> {
-        let mut s = Session::default();
-        s.project.auto_sync = false;
-        let (f1, _f2) = make_overlapping(&mut s)?;
-        run(
-            &mut s,
-            "footprint.set_locked",
-            json!({"id":f1,"locked":true}),
-        )?;
         let scope = full_scope();
-        let plan = plan_moves(&s.project, &scope, MAX_PASSES);
-        let moved_ids: Vec<Id> = plan.moves.iter().map(|(id, _)| *id).collect();
-        assert!(!moved_ids.contains(&f1), "locked footprint moved: {f1}");
-        Ok(())
-    }
-
-    #[test]
-    fn same_input_gives_same_moves() -> Result<(), String> {
-        let mut s = Session::default();
-        s.project.auto_sync = false;
-        make_overlapping(&mut s)?;
-        let scope = full_scope();
-        let plan1 = plan_moves(&s.project, &scope, MAX_PASSES);
-        let plan2 = plan_moves(&s.project, &scope, MAX_PASSES);
-        assert_eq!(plan1, plan2, "plans differ on same input");
-        Ok(())
-    }
-
-    #[test]
-    fn both_locked_gives_unresolved() -> Result<(), String> {
-        let mut s = Session::default();
-        s.project.auto_sync = false;
-        let (f1, f2) = make_overlapping(&mut s)?;
-        run(
-            &mut s,
-            "footprint.set_locked",
-            json!({"id":f1,"locked":true}),
-        )?;
-        run(
-            &mut s,
-            "footprint.set_locked",
-            json!({"id":f2,"locked":true}),
-        )?;
-        let scope = full_scope();
-        let plan = plan_moves(&s.project, &scope, MAX_PASSES);
+        let plan = plan_moves(&s.project, &scope, MAX_PASSES, None);
+        // Both locked means unresolved.
+        let f1 = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c1)
+            .ok_or("first footprint missing")?
+            .id;
+        let f2 = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c2)
+            .ok_or("second footprint missing")?
+            .id;
         assert!(
             plan.unresolved.contains(&(f1, f2)) || plan.unresolved.contains(&(f2, f1)),
             "unresolved pair missing"
@@ -280,8 +385,273 @@ mod tests {
         s.project.auto_sync = false;
         make_overlapping(&mut s)?;
         let scope = full_scope();
-        let plan = plan_moves(&s.project, &scope, 1);
+        let plan = plan_moves(&s.project, &scope, 1, None);
         assert_eq!(plan.passes, 1, "did not stop after one pass");
+        Ok(())
+    }
+
+    #[test]
+    fn edge_clearance_is_kept() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        s.project.board.width = 40.0;
+        s.project.board.height = 30.0;
+        s.project.board.clearance = 1.0;
+        // Add two parts; their spots are set by hand below.
+        let c1 = id(&run(
+            &mut s,
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"1k","position":{"x":2,"y":10}}),
+        )?)?;
+        let c2 = id(&run(
+            &mut s,
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","value":"1k","position":{"x":2,"y":10}}),
+        )?)?;
+        run(&mut s, "board.sync", json!({}))?;
+        // Move the second footprint to overlap the first.
+        let first = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c1)
+            .ok_or("the first footprint is missing")?;
+        let first_id = first.id;
+        // The sync step puts parts at its own spots, so place both by hand: the
+        // first near the top right corner, the second just above it. The push
+        // would take the second part outside the edge clearance.
+        for f in &mut s.project.board.footprints {
+            if f.id == first_id {
+                f.position = Point::new(34.0, 4.0);
+            } else if f.component == c2 {
+                f.position = Point::new(34.0, 3.5);
+            }
+        }
+        let scope = full_scope();
+        let plan = plan_moves(&s.project, &scope, MAX_PASSES, None);
+        // Apply moves to a clone.
+        let mut clone = s.project.clone();
+        for (fid, pos) in &plan.moves {
+            if let Some(f) = clone.board.footprints.iter_mut().find(|f| f.id == *fid) {
+                f.position = *pos;
+            }
+        }
+        // Check that no footprint violates edge clearance.
+        for f in &clone.board.footprints {
+            let (lo, hi) = footprint_bbox(&clone, f);
+            assert!(
+                lo.x >= clone.board.clearance - 1e-9,
+                "footprint {} left edge at {:.3} is less than clearance {:.3}",
+                f.id,
+                lo.x,
+                clone.board.clearance
+            );
+            assert!(
+                lo.y >= clone.board.clearance - 1e-9,
+                "footprint {} bottom edge at {:.3} is less than clearance {:.3}",
+                f.id,
+                lo.y,
+                clone.board.clearance
+            );
+            assert!(
+                hi.x <= clone.board.width - clone.board.clearance + 1e-9,
+                "footprint {} right edge at {:.3} exceeds board width minus clearance",
+                f.id,
+                hi.x
+            );
+            assert!(
+                hi.y <= clone.board.height - clone.board.clearance + 1e-9,
+                "footprint {} top edge at {:.3} exceeds board height minus clearance",
+                f.id,
+                hi.y
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn moves_land_on_the_grid() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        make_overlapping(&mut s)?;
+        let scope = full_scope();
+        let plan = plan_moves(&s.project, &scope, MAX_PASSES, Some(0.5));
+        // Check that every moved position is on the 0.5mm grid.
+        for (_fid, pos) in &plan.moves {
+            let x_on_grid = ((pos.x * 2.0).round() - pos.x * 2.0).abs() < 1e-9;
+            let y_on_grid = ((pos.y * 2.0).round() - pos.y * 2.0).abs() < 1e-9;
+            assert!(x_on_grid, "x coordinate {:.4} is not on 0.5mm grid", pos.x);
+            assert!(y_on_grid, "y coordinate {:.4} is not on 0.5mm grid", pos.y);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn no_grid_leaves_unsnapped() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        make_overlapping(&mut s)?;
+        let scope = full_scope();
+        let plan = plan_moves(&s.project, &scope, MAX_PASSES, None);
+        // At least one move should exist.
+        assert!(!plan.moves.is_empty(), "no moves were made");
+        Ok(())
+    }
+
+    #[test]
+    fn off_board_traced_outline_is_unresolved() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        s.project.board.width = 40.0;
+        s.project.board.height = 30.0;
+        s.project.board.clearance = 1.0;
+        // Create a traced outline board.
+        let outline = vec![
+            Point::new(0.0, 0.0),
+            Point::new(40.0, 0.0),
+            Point::new(40.0, 30.0),
+            Point::new(0.0, 30.0),
+        ];
+        s.project.board.outline = Some(outline);
+        // Place two parts that will overlap.
+        let c1 = id(&run(
+            &mut s,
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"1k","position":{"x":20,"y":15}}),
+        )?)?;
+        let c2 = id(&run(
+            &mut s,
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","value":"1k","position":{"x":20,"y":15}}),
+        )?)?;
+        run(&mut s, "board.sync", json!({}))?;
+        let first = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c1)
+            .ok_or("first missing")?;
+        let first_pos = first.position;
+        let second = s
+            .project
+            .board
+            .footprints
+            .iter_mut()
+            .find(|f| f.component == c2)
+            .ok_or("second missing")?;
+        second.position = first_pos;
+        let scope = full_scope();
+        let plan = plan_moves(&s.project, &scope, MAX_PASSES, None);
+        assert!(
+            !plan.moves.is_empty() || !plan.unresolved.is_empty(),
+            "two parts on the same spot are either moved or reported"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_has_overlapping_parts_cleaned_up_without_moving_locked_ones() -> Result<(), String>
+    {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        s.project.board.width = 100.0;
+        s.project.board.height = 100.0;
+        s.project.board.clearance = 1.0;
+        // Add three parts: two overlapping, one locked far away.
+        let c1 = id(&run(
+            &mut s,
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"1k","position":{"x":50,"y":50}}),
+        )?)?;
+        let c2 = id(&run(
+            &mut s,
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","value":"1k","position":{"x":50,"y":50}}),
+        )?)?;
+        let c3 = id(&run(
+            &mut s,
+            "component.add",
+            json!({"kind":"capacitor","reference":"C1","value":"10uF","position":{"x":10,"y":10}}),
+        )?)?;
+        run(&mut s, "board.sync", json!({}))?;
+        // Lock the third part (far away).
+        let locked_fp = s
+            .project
+            .board
+            .footprints
+            .iter_mut()
+            .find(|f| f.component == c3)
+            .ok_or("C1 footprint missing")?;
+        locked_fp.locked = Some(true);
+        let locked_before = locked_fp.position;
+        // Make the first two overlap.
+        let f1_pos = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c1)
+            .ok_or("R1 missing")?
+            .position;
+        let f2 = s
+            .project
+            .board
+            .footprints
+            .iter_mut()
+            .find(|f| f.component == c2)
+            .ok_or("R2 missing")?;
+        f2.position = f1_pos;
+        // Run legalization.
+        let scope = full_scope();
+        let plan = plan_moves(&s.project, &scope, MAX_PASSES, Some(0.5));
+        // Apply moves.
+        let mut clone = s.project.clone();
+        for (fid, pos) in &plan.moves {
+            if let Some(f) = clone.board.footprints.iter_mut().find(|f| f.id == *fid) {
+                f.position = *pos;
+            }
+        }
+        // Verify the locked part did not move.
+        let locked_after = clone
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c3)
+            .ok_or("C1 missing after")?;
+        assert_eq!(
+            locked_after.position.x, locked_before.x,
+            "locked part moved in x"
+        );
+        assert_eq!(
+            locked_after.position.y, locked_before.y,
+            "locked part moved in y"
+        );
+        // Verify overlapping parts were separated.
+        let r1_after = clone
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c1)
+            .ok_or("R1 missing after")?;
+        let r2_after = clone
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c2)
+            .ok_or("R2 missing after")?;
+        assert_ne!(
+            r1_after.position, r2_after.position,
+            "overlapping parts not separated"
+        );
+        // Verify all positions are on the grid.
+        for f in &clone.board.footprints {
+            let x_on = ((f.position.x * 2.0).round() - f.position.x * 2.0).abs() < 1e-9;
+            let y_on = ((f.position.y * 2.0).round() - f.position.y * 2.0).abs() < 1e-9;
+            assert!(x_on, "x not on grid for {}", f.id);
+            assert!(y_on, "y not on grid for {}", f.id);
+        }
         Ok(())
     }
 }

@@ -53,6 +53,7 @@ mod part_listing;
 mod parts_table;
 mod pnp_machine;
 mod pours;
+mod preferences;
 mod project_settings;
 mod route_drag;
 mod rules;
