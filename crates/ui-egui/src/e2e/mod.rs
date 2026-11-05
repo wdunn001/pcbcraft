@@ -65,6 +65,7 @@ mod schematic_page_scope;
 mod schematic_pages;
 mod selection;
 mod settings;
+mod settings_freeze;
 mod sheet_rows;
 mod shell;
 mod showcase;

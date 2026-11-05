@@ -2834,8 +2834,13 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
     }
     if let Some(min) = rules.min_space {
         let items = copper(project);
+        // The grid lists the pairs that can be closer than `min`, in the order a full scan
+        // visits them, so a board with thousands of items is not compared pair by pair.
+        let grid = Grid::new(&items, min.max(0.0));
         for (i, a) in items.iter().enumerate() {
-            for b in items.iter().skip(i + 1) {
+            let candidates = grid.near.get(i).map(Vec::as_slice).unwrap_or_default();
+            for &j in candidates.iter().filter(|other| **other > i) {
+                let Some(b) = items.get(j) else { continue };
                 if a.net == b.net || a.layer != b.layer {
                     continue;
                 }
@@ -6120,6 +6125,99 @@ mod tests {
             "an id that does not participate returns nothing"
         );
         Ok(())
+    }
+
+    #[test]
+    fn min_space_by_grid_equals_the_pair_by_pair_scan() {
+        let mut p = fixture();
+        p.board.rules = Some(FabRules {
+            min_space: Some(0.6),
+            ..FabRules::default()
+        });
+        let mut seed: u64 = 7;
+        let mut next = move |range: f64| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((seed >> 33) as f64 / (1u64 << 31) as f64) * range
+        };
+        for id in 100..700u64 {
+            let start = Point::new(next(120.0), next(80.0));
+            let end = Point::new(start.x + next(6.0), start.y + next(6.0));
+            p.board.tracks.push(pcbcraft_doc::Track {
+                id,
+                net: 1 + id % 5,
+                start,
+                end,
+                width: 0.2,
+                layer: if id % 3 == 0 {
+                    Layer::Back
+                } else {
+                    Layer::Front
+                },
+                arc: None,
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
+        }
+        let items = copper(&p);
+        let mut scan = vec![];
+        for (i, a) in items.iter().enumerate() {
+            for b in items.iter().skip(i + 1) {
+                if a.net != b.net && a.layer == b.layer && gap(a, b) + 1e-6 < 0.6 {
+                    scan.push(vec![a.id, b.id]);
+                }
+            }
+        }
+        let found: Vec<Vec<Id>> = fab_findings(&p, &p.board)
+            .into_iter()
+            .filter(|f| f.code == "min_space")
+            .map(|f| f.objects)
+            .collect();
+        assert!(!scan.is_empty(), "the layout has pairs that are too close");
+        assert_eq!(found, scan, "same pairs in the same order");
+    }
+
+    #[test]
+    fn min_space_on_a_dense_board_does_not_compare_every_pair() {
+        let mut p = fixture();
+        p.board.rules = Some(FabRules {
+            min_space: Some(0.3),
+            ..FabRules::default()
+        });
+        for id in 0..3000u64 {
+            let x = (id % 75) as f64 * 5.0;
+            let y = (id / 75) as f64 * 5.0;
+            p.board.tracks.push(pcbcraft_doc::Track {
+                id: 100 + id,
+                net: 1 + id % 7,
+                start: Point::new(x, y),
+                end: Point::new(x + 3.0, y + 0.2 * (id % 3) as f64),
+                width: 0.2,
+                layer: Layer::Front,
+                arc: None,
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
+        }
+        let found = fab_findings(&p, &p.board)
+            .into_iter()
+            .filter(|f| f.code == "min_space")
+            .count();
+        let items = copper(&p);
+        let mut scan = 0;
+        for (i, a) in items.iter().enumerate() {
+            for b in items.iter().skip(i + 1) {
+                if a.net != b.net && a.layer == b.layer && gap(a, b) + 1e-6 < 0.3 {
+                    scan += 1;
+                }
+            }
+        }
+        assert_eq!(found, scan, "the same pairs are found");
+        let every_pair = items.len() * (items.len() - 1) / 2;
+        let asked = Grid::new(&items, 0.3).pair_count();
+        assert!(
+            asked * 20 < every_pair,
+            "the grid asks about {asked} of {every_pair} pairs"
+        );
     }
 }
 
