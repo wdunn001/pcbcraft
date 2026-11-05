@@ -1665,7 +1665,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn drop_in_tool_accepts_identical_parts() {
+    fn drop_in_tool_accepts_identical_parts() -> Result<(), String> {
         let part = json!({
             "footprint": "lib/resistor-0603",
             "package_key": "chip-0603",
@@ -1693,12 +1693,16 @@ mod tests {
             "identical parts should be drop-in: {:?}",
             result.err()
         );
-        let report = result.unwrap();
-        assert!(report["drop_in"].as_bool().unwrap(), "drop_in must be true");
+        let report = result?;
+        assert!(
+            report["drop_in"].as_bool().ok_or("drop_in is not a bool")?,
+            "drop_in must be true"
+        );
+        Ok(())
     }
 
     #[test]
-    fn drop_in_tool_reports_a_taller_part_as_not_drop_in() {
+    fn drop_in_tool_reports_a_taller_part_as_not_drop_in() -> Result<(), String> {
         let incumbent = json!({
             "footprint": "lib/resistor-0603",
             "package_key": "chip-0603",
@@ -1742,20 +1746,28 @@ mod tests {
             "should produce a report: {:?}",
             result.err()
         );
-        let report = result.unwrap();
+        let report = result?;
         assert!(
-            !report["drop_in"].as_bool().unwrap(),
+            !report["drop_in"].as_bool().ok_or("drop_in is not a bool")?,
             "taller candidate must fail"
         );
-        let findings = report["findings"].as_array().unwrap();
+        let findings = report["findings"]
+            .as_array()
+            .ok_or("findings is not an array")?;
         let height_finding = findings
             .iter()
-            .find(|f| f["code"].as_str().unwrap() == "height_mm");
+            .find(|f| f["code"].as_str() == Some("height_mm"));
         assert!(height_finding.is_some(), "must have a height_mm finding");
-        assert!(
-            !height_finding.unwrap()["pass"].as_bool().unwrap(),
-            "height must fail"
-        );
+        let pass = height_finding
+            .ok_or("height finding missing")?
+            .as_object()
+            .ok_or("finding is not an object")?
+            .get("pass")
+            .ok_or("pass missing")?
+            .as_bool()
+            .ok_or("pass is not a bool")?;
+        assert!(!pass, "height must fail");
+        Ok(())
     }
 
     #[test]
