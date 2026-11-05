@@ -77,6 +77,16 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             description: "Apply accepted and edited datasheet values to a library symbol, renaming pins and setting the ordering code property",
             input_schema: schema(apply_properties, &["part", "symbol"]),
         },
+        CommandSpec {
+            id: "datasheet.review_list",
+            description: "List all extracted datasheet values for a part with their review decisions and provenance",
+            input_schema: schema(
+                json!({
+                    "part": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_-]+$" }
+                }),
+                &["part"],
+            ),
+        },
     ]
 }
 
@@ -104,6 +114,9 @@ pub(super) fn run_design(
     }
     if command == "datasheet.apply_review" {
         return Some(apply_review_command(p, params));
+    }
+    if command == "datasheet.review_list" {
+        return Some(review_list(p, params));
     }
     None
 }
@@ -214,6 +227,161 @@ fn review_row(p: &mut Project, params: &Value) -> Result<Value, Error> {
 ///
 /// # Dependencies
 /// - crates/library/src/datasheet_extract/apply.rs
+fn review_list(p: &Project, params: &Value) -> Result<Value, Error> {
+    let a: ListParams = parse(params)?;
+    if !is_valid_part_name(&a.part) {
+        return Err(Error::Invalid(
+            "part name must be 1 to 64 bytes of [A-Za-z0-9_-]".into(),
+        ));
+    }
+    let bundle = load_bundle(p, &a.part)?;
+    let mut rows = Vec::new();
+    for (i, row) in bundle.pin_table.iter().enumerate() {
+        let number = if row.decision == ReviewDecision::Edited {
+            row.edited
+                .as_ref()
+                .map(|e| e.pin_number.clone())
+                .unwrap_or(row.value.pin_number.clone())
+        } else {
+            row.value.pin_number.clone()
+        };
+        let name = if row.decision == ReviewDecision::Edited {
+            row.edited
+                .as_ref()
+                .map(|e| e.pin_name.clone())
+                .unwrap_or(row.value.pin_name.clone())
+        } else {
+            row.value.pin_name.clone()
+        };
+        rows.push(json!({
+            "table": "pin_table",
+            "index": i,
+            "label": format!("Pin {} {}", number, name),
+            "page_index": row.value.source.page_index,
+            "page_label": row.value.source.page_label,
+            "rect": [
+                row.value.source.rect.x0,
+                row.value.source.rect.y0,
+                row.value.source.rect.x1,
+                row.value.source.rect.y1
+            ],
+            "decision": serde_json::to_value(row.decision).map_err(|e| Error::Invalid(e.to_string()))?
+        }));
+    }
+    for table in [
+        ("absolute_maximum_ratings", &bundle.absolute_maximum_ratings),
+        (
+            "recommended_operating_conditions",
+            &bundle.recommended_operating_conditions,
+        ),
+    ] {
+        for (i, row) in table.1.iter().enumerate() {
+            let parameter = if row.decision == ReviewDecision::Edited {
+                row.edited
+                    .as_ref()
+                    .map(|e| e.parameter.clone())
+                    .unwrap_or(row.value.parameter.clone())
+            } else {
+                row.value.parameter.clone()
+            };
+            let value = if row.decision == ReviewDecision::Edited {
+                row.edited
+                    .as_ref()
+                    .map(|e| e.value.clone())
+                    .unwrap_or(row.value.value.clone())
+            } else {
+                row.value.value.clone()
+            };
+            let unit = if row.decision == ReviewDecision::Edited {
+                row.edited
+                    .as_ref()
+                    .map(|e| e.unit.clone())
+                    .unwrap_or(row.value.unit.clone())
+            } else {
+                row.value.unit.clone()
+            };
+            rows.push(json!({
+                "table": table.0,
+                "index": i,
+                "label": format!("{} {} {}", parameter, value, unit),
+                "page_index": row.value.source.page_index,
+                "page_label": row.value.source.page_label,
+                "rect": [
+                    row.value.source.rect.x0,
+                    row.value.source.rect.y0,
+                    row.value.source.rect.x1,
+                    row.value.source.rect.y1
+                ],
+                "decision": serde_json::to_value(row.decision).map_err(|e| Error::Invalid(e.to_string()))?
+            }));
+        }
+    }
+    for (i, row) in bundle.ordering_codes.iter().enumerate() {
+        let code = if row.decision == ReviewDecision::Edited {
+            row.edited
+                .as_ref()
+                .map(|e| e.code.clone())
+                .unwrap_or(row.value.code.clone())
+        } else {
+            row.value.code.clone()
+        };
+        rows.push(json!({
+            "table": "ordering_codes",
+            "index": i,
+            "label": code,
+            "page_index": row.value.source.page_index,
+            "page_label": row.value.source.page_label,
+            "rect": [
+                row.value.source.rect.x0,
+                row.value.source.rect.y0,
+                row.value.source.rect.x1,
+                row.value.source.rect.y1
+            ],
+            "decision": serde_json::to_value(row.decision).map_err(|e| Error::Invalid(e.to_string()))?
+        }));
+    }
+    for (i, row) in bundle.package_dimensions.iter().enumerate() {
+        let name = if row.decision == ReviewDecision::Edited {
+            row.edited
+                .as_ref()
+                .map(|e| e.name.clone())
+                .unwrap_or(row.value.name.clone())
+        } else {
+            row.value.name.clone()
+        };
+        let value = if row.decision == ReviewDecision::Edited {
+            row.edited
+                .as_ref()
+                .map(|e| e.value.clone())
+                .unwrap_or(row.value.value.clone())
+        } else {
+            row.value.value.clone()
+        };
+        let unit = if row.decision == ReviewDecision::Edited {
+            row.edited
+                .as_ref()
+                .map(|e| e.unit.clone())
+                .unwrap_or(row.value.unit.clone())
+        } else {
+            row.value.unit.clone()
+        };
+        rows.push(json!({
+            "table": "package_dimensions",
+            "index": i,
+            "label": format!("{} {} {}", name, value, unit),
+            "page_index": row.value.source.page_index,
+            "page_label": row.value.source.page_label,
+            "rect": [
+                row.value.source.rect.x0,
+                row.value.source.rect.y0,
+                row.value.source.rect.x1,
+                row.value.source.rect.y1
+            ],
+            "decision": serde_json::to_value(row.decision).map_err(|e| Error::Invalid(e.to_string()))?
+        }));
+    }
+    Ok(json!({ "part": a.part, "rows": rows }))
+}
 fn apply_review_command(p: &mut Project, params: &Value) -> Result<Value, Error> {
     let a: ApplyParams = parse(params)?;
     if !is_valid_part_name(&a.part) {
@@ -397,6 +565,11 @@ struct ApplyParams {
     symbol: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListParams {
+    part: String,
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,6 +792,53 @@ mod tests {
             .find(|sym| sym.name == "IC")
             .ok_or("symbol not found")?;
         assert_eq!(symbol.pins[0].name, "A");
+        Ok(())
+    }
+
+    #[test]
+    fn review_list_flattens_every_table_with_its_page() -> Result<(), String> {
+        let mut s = Session::default();
+        let bundle = make_bundle_with_pins(vec![
+            ("1".to_string(), "IN+".to_string(), ReviewDecision::Pending),
+            ("2".to_string(), "GND".to_string(), ReviewDecision::Pending),
+        ])?;
+        let json = serde_json::to_string(&bundle).map_err(|e| e.to_string())?;
+        s.project.files.push(pcbcraft_doc::EmbeddedFile {
+            name: "datasheet-extract-TESTIC.json".to_string(),
+            data: json,
+            encoding: String::new(),
+        });
+        let result = s
+            .execute("datasheet.review_list", json!({ "part": "TESTIC" }), None)
+            .map_err(|e| e.to_string())?;
+        let rows = result["result"]["rows"].as_array().ok_or("no rows")?;
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["table"], "pin_table");
+        assert_eq!(rows[0]["index"], 0);
+        assert_eq!(rows[0]["label"], "Pin 1 IN+");
+        assert_eq!(rows[0]["page_label"], 3);
+        let rect = rows[0]["rect"].as_array().ok_or("no rect")?;
+        assert_eq!(rect[0], 10.0);
+        assert_eq!(rect[1], 20.0);
+        assert_eq!(rect[2], 100.0);
+        assert_eq!(rect[3], 80.0);
+        assert_eq!(rows[0]["decision"], "pending");
+        assert_eq!(rows[1]["label"], "Pin 2 GND");
+        Ok(())
+    }
+
+    #[test]
+    fn review_list_without_an_extraction_is_an_error() -> Result<(), String> {
+        let mut s = Session::default();
+        let message = s
+            .execute("datasheet.review_list", json!({ "part": "MISSING" }), None)
+            .err()
+            .map(|e| e.to_string())
+            .ok_or("a part with no extraction must be refused")?;
+        assert!(
+            message.contains("no extraction for this part"),
+            "the refusal names the missing extraction: {message}"
+        );
         Ok(())
     }
 }
