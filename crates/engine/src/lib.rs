@@ -27,6 +27,7 @@ mod firmware_plugin;
 mod gerber_export;
 mod images;
 mod layout;
+mod legalize;
 pub mod library;
 mod machines;
 mod net_names;
@@ -68,6 +69,7 @@ pub use collab::{
     shareable_room_command,
 };
 pub use dry_run::{ChangeSummary, DryRun};
+pub use legalize::{MAX_PASSES, Plan, plan_moves};
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
@@ -46733,6 +46735,79 @@ mod tests {
             None => return Err(Error::Invalid("expected error from board.rules.set".into())),
         }
         assert_eq!(s.revision, rev);
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_has_overlapping_parts_cleaned_up_without_moving_locked_ones() -> Result<(), Error>
+    {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        // Place two components at the same position so their courtyards overlap.
+        let c1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"1k","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let c2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","value":"1k","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        // Move the second footprint to overlap the first.
+        let f1 = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c1)
+            .ok_or_else(|| Error::Invalid("test fixture: f1 missing".into()))?;
+        let f1_id = f1.id;
+        let f1_pos = f1.position;
+        let f2 = s
+            .project
+            .board
+            .footprints
+            .iter_mut()
+            .find(|f| f.component == c2)
+            .ok_or_else(|| Error::Invalid("test fixture: f2 missing".into()))?;
+        f2.position = f1_pos;
+        // Lock the first footprint so it must not move.
+        s.execute(
+            "footprint.set_locked",
+            json!({"id":f1_id,"locked":true}),
+            None,
+        )?;
+        // Run the legalizer.
+        use crate::legalize::plan_moves;
+        use crate::scope::Scope;
+        let scope = Scope {
+            layers: vec!["F.Cu".into()],
+            nets: vec![],
+            components: vec![],
+            respect_locked: true,
+        };
+        let plan = plan_moves(&s.project, &scope, 32);
+        // The locked footprint must not move.
+        let moved_ids: Vec<u64> = plan.moves.iter().map(|(id, _)| *id).collect();
+        assert!(
+            !moved_ids.contains(&f1_id),
+            "locked footprint moved: {f1_id}"
+        );
+        // The overlap must be resolved.
+        let mut clone = s.project.clone();
+        for (fid, pos) in &plan.moves {
+            if let Some(f) = clone.board.footprints.iter_mut().find(|f| f.id == *fid) {
+                f.position = *pos;
+            }
+        }
+        let remaining = pcbcraft_rules::courtyard_pairs(&clone);
+        assert!(remaining.is_empty(), "overlaps remain after legalization");
         Ok(())
     }
 }
