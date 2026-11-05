@@ -3,6 +3,6 @@ type: feature
 area: engine
 issues: [711]
 user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Engine read query datasheet.review_list for the reader.
+docs: n/a: one read command for the datasheet reader and no documentation page lists commands by hand
+summary: The engine has a read command datasheet.review_list that lists the extracted fields of a part for review.
 ---

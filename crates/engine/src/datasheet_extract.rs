@@ -830,12 +830,15 @@ mod tests {
     #[test]
     fn review_list_without_an_extraction_is_an_error() -> Result<(), String> {
         let mut s = Session::default();
-        let result = s
+        let message = s
             .execute("datasheet.review_list", json!({ "part": "MISSING" }), None)
-            .map_err(|e| e.to_string());
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.contains("no extraction for this part"));
+            .err()
+            .map(|e| e.to_string())
+            .ok_or("a part with no extraction must be refused")?;
+        assert!(
+            message.contains("no extraction for this part"),
+            "the refusal names the missing extraction: {message}"
+        );
         Ok(())
     }
 }
