@@ -9,8 +9,8 @@ use pcbcraft_geom::Point;
 /// A board with an MCU and a firmware design file, like the sample but with
 /// pins already assigned to functions.
 fn firmware_project() -> Project {
-    let design_text = include_str!("../../library/tests/fixtures/firmware-design.toml");
-    let mcu_text = include_str!("../../library/tests/fixtures/stm32f405-fixture.mcu.toml");
+    let design_text = include_str!("../../../library/tests/fixtures/firmware-design.toml");
+    let mcu_text = include_str!("../../../library/tests/fixtures/stm32f405-fixture.mcu.toml");
     let mut project = Project::default();
     project.files.push(EmbeddedFile {
         name: "firmware-design.toml".into(),
@@ -122,7 +122,7 @@ fn a_newcomer_is_told_a_pin_cannot_do_the_function_it_was_given_in_the_findings(
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
     // Open the Findings list to see the check results.
-    app.change_tab(Tab::Findings);
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
