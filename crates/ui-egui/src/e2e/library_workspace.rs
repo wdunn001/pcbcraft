@@ -374,3 +374,57 @@ fn a_newcomer_checks_which_pad_each_symbol_pin_reaches() -> Result<(), String> {
     }
     Ok(())
 }
+
+#[test]
+fn a_newcomer_manages_alternates_and_second_sources() -> Result<(), String> {
+    let (ctx, mut app) = library_open();
+    tap_id(&ctx, &mut app, RESISTOR_CARD)?;
+    tap_id(&ctx, &mut app, "tab:Alternates")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Second sources")?,
+        "the Alternates page shows the Second sources section: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Alternates")?,
+        "the Alternates page shows the Alternates section: {}",
+        painted(&ctx, &mut app)
+    );
+
+    // Add a second source
+    type_into(&ctx, &mut app, "textinput:Manufacturer", "Acme Corp")?;
+    type_into(&ctx, &mut app, "textinput:MPN", "ACME-1206-330")?;
+    tap_id(&ctx, &mut app, "button:Add second source")?;
+    app.refresh();
+
+    // Verify the second source was added
+    let has_source = app
+        .project
+        .library
+        .part_substitutes
+        .get("Resistor")
+        .map(|s| {
+            s.second_sources
+                .iter()
+                .any(|src| src.manufacturer == "Acme Corp" && src.mpn == "ACME-1206-330")
+        })
+        .unwrap_or(false);
+    assert!(has_source, "the second source was recorded");
+
+    // Add an alternate
+    type_into(&ctx, &mut app, "textinput:Symbol", "Low cost resistor")?;
+    tap_id(&ctx, &mut app, "button:Add alternate")?;
+    app.refresh();
+
+    // Verify the alternate was added
+    let has_alt = app
+        .project
+        .library
+        .part_substitutes
+        .get("Resistor")
+        .map(|s| s.alternates.iter().any(|a| a.symbol == "Low cost resistor"))
+        .unwrap_or(false);
+    assert!(has_alt, "the alternate was recorded");
+
+    Ok(())
+}

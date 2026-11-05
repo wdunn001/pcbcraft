@@ -34,6 +34,7 @@ use library_dock::Card;
 use pcbcraft_library::sources::{PartResult, PartSource};
 use std::sync::Arc;
 
+mod alternates;
 mod compare;
 mod datasheet;
 mod edit;
@@ -63,6 +64,8 @@ pub(crate) enum Page {
     Model,
     /// The symbol and footprint editors.
     Edit,
+    /// Second sources and alternates for the part.
+    Alternates,
 }
 
 /// What the centre shows.
@@ -223,6 +226,7 @@ impl App {
             "library-vendors" => Page::Vendors,
             "library-3d" => Page::Model,
             "library-edit" => Page::Edit,
+            "library-alternates" => Page::Alternates,
             _ => Page::Overview,
         };
     }
@@ -711,6 +715,11 @@ impl App {
                 t!("libws.page.model"),
                 t!("libws.page.model.tip"),
             ),
+            (
+                Page::Alternates,
+                t!("libws.page.alternates"),
+                t!("libws.page.alternates.tip"),
+            ),
             (Page::Edit, t!("libws.page.edit"), t!("libws.page.edit.tip")),
         ];
         let items: Vec<TabItem<'_>> = pages
@@ -739,6 +748,7 @@ impl App {
             Page::Edit => self.library_edit_page(ui),
             Page::Model => self.library_model_page(ui, &card),
             Page::Datasheet => self.library_datasheet_page(ui, &facts),
+            Page::Alternates => self.library_alternates_page(ui, &card),
         }
     }
 
