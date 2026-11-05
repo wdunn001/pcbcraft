@@ -1,20 +1,33 @@
-//! The Assistant section of Settings and the Add connection window.
+//! The Assistant page of Preferences: the connection list, the Add connection form and the
+//! behaviour card.
 //!
 //! Context: adapted in shape from SolidCraft (MIT OR Apache-2.0), commit 32558d0a,
-//! `crates/ui-egui/src/agent_chat/settings.rs`. Called from `settings_tab()` and from
+//! `crates/ui-egui/src/agent_chat/settings.rs`. Called from `preferences/mod.rs` and
 //! `App::assistant_frame`.
 //! Rules: a key goes to the key store of the shell through `Host.keys` and never into the preferences, a
-//! log line or the design; the key field shows only for an address the key may be sent to; Test
-//! runs on a thread through `Host.http` and shows its outcome as text; every control has a tooltip.
+//! log line or the design; the key field shows only for an address the key may be sent to and is
+//! never shown in clear text; Test runs on a thread through `Host.http` and shows its outcome as
+//! text; every control has a tooltip.
 //! Do not: send a request from anywhere but a button the user pressed.
 
 use super::text;
-use crate::App;
 use crate::a11y::Named;
+use crate::ui_kit::button::{self, Size};
+use crate::ui_kit::card::card;
+use crate::ui_kit::checkbox::checkbox;
+use crate::ui_kit::chip::{BadgeKind, badge};
+use crate::ui_kit::form_row::{FormWidth, form_row};
+use crate::ui_kit::icons;
+use crate::ui_kit::number_field::{NumberSpec, number_field};
+use crate::ui_kit::segmented::{Segment, SegmentedStyle, segmented_styled};
+use crate::ui_kit::select::select;
+use crate::ui_kit::table::{self, Column};
+use crate::{App, fonts, theme};
 use pcbcraft_assistant::{
     Connection, HttpFn, KeptIn, Mode, PRESETS, Protocol, ProviderKind, anthropic_model_list,
     key_safe_for, model_list, new_id, normalize_url, test_anthropic_endpoint,
 };
+use pcbcraft_text::t;
 use std::sync::{Arc, Mutex};
 
 /// A test running or done, shared with its thread.
@@ -125,224 +138,177 @@ fn start_test(
     });
 }
 
-fn result_line(ui: &mut egui::Ui, t: &TestState, muted: egui::Color32) {
-    match t {
+fn result_line(ui: &mut egui::Ui, state: &TestState) {
+    let t = theme::tokens(ui.ctx());
+    match state {
         TestState::Idle => {}
         TestState::Running => {
-            ui.label(egui::RichText::new(text::testing()).color(muted));
+            ui.label(fonts::text(fonts::Role::Body, text::testing()).color(t.muted));
         }
         TestState::Done(Ok((line, _))) => {
-            ui.add(egui::Label::new(line.as_str()).wrap());
+            ui.label(fonts::text(fonts::Role::Body, line.as_str()).color(t.mask));
         }
         TestState::Done(Err(e)) => {
-            ui.add(
-                egui::Label::new(egui::RichText::new(e.as_str()).color(egui::Color32::LIGHT_RED))
-                    .wrap(),
-            );
+            ui.label(fonts::text(fonts::Role::Body, e.as_str()).color(t.red));
         }
     }
 }
 
-/// The Assistant part of the Settings page.
-pub(crate) fn section(app: &mut App, ui: &mut egui::Ui) {
-    let open = app.assistant.settings_open;
-    let label = text::settings_heading();
-    if ui
-        .add(
-            egui::Button::new(if open {
-                format!("v {label}")
+/// Rows of the connection table: name, kind, default mark, actions.
+fn columns<'a>(name: &'a str, kind: &'a str, state: &'a str) -> [Column<'a>; 4] {
+    [
+        Column {
+            title: name,
+            width: 220.0,
+        },
+        Column {
+            title: kind,
+            width: 300.0,
+        },
+        Column {
+            title: state,
+            width: 100.0,
+        },
+        Column {
+            title: "",
+            width: 0.0,
+        },
+    ]
+}
+
+/// The Connections card: the saved connections and the Add connection button.
+///
+/// # Rules
+/// - Edit opens the details of one row under it; the key is never shown, only whether one is kept.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/ui_kit/table.rs
+///
+/// # Do not
+/// - Show a stored key, in full or in part.
+pub(crate) fn connections_card(app: &mut App, ui: &mut egui::Ui) {
+    let t = theme::tokens(ui.ctx());
+    card(
+        ui,
+        &text::connections(),
+        None,
+        |_| {},
+        |ui| {
+            if app.preferences.assistant_connections.is_empty() {
+                ui.label(fonts::text(fonts::Role::Body, text::no_connections()).color(t.muted));
             } else {
-                format!("> {label}")
-            })
-            .selected(open),
-        )
-        .on_hover_text(text::settings_heading_tip())
-        .clicked()
-    {
-        app.assistant.settings_open = !open;
-    }
-    if app.assistant.settings_open {
-        body(app, ui);
-    }
+                connection_rows(app, ui);
+            }
+            ui.add_space(theme::SPACE[0]);
+            ui.horizontal(|ui| {
+                if button::secondary_button(
+                    ui,
+                    Some(icons::PLUS),
+                    &text::add_connection(),
+                    &text::add_connection_tip(),
+                    Size::Normal,
+                    app.assistant.dialog.is_none(),
+                )
+                .clicked()
+                {
+                    app.assistant.dialog = Some(Dialog::new());
+                }
+            });
+            let kept = match app.assistant.host.keys.as_ref().map(|k| k.kept_in()) {
+                Some(KeptIn::SystemKeychain) => t!("prefs.assistant.keys_note.keychain"),
+                Some(KeptIn::BrowserStorage) => t!("prefs.assistant.keys_note.browser"),
+                _ => t!("prefs.assistant.keys_note.memory"),
+            };
+            ui.label(fonts::caption(kept).color(t.muted));
+        },
+    );
 }
 
-fn body(app: &mut App, ui: &mut egui::Ui) {
-    let muted = app.muted();
-    ui.checkbox(&mut app.preferences.assistant_enabled, text::show())
-        .on_hover_text(text::show_tip());
-    if !app.preferences.assistant_enabled {
-        return;
-    }
-    ui.add_space(8.0);
-    ui.label(egui::RichText::new(text::connections()).strong());
-    connections(app, ui, muted);
-    if ui
-        .button(text::add_connection())
-        .on_hover_text(text::add_connection_tip())
-        .clicked()
-    {
-        app.assistant.dialog = Some(Dialog::new());
-    }
-    ui.add_space(12.0);
-    ui.label(egui::RichText::new(text::permissions()).strong());
-    for mode in Mode::ALL {
-        let tip = match mode {
-            Mode::Ask => text::mode_ask_tip(),
-            Mode::Edits => text::mode_edits_tip(),
-            Mode::All => text::mode_all_tip(),
-        };
-        ui.radio_value(&mut app.preferences.assistant_mode, mode, mode.label())
-            .on_hover_text(tip);
-    }
-    if app.preferences.assistant_mode == Mode::All {
-        ui.add(
-            egui::Label::new(
-                egui::RichText::new(text::mode_all_warning())
-                    .small()
-                    .color(muted),
-            )
-            .wrap(),
-        );
-    }
-    ui.add_space(12.0);
-    ui.horizontal(|ui| {
-        ui.label(text::limit());
-        ui.add(egui::DragValue::new(&mut app.preferences.assistant_turn_limit).range(1..=200))
-            .named(&text::limit())
-            .on_hover_text(text::limit_tip());
-    });
-    if ui
-        .button(text::reset_always())
-        .on_hover_text(text::reset_always_tip())
-        .clicked()
-    {
-        app.preferences.assistant_always_allow.clear();
-    }
-}
-
-fn connections(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
-    if app.preferences.assistant_connections.is_empty() {
-        ui.add(egui::Label::new(egui::RichText::new(text::no_connections()).color(muted)).wrap());
-        return;
-    }
+fn connection_rows(app: &mut App, ui: &mut egui::Ui) {
+    let t = theme::tokens(ui.ctx());
     let rows = app.preferences.assistant_connections.clone();
+    let heads = (
+        t!("prefs.assistant.col.name"),
+        t!("prefs.assistant.col.kind"),
+        t!("prefs.assistant.col.state"),
+    );
+    let cols = columns(&heads.0, &heads.1, &heads.2);
+    table::head(ui, &cols);
     let mut remove = None;
     let mut make_default = None;
     let mut test = None;
     let mut clear_key = None;
     for c in &rows {
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let key = if c.has_key {
-                text::key_stored()
-            } else {
-                text::no_key()
-            };
-            ui.add(egui::Label::new(egui::RichText::new(&c.name).strong()).wrap());
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(format!("{} · {} · {key}", c.base_url, c.model))
-                        .small()
-                        .color(muted),
-                )
-                .wrap(),
-            );
-            ui.horizontal_wrapped(|ui| {
-                let current = app.preferences.assistant_default == c.id;
-                if ui
-                    .add_enabled(
-                        !current,
-                        egui::Button::new(if current {
-                            text::in_use()
-                        } else {
-                            text::make_default()
-                        }),
-                    )
-                    .on_hover_text(if current {
-                        text::in_use_tip()
-                    } else {
-                        text::make_default_tip()
-                    })
-                    .clicked()
-                {
-                    make_default = Some(c.id.clone());
+        let open = app.prefs_ui.editing.as_deref() == Some(c.id.as_str());
+        let current = app.preferences.assistant_default == c.id;
+        table::row(ui, &cols, |cells| {
+            cells.cell(|ui| {
+                ui.label(fonts::strong(&c.name).color(t.text));
+            });
+            cells.cell(|ui| {
+                let key = if c.has_key {
+                    text::key_stored()
+                } else {
+                    text::no_key()
+                };
+                let model = if c.model.is_empty() {
+                    protocol_name(c.protocol)
+                } else {
+                    c.model.clone()
+                };
+                ui.add(
+                    egui::Label::new(fonts::mono(format!("{model} · {key}")).color(t.muted))
+                        .truncate(),
+                );
+            });
+            cells.cell(|ui| {
+                if current {
+                    badge(ui, &text::in_use(), BadgeKind::Success, &text::in_use_tip());
                 }
-                if ui
-                    .add_enabled(
-                        app.assistant.host.http.is_some(),
-                        egui::Button::new(text::test()),
-                    )
-                    .on_hover_text(text::test_tip())
-                    .clicked()
+            });
+            cells.cell(|ui| {
+                if button::secondary_button(
+                    ui,
+                    None,
+                    &t!("prefs.assistant.edit"),
+                    &t!("prefs.assistant.edit.tip"),
+                    Size::Small,
+                    true,
+                )
+                .clicked()
+                {
+                    app.prefs_ui.editing = if open { None } else { Some(c.id.clone()) };
+                }
+                if button::secondary_button(
+                    ui,
+                    None,
+                    &text::test(),
+                    &text::test_tip(),
+                    Size::Small,
+                    app.assistant.host.http.is_some(),
+                )
+                .clicked()
                 {
                     test = Some(c.clone());
                 }
-                if ui
-                    .add_enabled(c.has_key, egui::Button::new(text::clear_key()))
-                    .on_hover_text(text::clear_key_tip())
-                    .clicked()
-                {
-                    clear_key = Some(c.id.clone());
-                }
-                if ui
-                    .button(text::remove())
-                    .on_hover_text(text::remove_tip())
-                    .clicked()
-                {
-                    remove = Some(c.id.clone());
-                }
             });
-            let mut images = c.images;
-            if ui
-                .checkbox(&mut images, text::takes_pictures())
-                .on_hover_text(text::takes_pictures_tip())
-                .changed()
-                && let Some(row) = app
-                    .preferences
-                    .assistant_connections
-                    .iter_mut()
-                    .find(|x| x.id == c.id)
-            {
-                row.images = images;
-            }
-            let current: Mode = app
-                .preferences
-                .assistant_modes
-                .get(&c.id)
-                .copied()
-                .unwrap_or(app.preferences.assistant_mode);
-            let overridden = app.preferences.assistant_modes.contains_key(&c.id);
-            egui::ComboBox::from_id_salt(("assistant-mode", &c.id))
-                .selected_text(if overridden {
-                    current.label().to_string()
-                } else {
-                    text::same_as_default()
-                })
-                .show_ui(ui, |ui| {
-                    if ui
-                        .selectable_label(!overridden, text::same_as_default())
-                        .clicked()
-                    {
-                        app.preferences.assistant_modes.remove(&c.id);
-                    }
-                    for mode in Mode::ALL {
-                        if ui
-                            .selectable_label(overridden && current == mode, mode.label())
-                            .clicked()
-                        {
-                            app.preferences.assistant_modes.insert(c.id.clone(), mode);
-                        }
-                    }
-                })
-                .response
-                .on_hover_text(text::mode_override_tip());
-            if let Some((id, slot)) = &app.assistant.row_test
-                && *id == c.id
-            {
-                result_line(ui, &lock(slot), muted);
-            }
         });
-        ui.add_space(4.0);
+        if open {
+            connection_details(
+                app,
+                ui,
+                c,
+                current,
+                &mut make_default,
+                &mut clear_key,
+                &mut remove,
+            );
+        }
+        if let Some((id, slot)) = &app.assistant.row_test
+            && *id == c.id
+        {
+            result_line(ui, &lock(slot));
+        }
     }
     if let Some(id) = make_default {
         app.preferences.assistant_default = id;
@@ -367,8 +333,506 @@ fn connections(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
         clear_connection_key(app, &id);
     }
     if let Some(id) = remove {
+        if app.prefs_ui.editing.as_deref() == Some(id.as_str()) {
+            app.prefs_ui.editing = None;
+        }
         remove_connection(app, &id);
     }
+}
+
+/// The details under an opened row: default, key, pictures, permission override and removal.
+fn connection_details(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    c: &Connection,
+    current: bool,
+    make_default: &mut Option<String>,
+    clear_key: &mut Option<String>,
+    remove: &mut Option<String>,
+) {
+    let t = theme::tokens(ui.ctx());
+    egui::Frame::new()
+        .fill(t.raised.gamma_multiply(0.5))
+        .inner_margin(egui::Margin::symmetric(
+            theme::SPACE[3] as i8,
+            theme::SPACE[1] as i8,
+        ))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.label(fonts::mono(&c.base_url).color(t.muted));
+            let mut images = c.images;
+            form_row(
+                ui,
+                FormWidth::Page,
+                &text::takes_pictures(),
+                None,
+                None,
+                |ui| {
+                    checkbox(
+                        ui,
+                        &mut images,
+                        &text::takes_pictures(),
+                        &text::takes_pictures_tip(),
+                    )
+                    .changed()
+                },
+            )
+            .then(|| {
+                if let Some(row) = app
+                    .preferences
+                    .assistant_connections
+                    .iter_mut()
+                    .find(|x| x.id == c.id)
+                {
+                    row.images = images;
+                }
+            });
+            let overridden = app.preferences.assistant_modes.get(&c.id).copied();
+            let mut at = match overridden {
+                None => 0,
+                Some(mode) => 1 + Mode::ALL.iter().position(|m| *m == mode).unwrap_or(0),
+            };
+            let before = at;
+            let same = text::same_as_default();
+            let labels: Vec<String> = std::iter::once(same)
+                .chain(Mode::ALL.iter().map(|m| m.label().to_string()))
+                .collect();
+            let options: Vec<&str> = labels.iter().map(String::as_str).collect();
+            form_row(
+                ui,
+                FormWidth::Page,
+                &t!("prefs.assistant.override"),
+                None,
+                None,
+                |ui| {
+                    select(
+                        ui,
+                        ("assistant-mode", &c.id),
+                        &mut at,
+                        &options,
+                        &t!("prefs.assistant.override"),
+                        &text::mode_override_tip(),
+                        200.0,
+                    );
+                },
+            );
+            if at != before {
+                if at == 0 {
+                    app.preferences.assistant_modes.remove(&c.id);
+                } else if let Some(mode) = Mode::ALL.get(at - 1) {
+                    app.preferences.assistant_modes.insert(c.id.clone(), *mode);
+                }
+            }
+            ui.add_space(theme::SPACE[1]);
+            ui.horizontal(|ui| {
+                if button::secondary_button(
+                    ui,
+                    None,
+                    &text::make_default(),
+                    &text::make_default_tip(),
+                    Size::Small,
+                    !current,
+                )
+                .clicked()
+                {
+                    *make_default = Some(c.id.clone());
+                }
+                if button::secondary_button(
+                    ui,
+                    None,
+                    &text::clear_key(),
+                    &text::clear_key_tip(),
+                    Size::Small,
+                    c.has_key,
+                )
+                .clicked()
+                {
+                    *clear_key = Some(c.id.clone());
+                }
+                if button::ghost_button(
+                    ui,
+                    None,
+                    &text::remove(),
+                    &text::remove_tip(),
+                    Size::Small,
+                    true,
+                )
+                .clicked()
+                {
+                    *remove = Some(c.id.clone());
+                }
+            });
+            ui.add_space(theme::SPACE[1]);
+        });
+}
+
+fn protocol_name(p: Protocol) -> String {
+    match p {
+        Protocol::OpenAi => t!("prefs.assistant.protocol.openai"),
+        Protocol::Anthropic => t!("prefs.assistant.protocol.anthropic"),
+    }
+}
+
+/// The Behaviour card: show the tab, what it may do unasked, always-allowed tools, the cap.
+///
+/// # Rules
+/// - Every row writes the preference the moment it changes.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/ui_kit/form_row.rs, segmented.rs, number_field.rs
+///
+/// # Do not
+/// - Hide a row when the tab is off; the rest of the card stays reachable.
+pub(crate) fn behaviour_card(app: &mut App, ui: &mut egui::Ui) {
+    let t = theme::tokens(ui.ctx());
+    card(
+        ui,
+        &t!("prefs.assistant.behaviour"),
+        None,
+        |_| {},
+        |ui| {
+            form_row(
+                ui,
+                FormWidth::Page,
+                &text::show(),
+                Some(&t!("prefs.assistant.show.hint")),
+                None,
+                |ui| {
+                    checkbox(
+                        ui,
+                        &mut app.preferences.assistant_enabled,
+                        &text::show(),
+                        &text::show_tip(),
+                    );
+                },
+            );
+            let mut at = Mode::ALL
+                .iter()
+                .position(|m| *m == app.preferences.assistant_mode)
+                .unwrap_or(0);
+            let before = at;
+            let (ask, edits, all) = (
+                Mode::Ask.label().to_string(),
+                Mode::Edits.label().to_string(),
+                Mode::All.label().to_string(),
+            );
+            let (ask_tip, edits_tip, all_tip) = (
+                text::mode_ask_tip(),
+                text::mode_edits_tip(),
+                text::mode_all_tip(),
+            );
+            let group = text::permissions();
+            form_row(
+                ui,
+                FormWidth::Page,
+                &group,
+                Some(&t!("prefs.assistant.permissions.hint")),
+                None,
+                |ui| {
+                    segmented_styled(
+                        ui,
+                        "prefs-assistant-mode",
+                        &mut at,
+                        &[
+                            Segment::text(&ask, &ask_tip),
+                            Segment::text(&edits, &edits_tip),
+                            Segment::text(&all, &all_tip),
+                        ],
+                        SegmentedStyle {
+                            full_width: false,
+                            group_name: Some(&group),
+                        },
+                    );
+                },
+            );
+            if at != before
+                && let Some(mode) = Mode::ALL.get(at)
+            {
+                app.preferences.assistant_mode = *mode;
+            }
+            if app.preferences.assistant_mode == Mode::All {
+                ui.label(fonts::caption(text::mode_all_warning()).color(t.gold));
+            }
+            let mut limit = f64::from(app.preferences.assistant_turn_limit);
+            form_row(
+                ui,
+                FormWidth::Page,
+                &text::limit(),
+                Some(&t!("prefs.assistant.limit.hint")),
+                None,
+                |ui| {
+                    number_field(
+                        ui,
+                        "prefs-assistant-limit",
+                        &mut limit,
+                        &NumberSpec {
+                            unit: "",
+                            step: 1.0,
+                            min: 1.0,
+                            max: 200.0,
+                            places: 0,
+                            width: 104.0,
+                        },
+                        &text::limit(),
+                        &text::limit_tip(),
+                    );
+                },
+            );
+            app.preferences.assistant_turn_limit = limit.clamp(1.0, 200.0) as u32;
+            let chosen: usize = app
+                .preferences
+                .assistant_always_allow
+                .values()
+                .map(Vec::len)
+                .sum();
+            form_row(
+                ui,
+                FormWidth::Page,
+                &t!("prefs.assistant.always"),
+                None,
+                None,
+                |ui| {
+                    let line = if chosen == 0 {
+                        t!("prefs.assistant.always.none")
+                    } else {
+                        t!("prefs.assistant.always.count", n = chosen)
+                    };
+                    ui.label(fonts::text(fonts::Role::Body, line).color(t.muted));
+                    if button::secondary_button(
+                        ui,
+                        None,
+                        &t!("prefs.assistant.forget"),
+                        &text::reset_always_tip(),
+                        Size::Small,
+                        chosen > 0,
+                    )
+                    .clicked()
+                    {
+                        app.preferences.assistant_always_allow.clear();
+                    }
+                },
+            );
+        },
+    );
+}
+
+/// The Add connection card, when it is open.
+///
+/// # Rules
+/// - Test and Add behave as the old window did; a key goes to the key store only.
+/// - Cancel closes the card without saving anything.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/ui_kit/form_row.rs, select.rs
+///
+/// # Do not
+/// - Show a typed key in clear text.
+pub(crate) fn add_form(app: &mut App, ui: &mut egui::Ui) {
+    let Some(mut d) = app.assistant.dialog.take() else {
+        return;
+    };
+    let t = theme::tokens(ui.ctx());
+    let mut add = false;
+    let mut cancel = false;
+    card(
+        ui,
+        &text::dialog_title(),
+        None,
+        |_| {},
+        |ui| {
+            let names: Vec<&str> = PRESETS.iter().map(|p| p.name).collect();
+            let mut at = d.preset;
+            form_row(ui, FormWidth::Page, &text::preset(), None, None, |ui| {
+                select(
+                    ui,
+                    "prefs-assistant-preset",
+                    &mut at,
+                    &names,
+                    &text::preset(),
+                    &text::preset_tip(),
+                    260.0,
+                );
+            });
+            if at != d.preset {
+                d.apply_preset(at);
+            }
+            let kinds: Vec<String> = ProviderKind::ALL.iter().map(|k| kind_name(*k)).collect();
+            let kind_options: Vec<&str> = kinds.iter().map(String::as_str).collect();
+            let mut kind_at = ProviderKind::ALL
+                .iter()
+                .position(|k| *k == d.kind)
+                .unwrap_or(0);
+            let kind_label = t!("prefs.assistant.col.kind");
+            form_row(ui, FormWidth::Page, &kind_label, None, None, |ui| {
+                select(
+                    ui,
+                    "prefs-assistant-kind",
+                    &mut kind_at,
+                    &kind_options,
+                    &kind_label,
+                    &text::kind_tip(),
+                    260.0,
+                );
+            });
+            if let Some(k) = ProviderKind::ALL.get(kind_at) {
+                d.kind = *k;
+            }
+            if !d.kind.is_built() {
+                ui.label(fonts::caption(text::kind_not_built(&kind_name(d.kind))).color(t.gold));
+            }
+            form_row(ui, FormWidth::Page, &text::name(), None, None, |ui| {
+                text_input(
+                    ui,
+                    "prefs-assistant-name",
+                    &mut d.name,
+                    320.0,
+                    &text::name(),
+                    &text::name_tip(),
+                    false,
+                );
+            });
+            form_row(ui, FormWidth::Page, &text::url(), None, None, |ui| {
+                text_input(
+                    ui,
+                    "prefs-assistant-url",
+                    &mut d.url,
+                    320.0,
+                    &text::url(),
+                    &text::url_tip(),
+                    false,
+                );
+            });
+            let listed = match &*lock(&d.test) {
+                TestState::Done(Ok((_, ids))) => ids.clone(),
+                _ => Vec::new(),
+            };
+            form_row(ui, FormWidth::Page, &text::model(), None, None, |ui| {
+                if listed.is_empty() {
+                    text_input(
+                        ui,
+                        "prefs-assistant-model",
+                        &mut d.model,
+                        320.0,
+                        &text::model(),
+                        &text::model_tip(),
+                        false,
+                    );
+                } else {
+                    let options: Vec<&str> = listed.iter().map(String::as_str).collect();
+                    let mut chosen = listed.iter().position(|m| *m == d.model).unwrap_or(0);
+                    select(
+                        ui,
+                        "prefs-assistant-model-list",
+                        &mut chosen,
+                        &options,
+                        &text::model(),
+                        &text::model_tip(),
+                        320.0,
+                    );
+                    if let Some(id) = listed.get(chosen) {
+                        d.model = id.clone();
+                    }
+                }
+            });
+            key_field(app, ui, &mut d);
+            ui.add_space(theme::SPACE[1]);
+            ui.horizontal(|ui| {
+                if button::primary_button(
+                    ui,
+                    None,
+                    &text::add(),
+                    &text::add_tip(),
+                    Size::Normal,
+                    true,
+                )
+                .clicked()
+                {
+                    add = true;
+                }
+                if button::secondary_button(
+                    ui,
+                    None,
+                    &text::test(),
+                    &text::test_tip(),
+                    Size::Normal,
+                    app.assistant.host.http.is_some(),
+                )
+                .clicked()
+                    && let Some(http) = app.assistant.host.http.clone()
+                {
+                    match normalize_url(&d.url) {
+                        Ok(url) => {
+                            d.error.clear();
+                            let key =
+                                (!d.key.is_empty() && key_safe_for(&url)).then(|| d.key.clone());
+                            start_test(
+                                http,
+                                d.protocol(),
+                                url,
+                                key,
+                                d.model.clone(),
+                                d.test.clone(),
+                            );
+                        }
+                        Err(e) => d.error = e,
+                    }
+                }
+                if button::ghost_button(
+                    ui,
+                    None,
+                    &text::cancel(),
+                    &text::cancel_tip(),
+                    Size::Normal,
+                    true,
+                )
+                .clicked()
+                {
+                    cancel = true;
+                }
+            });
+            result_line(ui, &lock(&d.test));
+            if !d.error.is_empty() {
+                ui.label(fonts::text(fonts::Role::Body, d.error.as_str()).color(t.red));
+            }
+        },
+    );
+    if add {
+        match finish(app, &d) {
+            Ok(()) => return,
+            Err(e) => d.error = e,
+        }
+    }
+    if !cancel {
+        app.assistant.dialog = Some(d);
+    }
+}
+
+/// A one-line text box in the form's control column.
+///
+/// Why: the Add connection fields share one look and one way to be named.
+///
+/// # Rules
+/// - `password` hides the characters; a hidden box never offers its text to a screen reader.
+///
+/// # Do not
+/// - Log or echo what was typed.
+pub(crate) fn text_input(
+    ui: &mut egui::Ui,
+    salt: &str,
+    text: &mut String,
+    width: f32,
+    name: &str,
+    tip: &str,
+    password: bool,
+) -> egui::Response {
+    ui.add(
+        crate::targets::text_field(text)
+            .id_salt(salt)
+            .password(password)
+            .desired_width(width),
+    )
+    .named(name)
+    .on_hover_text(tip)
 }
 
 /// Delete the stored key of one connection and keep the connection.
@@ -418,171 +882,35 @@ pub(crate) fn remove_connection(app: &mut App, id: &str) {
     }
 }
 
-/// The Add connection window, when it is open.
-pub(crate) fn dialog(app: &mut App, ctx: &egui::Context) {
-    let Some(mut d) = app.assistant.dialog.take() else {
-        return;
-    };
-    let muted = app.muted();
-    let mut open = true;
-    let mut add = false;
-    let mut cancel = false;
-    egui::Window::new(text::dialog_title())
-        .open(&mut open)
-        .collapsible(false)
-        .default_width(360.0)
-        .show(ctx, |ui| {
-            egui::Frame::new()
-                .inner_margin(egui::Margin::same(12))
-                .show(ui, |ui| {
-                    let before = d.preset;
-                    egui::ComboBox::from_label(text::preset())
-                        .selected_text(PRESETS.get(d.preset).map_or("", |p| p.name))
-                        .show_ui(ui, |ui| {
-                            for (i, p) in PRESETS.iter().enumerate() {
-                                ui.selectable_value(&mut d.preset, i, p.name);
-                            }
-                        })
-                        .response
-                        .on_hover_text(text::preset_tip());
-                    if d.preset != before {
-                        d.apply_preset(d.preset);
-                    }
-                    ui.add_space(8.0);
-                    egui::ComboBox::from_id_salt("assistant-kind")
-                        .selected_text(kind_name(d.kind))
-                        .show_ui(ui, |ui| {
-                            for k in ProviderKind::ALL {
-                                ui.selectable_value(&mut d.kind, k, kind_name(k));
-                            }
-                        })
-                        .response
-                        .on_hover_text(text::kind_tip());
-                    if !d.kind.is_built() {
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(text::kind_not_built(
-                                &kind_name(d.kind),
-                            )))
-                            .wrap(),
-                        );
-                    }
-                    ui.label(text::name());
-                    ui.text_edit_singleline(&mut d.name)
-                        .on_hover_text(text::name_tip());
-                    ui.label(text::url());
-                    ui.text_edit_singleline(&mut d.url)
-                        .on_hover_text(text::url_tip());
-                    ui.label(text::model());
-                    let listed = match &*lock(&d.test) {
-                        TestState::Done(Ok((_, ids))) => ids.clone(),
-                        _ => Vec::new(),
-                    };
-                    if listed.is_empty() {
-                        ui.text_edit_singleline(&mut d.model)
-                            .on_hover_text(text::model_tip());
-                    } else {
-                        egui::ComboBox::from_id_salt("assistant-model")
-                            .selected_text(&d.model)
-                            .show_ui(ui, |ui| {
-                                for id in &listed {
-                                    ui.selectable_value(&mut d.model, id.clone(), id);
-                                }
-                            })
-                            .response
-                            .on_hover_text(text::model_tip());
-                    }
-                    key_field(app, ui, &mut d, muted);
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(
-                                app.assistant.host.http.is_some(),
-                                egui::Button::new(text::test()),
-                            )
-                            .on_hover_text(text::test_tip())
-                            .clicked()
-                            && let Some(http) = app.assistant.host.http.clone()
-                        {
-                            match normalize_url(&d.url) {
-                                Ok(url) => {
-                                    d.error.clear();
-                                    let key = (!d.key.is_empty() && key_safe_for(&url))
-                                        .then(|| d.key.clone());
-                                    start_test(
-                                        http,
-                                        d.protocol(),
-                                        url,
-                                        key,
-                                        d.model.clone(),
-                                        d.test.clone(),
-                                    );
-                                }
-                                Err(e) => d.error = e,
-                            }
-                        }
-                        if ui
-                            .button(text::add())
-                            .on_hover_text(text::add_tip())
-                            .clicked()
-                        {
-                            add = true;
-                        }
-                        if ui
-                            .button(text::cancel())
-                            .on_hover_text(text::cancel_tip())
-                            .clicked()
-                        {
-                            cancel = true;
-                        }
-                    });
-                    result_line(ui, &lock(&d.test), muted);
-                    if !d.error.is_empty() {
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(d.error.as_str())
-                                    .color(egui::Color32::LIGHT_RED),
-                            )
-                            .wrap(),
-                        );
-                    }
-                });
-        });
-    if add {
-        match finish(app, &d) {
-            Ok(()) => return,
-            Err(e) => d.error = e,
-        }
-    }
-    if open && !cancel {
-        app.assistant.dialog = Some(d);
-    }
-}
-
-fn key_field(app: &App, ui: &mut egui::Ui, d: &mut Dialog, muted: egui::Color32) {
-    let small = |t: String| egui::Label::new(egui::RichText::new(t).small().color(muted)).wrap();
+fn key_field(app: &App, ui: &mut egui::Ui, d: &mut Dialog) {
+    let t = theme::tokens(ui.ctx());
     let Some(keys) = app.assistant.host.keys.as_ref() else {
-        ui.add(small(text::key_no_store()));
+        ui.label(fonts::caption(text::key_no_store()).color(t.muted));
         return;
     };
     if key_safe_for(&d.url) {
-        ui.label(text::key());
         let tip = match keys.kept_in() {
             KeptIn::SystemKeychain => text::key_tip(),
             KeptIn::BrowserStorage => text::key_tip_browser(),
             KeptIn::Memory => text::key_tip_memory(),
         };
-        ui.add(
-            egui::TextEdit::singleline(&mut d.key)
-                .password(true)
-                .id_salt("assistant-key"),
-        )
-        .on_hover_text(tip);
+        form_row(ui, FormWidth::Page, &text::key(), None, None, |ui| {
+            text_input(
+                ui,
+                "assistant-key",
+                &mut d.key,
+                320.0,
+                &text::key(),
+                &tip,
+                true,
+            );
+        });
         if keys.kept_in() == KeptIn::BrowserStorage {
-            ui.add(small(text::key_warning_browser()));
+            ui.label(fonts::caption(text::key_warning_browser()).color(t.muted));
         }
     } else {
         d.key.clear();
-        ui.add(small(text::key_refused()));
+        ui.label(fonts::caption(text::key_refused()).color(t.muted));
     }
 }
 
@@ -601,7 +929,7 @@ fn finish(app: &mut App, d: &Dialog) -> Result<(), String> {
     }
     let url = normalize_url(&d.url)?;
     if d.name.trim().is_empty() {
-        return Err("Give the connection a name.".into());
+        return Err(t!("prefs.assistant.name_needed"));
     }
     let id = new_id(&app.preferences.assistant_connections, "api");
     let mut has_key = false;

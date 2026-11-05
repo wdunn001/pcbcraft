@@ -1,7 +1,7 @@
 //! Schematic wire drafting stories for issue #291.
 
 use super::super::*;
-use super::modifiers::{click, sample, screen_of};
+use super::modifiers::{click, drag, sample, screen_of};
 use super::support::*;
 use egui::Modifiers;
 
@@ -183,6 +183,93 @@ fn a_newcomer_taps_a_bus_entry_stub() -> Result<(), String> {
     assert!(
         app.project.drawn_wires.len() >= 2,
         "a bus entry stub should create a new wire: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_tees_a_wire_end_into_another_wire() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    // Draw a horizontal wire on net A.
+    let c = app.schematic.center;
+    let a_start = Point::new(c.x - 8.0, c.y);
+    let a_end = Point::new(c.x + 8.0, c.y);
+    app.run("net.create", json!({"name": "A"}));
+    let net_a = app
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "A")
+        .ok_or("net A not created")?
+        .id;
+    app.run(
+        "wire.draw",
+        json!({"points": [a_start, a_end], "net": net_a}),
+    );
+    let wire_a = app
+        .project
+        .drawn_wires
+        .last()
+        .ok_or("wire A not created")?
+        .id;
+    // Draw a vertical wire on net B, approaching wire A from below.
+    let b_start = Point::new(c.x, c.y + 8.0);
+    let b_end = Point::new(c.x, c.y + 2.0);
+    app.run("net.create", json!({"name": "B"}));
+    let net_b = app
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "B")
+        .ok_or("net B not created")?
+        .id;
+    app.run(
+        "wire.draw",
+        json!({"points": [b_start, b_end], "net": net_b}),
+    );
+    let wire_b = app
+        .project
+        .drawn_wires
+        .last()
+        .ok_or("wire B not created")?
+        .id;
+    // Drag the end of wire B onto wire A.
+    let from = screen_of(&app, b_end);
+    let to = screen_of(&app, c);
+    drag(&ctx, &mut app, from, to, Modifiers::NONE);
+    // Both wires should now share net A.
+    let wire_a = app
+        .project
+        .drawn_wires
+        .iter()
+        .find(|w| w.id == wire_a)
+        .ok_or("wire A missing after drag")?;
+    let wire_b = app
+        .project
+        .drawn_wires
+        .iter()
+        .find(|w| w.id == wire_b)
+        .ok_or("wire B missing after drag")?;
+    assert_eq!(
+        wire_a.net,
+        Some(net_a),
+        "wire A keeps its net: {}",
+        app.message
+    );
+    assert_eq!(
+        wire_b.net,
+        Some(net_a),
+        "wire B joined wire A's net: {}",
+        app.message
+    );
+    // A junction label should exist at the tee point.
+    assert!(
+        app.project
+            .labels
+            .iter()
+            .any(|l| l.kind == "junction" && l.position.distance(c) < 0.05),
+        "a junction marks the tee: {}",
         app.message
     );
     Ok(())

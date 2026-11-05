@@ -452,6 +452,7 @@ pub fn build(g: &mut Gen) -> Res<()> {
         let r = g.cmd("schematic.new_sheet", json!({"name": name}))?;
         sheet_ids.push(r["id"].as_u64().ok_or("sheet id")?);
     }
+    g.cmd("schematic.rename_sheet", json!({"id": 0, "name": "Power"}))?;
     // Components.
     for p in PARTS {
         let at = schematic::spot_of(p.reference)
@@ -824,6 +825,17 @@ mod tests {
         assert!((40..=60).contains(&p.components.len()), "40 to 60 parts");
         assert_eq!(p.components.len(), 55);
         assert_eq!(p.nets.len(), 41);
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_root_page_has_a_name() -> Result<(), String> {
+        let p = shared()?;
+        assert_eq!(
+            p.root_sheet_name.as_deref(),
+            Some("Power"),
+            "the root page has a name like the other pages"
+        );
         Ok(())
     }
 

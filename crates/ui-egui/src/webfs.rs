@@ -89,11 +89,11 @@ impl App {
     /// Open a design or PDF from bytes, the one path the picker and drag and drop share.
     pub(crate) fn webfs_open_bytes(&mut self, name: &str, bytes: &[u8], ctx: &egui::Context) {
         if name.to_ascii_lowercase().ends_with(".pdf") {
-            if let Err(e) = self
+            let failure = self
                 .datasheet_pane
-                .open_bytes(name.to_owned(), bytes.to_vec(), ctx)
-            {
-                self.message = t!("webfs.open_failed", name = name, reason = e);
+                .open_bytes(name.to_owned(), bytes.to_vec(), ctx);
+            if !failure.is_empty() {
+                self.message = t!("webfs.open_failed", name = name, reason = failure);
                 return;
             }
             self.message = t!("webfs.pdf_opened", name = name);

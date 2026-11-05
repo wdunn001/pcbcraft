@@ -85,6 +85,7 @@ const READS: &[&str] = &[
     "design.summary",
     "library.catalog",
     "library.starter_models.list",
+    "library.connector.generate",
     "library.search",
     "library.list",
     "parts.search",

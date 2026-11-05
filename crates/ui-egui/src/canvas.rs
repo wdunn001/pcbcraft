@@ -781,6 +781,7 @@ impl App {
             Tool::Port => t!("schematic.add.hint_port"),
             Tool::Pad => t!("board.canvas.pad_click_to_place"),
             Tool::SheetText => t!("board.canvas.click_to_place_text"),
+            Tool::SheetShape(_) => t!("board.canvas.click_to_draw_shape"),
         };
         if !matches!(self.tool, Tool::Select) {
             painter.text(
@@ -962,6 +963,30 @@ impl App {
                                         painter.circle_stroke(a, radius, stroke);
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+                Tool::SheetShape(kind) => {
+                    if let Some(start) = self.sheet_shape_start {
+                        let stroke = Stroke::new(1.0, self.accent());
+                        let a = camera.screen(start, rect);
+                        let b = camera.screen(snapped, rect);
+                        match kind {
+                            sheet_shape_tool::SheetShapeKind::Line => {
+                                painter.line_segment([a, b], stroke);
+                            }
+                            sheet_shape_tool::SheetShapeKind::Rect => {
+                                painter.rect_stroke(
+                                    egui::Rect::from_min_max(a, b),
+                                    0.0,
+                                    stroke,
+                                    egui::StrokeKind::Inside,
+                                );
+                            }
+                            sheet_shape_tool::SheetShapeKind::Circle => {
+                                let radius = (b - a).length().max(1.0);
+                                painter.circle_stroke(a, radius, stroke);
                             }
                         }
                     }
@@ -1698,6 +1723,7 @@ impl App {
             }
             Tool::Port => self.place_hierarchy_port(pos),
             Tool::SheetText => self.place_sheet_text(pos),
+            Tool::SheetShape(kind) => self.sheet_shape_click(kind, pos),
             Tool::BusEntry => self.place_bus_entry(pos),
             Tool::Pad => self.place_pad_click(pos),
             Tool::Keepout => {}
