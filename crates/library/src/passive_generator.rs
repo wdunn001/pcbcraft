@@ -33,10 +33,15 @@ use crate::{FootprintDefinition, PackageFamily, PackageKey, SymbolDefinition};
 /// - Mutate any field after creation; this is a value object.
 #[derive(Clone, Debug)]
 pub struct GeneratedPassive {
+    /// The part number, built from kind, package, value code and tolerance.
     pub mpn: String,
+    /// The two pad land pattern for the package.
     pub footprint: FootprintDefinition,
+    /// The two pin symbol that matches the pads.
     pub symbol: SymbolDefinition,
+    /// The value in ohms for a resistor or farads for a capacitor.
     pub value: f64,
+    /// The imperial package code such as 0603.
     pub package: String,
 }
 
@@ -60,7 +65,7 @@ pub fn generate_passive(
     package: &str,
     tolerance_pct: u8,
 ) -> Result<GeneratedPassive, String> {
-    if tolerance_pct < 1 || tolerance_pct > 20 {
+    if !(1..=20).contains(&tolerance_pct) {
         return Err("tolerance must be 1 to 20 percent".into());
     }
     validate_value(kind, value)?;

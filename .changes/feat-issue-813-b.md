@@ -2,7 +2,7 @@
 type: feature
 area: library
 issues: [813]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Passive series: generate footprint, symbol and part number.
+user_visible: false
+docs: n/a: a library function with tests and no screen calls it yet
+summary: A library function builds a two pad footprint, a symbol and a part number for a resistor or capacitor from its value and package.
 ---
