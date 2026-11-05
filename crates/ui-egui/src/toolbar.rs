@@ -141,7 +141,7 @@ impl App {
         response.on_hover_text(&item.tip)
     }
 
-    fn toolbar_divider(ui: &mut egui::Ui, t: &Tokens) {
+    pub(crate) fn toolbar_divider(ui: &mut egui::Ui, t: &Tokens) {
         ui.add_space(GROUP_GAP);
         let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 20.0), Sense::hover());
         ui.painter().rect_filled(rect, 0.0, t.line);

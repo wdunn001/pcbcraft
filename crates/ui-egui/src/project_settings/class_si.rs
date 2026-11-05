@@ -9,7 +9,7 @@
 //!
 //! # Do not
 //! - Write to the project directly; use `settings_run`.
-use super::{ghost, secondary};
+use super::{NUMBER_WIDTH, ghost, secondary};
 use crate::App;
 use crate::ui_kit::form_row::{FormWidth, form_row};
 use crate::ui_kit::number_field::{NumberSpec, number_field};
@@ -24,7 +24,7 @@ fn ns_spec() -> NumberSpec<'static> {
         max: 1_000_000.0,
         step: 0.1,
         places: 3,
-        width: 104.0,
+        width: NUMBER_WIDTH,
     }
 }
 
@@ -35,7 +35,7 @@ fn ohm_spec() -> NumberSpec<'static> {
         max: 200.0,
         step: 1.0,
         places: 0,
-        width: 104.0,
+        width: NUMBER_WIDTH,
     }
 }
 
@@ -46,7 +46,7 @@ fn pct_spec() -> NumberSpec<'static> {
         max: 50.0,
         step: 1.0,
         places: 0,
-        width: 104.0,
+        width: NUMBER_WIDTH,
     }
 }
 

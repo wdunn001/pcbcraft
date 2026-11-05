@@ -262,7 +262,7 @@ fn a_newcomer_adds_a_machine_to_the_project() -> Result<(), String> {
     let (ctx, mut app) = board();
     open_tab(&ctx, &mut app, "Machines")?;
     assert!(
-        paints_text(&ctx, &mut app, "No machines on this project yet.")?,
+        paints_text(&ctx, &mut app, "No machines on this project yet")?,
         "an empty project says so"
     );
     press(&ctx, &mut app, "Add machine")?;
@@ -270,6 +270,21 @@ fn a_newcomer_adds_a_machine_to_the_project() -> Result<(), String> {
         app.project.machine_profiles.len(),
         1,
         "a machine was added: {}",
+        app.message
+    );
+    waits_for_control(&ctx, &mut app, "button:Remove")?;
+    for _ in 0..5 {
+        if app.project_settings.machine_open() {
+            break;
+        }
+        press(&ctx, &mut app, "Edit machine")?;
+        for _ in 0..3 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        }
+    }
+    assert!(
+        app.project_settings.machine_open(),
+        "Edit opens the machine fields: {}",
         app.message
     );
     type_into(&ctx, &mut app, "textinput:Name", "Bench mill")?;

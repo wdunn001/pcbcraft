@@ -7,7 +7,7 @@ The app is a dockable workbench with one frame for every page:
 1. menu bar (brand, File, Edit, View, Help)
 2. tab nav, work areas only: Files, Schematic, Layout, Manufacture, Library (3D is the 2D | 3D toggle in the Layout view card, not a tab)
 3. tool bar, one row, changes per tab
-4. left aside: Layers | Library tabs on Schematic and Layout, Outputs | Machines on Manufacture, actions on Files
+4. left aside: Layers | Library tabs on Schematic and Layout, Outputs | Machines on Manufacture, Layers | Library on Files
 5. centre work area (canvas or page)
 6. right aside, tabs: Properties and Assistant
 7. bottom sheet, collapsible, tabs: Findings, Output, Console
@@ -252,7 +252,7 @@ PCBCraft pins the shared UI library of the companion CAD app. Anything that libr
 
 **Panel tabs.** The left aside keeps Layers | Library tabs on Schematic and Layout: the Library panel finds and places parts. The Library tab in the tab nav is a separate full workspace (part browser, datasheet reader, vendor prices, source editing, symbol and footprint editors, compare view).
 
-**Files tab.** Its own workspace: the left aside lists New, Open, Save, Save as, Import, Export, Project settings, Preferences and Close; the centre shows Recent projects. The Library never appears there.
+**Files tab.** Its own workspace: a tool bar of New, Open, Save, Import, Export and Open sample project; the Library in the left aside; the project summary, Project files, Made files and Recent projects in the centre; project Properties on the right.
 
 **Mockup table.** Accepted mockups are attached to these issues on wdunn001/pcbcraft and are not committed. Open the issue to see the image.
 

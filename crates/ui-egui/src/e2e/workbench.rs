@@ -360,6 +360,10 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     for tab in [Tab::Files, Tab::Libraries, Tab::Checks] {
         app.change_tab(tab);
         let out = settled(&ctx, &mut app);
+        // The left aside grows to the widest thing it held (the Layers tree).
+        // The page starts where the aside really ends.
+        let dock = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("left-aside"))
+            .map_or(dock, |panel| panel.outer_rect.right().max(dock));
         for (words, left, _, top) in texts(&out) {
             if words.trim().is_empty() || top < 110.0 || top > 900.0 {
                 continue;
