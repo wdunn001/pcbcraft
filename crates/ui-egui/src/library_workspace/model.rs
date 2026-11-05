@@ -396,6 +396,7 @@ impl App {
         let t = theme::tokens(ui.ctx());
         let has_model = model.is_some();
         let mut reset = false;
+        let mut snap = false;
         let mut auto_align = false;
         let mut next: Option<Model3D> = None;
         card(
@@ -533,28 +534,28 @@ impl App {
             back.scale = [1.0; 3];
             next = Some(back);
         }
-        if snap if auto_align && let Some(m) = model.as_ref() {if auto_align && let Some(m) = model.as_ref() { let Some(m) = model.as_ref() {
+        if snap && let Some(m) = model.as_ref() {
             let centre = self.libws.model_centre;
             let body = self.libws.model_view.body_bounds(PART);
-            if let Some(b) = body {
-                if let Some(trans) = snap_to_nearest_pad(def, centre, b) {
-                    let mut fixed = m.clone();
-                    fixed.offset[0] = trans.x;
-                    fixed.offset[1] = trans.y;
-                    next = Some(fixed);
-                }
+            if let Some(b) = body
+                && let Some(trans) = snap_to_nearest_pad(def, centre, b)
+            {
+                let mut fixed = m.clone();
+                fixed.offset[0] = trans.x;
+                fixed.offset[1] = trans.y;
+                next = Some(fixed);
             }
         }
         if auto_align && let Some(m) = model.as_ref() {
             let centre = self.libws.model_centre;
             let body = self.libws.model_view.body_bounds(PART);
-            if let Some(b) = body {
-                if let Some(trans) = auto_align_translation(def, centre, b) {
-                    let mut fixed = m.clone();
-                    fixed.offset[0] = trans.x;
-                    fixed.offset[1] = trans.y;
-                    next = Some(fixed);
-                }
+            if let Some(b) = body
+                && let Some(trans) = auto_align_translation(def, centre, b)
+            {
+                let mut fixed = m.clone();
+                fixed.offset[0] = trans.x;
+                fixed.offset[1] = trans.y;
+                next = Some(fixed);
             }
         }
         if let Some(m) = next {
@@ -591,15 +592,10 @@ impl App {
             None,
             |ui| {
                 crate::ui_kit::chip::badge(ui, &badge_text, kind, &t!("libws.model.overlay.tip"));
-                if let Some((dx, dy)) = off {
-                    if dx.hypot(dy) > WARN_ABOVE_MM {
-                        ui.label(
-                            fonts::caption(
-                                t!("libws.model.warn_large_offset"),
-                            )
-                            .color(t.red),
-                        );
-                    }
+                if let Some((dx, dy)) = off
+                    && dx.hypot(dy) > WARN_ABOVE_MM
+                {
+                    ui.label(fonts::caption(t!("libws.model.warn_large_offset")).color(t.red));
                 }
             },
             |ui| {
@@ -642,6 +638,34 @@ impl App {
             },
         );
     }
+}
+
+/// The translation that moves the model body centre to the nearest pad centre.
+///
+/// # Rules
+/// - `body` is the model bounding box in board coordinates.
+/// - `centre` is the footprint origin in board coordinates.
+/// - Returns `None` when there are no pads.
+pub(crate) fn snap_to_nearest_pad(
+    def: &FootprintDefinition,
+    centre: Point,
+    body: ([f64; 3], [f64; 3]),
+) -> Option<Point> {
+    if def.pads.is_empty() {
+        return None;
+    }
+    let body_x = (body.0[0] + body.1[0]) / 2.0 - centre.x;
+    let body_y = (body.0[1] + body.1[1]) / 2.0 - centre.y;
+    let mut best = None;
+    let mut best_dist = f64::MAX;
+    for pad in &def.pads {
+        let dist = ((pad.position.x - body_x).powi(2) + (pad.position.y - body_y).powi(2)).sqrt();
+        if dist < best_dist {
+            best_dist = dist;
+            best = Some(pad.position);
+        }
+    }
+    best.map(|p| Point::new(p.x - body_x, p.y - body_y))
 }
 
 #[cfg(test)]
@@ -697,26 +721,35 @@ mod tests {
     }
 
     #[test]
-    fn auto_align_recovers_a_shifted_model() {
+    fn auto_align_recovers_a_shifted_model() -> Result<(), String> {
         let def = two_pads();
         let centre = Point::new(10.0, 10.0);
         // A model body shifted 2mm right and 1mm down from the pad centroid.
         let shifted_body = ([12.0, 10.0, 0.0], [16.0, 12.0, 1.0]);
-        let trans = auto_align_translation(&def, centre, shifted_body).unwrap();
+        let trans = auto_align_translation(&def, centre, shifted_body)
+            .ok_or("a footprint with pads has a translation")?;
         // The translation should move the body back to the pad centroid.
         // Pad centroid is at (0, 0) in footprint coords, body centre is at (14, 11) - (10, 10) = (4, 1).
         // So translation should be (-4, -1).
-        assert!((trans.x - (-4.0)).abs() < 0.05, "x translation recovers the shift");
-        assert!((trans.y - (-1.0)).abs() < 0.05, "y translation recovers the shift");
+        assert!(
+            (trans.x - (-4.0)).abs() < 0.05,
+            "x translation recovers the shift"
+        );
+        assert!(
+            (trans.y - (-1.0)).abs() < 0.05,
+            "y translation recovers the shift"
+        );
+        Ok(())
     }
 
     #[test]
-    fn pad_centroid_is_the_average_of_pad_positions() {
+    fn pad_centroid_is_the_average_of_pad_positions() -> Result<(), String> {
         let def = two_pads();
-        let centroid = pad_centroid(&def).unwrap();
+        let centroid = pad_centroid(&def).ok_or("two pads have a centroid")?;
         // Pads at (-1.5, 0) and (1.5, 0), centroid at (0, 0).
         assert!((centroid.x - 0.0).abs() < 1e-9);
         assert!((centroid.y - 0.0).abs() < 1e-9);
+        Ok(())
     }
 
     #[test]
@@ -725,32 +758,4 @@ mod tests {
         def.pads = vec![];
         assert!(pad_centroid(&def).is_none());
     }
-}
-
-/// The translation that moves the model body centre to the nearest pad centre.
-///
-/// # Rules
-/// - `body` is the model bounding box in board coordinates.
-/// - `centre` is the footprint origin in board coordinates.
-/// - Returns `None` when there are no pads.
-pub(crate) fn snap_to_nearest_pad(
-    def: &FootprintDefinition,
-    centre: Point,
-    body: ([f64; 3], [f64; 3]),
-) -> Option<Point> {
-    if def.pads.is_empty() {
-        return None;
-    }
-    let body_x = (body.0[0] + body.1[0]) / 2.0 - centre.x;
-    let body_y = (body.0[1] + body.1[1]) / 2.0 - centre.y;
-    let mut best = None;
-    let mut best_dist = f64::MAX;
-    for pad in &def.pads {
-        let dist = ((pad.position.x - body_x).powi(2) + (pad.position.y - body_y).powi(2)).sqrt();
-        if dist < best_dist {
-            best_dist = dist;
-            best = Some(pad.position);
-        }
-    }
-    best.map(|p| Point::new(p.x - body_x, p.y - body_y))
 }
