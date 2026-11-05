@@ -319,6 +319,17 @@ pub fn violations(
     Ok((overlaps, keepouts, edge))
 }
 
+/// Decide whether a move may be taken, without keeping it.
+///
+/// # Rules
+/// - A move that touches a fixed cell is `Locked`.
+/// - The move is applied, the touched cells are checked, then it is undone.
+/// - A move that adds an overlap, a keepout hit or an edge hit is refused with that name.
+/// - Overlap is checked first, then keepout, then edge.
+/// - The model is the same after the call as before it.
+///
+/// # Do not
+/// - Keep the move here; the caller applies it when the verdict is `Allowed`.
 pub fn judge(
     model: &mut Model,
     settings: &PlacementSettings,
@@ -330,10 +341,10 @@ pub fn judge(
         Move::Swap { a, b } => vec![*a, *b],
     };
     for &i in &touched {
-        if let Some(c) = model.cells.get(i) {
-            if c.fixed {
-                return Ok(Verdict::Locked);
-            }
+        if let Some(c) = model.cells.get(i)
+            && c.fixed
+        {
+            return Ok(Verdict::Locked);
         }
     }
 
