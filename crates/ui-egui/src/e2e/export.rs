@@ -739,3 +739,62 @@ fn a_newcomer_exports_a_complete_fab_package() -> Result<(), String> {
     assert!(!app.edit.dialog.open, "the dialog closes after the export");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_exports_a_placement_file_split_by_side() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (_ctx, mut app) = board(dir.path());
+    // Create a placement artifact with a split-by-side flavour.
+    app.run(
+        "artifact.add",
+        json!({
+            "name": "Placement split",
+            "kind": "placement",
+            "path": "placement.csv",
+            "settings": { "flavour": "cpl_inch" }
+        }),
+    );
+    app.refresh();
+    let artifact = app
+        .project
+        .artifacts
+        .iter()
+        .find(|a| a.name == "Placement split")
+        .ok_or_else(|| format!("the placement artifact should exist: {}", app.message))?;
+    // Export it.
+    app.run(
+        "artifact.export",
+        json!({"id": artifact.id, "directory": dir.path().to_string_lossy()}),
+    );
+    app.refresh();
+    // A split flavour writes a folder with one file per side. Each file on disk is the flavour's
+    // own output for that side.
+    let flavour = pcbcraft_io::bundled_placement_flavours()?
+        .into_iter()
+        .find(|f| f.id == "cpl_inch")
+        .ok_or("the cpl_inch flavour is bundled")?;
+    let expected = pcbcraft_io::placement_flavoured(
+        &app.project,
+        &flavour,
+        &pcbcraft_io::PlacementOptions::default(),
+    )?;
+    assert!(
+        expected.files.len() >= 2,
+        "the cpl_inch flavour splits the file by side"
+    );
+    let folder = dir.path().join("placement.csv");
+    for (name, text) in &expected.files {
+        let on_disk = std::fs::read_to_string(folder.join(name))
+            .map_err(|e| format!("the side file {name} was not written: {e}"))?;
+        assert_eq!(
+            &on_disk, text,
+            "the file {name} on disk is the flavour's own output"
+        );
+    }
+    assert_ne!(
+        expected.files[0].1,
+        pcbcraft_io::placement_text(&app.project)?,
+        "a flavour changes the file from the classic placement file"
+    );
+    Ok(())
+}

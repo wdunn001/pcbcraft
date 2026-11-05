@@ -1087,6 +1087,68 @@ pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value,
                 json!({"definition":definition,"kind":"footprint","path":text("path")?,"source_truncated":truncated}),
             )
         }
+        "library.connector.generate" => {
+            let series = text("series_id")?;
+            let positions = args
+                .get("positions_per_row")
+                .and_then(|v| v.as_u64())
+                .filter(|v| (1..=150).contains(v))
+                .ok_or("positions_per_row must be an integer from 1 to 150")?;
+            let rows = args
+                .get("rows")
+                .and_then(|v| v.as_u64())
+                .filter(|v| *v == 1 || *v == 2)
+                .ok_or("rows must be 1 or 2")?;
+            let lead = match args.get("lead_code") {
+                None => "07".to_string(),
+                Some(v) => v.as_str().ok_or("lead_code must be a string")?.to_string(),
+            };
+            let stack = match args.get("stack_code") {
+                None | Some(Value::Null) => None,
+                Some(v) => Some(v.as_str().ok_or("stack_code must be a string")?.to_string()),
+            };
+            let posts = match args.get("alignment_posts") {
+                None | Some(Value::Null) => false,
+                Some(v) => v.as_bool().ok_or("alignment_posts must be a boolean")?,
+            };
+            let opts = pcbcraft_library::ConnectorSeriesOptions {
+                positions_per_row: positions as u32,
+                rows: rows as u32,
+                lead_code: lead,
+                stack_code: stack,
+                alignment_posts: posts,
+            };
+            match pcbcraft_library::generate_connector_part(series, &opts) {
+                Ok(part) => {
+                    let housing = pcbcraft_library::housing_length_mm(
+                        part.parametric.positions_per_row,
+                        part.parametric.pitch_mm,
+                    );
+                    Ok(json!({
+                        "part_number": part.part_number,
+                        "footprint": part.footprint,
+                        "symbol": part.symbol,
+                        "mated_stack_height_mm": part.mated_stack_height_mm,
+                        "housing_length_mm": housing,
+                    }))
+                }
+                Err(errors) => {
+                    let msgs = errors
+                        .iter()
+                        .map(|e| {
+                            let valid = if e.valid_values.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" (valid: {})", e.valid_values.join(", "))
+                            };
+                            format!("{}: {}{}", e.field, e.message, valid)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    Err(msgs)
+                }
+            }
+        }
         "library.compare" => {
             let kind = text("kind")?;
             if kind == "parts" {

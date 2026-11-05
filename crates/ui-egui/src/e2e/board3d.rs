@@ -357,3 +357,71 @@ fn a_newcomer_looks_from_the_top_and_resets_the_3d_view() -> Result<(), String> 
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sees_a_flipped_part_hang_below_the_board() -> Result<(), String> {
+    let (ctx, mut app, _) = open_3d()?;
+    // Find J1's footprint id; fall back to R1 if J1 is through-hole and flip fails.
+    let component_ids: Vec<Id> = app
+        .project
+        .components
+        .iter()
+        .filter(|c| c.reference == "J1" || c.reference == "R1")
+        .map(|c| c.id)
+        .collect();
+    let fp_id = component_ids
+        .iter()
+        .find_map(|&comp_id| {
+            app.project
+                .board
+                .footprints
+                .iter()
+                .find(|f| f.component == comp_id)
+                .map(|f| f.id)
+        })
+        .ok_or("the practice design should place J1 or R1")?;
+    let before = app
+        .view3d
+        .body_bounds(component_ids[0])
+        .ok_or("the first part should have a body in the mesh")?;
+    let top = before.1[2];
+    assert!(
+        top >= 0.0,
+        "the part sits on the board top face before the flip (z={top})"
+    );
+    app.tool_call("footprint.flip", json!({"id": fp_id}));
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let after = app
+        .view3d
+        .body_bounds(component_ids[0])
+        .ok_or("the flipped part should still have a body in the mesh")?;
+    assert!(
+        after.1[2] <= 1e-6,
+        "the flipped part hangs below the board bottom face (z={:.4})",
+        after.1[2]
+    );
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        output
+            .shapes
+            .iter()
+            .any(|s| matches!(s.shape, egui::Shape::Mesh(_))),
+        "the flipped board still draws as triangles"
+    );
+    app.tool_call("undo", json!({}));
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let restored = app
+        .view3d
+        .body_bounds(component_ids[0])
+        .ok_or("the part should still have a body after undo")?;
+    assert!(
+        restored.0[2] >= -1e-6,
+        "undo puts the part back above the board (z={:.4})",
+        restored.0[2]
+    );
+    Ok(())
+}
