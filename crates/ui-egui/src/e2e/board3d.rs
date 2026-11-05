@@ -425,3 +425,50 @@ fn a_newcomer_sees_a_flipped_part_hang_below_the_board() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_shows_an_enclosure_around_the_board() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
+    // Attach a board export as the enclosure file (auto-aligned)
+    let mesh = pcbcraft_io::board_mesh(&app.project, pcbcraft_io::MeshLayers::default())
+        .map_err(|e| format!("build mesh: {e}"))?;
+    let json = pcbcraft_io::solidcraft_board(
+        &app.project,
+        &mesh,
+        pcbcraft_io::SolidcraftLayers::default(),
+    )
+    .map_err(|e| format!("export: {e}"))?;
+    app.tool_call("enclosure.import", json!({ "data": json }))
+        .map_err(|e| format!("import: {e}"))?;
+    app.refresh();
+    app.change_tab(Tab::Board3d);
+    let ctx = egui::Context::default();
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        app.project.board.enclosure.is_some(),
+        "the project carries an enclosure after import"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Enclosure layer")?,
+        "the 3D tab shows the Enclosure layer toggle"
+    );
+    // Toggle the enclosure off
+    tap_left(&ctx, &mut app, "Enclosure layer")?;
+    assert!(
+        !app.project.board.enclosure.as_ref().unwrap().visible,
+        "toggling the checkbox hides the enclosure"
+    );
+    // Toggle it back on
+    tap_left(&ctx, &mut app, "Enclosure layer")?;
+    assert!(
+        app.project.board.enclosure.as_ref().unwrap().visible,
+        "toggling again shows the enclosure"
+    );
+    Ok(())
+}

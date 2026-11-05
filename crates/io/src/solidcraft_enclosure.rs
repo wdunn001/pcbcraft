@@ -476,4 +476,41 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn enclosure_move_is_one_undo_step() -> Check {
+        let mut project = sample_project();
+        let mesh = board_mesh(&project, MeshLayers::default())?;
+        let json = solidcraft_board(&project, &mesh, SolidcraftLayers::default())?;
+        attach_enclosure_file(&mut project, json.as_bytes())?;
+        let mut enc = BoardEnclosure {
+            file: ENCLOSURE_ATTACHMENT_NAME.into(),
+            source_path: String::new(),
+            auto_aligned: false,
+            offset: [0.0; 3],
+            scale: [1.0; 3],
+            rotate: [0.0; 3],
+            visible: true,
+            opacity: DEFAULT_ENCLOSURE_OPACITY,
+            transform: [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+            source_format: None,
+            bounds: None,
+            mesh_path: None,
+            linked_datums: Vec::new(),
+            notice: None,
+        };
+        project.board.enclosure = Some(enc.clone());
+        let before = serde_json::to_string(&project)?;
+        enc.offset = [5.0, 10.0, 0.0];
+        project.board.enclosure = Some(enc.clone());
+        let after = serde_json::to_string(&project)?;
+        assert_ne!(before, after, "project changed when enclosure moved");
+        enc.offset = [0.0; 3];
+        project.board.enclosure = Some(enc);
+        let restored = serde_json::to_string(&project)?;
+        assert_eq!(before, restored, "one undo step restored prior placement");
+        Ok(())
+    }
 }

@@ -359,6 +359,9 @@ impl View3d {
         let had_mesh = self.mesh.is_some();
         match board_mesh_with_dir(project, MeshLayers::default(), env.design_dir) {
             Ok(mut mesh) => {
+                if let Some(enc) = &project.board.enclosure {
+                    pcbcraft_io::append_enclosure_parts(&mut mesh, project, enc)?;
+                }
                 self.error = None;
                 self.model_gen = generation;
                 let models = self.models.clone();
@@ -584,6 +587,40 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &mut Env<'_>) -> O
             .request_repaint_after(std::time::Duration::from_millis(100));
     }
 
+    // Enclosure layer controls when an enclosure is attached to the board.
+    if let Some(enc) = &env.project.board.enclosure {
+        ui.horizontal_wrapped(|ui| {
+            ui.add_space(12.0);
+            let label = t!("board.board3d.enclosure_layer");
+            let mut visible = enc.visible;
+            if ui
+                .checkbox(&mut visible, label)
+                .on_hover_text(t!("board.board3d.enclosure_layer.tip"))
+                .changed()
+            {
+                env.project.board.enclosure =
+                    Some(env.project.board.enclosure.as_ref().unwrap().clone());
+                if let Some(e) = &mut env.project.board.enclosure {
+                    e.visible = visible;
+                }
+            }
+            if enc.visible {
+                let mut opacity = enc.opacity as f32;
+                if ui
+                    .add(
+                        egui::Slider::new(&mut opacity, 0.0..=1.0)
+                            .text(t!("board.board3d.enclosure_opacity")),
+                    )
+                    .on_hover_text(t!("board.board3d.enclosure_opacity.tip"))
+                    .changed()
+                {
+                    if let Some(e) = &mut env.project.board.enclosure {
+                        e.opacity = opacity as f64;
+                    }
+                }
+            }
+        });
+    }
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
         ui.add_space(12.0);
