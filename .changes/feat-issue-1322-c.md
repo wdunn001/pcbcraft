@@ -1,8 +1,8 @@
 ---
 type: feature
-area: engine
+area: ui
 issues: [1322]
-user_visible: false
-docs: n/a: an engine command that no screen calls yet
-summary: An engine command moves the end of a drawn wire onto a pin or onto another wire.
+user_visible: true
+docs: n/a: a drag gesture on the schematic with its own story and no page that lists gestures
+summary: Dragging the end of a drawn wire onto another wire moves it there and adds a junction.
 ---
