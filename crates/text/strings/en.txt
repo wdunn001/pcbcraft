@@ -4045,3 +4045,5 @@ libws.model.auto_align.tip = Move the model so its body centre sits on the middl
 libws.model.warn_large_offset = The model is off by more than 0.15 mm. Try auto-align or adjust the offset manually.
 libws.model.snap = Snap to pad
 libws.model.snap.tip = Move the model so its body centre sits on the nearest pad.
+export.package.options = Options in this package
+export.package.option.tip = This package sets {option} to {value}. The file names above follow it.
