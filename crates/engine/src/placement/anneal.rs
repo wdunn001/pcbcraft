@@ -392,8 +392,51 @@ pub fn judge(
 ///
 /// # Do not
 /// - Weight nets here; the reported number is plain HPWL.
-pub fn cost(_model: &Model, _settings: &PlacementSettings) -> Result<f64, String> {
-    Err(not_built("slice-1122-c"))
+pub fn cost(model: &Model, settings: &PlacementSettings) -> Result<f64, String> {
+    let hpwl = model.hpwl_of();
+    let mut overlap = 0.0;
+    let n = model.cells().len();
+
+    // Cell vs cell overlaps
+    for i in 0..n {
+        let ci = &model.cells()[i];
+        let (hxi, hyi) = ci.half();
+        for j in (i + 1)..n {
+            let cj = &model.cells()[j];
+            let (hxj, hyj) = cj.half();
+            let dx = (ci.x - cj.x).abs();
+            let dy = (ci.y - cj.y).abs();
+            let ox = hxi + hxj - dx - settings.clearance_mm;
+            let oy = hyi + hyj - dy - settings.clearance_mm;
+            if ox > 0.0 && oy > 0.0 {
+                let eff_ox = ox.min(2.0 * hxi.min(hxj));
+                let eff_oy = oy.min(2.0 * hyi.min(hyj));
+                overlap += eff_ox * eff_oy;
+            }
+        }
+    }
+
+    // Cell vs keepout overlaps
+    for ci in model.cells() {
+        let (hxi, hyi) = ci.half();
+        for ko in model.keepouts() {
+            let kx = (ko.x0 + ko.x1) / 2.0;
+            let ky = (ko.y0 + ko.y1) / 2.0;
+            let hxk = (ko.x1 - ko.x0) / 2.0;
+            let hyk = (ko.y1 - ko.y0) / 2.0;
+            let dx = (ci.x - kx).abs();
+            let dy = (ci.y - ky).abs();
+            let ox = hxi + hxk - dx - settings.clearance_mm;
+            let oy = hyi + hyk - dy - settings.clearance_mm;
+            if ox > 0.0 && oy > 0.0 {
+                let eff_ox = ox.min(2.0 * hxi.min(hxk));
+                let eff_oy = oy.min(2.0 * hyi.min(hyk));
+                overlap += eff_ox * eff_oy;
+            }
+        }
+    }
+
+    Ok(hpwl + settings.overlap_weight * overlap)
 }
 
 /// Start temperature from the mean uphill cost (slice 1122-c).
@@ -411,11 +454,42 @@ pub fn cost(_model: &Model, _settings: &PlacementSettings) -> Result<f64, String
 /// # Do not
 /// - Touch the main stream or leave the model changed.
 pub fn start_temperature(
-    _model: &mut Model,
-    _movable: &[usize],
-    _settings: &PlacementSettings,
+    model: &mut Model,
+    movable: &[usize],
+    settings: &PlacementSettings,
 ) -> Result<f64, String> {
-    Err(not_built("slice-1122-c"))
+    let mut rng = Rng::new(settings.seed ^ PROBE_SALT);
+    let base_cost = cost(model, settings)?;
+    let mut sum_uphill = 0.0;
+    let mut count_uphill = 0;
+
+    for _ in 0..settings.probe_moves {
+        let mv_opt = next_move(&mut rng, movable, model, settings)?;
+        let mv = match mv_opt {
+            Some(m) => m,
+            None => continue,
+        };
+        let verdict = judge(model, settings, &mv)?;
+        if verdict != Verdict::Allowed {
+            continue;
+        }
+        apply_move(model, &mv)?;
+        let new_cost = cost(model, settings)?;
+        undo_move(model, &mv)?;
+        let delta = new_cost - base_cost;
+        if delta > 0.0 {
+            sum_uphill += delta;
+            count_uphill += 1;
+        }
+    }
+
+    if count_uphill == 0 {
+        return Ok(settings.fallback_temperature);
+    }
+
+    let mean_uphill = sum_uphill / count_uphill as f64;
+    let t0 = -mean_uphill / settings.start_accept.ln();
+    Ok(t0)
 }
 
 /// Score one move without keeping it (slice 1122-c).
@@ -430,12 +504,25 @@ pub fn start_temperature(
 /// # Do not
 /// - Draw from the generator.
 pub fn evaluate(
-    _model: &mut Model,
-    _settings: &PlacementSettings,
-    _mv: Move,
-    _cost_now: f64,
+    model: &mut Model,
+    settings: &PlacementSettings,
+    mv: Move,
+    cost_now: f64,
 ) -> Result<Candidate, String> {
-    Err(not_built("slice-1122-c"))
+    let verdict = judge(model, settings, &mv)?;
+    let delta_cost = if verdict == Verdict::Allowed {
+        apply_move(model, &mv)?;
+        let cost_after = cost(model, settings)?;
+        undo_move(model, &mv)?;
+        cost_after - cost_now
+    } else {
+        0.0
+    };
+    Ok(Candidate {
+        move: mv,
+        verdict,
+        delta_cost,
+    })
 }
 
 /// The annealing loop (slice 1122-d).
