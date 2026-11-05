@@ -1,8 +1,8 @@
 ---
 type: feature
-area: text
+area: ui
 issues: [719]
 user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Alternates and second sources on a part (child of #699).
+docs: n/a: the Library part page lists its own sections and no page copies them
+summary: The Library part page has Alternates and Second sources sections, with a story that opens them.
 ---

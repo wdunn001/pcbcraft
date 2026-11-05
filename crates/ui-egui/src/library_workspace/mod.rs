@@ -91,6 +91,12 @@ pub(crate) struct State {
     pub(crate) active: Active,
     /// The page of the showing part.
     pub(crate) page: Page,
+    /// Alternates page: the manufacturer typed for a new second source.
+    pub(crate) alt_manufacturer: String,
+    /// Alternates page: the part number typed for a new second source.
+    pub(crate) alt_mpn: String,
+    /// Alternates page: the symbol name typed for a new alternate.
+    pub(crate) alt_symbol: String,
     /// Recorded supplier answers, when any are on this computer.
     quotes: Option<Arc<dyn PartSource>>,
     /// 3D page: the camera and mesh of the one-part view.
@@ -124,6 +130,9 @@ impl Default for State {
             parts: Vec::new(),
             active: Active::Part(0),
             page: Page::Overview,
+            alt_manufacturer: String::new(),
+            alt_mpn: String::new(),
+            alt_symbol: String::new(),
             quotes: None,
             model_view: board3d::View3d::default(),
             model_project: pcbcraft_doc::Project::default(),

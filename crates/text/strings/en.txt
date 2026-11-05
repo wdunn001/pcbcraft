@@ -4321,3 +4321,4 @@ schematic.shape.circle.tip = Draw a circle; the second click sets the radius.
 board.tool_hint.lmb_place_sheet_shape = Place {name}. Click to start, click again to place. {common}
 export.pin_map.write_failed = The pin map file could not be written.
 webfs.pdf_opened = Opened {name} in the datasheet reader.
+libws.alternates.project_only = Alternates and second sources are kept for parts in this project's library. Copy the part into the project library first.
