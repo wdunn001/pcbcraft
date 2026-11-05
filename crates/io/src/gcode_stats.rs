@@ -175,10 +175,7 @@ pub fn gcode_stats(text: &str) -> Result<GcodeStats, String> {
             let dz = target[2] - at[2];
             let start_xy = [at[0], at[1]];
             let end_xy = [target[0], target[1]];
-            match arc_length(&start_xy, &end_xy, &centre_offset, clockwise, dz) {
-                Ok(len) => len,
-                Err(e) => return Err(e),
-            }
+            arc_length(&start_xy, &end_xy, &centre_offset, clockwise, dz)?
         } else {
             distance(&at, &target)
         };
@@ -256,9 +253,6 @@ fn distance(from: &[f64; 3], to: &[f64; 3]) -> f64 {
 /// # Rules
 /// - The sweep is in (0, 2*pi] for the given direction.
 /// - If the start and end are the same the arc is a full circle.
-///
-/// # Dependencies
-/// - None.
 ///
 /// # Do not
 /// - Use this for R-word arcs; they are not supported by this function.
