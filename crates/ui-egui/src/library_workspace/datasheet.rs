@@ -1,98 +1,482 @@
-//! The Datasheet page: a PDF viewer with search, selection and accessibility.
+//! The Datasheet page: the datasheet link, the key details and a PDF reader with search,
+//! selectable text and a spoken description of the page.
 //!
-//! Context: issue #713. The page renders the datasheet PDF, lets a person search
-//! for text, copy selected text, and navigate search results. Pages without a
-//! text layer are noted plainly.
+//! Context: issues #695 and #713. The page keeps what it always showed (the link, the key
+//! details and a button that opens the datasheet in the browser) and adds a reader beneath.
+//! The reader draws one page at a time, steps through pages, finds words across the whole
+//! file, lets a person drag over text and copy it, and says plainly when a page has no text.
 //!
-//! Local rules: nothing is fetched here; a datasheet is only ever opened by the
-//! person. The PDF is rendered with the datasheet crate, not the browser.
+//! Local rules: nothing is fetched and no file is read while painting. A PDF opens only when
+//! the person presses Read here on a local PDF address, or from bytes handed to `open`. With
+//! no document the page shows the link and the details only.
 //!
 //! # Dependencies
-//! - crates/datasheet/src/lib.rs (Document, render_page, search_document, find,
-//!   text_layer, page_has_text, plain_text, char_at_point, selected_text)
+//! - crates/datasheet/src/lib.rs (`Document`, `DocSearch`, `Selection`, `char_at_point`,
+//!   `selected_text`, `page_has_text`, `plain_text`)
 //! - crates/ui-egui/src/library_workspace/overview.rs (`key_parameters`, `value_row`)
+//! - crates/ui-egui/src/ui_kit/button.rs (`secondary_button`)
+//! - crates/ui-egui/src/ui_kit/card.rs (`card`)
+//! - crates/ui-egui/src/theme.rs (`Tokens`, `SPACE`)
+//! - crates/text/strings/en.txt (`libws.ds.*`)
 //!
 //! # Do not
-//! - Download or cache a PDF from a frame.
-
+//! - Download, read or cache a PDF from a frame.
+//! - Put a raw colour or font size here; use the theme tokens and the font roles.
 use std::collections::HashMap;
 
 use pcbcraft_datasheet::{
-    CharBox, Document, DocSearch, Hit, Selection, char_at_point, find, page_has_text,
-    plain_text, render_page, selected_text, text_layer,
+    CharBox, DocSearch, Document, Selection, char_at_point, page_has_text, plain_text,
+    selected_text,
 };
 
 use super::overview::{key_parameters, value_row};
 use super::*;
+use crate::a11y::{self, Named};
 use crate::ui_kit::card::card;
-use crate::ui_kit::{
-    button::{Size, primary_button, secondary_button},
-    form_row::form_row,
-};
 
-/// View state of the PDF viewer: the open document and its search results.
+/// Resolution a page is drawn at, in dots per inch.
+const PAGE_DPI: f32 = 120.0;
+/// How many page pictures stay in memory.
+const TEXTURE_KEEP: usize = 6;
+/// Longest search text, in characters.
+const SEARCH_MAX: usize = 128;
+/// Width of the search box.
+const SEARCH_WIDTH: f32 = 180.0;
+
+/// The reader: the open document, the page on show and everything cached for it.
+#[derive(Default)]
 pub(crate) struct ViewerState {
-    /// The open PDF document, if any.
+    /// The open document, when there is one.
     pub(crate) doc: Option<Document>,
-    /// The URL of the PDF that is open, so we know when to reload.
-    pub(crate) url: String,
-    /// The current page index.
+    /// The datasheet address the document was read from; another address closes it.
+    pub(crate) owner: String,
+    /// The page on show, counted from zero.
     pub(crate) page: usize,
-    /// Search state.
-    pub(crate) search: DocSearch,
-    /// The search query text.
+    /// The words typed in the search box.
     pub(crate) query: String,
-    /// Cached text layers per page.
+    /// The last search result.
+    pub(crate) search: DocSearch,
+    /// True once a search ran for the words in the box.
+    pub(crate) searched: bool,
+    /// Text layers read so far, by page.
     pub(crate) layers: HashMap<usize, Vec<CharBox>>,
-    /// Cached rendered pages per page.
-    pub(crate) textures: HashMap<usize, (egui::TextureHandle, usize, usize)>,
-    /// The page size in points for the current document.
-    pub(crate) page_size: Option<(f32, f32)>,
-    /// Whether the current page has a text layer.
-    pub(crate) has_text: bool,
-    /// The plain text of the current page for accessibility.
-    pub(crate) page_text: String,
+    /// Page pictures drawn so far, by page; `None` marks a page that would not draw.
+    pub(crate) textures: HashMap<usize, Option<egui::TextureHandle>>,
+    /// The dragged-over text: the page it is on and the span.
+    pub(crate) selection: Option<(usize, Selection)>,
+    /// What went wrong last, in the reader's own words.
+    pub(crate) error: Option<String>,
 }
 
-impl Default for ViewerState {
-    fn default() -> Self {
-        Self {
-            doc: None,
-            url: String::new(),
-            page: 0,
-            search: DocSearch::default(),
-            query: String::new(),
-            layers: HashMap::new(),
-            textures: HashMap::new(),
-            page_size: None,
-            has_text: false,
-            page_text: String::new(),
+impl ViewerState {
+    /// Open a PDF from bytes the person supplied.
+    pub(crate) fn open(&mut self, source: &str, bytes: Vec<u8>) -> Result<(), String> {
+        let doc = Document::open(bytes)?;
+        self.close();
+        self.doc = Some(doc);
+        source.clone_into(&mut self.owner);
+        Ok(())
+    }
+
+    /// Close the document and forget everything drawn from it.
+    pub(crate) fn close(&mut self) {
+        *self = Self::default();
+    }
+
+    /// True while a document is open.
+    pub(crate) fn is_open(&self) -> bool {
+        self.doc.is_some()
+    }
+
+    /// Show another page and drop the text selection.
+    pub(crate) fn go_to(&mut self, page: usize) {
+        let last = self
+            .doc
+            .as_ref()
+            .map_or(0, |d| d.page_count().saturating_sub(1));
+        self.page = page.min(last);
+        self.selection = None;
+        self.error = None;
+    }
+
+    /// Search the whole document for the words in the box and show the first result.
+    pub(crate) fn run_search(&mut self) {
+        let words = self.query.trim().to_owned();
+        self.selection = None;
+        if words.is_empty() {
+            self.search.clear();
+            self.searched = false;
+            return;
+        }
+        let Some(doc) = self.doc.as_ref() else {
+            return;
+        };
+        match doc.search(&words) {
+            Ok(found) => {
+                let first = found.active_hit().map(|h| h.page);
+                self.search = found;
+                self.searched = true;
+                self.error = None;
+                if let Some(page) = first {
+                    self.go_to(page);
+                }
+            }
+            Err(e) => {
+                self.search.clear();
+                self.searched = false;
+                self.error = Some(e);
+            }
+        }
+    }
+
+    /// Step to the next result (`1`) or the previous one (`-1`) and show its page.
+    pub(crate) fn step_result(&mut self, delta: isize) {
+        if let Some(page) = self.search.step(delta) {
+            self.go_to(page);
+        }
+    }
+
+    /// The words under the selection, in reading order.
+    pub(crate) fn selected(&self) -> String {
+        match (self.selection, self.layers.get(&self.page)) {
+            (Some((page, sel)), Some(layer)) if page == self.page => selected_text(layer, sel),
+            _ => String::new(),
+        }
+    }
+
+    /// Read the text layer of a page once.
+    fn ensure_layer(&mut self, page: usize) {
+        if self.layers.contains_key(&page) {
+            return;
+        }
+        let Some(doc) = self.doc.as_ref() else {
+            return;
+        };
+        match doc.text_layer(page) {
+            Ok(layer) => {
+                self.layers.insert(page, layer);
+            }
+            Err(e) => {
+                self.layers.insert(page, Vec::new());
+                self.error = Some(e);
+            }
+        }
+    }
+
+    /// Draw a page to a picture once and keep it.
+    fn ensure_texture(&mut self, ctx: &egui::Context, page: usize) {
+        if self.textures.contains_key(&page) {
+            return;
+        }
+        let Some(doc) = self.doc.as_ref() else {
+            return;
+        };
+        if self.textures.len() >= TEXTURE_KEEP {
+            self.textures.clear();
+        }
+        match doc.render(page, PAGE_DPI) {
+            Ok(bitmap) => {
+                let image = egui::ColorImage::from_rgba_unmultiplied(
+                    [bitmap.width as usize, bitmap.height as usize],
+                    &bitmap.rgba,
+                );
+                let handle = ctx.load_texture(
+                    format!("library-datasheet-page-{page}"),
+                    image,
+                    egui::TextureOptions::LINEAR,
+                );
+                self.textures.insert(page, Some(handle));
+            }
+            Err(e) => {
+                self.textures.insert(page, None);
+                self.error = Some(e);
+            }
+        }
+    }
+
+    /// Read the local PDF the person asked for and open it.
+    fn read_local(&mut self, url: &str) {
+        let Some((_, bytes)) = crate::datasheet::read_file_url(url) else {
+            self.error = Some(t!("libws.ds.read_failed"));
+            return;
+        };
+        if let Err(e) = self.open(url, bytes) {
+            self.error = Some(t!("libws.ds.open_failed", reason = e));
+        }
+    }
+
+    /// The row with the page controls and the copy button.
+    fn page_bar(&mut self, ui: &mut egui::Ui, pages: usize, t: &theme::Tokens) {
+        ui.horizontal_wrapped(|ui| {
+            if secondary_button(
+                ui,
+                None,
+                &t!("libws.ds.prev_page"),
+                &t!("libws.ds.prev_page.tip"),
+                Size::Small,
+                self.page > 0,
+            )
+            .clicked()
+            {
+                self.go_to(self.page.saturating_sub(1));
+            }
+            ui.label(
+                fonts::text(
+                    fonts::Role::Body,
+                    t!("libws.ds.page_of", page = self.page + 1, pages = pages),
+                )
+                .color(t.muted),
+            );
+            if secondary_button(
+                ui,
+                None,
+                &t!("libws.ds.next_page"),
+                &t!("libws.ds.next_page.tip"),
+                Size::Small,
+                self.page + 1 < pages,
+            )
+            .clicked()
+            {
+                self.go_to(self.page + 1);
+            }
+            let chosen = self.selected();
+            if secondary_button(
+                ui,
+                None,
+                &t!("libws.ds.copy"),
+                &t!("libws.ds.copy.tip"),
+                Size::Small,
+                !chosen.is_empty(),
+            )
+            .clicked()
+            {
+                ui.ctx().copy_text(chosen);
+            }
+        });
+    }
+
+    /// The row with the search box, Find, the result count and the result steppers.
+    fn search_bar(&mut self, ui: &mut egui::Ui, t: &theme::Tokens) {
+        ui.horizontal_wrapped(|ui| {
+            let field = ui
+                .add(
+                    egui::TextEdit::singleline(&mut self.query)
+                        .hint_text(t!("libws.ds.search"))
+                        .desired_width(SEARCH_WIDTH),
+                )
+                .named(&t!("libws.ds.search"))
+                .on_hover_text(t!("libws.ds.search.tip"));
+            if field.changed() && self.query.chars().count() > SEARCH_MAX {
+                self.query = self.query.chars().take(SEARCH_MAX).collect();
+            }
+            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let find = secondary_button(
+                ui,
+                None,
+                &t!("libws.ds.find"),
+                &t!("libws.ds.find.tip"),
+                Size::Small,
+                !self.query.trim().is_empty(),
+            );
+            if find.clicked() || enter {
+                self.run_search();
+            }
+            let count = self.search.count();
+            if count > 0 {
+                ui.label(
+                    fonts::text(
+                        fonts::Role::Body,
+                        t!(
+                            "libws.ds.result_of",
+                            n = self.search.active + 1,
+                            total = count
+                        ),
+                    )
+                    .color(t.muted),
+                );
+                if secondary_button(
+                    ui,
+                    None,
+                    &t!("libws.ds.prev"),
+                    &t!("libws.ds.prev.tip"),
+                    Size::Small,
+                    true,
+                )
+                .clicked()
+                {
+                    self.step_result(-1);
+                }
+                if secondary_button(
+                    ui,
+                    None,
+                    &t!("libws.ds.next"),
+                    &t!("libws.ds.next.tip"),
+                    Size::Small,
+                    true,
+                )
+                .clicked()
+                {
+                    self.step_result(1);
+                }
+            } else if self.searched {
+                ui.label(fonts::text(fonts::Role::Body, t!("libws.ds.no_results")).color(t.muted));
+            }
+        });
+    }
+
+    /// The page picture with the search marks, the selection and the drag handling.
+    fn page_body(&mut self, ui: &mut egui::Ui, t: &theme::Tokens) {
+        let page = self.page;
+        self.ensure_layer(page);
+        self.ensure_texture(ui.ctx(), page);
+        let Some((pw, ph)) = self.doc.as_ref().and_then(|d| d.page_size(page).ok()) else {
+            return;
+        };
+        if pw <= 0.0 || ph <= 0.0 {
+            return;
+        }
+        let has_text = self.layers.get(&page).is_some_and(|l| page_has_text(l));
+        if !has_text {
+            ui.label(fonts::text(fonts::Role::Body, t!("libws.ds.no_text")).color(t.muted));
+        }
+        let width = ui.available_width();
+        let size = egui::vec2(width, width * ph / pw);
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+        let to_page = |pos: egui::Pos2| {
+            let rel = pos - rect.min;
+            (
+                rel.x * pw / rect.width().max(1.0),
+                rel.y * ph / rect.height().max(1.0),
+            )
+        };
+        let to_screen = |x0: f32, y0: f32, x1: f32, y1: f32| {
+            let (sx, sy) = (rect.width() / pw, rect.height() / ph);
+            egui::Rect::from_min_max(
+                rect.min + egui::vec2(x0 * sx, y0 * sy),
+                rect.min + egui::vec2(x1 * sx, y1 * sy),
+            )
+        };
+        if let Some(Some(tex)) = self.textures.get(&page) {
+            ui.painter().image(
+                tex.id(),
+                rect,
+                egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+        }
+        let painter = ui.painter_at(rect);
+        for (i, hit) in self.search.hits.iter().enumerate() {
+            if hit.page != page {
+                continue;
+            }
+            let fill = if i == self.search.active {
+                t.copper.gamma_multiply(0.6)
+            } else {
+                t.gold.gamma_multiply(0.5)
+            };
+            let b = &hit.bounds;
+            painter.rect_filled(to_screen(b.x0, b.y0, b.x1, b.y1), 0.0, fill);
+        }
+        if let (Some((sel_page, sel)), Some(layer)) = (self.selection, self.layers.get(&page))
+            && sel_page == page
+            && !layer.is_empty()
+        {
+            let (lo, hi) = sel.range(layer.len());
+            for c in layer[lo..=hi].iter().filter(|c| !c.ch.is_whitespace()) {
+                painter.rect_filled(
+                    to_screen(c.x0, c.y0, c.x1, c.y1),
+                    0.0,
+                    t.cyan.gamma_multiply(0.4),
+                );
+            }
+        }
+        if has_text {
+            let layer = self.layers.get(&page).map(Vec::as_slice).unwrap_or(&[]);
+            if response.drag_started()
+                && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+            {
+                let (x, y) = to_page(origin);
+                self.selection = char_at_point(layer, x, y).map(|at| {
+                    (
+                        page,
+                        Selection {
+                            anchor: at,
+                            focus: at,
+                        },
+                    )
+                });
+            }
+            if response.dragged()
+                && let Some(pos) = response.interact_pointer_pos()
+                && let Some((_, sel)) = self.selection.as_mut()
+            {
+                let (x, y) = to_page(pos);
+                if let Some(at) = char_at_point(layer, x, y) {
+                    sel.focus = at;
+                }
+            }
+        }
+        if response.clicked() {
+            self.selection = None;
+        }
+        let layer = self.layers.get(&page);
+        ui.ctx().accesskit_node_builder(response.id, |node| {
+            if let Some(layer) = layer {
+                node.set_description(plain_text(layer));
+            }
+        });
+        a11y::name_control(&response, &t!("libws.ds.page_area"), None);
+        response.on_hover_text(t!("libws.ds.page_area.tip"));
+    }
+
+    /// The reader card: controls above, the page below.
+    fn show(&mut self, ui: &mut egui::Ui, t: &theme::Tokens) {
+        let Some(pages) = self.doc.as_ref().map(Document::page_count) else {
+            return;
+        };
+        let mut close = false;
+        card(
+            ui,
+            &t!("libws.ds.reader"),
+            None,
+            |ui| {
+                close = secondary_button(
+                    ui,
+                    None,
+                    &t!("libws.ds.close"),
+                    &t!("libws.ds.close.tip"),
+                    Size::Small,
+                    true,
+                )
+                .clicked();
+            },
+            |ui| {
+                self.page_bar(ui, pages, t);
+                self.search_bar(ui, t);
+                if let Some(problem) = self.error.clone() {
+                    ui.label(
+                        fonts::text(fonts::Role::Body, t!("libws.ds.problem", reason = problem))
+                            .color(t.red),
+                    );
+                }
+                ui.add_space(theme::SPACE[1]);
+                self.page_body(ui, t);
+            },
+        );
+        if close {
+            self.close();
         }
     }
 }
-//! The Datasheet page: the datasheet link and the details read for the part.
-//!
-//! Context: issue #695 and the datasheet reader note (#678 and children). The page that renders
-//! the PDF itself, with page navigation, search and a text layer, is a separate piece of work
-//! (a page-render trait over a pure-Rust renderer, a cache of the PDF on this computer). Until
-//! it lands this page shows what is known now: the link, the key details, and a button that
-//! opens the datasheet in the person's browser.
-//!
-//! Local rules: nothing is fetched here; a datasheet is only ever opened by the person.
-//!
-//! # Dependencies
-//! - crates/ui-egui/src/library_workspace/overview.rs (`key_parameters`, `value_row`)
-//!
-//! # Do not
-//! - Download or cache a PDF from a frame.
-use super::overview::{key_parameters, value_row};
-use super::*;
-use crate::ui_kit::card::card;
 
 impl App {
-    /// The Datasheet page.
+    /// The Datasheet page: the link, the key details, then the reader when a PDF is open.
     pub(super) fn library_datasheet_page(&mut self, ui: &mut egui::Ui, f: &PartFacts) {
         let t = theme::tokens(ui.ctx());
+        let viewer = &mut self.libws.datasheet;
+        if viewer.is_open() && f.datasheet.as_deref() != Some(viewer.owner.as_str()) {
+            viewer.close();
+        }
         card(
             ui,
             &t!("libws.ds.title"),
@@ -114,6 +498,21 @@ impl App {
                         {
                             ui.ctx().open_url(egui::OpenUrl::new_tab(url.clone()));
                         }
+                        let lower = url.to_ascii_lowercase();
+                        let local_pdf = lower.starts_with("file://") && lower.ends_with(".pdf");
+                        if !viewer.is_open()
+                            && secondary_button(
+                                ui,
+                                None,
+                                &t!("libws.ds.read"),
+                                &t!("libws.ds.read.tip"),
+                                Size::Normal,
+                                local_pdf,
+                            )
+                            .clicked()
+                        {
+                            viewer.read_local(url);
+                        }
                     }
                     None => {
                         ui.label(
@@ -121,8 +520,14 @@ impl App {
                         );
                     }
                 }
-                ui.add_space(4.0);
-                ui.label(fonts::caption(t!("libws.ds.reader_later")).color(t.muted));
+                if !viewer.is_open()
+                    && let Some(problem) = viewer.error.clone()
+                {
+                    ui.label(
+                        fonts::text(fonts::Role::Body, t!("libws.ds.problem", reason = problem))
+                            .color(t.red),
+                    );
+                }
             },
         );
         card(
@@ -136,331 +541,6 @@ impl App {
                 }
             },
         );
-    }
-}
-
-impl ViewerState {
-    /// Open a PDF document from bytes.
-    pub(crate) fn open(&mut self, bytes: Vec<u8>) -> Result<(), String> {
-        let doc = Document::open(bytes)?;
-        self.doc = Some(doc);
-        self.page = 0;
-        self.search.clear();
-        self.layers.clear();
-        self.textures.clear();
-        self.page_size = None;
-        self.has_text = false;
-        self.page_text.clear();
-        Ok(())
-    }
-
-    /// Get or create the text layer for a page.
-    fn layer(&mut self, page: usize) -> Result<Vec<CharBox>, String> {
-        if let Some(layer) = self.layers.get(&page) {
-            return Ok(layer.clone());
-        }
-        let doc = self.doc.as_ref().ok_or("no document")?;
-        let layer = doc.text_layer(page)?;
-        self.layers.insert(page, layer.clone());
-        Ok(layer)
-    }
-
-    /// Get or create the rendered texture for a page.
-    fn texture(&mut self, ctx: &egui::Context, page: usize) -> Result<egui::TextureHandle, String> {
-        if let Some((tex, _, _)) = self.textures.get(&page) {
-            return Ok(tex.clone());
-        }
-        let doc = self.doc.as_ref().ok_or("no document")?;
-        let bitmap = doc.render(page, 96.0)?;
-        let image = egui::ColorImage::from_rgba_unmultiplied(
-            [bitmap.width as usize, bitmap.height as usize],
-            &bitmap.rgba,
-        );
-        let tex = ctx.load_texture(
-            format!("datasheet-page-{}", page),
-            image,
-            egui::TextureOptions::LINEAR,
-        );
-        self.textures.insert(
-            page,
-            (tex.clone(), bitmap.width as usize, bitmap.height as usize),
-        );
-        Ok(tex)
-    }
-
-    /// Search the document for a query.
-    pub(crate) fn search(&mut self, query: &str) -> Result<(), String> {
-        if query.is_empty() {
-            self.search.clear();
-            return Ok(());
-        }
-        let doc = self.doc.as_ref().ok_or("no document")?;
-        self.search = doc.search(query)?;
-        Ok(())
-    }
-
-    /// Step to the next or previous search result.
-    pub(crate) fn step_search(&mut self, delta: isize) -> Option<usize> {
-        self.search.step(delta)
-    }
-}
-
-impl App {
-    /// The Datasheet page: the PDF viewer with search, selection and accessibility.
-    pub(super) fn library_datasheet_page(&mut self, ui: &mut egui::Ui, f: &PartFacts) {
-        let t = theme::tokens(ui.ctx());
-        let viewer = &mut self.libws.datasheet;
-
-        // Open the PDF if needed.
-        match &f.datasheet {
-            Some(url) => {
-                if viewer.doc.is_none() || viewer.url != *url {
-                    viewer.url = url.clone();
-                    // For now, use a fixture PDF. In production, this would fetch the URL.
-                    let bytes = pcbcraft_datasheet::fixture_pdf::one_page_text();
-                    if let Err(e) = viewer.open(bytes) {
-                        ui.label(fonts::text(fonts::Role::Body, &format!("Failed to open PDF: {}", e)).color(t.error));
-                    }
-                }
-            }
-            None => {
-                card(
-                    ui,
-                    &t!("libws.ds.title"),
-                    None,
-                    |_| {},
-                    |ui| {
-                        ui.label(
-                            fonts::text(fonts::Role::Body, t!("libws.ds.no_link")).color(t.muted),
-                        );
-                    },
-                );
-                return;
-            }
-        }
-
-        // Search bar.
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(fonts::text(fonts::Role::Body, t!("libws.ds.search")).color(t.muted));
-            let query_response = ui.text_edit_singleline(&mut viewer.query);
-            let query_changed = query_response.changed();
-            let query_text = viewer.query.clone();
-
-            if secondary_button(
-                ui,
-                None,
-                &t!("libws.ds.search_button"),
-                &t!("libws.ds.search_button.tip"),
-                Size::Normal,
-                true,
-            )
-            .clicked()
-            {
-                if let Err(e) = viewer.search(&query_text) {
-                    ui.label(fonts::text(fonts::Role::Body, &format!("Search error: {}", e)).color(t.error));
-                }
-            }
-
-            if viewer.search.count() > 0 {
-                let active = viewer.search.active;
-                let total = viewer.search.count();
-                ui.label(
-                    fonts::text(
-                        fonts::Role::Body,
-                        &format!("{} / {}", active + 1, total),
-                    )
-                    .color(t.muted),
-                );
-                if secondary_button(
-                    ui,
-                    None,
-                    &t!("libws.ds.prev"),
-                    &t!("libws.ds.prev.tip"),
-                    Size::Normal,
-                    true,
-                )
-                .clicked()
-                {
-                    if let Some(page) = viewer.step_search(-1) {
-                        viewer.page = page;
-                    }
-                }
-                if secondary_button(
-                    ui,
-                    None,
-                    &t!("libws.ds.next"),
-                    &t!("libws.ds.next.tip"),
-                    Size::Normal,
-                    true,
-                )
-                .clicked()
-                {
-                    if let Some(page) = viewer.step_search(1) {
-                        viewer.page = page;
-                    }
-                }
-            }
-        });
-
-        // Page navigation.
-        if let Some(doc) = viewer.doc.as_ref() {
-            let page_count = doc.page_count();
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                if secondary_button(
-                    ui,
-                    None,
-                    &t!("libws.ds.page_prev"),
-                    &t!("libws.ds.page_prev.tip"),
-                    Size::Normal,
-                    viewer.page > 0,
-                )
-                .clicked()
-                {
-                    viewer.page = viewer.page.saturating_sub(1);
-                }
-                ui.label(
-                    fonts::text(
-                        fonts::Role::Body,
-                        &format!("{} / {}", viewer.page + 1, page_count),
-                    )
-                    .color(t.muted),
-                );
-                if secondary_button(
-                    ui,
-                    None,
-                    &t!("libws.ds.page_next"),
-                    &t!("libws.ds.page_next.tip"),
-                    Size::Normal,
-                    viewer.page < page_count - 1,
-                )
-                .clicked()
-                {
-                    viewer.page = (viewer.page + 1).min(page_count - 1);
-                }
-            });
-        }
-
-        // PDF viewer.
-        if let Some(doc) = viewer.doc.as_ref() {
-            let page_count = doc.page_count();
-            if viewer.page >= page_count {
-                viewer.page = page_count - 1;
-            }
-
-            // Get the text layer for the current page.
-            match viewer.layer(viewer.page) {
-                Ok(layer) => {
-                    viewer.has_text = page_has_text(&layer);
-                    viewer.page_text = plain_text(&layer);
-                }
-                Err(e) => {
-                    ui.label(
-                        fonts::text(fonts::Role::Body, &format!("Text layer error: {}", e))
-                            .color(t.error),
-                    );
-                }
-            }
-
-            // Render the page.
-            let ctx = ui.ctx();
-            match viewer.texture(ctx, viewer.page) {
-                Ok(tex) => {
-                    // Calculate the page size.
-                    if viewer.page_size.is_none() {
-                        if let Ok(size) = doc.page_size(viewer.page) {
-                            viewer.page_size = Some(size);
-                        }
-                    }
-
-                    // Draw the page.
-                    let available = ui.available_size();
-                    let page_w = available.x;
-                    let page_h = page_w * 1.414; // A4 aspect ratio
-
-                    let response = ui
-                        .allocate_ui_at_least(egui::vec2(page_w, page_h), |ui| {
-                            let rect = ui.max_rect();
-                            ui.painter().image(tex, rect);
-
-                            // Draw search highlights.
-                            if let Some(hit) = viewer.search.active_hit() {
-                                if hit.page == viewer.page {
-                                    // Scale from PDF points to screen pixels.
-                                    let scale_x = rect.width() / 595.0; // A4 width in points
-                                    let scale_y = rect.height() / 842.0; // A4 height in points
-
-                                    let hit_rect = egui::Rect::from_min_max(
-                                        egui::pos2(
-                                            rect.min.x + hit.bounds.x0 * scale_x,
-                                            rect.min.y + hit.bounds.y0 * scale_y,
-                                        ),
-                                        egui::pos2(
-                                            rect.min.x + hit.bounds.x1 * scale_x,
-                                            rect.min.y + hit.bounds.y1 * scale_y,
-                                        ),
-                                    );
-                                    ui.painter().rect(
-                                        hit_rect,
-                                        0.0,
-                                        egui::Color32::from_rgba_premultiplied(255, 255, 0, 128),
-                                        egui::Stroke::new(2.0, egui::Color32::YELLOW),
-                                    );
-                                }
-                            }
-
-                            // Handle text selection.
-                            if viewer.has_text {
-                                let layer = viewer.layers.get(&viewer.page).cloned().unwrap_or_default();
-                                let scale_x = rect.width() / 595.0;
-                                let scale_y = rect.height() / 842.0;
-
-                                if ui.input(|i| i.pointer.primary_down()) {
-                                    let pos = ui.input(|i| i.pointer.position());
-                                    if rect.contains(pos) {
-                                        let pdf_x = (pos.x - rect.min.x) / scale_x;
-                                        let pdf_y = (pos.y - rect.min.y) / scale_y;
-                                        if let Some(idx) = char_at_point(&layer, pdf_x, pdf_y) {
-                                            // Start selection.
-                                        }
-                                    }
-                                }
-                            }
-
-                            response
-                        });
-
-                    // Accessibility: expose page text.
-                    if viewer.has_text {
-                        response.accessibility_info(|| {
-                            let mut info = egui::accesskit::Node::default();
-                            info.set_role(egui::accesskit::Role::TEXT);
-                            info.set_name(viewer.page_text.clone());
-                            info
-                        });
-                    }
-                }
-                Err(e) => {
-                    ui.label(
-                        fonts::text(fonts::Role::Body, &format!("Failed to render page: {}", e))
-                            .color(t.error),
-                    );
-                }
-            }
-        }
-
-        // Details card.
-        card(
-            ui,
-            &t!("libws.ds.details"),
-            None,
-            |_| {},
-            |ui| {
-                for (label, value) in key_parameters(f) {
-                    value_row(ui, &label, value);
-                }
-            },
-        );
+        viewer.show(ui, &t);
     }
 }

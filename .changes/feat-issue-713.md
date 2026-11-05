@@ -3,6 +3,6 @@ type: feature
 area: ui
 issues: [713]
 user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Library tab: compare set, part tabs and diff table (child of #699).
+docs: n/a: the Datasheet page text lives in the string table and the page needs no separate guide
+summary: The Library tab Datasheet page now shows the PDF with page controls, search, selectable text and copy.
 ---
