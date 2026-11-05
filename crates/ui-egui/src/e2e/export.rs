@@ -930,3 +930,36 @@ fn a_newcomer_exports_a_placement_file_split_by_side() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_exports_the_board_to_solidcraft() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    let listed = in_format_list(&ctx, &mut app, "SolidCraft project")?;
+    assert!(listed, "SolidCraft is listed under Exchange");
+    authoring::tests::tap(&ctx, &mut app, "SolidCraft project")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let scraft = dir.path().join("board.solidcraft");
+    assert!(
+        scraft.exists(),
+        "board.solidcraft was written: {}",
+        app.message
+    );
+    let text = std::fs::read_to_string(&scraft).map_err(|e| e.to_string())?;
+    assert!(
+        text.contains("\"format\"") && text.contains("solidcraft/22"),
+        "the file has the SolidCraft format stamp"
+    );
+    assert!(
+        text.contains("org.pcbcraft"),
+        "the file carries the PCBCraft metadata key"
+    );
+    Ok(())
+}

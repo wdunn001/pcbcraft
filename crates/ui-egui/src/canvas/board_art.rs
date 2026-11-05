@@ -23,6 +23,11 @@ impl App {
                 "B.Mask" => Color32::from_rgb(90, 150, 120),
                 _ => self.accent(),
             };
+            let color = if g.sublayer.ends_with("SilkS") || g.sublayer.is_empty() {
+                color.linear_multiply(self.silk_view_alpha(self.graphic_layer(g) != Layer::Front))
+            } else {
+                color
+            };
             if let Some(outline) = g.outline() {
                 let points: Vec<egui::Pos2> =
                     outline.iter().map(|pt| camera.screen(*pt, rect)).collect();
