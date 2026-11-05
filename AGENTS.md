@@ -1,6 +1,6 @@
 # PCBCraft agent instructions
 
-Rust EDA app, GPL-3.0-or-later, MCP-first. Home: [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft). Start here: issue [#1](https://github.com/wdunn001/pcbcraft/issues/1) (authoritative), then [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/getting-started.md](docs/getting-started.md).
+Rust EDA app, MIT OR Apache-2.0, MCP-first. Home: [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft). Start here: issue [#1](https://github.com/wdunn001/pcbcraft/issues/1) (authoritative), then [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/getting-started.md](docs/getting-started.md).
 
 The agent rules live in `.cursor/rules/*.mdc`, one topic per file. This file only points to them.
 

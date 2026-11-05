@@ -5,41 +5,55 @@
 On [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft), push your branch
 and open a pull request against `main` (never push to `main`). Wait for the green
 **CI result** check on that commit and link the Actions run in the pull request
-body. That run is the required proof; you do not need a green local
-`cargo xtask ci` on a laptop. Clone and first-run steps:
+body. That run is the required proof. A local run of the same commands is
+optional. Clone and first-run steps:
 [getting-started.md](getting-started.md).
 
 ## The pipeline (`.github/workflows/ci.yml`)
 
 Every job runs one `cargo xtask` command or one build, so a failure reproduces
-with the same command. All jobs run on the owner's self-hosted Linux runners.
+with the same command. Jobs run on self-hosted runners, picked by two runner
+labels. The small jobs (change detection, the site checks, the final result) use
+one label. The Rust jobs and the deploy use the other label.
 The gate runs on pull requests, on pushes to `main`, in the merge queue and on
-manual dispatch. A new push to a pull request cancels its older run; runs on
-`main` are never cancelled.
+manual dispatch. A new push to a pull request cancels its older run. Runs on
+`main`, in the merge queue and by hand are never cancelled. Every commit on
+`main` keeps its own result. The deploy (see below) waits for it.
 
-A draft pull request runs stage 1 only. A documentation-only change (Markdown,
-`docs/`, licence files) skips stages 2 to 4. The last job, **CI result**, always
+A draft pull request runs Lint, the site checks when they apply and the result
+job. The Clippy, Licenses, test, build and E2E jobs wait until the pull request is
+marked ready. The first job, **Changes**, lists the files the change touches. When
+only Markdown, `docs/`, licence files or issue templates changed, every Rust job
+is skipped (Clippy and Licenses included). Lint still runs. The **Site** job runs
+when `site/`, `docs/` or `ci.yml` changed. The last job, **CI result**, always
 runs, fails if any job failed or was cancelled, and is the one required check.
+A skipped job does not fail it.
 
 | Stage | Job | Command | What it enforces |
 | --- | --- | --- | --- |
-| 1 | Lint | `cargo xtask lint` (add `--json` for a per-step result array) | No committed conflict markers, every workflow file parses and every `needs:` names a job, rustfmt, workspace lint policy, crate dependency layers, the documentation standard (`docs check`), the text catalog (`strings check`) |
+| 0 | Changes | a shell step | Decides which of the other jobs run |
+| 1 | Lint | `cargo xtask lint` (add `--json` for a per-step result array), then on pull requests `cargo xtask changeset require` | No committed conflict markers, every workflow file parses and every `needs:` names a job, rustfmt, workspace lint policy, crate dependency layers, the documentation standard (`docs check`), the text catalog (`strings check`). Then the change file rule (see below) |
 | 1 | Clippy | `cargo xtask clippy` | Clippy with `-D warnings` on all targets |
 | 1 | Licenses and advisories | `cargo xtask deny` | `deny.toml`: licence allow list, RustSec advisories, yanked crates, unknown sources |
 | 2 | Unit tests | `cargo xtask test` | Workspace tests with cargo-nextest (profile `ci`, JUnit report uploaded) plus doctests |
 | 3 | Check (wasm) | `cargo xtask wasm-check`, `cargo xtask wasm-deps` | The browser crates check for wasm32, wasm clippy blocks `std::time` clocks; the portable crates pass `cargo check` for wasm32 and the shared library revision is reported |
 | 3 | Build (wasm) | `cargo xtask wasm-bundle` | Trunk release build with hashed file names, without wasm-opt (see below), then the headless first-frame smoke. Uploads `web-dist` |
 | 3 | Build (Linux x86_64) | `cargo build --release --locked -p pcbcraft -p pcbcraft-cli` | The desktop app and CLI link. Uploads `linux-x86_64` |
-| 3 | Build (Windows x86_64) | `cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p pcbcraft -p pcbcraft-cli` | Cross-compiled on a Linux runner; main and the merge queue only. Uploads `windows-x86_64` |
+| 3 | Build (Windows x86_64) | `cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p pcbcraft -p pcbcraft-cli` | Cross-compiled on a Linux runner. Runs on `main`, in the merge queue and on manual dispatch, after the unit tests pass. Uploads `windows-x86_64` |
 | 4 | E2E | `cargo xtask e2e` | Every `a_newcomer_*` story and a walk of every page (see below) |
+| - | Site | the `npm run` checks in `site/` | Contrast, features, changelog reader, docs map, Astro check, build, links, content security policy, and a browser accessibility check |
 | - | CI result | none | The single required check |
 
-The unit tests, the builds and E2E each wait only for Lint and Clippy, so they
-run side by side instead of one stage after the other. The "stage" numbers are
-a reading order, not a chain. Licenses and advisories gate the unit tests only.
-The wasm work is two jobs (Check and Build) so the dev-profile checks run while
-the release bundle compiles. The browser smoke runs once, in Build (wasm), on the
-bundle it uploads.
+Licenses and advisories, Clippy and Lint gate the unit tests. The two wasm jobs,
+the Linux build and E2E wait only for Lint and Clippy. They run side by side
+instead of one stage after the other. The "stage" numbers are a reading order,
+not a chain. The wasm work is two jobs (Check and Build) so the dev-profile checks
+run while the release bundle compiles. The browser smoke runs once, in Build
+(wasm), on the bundle it uploads.
+
+Each Rust job uses its own cargo home inside the job. Two jobs on one runner
+cannot rewrite each other's registry. The unit and E2E jobs move the build output
+to a larger disk when the runner's work folder is small.
 
 ### Web bundle: with and without wasm-opt
 
@@ -57,8 +71,11 @@ cannot rot. To change the optimized settings, edit the rust link in `index.html`
 and keep the `OPTIMIZED_ATTRS` constant in `xtask/src/main.rs` equal to it: the
 quick build swaps that text, and fails with a message when it is not found.
 
-Local equivalents: `cargo xtask lint` for stage 1, `cargo xtask ci` for stages
-1 to 3 in one go.
+Local equivalents: `cargo xtask lint` for the Lint job. `cargo xtask ci` runs the
+layer check, lint policy, rustfmt, Clippy, tests, the wasm check and bundle, and
+the two documentation checks. It does not run `deny`, `e2e`, `strings check`, the
+site checks or the Windows build. Run those commands on their own when your
+change needs them.
 The wasm jobs need `trunk`, `node` and the `wasm32-unknown-unknown` target; the
 Windows job needs `cargo-xwin`, `clang` and `lld`.
 
@@ -74,7 +91,9 @@ when they differ. It skips the comparison quietly when that checkout is absent.
 
 ## Changelog and release notes
 
-Every pull request that changes the app, the engine or the site adds one change file under `.changes/` (format in `.changes/README.md`). The step "Require a change file" in the Lint job runs `cargo xtask changeset require` and fails a pull request that changes `crates/`, `apps/` or `site/` and adds none. A pull request carrying the `docs-only` label is exempt, as is one that changes documentation only.
+Every pull request adds exactly one change file under `.changes/`, named after its branch (format in `.changes/README.md`). The step "Require a change file" in the Lint job runs `cargo xtask changeset require` on pull requests. It fails a pull request that changes the app, the engine or the site and adds none. It also fails when a change file the pull request adds does not parse. A pull request carrying the `docs-only` label is exempt, as is one that changes documentation only.
+
+The step checks only that a valid file is there. You run the stricter rules yourself with `cargo xtask changeset check`: exactly one change file, the `docs` list names only files the pull request changes, and a user visible change carries a documentation change or a `docs: n/a: <reason>` line of at least 20 characters. A pull request that lists a documentation file it did not change is sent back in review.
 
 The site builds its Changelog page from those files. `site/src/lib/changelog-core.js` reads them, keeps the entries marked `user_visible: true` and sorts them newest first. The date and the pull request number come from the git history of the file, so the site and release jobs check out the full history. Files moved to `.changes/released/` by `cargo xtask changelog --version X` are still listed, so the history stays complete.
 
@@ -136,21 +155,29 @@ job. A control id is its kind plus its label with digits folded to `#`
 (`button:Add pad`), or `icon:<id>` for tool-strip icons. The stories log the
 controls they press or type into; a walk of every page logs the controls it
 paints and hovers each one for a tooltip. A control must show a tooltip and be
-touched by at least one story. Every new control needs a label (or a
-`record_icon` id), a tooltip, and a story.
+touched by at least one `a_newcomer_*` story. Every new control needs a label (or a
+`record_icon` id), a tooltip, and a story. The gate fails when a painted control has
+no tooltip, no story, or no usable id.
 
 `e2e-exemptions.txt` holds reviewed exceptions, one per line as
 `kind | id | reason` (kind `tooltip`, `story` or `name`, an id ending in `*`
 matches by prefix). The current list is the first run's backlog, tracked in
-#520, and may only shrink: an entry that matches nothing fails the gate. The
-job `strings` runs `cargo xtask strings check` on every Rust change.
+#520, and may only shrink: an entry that matches nothing fails the gate.
+
+## Rules the gates enforce
+
+- **Tests return `Result`.** The workspace denies `unwrap_used` and `expect_used` for all targets, tests included. Clippy runs with `--all-targets`. A test returns `Result<(), String>` and uses `?`. It does not call `unwrap` or `expect`.
+- **No lint opt-outs.** `cargo xtask lint` fails on any `allow` or `expect` attribute that names `unsafe_code` or one of `unwrap_used`, `expect_used`, `panic`, `unimplemented`, `todo` or `unreachable`. Only `crates/clock` may opt out of the clock ban in `clippy.toml`. Every crate inherits the workspace lints.
+- **Fonts.** Text that sits on the drawing asks `role_font` in `crates/ui-egui/src/canvas/text_style.rs` for its font, or `font_mm` when the designer sized it. No painter picks a fixed point size for drawing text.
+- **Strings.** User facing text lives in `crates/text/strings/en.txt`. `cargo xtask strings check` runs in the Lint job. It rejects duplicate keys and a translation that changes a placeholder or has no English key.
+- **Docs check.** `cargo xtask docs check` runs in the Lint job (rules in [doc-standard.md](doc-standard.md)). A `# Dependencies` list in a module header names repo-root paths that exist. A module with no dependencies has no such section.
 
 ## Status data (`cargo xtask status-data`)
 
 Writes `site/src/data/status.json` for the website status page: per feature (from
 `site/src/data/features.yaml`) its issues and their state, merged pull requests, the
 first green CI run after each merge, and the tests that prove it; plus the `ROADMAP.md`
-lines. The tracker is the fork, `wdunn001/pcbcraft`.
+lines. The tracker is `wdunn001/pcbcraft`.
 
 - Offline by default. It reads a cached snapshot, `site/src/data/status-snapshot.json`
   (not committed). `--refresh` rewrites the snapshot with about 10 GitHub API requests
@@ -191,31 +218,26 @@ replace the latest stable download links from tagged releases.
 
 ## Continuous deployment (`cd.yml`)
 
-When the **CI** workflow finishes green on `main`, `cd.yml` runs (it only trusts
-push runs of this repository on `main`, never pull request or fork runs; it can
-also be started by hand from `main`). Runs queue in the `cd` concurrency group
-and never cancel a deployment in flight. Both jobs use the exact commit CI tested.
+When the **CI** workflow finishes green on a push to `main`, `cd.yml` runs. It only
+trusts push runs of this repository on `main`, never pull request or fork runs. It
+can also be started by hand from `main`. Every commit on `main` gets a full CI run
+(runs on `main` are never cancelled). A deploy always follows a finished run.
+Deploys queue in the `cd` concurrency group and never cancel a deployment in flight.
+Both jobs use the exact commit CI tested.
 
-- **Deploy site and demo** (`deploy-site`): builds the Astro site in `site/` (Node 22), runs the
-  site checks (`test:contrast`, `test:features`, `check`, `test:links`, `test:csp`), builds the
-  wasm demo with `trunk build --release --public-url /demo/` (hashed file names, see
-  `apps/pcbcraft-web/Trunk.toml`), then runs `site/scripts/deploy.sh`.
-- **Publish native builds** (`publish-native`): takes the `linux-x86_64` and `windows-x86_64`
-  artifacts of that CI run and replaces the rolling `main-latest` pre-release with
-  `pcbcraft-main-linux-x86_64.tar.gz`, `pcbcraft-main-windows-x86_64.zip` and
-  `SHA256SUMS.txt`. It does nothing when either artifact is missing (a documentation-only
-  run, or artifacts past retention). The pre-release is never marked latest.
+- **Deploy site and demo** (`deploy-site`): runs on a self-hosted runner, as the local deploy step. It builds the Astro site in `site/` (Node 22), runs the site checks (`test:contrast`, `test:features`, `test:docs-map`, `check`, `test:links`, `test:csp`), builds the wasm demo with `trunk build --release --public-url /demo/` (hashed file names, see `apps/pcbcraft-web/Trunk.toml`), then runs `site/scripts/deploy.sh`. The docs pages of the site are generated from `docs/` during the site build.
+- **Publish native builds** (`publish-native`): runs on a GitHub hosted runner. It takes the `linux-x86_64` and `windows-x86_64` artifacts of that CI run and replaces the rolling `main-latest` pre-release with `pcbcraft-main-linux-x86_64.tar.gz`, `pcbcraft-main-windows-x86_64.zip` and `SHA256SUMS.txt`. It does nothing when either artifact is missing (a documentation-only run, or artifacts past retention). The pre-release is never marked latest.
 
 ### Pointing a runner at a deploy target
 
-No host, path or key is in the repository. On the runner that carries the
-`pcbcraft-laptop` label:
+No host, path or key is in the repository. On the self-hosted runner that runs the
+`deploy-site` job:
 
 1. Copy `site/.env.deploy.example` to a file outside any checkout, readable by the runner
    user, and fill it in (ssh target, remote root, optional `DEPLOY_CHECK_URL`).
 2. Set `PCBCRAFT_DEPLOY_ENV` to that file's path, either in the runner's own environment
    (its `.env` file) or as a repository variable of the same name.
-3. Use whatever ssh key the runner user already has; the script runs ssh in batch mode and
+3. Use whatever ssh key the runner user already has. The script runs ssh in batch mode and
    takes extra options from `DEPLOY_SSH_OPTS`.
 
 Until step 2 is done the deploy job logs `no deploy target configured`, skips the builds
@@ -234,12 +256,12 @@ The smoke step then needs `DEPLOY_CHECK_URL`: the site root and `/demo/` must an
 the hashed `*_bg.wasm` and JavaScript the demo page names must resolve, the wasm starting
 with the WebAssembly magic bytes. When the smoke fails, `deploy.sh` switches `current` back
 to the previous release, removes the failed one and exits non-zero. The web server is
-responsible for sending long `Cache-Control` values for hashed files; the smoke prints what
+responsible for sending long `Cache-Control` values for hashed files. The smoke prints what
 it sees.
 
 ### Rolling back
 
-From a checkout on the runner (or any machine with the env file and ssh access):
+From a checkout on the deploy runner (or any machine with the env file and ssh access):
 
 ```
 DEPLOY_ENV_FILE=/path/to/env site/scripts/deploy.sh list
@@ -254,24 +276,15 @@ A rollback is one atomic symlink swap and runs the same smoke check afterwards.
 Push a tag `vX.Y.Z` (or `vX.Y.Z-rc.1`) that matches the workspace version in
 Cargo.toml. The workflow builds, from clean state:
 
-- `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz`
-- `pcbcraft-<tag>-windows-x86_64.msi`, `-windows-x86_64-portable.zip`, standalone `PCBCraft-<tag>-windows-x86_64.exe`, and legacy `-windows-x86_64.zip` (loose exes)
-- `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz` (FHS tree used by Flatpak and Snap repackage jobs)
 - Per Linux architecture (`x86_64`, `aarch64`):
+  - `pcbcraft-<tag>-linux-<arch>.tar.gz` (FHS tree, also the input of the Flatpak and Snap jobs)
   - `pcbcraft-<tag>-linux-<arch>.AppImage` and `.AppImage.zsync`
   - `pcbcraft-<tag>-linux-<arch>.deb` and `.rpm`
   - `pcbcraft-<tag>-linux-<arch>.flatpak` and `.snap`
-- `pcbcraft-<tag>-linux-x86_64.AppImage` and `-linux-aarch64.AppImage` (+ `.zsync` update files)
-- `pcbcraft-<tag>-linux-x86_64.deb` and `-linux-aarch64.deb`
-- `pcbcraft-<tag>-linux-x86_64.rpm` and `-linux-aarch64.rpm`
-- `pcbcraft-<tag>-linux-x86_64.flatpak` and `-linux-aarch64.flatpak`
-- `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz` (FHS layout)
-- `pcbcraft-<tag>-windows-x86_64.zip`
+- Windows x86_64: `pcbcraft-<tag>-windows-x86_64.msi`, `-windows-x86_64-portable.zip`, the standalone `PCBCraft-<tag>-windows-x86_64.exe` and the legacy `-windows-x86_64.zip` (loose exes)
 - `pcbcraft-<tag>-macos-universal.tar.gz` and `.dmg` (Apple silicon and Intel)
 - `pcbcraft-<tag>-web.zip` (trunk build of apps/pcbcraft-web)
 - `pcbcraft-<tag>-source.tar.gz` and `-source-vendored.tar.gz` (complete source, MIT OR Apache-2.0)
-- `SHA256SUMS`
-- `pcbcraft-<tag>-source.tar.gz` and `-source-vendored.tar.gz` (complete corresponding source, GPL-3.0)
 - `SHA256SUMS.txt` (one line per attached file)
 
 Tagged archives also get version-less copies (for example `pcbcraft-linux-x86_64.tar.gz`,
@@ -346,7 +359,5 @@ The logo masters and every platform icon live in `assets/brand/`. Run `assets/br
 
 - Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries and the Windows MSI are unsigned until then; macOS users must open the app via right-click, and Windows may show SmartScreen on first launch.
 - Package formats: Linux AppImage, deb, rpm, Flatpak, and Snap ship from CI; Windows MSI and portable zip ship from CI. Other formats remain open.
-- Package formats: AppImage, .deb, .msi or Flatpak are not produced yet.
-- Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries are unsigned until then, and macOS users must open the app via right-click.
 - Where the web bundle is hosted (Pages or another host) and whether tags publish it.
 - Whether to put Tests, Coverage, E2E, strings, localization or screenshots back on the gate later.

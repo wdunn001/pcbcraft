@@ -573,6 +573,7 @@ pub enum ClickAction {
     ContinueWire,
     ContinueRoute,
     MoveSegment,
+    MoveWireEnd,
     MovePart,
     BoxSelect,
     RenameLabel,
@@ -689,6 +690,14 @@ pub const ROWS: &[Row] = &[
         Drag,
         None,
         CA::MoveSegment,
+    ),
+    row(
+        TK::Select,
+        Some(Schematic),
+        &[T::Node],
+        Drag,
+        None,
+        CA::MoveWireEnd,
     ),
     row(
         TK::Select,
