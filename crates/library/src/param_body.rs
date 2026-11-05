@@ -84,7 +84,39 @@ impl ParamBody {
     }
 }
 
-/// Chip package with metal end caps (leads) on both ends.
+/// Thickness of the raised pin-1 marker. The body is shortened by this much
+/// so the marker top sits exactly at the stated package height.
+const MARKER_T: f64 = 0.05;
+
+/// Body box with a small raised pin-1 marker on a top corner. The marker top
+/// is at `h`, so the whole shape never rises above the stated height.
+fn body_with_marker(lx: f64, ly: f64, h: f64, marker: f64) -> TriangleMesh {
+    let t = MARKER_T.min(h / 2.0);
+    let body = box_prism(lx, ly, h - t);
+    let mut dot = box_prism(marker, marker, t);
+    translate_mesh(&mut dot, -lx / 2.0 + marker, -ly / 2.0 + marker, h - t);
+    merge_meshes(body, dot)
+}
+
+/// Lead centre positions for one row of `count` leads at `pitch`, centred on
+/// zero. A lead of width `w` is kept inside `half` so a row of pins never
+/// widens the package beyond its body.
+fn row_positions(count: usize, pitch: f64, half: f64, w: f64) -> Vec<f64> {
+    let limit = (half - w / 2.0).max(0.0);
+    let step = if pitch > 0.0 {
+        pitch
+    } else {
+        2.0 * half / (count.max(1) as f64)
+    };
+    let mid = (count as f64 - 1.0) / 2.0;
+    (0..count)
+        .map(|i| ((i as f64 - mid) * step).clamp(-limit, limit))
+        .collect()
+}
+
+/// Chip package. The metal end caps wrap the two ends of the body and sit
+/// inside the stated body length, as on a real chip resistor or capacitor.
+/// The bounding box is therefore the body box: length by width by height.
 fn chip_mesh(key: &PackageKey) -> TriangleMesh {
     let h = if key.height_mm > 0.0 {
         key.height_mm
@@ -93,24 +125,20 @@ fn chip_mesh(key: &PackageKey) -> TriangleMesh {
     };
     let lx = key.body_length_mm;
     let ly = key.body_width_mm;
-    let lead_len = 0.3;
-    let lead_h = h * 0.6;
+    let cap_len = (lx / 3.0).min(0.3);
 
-    let mut mesh = box_prism(lx, ly, h);
-    let left_lead = box_prism(lead_len, ly, lead_h);
-    let mut left_lead = left_lead;
-    translate_mesh(&mut left_lead, -lx / 2.0 - lead_len / 2.0, 0.0, 0.0);
-    mesh = merge_meshes(mesh, left_lead);
-
-    let right_lead = box_prism(lead_len, ly, lead_h);
-    let mut right_lead = right_lead;
-    translate_mesh(&mut right_lead, lx / 2.0 + lead_len / 2.0, 0.0, 0.0);
-    mesh = merge_meshes(mesh, right_lead);
-
+    // Middle section is slightly lower than the caps, which reach full height.
+    let mut mesh = box_prism(lx - 2.0 * cap_len, ly, h * 0.9);
+    for sign in [-1.0, 1.0] {
+        let mut cap = box_prism(cap_len, ly, h);
+        translate_mesh(&mut cap, sign * (lx / 2.0 - cap_len / 2.0), 0.0, 0.0);
+        mesh = merge_meshes(mesh, cap);
+    }
     mesh
 }
 
-/// SOT-23 style package with three leads extending downward.
+/// SOT-23 style package. Leads run along y and their tips land at half the
+/// lead span. Pins split between the two long sides.
 fn sot_mesh(key: &PackageKey) -> TriangleMesh {
     let h = if key.height_mm > 0.0 {
         key.height_mm
@@ -119,35 +147,37 @@ fn sot_mesh(key: &PackageKey) -> TriangleMesh {
     };
     let lx = key.body_length_mm;
     let ly = key.body_width_mm;
-    let lead_len = key.lead_span_mm - ly;
+    let lead_len = ((key.lead_span_mm - ly) / 2.0).max(0.0);
     let lead_w = 0.4;
     let lead_h = 0.1;
 
-    let mut mesh = box_prism(lx, ly, h);
-    // Pin-1 marker on the top
-    let marker = box_prism(0.3, 0.3, 0.1);
-    let mut marker = marker;
-    translate_mesh(&mut marker, -lx / 2.0 + 0.3, -ly / 2.0 + 0.3, h);
-    mesh = merge_meshes(mesh, marker);
-
-    // Three leads: two on one side, one on the other
-    let lead_y = ly / 2.0 + lead_len / 2.0;
-    for i in 0..2 {
-        let lead = box_prism(lead_w, lead_len, lead_h);
-        let mut lead = lead;
-        let x = -lx / 2.0 + lx * (i as f64 + 0.5) / 2.0;
-        translate_mesh(&mut lead, x, lead_y, 0.0);
-        mesh = merge_meshes(mesh, lead);
+    let mut mesh = body_with_marker(lx, ly, h, 0.3);
+    if lead_len > 0.0 {
+        let pins = key.pin_count as usize;
+        let low = pins.div_ceil(2);
+        let high = pins / 2;
+        let pitch = key.pitch_mm;
+        // Three pin parts put their two pins at one pitch either side of centre.
+        let low_xs = if pins == 3 && pitch > 0.0 {
+            vec![-pitch, pitch]
+        } else {
+            row_positions(low, pitch, lx / 2.0, lead_w)
+        };
+        let high_xs = row_positions(high, pitch, lx / 2.0, lead_w);
+        let y = ly / 2.0 + lead_len / 2.0;
+        for (xs, sign) in [(low_xs, -1.0), (high_xs, 1.0)] {
+            for x in xs {
+                let mut lead = box_prism(lead_w, lead_len, lead_h);
+                translate_mesh(&mut lead, x, sign * y, 0.0);
+                mesh = merge_meshes(mesh, lead);
+            }
+        }
     }
-    let lead2 = box_prism(lead_w, lead_len, lead_h);
-    let mut lead2 = lead2;
-    translate_mesh(&mut lead2, 0.0, -lead_y, 0.0);
-    mesh = merge_meshes(mesh, lead2);
-
     mesh
 }
 
-/// SOIC/SOP style package with gull-wing leads on both sides.
+/// SOIC/SOP style package with gull-wing leads on both long sides. Lead tips
+/// land at half the lead span.
 fn gull_mesh(key: &PackageKey) -> TriangleMesh {
     let h = if key.height_mm > 0.0 {
         key.height_mm
@@ -158,38 +188,29 @@ fn gull_mesh(key: &PackageKey) -> TriangleMesh {
     };
     let lx = key.body_length_mm.max(2.0);
     let ly = key.body_width_mm.max(1.5);
-    let lead_len = (key.lead_span_mm - ly) / 2.0;
+    let lead_len = ((key.lead_span_mm - ly) / 2.0).max(0.0);
     let lead_w = 0.3;
     let lead_h = 0.1;
 
-    let mut mesh = box_prism(lx, ly, h);
-    // Pin-1 marker
-    let marker = box_prism(0.3, 0.3, 0.1);
-    let mut marker = marker;
-    translate_mesh(&mut marker, -lx / 2.0 + 0.3, -ly / 2.0 + 0.3, h);
-    mesh = merge_meshes(mesh, marker);
-
-    // Gull-wing leads on both long sides
-    let pins_per_side = (key.pin_count / 2) as i32;
-    for side in 0..2 {
-        for i in 0..pins_per_side {
-            let lead = box_prism(lead_w, lead_len, lead_h);
-            let mut lead = lead;
-            let x = -lx / 2.0 + lx * (i as f64 + 0.5) / pins_per_side as f64;
-            let y = if side == 0 {
-                -ly / 2.0 - lead_len / 2.0
-            } else {
-                ly / 2.0 + lead_len / 2.0
-            };
-            translate_mesh(&mut lead, x, y, 0.0);
-            mesh = merge_meshes(mesh, lead);
+    let mut mesh = body_with_marker(lx, ly, h, 0.3);
+    if lead_len > 0.0 {
+        let per_side = (key.pin_count / 2) as usize;
+        let xs = row_positions(per_side, key.pitch_mm, lx / 2.0, lead_w);
+        let y = ly / 2.0 + lead_len / 2.0;
+        for sign in [-1.0, 1.0] {
+            for x in &xs {
+                let mut lead = box_prism(lead_w, lead_len, lead_h);
+                translate_mesh(&mut lead, *x, sign * y, 0.0);
+                mesh = merge_meshes(mesh, lead);
+            }
         }
     }
-
     mesh
 }
 
-/// QFN/DFN package with exposed pad and thin under-leads.
+/// QFN/DFN package with an exposed pad and thin leads on all four sides.
+/// Leads end flush with the body edge, or at half the lead span when the
+/// key gives a wider span.
 fn qfn_mesh(key: &PackageKey) -> TriangleMesh {
     let h = if key.height_mm > 0.0 {
         key.height_mm
@@ -198,45 +219,51 @@ fn qfn_mesh(key: &PackageKey) -> TriangleMesh {
     };
     let lx = key.body_length_mm.max(3.0);
     let ly = key.body_width_mm.max(3.0);
+    let tip_x = (key.lead_span_mm / 2.0).max(lx / 2.0);
+    let tip_y = (key.lead_span_mm / 2.0).max(ly / 2.0);
     let lead_len = 0.5;
-    let lead_w = 0.2;
     let lead_h = 0.1;
+    let lead_w = if key.pitch_mm > 0.0 {
+        (key.pitch_mm * 0.6).min(0.3)
+    } else {
+        0.2
+    };
 
-    let mut mesh = box_prism(lx, ly, h);
-    // Pin-1 marker
-    let marker = box_prism(0.3, 0.3, 0.1);
-    let mut marker = marker;
-    translate_mesh(&mut marker, -lx / 2.0 + 0.3, -ly / 2.0 + 0.3, h);
-    mesh = merge_meshes(mesh, marker);
+    let mut mesh = body_with_marker(lx, ly, h, 0.3);
 
-    // Exposed pad on bottom
-    let pad_size = lx * 0.6;
-    let exposed_pad = box_prism(pad_size, pad_size, 0.05);
-    let mut exposed_pad = exposed_pad;
-    translate_mesh(&mut exposed_pad, 0.0, 0.0, 0.0);
-    mesh = merge_meshes(mesh, exposed_pad);
+    // Exposed pad on the bottom face.
+    let pad = if key.exposed_pad_mm > 0.0 {
+        key.exposed_pad_mm.min(lx.min(ly) - 0.2)
+    } else {
+        lx.min(ly) * 0.6
+    };
+    mesh = merge_meshes(mesh, box_prism(pad, pad, 0.05));
 
-    // Thin under-leads on all four sides
-    let pins_per_side = (key.pin_count / 4) as i32;
+    let per_side = (key.pin_count / 4) as usize;
+    let xs = row_positions(per_side, key.pitch_mm, lx / 2.0, lead_w);
+    let ys = row_positions(per_side, key.pitch_mm, ly / 2.0, lead_w);
     for side in 0..4 {
-        for i in 0..pins_per_side {
-            let lead = box_prism(lead_w, lead_len, lead_h);
-            let mut lead = lead;
-            let pos = -lx / 2.0 + lx * (i as f64 + 0.5) / pins_per_side as f64;
+        let (positions, lead_dx, lead_dy) = match side {
+            0 | 2 => (&xs, lead_w, lead_len),
+            _ => (&ys, lead_len, lead_w),
+        };
+        for p in positions {
+            let mut lead = box_prism(lead_dx, lead_dy, lead_h);
             match side {
-                0 => translate_mesh(&mut lead, pos, -ly / 2.0 - lead_len / 2.0, 0.0),
-                1 => translate_mesh(&mut lead, lx / 2.0 + lead_len / 2.0, pos, 0.0),
-                2 => translate_mesh(&mut lead, pos, ly / 2.0 + lead_len / 2.0, 0.0),
-                _ => translate_mesh(&mut lead, -lx / 2.0 - lead_len / 2.0, pos, 0.0),
+                0 => translate_mesh(&mut lead, *p, -(tip_y - lead_len / 2.0), 0.0),
+                1 => translate_mesh(&mut lead, tip_x - lead_len / 2.0, *p, 0.0),
+                2 => translate_mesh(&mut lead, *p, tip_y - lead_len / 2.0, 0.0),
+                _ => translate_mesh(&mut lead, -(tip_x - lead_len / 2.0), *p, 0.0),
             }
             mesh = merge_meshes(mesh, lead);
         }
     }
-
     mesh
 }
 
-/// DIP package with through-hole leads.
+/// DIP package. The body width runs along x and the length along y. Pins sit
+/// in two rows along y, one row each side, at the row spacing given by the
+/// lead span. Each lead reaches from the body edge out to half the lead span.
 fn dip_mesh(key: &PackageKey) -> TriangleMesh {
     let h = if key.height_mm > 0.0 {
         key.height_mm
@@ -245,34 +272,23 @@ fn dip_mesh(key: &PackageKey) -> TriangleMesh {
     };
     let lx = key.body_width_mm.max(6.0);
     let ly = key.body_length_mm.max(8.0);
-    let lead_len = (key.lead_span_mm - ly) / 2.0;
-    let lead_w = 0.6;
+    let lead_len = (key.lead_span_mm / 2.0 - lx / 2.0).max(0.0);
+    let lead_w = 0.5;
     let lead_h = 0.1;
 
-    let mut mesh = box_prism(lx, ly, h);
-    // Pin-1 indicator
-    let notch = box_prism(0.5, 0.5, 0.1);
-    let mut notch = notch;
-    translate_mesh(&mut notch, -lx / 2.0 + 0.5, -ly / 2.0 + 0.5, h);
-    mesh = merge_meshes(mesh, notch);
-
-    // Through-hole leads on both sides
-    let pins_per_side = (key.pin_count / 2) as i32;
-    for side in 0..2 {
-        for i in 0..pins_per_side {
-            let lead = box_prism(lead_w, lead_len, lead_h);
-            let mut lead = lead;
-            let x = -lx / 2.0 + lx * (i as f64 + 0.5) / pins_per_side as f64;
-            let y = if side == 0 {
-                -ly / 2.0 - lead_len / 2.0
-            } else {
-                ly / 2.0 + lead_len / 2.0
-            };
-            translate_mesh(&mut lead, x, y, 0.0);
-            mesh = merge_meshes(mesh, lead);
+    let mut mesh = body_with_marker(lx, ly, h, 0.5);
+    if lead_len > 0.0 {
+        let per_side = (key.pin_count / 2) as usize;
+        let ys = row_positions(per_side, key.pitch_mm, ly / 2.0, lead_w);
+        let x = lx / 2.0 + lead_len / 2.0;
+        for sign in [-1.0, 1.0] {
+            for y in &ys {
+                let mut lead = box_prism(lead_len, lead_w, lead_h);
+                translate_mesh(&mut lead, sign * x, *y, 0.0);
+                mesh = merge_meshes(mesh, lead);
+            }
         }
     }
-
     mesh
 }
 
