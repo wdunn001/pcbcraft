@@ -386,6 +386,7 @@ fn object_position_user_layer_and_ids() -> T {
     });
     assert_eq!(p.object_position(4), Some(Point::new(3.0, 4.0)));
     p.board.user_layers.push(ArtLayer {
+        side: Default::default(),
         id: 20,
         name: "Outline".into(),
         kind: ArtKind::Cut,

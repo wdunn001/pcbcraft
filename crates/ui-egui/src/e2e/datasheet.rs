@@ -204,3 +204,29 @@ fn show_source_clamps_a_page_past_the_end() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_finds_tables_in_an_open_datasheet() -> Result<(), String> {
+    let f = fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "text-one-page.pdf")
+        .ok_or("fixture pdf")?;
+    let ctx = egui::Context::default();
+    let mut app = fresh();
+    app.datasheet_pane
+        .open_fixture(&ctx, f.bytes)
+        .map_err(|e| e.to_string())?;
+    app.datasheet_pane.pending_extract = true;
+    // One frame advances context time and processes the pending extract request.
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let attachment = app
+        .project
+        .files
+        .iter()
+        .find(|f| f.name.starts_with("datasheet-extract-"));
+    assert!(
+        attachment.is_some(),
+        "an attachment starting with datasheet-extract- should exist after clicking Find tables"
+    );
+    Ok(())
+}
