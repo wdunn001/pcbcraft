@@ -3,9 +3,6 @@
 //! # Rules
 //! - Values are returned as f64 mantissas in the range [1.0, 10.0).
 //! - value_code uses the R/K/M and P/N/U marker system.
-//!
-//! # Dependencies
-//! - None
 
 /// Standard E-series used for passive components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
