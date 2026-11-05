@@ -58,12 +58,71 @@ pub const PROBE_SALT: u64 = 0xA5A5_A5A5_A5A5_A5A5;
 /// # Do not
 /// - Name a fixed cell, or draw more or fewer numbers than the notes say.
 pub fn next_move(
-    _rng: &mut Rng,
-    _movable: &[usize],
-    _model: &Model,
-    _settings: &PlacementSettings,
+    rng: &mut Rng,
+    movable: &[usize],
+    model: &Model,
+    settings: &PlacementSettings,
 ) -> Result<Option<Move>, String> {
-    Err(not_built("slice-1122-a"))
+    if movable.is_empty() {
+        return Ok(None);
+    }
+
+    let kind = rng.next_f64() * 100.0;
+    let cell_idx = rng.below(movable.len());
+    let cell = movable[cell_idx];
+
+    if kind < settings.translate_percent as f64 {
+        translate_move(rng, cell, settings)
+    } else if kind < (settings.translate_percent + settings.rotate_percent) as f64 {
+        Ok(Some(Move::Rotate { cell }))
+    } else {
+        let (hx, hy) = model.cells[cell].half();
+        let mut candidates = Vec::new();
+        for &c in movable {
+            if c == cell {
+                continue;
+            }
+            let (chx, chy) = model.cells[c].half();
+            if (hx - chx).abs() < 1e-6 && (hy - chy).abs() < 1e-6 {
+                candidates.push(c);
+            }
+        }
+        if candidates.is_empty() {
+            translate_move(rng, cell, settings)
+        } else {
+            let other = rng.below(candidates.len());
+            Ok(Some(Move::Swap {
+                a: cell,
+                b: candidates[other],
+            }))
+        }
+    }
+}
+
+fn translate_move(
+    rng: &mut Rng,
+    cell: usize,
+    settings: &PlacementSettings,
+) -> Result<Option<Move>, String> {
+    let dir = rng.below(8);
+    let mult = rng.below(3);
+    let (dx, dy) = match dir {
+        0 => (1.0, 0.0),
+        1 => (1.0, 1.0),
+        2 => (0.0, 1.0),
+        3 => (-1.0, 1.0),
+        4 => (-1.0, 0.0),
+        5 => (-1.0, -1.0),
+        6 => (0.0, -1.0),
+        7 => (1.0, -1.0),
+        _ => return Err("bad direction".into()),
+    };
+    let step = settings.step_mm * settings.step_multipliers[mult];
+    Ok(Some(Move::Translate {
+        cell,
+        dx: dx * step,
+        dy: dy * step,
+    }))
 }
 
 /// Apply a move to the model (slice 1122-a).
@@ -78,8 +137,52 @@ pub fn next_move(
 ///
 /// # Do not
 /// - Apply a move to a fixed cell.
-pub fn apply_move(_model: &mut Model, _mv: &Move) -> Result<(), String> {
-    Err(not_built("slice-1122-a"))
+pub fn apply_move(model: &mut Model, mv: &Move) -> Result<(), String> {
+    match mv {
+        Move::Translate { cell, dx, dy } => {
+            let c = model
+                .cells
+                .get_mut(*cell)
+                .ok_or_else(|| format!("cell {cell} out of range"))?;
+            if c.fixed {
+                return Err(format!("cell {cell} is fixed"));
+            }
+            c.x += *dx;
+            c.y += *dy;
+        }
+        Move::Rotate { cell } => {
+            let c = model
+                .cells
+                .get_mut(*cell)
+                .ok_or_else(|| format!("cell {cell} out of range"))?;
+            if c.fixed {
+                return Err(format!("cell {cell} is fixed"));
+            }
+            c.turns = (c.turns + 1) % 4;
+        }
+        Move::Swap { a, b } => {
+            let ca = model
+                .cells
+                .get_mut(*a)
+                .ok_or_else(|| format!("cell {a} out of range"))?;
+            if ca.fixed {
+                return Err(format!("cell {a} is fixed"));
+            }
+            let cb = model
+                .cells
+                .get_mut(*b)
+                .ok_or_else(|| format!("cell {b} out of range"))?;
+            if cb.fixed {
+                return Err(format!("cell {b} is fixed"));
+            }
+            let (ax, ay) = (ca.x, ca.y);
+            ca.x = cb.x;
+            ca.y = cb.y;
+            cb.x = ax;
+            cb.y = ay;
+        }
+    }
+    Ok(())
 }
 
 /// Undo a move exactly (slice 1122-a).
@@ -93,8 +196,40 @@ pub fn apply_move(_model: &mut Model, _mv: &Move) -> Result<(), String> {
 ///
 /// # Do not
 /// - Call it for a move that was not applied.
-pub fn undo_move(_model: &mut Model, _mv: &Move) -> Result<(), String> {
-    Err(not_built("slice-1122-a"))
+pub fn undo_move(model: &mut Model, mv: &Move) -> Result<(), String> {
+    match mv {
+        Move::Translate { cell, dx, dy } => {
+            let c = model
+                .cells
+                .get_mut(*cell)
+                .ok_or_else(|| format!("cell {cell} out of range"))?;
+            c.x -= *dx;
+            c.y -= *dy;
+        }
+        Move::Rotate { cell } => {
+            let c = model
+                .cells
+                .get_mut(*cell)
+                .ok_or_else(|| format!("cell {cell} out of range"))?;
+            c.turns = (c.turns + 3) % 4;
+        }
+        Move::Swap { a, b } => {
+            let ca = model
+                .cells
+                .get_mut(*a)
+                .ok_or_else(|| format!("cell {a} out of range"))?;
+            let cb = model
+                .cells
+                .get_mut(*b)
+                .ok_or_else(|| format!("cell {b} out of range"))?;
+            let (ax, ay) = (ca.x, ca.y);
+            ca.x = cb.x;
+            ca.y = cb.y;
+            cb.x = ax;
+            cb.y = ay;
+        }
+    }
+    Ok(())
 }
 
 /// Count the hard rule violations of one cell (slice 1122-b).
