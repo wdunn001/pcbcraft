@@ -767,7 +767,6 @@ mod tests {
 
     #[test]
     fn repeat_export_is_byte_identical() -> Result<(), String> {
-        use crate::package::{package_manifest, package_zip};
         let by = |id: &str| bundled_packages().iter().find(|d| d.id == id).cloned();
         let def = by("fab_prototype").ok_or("missing")?;
         let p = Project {
@@ -776,7 +775,14 @@ mod tests {
         };
         let bytes1 = build_package(&p, &def, None)?;
         let bytes2 = build_package(&p, &def, None)?;
-        assert_eq!(bytes1, bytes2, "repeat export must be byte-identical");
+        assert_eq!(
+            bytes1.files, bytes2.files,
+            "repeat export must be byte-identical"
+        );
+        assert_eq!(
+            bytes1.entries, bytes2.entries,
+            "repeat export lists the same entries"
+        );
         Ok(())
     }
 }
