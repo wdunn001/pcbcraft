@@ -685,6 +685,7 @@ mod tests {
         // Add a drawn layer with a shape
         let layer_id = 99;
         project.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: layer_id,
             name: "CoatingKeepout".into(),
             kind: pcbcraft_doc::ArtKind::Other,
