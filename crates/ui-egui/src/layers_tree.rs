@@ -55,6 +55,8 @@ pub(crate) enum RowKind {
     Zone,
     Text,
     Hole,
+    /// The board outline row under the Board edge group.
+    Outline,
     Label,
     Wire,
     Shape,
@@ -1123,7 +1125,7 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             // then the cut-outs. The outline is any closed shape, so the row says
             // which kind it is and shows the size of its bounding box.
             let (label, size) = outline_description(board);
-            let mut edge = row(key, "edge", RowKind::Leaf, label);
+            let mut edge = row(key, "edge", RowKind::Outline, label);
             edge.sub = size;
             out.push(edge);
             for cut in &board.cutouts {
@@ -2024,7 +2026,7 @@ fn glyph_for(kind: RowKind) -> Glyph {
     match kind {
         RowKind::Section | RowKind::Layer => Glyph::Layer,
         RowKind::Group => Glyph::Pad,
-        RowKind::Leaf => Glyph::Outline,
+        RowKind::Leaf | RowKind::Outline => Glyph::Outline,
         RowKind::Part => Glyph::Part,
         RowKind::Pad => Glyph::Outline,
         RowKind::Net => Glyph::Net,
@@ -2877,7 +2879,7 @@ fn paint_row(
     // Cut-outs and mounting holes are objects a person edits, so they read as ink.
     let top_level = matches!(
         r.kind,
-        RowKind::Layer | RowKind::Part | RowKind::Net | RowKind::Hole
+        RowKind::Layer | RowKind::Part | RowKind::Net | RowKind::Hole | RowKind::Outline
     ) || is_section;
     let ink = if is_section {
         colours.muted

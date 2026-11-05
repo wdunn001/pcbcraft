@@ -95,7 +95,11 @@ fn delete_hole(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
     let hole = label_colour(ctx, app, &label).ok_or("no hole row")?;
     let edge = label_colour(ctx, app, &t!("tree.cutout")).ok_or("no cut-out row")?;
     assert_eq!(hole, edge, "an editable hole row is not greyed");
-    assert_eq!(hole, app.colours().ink, "the hole row is painted in full ink");
+    assert_eq!(
+        hole,
+        app.colours().ink,
+        "the hole row is painted in full ink"
+    );
     tap_left(ctx, app, &label)?;
     let first = app.selection();
     assert_eq!(first.len(), 1, "the row selects one hole");
