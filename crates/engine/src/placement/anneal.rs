@@ -161,25 +161,30 @@ pub fn apply_move(model: &mut Model, mv: &Move) -> Result<(), String> {
             c.turns = (c.turns + 1) % 4;
         }
         Move::Swap { a, b } => {
-            let ca = model
+            let first = model
                 .cells
-                .get_mut(*a)
+                .get(*a)
                 .ok_or_else(|| format!("cell {a} out of range"))?;
-            if ca.fixed {
+            if first.fixed {
                 return Err(format!("cell {a} is fixed"));
             }
-            let cb = model
+            let (ax, ay) = (first.x, first.y);
+            let second = model
                 .cells
-                .get_mut(*b)
+                .get(*b)
                 .ok_or_else(|| format!("cell {b} out of range"))?;
-            if cb.fixed {
+            if second.fixed {
                 return Err(format!("cell {b} is fixed"));
             }
-            let (ax, ay) = (ca.x, ca.y);
-            ca.x = cb.x;
-            ca.y = cb.y;
-            cb.x = ax;
-            cb.y = ay;
+            let (bx, by) = (second.x, second.y);
+            if let Some(ca) = model.cells.get_mut(*a) {
+                ca.x = bx;
+                ca.y = by;
+            }
+            if let Some(cb) = model.cells.get_mut(*b) {
+                cb.x = ax;
+                cb.y = ay;
+            }
         }
     }
     Ok(())
@@ -214,19 +219,24 @@ pub fn undo_move(model: &mut Model, mv: &Move) -> Result<(), String> {
             c.turns = (c.turns + 3) % 4;
         }
         Move::Swap { a, b } => {
-            let ca = model
+            let first = model
                 .cells
-                .get_mut(*a)
+                .get(*a)
                 .ok_or_else(|| format!("cell {a} out of range"))?;
-            let cb = model
+            let (ax, ay) = (first.x, first.y);
+            let second = model
                 .cells
-                .get_mut(*b)
+                .get(*b)
                 .ok_or_else(|| format!("cell {b} out of range"))?;
-            let (ax, ay) = (ca.x, ca.y);
-            ca.x = cb.x;
-            ca.y = cb.y;
-            cb.x = ax;
-            cb.y = ay;
+            let (bx, by) = (second.x, second.y);
+            if let Some(ca) = model.cells.get_mut(*a) {
+                ca.x = bx;
+                ca.y = by;
+            }
+            if let Some(cb) = model.cells.get_mut(*b) {
+                cb.x = ax;
+                cb.y = ay;
+            }
         }
     }
     Ok(())
