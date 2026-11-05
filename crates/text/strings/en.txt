@@ -4212,3 +4212,6 @@ schematic.shape.rect.tip = Draw a rectangle defined by two opposite corners.
 schematic.shape.circle = Circle
 schematic.shape.circle.tip = Draw a circle; the second click sets the radius.
 board.tool_hint.lmb_place_sheet_shape = Place {name}. Click to start, click again to place. {common}
+datasheet.pane.extract = Find tables
+datasheet.pane.extract.tip = Extract pin, rating and ordering tables from the open datasheet.
+datasheet.pane.extract_done = Found {rows} rows to review.
