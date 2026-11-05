@@ -823,7 +823,8 @@ impl App {
     /// and a "..." menu for the rest (mechanical parts, clear all).
     fn dock_chips(&mut self, ui: &mut egui::Ui) {
         const SIDE: f32 = 24.0;
-        ui.horizontal(|ui| {
+        // Wraps, so the last chips drop to a second line in a narrow dock.
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 3.0;
             ui.spacing_mut().button_padding = egui::vec2(2.0, 2.0);
             let sources = [
