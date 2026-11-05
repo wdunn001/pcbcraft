@@ -2,7 +2,7 @@
 type: feature
 area: library
 issues: [712]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Parametric package bodies, part 1: chip, SOT, SOIC, QFP, QFN, DIP, headers.
+user_visible: false
+docs: n/a: library code that builds 3D bodies from package keys and no screen calls it yet
+summary: The library can build 3D bodies for chip, SOT, SOIC, QFP, QFN, DIP and header packages from their package keys.
 ---

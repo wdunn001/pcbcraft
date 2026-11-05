@@ -530,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn all_meshes_have_z0_bottom() {
+    fn all_meshes_have_z0_bottom() -> Result<(), String> {
         let families = [
             (PackageFamily::Chip, 2, 0.0, 2.0, 1.0, 2.6, 0.0, 0.5),
             (PackageFamily::Sot, 3, 0.95, 2.9, 1.3, 3.0, 0.0, 1.1),
@@ -563,7 +563,9 @@ mod tests {
             };
             let body = ParamBody::from_key(&key, "test");
             let mesh = body.mesh();
-            let (min, _max) = mesh.bounds().expect("mesh must have bounds");
+            let (min, _max) = mesh
+                .bounds()
+                .ok_or_else(|| format!("{family:?} mesh must have bounds"))?;
             assert!(
                 min[2].abs() < 0.001,
                 "{:?} mesh bottom must be at z=0, got {}",
@@ -571,5 +573,6 @@ mod tests {
                 min[2]
             );
         }
+        Ok(())
     }
 }
