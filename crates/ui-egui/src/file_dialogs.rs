@@ -22,7 +22,7 @@
 //! - Invent packages; `packages()` reads the bundled records from the io crate.
 use crate::App;
 use crate::bom_export;
-use pcbcraft_doc::{BOM_EXCLUDE_FIELD, Id, Project};
+use pcbcraft_doc::{BOM_EXCLUDE_FIELD, Id, PackageDef, Project};
 use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope};
 use pcbcraft_text::t;
 use serde::{Deserialize, Serialize};
@@ -94,6 +94,33 @@ pub(crate) struct Package {
     /// Who it is for, then why it cannot run when it cannot.
     pub tip: String,
     pub available: bool,
+}
+
+/// Lines that name each option the chosen package sets.
+///
+/// Why: the dialog shows the file names but not the options; this gives a newcomer the
+/// names and values, one per content option, with a tooltip that names the format and the
+/// option. A package with no options returns an empty vec.
+///
+/// # Dependencies
+/// - crates/io/src/export_package.rs (content_format, PackageDef)
+/// - crates/text/src/lib.rs (t!)
+///
+/// # Do not
+/// - Run a package here; this is text for the preview only.
+pub(crate) fn package_option_lines(def: &PackageDef) -> Vec<(String, String)> {
+    let mut lines = Vec::new();
+    for content in &def.files {
+        for (key, value) in &content.options {
+            let label = pcbcraft_io::content_format(&content.format)
+                .map(|f| f.label)
+                .unwrap_or(&content.format);
+            let line = format!("{label}: {key} {value}");
+            let tip = t!("export.package.option.tip", option = key, value = value);
+            lines.push((line, tip));
+        }
+    }
+    lines
 }
 
 /// The packages the Export dialog lists.
@@ -472,6 +499,21 @@ impl App {
                                                         egui::RichText::new(e)
                                                             .color(ui.visuals().error_fg_color),
                                                     );
+                                                }
+                                            }
+                                            let opt_lines = package_option_lines(&def);
+                                            if !opt_lines.is_empty() {
+                                                ui.add_space(8.0);
+                                                ui.label(
+                                                    crate::fonts::caption(t!(
+                                                        "export.package.options"
+                                                    ))
+                                                    .color(muted),
+                                                )
+                                                .on_hover_text(t!("export.package.option.tip"));
+                                                for pair in &opt_lines {
+                                                    ui.label(pair.0.clone())
+                                                        .on_hover_text(pair.1.clone());
                                                 }
                                             }
                                         }
@@ -1383,4 +1425,53 @@ fn gerber_preview(ui: &mut egui::Ui, d: &DialogState, f: &FormatSpec, project: &
                 ui.label(name);
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_project() -> Result<Project, String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Default::default(), None, None);
+        app.tool_call("sample_design", json!({}));
+        Ok(app.project.clone())
+    }
+
+    #[test]
+    fn a_package_option_line_names_its_format_and_value() -> Result<(), String> {
+        let project = sample_project()?;
+        let def = pcbcraft_io::find_package(&project, "fab_prototype")
+            .ok_or("the fab_prototype package exists")?;
+        let lines = package_option_lines(&def);
+        // fab_prototype has gerber contents with naming options
+        assert!(
+            !lines.is_empty(),
+            "fab_prototype should have at least one option line"
+        );
+        for (line, tip) in lines {
+            // Line should contain the option name and value
+            assert!(!line.is_empty(), "option line should not be empty");
+            // Tip should mention the option
+            assert!(
+                tip.contains("sets") || tip.contains("option"),
+                "tip should describe the option setting"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_package_with_no_options_returns_empty_lines() -> Result<(), String> {
+        let project = sample_project()?;
+        // Find a package with no options (e.g., ipc2581)
+        let def =
+            pcbcraft_io::find_package(&project, "ipc2581").ok_or("the ipc2581 package exists")?;
+        let lines = package_option_lines(&def);
+        assert!(
+            lines.is_empty(),
+            "ipc2581 has no content options, so should return empty lines"
+        );
+        Ok(())
+    }
 }
