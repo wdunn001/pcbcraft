@@ -46,11 +46,15 @@ fn right_click_first_part(ctx: &egui::Context, app: &mut App) -> Result<Id, Stri
 }
 
 /// Scroll the format list of the open dialog until `label` shows.
-fn in_format_list(ctx: &egui::Context, app: &mut App, label: &str) -> Result<bool, String> {
+pub(crate) fn in_format_list(
+    ctx: &egui::Context,
+    app: &mut App,
+    label: &str,
+) -> Result<bool, String> {
     scrolled_to_at(ctx, app, label, 450.0)
 }
 
-fn file_export(ctx: &egui::Context, app: &mut App, entry: &str) -> Result<(), String> {
+pub(crate) fn file_export(ctx: &egui::Context, app: &mut App, entry: &str) -> Result<(), String> {
     authoring::tests::tap(ctx, app, "File")?;
     authoring::tests::tap(ctx, app, "Export")?;
     authoring::tests::tap(ctx, app, entry)
@@ -625,37 +629,44 @@ fn a_newcomer_exports_an_assembly_package() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_sees_disabled_package_with_missing_writer() -> Result<(), String> {
+fn a_newcomer_exports_a_solder_paste_stencil_package() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());
     file_export(&ctx, &mut app, "More…")?;
     let listed = in_format_list(&ctx, &mut app, "Solder paste stencil")?;
     assert!(listed, "the stencil package is listed");
-    authoring::tests::tap(&ctx, &mut app, "Solder paste stencil").ok();
+    authoring::tests::tap(&ctx, &mut app, "Solder paste stencil")?;
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
-    assert!(
-        app.edit.dialog.package_pick.is_empty(),
-        "tapping the disabled stencil package leaves package_pick empty"
+    assert_eq!(
+        app.edit.dialog.package_pick, "stencil",
+        "the stencil package is picked"
     );
-    assert!(app.edit.dialog.open, "the dialog is still open");
-    let entries: Vec<_> = std::fs::read_dir(dir.path())
+    authoring::tests::tap(&ctx, &mut app, "Export package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let names: Vec<String> = std::fs::read_dir(dir.path())
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
-    let has_stencil = entries.iter().any(|n| n.contains("-stencil-A"));
-    assert!(!has_stencil, "no stencil file was written");
-    let packages = pcbcraft_io::bundled_packages();
-    let stencil_def = packages
+    let zip = names
         .iter()
-        .find(|p| p.id == "stencil")
-        .ok_or("stencil package not found")?;
-    let avail = pcbcraft_io::availability(stencil_def).map_err(|e| e.to_string())?;
-    assert!(!avail.available, "stencil is not available");
-    let reasons = avail.reasons.join(" ");
-    assert!(reasons.contains("#420"), "the reason names issue #420");
+        .find(|n| n.ends_with("-stencil-A.zip"))
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "no stencil zip after exporting: {names:?} / {}",
+                app.message
+            )
+        })?;
+    assert!(
+        std::fs::read(dir.path().join(&zip)).is_ok(),
+        "the zip file is readable"
+    );
+    assert!(!app.edit.dialog.open, "the dialog closes after exporting");
     Ok(())
 }
 

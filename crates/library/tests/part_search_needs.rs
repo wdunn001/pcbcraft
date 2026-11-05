@@ -70,6 +70,21 @@ fn needs() -> Vec<(&'static str, &'static str)> {
         ("10 MHz crystal oscillator", "EX-XO-10M"),
         ("N channel MOSFET logic level", "EX-MOS-N"),
         ("16 pin DIP header", "EX-HDR-16"),
+        ("fast switching signal diode", "EX-D-1N4148"),
+        ("red LED in 0603 package", "EX-LED-R"),
+        ("8 MHz quartz crystal", "EX-CRYSTAL-8M"),
+        ("JST PH two pin connector", "EX-CONN-JST"),
+        ("temperature sensor I2C digital output", "EX-SENSOR-TEMP"),
+        ("three axis accelerometer digital", "EX-SENOR-ACCEL"),
+        ("SPI serial flash memory chip", "EX-MEM-FLASH"),
+        ("dual op amp in small package", "EX-OPAMP-DUAL"),
+        ("P channel MOSFET logic level", "EX-MOS-P"),
+        ("resettable polyfuse 500 mA", "EX-FUSE-POLY"),
+        ("47 microhenry power inductor", "EX-IND-47UH"),
+        ("5 V LDO 500 mA regulator", "EX-LDO-5V"),
+        ("3.3 V LDO 500 mA regulator", "EX-LDO-3V3"),
+        ("220 ohm resistor 0402", "EX-RES-220R"),
+        ("1 microfarad ceramic capacitor 50 volt", "EX-CAP-1UF"),
     ]
 }
 
@@ -181,6 +196,111 @@ fn listings() -> Vec<PartListing> {
             "dip-16",
             50.0,
         ),
+        part(
+            "EX-D-1N4148",
+            "1N4148 fast switching signal diode",
+            Category::Diode,
+            "do-35",
+            100.0,
+        ),
+        part(
+            "EX-LED-R",
+            "Red LED 0603 20 mA",
+            Category::Led,
+            "chip-0603",
+            2.0,
+        ),
+        part(
+            "EX-CRYSTAL-8M",
+            "8 MHz quartz crystal oscillator",
+            Category::Crystal,
+            "hc-49",
+            3.3,
+        ),
+        part(
+            "EX-CONN-JST",
+            "JST PH 2 pin connector",
+            Category::Connector,
+            "jst-ph-2",
+            50.0,
+        ),
+        part(
+            "EX-SENSOR-TEMP",
+            "Temperature sensor I2C digital output",
+            Category::IcAnalog,
+            "sot-23",
+            3.3,
+        ),
+        part(
+            "EX-SENOR-ACCEL",
+            "Three axis accelerometer digital I2C",
+            Category::IcAnalog,
+            "lga-14",
+            3.3,
+        ),
+        part(
+            "EX-MEM-FLASH",
+            "SPI serial flash memory chip 2 megabit",
+            Category::IcAnalog,
+            "soic-8",
+            3.3,
+        ),
+        part(
+            "EX-OPAMP-DUAL",
+            "Dual op amp in small package rail to rail",
+            Category::IcAnalog,
+            "sot-23",
+            5.0,
+        ),
+        part(
+            "EX-MOS-P",
+            "P channel MOSFET logic level 30 volt",
+            Category::Mosfet,
+            "sot-23",
+            30.0,
+        ),
+        part(
+            "EX-FUSE-POLY",
+            "Resettable polyfuse 500 mA",
+            Category::Other,
+            "radial-6",
+            6.0,
+        ),
+        part(
+            "EX-IND-47UH",
+            "47 microhenry power inductor shielded",
+            Category::Inductor,
+            "smd-1210",
+            50.0,
+        ),
+        part(
+            "EX-LDO-5V",
+            "5 V LDO linear regulator 500 mA low dropout",
+            Category::IcRegulator,
+            "sot-223",
+            5.0,
+        ),
+        part(
+            "EX-LDO-3V3",
+            "3.3 V LDO linear regulator 500 mA low dropout",
+            Category::IcRegulator,
+            "sot-223",
+            3.3,
+        ),
+        part(
+            "EX-RES-220R",
+            "220 ohm resistor 0402 1 percent",
+            Category::Resistor,
+            "chip-0402",
+            50.0,
+        ),
+        part(
+            "EX-CAP-1UF",
+            "1 microfarad ceramic capacitor 50 volt 0805",
+            Category::Capacitor,
+            "chip-0805",
+            50.0,
+        ),
     ]
 }
 
@@ -223,6 +343,57 @@ fn the_index_reports_no_vectors() -> Result<(), String> {
     assert!(
         !json.contains("\"vector\""),
         "index with no vectors should not contain vector fields"
+    );
+    Ok(())
+}
+
+#[test]
+fn thirty_stated_needs_meet_the_recall_floor_with_no_model() -> Result<(), String> {
+    let listings = listings();
+    let index = PartSearchIndex::build(&listings, &BTreeMap::new())?;
+    let cases = needs();
+    let recall_at_3 = recall_at_k(&index, &cases, 3);
+    let recall_at_1 = recall_at_k(&index, &cases, 1);
+    assert!(
+        recall_at_3 >= 0.9,
+        "recall@3 should be at least 0.9 on thirty stated needs, got {recall_at_3}"
+    );
+    assert!(
+        recall_at_1 >= 0.7,
+        "recall@1 should be at least 0.7 on thirty stated needs, got {recall_at_1}"
+    );
+    Ok(())
+}
+
+#[test]
+fn near_neighbour_needs_pick_the_right_voltage() -> Result<(), String> {
+    let listings = listings();
+    let index = PartSearchIndex::build(&listings, &BTreeMap::new())?;
+
+    let query_5v = PartSearchQuery {
+        need: "5 V LDO 500 mA regulator".into(),
+        ..PartSearchQuery::default()
+    };
+    let hits_5v = index.search(&query_5v, 5)?;
+    let top_5v = hits_5v.first().ok_or("5 V LDO search returned no hits")?;
+    assert_eq!(
+        top_5v.listing.mpn, "EX-LDO-5V",
+        "top hit for 5 V LDO need must be the 5 V part, got {}",
+        top_5v.listing.mpn
+    );
+
+    let query_3v3 = PartSearchQuery {
+        need: "3.3 V LDO 500 mA regulator".into(),
+        ..PartSearchQuery::default()
+    };
+    let hits_3v3 = index.search(&query_3v3, 5)?;
+    let top_3v3 = hits_3v3
+        .first()
+        .ok_or("3.3 V LDO search returned no hits")?;
+    assert_eq!(
+        top_3v3.listing.mpn, "EX-LDO-3V3",
+        "top hit for 3.3 V LDO need must be the 3.3 V part, got {}",
+        top_3v3.listing.mpn
     );
     Ok(())
 }
