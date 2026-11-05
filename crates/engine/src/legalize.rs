@@ -654,4 +654,226 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn legalize_second_run_changes_nothing() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        make_overlapping(&mut s)?;
+        let scope = full_scope();
+        let plan1 = plan_moves(&s.project, &scope, MAX_PASSES, None);
+        assert!(!plan1.moves.is_empty(), "first run should make moves");
+        // Apply moves to the project
+        for (fid, pos) in &plan1.moves {
+            if let Some(f) = s.project.board.footprints.iter_mut().find(|f| f.id == *fid) {
+                f.position = *pos;
+            }
+        }
+        // Second run should find no more moves
+        let plan2 = plan_moves(&s.project, &scope, MAX_PASSES, None);
+        assert!(plan2.moves.is_empty(), "second run should make no moves");
+        Ok(())
+    }
+
+    #[test]
+    fn locked_part_keeps_its_position_to_the_unit() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        make_overlapping(&mut s)?;
+        // Lock one footprint
+        let locked_fp = s
+            .project
+            .board
+            .footprints
+            .iter_mut()
+            .next()
+            .ok_or("no footprint")?;
+        let locked_pos = locked_fp.position;
+        locked_fp.locked = Some(true);
+        let scope = full_scope();
+        let plan = plan_moves(&s.project, &scope, MAX_PASSES, None);
+        // The locked footprint must not appear in moves
+        assert!(
+            !plan.moves.iter().any(|(fid, _)| *fid == locked_fp.id),
+            "locked footprint should not move"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn empty_scope_refused() {
+        let mut s = Session::default();
+        let result = s.execute("placement.legalize", json!({"scope":{}}), None);
+        assert!(result.is_err(), "empty scope should be refused");
+    }
+
+    #[test]
+    fn legalize_one_undo_reverses_the_run() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        make_overlapping(&mut s)?;
+        // Record positions before
+        let before: Vec<(u64, f64, f64)> = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .map(|f| (f.id, f.position.x, f.position.y))
+            .collect();
+        // Run the command
+        let result = s.execute(
+            "placement.legalize",
+            json!({"scope":{"layers":["F.Cu"]}}),
+            None,
+        )?;
+        let moved = result["result"]["moved"]
+            .as_array()
+            .ok_or("no moved array")?;
+        assert!(!moved.is_empty(), "command should have moved parts");
+        // Undo
+        s.undo()?;
+        // Verify positions are restored
+        for (f, (id, x, y)) in s.project.board.footprints.iter().zip(&before) {
+            assert_eq!(f.id, *id);
+            assert_eq!(f.position.x, *x, "x not restored for {}", f.id);
+            assert_eq!(f.position.y, *y, "y not restored for {}", f.id);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn legalize_dry_run_changes_nothing() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        make_overlapping(&mut s)?;
+        // Record positions before
+        let before: Vec<(u64, f64, f64)> = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .map(|f| (f.id, f.position.x, f.position.y))
+            .collect();
+        // Dry run
+        let dry = s.dry_run(
+            &[crate::Command {
+                command: "placement.legalize".into(),
+                params: json!({"scope":{"layers":["F.Cu"]}}),
+            }],
+            None,
+        )?;
+        assert_eq!(dry.results.len(), 1);
+        // Verify positions are unchanged
+        for (f, (id, x, y)) in s.project.board.footprints.iter().zip(&before) {
+            assert_eq!(f.id, *id);
+            assert_eq!(f.position.x, *x, "dry run moved x for {}", f.id);
+            assert_eq!(f.position.y, *y, "dry run moved y for {}", f.id);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn courtyard_check_passes_after() -> Result<(), String> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        make_overlapping(&mut s)?;
+        // Verify there is an overlap before
+        assert!(
+            !courtyard_pairs(&s.project).is_empty(),
+            "setup should have overlaps"
+        );
+        // Run the command
+        s.execute(
+            "placement.legalize",
+            json!({"scope":{"layers":["F.Cu"]}}),
+            None,
+        )?;
+        // Verify no overlaps after
+        let remaining = courtyard_pairs(&s.project);
+        assert!(
+            remaining.is_empty(),
+            "overlaps remain after legalization: {:?}",
+            remaining
+        );
+        Ok(())
+    }
+}
+
+use super::{CommandSpec, Error, schema};
+use crate::scope::{self, Scope};
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegalizeParams {
+    scope: Value,
+    #[serde(default)]
+    grid: Option<f64>,
+    #[serde(default = "max_passes_default")]
+    max_passes: usize,
+}
+
+fn max_passes_default() -> usize {
+    32
+}
+
+pub(super) fn commands() -> Vec<CommandSpec> {
+    vec![CommandSpec {
+        id: "placement.legalize",
+        description: "Move overlapping parts to remove courtyard overlaps and edge violations with the smallest moves; locked parts never move; snap to a grid; deterministic with the same input giving the same result",
+        input_schema: schema(
+            json!({
+                "scope": scope::schema(),
+                "grid": {"type":"number","description":"grid step in millimetres to snap moved parts to; optional, default none"},
+                "max_passes": {"type":"integer","minimum":1,"maximum":200,"default":32,"description":"most passes to try before giving up"}
+            }),
+            &["scope"],
+        ),
+    }]
+}
+
+pub(super) fn run(
+    p: &mut Project,
+    _next: &mut Id,
+    command: &str,
+    params: &Value,
+) -> Option<Result<Value, Error>> {
+    match command {
+        "placement.legalize" => Some(legalize(p, params)),
+        _ => None,
+    }
+}
+
+fn legalize(p: &mut Project, params: &Value) -> Result<Value, Error> {
+    let a: LegalizeParams = super::parse(params)?;
+    let scope = Scope::from_value(p, &a.scope)?;
+    if a.grid.is_some_and(|g| !g.is_finite() || g <= 0.0) {
+        return Err(Error::Invalid(
+            "grid must be a positive finite number".into(),
+        ));
+    }
+    let plan = plan_moves(p, &scope, a.max_passes, a.grid);
+    let mut moved = Vec::new();
+    for (fid, pos) in &plan.moves {
+        let Some(f) = p
+            .board
+            .footprints
+            .iter_mut()
+            .find(|f| f.id == *fid && f.locked != Some(true))
+        else {
+            continue;
+        };
+        let before = f.position;
+        f.position = *pos;
+        if f.position != before {
+            moved.push(json!({"id": fid, "x": pos.x, "y": pos.y}));
+        }
+    }
+    let unresolved = plan
+        .unresolved
+        .into_iter()
+        .map(|(a, b)| json!({"a": a, "b": b}))
+        .collect::<Vec<_>>();
+    Ok(json!({"moved": moved, "unresolved": unresolved, "passes": plan.passes}))
 }
