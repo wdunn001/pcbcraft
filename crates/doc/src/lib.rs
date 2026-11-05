@@ -3498,6 +3498,25 @@ fn art_circle_points(center: Point, radius: f64) -> Vec<Point> {
         })
         .collect()
 }
+/// The surface a drawn silkscreen layer sits on. Silkscreen exists only on
+/// the Top and the Bottom layer of a board, never on an inner layer, so these
+/// two values are the only ones a drawn silkscreen layer can carry.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ArtSide {
+    /// The Top layer's silkscreen, read from above.
+    #[default]
+    #[serde(rename = "top")]
+    Top,
+    /// The Bottom layer's silkscreen, read from below.
+    #[serde(rename = "bottom")]
+    Bottom,
+}
+impl ArtSide {
+    /// True for the default side, so saved files stay unchanged for top layers.
+    pub fn is_top(&self) -> bool {
+        *self == Self::Top
+    }
+}
 /// A layer the designer draws: card outlines to cut, perforations to snap
 /// along, custom silk screens, masks or reference art. Copper stays where it
 /// is; these layers sit beside it and are plotted for laser, mill and
@@ -3526,6 +3545,10 @@ pub struct ArtLayer {
     /// False hides the layer everywhere on screen.
     #[serde(default = "art_visible")]
     pub visible: bool,
+    /// The surface a silk layer sits on. Other kinds ignore it. The layer is
+    /// painted only while that surface and its silkscreen are shown.
+    #[serde(default, skip_serializing_if = "ArtSide::is_top")]
+    pub side: ArtSide,
     /// The figures on this layer, in draw order.
     #[serde(default)]
     pub shapes: Vec<ArtShape>,

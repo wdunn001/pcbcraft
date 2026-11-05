@@ -222,7 +222,6 @@ fn violations_count_overlaps_keepout_hits_and_the_edge_per_cell() -> Result<(), 
 // ---------------------------------------------------------------- slice 1122-c
 
 #[test]
-#[ignore = "built in slice-1122-c"]
 fn cost_is_wire_plus_one_hundred_per_square_millimetre_of_overlap() -> Result<(), String> {
     let mut fx = Fixture::load("cost")?;
     let s = PlacementSettings::default();
@@ -251,7 +250,6 @@ fn cost_is_wire_plus_one_hundred_per_square_millimetre_of_overlap() -> Result<()
 }
 
 #[test]
-#[ignore = "built in slice-1122-c"]
 fn the_start_temperature_makes_the_mean_uphill_move_eighty_percent_likely() -> Result<(), String> {
     let mut fx = Fixture::load("polish")?;
     let (mov, s) = (movable(&fx), PlacementSettings::default());

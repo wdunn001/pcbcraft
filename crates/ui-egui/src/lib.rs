@@ -1950,8 +1950,8 @@ impl App {
         self
     }
     /// Start with a drawing target (`silk`, `edge` or `copper`), `flipped` to
-    /// look from the bottom, or `select-cutout`, `select-hole` or `select-outline`
-    /// to pick that board object, so a
+    /// look from the bottom, `hide-silk` or `hide-all` to hide layers, or `select-cutout`,
+    /// `select-hole` or `select-outline` to pick that board object, so a
     /// `--capture` image shows the Active tag on that layer.
     pub fn with_capture_target(mut self, name: Option<String>) -> Self {
         use draw_target::{Side, Target};
@@ -1977,6 +1977,27 @@ impl App {
                 self.tree.expanded.insert("edge".into());
                 self.tree.selected_key = Some("edge/edge".into());
                 self.tree.reveal_row("edge/edge");
+                return self;
+            }
+            Some("hide-silk") => {
+                for path in ["side:top", "side:bottom"] {
+                    layer_visibility::set_sub_stored(
+                        &mut self.preferences.hidden_layers,
+                        path,
+                        layer_visibility::SubLayer::Silk,
+                        false,
+                    );
+                }
+                return self;
+            }
+            Some("hide-all") => {
+                for path in ["side:top", "side:bottom", "inner:1", "inner:2"] {
+                    layer_visibility::set_group_stored(
+                        &mut self.preferences.hidden_layers,
+                        path,
+                        false,
+                    );
+                }
                 return self;
             }
             _ => return self,
@@ -4304,6 +4325,44 @@ impl App {
         let local_pdf = lower.starts_with("file://") && lower.ends_with(".pdf");
         ((web || local_pdf) && url.len() <= 2048 && !url.chars().any(char::is_whitespace))
             .then(|| url.to_owned())
+    }
+    /// Handle a pending datasheet extract request from the pane.
+    fn datasheet_extract_frame(&mut self, ctx: &egui::Context) {
+        let Some(doc) = self.datasheet_pane.take_extract_request() else {
+            return;
+        };
+        // Build a part name from the pane title, sanitised to [A-Za-z0-9_-].
+        let raw = if self.datasheet_pane.is_open() {
+            self.project
+                .files
+                .iter()
+                .find(|f| f.name.starts_with("datasheet"))
+                .map(|f| f.name.clone())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let part: String = raw
+            .chars()
+            .take(64)
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+        let part = if part.is_empty() { "datasheet" } else { &part };
+        let result = pcbcraft_mcp::call_tool(
+            &self.session,
+            "datasheet.extract",
+            &json!({
+                "part": part,
+                "document": doc
+            }),
+        );
+        let rows = result
+            .get("result")
+            .and_then(|r| r.get("pins"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        self.message = t!("datasheet.pane.extract_done", rows = rows);
+        ctx.request_repaint();
     }
     /// True when the window is too narrow to put the library dock beside the
     /// drawing (WCAG 1.4.10 reflow at 320 points). The dock steps aside and the
@@ -8034,6 +8093,7 @@ impl App {
             self.compare_window(&ctx);
         }
         self.datasheet_pane.ui(&ctx);
+        self.datasheet_extract_frame(&ctx);
         self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);

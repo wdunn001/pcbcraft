@@ -262,6 +262,7 @@ mod tests {
     }
     fn add_silk_line(p: &mut Project, y: f64) {
         p.board.user_layers.push(ArtLayer {
+            side: Default::default(),
             id: 40,
             name: "Top Silk".into(),
             kind: ArtKind::Silk,
