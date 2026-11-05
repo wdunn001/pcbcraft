@@ -15,8 +15,9 @@
 //!
 //! # Do not
 //! - Invent keys; the six below are the whole title block.
-use super::{note, text_field};
+use super::{SELECT_WIDTH, TEXT_WIDTH, note, text_field};
 use crate::App;
+use crate::theme;
 use crate::ui_kit::card::card;
 use crate::ui_kit::form_row::{FormWidth, form_row};
 use crate::ui_kit::select::select;
@@ -55,7 +56,7 @@ impl App {
                         pcbcraft_text::lookup(&format!("settings.project.meta.{key}.hint"), &[]);
                     let current = self.project.meta.get(key).cloned().unwrap_or_default();
                     let written = form_row(ui, FormWidth::Page, &name, Some(&hint), None, |ui| {
-                        text_field(ui, ("meta", key), &current, 320.0, &name, &tip)
+                        text_field(ui, ("meta", key), &current, TEXT_WIDTH, &name, &tip)
                     });
                     if let Some(text) = written {
                         self.settings_meta(key, text.trim());
@@ -93,14 +94,14 @@ impl App {
                             &options,
                             &name,
                             &t!("settings.project.meta.paper.tip"),
-                            160.0,
+                            SELECT_WIDTH,
                         );
                     },
                 );
                 if at != before {
                     self.settings_meta("paper", PAPER[at]);
                 }
-                ui.add_space(4.0);
+                ui.add_space(theme::SPACE[0]);
                 note(ui, t!("settings.project.title_block.shared"));
             },
         );

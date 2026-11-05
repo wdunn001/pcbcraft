@@ -27,6 +27,7 @@
 //! - crates/ui-egui/src/ui_kit/empty_state.rs
 //! - crates/ui-egui/src/ui_kit/panel_header.rs
 //! - crates/ui-egui/src/ui_kit/segmented.rs
+//! - crates/ui-egui/src/ui_kit/stat_card.rs
 //! - crates/ui-egui/src/ui_kit/status_item.rs
 //! - crates/ui-egui/src/ui_kit/swatch.rs
 //! - crates/ui-egui/src/ui_kit/table.rs
@@ -55,6 +56,7 @@ pub mod rows;
 pub mod section;
 pub mod segmented;
 pub mod select;
+pub mod stat_card;
 pub mod status_item;
 pub mod swatch;
 pub mod tab_bar;

@@ -165,3 +165,27 @@ fn a_newcomer_sees_plain_words_in_the_footer() -> Result<(), String> {
 fn a_newcomer_sees_plain_words_in_the_footer_of_the_browser_build() -> Result<(), String> {
     plain_words_story(true)
 }
+
+#[test]
+fn a_newcomer_reads_how_many_connections_are_still_open_in_the_layout_footer() -> Result<(), String>
+{
+    let (mut app, ctx, file) = app_with_sample(false, "unrouted");
+    app.tab = Tab::Pcb;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let text = app.layout_totals_text();
+    assert!(
+        text.contains("unrouted"),
+        "the totals say how many connections are open: {text}"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, &text)?,
+        "the Layout footer shows {text}"
+    );
+    authoring::tests::tap(&ctx, &mut app, &text)?;
+    assert!(
+        paints_text(&ctx, &mut app, &text)?,
+        "pressing the totals leaves them on screen"
+    );
+    let _ = std::fs::remove_file(&file);
+    Ok(())
+}

@@ -1,27 +1,30 @@
-//! The Files workspace: a command list on the left, the chosen command's page in the
-//! centre, and the details of a recent project on the right.
+//! The Files workspace: a tool bar, the project at a glance in the centre and the
+//! project's own properties on the right.
 //!
-//! Context: the Files tab is a workspace (`workspace.rs`, the Workspace contract), so it
-//! defines its own left aside instead of inheriting Layers and Library. The left aside
-//! lists New project, Open, Save, Save as, Import, Export, Project settings, Preferences
-//! and Close project. A command that needs room opens a page in the centre (Recent
-//! projects is the default, then Open, Import, Export, Project settings, Close); the rest
-//! act at once. The right aside shows the project under the pointer or selected in the
-//! list, or the current project when no recent one is picked.
+//! Context: the Files tab is a workspace (`workspace.rs`, the Workspace contract). The
+//! approved mockup `files` has a tool bar (New, Open, Save, Import, Export, Open sample
+//! project), the Library in the left aside. The centre shows the open project's name with
+//! Save and Open folder, four stat cards, the Project files table, Made files and Recent
+//! projects. The right aside holds Properties: name, units, author, board width, height
+//! and layers. `home.rs` draws all of that. This file holds the state, the worker that
+//! looks at files, the Open, Import, Export and Close pages that the tool bar leads to,
+//! and the commands.
 //!
 //! Local rules:
 //! - Import and Export pages list the same registry entries as the File menu (Recent,
 //!   Common, More) and open the same dialog (`file_dialogs.rs`); no format is named here.
 //! - Recent projects come from `pcbcraft_engine::recents`; pins and last-opened times
-//!   live in `Preferences`. Pictures and file facts are read on a worker thread and never
-//!   on the window thread.
+//!   live in `Preferences`. File facts are read on a worker thread and never on the
+//!   window thread.
+//! - Project settings is the dialog of `project_settings/`, opened from here and from the
+//!   File menu; this tab has no page of its own for it.
 //! - Every string comes from the catalog (`crates/text/strings/en.txt`, keys `files.*`).
 //!
 //! # Dependencies
-//! - crates/ui-egui/src/workspace.rs (`FilesWorkspace` calls `left_body`, `center`)
+//! - crates/ui-egui/src/workspace.rs (`FilesWorkspace` calls `files_toolbar`, `files_center`)
+//! - crates/ui-egui/src/files_home/home.rs (the home page and Properties)
 //! - crates/ui-egui/src/file_dialogs.rs (`App::open_dialog`, `Recents`)
 //! - crates/engine/src/recents.rs (the list of recent paths)
-//! - crates/io/src/raster.rs (the board picture)
 //! - crates/ui-egui/src/ui_kit/rows.rs, button.rs, empty_state.rs
 //!
 //! # Do not
@@ -29,9 +32,11 @@
 //! - Read a file or its metadata on the window thread.
 //! - Touch the real recents file in a test; set `RECENTS_PATH_TEST` to a temp dir.
 
+mod home;
+
 use super::*;
 use crate::ui_kit::button::{self, Size};
-use crate::ui_kit::icons::{self, Icon};
+use crate::ui_kit::icons;
 use pcbcraft_io::formats::{self, Direction, Scope};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -39,47 +44,37 @@ use std::path::{Path, PathBuf};
 /// The name a design has before it is saved anywhere.
 pub(crate) const DEFAULT_PROJECT_PATH: &str = "design.pcbcraft";
 
-/// Pictures are this many points across at their largest.
-const THUMB: [usize; 2] = [168, 112];
+/// Windows narrower than this give the page 16 points at the sides instead of 32.
+const PAGE_NARROW_BELOW: f32 = 600.0;
 /// Pinned projects kept.
 const MAX_PINNED: usize = 12;
 /// Entries a folder listing shows.
 const MAX_ENTRIES: usize = 400;
-/// Height of one recent project row.
-const ROW_HEIGHT: f32 = 76.0;
-/// Width of the picture in a row.
-const ROW_PICTURE: f32 = 84.0;
-
 /// The page in the centre.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Page {
-    /// Recent projects, the default.
+    /// The project at a glance, the default.
     #[default]
-    Recent,
+    Home,
     /// The folder browser.
     Open,
     /// Formats to bring in.
     Import,
     /// Formats to make.
     Export,
-    /// Where the project's rules and setup live.
-    ProjectSettings,
     /// Asks before closing a project with changes.
     Close,
 }
 
-/// A left aside command.
+/// A command of the tool bar or the File menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
-    Recent,
     New,
     Open,
     Save,
-    SaveAs,
     Import,
     Export,
-    ProjectSettings,
-    Preferences,
+    Sample,
     Close,
 }
 
@@ -89,7 +84,6 @@ struct Found {
     exists: bool,
     modified: Option<u64>,
     bytes: u64,
-    image: Option<egui::ColorImage>,
 }
 
 /// What is known about one recent project's file.
@@ -97,7 +91,6 @@ struct Probe {
     exists: bool,
     modified: Option<u64>,
     bytes: u64,
-    picture: Option<egui::TextureHandle>,
 }
 
 /// One line of a folder listing.
@@ -125,8 +118,6 @@ pub(crate) struct State {
     pub(crate) page: Page,
     /// The recent project picked in the list, by path.
     selected: Option<String>,
-    /// The recent project under the pointer last frame.
-    hovered: Option<String>,
     probes: HashMap<String, Probe>,
     asked: HashSet<String>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -143,7 +134,7 @@ pub(crate) struct State {
 
 impl State {
     /// Forget what was read about `path` so the next frame reads it again (after a
-    /// save, which changes the file and its picture).
+    /// save, which changes the file).
     pub(crate) fn forget_probe(&mut self, path: &str) {
         self.probes.remove(path);
         self.asked.remove(path);
@@ -173,70 +164,6 @@ fn now_secs() -> u64 {
     pcbcraft_clock::unix_secs()
 }
 
-/// A picture of the board in a file: top copper over the board colour.
-///
-/// Why: a recent project is recognised by its shape faster than by its name.
-///
-/// # Rules
-/// - Reads and rasterises on the calling thread, so call it from a worker.
-/// - Returns `None` for a file that does not load or has no drawable board.
-///
-/// # Dependencies
-/// - crates/io/src/raster.rs (`layer_raster`)
-///
-/// # Do not
-/// - Call it from the window thread.
-pub(crate) fn board_picture(path: &Path) -> Option<egui::ColorImage> {
-    use pcbcraft_io::{FabLayer, RasterDepth, RasterOptions, RasterPixels};
-    let project = pcbcraft_io::load(path).ok()?;
-    let options = RasterOptions {
-        layer: FabLayer::CopperTop,
-        dpi: 300,
-        mirror: false,
-        invert: false,
-        outline: true,
-        registration: None,
-        drill_marks: None,
-        margin_mm: 1.0,
-        depth: RasterDepth::Grey8,
-    };
-    let raster = pcbcraft_io::layer_raster(&project, &options).ok()?;
-    let RasterPixels::Grey(grey) = raster.pixels else {
-        return None;
-    };
-    let (w, h) = (grey.width() as usize, grey.height() as usize);
-    if w == 0 || h == 0 {
-        return None;
-    }
-    let scale = (THUMB[0] as f32 / w as f32).min(THUMB[1] as f32 / h as f32);
-    let (tw, th) = (
-        ((w as f32 * scale).round() as usize).clamp(1, THUMB[0]),
-        ((h as f32 * scale).round() as usize).clamp(1, THUMB[1]),
-    );
-    let board = egui::Color32::from_rgb(0x0E, 0x3B, 0x2D);
-    let copper = egui::Color32::from_rgb(0xE8, 0x83, 0x4A);
-    let mut pixels = Vec::with_capacity(tw * th);
-    for ty in 0..th {
-        let y0 = ty * h / th;
-        let y1 = ((ty + 1) * h / th).max(y0 + 1).min(h);
-        for tx in 0..tw {
-            let x0 = tx * w / tw;
-            let x1 = ((tx + 1) * w / tw).max(x0 + 1).min(w);
-            let mut dark = 0u32;
-            let mut count = 0u32;
-            for y in y0..y1 {
-                for x in x0..x1 {
-                    dark += 255 - u32::from(grey.get_pixel(x as u32, y as u32).0[0]);
-                    count += 1;
-                }
-            }
-            let cover = (dark as f32 / (count.max(1) as f32 * 255.0) * 1.6).min(1.0);
-            pixels.push(board.lerp_to_gamma(copper, cover));
-        }
-    }
-    Some(egui::ColorImage::new([tw, th], pixels))
-}
-
 /// The file name of a project without its extension.
 fn project_name(path: &str) -> String {
     let name = Path::new(path)
@@ -251,32 +178,6 @@ fn project_name(path: &str) -> String {
         }
     }
     name
-}
-
-/// The folder of a path with the home folder shortened to `~`, for display only.
-fn short_folder(path: &str) -> String {
-    let folder = Path::new(path)
-        .parent()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_default();
-    let shown = if !home.is_empty()
-        && let Some(rest) = folder.strip_prefix(&home)
-        && (rest.is_empty() || rest.starts_with(['/', '\\']))
-    {
-        format!("~{rest}")
-    } else {
-        folder
-    };
-    let parts: Vec<&str> = shown.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
-    if parts.len() > 4 {
-        let lead = if shown.starts_with('~') { "~" } else { "" };
-        format!("{lead}/…/{}", parts[parts.len() - 3..].join("/"))
-    } else {
-        shown
-    }
 }
 
 impl App {
@@ -410,14 +311,13 @@ impl App {
         self.select(None);
         self.path = DEFAULT_PROJECT_PATH.into();
         self.saved_revision = None;
-        self.files_home.page = Page::Recent;
+        self.files_home.page = Page::Home;
         self.message = t!("files.close.done");
     }
 
-    /// Do a left aside command.
+    /// Do a tool bar or File menu command.
     pub(crate) fn files_run(&mut self, command: Command) {
         match command {
-            Command::Recent => self.files_home.page = Page::Recent,
             Command::New => {
                 self.tool_call("new_design", json!({}));
                 self.select(None);
@@ -429,14 +329,16 @@ impl App {
                 }
             }
             Command::Save => self.save_or_ask(),
-            Command::SaveAs => self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]),
-            Command::Import => self.files_home.page = Page::Import,
-            Command::Export => self.files_home.page = Page::Export,
-            Command::ProjectSettings => self.files_home.page = Page::ProjectSettings,
-            Command::Preferences => self.change_tab(Tab::Settings),
+            Command::Import => self.show_files(Page::Import),
+            Command::Export => self.show_files(Page::Export),
+            Command::Sample => {
+                self.tool_call("sample_design", json!({}));
+                self.select(None);
+                self.show_files(Page::Home);
+            }
             Command::Close => {
                 if self.project_has_unsaved_changes() {
-                    self.files_home.page = Page::Close;
+                    self.show_files(Page::Close);
                 } else {
                     self.files_close_now();
                 }
@@ -444,164 +346,18 @@ impl App {
         }
     }
 
-    /// The left aside of the Files tab: the command list.
-    ///
-    /// Why: the Files tab is where a project is begun, opened, saved and sent out, so its
-    /// aside lists those commands instead of the drawing tools' Layers and Library.
-    ///
-    /// # Rules
-    /// - A page command highlights while its page shows; an action command never does.
-    /// - Close project is dimmed while the project is empty, and its tip says so.
-    ///
-    /// # Dependencies
-    /// - crates/ui-egui/src/ui_kit/rows.rs (`list_row`)
-    ///
-    /// # Do not
-    /// - Add a tab strip or the Library here; the workspace lists one tab only.
-    pub(crate) fn files_commands(&mut self, ui: &mut egui::Ui) {
-        // Selectable text would take the click that belongs to the row.
-        ui.style_mut().interaction.selectable_labels = false;
-        let ctx = ui.ctx().clone();
-        let tokens = theme::tokens(&ctx);
-        let primary = |key: egui::Key, shift: bool| {
-            let mods = if shift {
-                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT
-            } else {
-                egui::Modifiers::COMMAND
-            };
-            ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key))
-        };
-        let can_close = !self.project.components.is_empty() || self.project_has_unsaved_changes();
-        let commands: [(Command, String, String, String, bool, bool); 10] = [
-            (
-                Command::Recent,
-                t!("files.nav.recent"),
-                String::new(),
-                t!("files.nav.recent.tip"),
-                self.files_home.page == Page::Recent,
-                true,
-            ),
-            (
-                Command::New,
-                t!("files.nav.new"),
-                String::new(),
-                t!("files.nav.new.tip"),
-                false,
-                true,
-            ),
-            (
-                Command::Open,
-                t!("files.nav.open"),
-                primary(egui::Key::O, false),
-                t!("files.nav.open.tip"),
-                self.files_home.page == Page::Open,
-                true,
-            ),
-            (
-                Command::Save,
-                t!("files.nav.save"),
-                primary(egui::Key::S, false),
-                t!("files.nav.save.tip"),
-                false,
-                true,
-            ),
-            (
-                Command::SaveAs,
-                t!("files.nav.save_as"),
-                primary(egui::Key::S, true),
-                t!("files.nav.save_as.tip"),
-                false,
-                true,
-            ),
-            (
-                Command::Import,
-                t!("files.nav.import"),
-                String::new(),
-                t!("files.nav.import.tip"),
-                self.files_home.page == Page::Import,
-                true,
-            ),
-            (
-                Command::Export,
-                t!("files.nav.export"),
-                String::new(),
-                t!("files.nav.export.tip"),
-                self.files_home.page == Page::Export,
-                true,
-            ),
-            (
-                Command::ProjectSettings,
-                t!("files.nav.project_settings"),
-                String::new(),
-                t!("files.nav.project_settings.tip"),
-                self.files_home.page == Page::ProjectSettings,
-                true,
-            ),
-            (
-                Command::Preferences,
-                t!("files.nav.preferences"),
-                String::new(),
-                t!("files.nav.preferences.tip"),
-                false,
-                true,
-            ),
-            (
-                Command::Close,
-                t!("files.nav.close"),
-                String::new(),
-                if can_close {
-                    t!("files.nav.close.tip")
-                } else {
-                    t!("files.nav.close.empty")
-                },
-                self.files_home.page == Page::Close,
-                can_close,
-            ),
-        ];
-        let mut picked = None;
-        egui::ScrollArea::vertical()
-            .id_salt("files-commands")
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.add_space(theme::SPACE[1]);
-                for (index, (command, label, key, tip, selected, enabled)) in
-                    commands.iter().enumerate()
-                {
-                    if matches!(index, 1 | 5 | 8) {
-                        ui.add_space(theme::SPACE[1]);
-                    }
-                    let pages = matches!(
-                        command,
-                        Command::Import | Command::Export | Command::ProjectSettings
-                    );
-                    let response = ui_kit::rows::list_row(ui, *selected, label, tip, |ui| {
-                        let colour = if *enabled { tokens.text } else { tokens.muted };
-                        ui.label(fonts::text(fonts::Role::Body, label).color(colour));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if pages {
-                                let (rect, _) = ui.allocate_exact_size(
-                                    Vec2::splat(icons::ICON_SIZE),
-                                    egui::Sense::hover(),
-                                );
-                                (icons::CHEVRON_RIGHT.0)(ui.painter(), rect, tokens.muted);
-                            } else if !key.is_empty() {
-                                ui.label(fonts::caption(key).color(tokens.muted));
-                            }
-                        });
-                    });
-                    if response.clicked() && *enabled {
-                        picked = Some(*command);
-                    }
-                }
-            });
-        if let Some(command) = picked {
-            self.files_run(command);
+    /// The paths the worker looks at: the listed projects and the open one.
+    pub(crate) fn files_probe_paths(&self) -> Vec<String> {
+        let mut paths = self.files_listed();
+        if !paths.contains(&self.path) {
+            paths.push(self.path.clone());
         }
+        paths
     }
 
     /// Ask the worker thread for what is not known yet about the listed projects.
     fn files_probe(&mut self, ctx: &egui::Context) {
-        let listed = self.files_listed();
+        let listed = self.files_probe_paths();
         #[cfg(not(target_arch = "wasm32"))]
         {
             let mut keys: Vec<String> = Vec::new();
@@ -616,7 +372,7 @@ impl App {
                 let (tx, rx) = std::sync::mpsc::channel::<Found>();
                 let sent = keys.clone();
                 let spawned = std::thread::Builder::new()
-                    .name("files-pictures".into())
+                    .name("files-facts".into())
                     .spawn(move || {
                         for path in keys {
                             let meta = std::fs::metadata(&path).ok();
@@ -625,15 +381,10 @@ impl App {
                                 .and_then(|m| m.modified().ok())
                                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                                 .map(|d| d.as_secs());
-                            let image = meta
-                                .as_ref()
-                                .filter(|m| m.is_file())
-                                .and_then(|_| board_picture(Path::new(&path)));
                             let found = Found {
                                 exists: meta.as_ref().is_some_and(|m| m.is_file()),
                                 modified,
                                 bytes: meta.as_ref().map_or(0, |m| m.len()),
-                                image,
                                 path,
                             };
                             if tx.send(found).is_err() {
@@ -651,20 +402,12 @@ impl App {
                 loop {
                     match rx.try_recv() {
                         Ok(found) => {
-                            let picture = found.image.map(|image| {
-                                ctx.load_texture(
-                                    format!("files-picture:{}", found.path),
-                                    image,
-                                    egui::TextureOptions::LINEAR,
-                                )
-                            });
                             self.files_home.probes.insert(
                                 found.path,
                                 Probe {
                                     exists: found.exists,
                                     modified: found.modified,
                                     bytes: found.bytes,
-                                    picture,
                                 },
                             );
                         }
@@ -691,7 +434,6 @@ impl App {
                     exists: true,
                     modified: None,
                     bytes: 0,
-                    picture: None,
                 });
             }
         }
@@ -732,105 +474,87 @@ impl App {
 
     /// The centre of the Files tab.
     ///
-    /// Why: one place decides which page shows, so the left aside and the keyboard
+    /// Why: one place decides which page shows. The tool bar and the keyboard
     /// agree with it.
     ///
     /// # Rules
+    /// - The page sits on the `ground` colour with 32 side and 24 top padding.
     /// - Arrow keys and Enter act on the list only while nothing else holds the focus.
     ///
     /// # Dependencies
     /// - crates/ui-egui/src/workspace.rs (`FilesWorkspace::center`)
+    /// - crates/ui-egui/src/files_home/home.rs (`files_home_page`)
     ///
     /// # Do not
     /// - Draw the Library or Layers here.
     pub(crate) fn files_center(&mut self, ui: &mut egui::Ui) {
         ui.style_mut().interaction.selectable_labels = false;
         let ctx = ui.ctx().clone();
+        let tokens = theme::tokens(&ctx);
+        ui.painter().rect_filled(ui.max_rect(), 0.0, tokens.ground);
         self.files_probe(&ctx);
         self.files_page_keys(&ctx);
         self.files_home.rows.clear();
-        let narrow = Self::narrow_window(&ctx);
         egui::ScrollArea::vertical()
             .id_salt("files-page")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                Self::padded(ui, |ui| {
-                    ui.set_max_width(ui.available_width().min(860.0));
-                    if narrow {
-                        self.files_narrow_commands(ui);
-                    }
-                    let (title, subtitle) = match self.files_home.page {
-                        Page::Recent => (t!("files.recent.title"), t!("files.recent.subtitle")),
-                        Page::Open => (t!("files.open.title"), t!("files.open.subtitle")),
-                        Page::Import => (t!("files.import.title"), t!("files.import.subtitle")),
-                        Page::Export => (t!("files.export.title"), t!("files.export.subtitle")),
-                        Page::ProjectSettings => {
-                            (t!("files.settings.title"), t!("files.settings.subtitle"))
+                let side = if ctx.content_rect().width() < PAGE_NARROW_BELOW {
+                    theme::SPACE[3]
+                } else {
+                    theme::SPACE[5]
+                };
+                egui::Frame::NONE
+                    .inner_margin(egui::Margin::symmetric(side as i8, theme::SPACE[4] as i8))
+                    .show(ui, |ui| {
+                        if self.files_home.page == Page::Home {
+                            self.files_home_page(ui);
+                        } else {
+                            self.files_subpage(ui);
                         }
-                        Page::Close => (t!("files.close.title"), t!("files.close.subtitle")),
-                    };
-                    let muted = theme::tokens(&ctx).muted;
-                    ui.label(fonts::title(title));
-                    ui.add_space(theme::SPACE[0]);
-                    ui.label(fonts::text(fonts::Role::Body, subtitle).color(muted));
-                    ui.add_space(theme::SPACE[3]);
-                    if !self.files_home.error.is_empty() {
-                        let red = theme::tokens(&ctx).red;
-                        ui.label(fonts::text(fonts::Role::Body, &self.files_home.error).color(red));
-                        ui.add_space(theme::SPACE[1]);
-                    }
-                    match self.files_home.page {
-                        Page::Recent => self.files_recent_page(ui),
-                        Page::Open => self.files_open_page(ui),
-                        Page::Import => self.files_formats_page(ui, file_dialogs::Mode::Import),
-                        Page::Export => self.files_formats_page(ui, file_dialogs::Mode::Export),
-                        Page::ProjectSettings => self.files_settings_page(ui),
-                        Page::Close => self.files_close_page(ui),
-                    }
-                });
+                    });
             });
     }
 
-    /// In a window too narrow for the left aside the commands sit in a row on the page.
-    fn files_narrow_commands(&mut self, ui: &mut egui::Ui) {
-        let mut picked = None;
-        ui.horizontal_wrapped(|ui| {
-            for (command, label, tip) in [
-                (Command::New, t!("files.nav.new"), t!("files.nav.new.tip")),
-                (
-                    Command::Open,
-                    t!("files.nav.open"),
-                    t!("files.nav.open.tip"),
-                ),
-                (
-                    Command::Save,
-                    t!("files.nav.save"),
-                    t!("files.nav.save.tip"),
-                ),
-                (
-                    Command::SaveAs,
-                    t!("files.nav.save_as"),
-                    t!("files.nav.save_as.tip"),
-                ),
-                (
-                    Command::Import,
-                    t!("files.nav.import"),
-                    t!("files.nav.import.tip"),
-                ),
-                (
-                    Command::Export,
-                    t!("files.nav.export"),
-                    t!("files.nav.export.tip"),
-                ),
-            ] {
-                if button::secondary_button(ui, None, &label, &tip, Size::Normal, true).clicked() {
-                    picked = Some(command);
-                }
-            }
-        });
-        ui.add_space(theme::SPACE[2]);
-        if let Some(command) = picked {
-            self.files_run(command);
+    /// A page behind a tool bar button: Open, Import, Export or Close.
+    fn files_subpage(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        ui.set_max_width(ui.available_width().min(860.0));
+        if button::ghost_button(
+            ui,
+            Some(icons::CHEVRON_LEFT),
+            &t!("files.back"),
+            &t!("files.back.tip"),
+            Size::Normal,
+            true,
+        )
+        .clicked()
+        {
+            self.files_home.page = Page::Home;
+            self.files_home.error.clear();
+        }
+        ui.add_space(theme::SPACE[1]);
+        let (title, subtitle) = match self.files_home.page {
+            Page::Home | Page::Open => (t!("files.open.title"), t!("files.open.subtitle")),
+            Page::Import => (t!("files.import.title"), t!("files.import.subtitle")),
+            Page::Export => (t!("files.export.title"), t!("files.export.subtitle")),
+            Page::Close => (t!("files.close.title"), t!("files.close.subtitle")),
+        };
+        let muted = theme::tokens(&ctx).muted;
+        ui.label(fonts::title(title));
+        ui.add_space(theme::SPACE[0]);
+        ui.label(fonts::text(fonts::Role::Body, subtitle).color(muted));
+        ui.add_space(theme::SPACE[3]);
+        if !self.files_home.error.is_empty() {
+            let red = theme::tokens(&ctx).red;
+            ui.label(fonts::text(fonts::Role::Body, &self.files_home.error).color(red));
+            ui.add_space(theme::SPACE[1]);
+        }
+        match self.files_home.page {
+            Page::Home | Page::Open => self.files_open_page(ui),
+            Page::Import => self.files_formats_page(ui, file_dialogs::Mode::Import),
+            Page::Export => self.files_formats_page(ui, file_dialogs::Mode::Export),
+            Page::Close => self.files_close_page(ui),
         }
     }
 
@@ -850,7 +574,7 @@ impl App {
         let down = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown));
         let enter = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         match self.files_home.page {
-            Page::Recent => {
+            Page::Home => {
                 let list = self.files_listed();
                 if list.is_empty() {
                     return;
@@ -898,228 +622,6 @@ impl App {
         }
     }
 
-    /// The Recent projects page.
-    fn files_recent_page(&mut self, ui: &mut egui::Ui) {
-        let tokens = theme::tokens(ui.ctx());
-        self.files_current_card(ui);
-        ui.add_space(theme::SPACE[3]);
-        ui.label(fonts::section_caption(t!("files.recent.heading")).color(tokens.muted));
-        ui.add_space(theme::SPACE[1]);
-        let list = self.files_listed();
-        if list.is_empty() {
-            let clicked = ui_kit::empty_state::empty_state(
-                ui,
-                icons::PLUS,
-                &t!("files.recent.empty.title"),
-                &t!("files.recent.empty.message"),
-                &t!("files.recent.empty.button"),
-                &t!("files.recent.empty.tip"),
-            )
-            .clicked();
-            if clicked {
-                self.show_files(Page::Open);
-            }
-            self.files_home.hovered = None;
-            return;
-        }
-        let mut hovered = None;
-        let mut open = None;
-        let mut pin = None;
-        let mut remove = None;
-        let mut select = None;
-        for path in &list {
-            let row = self.files_row(ui, path);
-            if row.response.hovered() {
-                hovered = Some(path.clone());
-            }
-            if row.response.clicked() {
-                select = Some(path.clone());
-            }
-            if row.response.double_clicked() {
-                open = Some(path.clone());
-            }
-            if row.pin {
-                pin = Some(path.clone());
-            }
-            if row.remove {
-                remove = Some(path.clone());
-            }
-        }
-        if self.files_home.hovered != hovered {
-            ui.ctx().request_repaint();
-        }
-        self.files_home.hovered = hovered;
-        self.files_home.reveal = false;
-        if let Some(path) = select {
-            self.files_home.selected = Some(path);
-        }
-        if let Some(path) = pin {
-            self.files_toggle_pin(&path);
-        }
-        if let Some(path) = remove {
-            self.files_remove(&path);
-        }
-        if let Some(path) = open {
-            self.files_open_path(&path);
-        }
-    }
-
-    /// A card for the project that is open now.
-    fn files_current_card(&mut self, ui: &mut egui::Ui) {
-        let tokens = theme::tokens(ui.ctx());
-        ui.label(fonts::section_caption(t!("files.current.heading")).color(tokens.muted));
-        ui.add_space(theme::SPACE[1]);
-        let name = project_name(&self.path);
-        let parts = self.project.components.len();
-        let state = if self.project_has_unsaved_changes() {
-            t!("files.current.unsaved")
-        } else if parts == 0 {
-            t!("files.current.empty")
-        } else {
-            t!("files.current.saved")
-        };
-        egui::Frame::NONE
-            .fill(tokens.panel)
-            .stroke(egui::Stroke::new(theme::BORDER, tokens.line))
-            .corner_radius(theme::RADIUS_CONTROL)
-            .inner_margin(egui::Margin::symmetric(16, 12))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.label(fonts::strong(name).color(tokens.text));
-                    ui.label(
-                        fonts::caption(self.catalog.plural("cmp.count", parts as u64))
-                            .color(tokens.muted),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(fonts::caption(state).color(tokens.muted));
-                    });
-                });
-                let folder = short_folder(&self.path);
-                if !folder.is_empty() {
-                    ui.add(egui::Label::new(fonts::mono(folder).color(tokens.muted)).truncate());
-                }
-            });
-    }
-
-    /// One recent project row; tells the page what was pressed.
-    fn files_row(&mut self, ui: &mut egui::Ui, path: &str) -> RowOutcome {
-        let tokens = theme::tokens(ui.ctx());
-        let selected = self.files_home.selected.as_deref() == Some(path);
-        let pinned = self.preferences.pinned_projects.iter().any(|p| p == path);
-        let name = project_name(path);
-        let (rect, response) = ui.allocate_exact_size(
-            Vec2::new(ui.available_width(), ROW_HEIGHT),
-            egui::Sense::click(),
-        );
-        response.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name)
-        });
-        if selected && self.files_home.reveal {
-            response.scroll_to_me(None);
-        }
-        self.keep_list_focus(ui, &response);
-        if selected {
-            ui.painter().rect_filled(rect, 0.0, tokens.copper_tint);
-            ui.painter().rect_filled(
-                egui::Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())),
-                0.0,
-                tokens.copper,
-            );
-        } else if response.hovered() {
-            ui.painter().rect_filled(rect, 0.0, tokens.raised);
-        }
-        ui.painter().hline(
-            rect.x_range(),
-            rect.max.y - 0.5,
-            egui::Stroke::new(theme::BORDER, tokens.line.gamma_multiply(0.55)),
-        );
-        let probe = self.files_home.probes.get(path);
-        let missing = probe.is_some_and(|p| !p.exists);
-        let picture = egui::Rect::from_min_size(
-            rect.min + Vec2::new(12.0, 10.0),
-            Vec2::new(ROW_PICTURE, ROW_HEIGHT - 20.0),
-        );
-        paint_picture(ui, picture, probe.and_then(|p| p.picture.as_ref()), &tokens);
-        let buttons_width = 2.0 * 28.0 + theme::SPACE[0] + 12.0;
-        let text_rect = egui::Rect::from_min_max(
-            egui::pos2(picture.right() + 12.0, rect.top() + 12.0),
-            egui::pos2(rect.right() - buttons_width - 8.0, rect.bottom() - 8.0),
-        );
-        let when = self.files_when(path);
-        let mut text = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(text_rect)
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-        );
-        text.horizontal(|ui| {
-            if pinned {
-                let (r, _) =
-                    ui.allocate_exact_size(Vec2::splat(icons::ICON_SIZE), egui::Sense::hover());
-                (icons::PIN.0)(ui.painter(), r, tokens.copper);
-            }
-            let colour = if missing { tokens.muted } else { tokens.text };
-            ui.add(egui::Label::new(fonts::strong(&name).color(colour)).truncate());
-        });
-        text.add(egui::Label::new(fonts::mono(short_folder(path)).color(tokens.muted)).truncate());
-        let when_colour = if missing { tokens.gold } else { tokens.muted };
-        text.add(egui::Label::new(fonts::caption(when).color(when_colour)).truncate());
-        let mut pin = false;
-        let mut remove = false;
-        let mut buttons = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(egui::Rect::from_min_max(
-                    egui::pos2(rect.right() - buttons_width, rect.top()),
-                    egui::pos2(rect.right() - 12.0, rect.bottom()),
-                ))
-                .layout(egui::Layout::right_to_left(egui::Align::Center)),
-        );
-        let (remove_tip, pin_name, pin_tip) = if pinned {
-            (
-                t!("files.row.remove.tip"),
-                t!("files.row.unpin"),
-                t!("files.row.unpin.tip"),
-            )
-        } else {
-            (
-                t!("files.row.remove.tip"),
-                t!("files.row.pin"),
-                t!("files.row.pin.tip"),
-            )
-        };
-        if button::icon_button(
-            &mut buttons,
-            icons::CLOSE,
-            &t!("files.row.remove"),
-            &remove_tip,
-            Size::Normal,
-            true,
-        )
-        .clicked()
-        {
-            remove = true;
-        }
-        if button::icon_button(
-            &mut buttons,
-            icons::PIN,
-            &pin_name,
-            &pin_tip,
-            Size::Normal,
-            true,
-        )
-        .clicked()
-        {
-            pin = true;
-        }
-        ui_kit::focus::focus_ring(ui, &response, 0);
-        let response = response.on_hover_text(t!("files.row.tip"));
-        RowOutcome {
-            response,
-            pin,
-            remove,
-        }
-    }
-
     /// Note a list row and, while it has the focus, keep the arrow keys for the list.
     fn keep_list_focus(&mut self, ui: &egui::Ui, response: &egui::Response) {
         self.files_home.rows.push(response.id);
@@ -1157,190 +659,6 @@ impl App {
             self.files_home.selected = None;
         }
         self.files_home.forget_probe(path);
-    }
-
-    /// The right aside of the Files tab: details of the hovered or selected project.
-    ///
-    /// Why: a name alone does not tell two copies of a board apart; the path, the
-    /// picture and the dates do.
-    ///
-    /// # Rules
-    /// - Shows the project under the pointer first, then the selected one, then the
-    ///   project that is open now.
-    ///
-    /// # Dependencies
-    /// - crates/ui-egui/src/lib.rs (`App::inspector` calls this on the Files tab)
-    pub(crate) fn files_details(&mut self, ui: &mut egui::Ui) {
-        ui.style_mut().interaction.selectable_labels = false;
-        let tokens = theme::tokens(ui.ctx());
-        let label = t!("files.details.tab");
-        let tip = t!("files.details.tab.tip");
-        let items = [ui_kit::tab_bar::TabItem::new(&label, &tip)];
-        let mut index = 0;
-        ui_kit::tab_bar::tab_bar(
-            ui,
-            "files-details-tabs",
-            &mut index,
-            &items,
-            ui_kit::tab_bar::TabSize::Aside,
-            None,
-        );
-        let shown = if self.files_home.page == Page::Recent {
-            self.files_home
-                .hovered
-                .clone()
-                .or_else(|| self.files_home.selected.clone())
-        } else {
-            None
-        };
-        egui::ScrollArea::vertical()
-            .id_salt("files-details")
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                egui::Frame::NONE
-                    .inner_margin(egui::Margin::symmetric(16, 12))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        match shown {
-                            Some(path) => self.files_recent_details(ui, &path),
-                            None => self.files_current_details(ui),
-                        }
-                    });
-            });
-        let _ = tokens;
-    }
-
-    fn files_recent_details(&mut self, ui: &mut egui::Ui, path: &str) {
-        let tokens = theme::tokens(ui.ctx());
-        let probe = self.files_home.probes.get(path);
-        let exists = probe.is_none_or(|p| p.exists);
-        let width = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(
-            Vec2::new(width, (width * 0.62).min(190.0)),
-            egui::Sense::hover(),
-        );
-        paint_picture(ui, rect, probe.and_then(|p| p.picture.as_ref()), &tokens);
-        ui.add_space(theme::SPACE[2]);
-        ui.label(fonts::title(project_name(path)).color(tokens.text));
-        ui.add_space(theme::SPACE[0]);
-        ui.add(
-            egui::Label::new(fonts::mono(path).color(tokens.muted))
-                .wrap_mode(egui::TextWrapMode::Wrap),
-        );
-        ui.add_space(theme::SPACE[2]);
-        let opened = self
-            .preferences
-            .project_opened
-            .get(path)
-            .map(|t| self.files_ago(*t))
-            .unwrap_or_default();
-        let modified = probe
-            .and_then(|p| p.modified)
-            .map(|t| self.files_ago(t))
-            .unwrap_or_default();
-        let size = probe.map(|p| p.bytes).filter(|b| *b > 0).map(size_text);
-        let status = if exists {
-            t!("files.details.there")
-        } else {
-            t!("files.missing")
-        };
-        for (key, value) in [
-            (t!("files.details.opened"), opened),
-            (t!("files.details.modified"), modified),
-            (t!("files.details.size"), size.unwrap_or_default()),
-            (t!("files.details.status"), status),
-        ] {
-            if value.is_empty() {
-                continue;
-            }
-            detail_row(ui, &key, &value, &tokens);
-        }
-        ui.add_space(theme::SPACE[2]);
-        let pinned = self.preferences.pinned_projects.iter().any(|p| p == path);
-        let open_tip = if exists {
-            t!("files.details.open.tip")
-        } else {
-            t!("files.details.open.missing")
-        };
-        if button::primary_button(
-            ui,
-            None,
-            &t!("files.details.open"),
-            &open_tip,
-            Size::Normal,
-            exists,
-        )
-        .clicked()
-        {
-            self.files_open_path(path);
-        }
-        ui.add_space(theme::SPACE[1]);
-        ui.horizontal(|ui| {
-            let (label, tip) = if pinned {
-                (t!("files.row.unpin"), t!("files.row.unpin.tip"))
-            } else {
-                (t!("files.row.pin"), t!("files.row.pin.tip"))
-            };
-            if button::secondary_button(ui, Some(icons::PIN), &label, &tip, Size::Normal, true)
-                .clicked()
-            {
-                self.files_toggle_pin(path);
-            }
-            if button::secondary_button(
-                ui,
-                None,
-                &t!("files.details.remove"),
-                &t!("files.row.remove.tip"),
-                Size::Normal,
-                true,
-            )
-            .clicked()
-            {
-                self.files_remove(path);
-            }
-        });
-    }
-
-    fn files_current_details(&mut self, ui: &mut egui::Ui) {
-        let tokens = theme::tokens(ui.ctx());
-        ui.label(fonts::section_caption(t!("files.current.heading")).color(tokens.muted));
-        ui.add_space(theme::SPACE[1]);
-        ui.label(fonts::title(project_name(&self.path)).color(tokens.text));
-        ui.add_space(theme::SPACE[0]);
-        ui.add(
-            egui::Label::new(fonts::mono(&self.path).color(tokens.muted))
-                .wrap_mode(egui::TextWrapMode::Wrap),
-        );
-        ui.add_space(theme::SPACE[2]);
-        let state = if self.project_has_unsaved_changes() {
-            t!("files.current.unsaved")
-        } else if self.project.components.is_empty() {
-            t!("files.current.empty")
-        } else {
-            t!("files.current.saved")
-        };
-        let board = format!(
-            "{} × {} {}",
-            self.project.board.width,
-            self.project.board.height,
-            t!("unit.mm")
-        );
-        for (key, value) in [
-            (t!("files.details.status"), state),
-            (
-                t!("files.details.parts"),
-                self.project.components.len().to_string(),
-            ),
-            (
-                t!("files.details.nets"),
-                self.project.nets.len().to_string(),
-            ),
-            (t!("files.details.board"), board),
-        ] {
-            detail_row(ui, &key, &value, &tokens);
-        }
-        ui.add_space(theme::SPACE[2]);
-        ui.label(fonts::text(fonts::Role::Body, t!("files.details.hint")).color(tokens.muted));
     }
 
     /// The Open page: a folder browser with a typed path above it.
@@ -1619,32 +937,6 @@ impl App {
         }
     }
 
-    /// The Project settings page: links until the tabbed dialog exists.
-    fn files_settings_page(&mut self, ui: &mut egui::Ui) {
-        let tokens = theme::tokens(ui.ctx());
-        ui.label(fonts::text(fonts::Role::Body, t!("files.settings.note")).color(tokens.muted));
-        ui.add_space(theme::SPACE[2]);
-        for (label, tip, tab) in [
-            (
-                t!("files.settings.rules"),
-                t!("files.settings.rules.tip"),
-                Tab::Rules,
-            ),
-            (
-                t!("files.settings.app"),
-                t!("files.settings.app.tip"),
-                Tab::Settings,
-            ),
-        ] {
-            if button::secondary_button(ui, None, &label, &tip, Size::Normal, true).clicked() {
-                self.change_tab(tab);
-            }
-            ui.add_space(theme::SPACE[1]);
-        }
-        ui.add_space(theme::SPACE[2]);
-        self.files_tab(ui);
-    }
-
     /// The Close page: only shown when the project has changes that are not saved.
     fn files_close_page(&mut self, ui: &mut egui::Ui) {
         let tokens = theme::tokens(ui.ctx());
@@ -1698,7 +990,7 @@ impl App {
             )
             .clicked()
             {
-                self.files_home.page = Page::Recent;
+                self.files_home.page = Page::Home;
             }
         });
     }
@@ -1712,57 +1004,6 @@ impl App {
             _ => {}
         }
     }
-}
-
-/// What a recent project row reported.
-struct RowOutcome {
-    response: egui::Response,
-    pin: bool,
-    remove: bool,
-}
-
-/// A picture in a box, or the empty-board mark when there is none.
-fn paint_picture(
-    ui: &egui::Ui,
-    rect: egui::Rect,
-    texture: Option<&egui::TextureHandle>,
-    tokens: &theme::Tokens,
-) {
-    ui.painter()
-        .rect_filled(rect, theme::RADIUS_CONTROL, tokens.raised);
-    ui.painter().rect_stroke(
-        rect,
-        theme::RADIUS_CONTROL,
-        egui::Stroke::new(theme::BORDER, tokens.line),
-        egui::StrokeKind::Inside,
-    );
-    match texture {
-        Some(texture) => {
-            let size = texture.size_vec2();
-            let scale = (rect.width() / size.x).min(rect.height() / size.y);
-            let fitted = egui::Rect::from_center_size(rect.center(), size * scale);
-            ui.painter().image(
-                texture.id(),
-                fitted,
-                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                Color32::WHITE,
-            );
-        }
-        None => {
-            let icon: Icon = icons::FIT;
-            let side = icons::ICON_SIZE.min(rect.height() * 0.5);
-            let r = egui::Rect::from_center_size(rect.center(), Vec2::splat(side));
-            (icon.0)(ui.painter(), r, tokens.muted);
-        }
-    }
-}
-
-/// A label and its value on one line of the details.
-fn detail_row(ui: &mut egui::Ui, key: &str, value: &str, tokens: &theme::Tokens) {
-    ui.horizontal_wrapped(|ui| {
-        ui.label(fonts::caption(key).color(tokens.muted));
-        ui.label(fonts::text(fonts::Role::Body, value).color(tokens.text));
-    });
 }
 
 /// File size in kilobytes or megabytes.
