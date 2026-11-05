@@ -32,6 +32,8 @@ const PLACED: u64 = 2;
 
 /// Nearest millimetre fraction at which a model counts as centred on its pads.
 const ALIGNED_WITHIN_MM: f64 = 0.1;
+// Warn in plain words when the residual after auto-align is this large.
+const WARN_ABOVE_MM: f64 = 0.15;
 
 /// A project holding only `def`, placed at the middle of a board a little larger than it.
 ///
@@ -142,6 +144,37 @@ pub(crate) fn centre_offset(
     let bx = (body.0[0] + body.1[0]) / 2.0 - centre.x;
     let by = (body.0[1] + body.1[1]) / 2.0 - centre.y;
     Some((bx - px, by - py))
+}
+
+/// The middle of the footprint pads, in footprint coordinates.
+///
+/// # Rules
+/// - A footprint with no pads returns `None`.
+pub(crate) fn pad_centroid(def: &FootprintDefinition) -> Option<Point> {
+    if def.pads.is_empty() {
+        return None;
+    }
+    let n = def.pads.len() as f64;
+    let x = def.pads.iter().map(|p| p.position.x).sum::<f64>() / n;
+    let y = def.pads.iter().map(|p| p.position.y).sum::<f64>() / n;
+    Some(Point::new(x, y))
+}
+
+/// The translation that moves the model body centre to the pad centroid.
+///
+/// # Rules
+/// - `body` is the model bounding box in board coordinates.
+/// - `centre` is the footprint origin in board coordinates.
+/// - Returns `None` when there are no pads.
+pub(crate) fn auto_align_translation(
+    def: &FootprintDefinition,
+    centre: Point,
+    body: ([f64; 3], [f64; 3]),
+) -> Option<Point> {
+    let centroid = pad_centroid(def)?;
+    let body_x = (body.0[0] + body.1[0]) / 2.0 - centre.x;
+    let body_y = (body.0[1] + body.1[1]) / 2.0 - centre.y;
+    Some(Point::new(centroid.x - body_x, centroid.y - body_y))
 }
 
 impl App {
@@ -363,12 +396,31 @@ impl App {
         let t = theme::tokens(ui.ctx());
         let has_model = model.is_some();
         let mut reset = false;
+        let mut auto_align = false;
         let mut next: Option<Model3D> = None;
         card(
             ui,
             &t!("libws.model.alignment"),
             None,
             |ui| {
+                snap = ghost_button(
+                    ui,
+                    None,
+                    &t!("libws.model.snap"),
+                    &t!("libws.model.snap.tip"),
+                    Size::Small,
+                    editable && has_model,
+                )
+                .clicked();
+                auto_align = ghost_button(
+                    ui,
+                    None,
+                    &t!("libws.model.auto_align"),
+                    &t!("libws.model.auto_align.tip"),
+                    Size::Small,
+                    editable && has_model,
+                )
+                .clicked();
                 reset = ghost_button(
                     ui,
                     None,
@@ -481,6 +533,30 @@ impl App {
             back.scale = [1.0; 3];
             next = Some(back);
         }
+        if snap if auto_align && let Some(m) = model.as_ref() {if auto_align && let Some(m) = model.as_ref() { let Some(m) = model.as_ref() {
+            let centre = self.libws.model_centre;
+            let body = self.libws.model_view.body_bounds(PART);
+            if let Some(b) = body {
+                if let Some(trans) = snap_to_nearest_pad(def, centre, b) {
+                    let mut fixed = m.clone();
+                    fixed.offset[0] = trans.x;
+                    fixed.offset[1] = trans.y;
+                    next = Some(fixed);
+                }
+            }
+        }
+        if auto_align && let Some(m) = model.as_ref() {
+            let centre = self.libws.model_centre;
+            let body = self.libws.model_view.body_bounds(PART);
+            if let Some(b) = body {
+                if let Some(trans) = auto_align_translation(def, centre, b) {
+                    let mut fixed = m.clone();
+                    fixed.offset[0] = trans.x;
+                    fixed.offset[1] = trans.y;
+                    next = Some(fixed);
+                }
+            }
+        }
         if let Some(m) = next {
             self.library_set_model(&def.name, &m);
         }
@@ -515,6 +591,16 @@ impl App {
             None,
             |ui| {
                 crate::ui_kit::chip::badge(ui, &badge_text, kind, &t!("libws.model.overlay.tip"));
+                if let Some((dx, dy)) = off {
+                    if dx.hypot(dy) > WARN_ABOVE_MM {
+                        ui.label(
+                            fonts::caption(
+                                t!("libws.model.warn_large_offset"),
+                            )
+                            .color(t.red),
+                        );
+                    }
+                }
             },
             |ui| {
                 let (rect, _) = ui.allocate_exact_size(
@@ -609,4 +695,62 @@ mod tests {
         let (dx, _) = centre_offset(&def, centre, shifted).unwrap_or((0.0, 0.0));
         assert!((dx - 1.0).abs() < 1e-9, "one millimetre to the right");
     }
+
+    #[test]
+    fn auto_align_recovers_a_shifted_model() {
+        let def = two_pads();
+        let centre = Point::new(10.0, 10.0);
+        // A model body shifted 2mm right and 1mm down from the pad centroid.
+        let shifted_body = ([12.0, 10.0, 0.0], [16.0, 12.0, 1.0]);
+        let trans = auto_align_translation(&def, centre, shifted_body).unwrap();
+        // The translation should move the body back to the pad centroid.
+        // Pad centroid is at (0, 0) in footprint coords, body centre is at (14, 11) - (10, 10) = (4, 1).
+        // So translation should be (-4, -1).
+        assert!((trans.x - (-4.0)).abs() < 0.05, "x translation recovers the shift");
+        assert!((trans.y - (-1.0)).abs() < 0.05, "y translation recovers the shift");
+    }
+
+    #[test]
+    fn pad_centroid_is_the_average_of_pad_positions() {
+        let def = two_pads();
+        let centroid = pad_centroid(&def).unwrap();
+        // Pads at (-1.5, 0) and (1.5, 0), centroid at (0, 0).
+        assert!((centroid.x - 0.0).abs() < 1e-9);
+        assert!((centroid.y - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pad_centroid_returns_none_for_no_pads() {
+        let mut def = crate::authoring::new_footprint();
+        def.pads = vec![];
+        assert!(pad_centroid(&def).is_none());
+    }
+}
+
+/// The translation that moves the model body centre to the nearest pad centre.
+///
+/// # Rules
+/// - `body` is the model bounding box in board coordinates.
+/// - `centre` is the footprint origin in board coordinates.
+/// - Returns `None` when there are no pads.
+pub(crate) fn snap_to_nearest_pad(
+    def: &FootprintDefinition,
+    centre: Point,
+    body: ([f64; 3], [f64; 3]),
+) -> Option<Point> {
+    if def.pads.is_empty() {
+        return None;
+    }
+    let body_x = (body.0[0] + body.1[0]) / 2.0 - centre.x;
+    let body_y = (body.0[1] + body.1[1]) / 2.0 - centre.y;
+    let mut best = None;
+    let mut best_dist = f64::MAX;
+    for pad in &def.pads {
+        let dist = ((pad.position.x - body_x).powi(2) + (pad.position.y - body_y).powi(2)).sqrt();
+        if dist < best_dist {
+            best_dist = dist;
+            best = Some(pad.position);
+        }
+    }
+    best.map(|p| Point::new(p.x - body_x, p.y - body_y))
 }
