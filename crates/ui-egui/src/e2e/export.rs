@@ -750,7 +750,7 @@ fn a_newcomer_exports_a_placement_file_split_by_side() -> Result<(), String> {
         json!({
             "name": "Placement split",
             "kind": "placement",
-            "path": "",
+            "path": "placement.csv",
             "settings": { "flavour": "cpl_inch" }
         }),
     );
@@ -760,34 +760,41 @@ fn a_newcomer_exports_a_placement_file_split_by_side() -> Result<(), String> {
         .artifacts
         .iter()
         .find(|a| a.name == "Placement split")
-        .ok_or("the placement artifact should exist")?;
+        .ok_or_else(|| format!("the placement artifact should exist: {}", app.message))?;
     // Export it.
     app.run(
         "artifact.export",
         json!({"id": artifact.id, "directory": dir.path().to_string_lossy()}),
     );
     app.refresh();
-    // Two files should be written: one per side.
-    let mut names: Vec<String> = Vec::new();
-    for entry in std::fs::read_dir(dir.path()).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        names.push(entry.file_name().to_string_lossy().into_owned());
+    // A split flavour writes a folder with one file per side. Each file on disk is the flavour's
+    // own output for that side.
+    let flavour = pcbcraft_io::bundled_placement_flavours()?
+        .into_iter()
+        .find(|f| f.id == "cpl_inch")
+        .ok_or("the cpl_inch flavour is bundled")?;
+    let expected = pcbcraft_io::placement_flavoured(
+        &app.project,
+        &flavour,
+        &pcbcraft_io::PlacementOptions::default(),
+    )?;
+    assert!(
+        expected.files.len() >= 2,
+        "the cpl_inch flavour splits the file by side"
+    );
+    let folder = dir.path().join("placement.csv");
+    for (name, text) in &expected.files {
+        let on_disk = std::fs::read_to_string(folder.join(name))
+            .map_err(|e| format!("the side file {name} was not written: {e}"))?;
+        assert_eq!(
+            &on_disk, text,
+            "the file {name} on disk is the flavour's own output"
+        );
     }
-    assert!(
-        names.contains(&"placement-top.csv".to_string()),
-        "the top side file was written: {:?}",
-        names
-    );
-    assert!(
-        names.contains(&"placement-bottom.csv".to_string()),
-        "the bottom side file was written: {:?}",
-        names
-    );
-    let top =
-        std::fs::read_to_string(dir.path().join("placement-top.csv")).map_err(|e| e.to_string())?;
-    assert!(
-        top.starts_with("RefDes,Layer,LocationX,LocationY,Rotation\n"),
-        "the top file has the expected header"
+    assert_ne!(
+        expected.files[0].1,
+        pcbcraft_io::placement_text(&app.project)?,
+        "a flavour changes the file from the classic placement file"
     );
     Ok(())
 }
