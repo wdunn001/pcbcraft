@@ -81,6 +81,16 @@ pub(crate) fn role_font(role: TextRole, zoom: f32) -> FontId {
     font_mm(role.mm(), zoom, role.mono())
 }
 
+/// The smallest point size boxed text is painted at. Below it the text is a speck and is left out.
+pub(crate) const MIN_BOXED_POINTS: f32 = 1.0;
+
+/// The font for text `mm` tall that has to stay inside a box which scales with the zoom, or `None` when the
+/// text would be under `MIN_BOXED_POINTS`. It has no `MIN_POINTS` clamp, so it never outgrows the box.
+pub(crate) fn boxed_font_mm(mm: f32, zoom: f32, mono: bool) -> Option<FontId> {
+    let points = mm * zoom;
+    (points >= MIN_BOXED_POINTS).then(|| crate::fonts::scaled(mono, points.min(MAX_POINTS)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +140,19 @@ mod tests {
         }
         assert!(TextRole::Reference.mono());
         assert!(!TextRole::BoardReference.mono());
+    }
+
+    #[test]
+    fn boxed_text_is_proportional_or_absent() {
+        assert!(boxed_font_mm(2.0, 0.4, true).is_none());
+        let near = boxed_font_mm(2.0, 4.0, true).map(|f| f.size);
+        let far = boxed_font_mm(2.0, 8.0, true).map(|f| f.size);
+        assert_eq!(near, Some(8.0));
+        assert_eq!(far, Some(16.0));
+        assert_eq!(
+            boxed_font_mm(2.0, 1000.0, true).map(|f| f.size),
+            Some(MAX_POINTS)
+        );
     }
 
     #[test]
