@@ -27,7 +27,7 @@ use crate::storage::BlobStore;
 /// - The digest is computed in one pass; the result is always 64 hex characters.
 ///
 /// # Dependencies
-/// - sha2 crate (workspace dependency)
+/// - crates/portal/Cargo.toml (the sha2 dependency)
 ///
 /// # Do not
 /// - Use for cryptographic proofs outside this crate; this is for content addressing only.
@@ -116,6 +116,7 @@ fn unwrap_poisoned<T>(result: Result<T, PoisonError<T>>) -> Result<T, PortalErro
     }
 }
 
+/// Contract: crates/portal/src/storage.rs
 impl BlobStore for MemoryBlobStore {
     fn put(&self, content_hash: &str, data: &[u8]) -> Result<(), PortalError> {
         validate_hash_format(content_hash)?;
@@ -133,13 +134,13 @@ impl BlobStore for MemoryBlobStore {
             )));
         }
         let mut map = unwrap_poisoned(self.inner.lock())?;
-        if let Some(existing) = map.get(content_hash) {
-            if existing != data {
-                return Err(PortalError::Conflict(format!(
-                    "hash {} already has different data",
-                    content_hash
-                )));
-            }
+        if let Some(existing) = map.get(content_hash)
+            && existing != data
+        {
+            return Err(PortalError::Conflict(format!(
+                "hash {} already has different data",
+                content_hash
+            )));
         }
         map.insert(content_hash.to_string(), data.to_vec());
         Ok(())
@@ -166,7 +167,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn put_then_get_round_trips() {
+    fn put_then_get_round_trips() -> Result<(), PortalError> {
         let store = MemoryBlobStore::default();
         let data = b"abc";
         let hash = sha256_hex(data);
@@ -174,9 +175,10 @@ mod tests {
             hash,
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        store.put(&hash, data).expect("put should succeed");
-        let got = store.get(&hash).expect("get should succeed");
+        store.put(&hash, data)?;
+        let got = store.get(&hash)?;
         assert_eq!(got, data);
+        Ok(())
     }
 
     #[test]
@@ -190,14 +192,13 @@ mod tests {
     }
 
     #[test]
-    fn put_twice_is_idempotent() {
+    fn put_twice_is_idempotent() -> Result<(), PortalError> {
         let store = MemoryBlobStore::default();
         let data = b"abc";
         let hash = sha256_hex(data);
-        store.put(&hash, data).expect("first put");
-        store
-            .put(&hash, data)
-            .expect("second put should be idempotent");
+        store.put(&hash, data)?;
+        store.put(&hash, data)?;
+        Ok(())
     }
 
     #[test]
