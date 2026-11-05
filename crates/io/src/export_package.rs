@@ -148,18 +148,8 @@ pub static CONTENT_FORMATS: &[ContentFormat] = &[
         "the IDF library file is not written yet",
         411,
     ),
-    waiting(
-        "paste_gerbers",
-        "Paste layers",
-        "paste stencil output is a stub",
-        420,
-    ),
-    waiting(
-        "stencil_cut",
-        "Stencil cut file",
-        "paste stencil output is a stub",
-        420,
-    ),
+    ready("paste_gerbers", "Paste layers"),
+    ready("stencil_cut", "Stencil cut file"),
     ready("revision_notes", "Revision notes"),
 ];
 
@@ -517,6 +507,26 @@ fn render_content(
             let n = name(None, Some("DrillMap"), Some("gbr"))?;
             Ok(vec![text_entry(n, &c.kind, text.clone())])
         }
+        "paste_gerbers" => {
+            let mut out = Vec::new();
+            for (file, text) in crate::paste_gerber_files(p)? {
+                let side = if file.contains("top") {
+                    "top"
+                } else {
+                    "bottom"
+                };
+                out.push(text_entry(
+                    name(Some(side), None, Some("gbr"))?,
+                    &c.kind,
+                    text,
+                ));
+            }
+            Ok(out)
+        }
+        "stencil_cut" => one(
+            "svg",
+            crate::stencil_cut_svg(p, &crate::StencilOptions::default())?,
+        ),
         "bom_csv" => one("csv", crate::bom_csv(p, &[], variant)?),
         "cpl_csv" => one("csv", cpl_prototype(p, variant)?),
         "ipc2581" => one("xml", crate::ipc2581_text(p)?),
@@ -751,12 +761,11 @@ mod tests {
         let by = |id: &str| bundled_packages().iter().find(|d| d.id == id).cloned();
         let q = availability(&by("fab_quickturn").ok_or("missing")?)?;
         assert!(!q.available && q.issues == vec![404]);
-        let s = availability(&by("stencil").ok_or("missing")?)?;
-        assert!(!s.available && s.issues == vec![420]);
         for id in [
             "fab_prototype",
             "fab_x2",
             "assembly_prototype",
+            "stencil",
             "ipc2581",
             "odb",
         ] {
