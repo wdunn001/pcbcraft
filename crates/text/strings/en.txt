@@ -4278,3 +4278,4 @@ export.package.name = Copy name
 export.package.name.tip = Name this copy of the package.
 export.package.duplicate = Duplicate package
 export.package.duplicate.tip = Save a copy of this package in this project.
+export.package.duplicated = Saved a copy in this project.

@@ -1,6 +1,6 @@
 ---
 type: feature
-area: text
+area: ui
 issues: [214]
 user_visible: true
 docs: n/a: written by the worker harness, the issue text records the behaviour

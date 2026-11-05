@@ -174,15 +174,6 @@ pub(crate) fn packages(project: &Project) -> Vec<Package> {
     }
     result
 }
-            Some(Package {
-                id: d.id.clone(),
-                label: d.name.clone(),
-                tip,
-                available: a.available,
-            })
-        })
-        .collect()
-}
 
 /// What the open dialog remembers between frames.
 #[derive(Default)]
@@ -555,14 +546,12 @@ impl App {
                                             }
                                         }
                                         ui.add_space(8.0);
-                                        if ui
                                         ui.horizontal(|ui| {
                                             let tip = t!("export.package.name.tip");
-                                            let before = d.package_name.clone();
-                                            ui.label(t!("export.package.name")).on_hover_text(tip.as_str());
+                                            ui.label(t!("export.package.name"))
+                                                .on_hover_text(tip.as_str());
                                             ui.add(crate::targets::text_field(&mut d.package_name))
-                                                .on_hover_text(tip.as_str())
-                                                .on_focus_gained(|f| f.on("package-name-focus"));
+                                                .on_hover_text(tip.as_str());
                                             if ui
                                                 .button(t!("export.package.duplicate"))
                                                 .on_hover_text(t!("export.package.duplicate.tip"))
@@ -572,13 +561,19 @@ impl App {
                                                 let slug = name
                                                     .to_lowercase()
                                                     .chars()
-                                                    .filter_map(|c| if c.is_alphanumeric() { Some(c) } else { None })
+                                                    .filter(|c| c.is_alphanumeric())
                                                     .collect::<String>();
-                                                let id = if slug.is_empty() { "my_".to_owned() } else { slug };
-                                                d.duplicate = Some((d.package_pick.clone(), id, name));
+                                                let id = if slug.is_empty() {
+                                                    "my_".to_owned()
+                                                } else {
+                                                    slug
+                                                };
+                                                d.duplicate =
+                                                    Some((d.package_pick.clone(), id, name));
                                             }
                                         });
                                         ui.add_space(4.0);
+                                        if ui
                                             .button(t!("export.package.go"))
                                             .on_hover_text(t!("export.package.go.tip"))
                                             .clicked()
@@ -614,12 +609,15 @@ impl App {
                 });
                 ui.add_space(6.0);
             });
-        if let Some((src, new_id, name)) = d.duplicate.take() {
-            if self.tool_call("package.duplicate", json!({"id": src, "new_id": new_id, "name": name})) {
-                d.package_pick = new_id;
-                d.package_name = String::new();
-                self.message = "Saved a copy in this project.".into();
-            }
+        if let Some((src, new_id, name)) = d.duplicate.take()
+            && self.tool_call(
+                "package.duplicate",
+                json!({"id": src, "new_id": new_id, "name": name}),
+            )
+        {
+            d.package_pick = new_id;
+            d.package_name = String::new();
+            self.message = t!("export.package.duplicated");
         }
         if !d.package.is_empty() {
             let id = std::mem::take(&mut d.package);
@@ -1002,13 +1000,13 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
     }
     if d.mode == Mode::Export {
         ui.label(crate::fonts::caption("Packages").color(muted));
-        if packages(&project).is_empty() {
+        if packages(project).is_empty() {
             ui.label(egui::RichText::new("No packages yet.").color(muted))
                 .on_hover_text(
                     "A package is a named bundle of several formats, such as the files one board maker asks for.",
                 );
         }
-        for p in packages(&project) {
+        for p in packages(project) {
             let tip = if p.available {
                 format!("{}\nClick to write it into the make folder.", p.tip)
             } else {
