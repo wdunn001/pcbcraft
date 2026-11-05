@@ -27,6 +27,7 @@ mod firmware_plugin;
 mod gerber_export;
 mod images;
 mod layout;
+mod legalize;
 pub mod library;
 mod machines;
 mod net_names;
@@ -68,6 +69,7 @@ pub use collab::{
     shareable_room_command,
 };
 pub use dry_run::{ChangeSummary, DryRun};
+pub use legalize::{MAX_PASSES, Plan, plan_moves};
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
@@ -3125,23 +3127,26 @@ pub struct Session {
     pub config: user_config::UserConfig,
     /// The last board check results and the design they were made for.
     board_checks: std::sync::Arc<std::sync::Mutex<Option<BoardChecks>>>,
+    /// How many times the board checks ran from scratch.
+    board_check_runs: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Board check results kept between edits: the design as the board checks read it, the
 /// design findings (copper rules, custom checks, height limits) and the airwires.
 ///
-/// Why: the checks run again after every edit. Adding a schematic page or renaming one
-/// cannot change a copper finding, but the copper checks pour every zone and cost seconds
-/// on a large board.
+/// Why: the checks run again after every edit. Adding a schematic page, renaming one or
+/// typing a title block entry cannot change a copper finding, but the copper checks cost
+/// seconds on a large board.
 ///
 /// # Rules
-/// - `design` is the project with the schematic page names and page settings cleared. Those
-///   are the only parts of a project the board checks never read.
+/// - `design` is the project with the parts the board checks never read cleared: the
+///   schematic page names and page settings, the title block entries and the pin type
+///   matrix (read by the electrical rules only).
 /// - The results are reused only when the project, so cleared, equals `design` exactly.
 ///
 /// # Do not
 /// - Clear another field of `design` without checking that no board check reads it.
-struct BoardChecks {
+pub struct BoardChecks {
     design: Project,
     findings: Vec<Value>,
     airwires: Vec<pcbcraft_rules::Airwire>,
@@ -3156,6 +3161,7 @@ impl Default for Session {
             redo: VecDeque::new(),
             config: user_config::UserConfig::detached(),
             board_checks: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            board_check_runs: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 }
@@ -3433,39 +3439,85 @@ impl Session {
         }
         Ok(out)
     }
-    /// The copper findings and airwires of the open design, from the last run when nothing
-    /// they read has changed since.
-    fn board_check_results(&self) -> (Vec<Value>, Vec<pcbcraft_rules::Airwire>) {
-        let mut design = self.project.clone();
+    /// The project as the board checks read it, for telling whether their last run still holds.
+    fn board_check_design(project: &Project) -> Project {
+        let mut design = project.clone();
         design.sheets.clear();
         design.page_settings.clear();
         design.root_sheet_name = None;
-        let mut kept = self
-            .board_checks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(seen) = kept.as_ref()
-            && seen.design == design
-        {
-            return (seen.findings.clone(), seen.airwires.clone());
-        }
-        let mut findings: Vec<Value> = serde_json::to_value(pcbcraft_rules::drc(&self.project))
+        design.meta.clear();
+        design.pin_matrix.clear();
+        design
+    }
+    /// Run the board checks of `project` from scratch: the copper findings, the custom
+    /// checks, the height limits and the airwires.
+    ///
+    /// Why: the work needs no session, so a caller can hand it to another thread and give
+    /// the answer back with `keep_board_checks`.
+    pub fn compute_board_checks(project: &Project) -> BoardChecks {
+        let mut findings: Vec<Value> = serde_json::to_value(pcbcraft_rules::drc(project))
             .unwrap_or_else(|_| json!([]))
             .as_array()
             .cloned()
             .unwrap_or_default();
-        findings.extend(custom_findings(&self.project));
-        findings.extend(height_findings(&self.project));
-        let airwires = pcbcraft_rules::airwires(&self.project);
-        *kept = Some(BoardChecks {
-            design,
-            findings: findings.clone(),
-            airwires: airwires.clone(),
-        });
-        (findings, airwires)
+        findings.extend(custom_findings(project));
+        findings.extend(height_findings(project));
+        BoardChecks {
+            design: Self::board_check_design(project),
+            findings,
+            airwires: pcbcraft_rules::airwires(project),
+        }
+    }
+    fn kept_board_checks(&self) -> std::sync::MutexGuard<'_, Option<BoardChecks>> {
+        self.board_checks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+    /// The board check results of the open design when the last run still holds.
+    fn reusable_board_checks(&self) -> Option<(Vec<Value>, Vec<pcbcraft_rules::Airwire>)> {
+        let design = Self::board_check_design(&self.project);
+        let kept = self.kept_board_checks();
+        kept.as_ref()
+            .filter(|seen| seen.design == design)
+            .map(|seen| (seen.findings.clone(), seen.airwires.clone()))
+    }
+    /// Remember the results of a board check run made elsewhere (see `compute_board_checks`).
+    pub fn keep_board_checks(&self, results: BoardChecks) {
+        *self.kept_board_checks() = Some(results);
+    }
+    /// How many times the board checks ran from scratch in this session.
+    pub fn board_check_runs(&self) -> u64 {
+        self.board_check_runs
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+    /// The copper findings and airwires of the open design, from the last run when nothing
+    /// they read has changed since.
+    fn board_check_results(&self) -> (Vec<Value>, Vec<pcbcraft_rules::Airwire>) {
+        if let Some(done) = self.reusable_board_checks() {
+            return done;
+        }
+        self.board_check_runs
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let ran = Self::compute_board_checks(&self.project);
+        let done = (ran.findings.clone(), ran.airwires.clone());
+        self.keep_board_checks(ran);
+        done
+    }
+    /// The checks of the open design, or nothing when the board checks would have to run
+    /// from scratch. A caller that must not stall takes the project with `board_check_input`,
+    /// runs `compute_board_checks` elsewhere and hands the answer to `keep_board_checks`.
+    pub fn checks_if_ready(&self) -> Option<Value> {
+        self.reusable_board_checks()
+            .map(|_| self.checks_with(self.board_check_results()))
+    }
+    /// A copy of the open design for `compute_board_checks`.
+    pub fn board_check_input(&self) -> (Project, u64) {
+        (self.project.clone(), self.revision)
     }
     pub fn checks(&self) -> Value {
-        let (drc, airwires) = self.board_check_results();
+        self.checks_with(self.board_check_results())
+    }
+    fn checks_with(&self, (drc, airwires): (Vec<Value>, Vec<pcbcraft_rules::Airwire>)) -> Value {
         let compliance = pcbcraft_rules::compliance_check(&self.project);
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"peripheral":pcbcraft_rules::peripheral(&self.project),"compliance":compliance,"airwires":airwires,"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, power inputs driven from a power output, power symbol or connector, decoupling capacitors on IC power nets with pad-centre distance when the IC is placed, open-drain pull-ups to a driven power rail, labels with no wires or pins, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. When fabrication rules are recorded on the board, track width, drill size, annular ring, copper-to-routed-edge spacing, unlike-net spacing, aspect ratio, and drawn silk text height are compared to those limits, and copper pour neck widths thinner than the minimum track are reported. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. Pin-type rules, hole-to-hole spacing against a fab table, mask dams, and hierarchy are not fully checked."})
     }
@@ -46683,6 +46735,79 @@ mod tests {
             None => return Err(Error::Invalid("expected error from board.rules.set".into())),
         }
         assert_eq!(s.revision, rev);
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_has_overlapping_parts_cleaned_up_without_moving_locked_ones() -> Result<(), Error>
+    {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        // Place two components at the same position so their courtyards overlap.
+        let c1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"1k","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let c2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","value":"1k","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        // Move the second footprint to overlap the first.
+        let f1 = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c1)
+            .ok_or_else(|| Error::Invalid("test fixture: f1 missing".into()))?;
+        let f1_id = f1.id;
+        let f1_pos = f1.position;
+        let f2 = s
+            .project
+            .board
+            .footprints
+            .iter_mut()
+            .find(|f| f.component == c2)
+            .ok_or_else(|| Error::Invalid("test fixture: f2 missing".into()))?;
+        f2.position = f1_pos;
+        // Lock the first footprint so it must not move.
+        s.execute(
+            "footprint.set_locked",
+            json!({"id":f1_id,"locked":true}),
+            None,
+        )?;
+        // Run the legalizer.
+        use crate::legalize::plan_moves;
+        use crate::scope::Scope;
+        let scope = Scope {
+            layers: vec!["F.Cu".into()],
+            nets: vec![],
+            components: vec![],
+            respect_locked: true,
+        };
+        let plan = plan_moves(&s.project, &scope, 32);
+        // The locked footprint must not move.
+        let moved_ids: Vec<u64> = plan.moves.iter().map(|(id, _)| *id).collect();
+        assert!(
+            !moved_ids.contains(&f1_id),
+            "locked footprint moved: {f1_id}"
+        );
+        // The overlap must be resolved.
+        let mut clone = s.project.clone();
+        for (fid, pos) in &plan.moves {
+            if let Some(f) = clone.board.footprints.iter_mut().find(|f| f.id == *fid) {
+                f.position = *pos;
+            }
+        }
+        let remaining = pcbcraft_rules::courtyard_pairs(&clone);
+        assert!(remaining.is_empty(), "overlaps remain after legalization");
         Ok(())
     }
 }
