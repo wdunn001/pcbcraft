@@ -14,12 +14,20 @@
 //!   `board.set_machining`, `board.set_layer_record`, `board.remove_layer_record`,
 //!   `board.stackup_add_pair`, `board.stackup_remove_layer`, `board.clear_layer_records`)
 //!
+//! Corners: the three corner styles run `board.set_shape` (rectangle, chamfered or rounded
+//! rectangle) with the corner size typed beside them; the style is read back from the outline.
+//!
 //! # Do not
-//! - Offer corner shapes; no engine command sets them yet (see the PR notes).
-use super::{mm_spec, note, num, secondary};
-use crate::ui_kit::card::card;
+//! - Compute outline vertices here; the engine owns the geometry.
+use super::{NUMBER_WIDTH, SELECT_WIDE, SELECT_WIDTH, mm_spec, note, num, secondary};
+use crate::ui_kit::button::{self, Size};
+use crate::ui_kit::card::{card, card_flush};
+use crate::ui_kit::empty_state::empty_state;
 use crate::ui_kit::form_row::{FormWidth, form_row, toggle_row};
+use crate::ui_kit::icons;
 use crate::ui_kit::number_field::NumberSpec;
+use crate::ui_kit::rows::{table_head, table_row};
+use crate::ui_kit::segmented::{Segment, segmented};
 use crate::ui_kit::select::select;
 use crate::{App, STACK_ROLES, fonts, theme};
 use pcbcraft_doc::{LayerRecord, MATERIALS};
@@ -79,11 +87,73 @@ fn record_params(record: &LayerRecord, change: Value) -> Value {
     params
 }
 
+/// How the corners of the board outline are cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Corners {
+    /// Plain right angles.
+    Square,
+    /// Cut at 45 degrees.
+    Chamfer,
+    /// Rounded with arcs.
+    Rounded,
+}
+
+const CORNER_KINDS: [Corners; 3] = [Corners::Square, Corners::Chamfer, Corners::Rounded];
+
+impl Corners {
+    /// Catalog stem of the choice.
+    fn stem(self) -> &'static str {
+        match self {
+            Corners::Square => "square",
+            Corners::Chamfer => "chamfer",
+            Corners::Rounded => "rounded",
+        }
+    }
+
+    /// The outline of the board says which style it has.
+    fn of(board: &pcbcraft_doc::Board) -> Self {
+        if board.outline_arcs.iter().any(Option::is_some) {
+            return Corners::Rounded;
+        }
+        match &board.outline {
+            Some(points) if points.len() > 5 => Corners::Chamfer,
+            _ => Corners::Square,
+        }
+    }
+
+    /// The `board.set_shape` parameters for this style at the given size.
+    fn shape(self, width: f64, height: f64, size: f64) -> Value {
+        match self {
+            Corners::Square => json!({"kind": "rectangle", "width": width, "height": height}),
+            Corners::Chamfer => json!({"kind": "chamfered_rectangle", "width": width,
+                "height": height, "chamfer": size}),
+            Corners::Rounded => json!({"kind": "rounded_rectangle", "width": width,
+                "height": height, "radius": size}),
+        }
+    }
+}
+
+/// The swatch colour of a stackup row of this kind.
+fn layer_swatch(kind: &str, ctx: &egui::Context, first_copper: bool) -> egui::Color32 {
+    let canvas = theme::CanvasColors::for_dark(ctx.global_style().visuals.dark_mode);
+    let tokens = theme::tokens(ctx);
+    match kind {
+        "copper" if first_copper => canvas.top_copper,
+        "copper" => canvas.bottom_copper,
+        "core" | "prepreg" => canvas.board_fill,
+        "soldermask" => tokens.mask,
+        "silkscreen" => canvas.silkscreen,
+        _ => tokens.muted,
+    }
+}
+
 impl App {
     /// The Board and stackup tab.
     ///
     /// # Rules
-    /// - Width and height run `board.resize`; the canvas follows on the same frame.
+    /// - Width and height run `board.resize` on a square board and `board.set_shape` on
+    ///   one with cut or rounded corners. The corners stay.
+    /// - Board size and Finish stack in the left column and Stackup takes the right.
     ///
     /// # Dependencies
     /// - crates/ui-egui/src/ui_kit/card.rs
@@ -91,16 +161,45 @@ impl App {
     /// # Do not
     /// - Keep a second copy of the size; read it from the project each frame.
     pub(super) fn settings_board(&mut self, ui: &mut egui::Ui) {
-        ui.columns(2, |columns| {
-            self.settings_board_size(&mut columns[0]);
-            self.settings_board_finish(&mut columns[1]);
+        let gap = theme::SPACE[3];
+        let total = ui.available_width();
+        if total < 760.0 {
+            self.settings_board_size(ui);
+            ui.add_space(gap);
+            self.settings_board_finish(ui);
+            ui.add_space(gap);
+            self.settings_stackup(ui);
+            return;
+        }
+        let left = (total - gap) * 0.46;
+        let right = total - gap - left;
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            ui.allocate_ui_with_layout(
+                egui::vec2(left, 0.0),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_width(left);
+                    self.settings_board_size(ui);
+                    ui.add_space(gap);
+                    self.settings_board_finish(ui);
+                },
+            );
+            ui.allocate_ui_with_layout(
+                egui::vec2(right, 0.0),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_width(right);
+                    self.settings_stackup(ui);
+                },
+            );
         });
-        ui.add_space(8.0);
-        self.settings_stackup(ui);
     }
 
     fn settings_board_size(&mut self, ui: &mut egui::Ui) {
         let (w, h) = (self.project.board.width, self.project.board.height);
+        let corners = Corners::of(&self.project.board);
+        let size = self.project_settings.corner_size;
         card(
             ui,
             &t!("settings.project.board.size"),
@@ -115,7 +214,7 @@ impl App {
                     ..mm_spec(1.0, 2000.0)
                 };
                 let name = t!("settings.project.board.width");
-                if let Some(v) = form_row(ui, FormWidth::Page, &name, None, None, |ui| {
+                let new_w = form_row(ui, FormWidth::Page, &name, None, None, |ui| {
                     num(
                         ui,
                         "ps-board-w",
@@ -124,11 +223,9 @@ impl App {
                         &name,
                         &t!("settings.project.board.width.tip"),
                     )
-                }) {
-                    self.settings_run("board.resize", json!({"width": v, "height": h}));
-                }
+                });
                 let name = t!("settings.project.board.height");
-                if let Some(v) = form_row(ui, FormWidth::Page, &name, None, None, |ui| {
+                let new_h = form_row(ui, FormWidth::Page, &name, None, None, |ui| {
                     num(
                         ui,
                         "ps-board-h",
@@ -137,8 +234,79 @@ impl App {
                         &name,
                         &t!("settings.project.board.height.tip"),
                     )
-                }) {
-                    self.settings_run("board.resize", json!({"width": w, "height": v}));
+                });
+                if new_w.is_some() || new_h.is_some() {
+                    let (nw, nh) = (new_w.unwrap_or(w), new_h.unwrap_or(h));
+                    if corners == Corners::Square {
+                        self.settings_run("board.resize", json!({"width": nw, "height": nh}));
+                    } else {
+                        self.settings_run("board.set_shape", corners.shape(nw, nh, size));
+                    }
+                }
+                let labels: Vec<String> = CORNER_KINDS
+                    .iter()
+                    .map(|c| {
+                        pcbcraft_text::lookup(
+                            &format!("settings.project.corners.{}", c.stem()),
+                            &[],
+                        )
+                    })
+                    .collect();
+                let tips: Vec<String> = CORNER_KINDS
+                    .iter()
+                    .map(|c| {
+                        pcbcraft_text::lookup(
+                            &format!("settings.project.corners.{}.tip", c.stem()),
+                            &[],
+                        )
+                    })
+                    .collect();
+                let items: Vec<Segment<'_>> = labels
+                    .iter()
+                    .zip(&tips)
+                    .map(|(label, tip)| Segment::text(label, tip))
+                    .collect();
+                let mut at = CORNER_KINDS.iter().position(|c| *c == corners).unwrap_or(0);
+                let before = at;
+                form_row(
+                    ui,
+                    FormWidth::Page,
+                    &t!("settings.project.board.corners"),
+                    Some(&t!("settings.project.board.corners.hint")),
+                    None,
+                    |ui| {
+                        segmented(ui, "ps-corners", &mut at, &items);
+                    },
+                );
+                if at != before {
+                    self.settings_run("board.set_shape", CORNER_KINDS[at].shape(w, h, size));
+                }
+                let name = t!("settings.project.board.corner_size");
+                let spec = NumberSpec {
+                    min: 0.1,
+                    max: 100.0,
+                    step: 0.5,
+                    places: 2,
+                    ..mm_spec(0.1, 100.0)
+                };
+                let new_size = form_row(ui, FormWidth::Page, &name, None, None, |ui| {
+                    ui.add_enabled_ui(corners != Corners::Square, |ui| {
+                        num(
+                            ui,
+                            "ps-corner-size",
+                            size,
+                            &spec,
+                            &name,
+                            &t!("settings.project.board.corner_size.tip"),
+                        )
+                    })
+                    .inner
+                });
+                if let Some(v) = new_size {
+                    self.project_settings.corner_size = v;
+                    if corners != Corners::Square {
+                        self.settings_run("board.set_shape", corners.shape(w, h, v));
+                    }
                 }
             },
         );
@@ -173,7 +341,7 @@ impl App {
                             &options,
                             &name,
                             &t!("settings.project.finish.surface.tip"),
-                            168.0,
+                            SELECT_WIDTH,
                         )
                         .changed()
                     },
@@ -188,7 +356,7 @@ impl App {
                     max: 20.0,
                     step: 0.1,
                     places: 2,
-                    width: 104.0,
+                    width: NUMBER_WIDTH,
                 };
                 if let Some(v) = form_row(
                     ui,
@@ -247,6 +415,21 @@ impl App {
         );
     }
 
+    /// Replace the layer rows with one of the starting stackups, as one undo step.
+    fn settings_apply_shape(&mut self, shape: usize) {
+        let mut steps: Vec<(&str, Value)> = vec![("board.clear_layer_records", json!({}))];
+        for (row, kind, thickness) in SHAPES[shape].1 {
+            let mut params = json!({"name": row, "kind": kind, "thickness": thickness});
+            if *kind == "copper"
+                && let Some(map) = params.as_object_mut()
+            {
+                map.insert("copper_weight_oz".into(), json!(1.0));
+            }
+            steps.push(("board.set_layer_record", params));
+        }
+        self.settings_batch(steps);
+    }
+
     fn settings_stackup(&mut self, ui: &mut egui::Ui) {
         let records = self.project.board.layer_records.clone();
         let copper: Vec<&LayerRecord> = records.iter().filter(|r| r.kind == "copper").collect();
@@ -259,12 +442,18 @@ impl App {
         } else {
             Vec::new()
         };
-        card(
+        let shape_pick = std::cell::Cell::new(0usize);
+        let add_layer = std::cell::Cell::new(false);
+        card_flush(
             ui,
             &t!("settings.project.stack"),
             Some(&t!("settings.project.stack.caption")),
-            |_| {},
             |ui| {
+                add_layer.set(secondary_with_icon(
+                    ui,
+                    &t!("settings.project.stack.new.add"),
+                    &t!("settings.project.stack.new.add.tip"),
+                ));
                 let name = t!("settings.project.stack.start");
                 let labels: Vec<String> = std::iter::once(t!("settings.project.stack.choose"))
                     .chain(SHAPES.iter().map(|(stem, _)| {
@@ -273,360 +462,397 @@ impl App {
                     .collect();
                 let options: Vec<&str> = labels.iter().map(String::as_str).collect();
                 let mut at = 0;
-                let picked = form_row(
+                if select(
                     ui,
-                    FormWidth::Page,
+                    "ps-stack-start",
+                    &mut at,
+                    &options,
                     &name,
-                    Some(&t!("settings.project.stack.start.hint")),
-                    None,
-                    |ui| {
-                        select(
-                            ui,
-                            "ps-stack-start",
-                            &mut at,
-                            &options,
-                            &name,
-                            &t!("settings.project.stack.start.tip"),
-                            220.0,
-                        )
-                        .changed()
-                    },
-                );
-                if picked && at > 0 {
-                    let mut steps: Vec<(&str, Value)> =
-                        vec![("board.clear_layer_records", json!({}))];
-                    for (row, kind, thickness) in SHAPES[at - 1].1 {
-                        let mut params = json!({"name": row, "kind": kind, "thickness": thickness});
-                        if *kind == "copper"
-                            && let Some(map) = params.as_object_mut()
-                        {
-                            map.insert("copper_weight_oz".into(), json!(1.0));
-                        }
-                        steps.push(("board.set_layer_record", params));
-                    }
-                    self.settings_batch(steps);
+                    &t!("settings.project.stack.start.tip"),
+                    SELECT_WIDTH,
+                )
+                .changed()
+                {
+                    shape_pick.set(at);
                 }
-                form_row(
-                    ui,
-                    FormWidth::Page,
-                    &t!("settings.project.stack.copper"),
-                    Some(&t!("settings.project.stack.copper.hint")),
-                    None,
-                    |ui| {
-                        let text = theme::tokens(ui.ctx()).text;
-                        ui.label(fonts::mono(count.to_string()).color(text))
-                            .on_hover_text(t!("settings.project.stack.copper.tip"));
-                        ui.add_space(12.0);
-                        let after = copper
-                            .first()
-                            .map_or_else(|| "F.Cu".to_owned(), |r| r.name.clone());
-                        if secondary(
+            },
+            |ui| {
+                egui::Frame::NONE
+                    .inner_margin(egui::Margin::symmetric(theme::SPACE[3] as i8, 0))
+                    .show(ui, |ui| {
+                        form_row(
                             ui,
-                            &t!("settings.project.stack.add_pair"),
-                            &t!("settings.project.stack.add_pair.tip"),
-                            count < 30,
-                        )
-                        .clicked()
-                        {
-                            self.settings_run("board.stackup_add_pair", json!({"after": after}));
-                        }
-                        let tip = if inner.is_empty() {
-                            t!("settings.project.stack.remove_pair.disabled_tip")
-                        } else {
-                            t!("settings.project.stack.remove_pair.tip")
-                        };
-                        if secondary(
-                            ui,
-                            &t!("settings.project.stack.remove_pair"),
-                            &tip,
-                            !inner.is_empty(),
-                        )
-                        .clicked()
-                        {
-                            let steps: Vec<(&str, Value)> = inner
-                                .iter()
-                                .rev()
-                                .take(2)
-                                .map(|n| ("board.stackup_remove_layer", json!({"name": n})))
-                                .collect();
-                            self.settings_batch(steps);
-                        }
-                    },
-                );
-                ui.add_space(8.0);
+                            FormWidth::Page,
+                            &t!("settings.project.stack.copper"),
+                            Some(&t!("settings.project.stack.copper.hint")),
+                            None,
+                            |ui| {
+                                let text = theme::tokens(ui.ctx()).text;
+                                ui.label(fonts::mono(count.to_string()).color(text))
+                                    .on_hover_text(t!("settings.project.stack.copper.tip"));
+                                ui.add_space(theme::SPACE[2]);
+                                let after = copper
+                                    .first()
+                                    .map_or_else(|| "F.Cu".to_owned(), |r| r.name.clone());
+                                if secondary(
+                                    ui,
+                                    &t!("settings.project.stack.add_pair"),
+                                    &t!("settings.project.stack.add_pair.tip"),
+                                    count < 30,
+                                )
+                                .clicked()
+                                {
+                                    self.settings_run(
+                                        "board.stackup_add_pair",
+                                        json!({"after": after}),
+                                    );
+                                }
+                                let tip = if inner.is_empty() {
+                                    t!("settings.project.stack.remove_pair.disabled_tip")
+                                } else {
+                                    t!("settings.project.stack.remove_pair.tip")
+                                };
+                                if secondary(
+                                    ui,
+                                    &t!("settings.project.stack.remove_pair"),
+                                    &tip,
+                                    !inner.is_empty(),
+                                )
+                                .clicked()
+                                {
+                                    let steps: Vec<(&str, Value)> = inner
+                                        .iter()
+                                        .rev()
+                                        .take(2)
+                                        .map(|n| ("board.stackup_remove_layer", json!({"name": n})))
+                                        .collect();
+                                    self.settings_batch(steps);
+                                }
+                            },
+                        );
+                    });
                 if records.is_empty() {
-                    note(ui, t!("settings.project.stack.empty"));
+                    ui.add_space(theme::SPACE[4]);
+                    if empty_state(
+                        ui,
+                        icons::LAYERS,
+                        &t!("settings.project.stack.empty.title"),
+                        &t!("settings.project.stack.empty"),
+                        &t!("settings.project.stack.empty.button"),
+                        &t!("settings.project.stack.empty.tip"),
+                    )
+                    .clicked()
+                    {
+                        shape_pick.set(1);
+                    }
+                    ui.add_space(theme::SPACE[4]);
                 } else {
                     self.settings_layer_table(ui, &records);
+                    self.settings_layer_details(ui, &records);
                 }
-                ui.add_space(8.0);
-                self.settings_add_layer(ui);
             },
         );
+        if shape_pick.get() > 0 {
+            self.settings_apply_shape(shape_pick.get() - 1);
+        }
+        if add_layer.get() {
+            let name = t!(
+                "settings.project.stack.new.name_default",
+                n = records.len() + 1
+            );
+            self.settings_run(
+                "board.set_layer_record",
+                json!({"name": name, "kind": "core", "thickness": 0.2}),
+            );
+            self.project_settings.layer_selected = Some(name);
+        }
     }
 
-    /// One grid row per recorded layer: material, thickness, Dk, Df and copper weight.
+    /// One table row per recorded layer: swatch and name, role, thickness and Remove.
     fn settings_layer_table(&mut self, ui: &mut egui::Ui, records: &[LayerRecord]) {
-        let muted = theme::tokens(ui.ctx()).muted;
-        let er = self.project.board.er;
+        let tokens = theme::tokens(ui.ctx());
+        const COLUMNS: [f32; 4] = [3.0, 1.6, 2.4, 1.0];
+        let heads = [
+            t!("settings.project.stack.col.layer"),
+            t!("settings.project.stack.col.role"),
+            t!("settings.project.stack.col.thickness"),
+            String::new(),
+        ];
+        let head_refs: Vec<&str> = heads.iter().map(String::as_str).collect();
+        table_head(ui, &COLUMNS, &head_refs);
         let mut writes: Vec<(&str, Value)> = Vec::new();
-        egui::ScrollArea::horizontal()
-            .id_salt("ps-stack-scroll")
-            .show(ui, |ui| {
-                egui::Grid::new("ps-stack-grid")
-                    .spacing(egui::vec2(8.0, 6.0))
-                    .show(ui, |ui| {
-                        for head in [
-                            "layer",
-                            "role",
-                            "material",
-                            "thickness",
-                            "dk",
-                            "df",
-                            "oz",
-                            "",
-                        ] {
-                            if head.is_empty() {
-                                ui.label("");
-                            } else {
-                                ui.label(
-                                    fonts::section_caption(pcbcraft_text::lookup(
-                                        &format!("settings.project.stack.col.{head}"),
-                                        &[],
-                                    ))
-                                    .color(muted),
-                                );
-                            }
-                        }
-                        ui.end_row();
-                        for (i, r) in records.iter().enumerate() {
-                            let is_copper = r.kind == "copper";
-                            ui.label(fonts::text(fonts::Role::Body, &r.name));
-                            ui.label(
-                                fonts::caption(pcbcraft_text::lookup(
-                                    &format!("settings.project.role.{}", r.kind),
-                                    &[],
-                                ))
-                                .color(muted),
-                            );
-                            if is_copper {
-                                ui.label(
-                                    fonts::caption(t!("settings.project.stack.copper_name"))
-                                        .color(muted),
-                                );
-                            } else {
-                                let mut labels: Vec<String> =
-                                    vec![t!("settings.project.stack.no_material")];
-                                labels.extend(MATERIALS.iter().map(|m| m.name.to_owned()));
-                                let options: Vec<&str> =
-                                    labels.iter().map(String::as_str).collect();
-                                let mut at = r
-                                    .material
-                                    .as_deref()
-                                    .and_then(|m| MATERIALS.iter().position(|x| x.name == m))
-                                    .map_or(0, |p| p + 1);
-                                let before = at;
-                                select(
-                                    ui,
-                                    ("ps-material", i),
-                                    &mut at,
-                                    &options,
-                                    &t!("settings.project.stack.col.material"),
-                                    &t!("settings.project.stack.material.tip"),
-                                    168.0,
-                                );
-                                if at != before && at > 0 {
-                                    let m = &MATERIALS[at - 1];
-                                    writes.push((
-                                        "board.set_layer_record",
-                                        record_params(
-                                            r,
-                                            json!({"material": m.name, "dk": m.dk, "df": m.df}),
-                                        ),
-                                    ));
-                                }
-                            }
-                            let label = format!(
-                                "{} {}",
-                                r.name,
-                                t!("settings.project.stack.col.thickness")
-                            );
-                            if let Some(v) = num(
-                                ui,
-                                ("ps-thick", i),
-                                r.thickness,
-                                &mm_spec(0.0, 20.0),
-                                &label,
-                                &t!("settings.project.stack.thickness.tip"),
-                            ) {
-                                writes.push((
-                                    "board.set_layer_record",
-                                    record_params(r, json!({"thickness": v})),
-                                ));
-                            }
-                            if is_copper {
-                                ui.label(fonts::caption("-").color(muted));
-                                ui.label(fonts::caption("-").color(muted));
-                                let oz = NumberSpec {
-                                    unit: "oz",
-                                    min: 0.1,
-                                    max: 10.0,
-                                    step: 0.5,
-                                    places: 1,
-                                    width: 84.0,
-                                };
-                                let label =
-                                    format!("{} {}", r.name, t!("settings.project.stack.col.oz"));
-                                if let Some(v) = num(
-                                    ui,
-                                    ("ps-oz", i),
-                                    r.copper_weight_oz.unwrap_or(1.0),
-                                    &oz,
-                                    &label,
-                                    &t!("settings.project.stack.oz.tip"),
-                                ) {
-                                    writes.push((
-                                        "board.set_layer_record",
-                                        record_params(r, json!({"copper_weight_oz": v})),
-                                    ));
-                                }
-                            } else {
-                                let material =
-                                    r.material.as_deref().and_then(pcbcraft_doc::material);
-                                let dk = r.dk.or(material.map(|m| m.dk)).unwrap_or(er);
-                                let df = r.df.or(material.map(|m| m.df)).unwrap_or(0.02);
-                                let dks = NumberSpec {
-                                    unit: "",
-                                    min: 1.0,
-                                    max: 20.0,
-                                    step: 0.1,
-                                    places: 2,
-                                    width: 84.0,
-                                };
-                                let dfs = NumberSpec {
-                                    unit: "",
-                                    min: 0.0,
-                                    max: 1.0,
-                                    step: 0.001,
-                                    places: 3,
-                                    width: 84.0,
-                                };
-                                let label = format!("{} Dk", r.name);
-                                if let Some(v) = num(
-                                    ui,
-                                    ("ps-dk", i),
-                                    dk,
-                                    &dks,
-                                    &label,
-                                    &t!("settings.project.stack.dk.tip"),
-                                ) {
-                                    writes.push((
-                                        "board.set_layer_record",
-                                        record_params(r, json!({"dk": v})),
-                                    ));
-                                }
-                                let label = format!("{} Df", r.name);
-                                if let Some(v) = num(
-                                    ui,
-                                    ("ps-df", i),
-                                    df,
-                                    &dfs,
-                                    &label,
-                                    &t!("settings.project.stack.df.tip"),
-                                ) {
-                                    writes.push((
-                                        "board.set_layer_record",
-                                        record_params(r, json!({"df": v})),
-                                    ));
-                                }
-                                ui.label(fonts::caption("-").color(muted));
-                            }
-                            let removable = !is_copper;
-                            let tip = if removable {
-                                t!("settings.project.stack.remove.tip")
-                            } else {
-                                t!("settings.project.stack.remove.copper_tip")
-                            };
-                            if super::ghost(
-                                ui,
-                                &t!("settings.project.stack.remove"),
-                                &tip,
-                                removable,
+        let mut select_row = None;
+        let first_copper = records.iter().position(|r| r.kind == "copper");
+        for (i, r) in records.iter().enumerate() {
+            let selected = self.project_settings.layer_selected.as_deref() == Some(r.name.as_str());
+            let swatch = layer_swatch(&r.kind, ui.ctx(), first_copper == Some(i));
+            let row = table_row(
+                ui,
+                selected,
+                &r.name,
+                &t!("settings.project.stack.row.tip"),
+                &COLUMNS,
+                |ui, column| match column {
+                    0 => {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                        ui.painter().rect_filled(rect, 2.0, swatch);
+                        ui.add_space(theme::SPACE[1]);
+                        ui.add(
+                            egui::Label::new(
+                                fonts::text(fonts::Role::Body, &r.name).color(tokens.text),
                             )
-                            .clicked()
-                            {
-                                writes.push(("board.remove_layer_record", json!({"name": r.name})));
-                            }
-                            ui.end_row();
+                            .truncate(),
+                        );
+                    }
+                    1 => {
+                        ui.add(
+                            egui::Label::new(
+                                fonts::text(
+                                    fonts::Role::Body,
+                                    pcbcraft_text::lookup(
+                                        &format!("settings.project.role.{}", r.kind),
+                                        &[],
+                                    ),
+                                )
+                                .color(tokens.muted),
+                            )
+                            .truncate(),
+                        );
+                    }
+                    2 => {
+                        let label =
+                            format!("{} {}", r.name, t!("settings.project.stack.col.thickness"));
+                        if let Some(v) = num(
+                            ui,
+                            ("ps-thick", i),
+                            r.thickness,
+                            &mm_spec(0.0, 20.0),
+                            &label,
+                            &t!("settings.project.stack.thickness.tip"),
+                        ) {
+                            writes.push((
+                                "board.set_layer_record",
+                                record_params(r, json!({"thickness": v})),
+                            ));
                         }
-                    });
-            });
+                    }
+                    _ => {
+                        let removable = r.kind != "copper";
+                        let tip = if removable {
+                            t!("settings.project.stack.remove.tip")
+                        } else {
+                            t!("settings.project.stack.remove.copper_tip")
+                        };
+                        if button::icon_button(
+                            ui,
+                            icons::CLOSE,
+                            &format!("{} {}", t!("settings.project.stack.remove"), r.name),
+                            &tip,
+                            Size::Small,
+                            removable,
+                        )
+                        .clicked()
+                        {
+                            writes.push(("board.remove_layer_record", json!({"name": r.name})));
+                        }
+                    }
+                },
+            );
+            if row.clicked() {
+                select_row = Some(r.name.clone());
+            }
+        }
+        if let Some(name) = select_row {
+            self.project_settings.layer_selected = Some(name);
+        }
         if let Some((command, params)) = writes.into_iter().next() {
             self.settings_run(command, params);
         }
     }
 
-    /// The Add layer row: name, role, thickness and the button.
-    fn settings_add_layer(&mut self, ui: &mut egui::Ui) {
-        use crate::a11y::Named;
-        let name_label = t!("settings.project.stack.new.name");
-        ui.horizontal(|ui| {
-            let state = &mut self.project_settings;
-            ui.add(
-                crate::targets::text_field(&mut state.layer_name)
-                    .hint_text(&name_label)
-                    .desired_width(160.0),
-            )
-            .named(&name_label)
-            .on_hover_text(t!("settings.project.stack.new.name.tip"));
-            let kinds: Vec<(&str, String)> = STACK_ROLES
-                .iter()
-                .filter(|(token, _)| *token != "copper")
-                .map(|(token, _)| {
-                    (
-                        *token,
-                        pcbcraft_text::lookup(&format!("settings.project.role.{token}"), &[]),
-                    )
-                })
-                .collect();
-            let options: Vec<&str> = kinds.iter().map(|(_, l)| l.as_str()).collect();
-            state.layer_kind = state.layer_kind.min(kinds.len() - 1);
-            select(
-                ui,
-                "ps-new-kind",
-                &mut state.layer_kind,
-                &options,
-                &t!("settings.project.stack.new.role"),
-                &t!("settings.project.stack.new.role.tip"),
-                140.0,
-            );
-            let mut thickness = state.layer_thickness;
-            if let Some(v) = num(
-                ui,
-                "ps-new-thickness",
-                thickness,
-                &mm_spec(0.0, 20.0),
-                &t!("settings.project.stack.new.thickness"),
-                &t!("settings.project.stack.new.thickness.tip"),
-            ) {
-                thickness = v;
-            }
-            state.layer_thickness = thickness;
-            let ready = !state.layer_name.trim().is_empty();
-            let tip = if ready {
-                t!("settings.project.stack.new.add.tip")
-            } else {
-                t!("settings.project.stack.new.add.disabled_tip")
-            };
-            let kind = kinds[state.layer_kind].0;
-            let name = state.layer_name.trim().to_owned();
-            if secondary(ui, &t!("settings.project.stack.new.add"), &tip, ready).clicked() {
-                self.project_settings.layer_name.clear();
-                self.settings_run(
-                    "board.set_layer_record",
-                    json!({"name": name, "kind": kind, "thickness": thickness}),
+    /// Role, material, Dk, Df and copper weight of the layer picked in the table.
+    fn settings_layer_details(&mut self, ui: &mut egui::Ui, records: &[LayerRecord]) {
+        let Some(r) = self
+            .project_settings
+            .layer_selected
+            .as_deref()
+            .and_then(|name| records.iter().find(|r| r.name == name))
+        else {
+            ui.add_space(theme::SPACE[2]);
+            egui::Frame::NONE
+                .inner_margin(egui::Margin::symmetric(theme::SPACE[3] as i8, 0))
+                .show(ui, |ui| note(ui, t!("settings.project.stack.pick")));
+            ui.add_space(theme::SPACE[2]);
+            return;
+        };
+        let er = self.project.board.er;
+        let is_copper = r.kind == "copper";
+        let mut writes: Vec<(&str, Value)> = Vec::new();
+        egui::Frame::NONE
+            .inner_margin(egui::Margin::symmetric(
+                theme::SPACE[3] as i8,
+                theme::SPACE[1] as i8,
+            ))
+            .show(ui, |ui| {
+                ui.label(
+                    fonts::section_caption(t!("settings.project.stack.details", name = &r.name))
+                        .color(theme::tokens(ui.ctx()).muted),
                 );
-            }
-        });
+                if is_copper {
+                    let label = t!("settings.project.stack.col.oz");
+                    if let Some(v) = form_row(ui, FormWidth::Page, &label, None, None, |ui| {
+                        let oz = NumberSpec {
+                            unit: "oz",
+                            min: 0.1,
+                            max: 10.0,
+                            step: 0.5,
+                            places: 1,
+                            width: NUMBER_WIDTH,
+                        };
+                        num(
+                            ui,
+                            ("ps-oz", &r.name),
+                            r.copper_weight_oz.unwrap_or(1.0),
+                            &oz,
+                            &format!("{} {label}", r.name),
+                            &t!("settings.project.stack.oz.tip"),
+                        )
+                    }) {
+                        writes.push((
+                            "board.set_layer_record",
+                            record_params(r, json!({"copper_weight_oz": v})),
+                        ));
+                    }
+                    return;
+                }
+                let kinds: Vec<(&str, String)> = STACK_ROLES
+                    .iter()
+                    .filter(|(token, _)| *token != "copper")
+                    .map(|(token, _)| {
+                        (
+                            *token,
+                            pcbcraft_text::lookup(&format!("settings.project.role.{token}"), &[]),
+                        )
+                    })
+                    .collect();
+                let kind_options: Vec<&str> = kinds.iter().map(|(_, l)| l.as_str()).collect();
+                let mut kind_at = kinds
+                    .iter()
+                    .position(|(token, _)| *token == r.kind)
+                    .unwrap_or(0);
+                let kind_before = kind_at;
+                let role_label = t!("settings.project.stack.col.role");
+                form_row(ui, FormWidth::Page, &role_label, None, None, |ui| {
+                    select(
+                        ui,
+                        ("ps-role", &r.name),
+                        &mut kind_at,
+                        &kind_options,
+                        &role_label,
+                        &t!("settings.project.stack.new.role.tip"),
+                        SELECT_WIDTH,
+                    );
+                });
+                if kind_at != kind_before {
+                    writes.push((
+                        "board.set_layer_record",
+                        record_params(r, json!({"kind": kinds[kind_at].0})),
+                    ));
+                }
+                let mut labels: Vec<String> = vec![t!("settings.project.stack.no_material")];
+                labels.extend(MATERIALS.iter().map(|m| m.name.to_owned()));
+                let options: Vec<&str> = labels.iter().map(String::as_str).collect();
+                let mut at = r
+                    .material
+                    .as_deref()
+                    .and_then(|m| MATERIALS.iter().position(|x| x.name == m))
+                    .map_or(0, |p| p + 1);
+                let before = at;
+                let label = t!("settings.project.stack.col.material");
+                form_row(ui, FormWidth::Page, &label, None, None, |ui| {
+                    select(
+                        ui,
+                        ("ps-material", &r.name),
+                        &mut at,
+                        &options,
+                        &label,
+                        &t!("settings.project.stack.material.tip"),
+                        SELECT_WIDE,
+                    );
+                });
+                if at != before && at > 0 {
+                    let m = &MATERIALS[at - 1];
+                    writes.push((
+                        "board.set_layer_record",
+                        record_params(r, json!({"material": m.name, "dk": m.dk, "df": m.df})),
+                    ));
+                }
+                let material = r.material.as_deref().and_then(pcbcraft_doc::material);
+                let dk = r.dk.or(material.map(|m| m.dk)).unwrap_or(er);
+                let df = r.df.or(material.map(|m| m.df)).unwrap_or(0.02);
+                let dks = NumberSpec {
+                    unit: "",
+                    min: 1.0,
+                    max: 20.0,
+                    step: 0.1,
+                    places: 2,
+                    width: NUMBER_WIDTH,
+                };
+                let dfs = NumberSpec {
+                    unit: "",
+                    min: 0.0,
+                    max: 1.0,
+                    step: 0.001,
+                    places: 3,
+                    width: NUMBER_WIDTH,
+                };
+                if let Some(v) = form_row(
+                    ui,
+                    FormWidth::Page,
+                    &t!("settings.project.stack.col.dk"),
+                    None,
+                    None,
+                    |ui| {
+                        num(
+                            ui,
+                            ("ps-dk", &r.name),
+                            dk,
+                            &dks,
+                            &format!("{} Dk", r.name),
+                            &t!("settings.project.stack.dk.tip"),
+                        )
+                    },
+                ) {
+                    writes.push(("board.set_layer_record", record_params(r, json!({"dk": v}))));
+                }
+                if let Some(v) = form_row(
+                    ui,
+                    FormWidth::Page,
+                    &t!("settings.project.stack.col.df"),
+                    None,
+                    None,
+                    |ui| {
+                        num(
+                            ui,
+                            ("ps-df", &r.name),
+                            df,
+                            &dfs,
+                            &format!("{} Df", r.name),
+                            &t!("settings.project.stack.df.tip"),
+                        )
+                    },
+                ) {
+                    writes.push(("board.set_layer_record", record_params(r, json!({"df": v}))));
+                }
+            });
+        if let Some((command, params)) = writes.into_iter().next() {
+            self.settings_run(command, params);
+        }
     }
+}
+
+/// A secondary button with a plus, for card header actions.
+fn secondary_with_icon(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
+    button::secondary_button(ui, Some(icons::PLUS), label, tip, Size::Small, true).clicked()
 }

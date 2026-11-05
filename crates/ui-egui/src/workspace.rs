@@ -134,13 +134,6 @@ const LIBRARY_MACHINES_TAB: RegionTab = RegionTab {
     icon: Some(crate::ui_kit::icons::GEAR),
 };
 const LIBRARY_PAGE_TABS: [RegionTab; 2] = [PARTS_TAB, LIBRARY_MACHINES_TAB];
-const FILES_TAB: RegionTab = RegionTab {
-    id: "files",
-    label: || t!("files.nav.tab"),
-    tip: || t!("files.nav.tab.tip"),
-    icon: None,
-};
-const FILES_ONLY: [RegionTab; 1] = [FILES_TAB];
 const MANUFACTURE_TABS: [RegionTab; 2] = [
     RegionTab {
         id: "outputs",
@@ -181,20 +174,20 @@ impl Workspace for FilesWorkspace {
     fn id(&self) -> &'static str {
         "files"
     }
-    fn toolbar(&self, _app: &mut App, _ui: &mut egui::Ui) {}
+    fn toolbar(&self, app: &mut App, ui: &mut egui::Ui) {
+        app.files_toolbar(ui);
+    }
     fn left_tabs(&self) -> &'static [RegionTab] {
-        &FILES_ONLY
+        &DRAWING_TABS
     }
     fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
-        if tab == "files" {
-            app.files_commands(ui);
-        }
+        drawing_left(app, tab, ui);
     }
     fn center(&self, app: &mut App, ui: &mut egui::Ui) {
         app.files_center(ui);
     }
     fn default_layout(&self) -> RegionLayout {
-        RegionLayout::new("files", "findings")
+        RegionLayout::new("library", "findings")
     }
 }
 
@@ -383,14 +376,14 @@ impl App {
     /// The full-width tool bar under the tab nav, for the workspaces that have one.
     ///
     /// # Rules
-    /// - Library, Schematic and Layout have one; Files and Manufacture have no tool bar, so no panel is drawn for them.
+    /// - Files, Library, Schematic and Layout have one; Manufacture has no tool bar and gets no panel.
     ///
     /// # Dependencies
     /// - crates/ui-egui/src/toolbar.rs
     pub(crate) fn toolbar_panel(&mut self, ui: &mut egui::Ui) {
         if !matches!(
             self.tab,
-            Tab::Library | Tab::Schematic | Tab::Pcb | Tab::Board3d
+            Tab::Files | Tab::Library | Tab::Schematic | Tab::Pcb | Tab::Board3d
         ) {
             return;
         }
