@@ -11,18 +11,28 @@ use crate::schema::TrustTier;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum PolicyRule {
+    /// A publisher with no earlier publication always goes to the human queue.
     NewPublisherToQueue,
+    /// A publisher at or above this tier skips the human queue.
     TrustTierBypass {
+        /// The lowest tier that skips the queue.
         minimum: TrustTier,
     },
+    /// A publisher may upload this many times in one day.
     RateLimitUploads {
+        /// The most uploads allowed in one day.
         max_per_day: u32,
     },
+    /// Size limits for one publication and for all of a publisher's files.
     QuotaBytes {
+        /// The most bytes one publication may hold.
         max_publication_bytes: u64,
+        /// The most bytes one publisher may hold in total.
         max_publisher_bytes: u64,
     },
+    /// Refuses a publication under this licence.
     BlockLicence {
+        /// The SPDX identifier of the blocked licence.
         spdx_id: String,
     },
 }
@@ -31,8 +41,11 @@ pub enum PolicyRule {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyDecision {
+    /// False when a rule refuses the upload.
     pub allow_publish: bool,
+    /// True when a person must look at the upload before it is published.
     pub requires_human_queue: bool,
+    /// One plain sentence for each rule that changed the outcome.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reasons: Vec<String>,
 }
@@ -50,10 +63,15 @@ pub struct PolicyDecision {
 /// - Pass stale or estimated values; the engine trusts this context.
 #[derive(Clone, Debug)]
 pub struct UploadContext {
+    /// The publisher's trust tier at upload time.
     pub tier: TrustTier,
+    /// The size of this upload in bytes.
     pub total_bytes: u64,
+    /// The bytes the publisher already holds.
     pub publisher_bytes_total: u64,
+    /// How many uploads the publisher made today.
     pub uploads_today: u32,
+    /// The SPDX licence of the upload, when it names one.
     pub licence: Option<String>,
 }
 
@@ -136,17 +154,14 @@ pub fn evaluate_policy(rules: &[PolicyRule], ctx: &UploadContext) -> PolicyDecis
                 }
             }
             PolicyRule::BlockLicence { spdx_id } => {
-                if let Some(licence) = &ctx.licence {
-                    if licence
-                        .to_ascii_lowercase()
-                        .eq_ignore_ascii_case(&spdx_id.to_ascii_lowercase())
-                    {
-                        decision.allow_publish = false;
-                        decision.requires_human_queue = true;
-                        decision
-                            .reasons
-                            .push(format!("Blocked licence: {}", spdx_id));
-                    }
+                if let Some(licence) = &ctx.licence
+                    && licence.eq_ignore_ascii_case(spdx_id)
+                {
+                    decision.allow_publish = false;
+                    decision.requires_human_queue = true;
+                    decision
+                        .reasons
+                        .push(format!("Blocked licence: {}", spdx_id));
                 }
             }
         }
