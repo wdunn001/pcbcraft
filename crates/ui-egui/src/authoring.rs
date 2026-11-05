@@ -2231,10 +2231,10 @@ pub(crate) mod tests {
         Ok(())
     }
     /// Opens a page the way a person does now that the pages live in menus:
-    /// Settings is Edit > Preferences, Rules and Checks are in View.
+    /// Settings is View > Board settings, Rules and Checks are in View too.
     pub(crate) fn open_page(ctx: &egui::Context, app: &mut App, page: &str) -> Result<(), String> {
         let (menu, item) = match page {
-            "Settings" => ("Edit", "Preferences"),
+            "Settings" => ("View", "Board settings"),
             "Rules" => ("View", "Rules"),
             "Checks" => ("View", "Checks"),
             other => return Err(format!("{other} is not a page in a menu")),

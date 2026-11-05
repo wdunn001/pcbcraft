@@ -134,10 +134,6 @@ pub(super) fn no_http_body() -> String {
     t!("assistant.no_http_body")
 }
 
-pub(super) fn settings_heading() -> String {
-    t!("assistant.settings_heading")
-}
-
 pub(super) fn show() -> String {
     t!("assistant.show")
 }
@@ -236,10 +232,6 @@ pub(super) fn limit() -> String {
 
 pub(super) fn limit_tip() -> String {
     t!("assistant.limit.tip")
-}
-
-pub(super) fn reset_always() -> String {
-    t!("assistant.reset_always")
 }
 
 pub(super) fn reset_always_tip() -> String {
@@ -455,10 +447,6 @@ pub(super) fn disabled_tip() -> String {
 pub(super) fn switched_off_body() -> String {
     t!("assistant.switched_off_body")
 }
-pub(super) fn settings_heading_tip() -> String {
-    t!("assistant.settings_heading.tip")
-}
-
 // Steps, review card, undo card and next-step cards.
 pub(super) fn step_tip() -> String {
     t!("assistant.step.tip")

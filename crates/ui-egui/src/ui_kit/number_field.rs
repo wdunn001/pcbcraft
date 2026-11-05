@@ -292,7 +292,10 @@ pub fn number_field(
         });
     }
     ui.data_mut(|d| d.insert_temp(id, edit));
-    outer = outer.union(response.clone());
+    // The text box is the widget under the pointer over the digits, the frame is under it
+    // over the padding and the unit, so both carry the tip.
+    let _ = response.clone().on_hover_text(tip);
+    outer = outer.union(response);
     outer.on_hover_text(tip)
 }
 
