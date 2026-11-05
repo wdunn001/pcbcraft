@@ -2,7 +2,7 @@
 type: feature
 area: library
 issues: [716]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Build a drop-in part from a part listing.
+user_visible: false
+docs: n/a: library code with a test and no screen or tool calls it yet
+summary: The library can build a drop-in part, with its ratings, from a part listing.
 ---
