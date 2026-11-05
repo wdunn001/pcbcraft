@@ -509,10 +509,10 @@ impl App {
             }
             (ClickAction::MoveWireEnd, Hit::Node(id, index)) => {
                 self.select(Some(*id));
-                if let Some(w) = self.sheet_view().drawn_wires.iter().find(|w| w.id == *id) {
-                    if w.points.len() > *index {
-                        press.origin = w.points[*index];
-                    }
+                if let Some(w) = self.sheet_view().drawn_wires.iter().find(|w| w.id == *id)
+                    && w.points.len() > *index
+                {
+                    press.origin = w.points[*index];
                 }
             }
             (ClickAction::MovePart, Hit::Via(id)) => {
@@ -735,10 +735,10 @@ impl App {
                 }
             }
             (ClickAction::MoveWireEnd, Hit::Node(id, index)) => {
-                if let Some(w) = visible.drawn_wires.iter_mut().find(|w| w.id == *id) {
-                    if w.points.len() > *index {
-                        w.points[*index] = press.origin.offset(d);
-                    }
+                if let Some(w) = visible.drawn_wires.iter_mut().find(|w| w.id == *id)
+                    && w.points.len() > *index
+                {
+                    w.points[*index] = press.origin.offset(d);
                 }
             }
             (ClickAction::MovePart, Hit::Via(id)) => {
