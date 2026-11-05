@@ -36,6 +36,7 @@ mod pair_properties;
 mod parallel_crosstalk;
 mod peripheral;
 mod return_path;
+mod si_codes;
 mod silk;
 mod silk_line;
 mod stub;
@@ -44,6 +45,8 @@ pub mod toolpath_gap;
 mod track_radius;
 mod vscore_edge;
 mod width_advice;
+
+pub use si_codes::{SIGNAL_INTEGRITY_CODES, is_signal_integrity};
 
 pub use companion::{companion_findings, companion_findings_for_rules};
 pub use width_advice::{WidthAdvice, width_advice, width_advice_on_layer};
@@ -152,6 +155,15 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("decoupling_distance", "warning"),
     ("keepout", "error"),
     ("toolpath_gap", "warning"),
+    ("impedance_target", "error"),
+    ("diffpair_impedance", "error"),
+    ("return_path", "warning"),
+    ("parallel_crosstalk", "warning"),
+    ("net_electrically_long", "warning"),
+    ("testpoint_coverage", "warning"),
+    ("missing_decoupling", "warning"),
+    ("acute_angle", "warning"),
+    ("track_radius", "error"),
 ];
 
 #[derive(Clone, Debug, Serialize)]
@@ -7024,6 +7036,86 @@ mod pour_tests {
             via_findings2.is_empty(),
             "0.4 mm gap meets the 0.4 mm limit"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn drc_emits_only_published_codes_for_a_crosstalk_board() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "CLK".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "DATA".into(),
+            ..Default::default()
+        });
+        let width = 0.2;
+        p.board.tracks.push(Track {
+            id: 10,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(10.0, 0.0),
+            width,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 11,
+            net: 2,
+            start: Point::new(0.0, width + 0.2),
+            end: Point::new(10.0, width + 0.2),
+            width,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.net_classes.push(NetClass {
+            id: 50,
+            name: "CLK".into(),
+            clearance: 0.2,
+            width,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_stub: None,
+            via_diameter: None,
+            via_drill: None,
+            pair_width: None,
+            pair_gap: None,
+            rise_time: Some(1e-9),
+            nets: vec![1, 2],
+            profile: None,
+            backdrill: Default::default(),
+            corner_radius: Default::default(),
+            current: Default::default(),
+            fast: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            max_vias: Default::default(),
+            min_radius: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
+        });
+        p.validate()
+            .map_err(|e| format!("valid fixture: {:?}", e))?;
+        let findings = drc(&p);
+        for f in &findings {
+            let published = CHECK_CODES.iter().any(|(code, _)| *code == f.code);
+            if !published {
+                return Err(format!("unpublished code {}", f.code));
+            }
+        }
         Ok(())
     }
 }
