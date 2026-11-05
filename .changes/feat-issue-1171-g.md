@@ -1,8 +1,8 @@
 ---
 type: feature
-area: text
+area: ui
 issues: [1171]
 user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Add Shape to the schematic Add menu.
+docs: n/a: the Add menu lists its own entries and no page copies them
+summary: The schematic Add menu has a Shape item with Line, Rectangle and Circle that draw on the sheet.
 ---

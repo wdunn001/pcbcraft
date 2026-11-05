@@ -95,12 +95,6 @@ impl App {
             }
         }
     }
-
-    /// Cancel the shape in progress and go back to Select.
-    pub(crate) fn cancel_sheet_shape(&mut self) {
-        self.sheet_shape_start = None;
-        self.tool = Tool::Select;
-    }
 }
 
 #[cfg(test)]
