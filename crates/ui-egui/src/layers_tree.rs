@@ -310,6 +310,10 @@ pub(crate) struct TreeView {
 }
 
 impl TreeView {
+    /// Scroll the row with this key into view; opening its parents is the caller's job.
+    pub(crate) fn reveal_row(&mut self, key: &str) {
+        self.scroll_to = Some(key.to_owned());
+    }
     #[cfg(test)]
     /// Put the keyboard cursor and focus on the row with this key, as if it
     /// had been reached with the arrow keys.

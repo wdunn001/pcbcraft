@@ -1976,6 +1976,7 @@ impl App {
             Some("select-outline") => {
                 self.tree.expanded.insert("edge".into());
                 self.tree.selected_key = Some("edge/edge".into());
+                self.tree.reveal_row("edge/edge");
                 return self;
             }
             _ => return self,
@@ -7089,8 +7090,6 @@ impl App {
                     }
                     if let Some(page) = self.hovered_page_preview() {
                         self.page_properties(ui, page, true);
-                    } else if self.selected.is_none() && self.tree.selected_key.is_some() {
-                        self.tree_row_properties(ui);
                     } else if self.selected.is_none()
                         && self.project.board.outline.is_some()
                         && (self.outline_ui.segment.is_some()
@@ -7103,6 +7102,8 @@ impl App {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.outline_inspector(ui));
+                    } else if self.selected.is_none() && self.tree.selected_key.is_some() {
+                        self.tree_row_properties(ui);
                     } else if let Some(id) = self
                         .selected
                         .filter(|id| datums::is_datum(&self.project, *id))
