@@ -134,18 +134,6 @@ fn the_prototype_assembly_package_matches_its_golden_files() -> Result<(), Strin
 #[test]
 fn a_package_with_a_missing_writer_refuses_and_writes_nothing() -> Result<(), String> {
     let mut s = Session::sample().map_err(|e| e.to_string())?;
-    let dir = scratch("stencil");
-    let err = s
-        .execute(
-            "package.export",
-            json!({"id": "stencil", "directory": dir.to_string_lossy()}),
-            None,
-        )
-        .err()
-        .ok_or("a stencil package must refuse")?
-        .to_string();
-    assert!(err.contains("#420"), "the refusal names the issue: {err}");
-    assert!(!dir.exists());
     let list = s
         .query("package.list", json!({}), None)
         .map_err(|e| e.to_string())?;
@@ -155,7 +143,26 @@ fn a_package_with_a_missing_writer_refuses_and_writes_nothing() -> Result<(), St
         .iter()
         .filter_map(|p| Some((p["id"].as_str()?, p["available"].as_bool()?)))
         .collect();
-    assert!(flags.contains(&("fab_prototype", true)) && flags.contains(&("stencil", false)));
+    assert!(
+        flags.contains(&("fab_prototype", true))
+            && flags.contains(&("stencil", true))
+            && flags.contains(&("fab_quickturn", true))
+    );
+    // Any package still waiting on a writer refuses by number and writes nothing.
+    for (id, available) in flags.iter().filter(|(_, a)| !a) {
+        let dir = scratch(id);
+        let err = s
+            .execute(
+                "package.export",
+                json!({"id": id, "directory": dir.to_string_lossy()}),
+                None,
+            )
+            .err()
+            .ok_or("a package with a missing writer must refuse")?
+            .to_string();
+        assert!(err.contains('#'), "the refusal names the issue: {err}");
+        assert!(!dir.exists(), "{id} wrote nothing, available {available}");
+    }
     Ok(())
 }
 
