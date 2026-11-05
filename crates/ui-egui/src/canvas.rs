@@ -765,6 +765,7 @@ impl App {
                 t!("schematic.add.hint_power")
             }
             Tool::Bus => t!("schematic.add.hint_bus"),
+            Tool::BusEntry => t!("schematic.add.hint_bus_entry"),
             Tool::Route(None) => t!("board.canvas.route_pick_first_pad"),
             Tool::Route(Some(_)) => t!("board.canvas.route_pick_second_pad"),
             Tool::Move => t!("board.canvas.move_click_to_place_selection"),
@@ -1693,6 +1694,7 @@ impl App {
                 }
             }
             Tool::Port => self.place_hierarchy_port(pos),
+            Tool::BusEntry => self.place_bus_entry(pos),
             Tool::Pad => self.place_pad_click(pos),
             Tool::Keepout => {}
             Tool::Hole => self.run(

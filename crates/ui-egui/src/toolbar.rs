@@ -30,6 +30,7 @@ enum Act {
     NetLabel,
     PowerLabel,
     Bus,
+    BusEntry,
     NoConnect,
     Port,
     Route,
@@ -416,6 +417,14 @@ impl App {
                 Act::Bus,
             ),
             entry(
+                "tool-busentry",
+                "bus-entry",
+                "Bus entry".to_string(),
+                "Tap one wire off a bus.".to_string(),
+                matches!(self.tool, Tool::BusEntry),
+                Act::BusEntry,
+            ),
+            entry(
                 "tool-port",
                 "port",
                 t!("schematic.port.tool"),
@@ -463,6 +472,11 @@ impl App {
                 self.clear_wire_draft();
                 self.bus_draft.clear();
                 self.tool = Tool::Bus;
+            }
+            Act::BusEntry => {
+                self.clear_wire_draft();
+                self.bus_entry_member = 0;
+                self.tool = Tool::BusEntry;
             }
             Act::NoConnect => self.tool = Tool::NoConnect,
             Act::Port => self.tool = Tool::Port,
