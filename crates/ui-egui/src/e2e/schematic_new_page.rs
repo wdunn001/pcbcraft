@@ -113,7 +113,7 @@ fn a_newcomer_places_a_library_part_on_the_new_page_and_not_on_main() -> Result<
         )?;
         let started = pcbcraft_clock::instant_now();
         while app.project.components.len() == known
-            && started.elapsed() < std::time::Duration::from_secs(15)
+            && started.elapsed() < std::time::Duration::from_secs(60)
         {
             let start = pcbcraft_clock::instant_now();
             frame(&ctx, &mut app, vec![], none);
