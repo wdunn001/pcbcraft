@@ -1,8 +1,8 @@
 ---
 type: feature
-area: text
+area: ui
 issues: [1115]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Text of the board totals for the Layout status line.
+user_visible: false
+docs: n/a: a text function with tests and no status line shows it yet
+summary: A function writes the unrouted count and length for the Layout status line text.
 ---

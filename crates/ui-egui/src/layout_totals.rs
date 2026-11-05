@@ -61,8 +61,7 @@ impl crate::App {
     /// - If the airwires array is missing or empty the result is "0 unrouted, 0.0 mm".
     /// - Length is shown to one decimal place, in millimetres.
     ///
-    /// # Dependencies
-    /// - `layout_totals_from_wires` in this file does the summing.
+    /// The helper `layout_totals_from_wires` in this file does the summing.
     ///
     /// # Do not
     /// - Do not make an engine call here; callers refresh checks themselves.
