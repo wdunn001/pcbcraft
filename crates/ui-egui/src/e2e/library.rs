@@ -469,7 +469,7 @@ fn open_library_3d_models_fetch_only_when_the_person_asks() -> Result<(), String
     use crate::library_online;
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared.clone(), Preferences::default(), None, None);
-    use_recorded_library(&mut app, "real-part")?;
+    use_recorded_library(&mut app, "real-part-second")?;
     let source = app
         .part_sources
         .open()
