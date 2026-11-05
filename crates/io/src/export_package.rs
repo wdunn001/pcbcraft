@@ -148,18 +148,8 @@ pub static CONTENT_FORMATS: &[ContentFormat] = &[
         "the IDF library file is not written yet",
         411,
     ),
-    waiting(
-        "paste_gerbers",
-        "Paste layers",
-        "paste stencil output is a stub",
-        420,
-    ),
-    waiting(
-        "stencil_cut",
-        "Stencil cut file",
-        "paste stencil output is a stub",
-        420,
-    ),
+    ready("paste_gerbers", "Paste layers"),
+    ready("stencil_cut", "Stencil cut file"),
     ready("revision_notes", "Revision notes"),
 ];
 
