@@ -239,12 +239,15 @@ pub(super) fn run(
     }
 
     // Shell: return the result shape with completed 0 for now.
+    let scope_name = match a.scope {
+        ScopeKind::Net => "net",
+        ScopeKind::Layer => "layer",
+        ScopeKind::Board => "board",
+    };
+    let open = open_connections(p, scope_name, &a.nets);
     Some(Ok(json!({
-        "scope": match a.scope {
-            ScopeKind::Net => "net",
-            ScopeKind::Layer => "layer",
-            ScopeKind::Board => "board",
-        },
+        "scope": scope_name,
+        "open_connections": open.len(),
         "completed": 0,
         "failed": [],
         "attempts": 0,
@@ -306,6 +309,7 @@ mod tests {
         let r = s.execute("route.auto", json!({"scope":"board"}), None)?;
         assert_eq!(r["result"]["scope"], json!("board"));
         assert_eq!(r["result"]["completed"], json!(0));
+        assert_eq!(r["result"]["open_connections"], json!(0));
         assert!(r["result"]["failed"].is_array());
         assert_eq!(r["result"]["failed"].as_array().map(Vec::len), Some(0));
         assert_eq!(r["result"]["seed"], json!(0));
