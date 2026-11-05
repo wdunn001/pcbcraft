@@ -19,6 +19,7 @@ mod bom_export;
 mod bottom_sheet;
 pub mod brand;
 mod browser;
+mod bus_entry_tool;
 mod canvas;
 mod contrast;
 mod datasheet;
@@ -523,6 +524,10 @@ fn tool_hint(tool: &Tool) -> String {
         }
         Tool::Bus => {
             "Click two or more points for the bus path, then name it.".to_string() + &common
+        }
+        Tool::BusEntry => {
+            "Click a bus wire to tap a member off it. Keep clicking to tap more.".to_string()
+                + &common
         }
         Tool::Route(None) => t!("board.tool_hint.route_drag", common = common),
         Tool::Route(Some(_)) => {
@@ -1095,6 +1100,7 @@ enum Tool {
     Wire(Option<PinRef>),
     SchematicLabel(wire_canvas::SchematicLabelKind),
     Bus,
+    BusEntry,
     Route(Option<(Id, String)>),
     Move,
     Cutout,
@@ -1340,6 +1346,8 @@ pub struct App {
     wire_place_pending: Option<wire_canvas::WirePlacePending>,
     bus_draft: Vec<Point>,
     bus_name_prompt: Option<wire_canvas::BusNamePrompt>,
+    /// The member index for the next bus entry stub; cycles up after each tap.
+    bus_entry_member: usize,
     palette: bool,
     part_search: String,
     part_sources: sources::PartSources,
@@ -2108,6 +2116,7 @@ impl App {
             wire_place_pending: None,
             bus_draft: Vec::new(),
             bus_name_prompt: None,
+            bus_entry_member: 0,
             palette: false,
             part_search: String::new(),
             part_sources: sources::PartSources::default(),

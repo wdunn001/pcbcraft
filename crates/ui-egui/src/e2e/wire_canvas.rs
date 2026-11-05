@@ -149,3 +149,41 @@ fn a_newcomer_names_a_bus_and_breaks_out_one_member() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_taps_a_bus_entry_stub() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    // Draw a bus.
+    super::support::tap_strip(&ctx, &mut app, "icon:tool-bus")?;
+    let c = app.schematic.center;
+    let a = Point::new(c.x - 10.0, c.y);
+    let b = Point::new(c.x + 10.0, c.y);
+    let at = screen_of(&app, a);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    let at = screen_of(&app, b);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    if let Some(prompt) = app.bus_name_prompt.as_mut() {
+        prompt.text = "DATA*4".into();
+    }
+    authoring::tests::tap(&ctx, &mut app, "Draw bus")?;
+    frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    app.refresh();
+    // Place a component with unconnected pins near the bus.
+    app.run(
+        "component.add",
+        json!({"kind": "resistor", "position": {"x": c.x, "y": c.y - 6.0}}),
+    );
+    // Switch to the bus entry tool and tap the bus.
+    super::support::tap_strip(&ctx, &mut app, "icon:tool-busentry")?;
+    let tap = Point::new(c.x, c.y);
+    let at = screen_of(&app, tap);
+    click(&ctx, &mut app, at, Modifiers::NONE);
+    // Verify a bus entry stub was created (a new wire connected to the bus).
+    assert!(
+        app.project.drawn_wires.len() >= 2,
+        "a bus entry stub should create a new wire: {}",
+        app.message
+    );
+    Ok(())
+}
