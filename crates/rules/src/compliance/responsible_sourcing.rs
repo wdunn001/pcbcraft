@@ -1,3 +1,17 @@
+//! Responsible sourcing compliance checks: conflict minerals reporting templates,
+//! PFAS status declarations and Proposition 65 listed substances.
+//!
+//! Each check produces information or warning findings; none reports an error.
+//! Manufacturers without a minerals report on file are listed. Parts declaring
+//! a Proposition 65 listed substance produce a warning that a warning decision
+//! is needed. Unknown PFAS status is surfaced as information with the rule file
+//! date.
+//!
+//! # Dependencies
+//! - crates/rules/data/compliance/rulesets/responsible_sourcing.toml
+//! - crates/rules/data/compliance/lists/prop65_chemicals_fixture.toml
+//! - crates/doc/src/compliance.rs for declaration data types.
+
 use super::{
     ComplianceFinding, ComplianceRuleSpec, declaration_of, is_unknown, load_failure,
     load_list_snapshot, load_rule_set, push_hit,

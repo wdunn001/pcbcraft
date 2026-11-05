@@ -292,8 +292,11 @@ pub fn number_field(
         });
     }
     ui.data_mut(|d| d.insert_temp(id, edit));
-    // The text edit leads the union, so the tooltip belongs to the widget a person points at.
-    response.union(outer).on_hover_text(tip)
+    // The text box is the widget under the pointer over the digits, the frame is under it
+    // over the padding and the unit, so both carry the tip.
+    let _ = response.clone().on_hover_text(tip);
+    outer = outer.union(response);
+    outer.on_hover_text(tip)
 }
 
 fn round_to(value: f64, places: usize) -> f64 {

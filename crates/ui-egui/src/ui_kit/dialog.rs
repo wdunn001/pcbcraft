@@ -87,8 +87,34 @@ pub fn show(
     tab: &mut usize,
     body: impl FnOnce(&mut Ui),
 ) -> Outcome {
+    show_with_extra(ctx, dialog, tab, None, body).0
+}
+
+/// Like [`show`], with one extra secondary button at the left of the footer.
+///
+/// Why: Preferences has a Reset to defaults button that is neither Cancel nor Done. The
+/// note moves to the right, beside the primary button, so the footer reads as drawn in the
+/// approved mockups.
+///
+/// # Rules
+/// - `extra` is (label, tooltip); the second value is true on the frame it was pressed.
+/// - Everything else behaves as in [`show`].
+///
+/// # Dependencies
+/// - crates/ui-egui/src/ui_kit/button.rs
+///
+/// # Do not
+/// - Use it for a destructive action without a confirmation the caller owns.
+pub fn show_with_extra(
+    ctx: &Context,
+    dialog: &Dialog<'_>,
+    tab: &mut usize,
+    extra: Option<(&str, &str)>,
+    body: impl FnOnce(&mut Ui),
+) -> (Outcome, bool) {
     let t = theme::tokens(ctx);
     let mut outcome = Outcome::Open;
+    let mut extra_pressed = false;
     // A box that gave up focus this frame because Enter committed it must not also
     // press the primary button, so what was focused at the start counts as typing.
     let typing_at_start = ctx.egui_wants_keyboard_input();
@@ -193,13 +219,31 @@ pub fn show(
                 Stroke::new(theme::BORDER, t.line),
             );
             let inner = footer.shrink2(Vec2::new(16.0, 0.0));
-            if let Some(note) = dialog.note {
+            if let Some(note) = dialog.note
+                && extra.is_none()
+            {
                 let mut note_ui = ui.new_child(
                     egui::UiBuilder::new()
                         .max_rect(inner)
                         .layout(Layout::left_to_right(egui::Align::Center)),
                 );
                 note_ui.label(fonts::caption(note).color(t.muted));
+            }
+            if let Some((label, tip)) = extra {
+                let mut left = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(inner)
+                        .layout(Layout::left_to_right(egui::Align::Center)),
+                );
+                extra_pressed = button::secondary_button(
+                    &mut left,
+                    Some(icons::REFRESH),
+                    label,
+                    tip,
+                    Size::Normal,
+                    true,
+                )
+                .clicked();
             }
             let mut buttons = ui.new_child(
                 egui::UiBuilder::new()
@@ -218,6 +262,12 @@ pub fn show(
             .clicked()
             {
                 outcome = Outcome::Primary;
+            }
+            if let Some(note) = dialog.note
+                && extra.is_some()
+            {
+                buttons.add_space(8.0);
+                buttons.label(fonts::text(fonts::Role::Body, note).color(t.text));
             }
             if let Some((label, tip)) = dialog.cancel
                 && button::secondary_button(&mut buttons, None, label, tip, Size::Normal, true)
@@ -240,7 +290,7 @@ pub fn show(
             outcome = Outcome::Primary;
         }
     }
-    outcome
+    (outcome, extra_pressed)
 }
 
 #[cfg(test)]

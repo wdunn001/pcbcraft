@@ -187,8 +187,7 @@ fn off_state(app: &mut App, ui: &mut egui::Ui) {
             .on_hover_text(text::open_settings_tip())
             .clicked()
     {
-        app.assistant.settings_open = true;
-        app.change_tab(crate::Tab::Settings);
+        app.open_preferences(crate::preferences::TAB_ASSISTANT);
     }
     ui.add_space(12.0);
 }
