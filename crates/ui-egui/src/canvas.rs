@@ -31,6 +31,7 @@ pub(crate) const RULER_SIZE: f32 = 22.0;
 pub(crate) mod sheet;
 pub(crate) mod text_style;
 mod underlay;
+mod wire_end_drag;
 
 /// A `#rrggbb` stroke colour, or None for empty or malformed text.
 pub(crate) fn hex_colour(text: &str) -> Option<Color32> {

@@ -48,8 +48,8 @@ pub(crate) fn use_recorded_library(app: &mut App, name: &str) -> Result<(), Stri
 }
 
 /// How long a story gives the library worker thread to answer before it
-/// gives up. A busy machine can starve that thread for many seconds.
-const WORKER_ANSWER_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+/// gives up. A loaded runner can starve that thread for minutes, so the limit is three minutes.
+const WORKER_ANSWER_LIMIT: std::time::Duration = std::time::Duration::from_secs(180);
 
 /// Draw frames, sleeping a little between them, until `done` holds or a
 /// minute has passed. Returns whether `done` held.

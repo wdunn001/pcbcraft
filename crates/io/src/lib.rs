@@ -115,6 +115,7 @@ mod cam;
 mod cam_drill;
 mod cam_shapes;
 mod compliance_report;
+mod gcode_stats;
 mod snapmaker;
 /// Assembly house profiles for centroid files and Gerber component layers.
 /// # Dependencies
@@ -198,6 +199,7 @@ pub use export_validate::{
 pub use fab_drawing::{fab_drawing_pdf, fab_drawing_svg};
 pub use fab_export::{DrillFunction, via_mask_opening, via_mask_opening_on_face};
 pub use firmware_target::{firmware_config_compare, firmware_target_files};
+pub use gcode_stats::{GcodeStats, gcode_stats};
 pub use generate::{
     GeneratedOutput, download_entries, generate, migrate_loaded_project, output_hash,
     write_generated,

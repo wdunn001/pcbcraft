@@ -143,6 +143,7 @@ pub fn affordance_for(tool: ToolKind, action: ClickAction, target: Target) -> Op
         | ClickAction::PickUnder
         | ClickAction::MoveSegment
         | ClickAction::MovePart
+        | ClickAction::MoveWireEnd
         | ClickAction::RenameLabel => (target != Target::Empty).then_some(Style::Outline),
         ClickAction::StartWire
         | ClickAction::StartRoute
@@ -167,7 +168,9 @@ pub fn cursor_for(action: ClickAction) -> CursorIcon {
         ClickAction::Replace | ClickAction::Add | ClickAction::Toggle | ClickAction::PickUnder => {
             CursorIcon::PointingHand
         }
-        ClickAction::MoveSegment | ClickAction::MovePart => CursorIcon::Grab,
+        ClickAction::MoveSegment | ClickAction::MovePart | ClickAction::MoveWireEnd => {
+            CursorIcon::Grab
+        }
         ClickAction::StartWire
         | ClickAction::StartRoute
         | ClickAction::ContinueWire
