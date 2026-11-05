@@ -272,6 +272,7 @@ fn a_newcomer_adds_a_machine_to_the_project() -> Result<(), String> {
         "a machine was added: {}",
         app.message
     );
+    waits_for_control(&ctx, &mut app, "button:Remove")?;
     press(&ctx, &mut app, "Edit")?;
     type_into(&ctx, &mut app, "textinput:Name", "Bench mill")?;
     assert_eq!(

@@ -4279,8 +4279,7 @@ impl App {
     /// Context: the only panel left of the drawing; the Layers tree lives in
     /// `layers_tree.rs`, the Library tab keeps the parts list and part picker.
     fn browser(&mut self, ui: &mut egui::Ui) {
-        // The pages (Rules, Checks, Settings, Libraries) are not work areas and have no aside.
-        if Self::narrow_window(ui.ctx()) || workspace::workspace_for(self.tab).is_none() {
+        if Self::narrow_window(ui.ctx()) {
             return;
         }
         // The Library tab gives its browser more room; the saved width is kept per panel id.

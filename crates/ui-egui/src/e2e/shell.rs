@@ -272,7 +272,6 @@ fn library_strings_are_all_catalog_keys() -> Result<(), String> {
         ("authoring.rs", "add_graphic"),
         ("lib.rs", "browser"),
         ("lib.rs", "library"),
-        ("lib.rs", "files_tab"),
         ("library_quality.rs", "quality_badge"),
         ("library_quality.rs", "refresh_footprint_quality"),
     ] {
