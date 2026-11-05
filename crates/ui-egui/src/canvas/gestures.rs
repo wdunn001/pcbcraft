@@ -101,7 +101,7 @@ impl Tool {
         match self {
             Self::Select => ToolKind::Select,
             Self::Place(_) | Self::LibraryPlace(..) | Self::CustomPlace(..) => ToolKind::Place,
-            Self::Wire(_) | Self::SchematicLabel(_) | Self::Bus => ToolKind::Wire,
+            Self::Wire(_) | Self::SchematicLabel(_) | Self::Bus | Self::BusEntry => ToolKind::Wire,
             Self::Route(_) => ToolKind::Route,
             Self::Via => ToolKind::Via,
             Self::Keepout => ToolKind::Select,
