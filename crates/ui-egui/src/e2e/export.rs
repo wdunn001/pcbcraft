@@ -739,3 +739,55 @@ fn a_newcomer_exports_a_complete_fab_package() -> Result<(), String> {
     assert!(!app.edit.dialog.open, "the dialog closes after the export");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_exports_a_placement_file_split_by_side() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (_ctx, mut app) = board(dir.path());
+    // Create a placement artifact with a split-by-side flavour.
+    app.run(
+        "artifact.add",
+        json!({
+            "name": "Placement split",
+            "kind": "placement",
+            "path": "",
+            "settings": { "flavour": "cpl_inch" }
+        }),
+    );
+    app.refresh();
+    let artifact = app
+        .project
+        .artifacts
+        .iter()
+        .find(|a| a.name == "Placement split")
+        .ok_or("the placement artifact should exist")?;
+    // Export it.
+    app.run(
+        "artifact.export",
+        json!({"id": artifact.id, "directory": dir.path().to_string_lossy()}),
+    );
+    app.refresh();
+    // Two files should be written: one per side.
+    let mut names: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(dir.path()).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        names.push(entry.file_name().to_string_lossy().into_owned());
+    }
+    assert!(
+        names.contains(&"placement-top.csv".to_string()),
+        "the top side file was written: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"placement-bottom.csv".to_string()),
+        "the bottom side file was written: {:?}",
+        names
+    );
+    let top =
+        std::fs::read_to_string(dir.path().join("placement-top.csv")).map_err(|e| e.to_string())?;
+    assert!(
+        top.starts_with("RefDes,Layer,LocationX,LocationY,Rotation\n"),
+        "the top file has the expected header"
+    );
+    Ok(())
+}
