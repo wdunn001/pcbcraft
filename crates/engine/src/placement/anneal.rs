@@ -258,32 +258,114 @@ pub fn undo_move(model: &mut Model, mv: &Move) -> Result<(), String> {
 /// # Do not
 /// - Count a pair twice for one cell.
 pub fn violations(
-    _model: &Model,
-    _settings: &PlacementSettings,
-    _cell: usize,
+    model: &Model,
+    settings: &PlacementSettings,
+    cell: usize,
 ) -> Result<(usize, usize, usize), String> {
-    Err(not_built("slice-1122-b"))
+    let c = model
+        .cells
+        .get(cell)
+        .ok_or_else(|| format!("cell {cell} out of range"))?;
+    let (hx, hy) = c.half();
+    let box_a = (c.x, c.y, hx, hy);
+
+    let mut overlaps = 0;
+    for (i, other) in model.cells.iter().enumerate() {
+        if i == cell {
+            continue;
+        }
+        let (ohx, ohy) = other.half();
+        let box_b = (other.x, other.y, ohx, ohy);
+        if super::model::boxes_overlap(
+            box_a,
+            box_b,
+            settings.clearance_mm,
+            settings.overlap_epsilon_mm,
+        ) {
+            overlaps += 1;
+        }
+    }
+
+    let mut keepouts = 0;
+    for ko in &model.keepouts {
+        let kx = (ko.x0 + ko.x1) / 2.0;
+        let ky = (ko.y0 + ko.y1) / 2.0;
+        let kxh = (ko.x1 - ko.x0) / 2.0;
+        let kyh = (ko.y1 - ko.y0) / 2.0;
+        let box_ko = (kx, ky, kxh, kyh);
+        if super::model::boxes_overlap(
+            box_a,
+            box_ko,
+            settings.clearance_mm,
+            settings.overlap_epsilon_mm,
+        ) {
+            keepouts += 1;
+        }
+    }
+
+    let e = settings.edge_clearance_mm;
+    let eps = settings.overlap_epsilon_mm;
+    let board = &model.board;
+    let edge = if (c.x - hx) < (board.x0 + e) - eps
+        || (c.x + hx) > (board.x1 - e) + eps
+        || (c.y - hy) < (board.y0 + e) - eps
+        || (c.y + hy) > (board.y1 - e) + eps
+    {
+        1
+    } else {
+        0
+    };
+
+    Ok((overlaps, keepouts, edge))
 }
 
-/// Judge a move against the hard rules (slice 1122-b).
-///
-/// # Rules
-/// - `Locked` when any named cell is fixed; else apply the move, sum
-///   `violations` over the touched cells before and after, undo the move, and
-///   return the first of `Overlap`, `Keepout`, `Edge` whose count rose; else
-///   `Allowed`. The model is unchanged on return.
-///
-/// # Dependencies
-/// - crates/engine/src/placement/anneal.rs (`violations`, `apply_move`, `undo_move`)
-///
-/// # Do not
-/// - Let a move through because its wirelength is better.
 pub fn judge(
-    _model: &mut Model,
-    _settings: &PlacementSettings,
-    _mv: &Move,
+    model: &mut Model,
+    settings: &PlacementSettings,
+    mv: &Move,
 ) -> Result<Verdict, String> {
-    Err(not_built("slice-1122-b"))
+    let touched = match mv {
+        Move::Translate { cell, .. } => vec![*cell],
+        Move::Rotate { cell } => vec![*cell],
+        Move::Swap { a, b } => vec![*a, *b],
+    };
+    for &i in &touched {
+        if let Some(c) = model.cells.get(i) {
+            if c.fixed {
+                return Ok(Verdict::Locked);
+            }
+        }
+    }
+
+    let mut before = (0usize, 0usize, 0usize);
+    for &i in &touched {
+        let v = violations(model, settings, i)?;
+        before.0 += v.0;
+        before.1 += v.1;
+        before.2 += v.2;
+    }
+
+    apply_move(model, mv)?;
+
+    let mut after = (0usize, 0usize, 0usize);
+    for &i in &touched {
+        let v = violations(model, settings, i)?;
+        after.0 += v.0;
+        after.1 += v.1;
+        after.2 += v.2;
+    }
+
+    undo_move(model, mv)?;
+
+    if after.0 > before.0 {
+        Ok(Verdict::Overlap)
+    } else if after.1 > before.1 {
+        Ok(Verdict::Keepout)
+    } else if after.2 > before.2 {
+        Ok(Verdict::Edge)
+    } else {
+        Ok(Verdict::Allowed)
+    }
 }
 
 /// Cost of a model: HPWL plus the overlap penalty (slice 1122-c).
