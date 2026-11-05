@@ -100,6 +100,7 @@ pub enum FetchAnswer {
 ///
 /// # Implementations
 /// - crates/io/src/datasheet.rs
+/// - crates/library/src/datasheet.rs
 pub trait DatasheetTransport: Send + Sync {
     fn fetch(
         &self,
@@ -585,6 +586,9 @@ mod tests {
         last_offline: std::sync::Mutex<Option<bool>>,
     }
 
+    /// A fake transport that records what it was asked.
+    ///
+    /// Contract: crates/library/src/datasheet.rs
     impl DatasheetTransport for TestTransport {
         fn fetch(
             &self,
@@ -592,9 +596,15 @@ mod tests {
             etag: Option<&str>,
             offline: bool,
         ) -> Result<FetchAnswer, DatasheetError> {
-            (*self.last_url.lock().unwrap()) = Some(url.to_owned());
-            (*self.last_etag.lock().unwrap()) = etag.map(|s| s.to_owned());
-            (*self.last_offline.lock().unwrap()) = Some(offline);
+            if let Ok(mut last) = self.last_url.lock() {
+                *last = Some(url.to_owned());
+            }
+            if let Ok(mut last) = self.last_etag.lock() {
+                *last = etag.map(|s| s.to_owned());
+            }
+            if let Ok(mut last) = self.last_offline.lock() {
+                *last = Some(offline);
+            }
             match &self.response {
                 Some(answer) => Ok(answer.clone()),
                 None => Err(DatasheetError::Offline("no response configured".into())),
@@ -621,10 +631,10 @@ mod tests {
         let err = result
             .err()
             .unwrap_or_else(|| DatasheetError::Invalid("".into()));
-        match err {
-            DatasheetError::Invalid(msg) => assert!(msg.contains("not a PDF")),
-            _ => panic!("expected Invalid error"),
-        }
+        assert!(
+            matches!(&err, DatasheetError::Invalid(msg) if msg.contains("not a PDF")),
+            "expected an Invalid error naming the missing PDF header, got {err:?}"
+        );
     }
 
     #[test]
@@ -670,17 +680,18 @@ mod tests {
     }
 
     #[test]
-    fn fetch_stores_and_returns_pdf() {
+    fn fetch_stores_and_returns_pdf() -> Result<(), String> {
         let cache = DatasheetCache::in_memory();
         let pdf = small_pdf();
-        let transport = fresh_transport(pdf.clone(), Some(&"etag1".to_string()));
+        let transport = fresh_transport(pdf.clone(), Some("etag1"));
         let result = cache.fetch_url(&transport, "https://example.com/x.pdf", false);
         assert!(result.is_ok());
-        let (ref_item, bytes) = result.unwrap();
+        let (ref_item, bytes) = result.map_err(|e| format!("{e:?}"))?;
         assert_eq!(bytes, pdf);
         assert_eq!(ref_item.url, "https://example.com/x.pdf");
         assert_eq!(ref_item.content_sha256, content_sha256(&pdf));
         assert_eq!(ref_item.revision, "etag1");
+        Ok(())
     }
 
     #[test]
@@ -704,33 +715,38 @@ mod tests {
         let err = result
             .err()
             .unwrap_or_else(|| DatasheetError::Offline("".into()));
-        match err {
-            DatasheetError::Offline(_) => {}
-            _ => panic!("expected Offline error"),
-        }
+        assert!(
+            matches!(err, DatasheetError::Offline(_)),
+            "expected an Offline error, got {err:?}"
+        );
     }
 
     #[test]
-    fn etag_is_sent_on_refresh() {
+    fn etag_is_sent_on_refresh() -> Result<(), String> {
         let cache = DatasheetCache::in_memory();
         let pdf = small_pdf();
-        let transport = fresh_transport(pdf.clone(), Some(&"etag1".to_string()));
+        let transport = fresh_transport(pdf.clone(), Some("etag1"));
         let result = cache.fetch_url(&transport, "https://example.com/x.pdf", false);
         assert!(result.is_ok());
         let refresh_transport = fresh_transport(pdf, None);
         let result2 = cache.fetch_url(&refresh_transport, "https://example.com/x.pdf", false);
         assert!(result2.is_ok());
         assert_eq!(
-            refresh_transport.last_etag.lock().unwrap().as_ref(),
-            Some(&"etag1".to_string())
+            refresh_transport
+                .last_etag
+                .lock()
+                .map_err(|e| format!("{e:?}"))?
+                .as_deref(),
+            Some("etag1")
         );
+        Ok(())
     }
 
     #[test]
-    fn not_modified_returns_cached_copy() {
+    fn not_modified_returns_cached_copy() -> Result<(), String> {
         let cache = DatasheetCache::in_memory();
         let pdf = small_pdf();
-        let transport = fresh_transport(pdf.clone(), Some(&"etag1".to_string()));
+        let transport = fresh_transport(pdf.clone(), Some("etag1"));
         let result = cache.fetch_url(&transport, "https://example.com/x.pdf", false);
         assert!(result.is_ok());
         let not_modified_transport = TestTransport {
@@ -739,33 +755,36 @@ mod tests {
         };
         let result2 = cache.fetch_url(&not_modified_transport, "https://example.com/x.pdf", false);
         assert!(result2.is_ok());
-        let (_, bytes) = result2.unwrap();
+        let (_, bytes) = result2.map_err(|e| format!("{e:?}"))?;
         assert_eq!(bytes, pdf);
+        Ok(())
     }
 
     #[test]
-    fn import_local_file_stores_pdf() {
+    fn import_local_file_stores_pdf() -> Result<(), String> {
         let cache = DatasheetCache::in_memory();
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().map_err(|e| format!("{e:?}"))?;
         let path = dir.path().join("test.pdf");
-        std::fs::write(&path, small_pdf()).unwrap();
+        std::fs::write(&path, small_pdf()).map_err(|e| format!("{e:?}"))?;
         let result = cache.import_local_file(&path);
         assert!(result.is_ok());
-        let (ref_item, bytes) = result.unwrap();
+        let (ref_item, bytes) = result.map_err(|e| format!("{e:?}"))?;
         assert!(bytes.starts_with(b"%PDF-"));
         assert!(ref_item.url.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn import_rejects_too_large_file() {
+    fn import_rejects_too_large_file() -> Result<(), String> {
         let cache = DatasheetCache::in_memory();
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().map_err(|e| format!("{e:?}"))?;
         let path = dir.path().join("big.pdf");
         let mut big = small_pdf();
         big.resize(MAX_PDF_BYTES + 1, 0);
-        std::fs::write(&path, big).unwrap();
+        std::fs::write(&path, big).map_err(|e| format!("{e:?}"))?;
         let result = cache.import_local_file(&path);
         assert!(result.is_err());
+        Ok(())
     }
 
     #[test]
@@ -783,17 +802,18 @@ mod tests {
     }
 
     #[test]
-    fn project_ref_stores_only_url_hash_and_revision() {
+    fn project_ref_stores_only_url_hash_and_revision() -> Result<(), String> {
         let cache = DatasheetCache::in_memory();
         let pdf = small_pdf();
-        let transport = fresh_transport(pdf.clone(), Some(&"etag1".to_string()));
+        let transport = fresh_transport(pdf.clone(), Some("etag1"));
         let result = cache.fetch_url(&transport, "https://example.com/x.pdf", false);
         assert!(result.is_ok());
-        let ref_item = result.unwrap().0;
-        let json = serde_json::to_string(&ref_item).unwrap();
+        let ref_item = result.map_err(|e| format!("{e:?}"))?.0;
+        let json = serde_json::to_string(&ref_item).map_err(|e| format!("{e:?}"))?;
         assert!(json.contains("https://example.com/x.pdf"));
         assert!(json.contains(&content_sha256(&pdf)));
         assert!(json.contains("etag1"));
         assert!(!json.contains("%PDF-"));
+        Ok(())
     }
 }
