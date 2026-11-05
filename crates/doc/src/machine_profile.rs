@@ -475,6 +475,28 @@ pub struct UvLimitsSection {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// What a reflow oven states about itself. The work area table holds the soldering area.
+///
+/// # Rules
+/// - Every field is optional; zero or empty means the maker did not state it.
+/// - Reflow profiles are not modelled here.
+pub struct ReflowOvenSection {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Rated electrical power in watts.
+    pub rated_power_w: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Highest temperature the maker states, in degrees Celsius.
+    pub max_temp_c: Option<f64>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    /// How the oven heats, in plain words.
+    pub heating: String,
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    /// How many ready-made profiles the oven holds.
+    pub profile_count: u32,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
 /// Settings for uv printer section.
 pub struct UvPrinterSection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -550,6 +572,9 @@ pub struct MachineProfile {
     #[serde(default, skip_serializing_if = "UvPrinterSection::is_empty")]
     /// Uv printer.
     pub uv_printer: UvPrinterSection,
+    #[serde(default, skip_serializing_if = "ReflowOvenSection::is_empty")]
+    /// Reflow oven.
+    pub reflow_oven: ReflowOvenSection,
 }
 
 fn is_zero_count(n: &u32) -> bool {
@@ -645,6 +670,15 @@ impl PickPlaceSection {
     }
 }
 
+impl ReflowOvenSection {
+    fn is_empty(&self) -> bool {
+        self.rated_power_w.is_none()
+            && self.max_temp_c.is_none()
+            && self.heating.is_empty()
+            && self.profile_count == 0
+    }
+}
+
 impl UvPrinterSection {
     fn is_empty(&self) -> bool {
         self.print.is_none() && self.artwork.is_none() && self.limits.is_none()
@@ -690,9 +724,15 @@ impl MachineProfile {
         let kind = self.kind.as_str();
         if !matches!(
             kind,
-            "laser_galvo" | "laser_gantry" | "cnc_mill" | "pick_place" | "uv_printer"
+            "laser_galvo"
+                | "laser_gantry"
+                | "cnc_mill"
+                | "pick_place"
+                | "uv_printer"
+                | "reflow_oven"
+                | "other"
         ) {
-            return Err("machine profile kind must be laser_galvo, laser_gantry, cnc_mill, pick_place or uv_printer".into());
+            return Err("machine profile kind must be laser_galvo, laser_gantry, cnc_mill, pick_place, uv_printer, reflow_oven or other".into());
         }
         self.validate_work_area()?;
         self.validate_output()?;
@@ -701,6 +741,7 @@ impl MachineProfile {
                 if !self.mill.is_empty()
                     || !self.pick_place.is_empty()
                     || !self.uv_printer.is_empty()
+                    || !self.reflow_oven.is_empty()
                 {
                     return Err("laser profiles may only carry laser settings".into());
                 }
@@ -710,22 +751,51 @@ impl MachineProfile {
                 if !self.laser.is_empty()
                     || !self.pick_place.is_empty()
                     || !self.uv_printer.is_empty()
+                    || !self.reflow_oven.is_empty()
                 {
                     return Err("mill profiles may only carry mill settings".into());
                 }
                 self.validate_mill()?;
             }
             "pick_place" => {
-                if !self.laser.is_empty() || !self.mill.is_empty() || !self.uv_printer.is_empty() {
+                if !self.laser.is_empty()
+                    || !self.mill.is_empty()
+                    || !self.uv_printer.is_empty()
+                    || !self.reflow_oven.is_empty()
+                {
                     return Err("pick and place profiles may only carry placement settings".into());
                 }
                 self.validate_pick_place()?;
             }
             "uv_printer" => {
-                if !self.laser.is_empty() || !self.mill.is_empty() || !self.pick_place.is_empty() {
+                if !self.laser.is_empty()
+                    || !self.mill.is_empty()
+                    || !self.pick_place.is_empty()
+                    || !self.reflow_oven.is_empty()
+                {
                     return Err("uv printer profiles may only carry print settings".into());
                 }
                 self.validate_uv_printer()?;
+            }
+            "reflow_oven" => {
+                if !self.laser.is_empty()
+                    || !self.mill.is_empty()
+                    || !self.pick_place.is_empty()
+                    || !self.uv_printer.is_empty()
+                {
+                    return Err("reflow oven profiles may only carry oven settings".into());
+                }
+                self.validate_reflow_oven()?;
+            }
+            "other" => {
+                let carries_settings = !self.laser.is_empty()
+                    || !self.mill.is_empty()
+                    || !self.pick_place.is_empty()
+                    || !self.uv_printer.is_empty()
+                    || !self.reflow_oven.is_empty();
+                if carries_settings {
+                    return Err("other machine profiles carry no kind settings".into());
+                }
             }
             _ => {}
         }
@@ -947,6 +1017,24 @@ impl MachineProfile {
             || self.pick_place.feeders.len() > MAX_PROFILE_ROWS
         {
             return Err("pick and place tables are capped at 64 rows each".into());
+        }
+        Ok(())
+    }
+
+    fn validate_reflow_oven(&self) -> Result<(), String> {
+        let o = &self.reflow_oven;
+        if o.rated_power_w
+            .is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 100_000.0)
+        {
+            return Err("reflow oven power must be a positive finite watt value".into());
+        }
+        if o.max_temp_c
+            .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 1500.0)
+        {
+            return Err("reflow oven maximum temperature must be a positive finite value".into());
+        }
+        if !optional_bounded(&o.heating, MAX_NOTES_LEN) || o.profile_count > 1000 {
+            return Err("reflow oven heating text or profile count is outside its limit".into());
         }
         Ok(())
     }

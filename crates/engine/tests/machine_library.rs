@@ -256,3 +256,87 @@ fn old_project_files_load_with_machine_defaults() -> Result<(), String> {
     assert!(machine.based_on.is_none());
     Ok(())
 }
+
+#[test]
+fn the_puhui_t_962a_is_a_built_in_reflow_oven_with_its_sourced_figures() -> Result<(), String> {
+    let (mut s, folder) = session("oven-builtin");
+    let ovens = cards(&mut s, json!({"kind": "reflow_oven"}))?;
+    let oven = ovens
+        .iter()
+        .find(|c| c["id"] == "puhui-t-962a")
+        .ok_or("the T-962A is listed under the reflow oven kind")?;
+    assert_eq!(oven["source"], "built_in");
+    assert_eq!(oven["work_area"]["x"], 300.0);
+    assert_eq!(oven["work_area"]["y"], 320.0);
+    assert_eq!(oven["rated_power_w"], 1500.0);
+    assert_eq!(oven["max_temp_c"], 280.0);
+    assert_eq!(oven["profile_count"], 8);
+    run(&mut s, "machine.install", json!({"id": "puhui-t-962a"}))?;
+    let in_project = cards(&mut s, json!({"kind": "reflow_oven"}))?;
+    assert!(
+        in_project
+            .iter()
+            .any(|c| c["id"] == "puhui-t-962a" && c["in_project"] == true),
+        "the oven joins the project"
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
+
+#[test]
+fn every_kind_can_start_blank_be_kept_and_join_the_project() -> Result<(), String> {
+    for kind in [
+        "pick_place",
+        "laser_galvo",
+        "laser_gantry",
+        "cnc_mill",
+        "uv_printer",
+        "reflow_oven",
+        "other",
+    ] {
+        let (mut s, folder) = session(&format!("blank-{kind}"));
+        let made = run(
+            &mut s,
+            "machine.add",
+            json!({"kind": kind, "name": "Bench machine", "keep_in_my_machines": true, "add_to_project": true}),
+        )?;
+        assert!(made.is_object(), "{kind} was created");
+        assert!(
+            s.project
+                .machine_profiles
+                .iter()
+                .any(|m| m.kind == kind && m.name == "Bench machine"),
+            "{kind} joins the project"
+        );
+        let mine = cards(&mut s, json!({"scope": "mine", "kind": kind}))?;
+        assert_eq!(mine.len(), 1, "{kind} is kept in My machines");
+        let _ = std::fs::remove_dir_all(folder);
+    }
+    let (mut s, folder) = session("blank-unknown");
+    assert!(
+        run(
+            &mut s,
+            "machine.add",
+            json!({"kind": "toaster", "name": "x"})
+        )
+        .is_err()
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
+
+#[test]
+fn oven_and_other_machines_refuse_another_kinds_tables() -> Result<(), String> {
+    let mut oven = pcbcraft_io::blank_machine("reflow_oven", "oven", "Oven")?;
+    oven.reflow_oven.rated_power_w = Some(1500.0);
+    oven.validate()?;
+    oven.reflow_oven.rated_power_w = Some(-1.0);
+    assert!(oven.validate().is_err());
+    let mut other = pcbcraft_io::blank_machine("other", "thing", "Thing")?;
+    other.reflow_oven.profile_count = 3;
+    assert!(other.validate().is_err());
+    let mut mill = pcbcraft_io::blank_machine("cnc_mill", "mill", "Mill")?;
+    mill.reflow_oven.profile_count = 3;
+    assert!(mill.validate().is_err());
+    Ok(())
+}
