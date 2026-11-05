@@ -273,12 +273,20 @@ fn a_newcomer_adds_a_machine_to_the_project() -> Result<(), String> {
         app.message
     );
     waits_for_control(&ctx, &mut app, "button:Remove")?;
-    for _ in 0..3 {
-        if on_screen(&ctx, &mut app, "textinput:Name") {
+    for _ in 0..5 {
+        if app.project_settings.machine_open() {
             break;
         }
-        press(&ctx, &mut app, "Edit")?;
+        press(&ctx, &mut app, "Edit machine")?;
+        for _ in 0..3 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        }
     }
+    assert!(
+        app.project_settings.machine_open(),
+        "Edit opens the machine fields: {}",
+        app.message
+    );
     type_into(&ctx, &mut app, "textinput:Name", "Bench mill")?;
     assert_eq!(
         app.project.machine_profiles[0].name, "Bench mill",

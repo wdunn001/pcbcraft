@@ -94,6 +94,12 @@ pub(crate) struct State {
 }
 
 impl State {
+    /// Whether a machine's fields are open under its row (stories read it).
+    #[cfg(test)]
+    pub(crate) fn machine_open(&self) -> bool {
+        self.machine_edit.is_some()
+    }
+
     fn blank() -> Self {
         Self {
             corner_size: 3.0,

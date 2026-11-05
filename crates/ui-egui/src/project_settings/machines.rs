@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 /// Height of a machine row: a name and a line under it.
 const MACHINE_ROW: f32 = crate::ui_kit::rows::FINDING_ROW_HEIGHT;
 /// Space kept at the right of a machine row for its Edit and Remove buttons.
-const MACHINE_BUTTONS: f32 = 120.0;
+const MACHINE_BUTTONS: f32 = 190.0;
 
 /// The stored profile as JSON with one dotted field replaced.
 fn with_field(profile: &MachineProfile, path: &[&str], value: Value) -> Option<Value> {
