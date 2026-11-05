@@ -11,7 +11,7 @@ clipped | Rules | 320 | 3
 escaped | Rules | 320 | 35
 clipped | Settings | 320 | 1
 escaped | Settings | 320 | 5
-clipped | Libraries | 1280 | 5
+clipped | Libraries | 1280 | 2
 clipped | Libraries | 320 | 6
 escaped | Libraries | 320 | 14
 clipped | PlotFiles | 320 | 3

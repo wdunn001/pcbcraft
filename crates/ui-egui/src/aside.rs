@@ -39,7 +39,7 @@ const LEFT_LIBRARY_DEFAULT: Rule = Rule {
     high: 400.0,
 };
 const RIGHT_DEFAULT: Rule = Rule {
-    share: 0.24,
+    share: 0.23,
     low: 240.0,
     high: 360.0,
 };
@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn a_regular_monitor_gets_the_old_widths() -> Result<(), String> {
         let w = aside_widths(1440.0, false);
-        if (w.left_default - 316.8).abs() > 0.1 || (w.right_default - 345.6).abs() > 0.1 {
+        if (w.left_default - 316.8).abs() > 0.1 || (w.right_default - 331.2).abs() > 0.1 {
             return Err(format!("{w:?}"));
         }
         Ok(())
