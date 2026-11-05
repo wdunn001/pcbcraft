@@ -3,6 +3,6 @@ type: feature
 area: io
 issues: [214]
 user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Show each package option with its own tooltip in the preview.
+docs: n/a: the preview lists its own option lines and tooltips on screen
+summary: The Export dialog's package preview lists each option the package sets, with a tooltip that names the format and the option.
 ---

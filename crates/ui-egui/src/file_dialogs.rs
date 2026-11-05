@@ -96,15 +96,6 @@ pub(crate) struct Package {
     pub available: bool,
 }
 
-/// The packages the Export dialog lists.
-///
-/// Why: the hook for named multi-format bundles. The records are data in
-/// `crates/io/data/packages.json` (issue #224); a package whose writer is not written yet
-/// is listed disabled with the reason and the issue that tracks it, never hidden.
-///
-/// # Do not
-/// - Run a package here; `package.export` in `crates/engine/src/packages.rs` does.
-
 /// Lines that name each option the chosen package sets.
 ///
 /// Why: the dialog shows the file names but not the options; this gives a newcomer the
@@ -132,6 +123,14 @@ pub(crate) fn package_option_lines(def: &PackageDef) -> Vec<(String, String)> {
     lines
 }
 
+/// The packages the Export dialog lists.
+///
+/// Why: the hook for named multi-format bundles. The records are data in
+/// `crates/io/data/packages.json` (issue #224); a package whose writer is not written yet
+/// is listed disabled with the reason and the issue that tracks it, never hidden.
+///
+/// # Do not
+/// - Run a package here; `package.export` in `crates/engine/src/packages.rs` does.
 pub(crate) fn packages() -> Vec<Package> {
     pcbcraft_io::bundled_packages()
         .iter()
@@ -1405,7 +1404,6 @@ fn gerber_preview(ui: &mut egui::Ui, d: &DialogState, f: &FormatSpec, project: &
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     fn sample_project() -> Result<Project, String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -1415,10 +1413,10 @@ mod tests {
     }
 
     #[test]
-    fn a_package_option_line_names_its_format_and_value() {
-        let project = sample_project().expect("sample design");
+    fn a_package_option_line_names_its_format_and_value() -> Result<(), String> {
+        let project = sample_project()?;
         let def = pcbcraft_io::find_package(&project, "fab_prototype")
-            .expect("fab_prototype package exists");
+            .ok_or("the fab_prototype package exists")?;
         let lines = package_option_lines(&def);
         // fab_prototype has gerber contents with naming options
         assert!(
@@ -1434,17 +1432,20 @@ mod tests {
                 "tip should describe the option setting"
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn a_package_with_no_options_returns_empty_lines() {
-        let project = sample_project().expect("sample design");
+    fn a_package_with_no_options_returns_empty_lines() -> Result<(), String> {
+        let project = sample_project()?;
         // Find a package with no options (e.g., ipc2581)
-        let def = pcbcraft_io::find_package(&project, "ipc2581").expect("ipc2581 package exists");
+        let def =
+            pcbcraft_io::find_package(&project, "ipc2581").ok_or("the ipc2581 package exists")?;
         let lines = package_option_lines(&def);
         assert!(
             lines.is_empty(),
             "ipc2581 has no content options, so should return empty lines"
         );
+        Ok(())
     }
 }
