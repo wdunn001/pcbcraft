@@ -87,6 +87,7 @@ pub use part_substitutes::{
 };
 pub mod records;
 pub mod samtec;
+pub mod service_api;
 pub mod starter_models;
 pub mod vendor_fields;
 pub use connector_parametric::{
