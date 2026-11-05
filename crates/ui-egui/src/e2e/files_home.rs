@@ -1,5 +1,5 @@
-//! Stories for the Files workspace: its own left aside, recent projects, and the pages
-//! behind Open, Export and Save.
+//! Stories for the Files workspace: the tool bar, the project summary, the Project files
+//! table, Recent projects, the Properties aside and the pages behind Open, Import and Export.
 //!
 //! Context: the Workspace contract in `workspace.rs` and `files_home.rs`. Every story
 //! points the recents file at a folder of its own, so none touches the real list.
@@ -64,35 +64,49 @@ fn key(key: egui::Key) -> egui::Event {
 }
 
 #[test]
-fn a_newcomer_opens_files_and_sees_recent_projects() -> Result<(), String> {
+fn a_newcomer_opens_files_and_sees_the_project_summary() -> Result<(), String> {
     let recents = IsolatedRecents::new()?;
-    let (ctx, mut app, _) = files_tab(&recents)?;
-    for words in ["Recent projects", "alpha", "beta", "OPEN NOW"] {
+    let (ctx, mut app, files) = files_tab(&recents)?;
+    for words in [
+        "PROJECT",
+        "PARTS",
+        "NETS",
+        "BOARD",
+        "CHECKS",
+        "Project files",
+        "Made files",
+        "No fabrication files yet",
+        "Recent projects",
+        "alpha",
+        "beta",
+        "beta.pcbcraft",
+        "Design",
+    ] {
         assert!(
             paints_text(&ctx, &mut app, words)?,
-            "the page shows {words}"
+            "the Files page shows {words}"
         );
     }
-    for command in ["New project", "Open…", "Save", "Save as…", "Close project"] {
-        assert!(
-            paints_text(&ctx, &mut app, command)?,
-            "the left aside lists {command}"
-        );
-    }
-    assert_eq!(app.files_home.page, files_home::Page::Recent);
+    assert_eq!(app.files_home.page, files_home::Page::Home);
+    assert_eq!(app.path, files[1], "the last saved project is the open one");
     Ok(())
 }
 
 #[test]
-fn a_newcomer_never_sees_the_library_on_the_files_tab() -> Result<(), String> {
+fn a_newcomer_finds_the_tool_bar_and_the_library_on_the_files_tab() -> Result<(), String> {
     let recents = IsolatedRecents::new()?;
     let (ctx, mut app, _) = files_tab(&recents)?;
-    // The Library is one of the five main tabs, so its name is always on the tab row; what
-    // the Files tab must not have is a Library tab (or Layers) in its left aside.
-    for words in ["Layers", "Search parts"] {
+    for command in [
+        "New",
+        "Open",
+        "Save",
+        "Import",
+        "Export",
+        "Open sample project",
+    ] {
         assert!(
-            !paints_text(&ctx, &mut app, words)?,
-            "the Files tab does not show {words}"
+            paints_text(&ctx, &mut app, command)?,
+            "the tool bar has {command}"
         );
     }
     let aside_tabs = |app: &App| -> Vec<&'static str> {
@@ -100,17 +114,36 @@ fn a_newcomer_never_sees_the_library_on_the_files_tab() -> Result<(), String> {
     };
     assert_eq!(
         aside_tabs(&app),
-        ["files"],
-        "the Files left aside lists no Library tab"
+        ["layers", "library"],
+        "the Files left aside has Layers and Library, as the mockup draws"
     );
-    app.change_tab(Tab::Schematic);
-    assert!(
-        paints_text(&ctx, &mut app, "Library")?,
-        "the drawing tabs still have it"
+    assert_eq!(
+        app.region().left_tab,
+        "library",
+        "the Library is the tab showing"
     );
     assert!(
-        aside_tabs(&app).contains(&"library"),
-        "the drawing tabs keep a Library tab in the left aside"
+        paints_text(&ctx, &mut app, "Properties")?,
+        "the right aside is Properties"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reads_the_project_file_table_and_opens_the_design() -> Result<(), String> {
+    let recents = IsolatedRecents::new()?;
+    let (ctx, mut app, _) = files_tab(&recents)?;
+    for words in ["NAME", "KIND", "SIZE", "MODIFIED", "KB"] {
+        assert!(
+            paints_text(&ctx, &mut app, words)?,
+            "the file table shows {words}"
+        );
+    }
+    authoring::tests::tap(&ctx, &mut app, "beta.pcbcraft")?;
+    assert_eq!(
+        app.tab,
+        Tab::Schematic,
+        "clicking the design file opens the drawing"
     );
     Ok(())
 }
@@ -121,11 +154,8 @@ fn a_newcomer_reopens_a_recent_project() -> Result<(), String> {
     let (ctx, mut app, files) = files_tab(&recents)?;
     authoring::tests::tap(&ctx, &mut app, "alpha")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "alpha.pcbcraft")?,
-        "the right aside shows the full path of the picked project"
-    );
     assert_eq!(app.tab, Tab::Files, "one click only picks it");
+    assert_eq!(app.files_home.selected(), Some(files[0].as_str()));
     frame(
         &ctx,
         &mut app,
@@ -187,8 +217,6 @@ fn a_newcomer_saves_and_exports_from_the_files_tab() -> Result<(), String> {
         "the dialog writes the bill: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "Save as…")?;
-    assert!(app.edit.dialog.open, "Save as opens its dialog");
     Ok(())
 }
 
@@ -212,31 +240,145 @@ fn a_newcomer_opens_a_project_from_the_open_page() -> Result<(), String> {
     assert_eq!(app.tab, Tab::Files, "Ctrl+O works from any tab");
     assert_eq!(app.files_home.page, files_home::Page::Open);
     app.files_home.set_typed_for_test(&files[1]);
-    authoring::tests::tap(&ctx, &mut app, "Open")?;
+    authoring::tests::tap(&ctx, &mut app, "Open file")?;
     assert_eq!(app.path, files[1], "the typed project opens");
     Ok(())
 }
 
 #[test]
-fn a_newcomer_walks_the_files_tab_from_recent_to_close() -> Result<(), String> {
+fn a_newcomer_walks_every_button_of_the_files_page() -> Result<(), String> {
     let recents = IsolatedRecents::new()?;
     let (ctx, mut app, _) = files_tab(&recents)?;
-    for (control, page) in [
-        ("button:Import", files_home::Page::Import),
-        ("button:Open…", files_home::Page::Open),
-        ("button:Recent", files_home::Page::Recent),
+    for (control, page, in_tool_bar) in [
+        ("button:Import", files_home::Page::Import, true),
+        ("button:Open", files_home::Page::Open, true),
+        ("button:Open folder", files_home::Page::Open, false),
+        ("button:Add file", files_home::Page::Import, false),
+        ("button:Export", files_home::Page::Export, true),
     ] {
-        tap_id(&ctx, &mut app, control)?;
+        if in_tool_bar {
+            tap_strip(&ctx, &mut app, control)?;
+        } else {
+            tap_id(&ctx, &mut app, control)?;
+        }
         assert_eq!(app.files_home.page, page, "{control} opens its page");
+        tap_id(&ctx, &mut app, "button:Back to project")?;
+        assert_eq!(
+            app.files_home.page,
+            files_home::Page::Home,
+            "Back returns to the project"
+        );
     }
-    tap_id(&ctx, &mut app, "tab:Details")?;
-    tap_id(&ctx, &mut app, "tab:Project")?;
-    tap_id(&ctx, &mut app, "button:Preferences…")?;
-    assert_eq!(app.tab, Tab::Settings, "Preferences opens the Settings tab");
+    tap_id(&ctx, &mut app, "button:Library sources")?;
+    assert_eq!(app.tab, Tab::Libraries, "Library sources opens its page");
     app.change_tab(Tab::Files);
-    tap_id(&ctx, &mut app, "button:New project")?;
+    tap_id(&ctx, &mut app, "button:Go to Manufacture")?;
+    assert_eq!(app.tab, Tab::PlotFiles, "Go to Manufacture opens that tab");
     app.change_tab(Tab::Files);
-    tap_id(&ctx, &mut app, "button:Close project")?;
+    tap_strip(&ctx, &mut app, "button:Open sample project")?;
+    assert!(
+        !app.project.components.is_empty(),
+        "the sample project is loaded: {}",
+        app.message
+    );
+    tap_strip(&ctx, &mut app, "button:New")?;
+    assert!(
+        app.project.components.is_empty(),
+        "New leaves a blank project: {}",
+        app.message
+    );
+    assert_eq!(app.tab, Tab::Schematic, "and takes you to the drawing");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_closes_a_project_from_the_file_menu() -> Result<(), String> {
+    let recents = IsolatedRecents::new()?;
+    let (ctx, mut app, _) = files_tab(&recents)?;
+    authoring::tests::tap(&ctx, &mut app, "File")?;
+    authoring::tests::tap(&ctx, &mut app, "Close project")?;
+    assert!(
+        app.project.components.is_empty(),
+        "a saved project closes at once: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_edits_the_project_properties_on_the_files_tab() -> Result<(), String> {
+    let recents = IsolatedRecents::new()?;
+    let (ctx, mut app, _) = files_tab(&recents)?;
+    type_into(&ctx, &mut app, "textinput:Project name", "Bench supply")?;
+    assert_eq!(
+        app.project.name, "Bench supply",
+        "the name is stored: {}",
+        app.message
+    );
+    type_into(&ctx, &mut app, "textinput:Project author", "Sam")?;
+    assert_eq!(
+        app.project.meta.get("author").map(String::as_str),
+        Some("Sam"),
+        "the author is stored: {}",
+        app.message
+    );
+    type_into(&ctx, &mut app, "spinbutton:Board width", "77")?;
+    assert_eq!(
+        app.project.board.width, 77.0,
+        "the width is stored: {}",
+        app.message
+    );
+    type_into(&ctx, &mut app, "spinbutton:Board height", "55")?;
+    assert_eq!(
+        app.project.board.height, 55.0,
+        "the height is stored: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "mil")?;
+    assert_eq!(
+        app.project.unit, "mil",
+        "the units are stored: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_project_settings_from_the_files_page_and_visits_every_tab() -> Result<(), String>
+{
+    let recents = IsolatedRecents::new()?;
+    let (ctx, mut app, _) = files_tab(&recents)?;
+    tap_id(&ctx, &mut app, "button:Project settings")?;
+    assert!(
+        app.project_settings.open,
+        "the button opens the dialog: {}",
+        app.message
+    );
+    for (tab, name) in [
+        ("tab:Design rules", "Fabrication preset"),
+        ("tab:Net classes", "No net classes yet"),
+        ("tab:Electrical rules", "Pin connections"),
+        ("tab:Machines", "Machines in this project"),
+        ("tab:Title block", "Printed on every sheet"),
+        ("tab:Builds", "New build"),
+        ("tab:Board and stackup", "Board size"),
+    ] {
+        tap_id(&ctx, &mut app, tab)?;
+        assert!(
+            paints_text(&ctx, &mut app, name)?,
+            "{tab} shows {name}: {}",
+            app.message
+        );
+    }
+    type_into(&ctx, &mut app, "spinbutton:Width", "88")?;
+    assert_eq!(
+        app.project.board.width, 88.0,
+        "an edit in the dialog is stored: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Save")?;
+    assert!(!app.project_settings.open, "Save closes the dialog");
+    assert_eq!(app.project.board.width, 88.0, "the edit stays after Save");
     Ok(())
 }
 

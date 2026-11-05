@@ -262,7 +262,7 @@ fn a_newcomer_adds_a_machine_to_the_project() -> Result<(), String> {
     let (ctx, mut app) = board();
     open_tab(&ctx, &mut app, "Machines")?;
     assert!(
-        paints_text(&ctx, &mut app, "No machines on this project yet.")?,
+        paints_text(&ctx, &mut app, "No machines on this project yet")?,
         "an empty project says so"
     );
     press(&ctx, &mut app, "Add machine")?;
@@ -272,6 +272,7 @@ fn a_newcomer_adds_a_machine_to_the_project() -> Result<(), String> {
         "a machine was added: {}",
         app.message
     );
+    press(&ctx, &mut app, "Edit")?;
     type_into(&ctx, &mut app, "textinput:Name", "Bench mill")?;
     assert_eq!(
         app.project.machine_profiles[0].name, "Bench mill",

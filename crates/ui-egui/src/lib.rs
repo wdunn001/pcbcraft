@@ -3906,6 +3906,14 @@ impl App {
                 self.open_project_settings(project_settings::TAB_BOARD);
                 ui.close();
             }
+            if ui
+                .button(t!("menu.file.close"))
+                .on_hover_text(t!("menu.file.close.tip"))
+                .clicked()
+            {
+                self.files_run(files_home::Command::Close);
+                ui.close();
+            }
             ui.separator();
             self.import_submenu(ui);
             self.export_submenu(ui);
@@ -4271,7 +4279,8 @@ impl App {
     /// Context: the only panel left of the drawing; the Layers tree lives in
     /// `layers_tree.rs`, the Library tab keeps the parts list and part picker.
     fn browser(&mut self, ui: &mut egui::Ui) {
-        if Self::narrow_window(ui.ctx()) {
+        // The pages (Rules, Checks, Settings, Libraries) are not work areas and have no aside.
+        if Self::narrow_window(ui.ctx()) || workspace::workspace_for(self.tab).is_none() {
             return;
         }
         // The Library tab gives its browser more room; the saved width is kept per panel id.
@@ -7180,21 +7189,6 @@ impl App {
         }
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
-        if self.tab == Tab::Files {
-            if !Self::narrow_window(ui.ctx()) {
-                let tokens = theme::tokens(ui.ctx());
-                egui::Panel::right("inspector")
-                    .default_size(340.0)
-                    .min_size(280.0)
-                    .frame(
-                        egui::Frame::NONE
-                            .fill(tokens.panel)
-                            .stroke(egui::Stroke::new(theme::BORDER, tokens.line)),
-                    )
-                    .show(ui, |ui| self.files_details(ui));
-            }
-            return;
-        }
         if Self::narrow_window(ui.ctx()) {
             let panel = egui::Panel::bottom("inspector-narrow")
                 .default_size(260.0)
@@ -7269,6 +7263,19 @@ impl App {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| self.library_properties(ui));
+            return;
+        }
+        if self.tab == Tab::Files {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    egui::Frame::NONE
+                        .inner_margin(theme::aside_margin())
+                        .show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.y = theme::ASIDE_ROW_GAP;
+                            self.files_properties(ui);
+                        });
+                });
             return;
         }
         egui::ScrollArea::vertical()
@@ -8012,7 +8019,7 @@ impl App {
             && self.edit.dialog.script.ready()
             // A staged dialog fades in; wait until it is fully drawn.
             && (self.edit.dialog.script.show.is_none() || self.frames >= 30)
-            && (self.tab != Tab::Files || self.files_home.settled(&self.files_listed()))
+            && (self.tab != Tab::Files || self.files_home.settled(&self.files_probe_paths()))
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
@@ -8185,30 +8192,6 @@ impl App {
     /// The tool bar row; the items and the overflow menu live in `toolbar.rs`.
     fn tool_strip(&mut self, ui: &mut egui::Ui) {
         self.toolbar_row(ui);
-    }
-    fn files_tab(&mut self, ui: &mut egui::Ui) {
-        Self::margined(ui, |ui| {
-            ui.heading(t!("library.files_tab.project_files"));
-            ui.label(t!(
-                "library.files_tab.design_file_trim",
-                trim = self.path.trim()
-            ));
-            ui.add_space(8.0);
-            if ui
-                .button(t!("library.files_tab.library_sources"))
-                .on_hover_text(t!("library.files_tab.library_sources.tip"))
-                .clicked()
-            {
-                self.change_tab(Tab::Libraries);
-            }
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new(t!("library.files_tab.builds"))
-                    .size(10.0)
-                    .color(self.muted()),
-            );
-            self.builds_tab(ui);
-        });
     }
     fn board3d_tab(&mut self, ui: &mut egui::Ui) {
         let design_dir = std::path::Path::new(&self.path)

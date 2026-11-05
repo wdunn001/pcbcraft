@@ -3,7 +3,7 @@
 //!
 //! Context: issue #775 (fork #617) and the approved mockups `dialog-project-board` and
 //! `dialog-project-rules` in the design folder. The tabs are Board and stackup, Design
-//! rules, Net classes, Electrical rules, Machines and Title block. The preset picker and
+//! rules, Net classes, Electrical rules, Machines, Title block and Builds. The preset picker and
 //! per-limit origin words of the held Rules tab PR (#37) live in `rules.rs`; the pin
 //! matrix grid of the held PR (#38) lives in `electrical.rs`.
 //! Local rules: every edit is a typed engine command (`App::run`), so it is one undo step
@@ -40,13 +40,14 @@ use pcbcraft_text::t;
 use serde_json::Value;
 
 /// The tabs, in order: catalog key stem and the name a story opens them by.
-const TABS: [&str; 6] = [
+const TABS: [&str; 7] = [
     "board",
     "rules",
     "classes",
     "electrical",
     "machines",
     "title",
+    "builds",
 ];
 
 /// Tab index of Board and stackup.
@@ -61,6 +62,8 @@ pub(crate) const TAB_ELECTRICAL: usize = 3;
 pub(crate) const TAB_MACHINES: usize = 4;
 /// Tab index of Title block.
 pub(crate) const TAB_TITLE: usize = 5;
+/// Tab index of Builds.
+pub(crate) const TAB_BUILDS: usize = 6;
 
 /// What the open dialog remembers between frames.
 #[derive(Default)]
@@ -75,12 +78,10 @@ pub(crate) struct State {
     opened_at: u64,
     /// The engine's refusal for the last edit, shown at the top of the body.
     error: Option<String>,
-    /// Draft for the Add layer row: name.
-    layer_name: String,
-    /// Draft for the Add layer row: index into the role list.
-    layer_kind: usize,
-    /// Draft for the Add layer row: thickness in millimetres.
-    layer_thickness: f64,
+    /// The stackup row picked in the table, by name; its details show under the table.
+    layer_selected: Option<String>,
+    /// Corner size in millimetres typed beside the Corners choice.
+    corner_size: f64,
     /// Draft for a new custom rule: name, measure index, limit, loud.
     rule_name: String,
     rule_measure: usize,
@@ -88,17 +89,34 @@ pub(crate) struct State {
     rule_loud: bool,
     /// Draft for the machine preset to add, an index into the built-in list.
     machine_pick: usize,
+    /// The machine whose fields are open under its row, by id.
+    machine_edit: Option<String>,
 }
 
 impl State {
     fn blank() -> Self {
         Self {
-            layer_thickness: 0.2,
+            corner_size: 3.0,
             rule_limit: 0.15,
             ..Self::default()
         }
     }
 }
+
+/// Widest the dialog grows: the mockups draw it 1180 wide on a 1920 screen.
+const DIALOG_WIDTH: f32 = 1180.0;
+/// Width of a number box in a form row.
+pub(super) const NUMBER_WIDTH: f32 = 104.0;
+/// Width of a text field that holds a short name.
+pub(super) const NAME_WIDTH: f32 = 220.0;
+/// Width of the usual drop-down box in the dialog.
+pub(super) const SELECT_WIDTH: f32 = 168.0;
+/// Width of a drop-down box that holds long names (a maker, a machine, a material).
+pub(super) const SELECT_WIDE: f32 = 260.0;
+/// Width of a narrow drop-down box (a strictness level).
+pub(super) const SELECT_NARROW: f32 = 140.0;
+/// Width of a text field in a form row.
+pub(super) const TEXT_WIDTH: f32 = 320.0;
 
 /// A millimetre field spec: range, 0.01 step, three decimals.
 pub(super) fn mm_spec(min: f64, max: f64) -> NumberSpec<'static> {
@@ -108,7 +126,7 @@ pub(super) fn mm_spec(min: f64, max: f64) -> NumberSpec<'static> {
         max,
         step: 0.01,
         places: 3,
-        width: 104.0,
+        width: NUMBER_WIDTH,
     }
 }
 
@@ -310,7 +328,7 @@ impl App {
             t!("settings.project.cancel.tip"),
         );
         let save = (t!("settings.project.save"), t!("settings.project.save.tip"));
-        let width = (ctx.content_rect().width() - 80.0).clamp(640.0, 980.0);
+        let width = (ctx.content_rect().width() - 2.0 * theme::SPACE[5]).clamp(640.0, DIALOG_WIDTH);
         let spec = Dialog {
             id: "project-settings",
             title: &title,
@@ -354,6 +372,7 @@ impl App {
             TAB_ELECTRICAL => self.settings_electrical(ui),
             TAB_MACHINES => self.settings_machines(ui),
             TAB_TITLE => self.settings_title(ui),
+            TAB_BUILDS => self.builds_tab(ui),
             _ => {}
         }
     }

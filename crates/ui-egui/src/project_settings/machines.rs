@@ -15,14 +15,23 @@
 //!
 //! # Do not
 //! - Invent machines; the list is whatever the machine library holds.
-use super::{ghost, mm_spec, note, num, secondary};
-use crate::App;
-use crate::ui_kit::card::card;
+use super::{SELECT_WIDE, TEXT_WIDTH, ghost, mm_spec, note, num};
+use crate::ui_kit::button::{self, Size};
+use crate::ui_kit::card::card_flush;
+use crate::ui_kit::empty_state::empty_state;
 use crate::ui_kit::form_row::{FormWidth, form_row};
+use crate::ui_kit::icons;
+use crate::ui_kit::rows::list_row_high;
 use crate::ui_kit::select::select;
+use crate::{App, fonts, theme};
 use pcbcraft_doc::MachineProfile;
 use pcbcraft_text::t;
 use serde_json::{Value, json};
+
+/// Height of a machine row: a name and a line under it.
+const MACHINE_ROW: f32 = crate::ui_kit::rows::FINDING_ROW_HEIGHT;
+/// Space kept at the right of a machine row for its Edit and Remove buttons.
+const MACHINE_BUTTONS: f32 = 120.0;
 
 /// The stored profile as JSON with one dotted field replaced.
 fn with_field(profile: &MachineProfile, path: &[&str], value: Value) -> Option<Value> {
@@ -50,43 +59,7 @@ impl App {
     /// - Edit a profile in place; send it back through the engine.
     pub(super) fn settings_machines(&mut self, ui: &mut egui::Ui) {
         note(ui, t!("settings.project.machines.intro"));
-        ui.add_space(8.0);
-        self.settings_add_machine(ui);
-        ui.add_space(8.0);
-        if self.project.machine_profiles.is_empty() {
-            note(ui, t!("settings.project.machines.empty"));
-        }
-        for profile in self.project.machine_profiles.clone() {
-            let mut remove = false;
-            let caption = format!("{} {}", profile.vendor, profile.model);
-            card(
-                ui,
-                &profile.name,
-                Some(caption.trim()),
-                |ui| {
-                    remove = ghost(
-                        ui,
-                        &t!("settings.project.machines.remove"),
-                        &t!("settings.project.machines.remove.tip"),
-                        true,
-                    )
-                    .clicked();
-                },
-                |ui| self.machine_rows(ui, &profile),
-            );
-            if remove {
-                self.settings_run("machine.remove", json!({"id": profile.id}));
-            }
-            ui.add_space(8.0);
-        }
-    }
-
-    /// The library picker and the Add button.
-    ///
-    /// # Rules
-    /// - The list is the machine library (built-in and the person's own, hidden ones left out).
-    /// - Add runs `machine.install`, so the project keeps its own copy.
-    fn settings_add_machine(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(theme::SPACE[2]);
         self.machine_lib_refresh();
         let list: Vec<(String, String)> = self
             .libws
@@ -102,34 +75,159 @@ impl App {
                 ))
             })
             .collect();
-        let labels: Vec<&str> = list.iter().map(|(_, n)| n.as_str()).collect();
-        ui.horizontal(|ui| {
-            if labels.is_empty() {
-                return;
-            }
-            let pick = &mut self.project_settings.machine_pick;
-            *pick = (*pick).min(labels.len() - 1);
-            select(
-                ui,
-                "ps-machine-pick",
-                pick,
-                &labels,
-                &t!("settings.project.machines.pick"),
-                &t!("settings.project.machines.pick.tip"),
-                280.0,
-            );
-            let id = list[*pick].0.clone();
-            let taken = self.project.machine_profiles.iter().any(|p| p.id == id);
-            let tip = if taken {
-                t!("settings.project.machines.add.disabled_tip")
-            } else {
-                t!("settings.project.machines.add.tip")
-            };
-            if secondary(ui, &t!("settings.project.machines.add"), &tip, !taken).clicked() {
-                self.settings_run("machine.install", json!({"id": id}));
-                self.libws.machines.stale = true;
-            }
-        });
+        let install: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
+        let pick = std::cell::Cell::new(
+            self.project_settings
+                .machine_pick
+                .min(list.len().saturating_sub(1)),
+        );
+        let taken_ids: Vec<String> = self
+            .project
+            .machine_profiles
+            .iter()
+            .map(|p| p.id.clone())
+            .collect();
+        let mut remove: Option<String> = None;
+        let mut edit: Option<String> = None;
+        let profiles = self.project.machine_profiles.clone();
+        card_flush(
+            ui,
+            &t!("settings.project.machines.title"),
+            None,
+            |ui| {
+                let labels: Vec<&str> = list.iter().map(|(_, n)| n.as_str()).collect();
+                if labels.is_empty() {
+                    return;
+                }
+                let id = list[pick.get()].0.clone();
+                let taken = taken_ids.contains(&id);
+                let tip = if taken {
+                    t!("settings.project.machines.add.disabled_tip")
+                } else {
+                    t!("settings.project.machines.add.tip")
+                };
+                if button::secondary_button(
+                    ui,
+                    Some(icons::PLUS),
+                    &t!("settings.project.machines.add_from_library"),
+                    &tip,
+                    Size::Small,
+                    !taken,
+                )
+                .clicked()
+                {
+                    *install.borrow_mut() = Some(id);
+                }
+                let mut at = pick.get();
+                select(
+                    ui,
+                    "ps-machine-pick",
+                    &mut at,
+                    &labels,
+                    &t!("settings.project.machines.pick"),
+                    &t!("settings.project.machines.pick.tip"),
+                    SELECT_WIDE,
+                );
+                pick.set(at);
+            },
+            |ui| {
+                if profiles.is_empty() {
+                    ui.add_space(theme::SPACE[4]);
+                    if empty_state(
+                        ui,
+                        icons::OVEN,
+                        &t!("settings.project.machines.empty"),
+                        &t!("settings.project.machines.empty.message"),
+                        &t!("settings.project.machines.add"),
+                        &t!("settings.project.machines.add.tip"),
+                    )
+                    .clicked()
+                    {
+                        *install.borrow_mut() = list.get(pick.get()).map(|(id, _)| id.clone());
+                    }
+                    ui.add_space(theme::SPACE[4]);
+                    return;
+                }
+                for profile in &profiles {
+                    let editing =
+                        self.project_settings.machine_edit.as_deref() == Some(profile.id.as_str());
+                    let caption =
+                        format!("{} {} · {}", profile.vendor, profile.model, profile.kind);
+                    list_row_high(
+                        ui,
+                        MACHINE_ROW,
+                        editing,
+                        &profile.name,
+                        &t!("settings.project.machines.row.tip"),
+                        |ui| {
+                            let tokens = theme::tokens(ui.ctx());
+                            let text_width = (ui.available_width() - MACHINE_BUTTONS).max(0.0);
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(text_width, MACHINE_ROW),
+                                egui::Layout::top_down(egui::Align::Min)
+                                    .with_main_align(egui::Align::Center),
+                                |ui| {
+                                    ui.set_width(text_width);
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    ui.add(
+                                        egui::Label::new(
+                                            fonts::strong(&profile.name).color(tokens.text),
+                                        )
+                                        .truncate(),
+                                    );
+                                    ui.add(
+                                        egui::Label::new(
+                                            fonts::caption(caption.trim()).color(tokens.muted),
+                                        )
+                                        .truncate(),
+                                    );
+                                },
+                            );
+                            if ghost(
+                                ui,
+                                &t!("settings.project.machines.edit"),
+                                &t!("settings.project.machines.edit.tip"),
+                                true,
+                            )
+                            .clicked()
+                            {
+                                edit = Some(profile.id.clone());
+                            }
+                            if ghost(
+                                ui,
+                                &t!("settings.project.machines.remove"),
+                                &t!("settings.project.machines.remove.tip"),
+                                true,
+                            )
+                            .clicked()
+                            {
+                                remove = Some(profile.id.clone());
+                            }
+                        },
+                    );
+                    if editing {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::symmetric(
+                                theme::SPACE[3] as i8,
+                                theme::SPACE[1] as i8,
+                            ))
+                            .show(ui, |ui| self.machine_rows(ui, profile));
+                    }
+                }
+            },
+        );
+        if let Some(id) = edit {
+            let now = self.project_settings.machine_edit.as_deref() == Some(id.as_str());
+            self.project_settings.machine_edit = (!now).then_some(id);
+        }
+        self.project_settings.machine_pick = pick.get();
+        if let Some(id) = install.into_inner() {
+            self.settings_run("machine.install", json!({"id": id}));
+            self.libws.machines.stale = true;
+        }
+        if let Some(id) = remove {
+            self.settings_run("machine.remove", json!({"id": id}));
+        }
     }
 
     /// Name, notes and work area of one profile.
@@ -141,7 +239,7 @@ impl App {
                 ui,
                 ("machine-name", &id),
                 &profile.name,
-                260.0,
+                TEXT_WIDTH,
                 &name,
                 &t!("settings.project.machines.name.tip"),
             )
@@ -156,7 +254,7 @@ impl App {
                 ui,
                 ("machine-notes", &id),
                 &profile.notes,
-                360.0,
+                TEXT_WIDTH,
                 &name,
                 &t!("settings.project.machines.notes.tip"),
             )
