@@ -79,6 +79,7 @@ impl App {
 
     pub(super) fn cancel_schematic_gestures(&mut self) {
         self.clear_wire_draft();
+        self.sheet_shape_start = None;
     }
 
     /// Snap a schematic click for wire/bus drafting, honouring live angle locks.

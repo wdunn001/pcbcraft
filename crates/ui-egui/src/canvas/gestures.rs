@@ -114,6 +114,7 @@ impl Tool {
             Self::DrawLayer => ToolKind::DrawLayer,
             Self::Measure => ToolKind::Measure,
             Self::SheetText => ToolKind::DrawLayer,
+            Self::SheetShape(_) => ToolKind::DrawLayer,
         }
     }
 }
