@@ -124,20 +124,29 @@ fn slug(text: &str) -> String {
     out
 }
 
+/// Split text into lowercase words and numbers for the text match.
+///
+/// # Rules
+/// - A word of one letter is dropped.
+/// - A single digit is kept, so "5 V" and "3.3 V" tell a 5 V part from a 3.3 V part.
+///
+/// # Do not
+/// - Keep single letters; they match almost everything.
 fn tokenize(text: &str) -> Vec<String> {
+    let keep = |word: &str| word.len() >= 2 || word.chars().all(|c| c.is_ascii_digit());
     let mut out = Vec::new();
     let mut current = String::new();
     for c in text.to_lowercase().chars() {
         if c.is_ascii_alphanumeric() {
             current.push(c);
         } else if !current.is_empty() {
-            if current.len() >= 2 {
+            if keep(&current) {
                 out.push(current.clone());
             }
             current.clear();
         }
     }
-    if current.len() >= 2 {
+    if keep(&current) && !current.is_empty() {
         out.push(current);
     }
     out
