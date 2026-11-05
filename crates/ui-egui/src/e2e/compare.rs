@@ -83,29 +83,41 @@ fn a_newcomer_compares_two_parts_and_sees_the_differences() -> Result<(), String
             }
         })
     };
-    let result = session
-        .lock()
-        .map_err(|_| "session unavailable")?
-        .execute(
-            "library.compare",
-            serde_json::json!({
-                "kind": "parts",
-                "parts": [listing("A", "1206"), listing("B", "0603")],
-                "quantity": 1
-            }),
-            None,
-        )
-        .map_err(|e| e.to_string())?;
-    let value: serde_json::Value = serde_json::from_str(&result).map_err(|e| e.to_string())?;
+    let result = pcbcraft_mcp::call_tool(
+        &session,
+        "library.compare",
+        &serde_json::json!({
+            "kind": "parts",
+            "parts": [listing("A", "1206"), listing("B", "0603")],
+            "quantity": 1
+        }),
+    );
+    assert_eq!(
+        result["isError"],
+        serde_json::json!(false),
+        "the compare tool answers without an error"
+    );
+    let text = result["content"][0]["text"]
+        .as_str()
+        .ok_or("the tool result has no text")?;
+    let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     assert_eq!(
         value.pointer("/kind"),
         Some(&serde_json::json!("parts")),
         "the command returns a parts comparison table"
     );
+    let rows = value
+        .pointer("/table/rows")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("the table has no rows list")?;
+    let package = rows
+        .iter()
+        .find(|r| r["label"] == "Package")
+        .ok_or("the table has no Package row")?;
     assert_eq!(
-        value.pointer("/table/rows"),
-        Some(&serde_json::json!(1)),
-        "two parts with different packages show one differing row"
+        package["differs"],
+        serde_json::json!(true),
+        "two parts with different packages show the Package row as different"
     );
     Ok(())
 }
