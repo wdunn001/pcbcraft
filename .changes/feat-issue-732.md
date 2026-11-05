@@ -1,10 +1,8 @@
-feat: export board to SolidCraft project
-
-Add SolidCraft as an export format. The board exports as a SolidCraft project
-with its real outline, cutouts, holes and thickness, and each placed part as
-its own named component with a 3D model. Optional layers add copper, mask
-and silk as separate bodies.
-
-- Format registry entry in crates/io/src/formats.rs
-- Export dialog entry under Exchange group
-- Newcomer story test: a_newcomer_exports_the_board_to_solidcraft
+---
+type: feature
+area: io
+issues: [732]
+user_visible: true
+docs: n/a: the Export dialog lists its own formats and no page copies the list
+summary: The Export dialog lists SolidCraft project under Exchange and writes the board as a SolidCraft file with its outline, holes, thickness and each part as its own component.
+---
