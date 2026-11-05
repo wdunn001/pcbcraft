@@ -2,7 +2,7 @@
 type: feature
 area: engine
 issues: [1122]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Cost, start temperature and evaluate.
+user_visible: false
+docs: n/a: internal placement cost code that no screen or command uses yet
+summary: Add the placement cost function, the start temperature probe and the move evaluator for the layout polish.
 ---

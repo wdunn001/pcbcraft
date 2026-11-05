@@ -393,50 +393,36 @@ pub fn judge(
 /// # Do not
 /// - Weight nets here; the reported number is plain HPWL.
 pub fn cost(model: &Model, settings: &PlacementSettings) -> Result<f64, String> {
-    let hpwl = model.hpwl_of();
     let mut overlap = 0.0;
-    let n = model.cells().len();
-
-    // Cell vs cell overlaps
-    for i in 0..n {
-        let ci = &model.cells()[i];
-        let (hxi, hyi) = ci.half();
-        for j in (i + 1)..n {
-            let cj = &model.cells()[j];
-            let (hxj, hyj) = cj.half();
-            let dx = (ci.x - cj.x).abs();
-            let dy = (ci.y - cj.y).abs();
-            let ox = hxi + hxj - dx - settings.clearance_mm;
-            let oy = hyi + hyj - dy - settings.clearance_mm;
-            if ox > 0.0 && oy > 0.0 {
-                let eff_ox = ox.min(2.0 * hxi.min(hxj));
-                let eff_oy = oy.min(2.0 * hyi.min(hyj));
-                overlap += eff_ox * eff_oy;
-            }
+    for (i, a) in model.cells.iter().enumerate() {
+        let (ahx, ahy) = a.half();
+        let box_a = (a.x, a.y, ahx, ahy);
+        for b in model.cells.iter().skip(i + 1) {
+            let (bhx, bhy) = b.half();
+            overlap += overlap_area(box_a, (b.x, b.y, bhx, bhy), settings.clearance_mm);
+        }
+        for ko in &model.keepouts {
+            let box_ko = (
+                (ko.x0 + ko.x1) / 2.0,
+                (ko.y0 + ko.y1) / 2.0,
+                (ko.x1 - ko.x0) / 2.0,
+                (ko.y1 - ko.y0) / 2.0,
+            );
+            overlap += overlap_area(box_a, box_ko, settings.clearance_mm);
         }
     }
+    Ok(model.hpwl_of() + settings.overlap_weight * overlap)
+}
 
-    // Cell vs keepout overlaps
-    for ci in model.cells() {
-        let (hxi, hyi) = ci.half();
-        for ko in model.keepouts() {
-            let kx = (ko.x0 + ko.x1) / 2.0;
-            let ky = (ko.y0 + ko.y1) / 2.0;
-            let hxk = (ko.x1 - ko.x0) / 2.0;
-            let hyk = (ko.y1 - ko.y0) / 2.0;
-            let dx = (ci.x - kx).abs();
-            let dy = (ci.y - ky).abs();
-            let ox = hxi + hxk - dx - settings.clearance_mm;
-            let oy = hyi + hyk - dy - settings.clearance_mm;
-            if ox > 0.0 && oy > 0.0 {
-                let eff_ox = ox.min(2.0 * hxi.min(hxk));
-                let eff_oy = oy.min(2.0 * hyi.min(hyk));
-                overlap += eff_ox * eff_oy;
-            }
-        }
+/// Overlap area of two boxes given as centre and half size, with clearance added.
+fn overlap_area(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64), clearance: f64) -> f64 {
+    let ox = a.2 + b.2 + clearance - (a.0 - b.0).abs();
+    let oy = a.3 + b.3 + clearance - (a.1 - b.1).abs();
+    if ox > 0.0 && oy > 0.0 {
+        ox.min(2.0 * a.2.min(b.2)) * oy.min(2.0 * a.3.min(b.3))
+    } else {
+        0.0
     }
-
-    Ok(hpwl + settings.overlap_weight * overlap)
 }
 
 /// Start temperature from the mean uphill cost (slice 1122-c).
@@ -461,7 +447,7 @@ pub fn start_temperature(
     let mut rng = Rng::new(settings.seed ^ PROBE_SALT);
     let base_cost = cost(model, settings)?;
     let mut sum_uphill = 0.0;
-    let mut count_uphill = 0;
+    let mut count_uphill = 0usize;
 
     for _ in 0..settings.probe_moves {
         let mv_opt = next_move(&mut rng, movable, model, settings)?;
@@ -488,8 +474,7 @@ pub fn start_temperature(
     }
 
     let mean_uphill = sum_uphill / count_uphill as f64;
-    let t0 = -mean_uphill / settings.start_accept.ln();
-    Ok(t0)
+    Ok(-mean_uphill / settings.start_accept.ln())
 }
 
 /// Score one move without keeping it (slice 1122-c).
@@ -519,7 +504,7 @@ pub fn evaluate(
         0.0
     };
     Ok(Candidate {
-        move: mv,
+        mv,
         verdict,
         delta_cost,
     })
@@ -547,4 +532,110 @@ pub fn evaluate(
 /// - Read the clock, or accept a move the gate refused.
 pub fn anneal(_model: &mut Model, _settings: &PlacementSettings) -> Result<AnnealOutcome, String> {
     Err(not_built("slice-1122-d"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::placement::{Cell, NetSpring, Pin, Rect};
+
+    fn cell(id: u64, x: f64, fixed: bool) -> Cell {
+        Cell {
+            id,
+            x,
+            y: 0.0,
+            half_x: 1.0,
+            half_y: 1.0,
+            turns: 0,
+            fixed,
+        }
+    }
+
+    fn pair(second_x: f64, fixed: bool) -> Model {
+        let pin = |cell: usize| Pin {
+            cell,
+            dx: 0.0,
+            dy: 0.0,
+        };
+        Model {
+            cells: vec![cell(1, 10.0, fixed), cell(2, second_x, fixed)],
+            nets: vec![NetSpring {
+                net: 1,
+                weight: 1.0,
+                pins: vec![pin(0), pin(1)],
+            }],
+            board: Rect {
+                x0: -50.0,
+                y0: -50.0,
+                x1: 80.0,
+                y1: 50.0,
+            },
+            keepouts: vec![],
+        }
+    }
+
+    fn near(a: f64, b: f64) -> Result<(), String> {
+        if (a - b).abs() < 1e-9 {
+            Ok(())
+        } else {
+            Err(format!("{a} is not {b}"))
+        }
+    }
+
+    #[test]
+    fn cost_is_wire_plus_weighted_overlap_area() -> Result<(), String> {
+        // Boxes 2 by 2 whose centres are 1 apart overlap 1 by 2 = 2 mm squared.
+        let model = pair(11.0, false);
+        let s = PlacementSettings::default();
+        near(cost(&model, &s)?, 1.0 + s.overlap_weight * 2.0)
+    }
+
+    #[test]
+    fn a_layout_without_overlap_has_no_penalty() -> Result<(), String> {
+        let model = pair(15.0, false);
+        let s = PlacementSettings::default();
+        near(cost(&model, &s)?, model.hpwl_of())
+    }
+
+    #[test]
+    fn the_start_temperature_falls_back_without_an_uphill_move() -> Result<(), String> {
+        let mut model = pair(15.0, true);
+        let s = PlacementSettings::default();
+        let t = start_temperature(&mut model, &[], &s)?;
+        near(t, s.fallback_temperature)
+    }
+
+    #[test]
+    fn the_start_temperature_is_positive_and_repeatable() -> Result<(), String> {
+        let s = PlacementSettings::default();
+        let mut model = pair(15.0, false);
+        let before = model.clone();
+        let first = start_temperature(&mut model, &[0, 1], &s)?;
+        let second = start_temperature(&mut model, &[0, 1], &s)?;
+        if first <= 0.0 {
+            return Err(format!("temperature {first} is not positive"));
+        }
+        if model != before {
+            return Err("the probe changed the model".into());
+        }
+        near(first, second)
+    }
+
+    #[test]
+    fn evaluate_reports_the_cost_change_and_leaves_the_model() -> Result<(), String> {
+        let mut model = pair(11.0, false);
+        let s = PlacementSettings::default();
+        let now = cost(&model, &s)?;
+        let before = model.clone();
+        let mv = Move::Translate {
+            cell: 1,
+            dx: 4.0,
+            dy: 0.0,
+        };
+        let c = evaluate(&mut model, &s, mv, now)?;
+        if model != before {
+            return Err("evaluate changed the model".into());
+        }
+        near(c.delta_cost, 5.0 - now)
+    }
 }
