@@ -604,6 +604,14 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Documentation,
         Run::Kind("impedance_table"),
     ),
+    output(
+        "pin_map",
+        "Pin map (CSV)",
+        "Every pin of the microcontroller with its function, net and bus, as a plain file.",
+        &["csv", "json"],
+        Group::Exchange,
+        Run::Engine("pinmap.export"),
+    ),
     #[cfg(feature = "plugin-firmware-target")]
     output(
         "firmware_target",

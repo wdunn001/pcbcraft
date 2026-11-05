@@ -1,8 +1,8 @@
 ---
-type: test
-area: text
+type: feature
+area: ui
 issues: [711]
-user_visible: false
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Extract tables button builds a text document from the open PDF.
+user_visible: true
+docs: n/a: one more button in the datasheet pane and its tooltip describes it
+summary: The datasheet pane has an Extract tables button that reads the text of the open PDF into a text document.
 ---
