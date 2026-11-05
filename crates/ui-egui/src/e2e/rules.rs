@@ -416,3 +416,104 @@ fn a_newcomer_keeps_two_classes_further_apart() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sees_how_much_of_the_board_is_still_unrouted() -> Result<(), String> {
+    use super::layers::pcb_app;
+    let (ctx, mut app) = pcb_app();
+    let rev_before = app.revision;
+    let (count, length) = match app.checks.get("airwires").and_then(Value::as_array) {
+        Some(wires) => {
+            let mut c = 0;
+            let mut l = 0.0;
+            for w in wires {
+                let from = match w.get("from") {
+                    Some(v) => match serde_json::from_value::<pcbcraft_geom::Point>(v.clone()) {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    },
+                    None => continue,
+                };
+                let to = match w.get("to") {
+                    Some(v) => match serde_json::from_value::<pcbcraft_geom::Point>(v.clone()) {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    },
+                    None => continue,
+                };
+                c += 1;
+                l += from.distance(to);
+            }
+            (c, l)
+        }
+        None => (0, 0.0),
+    };
+    let expected = format!("{count} unrouted, {:.1} mm", length);
+    assert!(
+        paints_text(&ctx, &mut app, &expected)?,
+        "the footer says how many connections are still open: {}",
+        app.message
+    );
+    assert_eq!(
+        app.revision, rev_before,
+        "reading the footer does not change the session"
+    );
+    let wires = app
+        .checks
+        .get("airwires")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if wires.is_empty() {
+        return Ok(());
+    }
+    let _wire = &wires[0];
+    app.tool_call(
+        "track.route",
+        json!({
+            "from": {"footprint": 10, "pad": "1"},
+            "to": {"footprint": 11, "pad": "1"},
+            "layer": "F.Cu"
+        }),
+    );
+    app.refresh();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let (count2, length2) = match app.checks.get("airwires").and_then(Value::as_array) {
+        Some(wires) => {
+            let mut c = 0;
+            let mut l = 0.0;
+            for w in wires {
+                let from = match w.get("from") {
+                    Some(v) => match serde_json::from_value::<pcbcraft_geom::Point>(v.clone()) {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    },
+                    None => continue,
+                };
+                let to = match w.get("to") {
+                    Some(v) => match serde_json::from_value::<pcbcraft_geom::Point>(v.clone()) {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    },
+                    None => continue,
+                };
+                c += 1;
+                l += from.distance(to);
+            }
+            (c, l)
+        }
+        None => (0, 0.0),
+    };
+    assert_eq!(
+        count2,
+        count - 1,
+        "routing one connection drops the count by one"
+    );
+    let expected2 = format!("{count2} unrouted, {:.1} mm", length2);
+    assert!(
+        paints_text(&ctx, &mut app, &expected2)?,
+        "the footer updates after routing: {}",
+        app.message
+    );
+    Ok(())
+}
