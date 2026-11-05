@@ -30,6 +30,17 @@ fn modifiers_screen(app: &App, at: Point) -> egui::Pos2 {
     super::modifiers::screen_of(app, at)
 }
 
+/// Undo the last engine edit.
+fn undo(app: &mut App) -> Result<(), String> {
+    app.session
+        .lock()
+        .map_err(|_| "session is busy".to_owned())?
+        .undo()
+        .map_err(|e| e.to_string())?;
+    app.refresh();
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_finds_labels_and_flags_under_add() -> Result<(), String> {
     let (mut app, ctx) = sample(Tab::Schematic);
@@ -301,6 +312,71 @@ fn a_newcomer_places_nothing_for_an_empty_note() -> Result<(), String> {
         before,
         "an empty note places nothing: {}",
         app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_draws_a_rectangle_on_the_sheet() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    let before = app.project.graphics.len();
+    tap_strip(&ctx, &mut app, "icon:tool-add")?;
+    let rect_pos = painted_text_at(&ctx, &mut app, "Rectangle")?.ok_or("Rectangle not found")?;
+    click(&ctx, &mut app, rect_pos, Modifiers::NONE);
+    assert!(
+        matches!(
+            app.tool,
+            Tool::SheetShape(sheet_shape_tool::SheetShapeKind::Rect)
+        ),
+        "Add then Rectangle arms the rectangle tool: {}",
+        app.message
+    );
+    let at1 = open_patch(&app);
+    click(&ctx, &mut app, at1, Modifiers::NONE);
+    assert!(
+        app.sheet_shape_start.is_some(),
+        "the first click stored the start point"
+    );
+    let at2 = at1 + egui::vec2(80.0, 60.0);
+    click(&ctx, &mut app, at2, Modifiers::NONE);
+    assert_eq!(
+        app.project.graphics.len(),
+        before + 1,
+        "the second click placed a rectangle: {}",
+        app.message
+    );
+    let graphic = app
+        .project
+        .graphics
+        .last()
+        .ok_or_else(|| format!("no graphic on the sheet: {}", app.message))?;
+    assert_eq!(graphic.shape, "rect", "the placed graphic is a rectangle");
+    assert_eq!(
+        graphic.layer, "schematic",
+        "the rectangle belongs to the schematic"
+    );
+    assert_eq!(
+        graphic.points.len(),
+        2,
+        "the rectangle has two corner points"
+    );
+    assert!(
+        matches!(
+            app.tool,
+            Tool::SheetShape(sheet_shape_tool::SheetShapeKind::Rect)
+        ),
+        "the rectangle tool stays armed for the next one"
+    );
+    key(&ctx, &mut app, egui::Key::Escape);
+    assert!(
+        matches!(app.tool, Tool::Select),
+        "Esc stops placing and goes back to Select"
+    );
+    undo(&mut app)?;
+    assert_eq!(
+        app.project.graphics.len(),
+        before,
+        "one undo removes the rectangle"
     );
     Ok(())
 }
