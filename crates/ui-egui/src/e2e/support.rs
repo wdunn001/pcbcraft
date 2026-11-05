@@ -141,6 +141,29 @@ pub(crate) fn paints_text(
     }
     Ok(false)
 }
+
+/// Screen position of the first text shape whose label matches `word`, or
+/// None if no such shape appears in three frames. Uses the same shape walk
+/// as [`paints_text`] but returns the top-left corner of the matching text.
+///
+/// Contract: crates/ui-egui/src/e2e/support.rs
+pub(crate) fn painted_text_at(
+    ctx: &egui::Context,
+    app: &mut App,
+    word: &str,
+) -> Result<Option<egui::Pos2>, String> {
+    for _ in 0..3 {
+        let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+        for shape in &output.shapes {
+            if let egui::Shape::Text(text) = &shape.shape
+                && text.galley.text() == word
+            {
+                return Ok(Some(text.pos));
+            }
+        }
+    }
+    Ok(None)
+}
 /// Default width of the left aside (`browser` panel) beside the canvas.
 pub(crate) const LEFT_ASIDE: f32 = 320.0;
 
