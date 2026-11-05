@@ -130,6 +130,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbols","description":"Write every project-library symbol to a directory as one library symbol text file each, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"plot_csv.write","description":"Write a fabrication plot report CSV (per copper layer: element counts and bounding box in millimetres, plus a totals row) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.starter_models.list","description":"List bundled starter 3D models shipped with the app, with licence titles and matching footprint names","inputSchema":object(json!({}),&[])}),
+        json!({"name":"library.connector.generate","description":"Generate a connector footprint, symbol and 3D body for a Samtec series from positions, rows and stack code","inputSchema":object(json!({"series_id":{"type":"string"},"positions_per_row":{"type":"integer","minimum":1,"maximum":150},"rows":{"type":"integer","enum":[1,2]},"lead_code":{"type":"string"},"stack_code":{"type":"string"},"alignment_posts":{"type":"boolean"}}),&["series_id","positions_per_row","rows"])}),
         json!({"name":"library.catalog","description":"Discover installed symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.list","description":"List parts as one common record across fixture, project, installed and listed distributor sources, filtered by category, package, value range, minimum voltage, temperature span, stock, lifecycle, source and RoHS. A listing with an empty number never matches a numeric filter. Results are grouped by source in each source's own order, not ranked across sources; read-only","inputSchema":object(json!({"filter":{"type":"object"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"object"},"listings":{"type":"array","maxItems":5000,"items":{"type":"object"}}}),&[])}),
@@ -204,6 +205,7 @@ fn tool_kind(name: &str) -> ToolKind {
         "screenshot",
         "library.catalog",
         "library.starter_models.list",
+        "library.connector.generate",
         "library.search",
         "library.list",
         "parts.search",
@@ -401,6 +403,7 @@ pub(crate) fn invoke_session(
         "design.recents",
         "library.catalog",
         "library.starter_models.list",
+        "library.connector.generate",
         "library.search",
         "library.inspect_symbol",
         "library.inspect_footprint",
@@ -3484,6 +3487,25 @@ mod tests {
         assert_eq!(tool["inputSchema"]["properties"]["limit"]["maximum"], 100);
         assert!(tool["inputSchema"]["properties"]["filter"].is_object());
         assert!(tool_kind("library.list") == ToolKind::ReadOnly);
+        Ok(())
+    }
+    #[test]
+    fn library_connector_generate_is_listed_with_its_schema() -> Result<(), String> {
+        let tools = tool_list();
+        let tool = tools["tools"]
+            .as_array()
+            .and_then(|l| l.iter().find(|t| t["name"] == "library.connector.generate"))
+            .ok_or("library.connector.generate missing from tool_list")?;
+        assert_eq!(
+            tool["inputSchema"]["properties"]["positions_per_row"]["minimum"],
+            1
+        );
+        assert_eq!(
+            tool["inputSchema"]["properties"]["positions_per_row"]["maximum"],
+            150
+        );
+        assert!(tool["inputSchema"]["properties"]["rows"].is_object());
+        assert!(tool_kind("library.connector.generate") == ToolKind::ReadOnly);
         Ok(())
     }
 

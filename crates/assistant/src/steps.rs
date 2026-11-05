@@ -81,6 +81,7 @@ pub fn command_kind(command: &str) -> StepKind {
         | "library.list"
         | "library.catalog"
         | "library.starter_models.list"
+        | "library.connector.generate"
         | "library.sources"
         | "library.compare"
         | "library.inspect_symbol"
