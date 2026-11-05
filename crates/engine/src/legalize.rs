@@ -546,7 +546,10 @@ mod tests {
         second.position = first_pos;
         let scope = full_scope();
         let plan = plan_moves(&s.project, &scope, MAX_PASSES, None);
-        // The plan should complete without error.
+        assert!(
+            !plan.moves.is_empty() || !plan.unresolved.is_empty(),
+            "two parts on the same spot are either moved or reported"
+        );
         Ok(())
     }
 
