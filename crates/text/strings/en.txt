@@ -331,6 +331,12 @@ props.label.hint = Press Enter to apply the name. One Undo puts the old net back
 schematic.merge.notice = Joined nets that shared a name: {list}. Undo puts them back.
 schematic.merge.item = {name} ({count} nets)
 schematic.add.hint_bus = Bus: click the points of the path. Press Esc to stop.
+schematic.add.hint_bus_entry = Bus entry: click on a bus to tap one wire off it. Keep clicking to tap more. Press Esc to stop.
+schematic.bus_entry.no_bus = Click on a bus wire to tap a member off it.
+schematic.bus_entry.no_label = No bus label found near this wire.
+schematic.bus_entry.bad_name = The bus name must be in the form STEM*COUNT.
+schematic.bus_entry.bad_count = The bus count must be a positive number.
+schematic.bus_entry.no_pin = No unconnected pin near the tap point.
 schematic.add.hint_no_connect = No connect: click a free pin to flag it. Keep clicking to flag more. Press Esc to stop.
 schematic.add.hint_port = Port: click the sheet to place a port. Keep clicking to add more. Press Esc to stop.
 schematic.no_connect.menu_label = Mark no connect
@@ -1510,8 +1516,8 @@ board.stackup_section.plated_board_edge.tip = Copper plating around the board's 
 
 # empty-state guidance
 empty.symbols = No symbols yet. Press A to open the symbol palette, or run component.add to add one.
-empty.nets = No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.
-empty.board = No packages on the board yet. Add symbols on the schematic; with automatic sync they appear on the board, or run board.sync after batching edits.
+empty.nets = No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import.
+empty.board = No packages on the board yet. Add symbols on the schematic and they appear on the board automatically. To sync by hand, run board.sync.
 empty.checks = Checks run automatically on every edit; findings are listed here as soon as one appears.
 
 

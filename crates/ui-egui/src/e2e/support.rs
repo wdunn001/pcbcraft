@@ -435,6 +435,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
             "tool-select" => "Select",
             "tool-move" => "Move",
             "tool-bus" => "Bus",
+            "tool-busentry" => "Bus entry",
             "tool-label" => "Label",
             "tool-power" => "Power symbol",
             "tool-noconnect" => "No connect",
@@ -463,6 +464,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
         "icon:tool-label"
             | "icon:tool-power"
             | "icon:tool-bus"
+            | "icon:tool-busentry"
             | "icon:tool-port"
             | "icon:tool-noconnect"
             | "icon:tool-pad"
