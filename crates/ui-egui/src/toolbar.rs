@@ -42,6 +42,7 @@ enum Act {
     Hole,
     Fiducial,
     Pad,
+    SheetText,
     Measure,
 }
 
@@ -452,6 +453,14 @@ impl App {
                 matches!(self.tool, Tool::Pad),
                 Act::Pad,
             ),
+            entry(
+                "tool-text",
+                "text",
+                t!("board.tool_strip.text"),
+                self.tool_tip(t!("board.tool_strip.text.tip"), ToolKind::DrawLayer, None),
+                matches!(self.tool, Tool::SheetText),
+                Act::SheetText,
+            ),
         ]
     }
 
@@ -502,6 +511,11 @@ impl App {
             Act::Hole => self.tool = Tool::Hole,
             Act::Fiducial => self.tool = Tool::Fiducial,
             Act::Pad => self.tool = Tool::Pad,
+            Act::SheetText => {
+                self.tool = Tool::SheetText;
+                self.sheet_text_position = None;
+                self.sheet_text_input.clear();
+            }
             Act::Measure => self.arm_measure(),
         }
     }
