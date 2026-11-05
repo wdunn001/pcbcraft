@@ -2,7 +2,7 @@
 type: feature
 area: io
 issues: [621]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: G-code statistics: path length and time from a program.
+user_visible: false
+docs: n/a: a new function with tests and no screen or command uses it yet
+summary: A function reads a G-code program and returns its cutting length, rapid length and estimated time.
 ---

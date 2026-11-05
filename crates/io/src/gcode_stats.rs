@@ -53,9 +53,6 @@ pub struct GcodeStats {
 /// - G2/G3 arcs are not supported yet and are rejected.
 /// - More than 1,000,000 lines is an error.
 ///
-/// # Dependencies
-/// - None (pure parsing).
-///
 /// # Do not
 /// - Use this for validation; it is for estimates only.
 pub fn gcode_stats(text: &str) -> Result<GcodeStats, String> {
@@ -89,18 +86,18 @@ pub fn gcode_stats(text: &str) -> Result<GcodeStats, String> {
         // Parse G words: extract the number after 'G'.
         for word in &words {
             let upper = word.to_uppercase();
-            if upper.starts_with('G') {
-                if let Ok(n) = upper[1..].parse::<u8>() {
-                    match n {
-                        0 => motion = Some(0),
-                        1 => motion = Some(1),
-                        2 | 3 => return Err("arcs are not supported yet".into()),
-                        20 => metric = false,
-                        21 => metric = true,
-                        90 => absolute = true,
-                        91 => absolute = false,
-                        _ => {} // Ignore other G codes (M codes, etc.)
-                    }
+            if let Some(rest) = upper.strip_prefix('G')
+                && let Ok(n) = rest.parse::<u8>()
+            {
+                match n {
+                    0 => motion = Some(0),
+                    1 => motion = Some(1),
+                    2 | 3 => return Err("arcs are not supported yet".into()),
+                    20 => metric = false,
+                    21 => metric = true,
+                    90 => absolute = true,
+                    91 => absolute = false,
+                    _ => {} // Ignore other G codes (M codes, etc.)
                 }
             }
         }
@@ -117,41 +114,41 @@ pub fn gcode_stats(text: &str) -> Result<GcodeStats, String> {
         let mut target = [at[0], at[1], at[2]];
         for word in &words {
             let upper = word.to_uppercase();
-            if upper.starts_with("X") {
-                if let Ok(v) = upper[1..].parse::<f64>() {
-                    let mm = if metric { v } else { v * 25.4 };
-                    if absolute {
-                        target[0] = mm;
-                    } else {
-                        target[0] = at[0] + mm;
-                    }
-                    has_axis = true;
+            if let Some(rest) = upper.strip_prefix('X')
+                && let Ok(v) = rest.parse::<f64>()
+            {
+                let mm = if metric { v } else { v * 25.4 };
+                if absolute {
+                    target[0] = mm;
+                } else {
+                    target[0] = at[0] + mm;
                 }
-            } else if upper.starts_with("Y") {
-                if let Ok(v) = upper[1..].parse::<f64>() {
-                    let mm = if metric { v } else { v * 25.4 };
-                    if absolute {
-                        target[1] = mm;
-                    } else {
-                        target[1] = at[1] + mm;
-                    }
-                    has_axis = true;
+                has_axis = true;
+            } else if let Some(rest) = upper.strip_prefix('Y')
+                && let Ok(v) = rest.parse::<f64>()
+            {
+                let mm = if metric { v } else { v * 25.4 };
+                if absolute {
+                    target[1] = mm;
+                } else {
+                    target[1] = at[1] + mm;
                 }
-            } else if upper.starts_with("Z") {
-                if let Ok(v) = upper[1..].parse::<f64>() {
-                    let mm = if metric { v } else { v * 25.4 };
-                    if absolute {
-                        target[2] = mm;
-                    } else {
-                        target[2] = at[2] + mm;
-                    }
-                    has_axis = true;
+                has_axis = true;
+            } else if let Some(rest) = upper.strip_prefix('Z')
+                && let Ok(v) = rest.parse::<f64>()
+            {
+                let mm = if metric { v } else { v * 25.4 };
+                if absolute {
+                    target[2] = mm;
+                } else {
+                    target[2] = at[2] + mm;
                 }
-            } else if upper.starts_with("F") {
-                if let Ok(v) = upper[1..].parse::<f64>() {
-                    // F is always mm/min regardless of G20/G21.
-                    feed_mm_per_min = v;
-                }
+                has_axis = true;
+            } else if let Some(rest) = upper.strip_prefix('F')
+                && let Ok(v) = rest.parse::<f64>()
+            {
+                // F is always mm/min regardless of G20/G21.
+                feed_mm_per_min = v;
             }
         }
 
@@ -230,50 +227,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gcode_stats_of_a_two_move_program_matches_the_hand_count() {
+    fn gcode_stats_of_a_two_move_program_matches_the_hand_count() -> Result<(), String> {
         let program = "G21\nG90\nG0 X3 Y4\nG1 X3 Y4 Z-1 F60";
-        let stats = gcode_stats(program).unwrap();
+        let stats = gcode_stats(program)?;
         assert!((stats.rapid_mm - 5.0).abs() < 1e-9);
         assert!((stats.cut_mm - 1.0).abs() < 1e-9);
         // Rapid: 5mm at 3000mm/min = 0.1s. Cut: 1mm at 60mm/min = 1.0s.
         assert!((stats.time_s - 1.1).abs() < 1e-9);
         assert_eq!(stats.moves, 2);
+        Ok(())
     }
 
     #[test]
-    fn relative_mode_adds_up() {
+    fn relative_mode_adds_up() -> Result<(), String> {
         let program = "G21\nG91\nG1 X10 F100\nG1 Y10 F100";
-        let stats = gcode_stats(program).unwrap();
+        let stats = gcode_stats(program)?;
         assert!((stats.cut_mm - 20.0).abs() < 1e-9);
         assert_eq!(stats.moves, 2);
         // 20mm at 100mm/min = 12s.
         assert!((stats.time_s - 12.0).abs() < 1e-9);
+        Ok(())
     }
 
     #[test]
-    fn inches_are_converted() {
+    fn inches_are_converted() -> Result<(), String> {
         let program = "G20 G1 X1 F10";
-        let stats = gcode_stats(program).unwrap();
+        let stats = gcode_stats(program)?;
         assert!((stats.cut_mm - 25.4).abs() < 1e-9);
+        Ok(())
     }
 
     #[test]
     fn a_cut_with_no_feed_is_an_error() {
         let program = "G1 X10";
-        let result = gcode_stats(program);
-        assert!(result.is_err());
+        let message = gcode_stats(program).err().unwrap_or_default();
         assert!(
-            result
-                .unwrap_err()
-                .contains("cutting move with no feed rate")
+            message.contains("cutting move with no feed rate"),
+            "the error names the missing feed: {message}"
         );
     }
 
     #[test]
     fn arcs_are_refused_for_now() {
         let program = "G2 X10 Y10 I5 J5";
-        let result = gcode_stats(program);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("arcs are not supported yet"));
+        let message = gcode_stats(program).err().unwrap_or_default();
+        assert!(
+            message.contains("arcs are not supported yet"),
+            "the error names the unsupported arcs: {message}"
+        );
     }
 }
