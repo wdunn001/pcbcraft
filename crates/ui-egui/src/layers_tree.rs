@@ -2874,7 +2874,11 @@ fn paint_row(
         Pos2::new(label_right.max(label_left), rect.bottom()),
     );
     let p = painter.with_clip_rect(clip);
-    let top_level = matches!(r.kind, RowKind::Layer | RowKind::Part | RowKind::Net) || is_section;
+    // Cut-outs and mounting holes are objects a person edits, so they read as ink.
+    let top_level = matches!(
+        r.kind,
+        RowKind::Layer | RowKind::Part | RowKind::Net | RowKind::Hole
+    ) || is_section;
     let ink = if is_section {
         colours.muted
     } else if top_level {

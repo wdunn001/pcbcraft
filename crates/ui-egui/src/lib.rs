@@ -1950,8 +1950,9 @@ impl App {
         };
         self
     }
-    /// Start with a drawing target (`silk`, `edge` or `copper`), or `flipped` to
-    /// look from the bottom, so a
+    /// Start with a drawing target (`silk`, `edge` or `copper`), `flipped` to
+    /// look from the bottom, or `select-cutout`, `select-hole` or `select-outline`
+    /// to pick that board object, so a
     /// `--capture` image shows the Active tag on that layer.
     pub fn with_capture_target(mut self, name: Option<String>) -> Self {
         use draw_target::{Side, Target};
@@ -1960,6 +1961,22 @@ impl App {
             Some("edge") => Target::Edge,
             Some("flipped") => {
                 self.set_view_side(true);
+                return self;
+            }
+            // Select the first cut-out or mounting hole, or the outline row.
+            Some("select-cutout") => {
+                let id = self.project.board.cutouts.first().map(|c| c.id);
+                self.select(id);
+                return self;
+            }
+            Some("select-hole") => {
+                let id = self.project.board.holes.first().map(|h| h.id);
+                self.select(id);
+                return self;
+            }
+            Some("select-outline") => {
+                self.tree.expanded.insert("edge".into());
+                self.tree.selected_key = Some("edge/edge".into());
                 return self;
             }
             _ => return self,
@@ -2606,7 +2623,7 @@ impl App {
         success
     }
 
-    fn colours(&self) -> palette::ThemeColours {
+    pub(crate) fn colours(&self) -> palette::ThemeColours {
         palette::palette(self.preferences.dark, self.preferences.accent)
     }
     fn accent(&self) -> Color32 {
