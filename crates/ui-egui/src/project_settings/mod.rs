@@ -224,7 +224,7 @@ impl App {
     /// - Chain commands that must be one undo step; use `settings_batch`.
     pub(super) fn settings_run(&mut self, command: &str, params: Value) {
         let before = self.revision;
-        self.run(command, params);
+        self.with_deferred_checks(|app| app.run(command, params));
         self.project_settings.error = (self.revision == before).then(|| self.message.clone());
     }
 
@@ -253,7 +253,7 @@ impl App {
                     .map_err(|e| e.to_string())
             });
         self.project_settings.error = outcome.err();
-        self.refresh();
+        self.with_deferred_checks(Self::refresh);
     }
 
     /// Put the project back as it was when the dialog opened.
@@ -272,7 +272,7 @@ impl App {
         if let Err(e) = outcome {
             self.message = e;
         }
-        self.refresh();
+        self.with_deferred_checks(Self::refresh);
     }
 
     /// Show the dialog for one frame, when open.

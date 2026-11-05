@@ -15,13 +15,13 @@ Token-sized summaries for parallel headless workers.
 | --- | --- | --- | --- |
 | Researcher | `stage:research` | `### Research` comment, `research:done` | 2 h |
 | Enricher | `stage:enrich` | `### Enrichment`, full Tags line, `ready` | 2 h |
-| Worker | `ready` + `status:open` (+ `conflict:parallel-safe` if shared host) | pull request against `main` with the build report in the body, green Actions | 6 h |
+| Worker | `ready` + `status:open` (+ `conflict:parallel-safe` if the checkout machine is shared) | pull request against `main` with the build report in the body, green Actions | 6 h |
 | Reviewer (optional) | open pull request | `### Review` (read/run only, no edits) | 2 h |
 | Integrator | pull requests with green CI | merge commit into `main`, green Actions there | none |
 
 **Parallelism:** prefer many workers on `conflict:parallel-safe` issues; one agent per clone; never share checkouts.
 
-**CI:** Actions on the pull request is the source of truth; local `cargo xtask ci` is optional. Doc-only lanes still push and wait for the green **CI result** check.
+**CI:** The CI run on the pull request is the source of truth; local `cargo xtask ci` is optional. Doc-only lanes still push and wait for the green **CI result** check. Every pull request adds exactly one change file under `.changes/`. CI runs on the project's self-hosted runners, so a worker needs no build machine of its own.
 
 Role files (optional detail): [researcher.md](researcher.md), [enricher.md](enricher.md), [worker.md](worker.md), [reviewer.md](reviewer.md).
 

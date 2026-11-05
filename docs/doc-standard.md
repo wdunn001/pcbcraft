@@ -21,7 +21,7 @@ Never restate a rule that lives at a higher layer. Point to it.
 A block uses only the sections it needs.
 
 - `# Rules`: what must stay true.
-- `# Dependencies`: the files this code relies on.
+- `# Dependencies`: the files this code relies on, as repo-root paths. Leave the section out when there are none.
 - `# Do not`: what a change must never do. Keep every item; append, never shorten.
 - `# Implementations`: traits and the command registry only; every file that implements them.
 
@@ -114,7 +114,7 @@ Registry, on `commands()` in crates/engine/src/lib.rs:
 
 ## What the checker enforces and what review reads
 
-`cargo xtask docs check` (job "Documentation standard" in docs/ci.md) enforces four things:
+`cargo xtask docs check` (a step of the Lint job, see docs/ci.md) enforces four things:
 
 1. Every `Contract:` path and every item under `# Dependencies` or `# Implementations` exists.
 2. Each public trait lists exactly the files that implement it, and each implementation carries a `Contract:` line.
