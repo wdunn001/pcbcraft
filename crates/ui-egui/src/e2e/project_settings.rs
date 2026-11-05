@@ -197,6 +197,7 @@ fn a_newcomer_raises_the_clearance_and_the_checks_run_again() -> Result<(), Stri
         app.project_settings.open
     );
     assert!(app.revision > revision, "the edit is a committed command");
+    app.finish_board_check();
     assert_ne!(app.checks, before, "the checks were run on the new rule");
     Ok(())
 }

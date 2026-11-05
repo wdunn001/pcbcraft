@@ -729,3 +729,73 @@ fn a_newcomer_reaches_a_new_page_from_the_tab_strip_and_the_layers_tree() -> Res
     assert_eq!(app.schematic_page(), page, "the tab opens the page");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_clicks_a_part_on_page_two_and_the_tree_goes_to_that_page_part() -> Result<(), String>
+{
+    let mut app = start();
+    app.region().left_tab = "layers".to_owned();
+    add_part(&mut app, "R1", 10.0);
+    add_part(&mut app, "R2", 60.0);
+    let ids: Vec<(Id, f64)> = app
+        .project
+        .components
+        .iter()
+        .map(|c| (c.id, c.position.x))
+        .collect();
+    assert_eq!(ids.len(), 2, "two parts are placed");
+    let on_main = ids
+        .iter()
+        .find(|(_, x)| *x < 30.0)
+        .ok_or("the Main part is missing")?
+        .0;
+    let on_page = ids
+        .iter()
+        .find(|(_, x)| *x > 30.0)
+        .ok_or("the page part is missing")?
+        .0;
+    app.tool_call(
+        "components.update",
+        json!({"updates": [{"id": on_main, "value": "1k"}, {"id": on_page, "value": "22k"}]}),
+    );
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    let page = app.project.sheets[0].id;
+    app.tool_call(
+        "schematic.move_component",
+        json!({"id": on_page, "sheet": page}),
+    );
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(app.schematic_page(), page);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = app
+        .schematic
+        .screen(Point::new(60.0, 10.0), app.canvas_rect);
+    tap_at(&ctx, &mut app, at)?;
+    assert_eq!(
+        app.selected,
+        Some(on_page),
+        "the click selects the part of this page"
+    );
+    assert_eq!(app.value, "22k", "Properties shows the part clicked");
+    assert_eq!(app.x, 60.0, "Properties shows the position of that part");
+    let symbols = format!("sec:sheet:{page}/layer:symbols");
+    let row = format!("{symbols}/comp:{on_page}");
+    assert_eq!(
+        app.tree.cursor.as_deref(),
+        Some(row.as_str()),
+        "the tree cursor sits on the part under its own page"
+    );
+    assert!(
+        app.tree.expanded.contains(&format!("sec:sheet:{page}")),
+        "the page row opens: {:?}",
+        app.tree.expanded
+    );
+    assert!(
+        app.tree.expanded.contains(&symbols),
+        "the Symbols row of that page opens: {:?}",
+        app.tree.expanded
+    );
+    Ok(())
+}
