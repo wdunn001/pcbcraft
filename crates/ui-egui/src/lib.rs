@@ -1950,8 +1950,8 @@ impl App {
         };
         self
     }
-    /// Start with a drawing target (`silk`, `edge` or `copper`), or `flipped` to
-    /// look from the bottom, so a
+    /// Start with a drawing target (`silk`, `edge` or `copper`), `flipped` to
+    /// look from the bottom, or `hide-silk` or `hide-all` to hide layers, so a
     /// `--capture` image shows the Active tag on that layer.
     pub fn with_capture_target(mut self, name: Option<String>) -> Self {
         use draw_target::{Side, Target};
@@ -1960,6 +1960,27 @@ impl App {
             Some("edge") => Target::Edge,
             Some("flipped") => {
                 self.set_view_side(true);
+                return self;
+            }
+            Some("hide-silk") => {
+                for path in ["side:top", "side:bottom"] {
+                    layer_visibility::set_sub_stored(
+                        &mut self.preferences.hidden_layers,
+                        path,
+                        layer_visibility::SubLayer::Silk,
+                        false,
+                    );
+                }
+                return self;
+            }
+            Some("hide-all") => {
+                for path in ["side:top", "side:bottom", "inner:1", "inner:2"] {
+                    layer_visibility::set_group_stored(
+                        &mut self.preferences.hidden_layers,
+                        path,
+                        false,
+                    );
+                }
                 return self;
             }
             _ => return self,

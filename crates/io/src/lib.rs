@@ -15899,6 +15899,7 @@ mod tests {
     fn drawn_layer_project() -> Project {
         let mut p = Project::default();
         p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 1,
             name: "Card Outline".into(),
             kind: pcbcraft_doc::ArtKind::Cut,
@@ -15921,6 +15922,7 @@ mod tests {
             ],
         });
         p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 2,
             name: "Panel Silk".into(),
             kind: pcbcraft_doc::ArtKind::Silk,
@@ -16256,6 +16258,7 @@ mod tests {
             (3, "card/outline"),
         ] {
             p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+                side: Default::default(),
                 id,
                 name: name.into(),
                 kind: pcbcraft_doc::ArtKind::Other,
@@ -16292,6 +16295,7 @@ mod tests {
         );
         let mut blank = Project::default();
         blank.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 9,
             name: "///".into(),
             kind: pcbcraft_doc::ArtKind::Other,
@@ -16331,6 +16335,7 @@ mod tests {
     fn mask_art_is_written_as_positive_other_not_soldermask() -> Result<(), String> {
         let mut p = Project::default();
         p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 4,
             name: "Ink Mask".into(),
             kind: pcbcraft_doc::ArtKind::Mask,
@@ -16371,6 +16376,7 @@ mod tests {
     fn perforation_plot_uses_physical_pitch() -> Result<(), String> {
         let mut p = Project::default();
         p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 5,
             name: "Snap Line".into(),
             kind: pcbcraft_doc::ArtKind::Perforation,
@@ -16427,6 +16433,7 @@ mod tests {
     fn text_on_a_cut_layer_is_reported_when_skipped() -> Result<(), String> {
         let mut p = Project::default();
         p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 6,
             name: "Labels".into(),
             kind: pcbcraft_doc::ArtKind::Cut,

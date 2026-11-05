@@ -907,3 +907,44 @@ pub(crate) fn waits_for_library_read(ctx: &egui::Context, app: &mut App) -> Resu
         Err("the collection browser never finished reading".into())
     }
 }
+
+/// Alpha of every line, outline or text painted inside the board on the Layout canvas in one
+/// colour (red, green and blue within three steps of `rgb`). Each entry is one
+/// painted mark, so a story can count what a person would see and how strongly.
+pub(crate) fn canvas_marks_of(app: &App, output: &egui::FullOutput, rgb: [u8; 3]) -> Vec<u8> {
+    fn near(c: egui::Color32, rgb: [u8; 3]) -> Option<u8> {
+        let [r, g, b, a] = c.to_srgba_unmultiplied();
+        let close = |x: u8, y: u8| x.abs_diff(y) <= 3;
+        (a > 0 && close(r, rgb[0]) && close(g, rgb[1]) && close(b, rgb[2])).then_some(a)
+    }
+    fn walk(shape: &egui::Shape, board: Rect, rgb: [u8; 3], out: &mut Vec<u8>) {
+        match shape {
+            egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk(s, board, rgb, out)),
+            egui::Shape::Path(path) => {
+                if let egui::epaint::ColorMode::Solid(c) = path.stroke.color
+                    && path.points.first().is_some_and(|p| board.contains(*p))
+                {
+                    out.extend(near(c, rgb));
+                }
+            }
+            egui::Shape::LineSegment { stroke, points } if board.contains(points[0]) => {
+                out.extend(near(stroke.color, rgb));
+            }
+            egui::Shape::Text(text) if board.contains(text.pos) => {
+                out.extend(near(text.fallback_color, rgb));
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    let canvas = app.canvas_rect;
+    let corner = |x: f64, y: f64| app.pcb.screen(pcbcraft_geom::Point::new(x, y), canvas);
+    let board = Rect::from_two_pos(
+        corner(0.0, 0.0),
+        corner(app.project.board.width, app.project.board.height),
+    );
+    for clipped in &output.shapes {
+        walk(&clipped.shape, board, rgb, &mut out);
+    }
+    out
+}

@@ -905,7 +905,15 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 .iter()
                 .filter(|f| on_side(f, front))
                 .count();
-            let gfx = silk_graphics(env, front).count();
+            let gfx = silk_graphics(env, front).count()
+                + board
+                    .user_layers
+                    .iter()
+                    .filter(|l| {
+                        l.kind == pcbcraft_doc::ArtKind::Silk
+                            && (l.side == pcbcraft_doc::ArtSide::Top) == front
+                    })
+                    .count();
             // A side with no copper pour leaves the Zones row out, like the other empty rows.
             if zones > 0 || env.show_empty {
                 out.push(sub_row(
