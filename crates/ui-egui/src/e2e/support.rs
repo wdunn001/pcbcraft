@@ -155,10 +155,10 @@ pub(crate) fn painted_text_at(
     for _ in 0..3 {
         let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
         for shape in &output.shapes {
-            if let egui::Shape::Text(text) = &shape.shape {
-                if text.galley.text() == word {
-                    return Ok(Some(text.pos));
-                }
+            if let egui::Shape::Text(text) = &shape.shape
+                && text.galley.text() == word
+            {
+                return Ok(Some(text.pos));
             }
         }
     }

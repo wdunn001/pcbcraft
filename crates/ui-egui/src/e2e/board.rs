@@ -1871,25 +1871,17 @@ fn a_newcomer_sees_rulers_counting_up_from_zero() -> Result<(), String> {
     app.needs_fit = true;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let zero = painted_text_at(&ctx, &mut app, "0")?;
+    let zero = painted_text_at(&ctx, &mut app, "0")?
+        .ok_or_else(|| format!("the left ruler shows a 0 tick label: {}", app.message))?;
+    let ten = painted_text_at(&ctx, &mut app, "10")?
+        .ok_or_else(|| format!("the left ruler shows a 10 tick label: {}", app.message))?;
     assert!(
-        zero.is_some(),
-        "the left ruler shows a 0 tick label: {}",
-        app.message
-    );
-    let ten = painted_text_at(&ctx, &mut app, "10")?;
-    assert!(
-        ten.is_some(),
-        "the left ruler shows a 10 tick label: {}",
-        app.message
-    );
-    assert!(
-        ten.unwrap().y < zero.unwrap().y,
+        ten.y < zero.y,
         "the 10 tick is above the 0 tick (values grow upward): {}",
         app.message
     );
     assert!(
-        zero.unwrap().y > 470.0,
+        zero.y > 470.0,
         "the 0 tick is below the screen centre line: {}",
         app.message
     );
