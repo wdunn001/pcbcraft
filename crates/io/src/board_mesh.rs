@@ -2333,6 +2333,7 @@ mod tests {
     fn silk_user_layers_become_thin_strokes_above_the_mask() -> Check {
         let mut p = base();
         p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 2,
             name: "Marks".into(),
             kind: ArtKind::Silk,
