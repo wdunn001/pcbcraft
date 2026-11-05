@@ -113,8 +113,8 @@ fn a_newcomer_opens_rules_from_the_top() -> Result<(), String> {
     );
     authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     assert!(
-        paints_text(&ctx, &mut app, "APPEARANCE")?,
-        "the Settings tab opens with the look of the app"
+        paints_text(&ctx, &mut app, "BOARD STACKUP")?,
+        "the Settings tab opens with the board setup"
     );
     assert!(
         scrolled_to_at(&ctx, &mut app, "BOARD GEOMETRY", 700.0)?,
@@ -124,9 +124,6 @@ fn a_newcomer_opens_rules_from_the_top() -> Result<(), String> {
         paints_text(&ctx, &mut app, "Nothing selected")?,
         "the aside no longer holds the project settings"
     );
-    authoring::tests::tap(&ctx, &mut app, "Dark")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(app.preferences.dark, "the theme switch on the tab works");
     Ok(())
 }
 

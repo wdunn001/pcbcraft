@@ -536,6 +536,48 @@ pub(crate) fn tap_properties_segment(
     tap_segment(ctx, app, group, PROPERTIES_LEFT, f32::INFINITY, slot, count)
 }
 
+/// The gate ids of every enabled control on a screen tall enough for the whole dialog.
+pub(crate) fn controls_tall(ctx: &egui::Context, app: &mut App) -> Vec<String> {
+    let _tall = TallScope::enter();
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    super::audit::controls(ctx, app)
+        .into_iter()
+        .filter(|c| c.enabled)
+        .filter_map(|c| c.id)
+        .collect()
+}
+
+/// Like `paints_text`, on a screen tall enough for the whole dialog.
+pub(crate) fn paints_text_tall(
+    ctx: &egui::Context,
+    app: &mut App,
+    needle: &str,
+) -> Result<bool, String> {
+    let _tall = TallScope::enter();
+    paints_text(ctx, app, needle)
+}
+
+/// Press choice `slot` of the segmented control `group` in a dialog.
+pub(crate) fn tap_dialog_segment(
+    ctx: &egui::Context,
+    app: &mut App,
+    group: &str,
+    slot: usize,
+    count: usize,
+) -> Result<(), String> {
+    let _tall = TallScope::enter();
+    for _ in 0..4 {
+        frame(
+            ctx,
+            app,
+            vec![egui::Event::PointerGone],
+            egui::Modifiers::NONE,
+        );
+    }
+    tap_segment(ctx, app, group, 0.0, f32::INFINITY, slot, count)
+}
+
 /// Press the word `label` in the Properties panel, where the segments of a strip differ in width
 /// and so cannot be told apart by their place alone.
 pub(crate) fn tap_properties_text(

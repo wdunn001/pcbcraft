@@ -1256,6 +1256,7 @@ impl App {
                 }
             }
             Some(scene) if scene.starts_with("library-") => self.capture_library_scene(scene),
+            Some(scene) if self.capture_preferences(scene) => {}
             Some(scene) => {
                 self.capture_project_settings(scene);
             }
