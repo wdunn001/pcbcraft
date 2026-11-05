@@ -1799,3 +1799,64 @@ fn a_newcomer_reads_the_length_while_drawing_a_line() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_starts_on_a_chamfered_board_and_resizes_it() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("new_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let outline = app.project.board.outline.clone().unwrap_or_default();
+    assert_eq!(
+        outline.len(),
+        8,
+        "a new board has eight corners, four chamfers: {}",
+        app.message
+    );
+    let leg =
+        pcbcraft_doc::chamfer_leg_of(&outline, app.project.board.width, app.project.board.height);
+    assert!(
+        leg == Some(0.75),
+        "the chamfer leg is 0.75 mm on a fresh board: {}",
+        app.message
+    );
+    app.change_tab(Tab::Pcb);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    open_tree_row(&ctx, &mut app, "root");
+    assert!(
+        paints_text(&ctx, &mut app, "Board settings")?,
+        "the board row opens board settings: {}",
+        app.message
+    );
+    assert!(
+        scrolled_to(&ctx, &mut app, "Width")?,
+        "board settings shows the size fields: {}",
+        app.message
+    );
+    type_into(&ctx, &mut app, "spinbutton:Board width", "80")?;
+    type_into(&ctx, &mut app, "spinbutton:Board height", "50")?;
+    let outline = app.project.board.outline.clone().unwrap_or_default();
+    assert_eq!(
+        app.project.board.width, 80.0,
+        "the board width changed to 80 mm"
+    );
+    assert_eq!(
+        app.project.board.height, 50.0,
+        "the board height changed to 50 mm"
+    );
+    assert_eq!(
+        outline.len(),
+        8,
+        "the board still has eight corners after resizing: {}",
+        app.message
+    );
+    let leg = pcbcraft_doc::chamfer_leg_of(&outline, 80.0, 50.0);
+    assert!(
+        leg == Some(0.75),
+        "the chamfer leg is still 0.75 mm after resizing: {}",
+        app.message
+    );
+    Ok(())
+}

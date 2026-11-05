@@ -136,7 +136,8 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("silk_to_copper", "warning"),
     ("silk_line", "warning"),
     ("drill_overlap", "error"),
-    ("hole_to_hole", "error"),
+    ("hole_to_hole_via", "error"),
+    ("hole_to_hole_pad", "error"),
     ("hole_to_copper_via", "error"),
     ("hole_to_copper_pth", "error"),
     ("hole_to_copper_npth", "error"),
@@ -6855,6 +6856,76 @@ mod pour_tests {
                 "seed {seed}: the grid should find the same islands a full scan does"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn check_codes_name_the_spacing_codes_the_check_emits() -> Result<(), String> {
+        // Two vias, 0.4 mm drill, 0.8 mm apart. Wall gap = 0.8 - 0.2 - 0.2 = 0.4 mm.
+        let mut p = Project::default();
+        p.board.vias.push(Via {
+            id: 1,
+            net: 1,
+            position: Point::new(0.0, 0.0),
+            diameter: 0.8,
+            drill: 0.4,
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+        p.board.vias.push(Via {
+            id: 2,
+            net: 1,
+            position: Point::new(0.8, 0.0),
+            diameter: 0.8,
+            drill: 0.4,
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+        p.board.rules = Some(FabRules {
+            hole_to_hole_via: Some(0.5),
+            ..Default::default()
+        });
+        let findings = drc(&p);
+        let via_findings = findings
+            .iter()
+            .filter(|f| f.code == "hole_to_hole_via")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            via_findings.len(),
+            1,
+            "0.4 mm gap is under the 0.5 mm limit"
+        );
+        assert!(
+            CHECK_CODES
+                .iter()
+                .any(|(code, _)| *code == "hole_to_hole_via"),
+            "CHECK_CODES must list hole_to_hole_via"
+        );
+        assert!(
+            !CHECK_CODES.iter().any(|(code, _)| *code == "hole_to_hole"),
+            "CHECK_CODES must not list the obsolete hole_to_hole code"
+        );
+        p.board.rules = Some(FabRules {
+            hole_to_hole_via: Some(0.4),
+            ..Default::default()
+        });
+        let findings2 = drc(&p);
+        let via_findings2 = findings2
+            .iter()
+            .filter(|f| f.code == "hole_to_hole_via")
+            .collect::<Vec<_>>();
+        assert!(
+            via_findings2.is_empty(),
+            "0.4 mm gap meets the 0.4 mm limit"
+        );
         Ok(())
     }
 }
