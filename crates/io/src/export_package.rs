@@ -112,12 +112,7 @@ pub static CONTENT_FORMATS: &[ContentFormat] = &[
     ready("pdf_board", "Board PDF"),
     ready("stackup", "Stackup report"),
     ready("drill_chart", "Drill chart"),
-    waiting(
-        "fab_drawing",
-        "Fab drawing",
-        "the fab drawing with drill chart, stackup, impedance and notes is not written yet",
-        404,
-    ),
+    ready("fab_drawing", "Fab drawing"),
     waiting(
         "bom_contract",
         "Contract assembler BOM",
@@ -549,6 +544,11 @@ fn render_content(
         }]),
         "stackup" => one("txt", crate::stackup_text(p)?),
         "drill_chart" => one("csv", crate::drill_chart_csv(p)?),
+        "fab_drawing" => Ok(vec![PackageEntry {
+            name: name(None, None, Some("pdf"))?,
+            kind: c.kind.clone(),
+            bytes: crate::fab_drawing_pdf(p)?,
+        }]),
         other => Err(format!("{other} has no writer here")),
     }
 }
@@ -750,7 +750,7 @@ mod tests {
     fn waiting_writers_make_a_package_unavailable_with_the_issue() -> Result<(), String> {
         let by = |id: &str| bundled_packages().iter().find(|d| d.id == id).cloned();
         let q = availability(&by("fab_quickturn").ok_or("missing")?)?;
-        assert!(!q.available && q.issues == vec![404]);
+        assert!(q.available);
         let s = availability(&by("stencil").ok_or("missing")?)?;
         assert!(!s.available && s.issues == vec![420]);
         for id in [
