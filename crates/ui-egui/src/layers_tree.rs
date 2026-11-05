@@ -1119,17 +1119,12 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             }
         }
         ["edge"] => {
-            let mut edge = row(
-                key,
-                "edge",
-                RowKind::Leaf,
-                t!(
-                    "tree.edge",
-                    w = size_text(board.width),
-                    h = size_text(board.height)
-                ),
-            );
-            edge.dim = true;
+            // The "Board edge" group means the board outline: the outline row first,
+            // then the cut-outs. The outline is any closed shape, so the row says
+            // which kind it is and shows the size of its bounding box.
+            let (label, size) = outline_description(board);
+            let mut edge = row(key, "edge", RowKind::Leaf, label);
+            edge.sub = size;
             out.push(edge);
             for cut in &board.cutouts {
                 let mut r = row(
@@ -4301,6 +4296,32 @@ pub(crate) fn layers_tab(ui: &mut Ui, app: &mut crate::App) {
 
 /// A board size in millimetres to two decimals with trailing zeros dropped,
 /// so an imported 37.94230200896579 reads 37.94 and 60.0 reads 60.
+/// The outline row's words: the kind of shape and the size of its bounding box.
+///
+/// A board without a traced outline is the plain rectangle from its width and
+/// height. A traced outline is free-form, with its corner count; its size is
+/// the box around every segment, curved ones included.
+fn outline_description(board: &pcbcraft_doc::Board) -> (String, String) {
+    let Some(points) = board.outline.as_ref().filter(|p| p.len() >= 3) else {
+        let size = t!(
+            "tree.edge.size",
+            w = size_text(board.width),
+            h = size_text(board.height)
+        );
+        return (t!("tree.edge.rectangle"), size);
+    };
+    let closed = points.first() == points.last();
+    let corners = points.len() - usize::from(closed);
+    let (w, h) = pcbcraft_doc::outline_extent(points, &board.outline_arcs)
+        .map_or((board.width, board.height), |(lo, hi)| {
+            (hi.x - lo.x, hi.y - lo.y)
+        });
+    (
+        t!("tree.edge.free_form", n = corners),
+        t!("tree.edge.size", w = size_text(w), h = size_text(h)),
+    )
+}
+
 fn size_text(v: f64) -> String {
     let t = format!("{v:.2}");
     t.trim_end_matches('0').trim_end_matches('.').to_string()

@@ -1441,6 +1441,16 @@ impl App {
             {
                 return Some(c.id);
             }
+            // A mounting hole is picked inside its drill, ahead of any pour over it.
+            if let Some(h) = self
+                .project
+                .board
+                .holes
+                .iter()
+                .find(|h| (h.position.distance(pos) - h.diameter / 2.0) * (zoom as f64) < 10.0)
+            {
+                return Some(h.id);
+            }
             if let Some(z) = self
                 .project
                 .board

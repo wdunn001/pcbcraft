@@ -3353,12 +3353,7 @@ impl App {
             KeyAction::ZoomToSelection => {
                 self.needs_zoom_selection = true;
             }
-            KeyAction::DeleteSelection => {
-                if let Some(id) = self.selected {
-                    self.run("object.delete", json!({"id": id}));
-                    self.select(None);
-                }
-            }
+            KeyAction::DeleteSelection => self.delete_selection(),
             KeyAction::ReturnToSelect => {
                 self.cancel_schematic_gestures();
                 self.tool = Tool::Select;
