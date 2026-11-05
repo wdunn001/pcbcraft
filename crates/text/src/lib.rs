@@ -1381,7 +1381,6 @@ mod area_tests {
             ("authoring.rs", "add_graphic"),
             ("lib.rs", "browser"),
             ("lib.rs", "library"),
-            ("lib.rs", "files_tab"),
             ("library_quality.rs", "quality_badge"),
             ("library_quality.rs", "refresh_footprint_quality"),
         ])

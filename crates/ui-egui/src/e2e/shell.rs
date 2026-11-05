@@ -167,7 +167,6 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "Files")?;
-    authoring::tests::tap(&ctx, &mut app, "Project settings…")?;
     assert!(
         paints_text(&ctx, &mut app, "Project files")?,
         "build outputs moved under Files: {}",
@@ -273,7 +272,6 @@ fn library_strings_are_all_catalog_keys() -> Result<(), String> {
         ("authoring.rs", "add_graphic"),
         ("lib.rs", "browser"),
         ("lib.rs", "library"),
-        ("lib.rs", "files_tab"),
         ("library_quality.rs", "quality_badge"),
         ("library_quality.rs", "refresh_footprint_quality"),
     ] {
@@ -796,7 +794,6 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
         "View > Rules opens the rules page"
     );
     authoring::tests::tap(&ctx, &mut app, "Files")?;
-    authoring::tests::tap(&ctx, &mut app, "Project settings…")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;
     assert!(
         matches!(app.tab, Tab::Libraries),

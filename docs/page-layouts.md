@@ -18,7 +18,7 @@ Each tab owns its regions through the `Workspace` trait in `crates/ui-egui/src/w
 ## 2. Pages
 
 ### Files
-Its own workspace. Left aside: New, Open, Save, Save as, Import, Export, Project settings, Preferences, Close. Centre: Recent projects by default; project name in display size, stat cards (Parts, Nets, Board, Checks) and the project files table follow. Right aside: project Properties (name, units, author, board size, layers). Never the Library here.
+Its own workspace, drawn as the `files` mockup. Tool bar: New, Open, Save | Import, Export | Open sample project (icons only in a narrow window). Left aside: Layers | Library, with the Library showing so a part can be looked at before a board exists. Centre: the project name in display size with Save and Open folder, four stat cards (Parts, Nets, Board, Checks), the Project files table, Made files (an empty state that points to Manufacture) and Recent projects, each with an Open button. Open, Import and Export open as pages under a Back to project button. Right aside: project Properties (name, units, author, board width, height, layers) and a Project settings button.
 
 ### Library
 A full workspace for parts. Part browser with search and the Symbols | Footprints | Both segmented filter; part pages that open as tabs; a datasheet reader per component; vendor prices and supplier sources with editing; create and edit parts with symbol and footprint editors and 3D models; a Compare view that diffs the specs of two to five parts. A link that used to open settings opens the part in this tab instead.
@@ -45,7 +45,7 @@ A CAM and outputs workspace. Tool bar: Generate all (primary), Add output, Panel
 
 ## 3. Dialogs and menus
 
-- Project settings (File menu): tabs Board and stackup, Design rules, Net classes, Machines, Title block.
+- Project settings (File menu, and the button in Files Properties): tabs Board and stackup, Design rules, Net classes, Electrical rules, Machines, Title block, Builds.
 - Preferences (Edit menu): tabs Appearance, Language, Units, Keys, Assistant.
 - File menu with Import and Export submenus, the Edit menu and every right-click menu: design-system.md, section 8.
 
@@ -53,6 +53,6 @@ A CAM and outputs workspace. Tool bar: Generate all (primary), Add output, Panel
 
 | Region | Files | Schematic | Layout (2D and 3D) | Manufacture | Library |
 | --- | --- | --- | --- | --- | --- |
-| Left aside | File actions | Layers or Library | Layers or Library | Outputs or Machines | Part browser |
+| Left aside | Layers or Library | Layers or Library | Layers or Library | Outputs or Machines | Part browser |
 | Right aside | Project properties | Part properties | Part properties | Output properties | Part properties |
 | Bottom sheet | collapsed | collapsed | Findings open | Output log | collapsed |

@@ -86,25 +86,9 @@ impl Pane {
     /// Try to open a local `file://` PDF; returns true when the pane took the file.
     #[allow(dead_code)]
     pub(crate) fn open_file_url(&mut self, url: &str, ctx: &Context) -> bool {
-        let Some(path) = url.strip_prefix("file://") else {
+        let Some((name, bytes)) = super::read_file_url(url) else {
             return false;
         };
-        // `file:///C:/x.pdf` carries a slash before the drive letter; `file:///tmp/x.pdf`
-        // keeps its root slash.
-        let rooted = format!("/{}", path.trim_start_matches('/'));
-        let path = match rooted.as_bytes() {
-            [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => &rooted[1..],
-            _ => rooted.as_str(),
-        };
-        let bytes = match std::fs::read(path) {
-            Ok(b) => b,
-            Err(_) => return false,
-        };
-        let name = std::path::Path::new(path)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Datasheet")
-            .to_owned();
         self.open_bytes(name, bytes, ctx);
         true
     }

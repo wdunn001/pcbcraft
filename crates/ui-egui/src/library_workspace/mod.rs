@@ -111,6 +111,8 @@ pub(crate) struct State {
     quotes_checked: bool,
     /// The Machines view: filters, the list read from the engine and the Add machine form.
     pub(crate) machines: machines::MachineLib,
+    /// Datasheet viewer state: the open PDF and its search results.
+    pub(crate) datasheet: datasheet::ViewerState,
 }
 
 impl Default for State {
@@ -132,6 +134,7 @@ impl Default for State {
             draft_read: None,
             quotes_checked: false,
             machines: machines::MachineLib::default(),
+            datasheet: datasheet::ViewerState::default(),
         }
     }
 }
