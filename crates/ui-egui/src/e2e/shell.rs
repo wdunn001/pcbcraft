@@ -811,6 +811,30 @@ fn a_newcomer_draws_from_the_tool_strip() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
+    // Create a cut layer to draw on.
+    app.tool_call("board.layer_add", json!({"name": "Cut", "kind": "cut"}));
+    app.refresh();
+    let layer = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.name == "Cut")
+        .map(|l| l.id)
+        .ok_or("the cut layer should be added")?;
+    // Pick the layer in the Layers tree so drawing goes onto it.
+    app.tree.expanded.insert("user".to_owned());
+    press_on(
+        &ctx,
+        &mut app,
+        &format!("user/art:{layer}"),
+        egui::Key::Enter,
+    );
+    assert!(
+        scrolled_to(&ctx, &mut app, "Cut")?,
+        "the Cut layer row is highlighted: {}",
+        app.message
+    );
     tap_strip(&ctx, &mut app, "icon:tool-line")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
@@ -822,6 +846,54 @@ fn a_newcomer_draws_from_the_tool_strip() -> Result<(), String> {
         "shape options appear in Properties: {}",
         app.message
     );
+    // Two clicks draw a line on the Cut layer.
+    let before = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.id == layer)
+        .map(|l| l.shapes.len())
+        .ok_or("the cut layer should still exist")?;
+    app.canvas_click(Point::new(10.0, 10.0), 10.0);
+    app.canvas_click(Point::new(30.0, 14.0), 10.0);
+    app.refresh();
+    let after = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.id == layer)
+        .map(|l| l.shapes.len())
+        .ok_or("the cut layer should still exist")?;
+    assert_eq!(
+        after,
+        before + 1,
+        "one line shape was added to the Cut layer: {}",
+        app.message
+    );
+    // The shape is a Line whose two ends are not the same.
+    let layer_shapes = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.id == layer)
+        .map(|l| l.shapes.as_slice())
+        .ok_or("the cut layer should still exist")?;
+    let shape = &layer_shapes[before];
+    match shape {
+        pcbcraft_doc::ArtShape::Line { start, end } => {
+            let d = start.distance(*end);
+            assert!(
+                d > 5.0,
+                "the drawn line has two different ends, about 10 mm apart: {d}"
+            );
+        }
+        _ => {
+            return Err("the shape added should be a Line".to_owned());
+        }
+    }
     Ok(())
 }
 
