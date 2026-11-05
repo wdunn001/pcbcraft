@@ -20,10 +20,13 @@
 //!
 //! Dependencies: crates/rules/src/courtyard.rs (courtyard_pairs),
 //! crates/engine/src/scope.rs (Scope::may_move), crates/geom/src/lib.rs (Point).
-use crate::scope::Scope;
+use super::{CommandSpec, Error, schema};
+use crate::scope::{self, Scope};
 use pcbcraft_doc::{Footprint, Id, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_rules::courtyard_pairs;
+use serde::Deserialize;
+use serde_json::{Value, json};
 
 /// Maximum passes the legaliser will try before giving up.
 pub const MAX_PASSES: usize = 32;
@@ -232,6 +235,80 @@ fn legal_target(p: &Project, f: &Footprint, wanted: Point, grid: Option<f64>) ->
         axis(wanted.x, f.position.x, lo.x, hi.x, p.board.width)?,
         axis(wanted.y, f.position.y, lo.y, hi.y, p.board.height)?,
     ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegalizeParams {
+    scope: Value,
+    #[serde(default)]
+    grid: Option<f64>,
+    #[serde(default = "max_passes_default")]
+    max_passes: usize,
+}
+
+fn max_passes_default() -> usize {
+    32
+}
+
+pub(super) fn commands() -> Vec<CommandSpec> {
+    vec![CommandSpec {
+        id: "placement.legalize",
+        description: "Move overlapping parts to remove courtyard overlaps and edge violations with the smallest moves; locked parts never move; snap to a grid; deterministic with the same input giving the same result",
+        input_schema: schema(
+            json!({
+                "scope": scope::schema(),
+                "grid": {"type":"number","description":"grid step in millimetres to snap moved parts to; optional, default none"},
+                "max_passes": {"type":"integer","minimum":1,"maximum":200,"default":32,"description":"most passes to try before giving up"}
+            }),
+            &["scope"],
+        ),
+    }]
+}
+
+pub(super) fn run(
+    p: &mut Project,
+    _next: &mut Id,
+    command: &str,
+    params: &Value,
+) -> Option<Result<Value, Error>> {
+    match command {
+        "placement.legalize" => Some(legalize(p, params)),
+        _ => None,
+    }
+}
+
+fn legalize(p: &mut Project, params: &Value) -> Result<Value, Error> {
+    let a: LegalizeParams = super::parse(params)?;
+    let scope = Scope::from_value(p, &a.scope)?;
+    if a.grid.is_some_and(|g| !g.is_finite() || g <= 0.0) {
+        return Err(Error::Invalid(
+            "grid must be a positive finite number".into(),
+        ));
+    }
+    let plan = plan_moves(p, &scope, a.max_passes, a.grid);
+    let mut moved = Vec::new();
+    for (fid, pos) in &plan.moves {
+        let Some(f) = p
+            .board
+            .footprints
+            .iter_mut()
+            .find(|f| f.id == *fid && f.locked != Some(true))
+        else {
+            continue;
+        };
+        let before = f.position;
+        f.position = *pos;
+        if f.position != before {
+            moved.push(json!({"id": fid, "x": pos.x, "y": pos.y}));
+        }
+    }
+    let unresolved = plan
+        .unresolved
+        .into_iter()
+        .map(|(a, b)| json!({"a": a, "b": b}))
+        .collect::<Vec<_>>();
+    Ok(json!({"moved": moved, "unresolved": unresolved, "passes": plan.passes}))
 }
 
 /// Compute the bounding box of a footprint in world coordinates.
@@ -681,22 +758,38 @@ mod tests {
         s.project.auto_sync = false;
         make_overlapping(&mut s)?;
         // Lock one footprint
-        let locked_fp = s
-            .project
-            .board
-            .footprints
-            .iter_mut()
-            .next()
-            .ok_or("no footprint")?;
-        let locked_pos = locked_fp.position;
-        locked_fp.locked = Some(true);
+        let (locked_id, locked_pos) = {
+            let locked_fp = s
+                .project
+                .board
+                .footprints
+                .first_mut()
+                .ok_or("no footprint")?;
+            locked_fp.locked = Some(true);
+            (locked_fp.id, locked_fp.position)
+        };
         let scope = full_scope();
         let plan = plan_moves(&s.project, &scope, MAX_PASSES, None);
         // The locked footprint must not appear in moves
         assert!(
-            !plan.moves.iter().any(|(fid, _)| *fid == locked_fp.id),
+            !plan.moves.iter().any(|(fid, _)| *fid == locked_id),
             "locked footprint should not move"
         );
+        // And running the command leaves it exactly where it was.
+        s.execute(
+            "placement.legalize",
+            json!({"scope":{"layers":["F.Cu"]}}),
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+        let after = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.id == locked_id)
+            .ok_or("the locked footprint is still there")?;
+        assert_eq!(after.position, locked_pos, "locked footprint moved");
         Ok(())
     }
 
@@ -721,17 +814,19 @@ mod tests {
             .map(|f| (f.id, f.position.x, f.position.y))
             .collect();
         // Run the command
-        let result = s.execute(
-            "placement.legalize",
-            json!({"scope":{"layers":["F.Cu"]}}),
-            None,
-        )?;
+        let result = s
+            .execute(
+                "placement.legalize",
+                json!({"scope":{"layers":["F.Cu"]}}),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
         let moved = result["result"]["moved"]
             .as_array()
             .ok_or("no moved array")?;
         assert!(!moved.is_empty(), "command should have moved parts");
         // Undo
-        s.undo()?;
+        s.undo().map_err(|e| e.to_string())?;
         // Verify positions are restored
         for (f, (id, x, y)) in s.project.board.footprints.iter().zip(&before) {
             assert_eq!(f.id, *id);
@@ -755,13 +850,15 @@ mod tests {
             .map(|f| (f.id, f.position.x, f.position.y))
             .collect();
         // Dry run
-        let dry = s.dry_run(
-            &[crate::Command {
-                command: "placement.legalize".into(),
-                params: json!({"scope":{"layers":["F.Cu"]}}),
-            }],
-            None,
-        )?;
+        let dry = s
+            .dry_run(
+                &[crate::Command {
+                    command: "placement.legalize".into(),
+                    params: json!({"scope":{"layers":["F.Cu"]}}),
+                }],
+                None,
+            )
+            .map_err(|e| e.to_string())?;
         assert_eq!(dry.results.len(), 1);
         // Verify positions are unchanged
         for (f, (id, x, y)) in s.project.board.footprints.iter().zip(&before) {
@@ -787,93 +884,15 @@ mod tests {
             "placement.legalize",
             json!({"scope":{"layers":["F.Cu"]}}),
             None,
-        )?;
+        )
+        .map_err(|e| e.to_string())?;
         // Verify no overlaps after
         let remaining = courtyard_pairs(&s.project);
         assert!(
             remaining.is_empty(),
-            "overlaps remain after legalization: {:?}",
-            remaining
+            "{} overlaps remain after legalization",
+            remaining.len()
         );
         Ok(())
     }
-}
-
-use super::{CommandSpec, Error, schema};
-use crate::scope::{self, Scope};
-use serde::Deserialize;
-use serde_json::{Value, json};
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LegalizeParams {
-    scope: Value,
-    #[serde(default)]
-    grid: Option<f64>,
-    #[serde(default = "max_passes_default")]
-    max_passes: usize,
-}
-
-fn max_passes_default() -> usize {
-    32
-}
-
-pub(super) fn commands() -> Vec<CommandSpec> {
-    vec![CommandSpec {
-        id: "placement.legalize",
-        description: "Move overlapping parts to remove courtyard overlaps and edge violations with the smallest moves; locked parts never move; snap to a grid; deterministic with the same input giving the same result",
-        input_schema: schema(
-            json!({
-                "scope": scope::schema(),
-                "grid": {"type":"number","description":"grid step in millimetres to snap moved parts to; optional, default none"},
-                "max_passes": {"type":"integer","minimum":1,"maximum":200,"default":32,"description":"most passes to try before giving up"}
-            }),
-            &["scope"],
-        ),
-    }]
-}
-
-pub(super) fn run(
-    p: &mut Project,
-    _next: &mut Id,
-    command: &str,
-    params: &Value,
-) -> Option<Result<Value, Error>> {
-    match command {
-        "placement.legalize" => Some(legalize(p, params)),
-        _ => None,
-    }
-}
-
-fn legalize(p: &mut Project, params: &Value) -> Result<Value, Error> {
-    let a: LegalizeParams = super::parse(params)?;
-    let scope = Scope::from_value(p, &a.scope)?;
-    if a.grid.is_some_and(|g| !g.is_finite() || g <= 0.0) {
-        return Err(Error::Invalid(
-            "grid must be a positive finite number".into(),
-        ));
-    }
-    let plan = plan_moves(p, &scope, a.max_passes, a.grid);
-    let mut moved = Vec::new();
-    for (fid, pos) in &plan.moves {
-        let Some(f) = p
-            .board
-            .footprints
-            .iter_mut()
-            .find(|f| f.id == *fid && f.locked != Some(true))
-        else {
-            continue;
-        };
-        let before = f.position;
-        f.position = *pos;
-        if f.position != before {
-            moved.push(json!({"id": fid, "x": pos.x, "y": pos.y}));
-        }
-    }
-    let unresolved = plan
-        .unresolved
-        .into_iter()
-        .map(|(a, b)| json!({"a": a, "b": b}))
-        .collect::<Vec<_>>();
-    Ok(json!({"moved": moved, "unresolved": unresolved, "passes": plan.passes}))
 }
