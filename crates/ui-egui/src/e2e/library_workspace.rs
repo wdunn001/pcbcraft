@@ -374,3 +374,61 @@ fn a_newcomer_checks_which_pad_each_symbol_pin_reaches() -> Result<(), String> {
     }
     Ok(())
 }
+
+#[test]
+fn a_newcomer_saves_a_part_to_the_personal_library() -> Result<(), String> {
+    let (ctx, mut app) = library_open();
+    // Create a part with sourcing info.
+    app.tool_call("library.symbol.upsert", json!({"definition": {
+        "name": "Test Part",
+        "reference": "U",
+        "value": "",
+        "footprint": "Test_FP",
+        "description": "",
+        "keywords": "",
+        "set": "",
+        "pins": [{"number": "1", "name": "~", "position": {"x": 0.0, "y": 0.0}, "angle": 0.0, "length": 2.5, "electrical_type": "passive"}],
+        "graphics": []
+    }}));
+    app.tool_call("library.footprint.upsert", json!({"definition": {
+        "name": "Test_FP",
+        "layer": "F.Cu",
+        "pads": [{"number": "1", "kind": "smd", "shape": "rect", "position": {"x": 0.0, "y": 0.0}, "size": {"x": 1.0, "y": 1.0}, "layers": ["F.Cu"]}],
+        "graphics": []
+    }}));
+    app.tool_call(
+        "component.place_custom",
+        json!({"name": "Test Part", "position": {"x": 10.0, "y": 10.0}, "reference": "U1"}),
+    );
+    app.refresh();
+    let id = app.project.components[0].id;
+    app.tool_call(
+        "footprint.assign_custom",
+        json!({"id": id, "name": "Test_FP"}),
+    );
+    app.tool_call(
+        "component.set_sourcing",
+        json!({"id": id, "manufacturer": "TestCo", "mpn": "TP-1"}),
+    );
+    app.refresh();
+    // Save the part to the project library.
+    let result = app.tool_call("part.save", json!({"id": id, "target": "project"}));
+    assert!(result, "part.save succeeded: {}", app.message);
+    app.refresh();
+    // The part should be saved to the project library with its sourcing info.
+    let part = app
+        .project
+        .library
+        .part_sidecars
+        .iter()
+        .find(|p| p.symbol == "Test Part");
+    assert!(part.is_some(), "the part was saved to the project library");
+    let part = part.unwrap();
+    assert!(
+        part.fields
+            .iter()
+            .any(|f| f.key == "Manufacturer" && f.value == "TestCo"),
+        "the saved part keeps its manufacturer field"
+    );
+    Ok(())
+}
