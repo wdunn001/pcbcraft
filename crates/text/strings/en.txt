@@ -4303,3 +4303,4 @@ board.tool_hint.lmb_place_sheet_shape = Place {name}. Click to start, click agai
 datasheet.pane.extract = Find tables
 datasheet.pane.extract.tip = Extract pin, rating and ordering tables from the open datasheet.
 datasheet.pane.extract_done = Found {rows} rows to review.
+webfs.pdf_opened = Opened {name} in the datasheet reader.
