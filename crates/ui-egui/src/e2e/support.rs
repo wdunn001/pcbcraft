@@ -453,6 +453,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
             "tool-hole" => "Mounting hole",
             "tool-fiducial" => "Assembly mark",
             "tool-pad" => "Pad",
+            "tool-text" => "Text",
             "tool-measure" => "Measure",
             other => return Err(format!("{other} has no known name")),
         }
@@ -468,6 +469,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
             | "icon:tool-port"
             | "icon:tool-noconnect"
             | "icon:tool-pad"
+            | "icon:tool-text"
     );
     if in_add_menu && app.tab == Tab::Schematic {
         // The schematic keeps these under the Add menu, opened by its button.

@@ -560,10 +560,7 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Via => t!("board.tool_hint.lmb_via", common = common),
         Tool::Port => t!("schematic.port.tool_hint", common = common),
         Tool::Pad => t!("board.tool_hint.lmb_place_a_pad", common = common),
-        Tool::SheetText => {
-            "Click to place text on the sheet. Type your text and press Enter.".to_string()
-                + &common
-        }
+        Tool::SheetText => t!("board.tool_hint.lmb_place_sheet_text", common = common),
     }
 }
 

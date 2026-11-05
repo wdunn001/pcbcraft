@@ -1029,6 +1029,7 @@ impl App {
         self.wire_place_prompt(ui.ctx());
         self.bus_name_prompt(ui.ctx());
         self.label_options(ui.ctx());
+        self.sheet_text_prompt(ui.ctx());
         if response.secondary_clicked()
             && let Some(pos) = cursor
             && let Some(screen) = response.interact_pointer_pos()

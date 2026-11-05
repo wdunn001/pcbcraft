@@ -513,6 +513,8 @@ impl App {
             Act::Pad => self.tool = Tool::Pad,
             Act::SheetText => {
                 self.tool = Tool::SheetText;
+                self.sheet_text_position = None;
+                self.sheet_text_input.clear();
             }
             Act::Measure => self.arm_measure(),
         }
