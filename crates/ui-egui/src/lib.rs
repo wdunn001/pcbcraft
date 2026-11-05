@@ -79,6 +79,7 @@ mod selection;
 mod setup_wizard;
 mod sheet_lit;
 mod sheet_rows;
+mod sheet_shape_tool;
 mod sheet_text_tool;
 mod showcase;
 mod sources;
@@ -563,6 +564,11 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Port => t!("schematic.port.tool_hint", common = common),
         Tool::Pad => t!("board.tool_hint.lmb_place_a_pad", common = common),
         Tool::SheetText => t!("board.tool_hint.lmb_place_sheet_text", common = common),
+        Tool::SheetShape(kind) => t!(
+            "board.tool_hint.lmb_place_sheet_shape",
+            name = kind.name(),
+            common = common
+        ),
     }
 }
 
@@ -1142,6 +1148,7 @@ enum Tool {
     Via,
     Port,
     Pad,
+    SheetShape(sheet_shape_tool::SheetShapeKind),
     SheetText,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -1305,6 +1312,7 @@ pub struct App {
     art_layer: Option<Id>,
     art_shape: DrawShape,
     art_start: Option<Point>,
+    sheet_shape_start: Option<Point>,
     art_points: Vec<Point>,
     art_text: String,
     hole_edit: Option<(Id, f64)>,
@@ -2089,6 +2097,7 @@ impl App {
             art_layer: None,
             art_shape: DrawShape::Line,
             art_start: None,
+            sheet_shape_start: None,
             art_points: Vec::new(),
             art_text: "MY BOARD".into(),
             hole_edit: None,
