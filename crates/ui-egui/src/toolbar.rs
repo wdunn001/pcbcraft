@@ -43,6 +43,7 @@ enum Act {
     Fiducial,
     Pad,
     SheetText,
+    SheetShape(sheet_shape_tool::SheetShapeKind),
     Measure,
 }
 
@@ -461,6 +462,39 @@ impl App {
                 matches!(self.tool, Tool::SheetText),
                 Act::SheetText,
             ),
+            entry(
+                "tool-line",
+                "line",
+                "Line".to_string(),
+                "Draw a straight line on the sheet.".to_string(),
+                matches!(
+                    self.tool,
+                    Tool::SheetShape(sheet_shape_tool::SheetShapeKind::Line)
+                ),
+                Act::SheetShape(sheet_shape_tool::SheetShapeKind::Line),
+            ),
+            entry(
+                "tool-rect",
+                "rect",
+                "Rectangle".to_string(),
+                "Draw a rectangle on the sheet.".to_string(),
+                matches!(
+                    self.tool,
+                    Tool::SheetShape(sheet_shape_tool::SheetShapeKind::Rect)
+                ),
+                Act::SheetShape(sheet_shape_tool::SheetShapeKind::Rect),
+            ),
+            entry(
+                "tool-circle",
+                "circle",
+                "Circle".to_string(),
+                "Draw a circle on the sheet.".to_string(),
+                matches!(
+                    self.tool,
+                    Tool::SheetShape(sheet_shape_tool::SheetShapeKind::Circle)
+                ),
+                Act::SheetShape(sheet_shape_tool::SheetShapeKind::Circle),
+            ),
         ]
     }
 
@@ -515,6 +549,10 @@ impl App {
                 self.tool = Tool::SheetText;
                 self.sheet_text_position = None;
                 self.sheet_text_input.clear();
+            }
+            Act::SheetShape(kind) => {
+                self.tool = Tool::SheetShape(kind);
+                self.sheet_shape_start = None;
             }
             Act::Measure => self.arm_measure(),
         }

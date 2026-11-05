@@ -4,7 +4,6 @@ language.name = Pseudo RTL
 language.direction = rtl
 menu.file = << eliF >>
 menu.settings = << sgnitteS >>
-menu.settings.language = << egaugnaL >>
 menu.edit = << tidE >>
 menu.help = << pleH >>
 app.home = << emoH >>
