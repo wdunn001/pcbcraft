@@ -43,6 +43,7 @@ mod layer_picker;
 mod layer_record_panel;
 mod layer_visibility;
 mod layers_tree;
+mod layout_totals;
 mod library;
 mod library_builtin;
 mod library_dock;
@@ -7381,6 +7382,16 @@ impl App {
                         if self.tab == Tab::Pcb {
                             let text = self.layer_status();
                             status_item(ui, None, &text, &t!("view.layer_status.tip"), false);
+                            if !Self::narrow_window(ui.ctx()) {
+                                let totals = self.layout_totals_text();
+                                status_item(
+                                    ui,
+                                    None,
+                                    &totals,
+                                    &t!("board.footer.unrouted.tip"),
+                                    false,
+                                );
+                            }
                         }
                         if let Some(reading) = self.measure_readout() {
                             status_item(
