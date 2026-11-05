@@ -35,7 +35,7 @@ fn default_seed() -> u64 {
 
 #[derive(Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "snake_case")]
-enum ScopeKind {
+pub(crate) enum ScopeKind {
     Net,
     Layer,
     Board,
@@ -162,6 +162,8 @@ pub(super) fn run(
         "completed": 0,
         "failed": [],
         "attempts": 0,
+        "seed": a.seed,
+        "keep_existing": a.keep_existing,
     })))
 }
 
@@ -219,7 +221,9 @@ mod tests {
         assert_eq!(r["result"]["scope"], json!("board"));
         assert_eq!(r["result"]["completed"], json!(0));
         assert!(r["result"]["failed"].is_array());
-        assert_eq!(r["result"]["failed"].as_array().unwrap().len(), 0);
+        assert_eq!(r["result"]["failed"].as_array().map(Vec::len), Some(0));
+        assert_eq!(r["result"]["seed"], json!(0));
+        assert_eq!(r["result"]["keep_existing"], json!(true));
         assert_eq!(r["result"]["attempts"], json!(0));
 
         Ok(())

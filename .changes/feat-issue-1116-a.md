@@ -2,7 +2,7 @@
 type: feature
 area: engine
 issues: [1116]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: route.auto command shell with bounded parameters.
+user_visible: false
+docs: n/a: a command shell that checks its inputs and does not route yet
+summary: The route.auto command checks its scope, nets, layer and retry limit and returns an empty result, with no routing done yet.
 ---
