@@ -50,11 +50,15 @@ pub const HASH_HEX_LENGTH: usize = 64;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceSearchRequest {
+    /// The search query text.
     pub need: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Optional filter tags.
     pub tags: Vec<String>,
+    /// Maximum results to return.
     pub limit: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Pagination cursor.
     pub cursor: Option<String>,
 }
 
@@ -88,7 +92,9 @@ impl ServiceSearchRequest {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ServiceRecordKind {
+    /// A generic reusable component definition.
     Component,
+    /// An orderable part from a specific distributor.
     Orderable,
 }
 
@@ -107,14 +113,23 @@ pub enum ServiceRecordKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceRecord {
+    /// Unique record identifier.
     pub id: String,
+    /// SHA-256 hash of record content.
     pub content_hash: String,
+    /// Record kind.
     pub kind: ServiceRecordKind,
+    /// Manufacturer part number.
     pub mpn: String,
+    /// Human-readable title.
     pub title: String,
+    /// SPDX licence identifier.
     pub licence: String,
+    /// Identifier of the source record.
     pub source_id: String,
+    /// Unix timestamp when fetched.
     pub fetched_at: u64,
+    /// Record revision number.
     pub revision: u32,
 }
 
@@ -167,8 +182,10 @@ impl ServiceRecord {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceSearchResponse {
+    /// Matching records.
     pub items: Vec<ServiceRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Cursor for next page.
     pub next_cursor: Option<String>,
 }
 
@@ -200,15 +217,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn service_api_fixtures_round_trip() {
+    fn service_api_fixtures_round_trip() -> Result<(), String> {
         let fixture = include_str!("../fixtures/service_api/search.json");
         let response: ServiceSearchResponse =
-            serde_json::from_str(fixture).expect("fixture parses");
-        response.validate().expect("fixture validates");
-        let serialized = serde_json::to_string(&response).expect("serializes");
+            serde_json::from_str(fixture).map_err(|e| e.to_string())?;
+        response.validate()?;
+        let serialized = serde_json::to_string(&response).map_err(|e| e.to_string())?;
         let reparsed: ServiceSearchResponse =
-            serde_json::from_str(&serialized).expect("round-trips");
+            serde_json::from_str(&serialized).map_err(|e| e.to_string())?;
         assert_eq!(response, reparsed);
+        Ok(())
     }
 
     #[test]
