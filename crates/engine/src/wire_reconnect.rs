@@ -102,10 +102,13 @@ fn reconnect_end(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value
     if at >= wire.points.len() {
         return Err(Error::Invalid("vertex index out of range".into()));
     }
-    if has_pin {
-        return reconnect_to_pin(p, a.id, at, &a.pin.as_ref().unwrap(), wire_net);
+    if let Some(pin) = a.pin.as_ref() {
+        return reconnect_to_pin(p, a.id, at, pin, wire_net);
     }
-    let target = a.onto.as_ref().unwrap();
+    let target = a
+        .onto
+        .as_ref()
+        .ok_or_else(|| Error::Invalid("give a pin or a wire to reconnect to".into()))?;
     if target.wire == a.id {
         return Err(Error::Invalid("cannot reconnect a wire onto itself".into()));
     }
@@ -455,20 +458,42 @@ mod tests {
         let mut s = Session::default();
         s.execute("net.create", json!({"name":"A"}), None)?;
         s.execute("net.create", json!({"name":"B"}), None)?;
-        let net_a = s.project.nets.iter().find(|n| n.name == "A").unwrap().id;
-        let net_b = s.project.nets.iter().find(|n| n.name == "B").unwrap().id;
+        let net_a = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "A")
+            .ok_or_else(|| Error::Invalid("not found".into()))?
+            .id;
+        let net_b = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "B")
+            .ok_or_else(|| Error::Invalid("not found".into()))?
+            .id;
         s.execute(
             "wire.draw",
             json!({"points":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0}],"net":net_a}),
             None,
         )?;
-        let wire_a = s.project.drawn_wires.last().unwrap().id;
+        let wire_a = s
+            .project
+            .drawn_wires
+            .last()
+            .ok_or_else(|| Error::Invalid("not found".into()))?
+            .id;
         s.execute(
             "wire.draw",
             json!({"points":[{"x":5.0,"y":-5.0},{"x":5.0,"y":5.0}],"net":net_b}),
             None,
         )?;
-        let wire_b = s.project.drawn_wires.last().unwrap().id;
+        let wire_b = s
+            .project
+            .drawn_wires
+            .last()
+            .ok_or_else(|| Error::Invalid("not found".into()))?
+            .id;
         s.execute(
             "wire.reconnect_end",
             json!({"id":wire_b,"end":"end","onto":{"wire":wire_a,"at":{"x":5.0,"y":0.0}}}),
@@ -518,13 +543,23 @@ mod tests {
     fn reconnect_refuses_the_same_wire() -> Result<(), Error> {
         let mut s = Session::default();
         s.execute("net.create", json!({"name": "N"}), None)?;
-        let net = s.project.nets.last().unwrap().id;
+        let net = s
+            .project
+            .nets
+            .last()
+            .ok_or_else(|| Error::Invalid("not found".into()))?
+            .id;
         s.execute(
             "wire.draw",
             json!({"points":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0}],"net":net}),
             None,
         )?;
-        let wire_id = s.project.drawn_wires.last().unwrap().id;
+        let wire_id = s
+            .project
+            .drawn_wires
+            .last()
+            .ok_or_else(|| Error::Invalid("not found".into()))?
+            .id;
         let result = s.execute(
             "wire.reconnect_end",
             json!({"id":wire_id,"end":"end","onto":{"wire":wire_id,"at":{"x":5.0,"y":0.0}}}),

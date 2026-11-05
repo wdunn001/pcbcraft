@@ -2,7 +2,7 @@
 type: feature
 area: engine
 issues: [1322]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Drag a wire end onto another wire.
+user_visible: false
+docs: n/a: an engine command that no screen calls yet
+summary: An engine command moves the end of a drawn wire onto a pin or onto another wire.
 ---
