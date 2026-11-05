@@ -77,6 +77,7 @@ mod selection;
 mod setup_wizard;
 mod sheet_lit;
 mod sheet_rows;
+mod sheet_text_tool;
 mod showcase;
 mod sources;
 mod sourcing_panel;
@@ -559,6 +560,10 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Via => t!("board.tool_hint.lmb_via", common = common),
         Tool::Port => t!("schematic.port.tool_hint", common = common),
         Tool::Pad => t!("board.tool_hint.lmb_place_a_pad", common = common),
+        Tool::SheetText => {
+            "Click to place text on the sheet. Type your text and press Enter.".to_string()
+                + &common
+        }
     }
 }
 
@@ -1113,6 +1118,7 @@ enum Tool {
     Via,
     Port,
     Pad,
+    SheetText,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -1457,6 +1463,10 @@ pub struct App {
     recovery_open: bool,
     /// The folder this window autosaves into and offers snapshots from.
     recovery_dir: Option<std::path::PathBuf>,
+    /// Stored position for the sheet text tool while waiting for text input.
+    sheet_text_position: Option<Point>,
+    /// The text the user is typing for the sheet text tool.
+    sheet_text_input: String,
 }
 /// Plain-language facts about a selected board or schematic object that is not
 /// a component, so the properties panel can describe tracks, vias, zones,
@@ -2226,6 +2236,8 @@ impl App {
             recovery_open: !recovery_offer.is_empty(),
             recovery_offer,
             recovery_dir: recovery,
+            sheet_text_position: None,
+            sheet_text_input: String::new(),
         }
     }
     fn tour_modal_open(&self) -> bool {

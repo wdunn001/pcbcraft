@@ -463,6 +463,7 @@ board.inspector.selected_object = Selected object
 board.inspector.wire_width = Wire width
 # canvas.rs canvas
 board.canvas.place_symbol_click_to_commit = PLACE SYMBOL · CLICK TO COMMIT
+board.canvas.click_to_place_text = Click to place text
 board.canvas.place_symbol_package_click_to = PLACE SYMBOL PACKAGE · CLICK TO COMMIT
 board.canvas.wire_pick_first_pin = WIRE · PICK FIRST PIN
 board.canvas.wire_pick_second_pin = WIRE · PICK SECOND PIN
@@ -3564,6 +3565,8 @@ pad.remove = Remove pad
 pad.remove.tip = Take this pad off the part. A part keeps at least one pad.
 board.tool_strip.pad = Pad
 board.tool_strip.pad.tip = Add a copper pad for a test point, a mounting pad or a contact; then click where it goes.
+board.tool_strip.text = Text
+board.tool_strip.text.tip = Type a note onto the sheet.
 board.canvas.pad_click_to_place = PAD · CLICK TO PLACE
 board.tool_hint.lmb_place_a_pad = LMB place a pad · Esc cancel · set its number, size and net in Properties{common}
 menu.add_pad = Add pad

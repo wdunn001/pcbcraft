@@ -779,6 +779,7 @@ impl App {
             Tool::Via => t!("board.canvas.via"),
             Tool::Port => t!("schematic.add.hint_port"),
             Tool::Pad => t!("board.canvas.pad_click_to_place"),
+            Tool::SheetText => t!("board.canvas.click_to_place_text"),
         };
         if !matches!(self.tool, Tool::Select) {
             painter.text(
@@ -1694,6 +1695,7 @@ impl App {
                 }
             }
             Tool::Port => self.place_hierarchy_port(pos),
+            Tool::SheetText => self.place_sheet_text(pos),
             Tool::BusEntry => self.place_bus_entry(pos),
             Tool::Pad => self.place_pad_click(pos),
             Tool::Keepout => {}

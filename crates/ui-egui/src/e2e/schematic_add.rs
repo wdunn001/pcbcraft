@@ -218,3 +218,34 @@ fn a_newcomer_is_told_why_a_wired_pin_cannot_be_no_connect() -> Result<(), Strin
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_adds_text_to_the_sheet() {
+    let mut app = test_app();
+    app.tab = Tab::Schematic;
+
+    // Arm the Text tool via toolbar
+    app.toolbar_apply(Act::SheetText);
+    assert_eq!(app.tool, Tool::SheetText);
+
+    // Click on canvas to start placement
+    let pos = Point::new(50.0, 50.0);
+    app.place_sheet_text(pos);
+
+    // Type some text and submit
+    app.sheet_text_input = "Test note".to_string();
+    app.submit_sheet_text();
+
+    // Verify a graphic was added
+    let project = app.project.clone();
+    assert!(
+        project
+            .graphics
+            .iter()
+            .any(|g| g.shape == "text" && g.text == "Test note"),
+        "text graphic should be added to the project"
+    );
+
+    // Tool should be disarmed after placement
+    assert_eq!(app.tool, Tool::Select);
+}
