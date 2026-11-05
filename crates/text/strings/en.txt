@@ -4301,11 +4301,8 @@ schematic.shape.rect.tip = Draw a rectangle defined by two opposite corners.
 schematic.shape.circle = Circle
 schematic.shape.circle.tip = Draw a circle; the second click sets the radius.
 board.tool_hint.lmb_place_sheet_shape = Place {name}. Click to start, click again to place. {common}
-<<<<<<< HEAD
+export.pin_map.write_failed = The pin map file could not be written.
 datasheet.pane.extract = Find tables
 datasheet.pane.extract.tip = Extract pin, rating and ordering tables from the open datasheet.
 datasheet.pane.extract_done = Found {rows} rows to review.
-=======
-export.pin_map.write_failed = The pin map file could not be written.
->>>>>>> origin/main
 webfs.pdf_opened = Opened {name} in the datasheet reader.
