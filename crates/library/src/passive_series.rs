@@ -5,7 +5,7 @@
 //! - value_code uses the R/K/M and P/N/U marker system.
 //!
 //! # Dependencies
-//! - None (pure computation).
+//! - None
 
 /// Standard E-series used for passive components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
