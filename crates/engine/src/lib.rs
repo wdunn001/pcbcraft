@@ -1450,6 +1450,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "board.solidcraft.export",
+            "Export the board to a SolidCraft design file with board body and one named part per component",
+            schema(
+                json!({"path":{"type":"string","maxLength":1024}}),
+                &["path"],
+            ),
+        ),
+        (
             "board.enclosure.set_transform",
             "Move, rotate or scale a foreign enclosure in one undo step; offset and rotate are millimetres and degrees",
             schema(
@@ -10944,6 +10952,7 @@ fn run_command(
         "board.datum_rename"
         | "board.datum_remove"
         | "board.enclosure.import"
+        | "board.solidcraft.export"
         | "board.enclosure.set_transform"
         | "board.enclosure.set_view"
         | "board.enclosure.clear"
