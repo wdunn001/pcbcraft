@@ -1687,6 +1687,7 @@ pub(crate) fn rows(env: &Env, view: &mut TreeView) -> std::rc::Rc<Vec<Row>> {
 ///
 /// # Rules
 /// - None when no row stands for the object on this tab.
+/// - A schematic part reveals under its own page's Symbols row, never the design wide Parts row.
 pub(crate) fn reveal_path(env: &Env, id: Id) -> Option<(Vec<String>, String)> {
     let project = env.project;
     let board = &project.board;
@@ -1711,8 +1712,13 @@ pub(crate) fn reveal_path(env: &Env, id: Id) -> Option<(Vec<String>, String)> {
             }
         }
         TreeTab::Schematic => {
-            if project.component(id).is_some() {
-                format!("components/comp:{id}")
+            if let Some(c) = project.component(id) {
+                // The part's own page row, so a reference that repeats on several pages
+                // still lands on the copy that was clicked.
+                format!(
+                    "{}/layer:symbols/comp:{id}",
+                    crate::App::page_row_key(c.sheet)
+                )
             } else if let Some(l) = project.labels.iter().find(|l| l.id == id) {
                 format!("nets/net:{}/label:{id}", l.net)
             } else {
