@@ -13,6 +13,7 @@ mod assistant;
 mod attachment_rows;
 mod authoring;
 pub mod board3d;
+mod board_check;
 mod board_side;
 mod board_visibility;
 mod bom_export;
@@ -77,6 +78,7 @@ mod selection;
 mod setup_wizard;
 mod sheet_lit;
 mod sheet_rows;
+mod sheet_text_tool;
 mod showcase;
 mod sources;
 mod sourcing_panel;
@@ -559,6 +561,7 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Via => t!("board.tool_hint.lmb_via", common = common),
         Tool::Port => t!("schematic.port.tool_hint", common = common),
         Tool::Pad => t!("board.tool_hint.lmb_place_a_pad", common = common),
+        Tool::SheetText => t!("board.tool_hint.lmb_place_sheet_text", common = common),
     }
 }
 
@@ -1113,6 +1116,7 @@ enum Tool {
     Via,
     Port,
     Pad,
+    SheetText,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -1335,6 +1339,12 @@ pub struct App {
     stack_edit: Option<(String, String, f64)>,
     /// The File > Project settings dialog.
     project_settings: project_settings::State,
+    /// Board checks running away from the frame (see `board_check`).
+    board_check: Option<board_check::Pending>,
+    /// While set, a refresh that would run the board checks from scratch starts a worker.
+    defer_checks: bool,
+    /// The window's context, to wake it when a worker is done.
+    repaint: Option<egui::Context>,
     /// Optional workspace tabs the user closed; the + menu reopens them.
     closed_tabs: Vec<Tab>,
     notes_thick: f64,
@@ -1457,6 +1467,10 @@ pub struct App {
     recovery_open: bool,
     /// The folder this window autosaves into and offers snapshots from.
     recovery_dir: Option<std::path::PathBuf>,
+    /// Stored position for the sheet text tool while waiting for text input.
+    sheet_text_position: Option<Point>,
+    /// The text the user is typing for the sheet text tool.
+    sheet_text_input: String,
 }
 /// Plain-language facts about a selected board or schematic object that is not
 /// a component, so the properties panel can describe tracks, vias, zones,
@@ -2106,6 +2120,9 @@ impl App {
             stack_thickness: 1.2,
             stack_edit: None,
             project_settings: Default::default(),
+            board_check: None,
+            defer_checks: false,
+            repaint: None,
             closed_tabs: Vec::new(),
             notes_thick: 1.6,
             notes_er: 4.4,
@@ -2226,6 +2243,8 @@ impl App {
             recovery_open: !recovery_offer.is_empty(),
             recovery_offer,
             recovery_dir: recovery,
+            sheet_text_position: None,
+            sheet_text_input: String::new(),
         }
     }
     fn tour_modal_open(&self) -> bool {
@@ -2302,6 +2321,7 @@ impl App {
         }
     }
     fn refresh(&mut self) {
+        self.poll_board_check();
         let mut autosave = self.autosave.take();
         let saved = self.saved_revision;
         let mut autosave_error: Option<String> = None;
@@ -2312,7 +2332,13 @@ impl App {
                 {
                     autosave_error = Some(e);
                 }
-                Some((s.project.clone(), s.revision, s.checks()))
+                let checks = if self.defer_checks {
+                    s.checks_if_ready()
+                } else {
+                    Some(s.checks())
+                };
+                let job = checks.is_none().then(|| s.board_check_input().0);
+                Some((s.project.clone(), s.revision, checks, job))
             } else {
                 None
             }
@@ -2321,12 +2347,18 @@ impl App {
         if let Some(error) = autosave_error {
             self.message = format!("autosave: {error}");
         }
-        if let Some((p, r, checks)) = snapshot {
+        if let Some((p, r, checks, job)) = snapshot {
             let was_bottom = self.route_on_bottom();
             self.project = p;
             self.keep_route_layer_valid(was_bottom);
             self.revision = r;
-            self.checks = checks;
+            if let Some(checks) = checks {
+                self.checks = checks;
+                self.board_check = None;
+            }
+            if let Some(project) = job {
+                self.start_board_check(project);
+            }
             if self
                 .selected
                 .is_some_and(|id| !self.project.ids().any(|present| present == id))
@@ -7571,6 +7603,15 @@ impl App {
                     let status =
                         status_item(ui, None, &self.message, &t!("status.message.tip"), false);
                     a11y::announce_status(ui.ctx(), &status, &self.message);
+                    if self.checking() {
+                        status_item(
+                            ui,
+                            None,
+                            &t!("status.checking"),
+                            &t!("status.checking.tip"),
+                            false,
+                        );
+                    }
                     if !self.edit.hint.is_empty() {
                         status_item(ui, None, &self.edit.hint, &t!("modifier.status.tip"), false);
                     } else if !matches!(self.tool, Tool::Select) {
@@ -8198,6 +8239,7 @@ impl App {
 
     fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        self.repaint = Some(ctx.clone());
         pcbcraft_text::activate(&self.catalog);
         #[cfg(test)]
         self.icon_rects.clear();
