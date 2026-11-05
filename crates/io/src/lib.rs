@@ -17496,3 +17496,110 @@ pub(crate) mod test_support {
         }
     }
 }
+
+#[test]
+fn idf_library_includes_3d_model_reference_when_present() -> Result<(), String> {
+    let mut project = Project::default();
+    project.board.width = 60.0;
+    project.board.height = 40.0;
+    let geometry = |number: &str, x: f64| pcbcraft_library::FootprintPad {
+        number: number.into(),
+        pad_type: "smd".into(),
+        shape: "rect".into(),
+        position: Point::new(x, 0.0),
+        rotation: 0.0,
+        size: Point::new(1.0, 1.0),
+        layers: vec!["F.Cu".into()],
+        drill: None,
+        roundrect_ratio: None,
+        raw_source: String::new(),
+        chamfer: None,
+        polygon: Vec::new(),
+    };
+    project.components.push(pcbcraft_doc::Component {
+        sheet: 0,
+        id: 1,
+        reference: "U1".into(),
+        value: "IC".into(),
+        kind: "ic".into(),
+        position: Point::new(10.0, 10.0),
+        rotation: 0.0,
+        pins: vec![pcbcraft_doc::Pin {
+            number: "1".into(),
+            name: String::new(),
+            offset: Point::new(-1.0, 0.0),
+            net: None,
+            electrical_type: "input".into(),
+            direction: None,
+            unit: 1,
+            appearances: Default::default(),
+        }],
+        units: vec![],
+        library_symbol: None,
+        library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+            library: "Test".into(),
+            definition: pcbcraft_library::FootprintDefinition {
+                name: "QFN20".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads: vec![geometry("1", -1.0)],
+                graphics: vec![],
+                model: Some(pcbcraft_library::Model3D {
+                    path: "models/qfn20.step".into(),
+                    offset: [0.0, 0.0, 0.0],
+                    scale: [1.0, 1.0, 1.0],
+                    rotate: [0.0, 0.0, 0.0],
+                    embedded: String::new(),
+                    cad_part: None,
+                    body_id: None,
+                    raw_source: String::new(),
+                }),
+                rules: None,
+                raw_source: String::new(),
+                unsupported: vec![],
+                box_body: Default::default(),
+                retained: Default::default(),
+            },
+        }),
+        fields: vec![],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
+    });
+    project.board.footprints.push(pcbcraft_doc::Footprint {
+        id: 10,
+        component: 1,
+        position: Point::new(20.0, 20.0),
+        rotation: 0.0,
+        locked: None,
+        side: None,
+        pads: vec![pcbcraft_doc::Pad {
+            number: "1".into(),
+            offset: Point::new(-1.0, 0.0),
+            diameter: 1.0,
+            net: None,
+            castellated: None,
+            geometry: Some(geometry("1", -1.0)),
+        }],
+        preserved: Default::default(),
+    });
+    project.validate()?;
+    let library = idf_library(&project)?;
+    assert!(
+        library.contains(".3D\n"),
+        "the library includes a 3D section when a model is present"
+    );
+    assert!(
+        library.contains("QFN20 Test/QFN20 STEP models/qfn20.step"),
+        "the 3D section references the model file"
+    );
+    assert!(
+        library.contains(".END_3D\n"),
+        "the 3D section is properly closed"
+    );
+    Ok(())
+}
