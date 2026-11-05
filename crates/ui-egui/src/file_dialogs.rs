@@ -712,6 +712,15 @@ impl App {
                 }
                 ok
             }
+            Some(Run::Tool("solidcraft.write")) => {
+                let params = json!({"path": &directory});
+                let ok = self.tool_call("solidcraft.write", params);
+                if ok {
+                    self.message = format!("{} saved in {directory}.", f.label);
+                }
+                ok
+            }
+
             _ => false,
         }
     }

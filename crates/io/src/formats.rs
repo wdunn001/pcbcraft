@@ -540,6 +540,14 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Exchange,
         Run::Kind("step"),
     )),
+    common(output(
+        "solidcraft",
+        "SolidCraft project",
+        "The board as a SolidCraft project: the board body with its real outline, holes and thickness, and each placed part as its own named component with a 3D model. Optional layers add copper, mask and silk.",
+        &["solidcraft"],
+        Group::Exchange,
+        Run::Tool("solidcraft.write"),
+    )),
     output(
         "vrml",
         "3D viewer file (VRML)",
