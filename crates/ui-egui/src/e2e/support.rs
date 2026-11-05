@@ -164,8 +164,15 @@ pub(crate) fn painted_text_at(
     }
     Ok(None)
 }
-/// Default width of the left aside (`browser` panel) beside the canvas.
-pub(crate) const LEFT_ASIDE: f32 = 320.0;
+/// Default width of the left aside (`browser` panel) in the 1440 point test window.
+pub(crate) fn left_aside() -> f32 {
+    aside::aside_widths(1440.0, false).left_default
+}
+
+/// Default width of the right aside in the 1440 point test window.
+pub(crate) fn right_aside() -> f32 {
+    aside::aside_widths(1440.0, false).right_default
+}
 
 /// Scroll the side docks until `needle` appears: the layers tree on the
 /// left first, then the Properties column on the right.
@@ -186,7 +193,7 @@ pub(crate) fn scrolled_to_left(
     app: &mut App,
     needle: &str,
 ) -> Result<bool, String> {
-    scrolled_to_at(ctx, app, needle, LEFT_ASIDE / 2.0)
+    scrolled_to_at(ctx, app, needle, left_aside() / 2.0)
 }
 /// Same, but over a panel whose horizontal centre is at `x`: 150 is the
 /// left dock, 700 the middle page (Rules, Settings, Checks).
