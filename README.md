@@ -13,9 +13,7 @@ It runs as a native app, in a browser tab or as a headless service. The
 toolchain is modern Rust with no legacy C codebase to maintain. The goal is a
 complete EDA workflow in one window.
 
-
-MIT OR Apache-2.0. UI toolkit: pinned `craft-ui` from `storytold/craft-libs`.
-GPL-3.0-or-later. UI toolkit: pinned `craft-ui` from `wdunn001/craft-libs`.
+MIT OR Apache-2.0. UI toolkit: pinned `craft-ui` from `wdunn001/craft-libs`.
 
 This is a working foundation: a schematic, assigned footprints, basic routing,
 checks, and fabrication output. It is not a finished production suite. Open
