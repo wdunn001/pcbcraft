@@ -2288,8 +2288,21 @@ impl App {
             compare_tint: std::collections::BTreeMap::new(),
             library,
             tour: {
-                #[allow(unused_mut)]
+                let tours = tour::data::embedded_for_shell();
                 let mut catalog = Vec::new();
+                for t in tours.tour {
+                    if let Some(ws) = tour::state::WorkspaceId::parse(&t.workspace) {
+                        if let Some(tr) = tour::state::Trigger::parse(&t.trigger) {
+                            catalog.push(tour::state::TourMeta {
+                                id: t.id,
+                                version: t.version,
+                                trigger: tr,
+                                workspace: ws,
+                                step_count: t.steps.len(),
+                            });
+                        }
+                    }
+                }
                 #[cfg(test)]
                 catalog.extend(tour::state::e2e_fixture_catalog());
                 tour::Controller::new(catalog)
