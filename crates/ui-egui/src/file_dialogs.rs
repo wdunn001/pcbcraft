@@ -128,19 +128,52 @@ pub(crate) fn package_option_lines(def: &PackageDef) -> Vec<(String, String)> {
 /// Why: the hook for named multi-format bundles. The records are data in
 /// `crates/io/data/packages.json` (issue #224); a package whose writer is not written yet
 /// is listed disabled with the reason and the issue that tracks it, never hidden.
+/// Project packages (saved with package.save) appear after the bundled ones, labelled
+/// "name (this project)".
+///
+/// # Dependencies
+/// - crates/io/src/export_package.rs (`bundled_packages`, `availability`, `PackageDef`)
 ///
 /// # Do not
 /// - Run a package here; `package.export` in `crates/engine/src/packages.rs` does.
-pub(crate) fn packages() -> Vec<Package> {
-    pcbcraft_io::bundled_packages()
-        .iter()
-        .filter_map(|d| {
-            let a = pcbcraft_io::availability(d).ok()?;
-            let mut tip = d.audience.clone();
-            if !a.available {
-                tip.push_str("\nNot available yet: ");
-                tip.push_str(&a.reasons.join("; "));
-            }
+pub(crate) fn packages(project: &Project) -> Vec<Package> {
+    let mut result = Vec::new();
+    for d in pcbcraft_io::bundled_packages().iter() {
+        let a = match pcbcraft_io::availability(d) {
+            Ok(a) => a,
+            Err(_) => continue,
+        };
+        let mut tip = d.audience.clone();
+        if !a.available {
+            tip.push_str("\nNot available yet: ");
+            tip.push_str(&a.reasons.join("; "));
+        }
+        result.push(Package {
+            id: d.id.clone(),
+            label: d.name.clone(),
+            tip,
+            available: a.available,
+        });
+    }
+    for d in project.packages.iter() {
+        let a = match pcbcraft_io::availability(d) {
+            Ok(a) => a,
+            Err(_) => continue,
+        };
+        let mut tip = d.audience.clone();
+        if !a.available {
+            tip.push_str("\nNot available yet: ");
+            tip.push_str(&a.reasons.join("; "));
+        }
+        result.push(Package {
+            id: d.id.clone(),
+            label: t!("export.package.mine", name = d.name.clone()),
+            tip,
+            available: a.available,
+        });
+    }
+    result
+}
             Some(Package {
                 id: d.id.clone(),
                 label: d.name.clone(),
@@ -162,6 +195,10 @@ pub(crate) struct DialogState {
     pub package: String,
     /// Package the user has picked for preview; empty for none.
     pub package_pick: String,
+    /// Name for a duplicate package the user is creating.
+    pub package_name: String,
+    /// (source_id, new_id, name) when the user clicked Duplicate.
+    pub duplicate: Option<(String, String, String)>,
     pub values: BTreeMap<String, String>,
     /// File to read or write for Import and Save as.
     pub path: String,
@@ -472,7 +509,7 @@ impl App {
                         match spec(&d.format) {
                             None => {
                                 if !d.package_pick.is_empty() {
-                                    let pkgs = packages();
+                                    let pkgs = packages(&project);
                                     let pkg = pkgs.iter().find(|p| p.id == d.package_pick);
                                     if let Some(p) = pkg {
                                         ui.label(crate::fonts::title(&p.label));
@@ -519,6 +556,29 @@ impl App {
                                         }
                                         ui.add_space(8.0);
                                         if ui
+                                        ui.horizontal(|ui| {
+                                            let tip = t!("export.package.name.tip");
+                                            let before = d.package_name.clone();
+                                            ui.label(t!("export.package.name")).on_hover_text(tip.as_str());
+                                            ui.add(crate::targets::text_field(&mut d.package_name))
+                                                .on_hover_text(tip.as_str())
+                                                .on_focus_gained(|f| f.on("package-name-focus"));
+                                            if ui
+                                                .button(t!("export.package.duplicate"))
+                                                .on_hover_text(t!("export.package.duplicate.tip"))
+                                                .clicked()
+                                            {
+                                                let name = d.package_name.trim().to_owned();
+                                                let slug = name
+                                                    .to_lowercase()
+                                                    .chars()
+                                                    .filter_map(|c| if c.is_alphanumeric() { Some(c) } else { None })
+                                                    .collect::<String>();
+                                                let id = if slug.is_empty() { "my_".to_owned() } else { slug };
+                                                d.duplicate = Some((d.package_pick.clone(), id, name));
+                                            }
+                                        });
+                                        ui.add_space(4.0);
                                             .button(t!("export.package.go"))
                                             .on_hover_text(t!("export.package.go.tip"))
                                             .clicked()
@@ -554,6 +614,13 @@ impl App {
                 });
                 ui.add_space(6.0);
             });
+        if let Some((src, new_id, name)) = d.duplicate.take() {
+            if self.tool_call("package.duplicate", json!({"id": src, "new_id": new_id, "name": name})) {
+                d.package_pick = new_id;
+                d.package_name = String::new();
+                self.message = "Saved a copy in this project.".into();
+            }
+        }
         if !d.package.is_empty() {
             let id = std::mem::take(&mut d.package);
             if self.tool_call("package.export", json!({"id": id, "directory": make_dir})) {
@@ -935,13 +1002,13 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
     }
     if d.mode == Mode::Export {
         ui.label(crate::fonts::caption("Packages").color(muted));
-        if packages().is_empty() {
+        if packages(&project).is_empty() {
             ui.label(egui::RichText::new("No packages yet.").color(muted))
                 .on_hover_text(
                     "A package is a named bundle of several formats, such as the files one board maker asks for.",
                 );
         }
-        for p in packages() {
+        for p in packages(&project) {
             let tip = if p.available {
                 format!("{}\nClick to write it into the make folder.", p.tip)
             } else {
