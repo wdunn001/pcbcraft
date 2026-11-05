@@ -31,6 +31,7 @@ use crate::ui_kit::select::select;
 use crate::ui_kit::tab_bar::TabItem;
 use crate::{App, fonts, human_code, theme};
 use pcbcraft_rules::CHECK_CODES;
+use pcbcraft_rules::is_signal_integrity;
 use pcbcraft_text::t;
 use serde_json::json;
 
@@ -40,13 +41,56 @@ pub(crate) const TAB_RESULTS: usize = 0;
 /// Stems of the tabs in catalog keys, in tab order.
 const TABS: [&str; 2] = ["results", "rules"];
 
-/// Areas of the Results list: catalog stem and the finding sources it takes.
-const DOMAINS: [(&str, &[&str]); 4] = [
-    ("all", &["erc", "drc", "peripheral", "lib"]),
-    ("electrical", &["erc", "peripheral"]),
-    ("board", &["drc"]),
-    ("library", &["lib"]),
+/// One area of the Results list: the catalog stem, its sources and whether
+/// it only shows signal integrity findings. The `signal_only` flag makes
+/// the domain filter by the check code rather than by the source key,
+/// so signal integrity findings (which are all `drc`) can be listed
+/// separately from the other board checks.
+struct Domain {
+    stem: &'static str,
+    sources: &'static [&'static str],
+    signal_only: bool,
+}
+
+/// Areas of the Results list, with their finding sources.
+const DOMAINS: [Domain; 5] = [
+    Domain {
+        stem: "all",
+        sources: &["erc", "drc", "peripheral", "lib"],
+        signal_only: false,
+    },
+    Domain {
+        stem: "electrical",
+        sources: &["erc", "peripheral"],
+        signal_only: false,
+    },
+    Domain {
+        stem: "board",
+        sources: &["drc"],
+        signal_only: false,
+    },
+    Domain {
+        stem: "signal",
+        sources: &["drc"],
+        signal_only: true,
+    },
+    Domain {
+        stem: "library",
+        sources: &["lib"],
+        signal_only: false,
+    },
 ];
+
+/// True when the finding belongs to the given area.
+fn in_domain(domain: &Domain, row: &Row) -> bool {
+    if !domain.sources.contains(&row.key) {
+        return false;
+    }
+    if domain.signal_only && !is_signal_integrity(&row.code) {
+        return false;
+    }
+    true
+}
 
 /// Checks whose strictness can be chosen here.
 ///
@@ -195,16 +239,18 @@ impl App {
         ui.add_space(theme::SPACE[1]);
         let names: Vec<String> = DOMAINS
             .iter()
-            .map(|(stem, sources)| {
-                let name = pcbcraft_text::lookup(&format!("rules.dialog.domain.{stem}"), &[]);
-                let count = rows.iter().filter(|r| sources.contains(&r.key)).count();
+            .map(|domain| {
+                let name =
+                    pcbcraft_text::lookup(&format!("rules.dialog.domain.{}", domain.stem), &[]);
+                let count = rows.iter().filter(|r| in_domain(domain, r)).count();
                 t!("rules.dialog.domain.row", name = name, count = count)
             })
             .collect();
         let tips: Vec<String> = DOMAINS
             .iter()
-            .map(|(stem, _)| {
-                let name = pcbcraft_text::lookup(&format!("rules.dialog.domain.{stem}"), &[]);
+            .map(|domain| {
+                let name =
+                    pcbcraft_text::lookup(&format!("rules.dialog.domain.{}", domain.stem), &[]);
                 t!("rules.dialog.domain.tip", name = name.to_lowercase())
             })
             .collect();
@@ -217,8 +263,8 @@ impl App {
         segmented(ui, "rules-domain", &mut at, &items);
         self.rules_dialog.domain = at;
         ui.add_space(theme::SPACE[1]);
-        let sources = DOMAINS[at].1;
-        let shown: Vec<&Row> = rows.iter().filter(|r| sources.contains(&r.key)).collect();
+        let domain = &DOMAINS[at];
+        let shown: Vec<&Row> = rows.iter().filter(|r| in_domain(domain, r)).collect();
         if shown.is_empty() {
             let muted = theme::tokens(ui.ctx()).muted;
             ui.label(fonts::text(fonts::Role::Body, t!("rules.dialog.empty")).color(muted));
