@@ -57,3 +57,67 @@ fn a_newcomer_compares_their_board_with_yesterdays() -> Result<(), String> {
     let _ = std::fs::remove_file(&baseline);
     Ok(())
 }
+
+#[test]
+fn a_newcomer_compares_two_parts_and_sees_the_differences() -> Result<(), String> {
+    let session = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let listing = |name: &str, package: &str| {
+        serde_json::json!({
+            "label": name,
+            "pins": 2,
+            "listing": {
+                "source": "fixture",
+                "source_id": "sample",
+                "source_ref": name,
+                "manufacturer": "",
+                "mpn": name,
+                "description": "",
+                "category": "resistor",
+                "source_category": "",
+                "package_key": "",
+                "package_text": package,
+                "price_breaks": [{"quantity": 1, "unit_price": 0.1, "currency": "USD"}],
+                "lifecycle": "unknown",
+                "lifecycle_raw": "",
+                "stock": 5,
+            }
+        })
+    };
+    let result = pcbcraft_mcp::call_tool(
+        &session,
+        "library.compare",
+        &serde_json::json!({
+            "kind": "parts",
+            "parts": [listing("A", "1206"), listing("B", "0603")],
+            "quantity": 1
+        }),
+    );
+    assert_eq!(
+        result["isError"],
+        serde_json::json!(false),
+        "the compare tool answers without an error"
+    );
+    let text = result["content"][0]["text"]
+        .as_str()
+        .ok_or("the tool result has no text")?;
+    let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    assert_eq!(
+        value.pointer("/kind"),
+        Some(&serde_json::json!("parts")),
+        "the command returns a parts comparison table"
+    );
+    let rows = value
+        .pointer("/table/rows")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("the table has no rows list")?;
+    let package = rows
+        .iter()
+        .find(|r| r["label"] == "Package")
+        .ok_or("the table has no Package row")?;
+    assert_eq!(
+        package["differs"],
+        serde_json::json!(true),
+        "two parts with different packages show the Package row as different"
+    );
+    Ok(())
+}

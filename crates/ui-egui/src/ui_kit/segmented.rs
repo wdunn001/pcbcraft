@@ -219,7 +219,12 @@ pub fn segmented_styled(
     {
         *selected = first;
     }
-    let panel_width = ui.max_rect().width();
+    // A full width track is as wide as the room it is given. That decides labels or icons.
+    let panel_width = if style.full_width {
+        ui.available_width()
+    } else {
+        ui.max_rect().width()
+    };
     let icons_only = panel_width < ICON_ONLY_BREAK && items.iter().all(|s| s.icon.is_some());
     let total = if style.full_width {
         ui.available_width()

@@ -112,12 +112,24 @@ impl State {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            match load() {
-                Ok(doc) => {
-                    self.document = Some(doc);
-                    self.status = t!("library.datasheet_reader.ready");
+            let is_remote = source.starts_with("http://") || source.starts_with("https://");
+            if is_remote {
+                // Remote URLs are often blocked by CORS on the web build.
+                // Show a link the person can click to open in their browser.
+                self.open = false;
+                self.status.clear();
+                self.error = format!(
+                    "Remote datasheets cannot be read in the browser. Open it here: {}",
+                    source
+                );
+            } else {
+                match load() {
+                    Ok(doc) => {
+                        self.document = Some(doc);
+                        self.status = t!("library.datasheet_reader.ready");
+                    }
+                    Err(e) => self.error = e,
                 }
-                Err(e) => self.error = e,
             }
         }
     }
