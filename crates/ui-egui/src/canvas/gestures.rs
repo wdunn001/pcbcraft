@@ -113,6 +113,7 @@ impl Tool {
             Self::Port | Self::Pad => ToolKind::Place,
             Self::DrawLayer => ToolKind::DrawLayer,
             Self::Measure => ToolKind::Measure,
+            Self::SheetText => ToolKind::DrawLayer,
         }
     }
 }
