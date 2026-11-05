@@ -105,11 +105,11 @@ fn capacitor_code(value: f64) -> Result<String, String> {
     format_code(mantissa, marker)
 }
 
+/// Engineering notation: the exponent is a multiple of three, so the mantissa lies in [1, 1000).
 fn scale_value(value: f64) -> (f64, i32) {
-    let log10 = value.log10();
-    let exp = ((log10 - 1.0) / 3.0).floor() * 3.0;
-    let mantissa = value / 10.0f64.powi(exp as i32);
-    (mantissa, exp as i32)
+    let exp = ((value.log10() + 1e-9) / 3.0).floor() as i32 * 3;
+    let mantissa = value / 10.0f64.powi(exp);
+    (mantissa, exp)
 }
 
 fn format_code(mantissa: f64, marker: char) -> Result<String, String> {
@@ -126,10 +126,12 @@ fn format_code(mantissa: f64, marker: char) -> Result<String, String> {
             return Ok(format!("{}{}", whole, marker));
         }
         let digit = frac.chars().next().unwrap_or('0');
-        return Ok(format!("{}{}{}", whole, digit, marker));
+        // The marker takes the place of the decimal point: 4.7 k is 4K7.
+        return Ok(format!("{}{}{}", whole, marker, digit));
     }
     if s.len() == 1 {
-        return Ok(format!("{}0{}", s, marker));
+        // A single digit has no fraction: 1 M is 1M0.
+        return Ok(format!("{}{}0", s, marker));
     }
     Ok(format!("{}{}", s, marker))
 }
@@ -180,31 +182,35 @@ mod tests {
     }
 
     #[test]
-    fn values_between_lists_the_e12_values_from_100_to_1000() {
+    fn values_between_lists_the_e12_values_from_100_to_1000() -> Result<(), String> {
         let expected = vec![
             100.0, 120.0, 150.0, 180.0, 220.0, 270.0, 330.0, 390.0, 470.0, 560.0, 680.0, 820.0,
             1000.0,
         ];
-        let got = values_between(ESeries::E12, 100.0, 1000.0).unwrap_or_default();
+        let got = values_between(ESeries::E12, 100.0, 1000.0)?;
         assert_eq!(got, expected);
+        Ok(())
     }
 
     #[test]
-    fn value_code_of_4700_ohms_is_4k7() {
-        let code = value_code(4700.0, PassiveKind::Resistor).unwrap_or_default();
+    fn value_code_of_4700_ohms_is_4k7() -> Result<(), String> {
+        let code = value_code(4700.0, PassiveKind::Resistor)?;
         assert_eq!(code, "4K7");
+        Ok(())
     }
 
     #[test]
-    fn value_code_of_100_nanofarads_is_100n() {
-        let code = value_code(100e-9, PassiveKind::Capacitor).unwrap_or_default();
+    fn value_code_of_100_nanofarads_is_100n() -> Result<(), String> {
+        let code = value_code(100e-9, PassiveKind::Capacitor)?;
         assert_eq!(code, "100N");
+        Ok(())
     }
 
     #[test]
-    fn value_code_of_one_megohm_is_1m0() {
-        let code = value_code(1e6, PassiveKind::Resistor).unwrap_or_default();
+    fn value_code_of_one_megohm_is_1m0() -> Result<(), String> {
+        let code = value_code(1e6, PassiveKind::Resistor)?;
         assert_eq!(code, "1M0");
+        Ok(())
     }
 
     #[test]
