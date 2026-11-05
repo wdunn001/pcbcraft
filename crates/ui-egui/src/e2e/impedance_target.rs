@@ -166,17 +166,25 @@ fn a_newcomer_lists_only_the_signal_integrity_findings() -> Result<(), String> {
     for _ in 0..3 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
+    // Pick the Signal integrity area; the list then holds only its findings.
+    tap_dialog_segment(&ctx, &mut app, "All areas", 3, 5)?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     assert!(
         paints_text(&ctx, &mut app, "Impedance target")?,
         "the signal integrity area shows the impedance finding: {}",
         app.message
     );
-    // The clearance finding is not an SI finding; it must not appear.
-    let clearance_shown = paints_text(&ctx, &mut app, "Clearance")?;
+    // The clearance finding is not an SI finding; its own sentence must not appear.
+    let clearance_text = pcbcraft_rules::drc(&app.project)
+        .iter()
+        .find(|f| f.code == "clearance")
+        .map(|f| f.message.clone())
+        .ok_or("the board has a clearance finding")?;
     assert!(
-        !clearance_shown,
-        "the clearance finding is not in the signal integrity area: {}",
-        app.message
+        !paints_text(&ctx, &mut app, &clearance_text)?,
+        "the clearance finding is not in the signal integrity area: {clearance_text}"
     );
     Ok(())
 }
