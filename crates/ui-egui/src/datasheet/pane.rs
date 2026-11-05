@@ -5,6 +5,7 @@ use crate::theme;
 use crate::ui_kit::button::{Size, secondary_button};
 use egui::{Color32, Context, Id, Pos2, Rect, Sense, TextureHandle, TextureOptions, Vec2};
 use pcbcraft_datasheet::{CharBox, DocSearch, Document, Selection, char_at_point, selected_text};
+use pcbcraft_library::datasheet_extract::TextDocument;
 use pcbcraft_text::t;
 
 /// How long a source rectangle flashes after Show source, in seconds of context time.
@@ -28,6 +29,7 @@ pub(crate) struct Pane {
     page_rect: Rect,
     page_response_id: Id,
     flash: Option<(usize, [f32; 4], f64)>,
+    pub(crate) pending_extract: bool,
 }
 
 impl Default for Pane {
@@ -47,6 +49,7 @@ impl Default for Pane {
             page_rect: Rect::NOTHING,
             page_response_id: Id::new("datasheet-page-unassigned"),
             flash: None,
+            pending_extract: false,
         }
     }
 }
@@ -313,6 +316,25 @@ impl Pane {
         }
     }
 
+    /// Take a pending extract request, reading every page and building the document.
+    pub(crate) fn take_extract_request(&mut self) -> Option<TextDocument> {
+        if !self.pending_extract {
+            return None;
+        }
+        self.pending_extract = false;
+        let doc = self.doc.as_ref()?;
+        let mut layers = Vec::new();
+        for page in 0..doc.page_count() {
+            match doc.text_layer(page) {
+                Ok(layer) => layers.push(layer),
+                Err(_) => layers.push(Vec::new()),
+            }
+        }
+        Some(crate::datasheet::extract_bridge::text_document_from_layers(
+            &layers,
+        ))
+    }
+
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let pages = self.doc.as_ref().map(|d| d.page_count()).unwrap_or(0);
@@ -410,6 +432,21 @@ impl Pane {
                 }
             } else if !self.search.query.is_empty() {
                 ui.label(t!("datasheet.pane.no_matches"));
+            }
+            ui.separator();
+            let extract_enabled = self.doc.is_some();
+            if secondary_button(
+                ui,
+                None,
+                &t!("datasheet.pane.extract"),
+                &t!("datasheet.pane.extract.tip"),
+                Size::Small,
+                extract_enabled,
+            )
+            .clicked()
+                && extract_enabled
+            {
+                self.pending_extract = true;
             }
         });
     }

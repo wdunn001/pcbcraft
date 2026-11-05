@@ -74,6 +74,7 @@ mod sheet_rows;
 mod shell;
 mod showcase;
 mod showcase_schematic_layout;
+mod silk_visibility;
 mod sourcing;
 mod toolbar;
 mod tours;
