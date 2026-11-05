@@ -129,7 +129,6 @@ fn apply_then_undo_restores_the_model_and_a_fixed_cell_is_refused() -> Result<()
 // ---------------------------------------------------------------- slice 1122-b
 
 #[test]
-#[ignore = "built in slice-1122-b"]
 fn the_gate_names_the_rule_a_move_would_break() -> Result<(), String> {
     let mut fx = Fixture::load("gate")?;
     let s = PlacementSettings::default();
@@ -200,7 +199,6 @@ fn the_gate_names_the_rule_a_move_would_break() -> Result<(), String> {
 }
 
 #[test]
-#[ignore = "built in slice-1122-b"]
 fn violations_count_overlaps_keepout_hits_and_the_edge_per_cell() -> Result<(), String> {
     let mut fx = Fixture::load("gate")?;
     let s = PlacementSettings::default();
