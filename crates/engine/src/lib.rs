@@ -46479,7 +46479,37 @@ mod tests {
         assert_eq!(first, second, "a second save must be byte-identical");
         Ok(())
     }
-
+    #[test]
+    fn a_newcomer_sets_fabrication_limits_and_sees_the_check() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let track_id = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":1.0,"y":1.0},"end":{"x":5.0,"y":1.0},"width":0.15,"layer":"F.Cu"}),
+            None,
+        )?["result"]["id"].as_u64().ok_or_else(missing)?;
+        s.execute(
+            "board.fab_limits.set",
+            json!({"min_track":0.2,"min_drill":0.35}),
+            None,
+        )?;
+        let checks = s.checks();
+        let drc = checks["drc"].as_array().ok_or_else(missing)?;
+        assert!(
+            drc.iter().any(|f| f["code"] == "min_track"),
+            "a track narrower than the recorded minimum is reported"
+        );
+        s.execute("track.set_width", json!({"id":track_id,"width":0.25}), None)?;
+        let checks2 = s.checks();
+        let drc2 = checks2["drc"].as_array().ok_or_else(missing)?;
+        assert!(
+            !drc2.iter().any(|f| f["code"] == "min_track"),
+            "widen the track past the limit and the finding disappears"
+        );
+        Ok(())
+    }
     #[allow(dead_code)]
     fn via_set_span_updates_range() -> Result<(), Error> {
         let (mut s, net) = six_layer_session()?;
