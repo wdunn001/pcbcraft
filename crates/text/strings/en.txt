@@ -4199,3 +4199,5 @@ assistant.open_settings.tip = Go to Preferences, where you add a model connectio
 prefs.assistant.forget = Forget all
 menu.view.board_settings = Board settings
 menu.view.board_settings.tip = Open the page for the board shape, copper pour, make files and panels.
+export.package.options = Options in this package
+export.package.option.tip = This package sets {option} to {value}. The file names above follow it.
