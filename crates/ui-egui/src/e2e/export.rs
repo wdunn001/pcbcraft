@@ -643,12 +643,21 @@ fn a_newcomer_exports_a_solder_paste_stencil_package() -> Result<(), String> {
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
-    let zip = std::fs::read_dir(dir.path())
+    let names: Vec<String> = std::fs::read_dir(dir.path())
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)
         .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    let zip = names
+        .iter()
         .find(|n| n.ends_with("-stencil-A.zip"))
-        .ok_or("no stencil zip was written after exporting")?;
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "no stencil zip after exporting: {names:?} / {}",
+                app.message
+            )
+        })?;
     assert!(
         std::fs::read(dir.path().join(&zip)).is_ok(),
         "the zip file is readable"
