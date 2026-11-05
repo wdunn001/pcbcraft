@@ -15,10 +15,13 @@
 //!
 //! # Do not
 //! - Offer a pair of one class with itself; the engine refuses it.
-use super::{ghost, mm_spec, note, num, secondary};
+use super::{NAME_WIDTH, SELECT_WIDTH, ghost, mm_spec, note, num, secondary};
 use crate::ui_kit::card::card;
 use crate::ui_kit::chip::chip;
+use crate::ui_kit::empty_state::empty_state;
 use crate::ui_kit::form_row::{FormWidth, form_row};
+use crate::ui_kit::icons;
+use crate::ui_kit::panel_header::panel_header;
 use crate::ui_kit::select::select;
 use crate::{App, theme};
 use pcbcraft_doc::{Id, NetClass};
@@ -64,34 +67,47 @@ impl App {
     /// # Do not
     /// - Hold a copy of a class; read it from the project each frame.
     pub(super) fn settings_classes(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            if secondary(
+        note(ui, t!("settings.project.classes.intro"));
+        ui.add_space(theme::SPACE[2]);
+        let mut add = false;
+        let can_add = self.project.net_classes.len() < 64;
+        if self.project.net_classes.is_empty() {
+            add = empty_state(
                 ui,
+                icons::PATH,
+                &t!("settings.project.classes.empty.title"),
+                &t!("settings.project.classes.empty"),
                 &t!("settings.project.classes.new"),
                 &t!("settings.project.classes.new.tip"),
-                self.project.net_classes.len() < 64,
             )
-            .clicked()
-            {
-                let name = t!(
-                    "settings.project.classes.default_name",
-                    n = self.project.net_classes.len() + 1
-                );
-                let clearance = self.project.board.clearance;
-                self.settings_run(
-                    "netclass.add",
-                    json!({"name": name, "clearance": clearance, "width": 0.25}),
-                );
-            }
-            note(ui, t!("settings.project.classes.intro"));
-        });
-        ui.add_space(8.0);
-        if self.project.net_classes.is_empty() {
-            note(ui, t!("settings.project.classes.empty"));
+            .clicked();
+            ui.add_space(theme::SPACE[3]);
+        } else {
+            panel_header(ui, &t!("settings.project.classes.title"), |ui| {
+                add = secondary(
+                    ui,
+                    &t!("settings.project.classes.new"),
+                    &t!("settings.project.classes.new.tip"),
+                    can_add,
+                )
+                .clicked();
+            });
+            ui.add_space(theme::SPACE[1]);
+        }
+        if add {
+            let name = t!(
+                "settings.project.classes.default_name",
+                n = self.project.net_classes.len() + 1
+            );
+            let clearance = self.project.board.clearance;
+            self.settings_run(
+                "netclass.add",
+                json!({"name": name, "clearance": clearance, "width": 0.25}),
+            );
         }
         for class in self.project.net_classes.clone() {
             self.settings_one_class(ui, &class);
-            ui.add_space(8.0);
+            ui.add_space(theme::SPACE[1]);
         }
         let taken: Vec<Id> = self
             .project
@@ -135,7 +151,7 @@ impl App {
                         ui,
                         ("class-name", id),
                         &class.name,
-                        220.0,
+                        NAME_WIDTH,
                         &name,
                         &t!("settings.project.classes.name.tip"),
                     )
@@ -206,7 +222,7 @@ impl App {
                     }
                 }
                 self.settings_class_si(ui, class);
-                ui.add_space(4.0);
+                ui.add_space(theme::SPACE[0]);
                 self.settings_class_nets(ui, class);
             },
         );
@@ -275,7 +291,7 @@ impl App {
                 &options,
                 &t!("settings.project.classes.add_net.pick"),
                 &t!("settings.project.classes.add_net.pick.tip"),
-                200.0,
+                NAME_WIDTH,
             );
             if secondary(
                 ui,
@@ -334,7 +350,7 @@ impl App {
                             &label,
                             &t!("settings.project.pairs.gap.tip"),
                         );
-                        ui.add_space(8.0);
+                        ui.add_space(theme::SPACE[1]);
                         remove = ghost(
                             ui,
                             &t!("settings.project.pairs.remove"),
@@ -361,7 +377,7 @@ impl App {
                     note(ui, t!("settings.project.pairs.need_two"));
                     return;
                 }
-                ui.add_space(8.0);
+                ui.add_space(theme::SPACE[1]);
                 let key_a = ui.id().with("ps-pair-a");
                 let key_b = ui.id().with("ps-pair-b");
                 let key_gap = ui.id().with("ps-pair-gap");
@@ -379,7 +395,7 @@ impl App {
                         &options,
                         &t!("settings.project.pairs.first"),
                         &t!("settings.project.pairs.first.tip"),
-                        160.0,
+                        SELECT_WIDTH,
                     );
                     select(
                         ui,
@@ -388,7 +404,7 @@ impl App {
                         &options,
                         &t!("settings.project.pairs.second"),
                         &t!("settings.project.pairs.second.tip"),
-                        160.0,
+                        SELECT_WIDTH,
                     );
                     if let Some(v) = num(
                         ui,

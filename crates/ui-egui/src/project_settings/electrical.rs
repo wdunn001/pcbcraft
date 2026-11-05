@@ -81,7 +81,7 @@ impl App {
                 self.severity_rows(ui, &ELECTRICAL_CODES);
             },
         );
-        ui.add_space(8.0);
+        ui.add_space(theme::SPACE[1]);
         let changed = !self.project.pin_matrix.is_empty();
         let mut reset = false;
         card(
@@ -98,7 +98,7 @@ impl App {
             },
             |ui| {
                 note(ui, t!("checks.pin_matrix.blurb"));
-                ui.add_space(8.0);
+                ui.add_space(theme::SPACE[1]);
                 if let Some((a, b, level)) = self.pin_grid(ui) {
                     self.settings_run(
                         "erc.matrix_set",

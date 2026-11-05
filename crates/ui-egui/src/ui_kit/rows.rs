@@ -75,21 +75,135 @@ pub fn list_row(
     tip: &str,
     content: impl FnOnce(&mut Ui),
 ) -> Response {
-    let t = theme::tokens(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width(), LIST_ROW_HEIGHT),
-        Sense::click(),
-    );
-    response
-        .widget_info(|| WidgetInfo::selected(WidgetType::SelectableLabel, true, selected, name));
-    paint_row_background(ui, rect, selected, response.hovered(), &t);
-    divider(ui, rect, &t);
+    list_row_high(ui, LIST_ROW_HEIGHT, selected, name, tip, content)
+}
+
+/// A list row of any height that is one of the design's row heights (36 or 48).
+///
+/// Why: a row with a name and a line of detail under it needs 48 where a plain row
+/// needs 36; both share hover, selection and divider.
+///
+/// # Rules
+/// - Same rules as [`list_row`].
+///
+/// # Do not
+/// - Pass a height the design system does not name.
+pub fn list_row_high(
+    ui: &mut Ui,
+    height: f32,
+    selected: bool,
+    name: &str,
+    tip: &str,
+    content: impl FnOnce(&mut Ui),
+) -> Response {
+    let (rect, response) = row_frame(ui, height, selected, name);
     let mut child = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(rect.shrink2(Vec2::new(12.0, 0.0)))
             .layout(Layout::left_to_right(egui::Align::Center)),
     );
     content(&mut child);
+    super::focus::focus_ring(ui, &response, 0);
+    response.on_hover_text(tip)
+}
+
+/// Allocate a row, name it for screen readers and paint its background and divider.
+fn row_frame(ui: &mut Ui, height: f32, selected: bool, name: &str) -> (Rect, Response) {
+    let t = theme::tokens(ui.ctx());
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
+    response
+        .widget_info(|| WidgetInfo::selected(WidgetType::SelectableLabel, true, selected, name));
+    paint_row_background(ui, rect, selected, response.hovered(), &t);
+    divider(ui, rect, &t);
+    (rect, response)
+}
+
+/// Height of a table header row.
+pub const TABLE_HEAD_HEIGHT: f32 = 32.0;
+
+/// Split `total` points into columns in the proportion of `weights`.
+///
+/// Why: a table header and its rows must cut the width the same way.
+pub fn column_widths(total: f32, weights: &[f32]) -> Vec<f32> {
+    let sum: f32 = weights.iter().sum();
+    if sum <= 0.0 {
+        return vec![0.0; weights.len()];
+    }
+    weights.iter().map(|w| total * w / sum).collect()
+}
+
+/// The header row of a table: caption text over each column and a rule under it.
+///
+/// Why: file lists and rule lists read as tables with the same head.
+///
+/// # Rules
+/// - `labels` and `weights` have one entry per column; the columns match [`table_row`].
+///
+/// # Do not
+/// - Make the head clickable; sorting is not part of the design.
+pub fn table_head(ui: &mut Ui, weights: &[f32], labels: &[&str]) {
+    let t = theme::tokens(ui.ctx());
+    let (rect, _) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width(), TABLE_HEAD_HEIGHT),
+        Sense::hover(),
+    );
+    let inner = rect.shrink2(Vec2::new(12.0, 0.0));
+    let widths = column_widths(inner.width(), weights);
+    let mut x = inner.min.x;
+    for (label, width) in labels.iter().zip(widths) {
+        let galley =
+            ui.painter()
+                .layout_no_wrap(label.to_uppercase(), fonts::Role::Caption.font(), t.muted);
+        ui.painter().galley(
+            pos2(x, rect.center().y - galley.size().y / 2.0),
+            galley,
+            t.muted,
+        );
+        x += width;
+    }
+    ui.painter().hline(
+        rect.x_range(),
+        rect.max.y - 0.5,
+        Stroke::new(theme::BORDER, t.line),
+    );
+}
+
+/// A 36 high table row: the cells of `content` sit in the columns of `weights`.
+///
+/// Why: the Project files table and any later table share the row look of lists.
+///
+/// # Rules
+/// - `content` runs once per column with the cell's ui and the column index; the cell is
+///   left to right and vertically centred.
+/// - `name` is the accessible name of the row.
+///
+/// # Do not
+/// - Put a primary button in a row.
+pub fn table_row(
+    ui: &mut Ui,
+    selected: bool,
+    name: &str,
+    tip: &str,
+    weights: &[f32],
+    mut content: impl FnMut(&mut Ui, usize),
+) -> Response {
+    let (rect, response) = row_frame(ui, LIST_ROW_HEIGHT, selected, name);
+    let widths = column_widths(rect.width() - 24.0, weights);
+    let mut x = rect.min.x + 12.0;
+    for (index, width) in widths.into_iter().enumerate() {
+        let cell = Rect::from_min_size(
+            pos2(x, rect.min.y),
+            Vec2::new((width - 8.0).max(0.0), LIST_ROW_HEIGHT),
+        );
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(cell)
+                .layout(Layout::left_to_right(egui::Align::Center)),
+        );
+        content(&mut child, index);
+        x += width;
+    }
     super::focus::focus_ring(ui, &response, 0);
     response.on_hover_text(tip)
 }
@@ -541,5 +655,35 @@ mod tests {
     #[test]
     fn indent_is_16_per_level() {
         assert_eq!(TREE_INDENT, 16.0);
+    }
+
+    /// A 48 high list row and a table row keep the heights the design names.
+    #[test]
+    fn tall_and_table_rows_keep_their_heights() {
+        let ctx = context(true);
+        let mut got = Vec::new();
+        frame(&ctx, vec![], |ui| {
+            got.push(
+                list_row_high(ui, 48.0, false, "a", "tip", |_| {})
+                    .rect
+                    .height(),
+            );
+            got.push(
+                table_row(ui, false, "b", "tip", &[2.0, 1.0], |ui, i| {
+                    ui.label(i.to_string());
+                })
+                .rect
+                .height(),
+            );
+        });
+        assert_eq!(got, vec![48.0, LIST_ROW_HEIGHT]);
+    }
+
+    /// Column widths follow the weights and add up to the whole width.
+    #[test]
+    fn column_widths_split_the_width_by_weight() {
+        let widths = column_widths(300.0, &[2.0, 1.0]);
+        assert_eq!(widths, vec![200.0, 100.0]);
+        assert_eq!(column_widths(100.0, &[0.0]), vec![0.0]);
     }
 }

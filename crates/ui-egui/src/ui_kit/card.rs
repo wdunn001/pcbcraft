@@ -39,6 +39,37 @@ pub fn card<R>(
     actions: impl FnOnce(&mut Ui),
     body: impl FnOnce(&mut Ui) -> R,
 ) -> InnerResponse<R> {
+    card_with_margin(ui, title, caption, actions, Margin::symmetric(16, 8), body)
+}
+
+/// A card whose body has no padding. A table or a list runs from edge to edge.
+///
+/// Why: rows and table heads draw their own 12 point inset and divider; padding the body
+/// as well would shrink them away from the card border.
+///
+/// # Rules
+/// - Same header as [`card`]; the body gets the card's full width.
+///
+/// # Do not
+/// - Put loose text in the body; use [`card`].
+pub fn card_flush<R>(
+    ui: &mut Ui,
+    title: &str,
+    caption: Option<&str>,
+    actions: impl FnOnce(&mut Ui),
+    body: impl FnOnce(&mut Ui) -> R,
+) -> InnerResponse<R> {
+    card_with_margin(ui, title, caption, actions, Margin::ZERO, body)
+}
+
+fn card_with_margin<R>(
+    ui: &mut Ui,
+    title: &str,
+    caption: Option<&str>,
+    actions: impl FnOnce(&mut Ui),
+    margin: Margin,
+    body: impl FnOnce(&mut Ui) -> R,
+) -> InnerResponse<R> {
     let t = theme::tokens(ui.ctx());
     Frame::new()
         .fill(t.panel)
@@ -75,9 +106,13 @@ pub fn card<R>(
                 Stroke::new(theme::BORDER, t.line),
             );
             Frame::new()
-                .inner_margin(Margin::symmetric(16, 8))
+                .inner_margin(margin)
                 .show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = theme::SPACE[1];
+                    ui.spacing_mut().item_spacing.y = if margin == Margin::ZERO {
+                        0.0
+                    } else {
+                        theme::SPACE[1]
+                    };
                     body(ui)
                 })
                 .inner
