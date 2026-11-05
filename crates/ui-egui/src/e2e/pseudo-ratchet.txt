@@ -10,7 +10,7 @@ clipped | Rules | 1280 | 3
 clipped | Rules | 320 | 3
 escaped | Rules | 320 | 35
 clipped | Settings | 320 | 1
-escaped | Settings | 320 | 5
+escaped | Settings | 320 | 2
 clipped | Libraries | 1280 | 6
 clipped | Libraries | 320 | 6
 escaped | Libraries | 320 | 14

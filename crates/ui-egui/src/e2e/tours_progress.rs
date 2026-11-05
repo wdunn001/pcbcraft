@@ -75,17 +75,13 @@ fn a_newcomer_turns_off_tour_offers() -> Result<(), String> {
         paints_text(&ctx, &mut app, &chip)?,
         "with offers on, the tab chip should appear"
     );
-    app.change_tab(Tab::Settings);
+    app.open_preferences(crate::preferences::TAB_APPEARANCE);
     assert!(
-        scrolled_to_at(
-            &ctx,
-            &mut app,
-            &t!("settings.settings_tab.offer_tours"),
-            700.0
-        )?,
-        "Settings should list Offer tours"
+        paints_text(&ctx, &mut app, &t!("prefs.tours"))?,
+        "Preferences should list Offer tours"
     );
-    authoring::tests::tap(&ctx, &mut app, &t!("settings.settings_tab.offer_tours"))?;
+    tap_id(&ctx, &mut app, &format!("checkbox:{}", t!("prefs.tours")))?;
+    tap_id(&ctx, &mut app, "button:Done")?;
     app.change_tab(Tab::Pcb);
     app.tour.test_quiet_tab_changes();
     for _ in 0..5 {

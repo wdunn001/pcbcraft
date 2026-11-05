@@ -298,6 +298,11 @@ fn walk(path: &Path) {
         ("symbol-editor", Some("symbol-editor"), None),
         ("footprint-editor", Some("footprint-editor"), None),
         ("project-library", Some("project-library"), None),
+        ("preferences-appearance", None, Some(Tab::Pcb)),
+        ("preferences-language", None, Some(Tab::Pcb)),
+        ("preferences-keys", None, Some(Tab::Pcb)),
+        ("preferences-libraries", None, Some(Tab::Pcb)),
+        ("preferences-assistant", None, Some(Tab::Pcb)),
     ];
     let mut painted: BTreeMap<String, &str> = BTreeMap::new();
     let mut no_tip: BTreeMap<String, String> = BTreeMap::new();
@@ -307,6 +312,8 @@ fn walk(path: &Path) {
         if let Some(tab) = tab {
             app.tab = tab;
         }
+        // A Preferences page is the dialog over the Layout tab; only what the dialog draws counts.
+        let dialog = name.starts_with("preferences-") && app.capture_preferences(name);
         if matches!(tab, Some(Tab::Schematic | Tab::Pcb)) {
             // The map is a peek that closes when the pointer leaves it, so
             // whether its pin and surface were listed depended on where the
@@ -323,8 +330,17 @@ fn walk(path: &Path) {
             let _ = waits_for_library_read(&ctx, &mut app);
             settle(&ctx, &mut app);
         }
-        let listed = controls(&ctx, &app);
+        let mut listed = controls(&ctx, &app);
         TALL_SCREEN.with(|tall| tall.set(false));
+        if dialog {
+            // Only what the dialog itself draws counts, not the floating canvas controls
+            // that share its layer order.
+            let layer = listed
+                .iter()
+                .find(|c| c.id.as_deref() == Some("tab:Appearance"))
+                .map(|c| c.layer);
+            listed.retain(|c| Some(c.layer) == layer);
+        }
         let mut checked = BTreeSet::new();
         for control in listed {
             if !control.enabled {
