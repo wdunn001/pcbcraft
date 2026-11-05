@@ -480,12 +480,16 @@ mod tests {
         // Expect one completed connection.
         assert_eq!(result["completed"], json!(1), "one connection routed");
         assert_eq!(result["attempts"], json!(1), "one attempt made");
-        assert_eq!(result["open_connections"], json!(1), "one open connection found");
+        assert_eq!(
+            result["open_connections"],
+            json!(1),
+            "one open connection found"
+        );
 
         // Expect no failures.
-        let failed = result["failed"].as_array().ok_or_else(|| {
-            Error::Invalid("failed is not an array".into())
-        })?;
+        let failed = result["failed"]
+            .as_array()
+            .ok_or_else(|| Error::Invalid("failed is not an array".into()))?;
         assert_eq!(failed.len(), 0, "no failed connections");
 
         // Expect tracks to have been created.
@@ -496,7 +500,6 @@ mod tests {
 
         Ok(())
     }
-}
 
     #[test]
     fn route_auto_hard_rule_failure_reports_blocked() -> Result<(), Error> {
@@ -552,10 +555,7 @@ mod tests {
         if failed == 1 {
             let failures = result["failed"].as_array().unwrap();
             let first = &failures[0];
-            assert!(
-                first["reason"].is_string(),
-                "failure has a reason string"
-            );
+            assert!(first["reason"].is_string(), "failure has a reason string");
         }
 
         Ok(())
@@ -657,11 +657,7 @@ mod tests {
         s.execute("board.sync", json!({}), None)?;
 
         // Dry run
-        let r = s.execute(
-            "route.auto",
-            json!({"scope":"board"}),
-            Some(true),
-        )?;
+        let r = s.execute("route.auto", json!({"scope":"board"}), Some(true))?;
         let result = &r["result"];
 
         // Dry run should report what would be done
@@ -715,11 +711,7 @@ mod tests {
 
             s.execute("board.sync", json!({}), None)?;
 
-            let r = s.execute(
-                "route.auto",
-                json!({"scope":"board","seed":seed}),
-                None,
-            )?;
+            let r = s.execute("route.auto", json!({"scope":"board","seed":seed}), None)?;
             let result = &r["result"];
 
             let completed = result["completed"].as_u64().unwrap_or(0);
