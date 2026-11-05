@@ -406,10 +406,10 @@ fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
         !paints_text(&ctx, &mut app, "Paramètres")?,
         "no French shows yet"
     );
-    // The person opens the Settings page and picks a language.
-    app.change_tab(Tab::Settings);
+    // The person opens Preferences, goes to Language and units and picks a language.
+    app.open_preferences(crate::preferences::TAB_LANGUAGE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    tap_id(&ctx, &mut app, "combobox:Language")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Français (test)")?;
     assert!(
@@ -464,10 +464,10 @@ fn a_newcomer_reads_the_app_in_spanish() -> Result<(), String> {
         !paints_text(&ctx, &mut app, "Archivo")?,
         "no Spanish shows yet"
     );
-    // The person opens the Settings page and picks Español from the list.
-    app.change_tab(Tab::Settings);
+    // The person opens the Preferences and picks Español from the list.
+    app.open_preferences(crate::preferences::TAB_LANGUAGE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    tap_id(&ctx, &mut app, "combobox:Language")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Español")?;
     assert_eq!(app.preferences.language, "es", "the choice is remembered");
@@ -517,10 +517,10 @@ fn a_newcomer_reads_the_app_in_german() -> Result<(), String> {
         !paints_text(&ctx, &mut app, "Datei")?,
         "no German shows yet"
     );
-    // The person opens the Settings page and picks Deutsch from the list.
-    app.change_tab(Tab::Settings);
+    // The person opens the Preferences and picks Deutsch from the list.
+    app.open_preferences(crate::preferences::TAB_LANGUAGE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    tap_id(&ctx, &mut app, "combobox:Language")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Deutsch")?;
     assert_eq!(app.preferences.language, "de", "the choice is remembered");
@@ -570,10 +570,10 @@ fn a_newcomer_reads_the_app_in_french() -> Result<(), String> {
         !paints_text(&ctx, &mut app, "Fichier")?,
         "no French shows yet"
     );
-    // The person opens the Settings page and picks Français from the list.
-    app.change_tab(Tab::Settings);
+    // The person opens the Preferences and picks Français from the list.
+    app.open_preferences(crate::preferences::TAB_LANGUAGE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    tap_id(&ctx, &mut app, "combobox:Language")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Français")?;
     assert_eq!(app.preferences.language, "fr", "the choice is remembered");
@@ -668,6 +668,77 @@ fn a_newcomer_sees_a_slim_bar_with_only_the_brand_and_the_menus() -> Result<(), 
     authoring::tests::tap(&ctx, &mut app, "File")?;
     for needle in ["New", "Open", "Save", "Settings", "Export", "Copy picture"] {
         assert!(paints_text(&ctx, &mut app, needle)?, "File lists {needle}");
+    }
+    Ok(())
+}
+
+/// Walk the accesskit tree and check that no menu contains a text input.
+fn menu_has_no_text_inputs(menu_name: &str, output: &egui::FullOutput) -> Result<(), String> {
+    let Some(update) = &output.platform_output.accesskit_update else {
+        return Err("no accesskit update".to_owned());
+    };
+
+    // Build parent map: child -> parent
+    let mut parent: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+    for (id, node) in &update.nodes {
+        for child in node.children() {
+            parent.insert(child.0, id.0);
+        }
+    }
+
+    // Find menu nodes (the open menu popup)
+    let menu_ids: Vec<u64> = update
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.role() == egui::accesskit::Role::Menu)
+        .map(|(id, _)| id.0)
+        .collect();
+
+    if menu_ids.is_empty() {
+        // No open menu yet; nothing to check
+        return Ok(());
+    }
+
+    // Check each text input node
+    for (id, node) in &update.nodes {
+        if node.role() != egui::accesskit::Role::TextInput
+            && node.role() != egui::accesskit::Role::MultilineTextInput
+        {
+            continue;
+        }
+
+        // Walk up ancestors
+        let mut current = Some(id.0);
+        let name = node.label().unwrap_or_default().trim().to_owned();
+        let mut in_menu = false;
+        while let Some(node_id) = current {
+            if menu_ids.contains(&node_id) {
+                in_menu = true;
+                break;
+            }
+            current = parent.get(&node_id).copied();
+        }
+
+        if in_menu {
+            return Err(format!("menu {menu_name} contains a text input: {name}"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_finds_no_text_input_in_the_menus() -> Result<(), String> {
+    let (ctx, mut app) = practice_app();
+    for menu in ["File", "Edit", "Help"] {
+        authoring::tests::tap(&ctx, &mut app, menu)?;
+        let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        menu_has_no_text_inputs(menu, &out)?;
+        frame(
+            &ctx,
+            &mut app,
+            vec![key(egui::Key::Escape)],
+            egui::Modifiers::NONE,
+        );
     }
     Ok(())
 }
@@ -871,7 +942,7 @@ fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result
         vec![key(egui::Key::Enter)],
         egui::Modifiers::NONE,
     );
-    assert_eq!(app.tab, Tab::Settings, "Enter presses it: {}", app.message);
+    assert!(app.prefs_ui.open, "Enter presses it: {}", app.message);
     Ok(())
 }
 

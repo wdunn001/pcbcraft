@@ -66,11 +66,8 @@ menu.settings.pad_labels.net.tip = Dibujar el nombre de la red en cada pad, úti
 menu.settings.pad_labels.off.tip = Ocultar las etiquetas de pads para una vista limpia.
 menu.settings.library_sources = Fuentes de las librerías…
 menu.settings.library_sources.tip = Administrar las carpetas que alimentan la lista de componentes.
-menu.settings.language = Idioma
-menu.settings.language.tip = Elige el idioma de los menús y de los mensajes. El cambio se aplica al instante.
 menu.settings.language.system = Idioma del sistema
 menu.settings.language.system.tip = Seguir el idioma de esta computadora.
-menu.settings.language.pick.tip = Mostrar la aplicación en este idioma.
 
 menu.help = Ayuda
 menu.help.tip = Atajos, recorridos, la búsqueda de comandos y los informes de errores.
@@ -83,9 +80,6 @@ menu.help.commands.tip = Buscar cualquier comando por su nombre y ejecutarlo, co
 menu.help.tours = Recorridos
 menu.help.tours.tip = Guías que señalan controles reales; reinicia cualquiera desde aquí.
 
-pad_labels.number = Pads: número
-pad_labels.net = Pads: red
-pad_labels.off = Pads: sin etiquetas
 
 unit.mm = mm
 unit.mil = mil
@@ -139,7 +133,6 @@ modifier.status.click = Clic
 modifier.status.chord_click = {chord}+clic
 modifier.status.drag = Arrastrar
 modifier.status.tip = Lo que hace un clic aquí y lo que cambian las teclas pulsadas.
-modifier.prefs.title = Teclas
 modifier.prefs.intro = Elige la tecla de cada herramienta y el modificador de cada acción. Los cambios se aplican al instante.
 modifier.prefs.hotkey.tip = La tecla que elige esta herramienta. Solo letras, y no una que el editor ya use.
 modifier.prefs.chord.tip = Mantén esta tecla o teclas para obtener el efecto. Desactivado lo apaga.
@@ -154,7 +147,6 @@ modifier.hotkey.route = Herramienta Ruta
 modifier.hotkey.via = Herramienta Vía
 modifier.hotkey.text = Herramienta Texto
 modifier.menu.tip = Lo que hacen las teclas modificadoras en la herramienta activa.
-modifier.prefs.title.tip = Muestra u oculta las teclas de herramienta y los modificadores.
 # English fallbacks so the missing-key ratchet does not rise.
 props.height = Height
 props.clearance = Clearance

@@ -275,8 +275,7 @@ fn settings_app(
         keys: Some(keys),
     });
     app.refresh();
-    app.assistant.settings_open = true;
-    app.change_tab(Tab::Settings);
+    app.open_preferences(crate::preferences::TAB_ASSISTANT);
     app
 }
 
@@ -285,11 +284,6 @@ fn a_newcomer_adds_a_local_model_server_and_tests_it() -> Result<(), String> {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut app = settings_app(calls.clone(), std::sync::Arc::new(FakeKeychain::default()));
     let ctx = egui::Context::default();
-    settle(&ctx, &mut app);
-    // Fold the section away and open it again, as a first-time visitor would.
-    authoring::tests::tap(&ctx, &mut app, "v Assistant settings")?;
-    settle(&ctx, &mut app);
-    authoring::tests::tap(&ctx, &mut app, "> Assistant settings")?;
     settle(&ctx, &mut app);
     authoring::tests::tap(&ctx, &mut app, "Add connection")?;
     settle(&ctx, &mut app);
@@ -557,11 +551,11 @@ fn a_newcomer_opens_the_assistant_and_learns_how_to_connect_it() -> Result<(), S
     let mut app = app_with_http(&http, false);
     let ctx = egui::Context::default();
     assert!(paints_text(&ctx, &mut app, "Nothing leaves this computer")?);
-    authoring::tests::tap(&ctx, &mut app, "Open Settings")?;
+    authoring::tests::tap(&ctx, &mut app, "Open Preferences")?;
     settle(&ctx, &mut app);
     assert!(
-        scrolled_to_at(&ctx, &mut app, "v Assistant settings", 700.0)?,
-        "the Assistant section is on screen"
+        paints_text(&ctx, &mut app, "Connections")?,
+        "the Assistant page of Preferences is on screen"
     );
     for _ in 0..20 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);

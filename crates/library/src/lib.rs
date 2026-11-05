@@ -820,4 +820,6 @@ mod pin_graphical_tests {
         assert!(!pin.decoration_paths().is_empty());
     }
 }
+pub mod passive_generator;
 pub mod passive_series;
+pub use passive_generator::{GeneratedPassive, generate_passive};
