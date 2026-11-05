@@ -1,0 +1,86 @@
+/// Snap a value to the nearest grid point.
+fn snap_to_grid(value: f64, grid: f64) -> f64 {
+    (value / grid).round() * grid
+}
+
+/// Snap a point to the nearest grid point.
+fn snap_point(p: Point, grid: f64) -> Point {
+    Point::new(snap_to_grid(p.x, grid), snap_to_grid(p.y, grid))
+}
+
+/// Check if a footprint's courtyard box is within the board edge clearance.
+/// Returns true if all corners are at least edge_clear inside the board.
+fn is_within_edge_clearance(p: &Project, f: &Footprint, edge_clear: f64) -> bool {
+    // Compute the courtyard box corners in world coordinates.
+    let points = f.drawing_points(p);
+    if points.is_empty() {
+        return true;
+    }
+    let mut lo = Point::new(f64::MAX, f64::MAX);
+    let mut hi = Point::new(f64::MIN, f64::MIN);
+    for pt in &points {
+        let world = f.position.offset(pt.rotate(-f.rotation));
+        lo = Point::new(lo.x.min(world.x), lo.y.min(world.y));
+        hi = Point::new(hi.x.max(world.x), hi.y.max(world.y));
+    }
+    // Add a small margin for the courtyard.
+    let margin = 0.25;
+    let corners = [
+        Point::new(lo.x - margin, lo.y - margin),
+        Point::new(hi.x + margin, lo.y - margin),
+        Point::new(hi.x + margin, hi.y + margin),
+        Point::new(lo.x - margin, hi.y + margin),
+    ];
+    for corner in &corners {
+        if !p.board_contains(*corner) {
+            return false;
+        }
+    }
+    // Check clearance from edges for rectangular boards.
+    if p.board.outline.is_none() {
+        for corner in &corners {
+            if corner.x < edge_clear || corner.y < edge_clear {
+                return false;
+            }
+            if corner.x > p.board.width - edge_clear {
+                return false;
+            }
+            if corner.y > p.board.height - edge_clear {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Clamp a footprint position to stay within the board edge clearance.
+/// Only works for rectangular boards; for traced outlines, the caller should
+/// check is_within_edge_clearance first.
+fn clamp_to_board(p: &Project, f: &Footprint, edge_clear: f64) -> Point {
+    let points = f.drawing_points(p);
+    if points.is_empty() {
+        return f.position;
+    }
+    let mut lo = Point::new(f64::MAX, f64::MAX);
+    let mut hi = Point::new(f64::MIN, f64::MIN);
+    for pt in &points {
+        let world = f.position.offset(pt.rotate(-f.rotation));
+        lo = Point::new(lo.x.min(world.x), lo.y.min(world.y));
+        hi = Point::new(hi.x.max(world.x), hi.y.max(world.y));
+    }
+    let margin = 0.25;
+    let mut pos = f.position;
+    if lo.x - margin < edge_clear {
+        pos.x += edge_clear - (lo.x - margin);
+    }
+    if hi.x + margin > p.board.width - edge_clear {
+        pos.x -= (hi.x + margin) - (p.board.width - edge_clear);
+    }
+    if lo.y - margin < edge_clear {
+        pos.y += edge_clear - (lo.y - margin);
+    }
+    if hi.y + margin > p.board.height - edge_clear {
+        pos.y -= (hi.y + margin) - (p.board.height - edge_clear);
+    }
+    pos
+}
