@@ -53,6 +53,7 @@ mod pads;
 mod pairs;
 mod part_listing;
 mod parts_table;
+mod pin_map;
 mod pnp_machine;
 mod pours;
 mod preferences;

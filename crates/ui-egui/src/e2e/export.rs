@@ -46,11 +46,15 @@ fn right_click_first_part(ctx: &egui::Context, app: &mut App) -> Result<Id, Stri
 }
 
 /// Scroll the format list of the open dialog until `label` shows.
-fn in_format_list(ctx: &egui::Context, app: &mut App, label: &str) -> Result<bool, String> {
+pub(crate) fn in_format_list(
+    ctx: &egui::Context,
+    app: &mut App,
+    label: &str,
+) -> Result<bool, String> {
     scrolled_to_at(ctx, app, label, 450.0)
 }
 
-fn file_export(ctx: &egui::Context, app: &mut App, entry: &str) -> Result<(), String> {
+pub(crate) fn file_export(ctx: &egui::Context, app: &mut App, entry: &str) -> Result<(), String> {
     authoring::tests::tap(ctx, app, "File")?;
     authoring::tests::tap(ctx, app, "Export")?;
     authoring::tests::tap(ctx, app, entry)
