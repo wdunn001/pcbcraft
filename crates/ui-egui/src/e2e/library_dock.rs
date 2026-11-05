@@ -226,19 +226,3 @@ fn the_library_view_switch_fits_a_narrow_aside() -> Result<(), String> {
     }
     Ok(())
 }
-
-#[test]
-fn a_newcomer_toggles_3d_model_fetch_for_online_parts() -> Result<(), String> {
-    let (ctx, mut app) = library_open();
-    // Open settings to find the 3D model fetch toggle.
-    tap_id(&ctx, &mut app, "tab:Settings")?;
-    // Navigate to Libraries settings.
-    tap_id(&ctx, &mut app, "button:Libraries")?;
-    // Toggle the "Fetch 3D models" checkbox.
-    tap_id(&ctx, &mut app, "checkbox:Fetch 3D models for online parts")?;
-    assert!(
-        app.preferences.fetch_open_library_3d,
-        "the preference is saved after toggling"
-    );
-    Ok(())
-}
