@@ -1221,7 +1221,7 @@ impl App {
     /// "break apart here", and the rest stay quiet so copper stays loudest.
     fn draw_user_layers(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
         for layer in &p.board.user_layers {
-            if !layer.visible {
+            if !self.art_layer_shown(layer) {
                 continue;
             }
             let colour = match layer.kind {
@@ -1233,7 +1233,12 @@ impl App {
                 pcbcraft_doc::ArtKind::Fabrication => self.colours().canvas.fabrication,
                 pcbcraft_doc::ArtKind::Other => self.ink().linear_multiply(0.55),
             };
-            let colour = colour.linear_multiply(self.art_alpha(&layer.name));
+            let side_alpha = if layer.kind == pcbcraft_doc::ArtKind::Silk {
+                self.silk_view_alpha(layer.side == pcbcraft_doc::ArtSide::Bottom)
+            } else {
+                1.0
+            };
+            let colour = colour.linear_multiply(self.art_alpha(&layer.name) * side_alpha);
             let stroke = Stroke::new(1.2, colour);
             let dotted = layer.dotted || layer.kind == pcbcraft_doc::ArtKind::Fabrication;
             for shape in &layer.shapes {
@@ -2552,7 +2557,7 @@ impl App {
                 - Vec2::new(0.0, 12.0);
             let value_at = camera.screen(f.position.offset(Point::new(label_x, bottom_y)), rect)
                 + Vec2::new(0.0, 12.0);
-            let silk_fade = stack.silk_alpha(on_bottom);
+            let silk_fade = stack.silk_alpha(on_bottom) * self.silk_view_alpha(on_bottom);
             let color = if let Some(kind) = self.compare_tint.get(&f.id).copied() {
                 self.compare_kind_color(kind)
             } else if let Some(kind) = self.compare_tint.get(&f.component).copied() {
@@ -2687,14 +2692,14 @@ impl App {
                     Align2::CENTER_BOTTOM,
                     &c.reference,
                     role_font(TextRole::BoardReference, camera.zoom),
-                    art.text.linear_multiply(stack.silk_alpha(on_bottom) * lit),
+                    art.text.linear_multiply(silk_fade * lit),
                 );
                 painter.text(
                     below,
                     Align2::CENTER_TOP,
                     &c.value,
                     role_font(TextRole::BoardValue, camera.zoom),
-                    art.muted.linear_multiply(stack.silk_alpha(on_bottom) * lit),
+                    art.muted.linear_multiply(silk_fade * lit),
                 );
             }
             if self.selected == Some(f.id)
@@ -2703,18 +2708,17 @@ impl App {
                 self.paint_selection_box(painter, courtyard);
             }
         }
-        for t in p
-            .board
-            .texts
-            .iter()
-            .filter(|t| sub_on(t.layer, crate::layer_visibility::SubLayer::Text))
-        {
+        for t in p.board.texts.iter().filter(|t| {
+            sub_on(t.layer, crate::layer_visibility::SubLayer::Text)
+                && sub_on(t.layer, crate::layer_visibility::SubLayer::Silk)
+        }) {
             let at = camera.screen(t.position, rect);
             let color = if t.layer == pcbcraft_doc::Layer::Front {
                 self.ink()
             } else {
                 self.ink().gamma_multiply(0.75)
-            };
+            }
+            .linear_multiply(self.silk_view_alpha(t.layer != pcbcraft_doc::Layer::Front));
             painter.text(
                 at,
                 Align2::LEFT_BOTTOM,

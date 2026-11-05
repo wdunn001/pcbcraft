@@ -12,6 +12,9 @@ use super::*;
 use crate::layer_visibility::{self as lv, SubLayer};
 use pcbcraft_doc::{Footprint, Layer, Via};
 
+/// Strength of silkscreen on the side facing away from the viewer.
+pub(crate) const FAR_SIDE_SILK_ALPHA: f32 = 0.2;
+
 /// Items of one layer, split into what exists and what is painted right now.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct LayerCount {
@@ -107,6 +110,32 @@ impl App {
             self.layer_group_shown(layer)
         } else {
             self.layer_part_shown(layer, SubLayer::Silk)
+        }
+    }
+
+    /// The copper layer a drawn silk layer sits on: Top, or the bottom copper.
+    pub(crate) fn art_side_layer(&self, side: pcbcraft_doc::ArtSide) -> Layer {
+        match side {
+            pcbcraft_doc::ArtSide::Top => Layer::Front,
+            pcbcraft_doc::ArtSide::Bottom => self.project.bottom_layer(),
+        }
+    }
+
+    /// A drawn layer is painted. A silk layer follows its side and that side's silkscreen
+    /// row; every other kind keeps its own eye only.
+    pub(crate) fn art_layer_shown(&self, art: &pcbcraft_doc::ArtLayer) -> bool {
+        art.visible
+            && (art.kind != pcbcraft_doc::ArtKind::Silk
+                || self.layer_part_shown(self.art_side_layer(art.side), SubLayer::Silk))
+    }
+
+    /// Strength of silkscreen that sits on one side, seen from the side the board is viewed from.
+    /// Silkscreen of the far side is ghosted so only the near side reads at full strength.
+    pub(crate) fn silk_view_alpha(&self, bottom: bool) -> f32 {
+        if bottom == self.pcb.mirror {
+            1.0
+        } else {
+            FAR_SIDE_SILK_ALPHA
         }
     }
 
