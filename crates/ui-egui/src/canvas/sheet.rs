@@ -9,7 +9,7 @@
 //!
 //! Dependencies: `crates/ui-egui/src/canvas.rs` calls in from `paint_schematic`
 //! and `symbol`; `crates/doc/src/lib.rs` supplies `Project`, `Wire`, `Label`.
-use super::text_style::{TextRole, role_font};
+use super::text_style::{TextRole, boxed_font_mm, role_font};
 use super::*;
 use egui::{Align2, Color32, FontId};
 use std::collections::HashMap;
@@ -380,7 +380,12 @@ pub(super) fn paint_sheet(
     if dots {
         paint_dots(painter, rect, camera, sheet, inner, sc);
     }
-    let font = FontId::monospace((band * 0.55).clamp(8.0, 11.0));
+    let font = boxed_font_mm(sheet.band as f32 * 0.55, camera.zoom, true);
+    let zone = |at: Pos2, label: &str| {
+        if let Some(f) = &font {
+            painter.text(at, Align2::CENTER_CENTER, label, f.clone(), sc.zone_text);
+        }
+    };
     for i in 0..sheet.cols {
         let x0 = inner.left() + inner.width() * i as f32 / sheet.cols as f32;
         let x1 = inner.left() + inner.width() * (i + 1) as f32 / sheet.cols as f32;
@@ -396,20 +401,8 @@ pub(super) fn paint_sheet(
         }
         let label = (i + 1).to_string();
         let mid = (x0 + x1) / 2.0;
-        painter.text(
-            Pos2::new(mid, outer.top() + band / 2.0),
-            Align2::CENTER_CENTER,
-            &label,
-            font.clone(),
-            sc.zone_text,
-        );
-        painter.text(
-            Pos2::new(mid, outer.bottom() - band / 2.0),
-            Align2::CENTER_CENTER,
-            &label,
-            font.clone(),
-            sc.zone_text,
-        );
+        zone(Pos2::new(mid, outer.top() + band / 2.0), &label);
+        zone(Pos2::new(mid, outer.bottom() - band / 2.0), &label);
     }
     for j in 0..sheet.rows {
         let y0 = inner.top() + inner.height() * j as f32 / sheet.rows as f32;
@@ -426,20 +419,8 @@ pub(super) fn paint_sheet(
         }
         let letter = char::from_u32(65 + j as u32).unwrap_or('?').to_string();
         let mid = (y0 + y1) / 2.0;
-        painter.text(
-            Pos2::new(outer.left() + band / 2.0, mid),
-            Align2::CENTER_CENTER,
-            &letter,
-            font.clone(),
-            sc.zone_text,
-        );
-        painter.text(
-            Pos2::new(outer.right() - band / 2.0, mid),
-            Align2::CENTER_CENTER,
-            &letter,
-            font.clone(),
-            sc.zone_text,
-        );
+        zone(Pos2::new(outer.left() + band / 2.0, mid), &letter);
+        zone(Pos2::new(outer.right() - band / 2.0, mid), &letter);
     }
     if sheet.title_shown {
         paint_title_block(painter, camera, sheet, inner, sc);
@@ -482,8 +463,35 @@ fn paint_dots(
     }
 }
 
+/// Height of the title block as a share of its width.
+const TITLE_BLOCK_ASPECT: f32 = 0.25;
+
+/// The title block rectangle in the lower right corner of the inner frame.
+fn title_block_rect(sheet: &Sheet, camera: Camera, inner: Rect) -> Rect {
+    let width = title_block_width(sheet.hi.x - sheet.lo.x) as f32 * camera.zoom;
+    let height = width * TITLE_BLOCK_ASPECT;
+    Rect::from_min_max(
+        Pos2::new(inner.right() - width, inner.bottom() - height),
+        inner.right_bottom(),
+    )
+}
+
+/// The first characters of `text` that fit `room` pixels at `points`, for fixed-width text.
+fn cut_to_fit(text: &str, room: f32, points: f32) -> String {
+    let chars = (room / (points * 0.6)).max(1.0) as usize;
+    text.chars().take(chars).collect()
+}
+
 /// The title block in the lower right corner of the inner frame: title on top,
 /// then sheet number, date and size in three cells.
+///
+/// # Rules
+/// - Every size and gap is a share of the block height, which is in millimetres of the drawing.
+///   The text follows the zoom with the box and stays inside it.
+/// - Text that would be under `MIN_BOXED_POINTS` is left out.
+///
+/// # Do not
+/// - Clamp a title block font to a point size; the box shrinks and the text would spill out.
 fn paint_title_block(
     painter: &egui::Painter,
     camera: Camera,
@@ -491,12 +499,9 @@ fn paint_title_block(
     inner: Rect,
     sc: &SheetColours,
 ) {
-    let width = title_block_width(sheet.hi.x - sheet.lo.x) as f32 * camera.zoom;
-    let height = width * 0.25;
-    let block = Rect::from_min_max(
-        Pos2::new(inner.right() - width, inner.bottom() - height),
-        inner.right_bottom(),
-    );
+    let block = title_block_rect(sheet, camera, inner);
+    let (width, height) = (block.width(), block.height());
+    let height_mm = height / camera.zoom;
     let line = Stroke::new(1.0, sc.frame);
     painter.rect_filled(block, 0.0, sc.sheet);
     painter.rect_stroke(block, 0.0, line, egui::StrokeKind::Inside);
@@ -518,54 +523,66 @@ fn paint_title_block(
     for x in &cells[1..4] {
         painter.line_segment([Pos2::new(*x, split), Pos2::new(*x, block.bottom())], line);
     }
-    let caption = FontId::monospace((height * 0.11).clamp(6.5, 10.0));
-    let value = FontId::monospace((height * 0.15).clamp(8.0, 13.0));
-    let pad = (height * 0.07).clamp(3.0, 9.0);
-    let place = |origin: Pos2, name: String, text: &str, font: &FontId| {
-        painter.text(
-            origin + Vec2::new(pad, pad * 0.6),
-            Align2::LEFT_TOP,
-            name,
-            caption.clone(),
-            sc.muted,
-        );
-        painter.text(
-            origin + Vec2::new(pad, pad * 0.6 + caption.size + pad * 0.5),
-            Align2::LEFT_TOP,
-            text,
-            font.clone(),
-            sc.text,
-        );
+    let caption = boxed_font_mm(height_mm * 0.11, camera.zoom, true);
+    let value = boxed_font_mm(height_mm * 0.13, camera.zoom, true);
+    let big = boxed_font_mm(height_mm * 0.22, camera.zoom, true);
+    let pad = height * 0.07;
+    let caption_rows = height * 0.11 + pad * 0.5;
+    // One cell: its caption on top, its text under it, both cut at the cell's edge.
+    let place = |origin: Pos2, cell: f32, name: String, text: &str, font: &Option<FontId>| {
+        let room = cell - pad * 2.0;
+        if let Some(c) = caption.clone() {
+            let name = cut_to_fit(&name, room, c.size);
+            painter.text(
+                origin + Vec2::new(pad, pad * 0.6),
+                Align2::LEFT_TOP,
+                name,
+                c,
+                sc.muted,
+            );
+        }
+        if let Some(f) = font.clone() {
+            let text = cut_to_fit(text, room, f.size);
+            painter.text(
+                origin + Vec2::new(pad, pad * 0.6 + caption_rows),
+                Align2::LEFT_TOP,
+                text,
+                f,
+                sc.text,
+            );
+        }
     };
     place(
         block.left_top(),
+        width,
         t!("schematic.sheet.title").to_uppercase(),
         &sheet.title,
-        &FontId::monospace((height * 0.22).clamp(9.0, 19.0)),
+        &big,
     );
-    // A long page name is cut at the edge of its cell, whole characters only.
-    let room = (cells[1] - cells[0] - pad * 2.0) / (value.size * 0.6);
     let number = t!(
         "schematic.sheet.page",
         page = sheet.page,
         pages = sheet.pages,
         name = sheet.name
     );
-    let fitted: String = number.chars().take(room.max(1.0) as usize).collect();
+    let cell = |i: usize| cells[i + 1] - cells[i];
     place(
         Pos2::new(cells[0], split),
+        cell(0),
         t!("schematic.sheet.sheet").to_uppercase(),
-        &fitted,
+        &number,
         &value,
     );
     place(
         Pos2::new(cells[1], split),
+        cell(1),
         t!("schematic.sheet.revision").to_uppercase(),
         &sheet.revision,
         &value,
     );
     place(
         Pos2::new(cells[2], split),
+        cell(2),
         t!("schematic.sheet.date").to_uppercase(),
         &sheet.date,
         &value,
@@ -576,17 +593,19 @@ fn paint_title_block(
         .copied()
         .collect::<Vec<_>>()
         .join(" / ");
-    if !credit.is_empty() {
+    if let (Some(c), false) = (caption.clone(), credit.is_empty()) {
+        let credit = cut_to_fit(&credit, width * 0.6, c.size);
         painter.text(
             Pos2::new(block.right() - pad, block.top() + pad * 0.6),
             Align2::RIGHT_TOP,
             credit,
-            caption.clone(),
+            c,
             sc.muted,
         );
     }
     place(
         Pos2::new(cells[3], split),
+        cell(3),
         t!("schematic.sheet.size").to_uppercase(),
         &sheet.size,
         &value,
@@ -1064,4 +1083,91 @@ pub(super) fn hover_outline(painter: &egui::Painter, outlines: &[HitOutline], ac
         egui::StrokeKind::Inside,
     );
     ctx.request_repaint();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every galley the sheet paints at `zoom`, with the title block rectangle and the title galley.
+    fn painted(zoom: f32) -> Result<(Rect, Vec<(String, Rect)>), String> {
+        let project: Project =
+            serde_json::from_str(include_str!("../../../../examples/showcase.pcbcraft"))
+                .map_err(|e| e.to_string())?;
+        let sheet = sheet_for(&project, 0);
+        let camera = Camera {
+            mirror: false,
+            turns: 0,
+            up: false,
+            center: Point::new(
+                (sheet.lo.x + sheet.hi.x) / 2.0,
+                (sheet.lo.y + sheet.hi.y) / 2.0,
+            ),
+            zoom,
+        };
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, 3000.0));
+        let outer =
+            Rect::from_two_pos(camera.screen(sheet.lo, rect), camera.screen(sheet.hi, rect));
+        let inner = outer.shrink(sheet.band as f32 * zoom);
+        let width = title_block_width(sheet.hi.x - sheet.lo.x) as f32 * zoom;
+        let block = Rect::from_min_max(
+            Pos2::new(inner.right() - width, inner.bottom() - width * 0.25),
+            inner.right_bottom(),
+        );
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let colours = SheetColours::for_theme(true);
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            texts.clear();
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let painter = ui.ctx().layer_painter(egui::LayerId::background());
+                paint_sheet(&painter, rect, camera, &sheet, &colours, false);
+            });
+            out.textures_delta.clear();
+            for clipped in out.shapes {
+                if let egui::Shape::Text(t) = clipped.shape {
+                    let at = t.galley.rect.translate(t.pos.to_vec2());
+                    texts.push((t.galley.text().to_string(), at));
+                }
+            }
+        }
+        Ok((block, texts))
+    }
+
+    #[test]
+    fn title_block_text_follows_the_zoom_and_stays_in_its_box() -> Result<(), String> {
+        let mut title_heights = Vec::new();
+        for zoom in [0.6_f32, 1.0, 2.0, 4.0, 8.0, 20.0, 60.0] {
+            let (block, texts) = painted(zoom)?;
+            let inside: Vec<_> = texts
+                .iter()
+                .filter(|(_, r)| block.expand(1.0).contains(r.center()))
+                .collect();
+            for (text, r) in &inside {
+                assert!(
+                    block.expand(0.75).contains_rect(*r),
+                    "zoom {zoom}: {text:?} at {r:?} spills out of {block:?}"
+                );
+            }
+            if let Some((_, r)) = inside.iter().find(|(t, _)| t.starts_with("Showcase")) {
+                title_heights.push((zoom, r.height()));
+            }
+        }
+        let height_at = |zoom: f32| {
+            title_heights
+                .iter()
+                .find(|(z, _)| (*z - zoom).abs() < f32::EPSILON)
+                .map(|(_, h)| *h)
+                .ok_or_else(|| format!("no title text at zoom {zoom}"))
+        };
+        for (small, large) in [(2.0, 4.0), (4.0, 8.0)] {
+            let ratio = height_at(large)? / height_at(small)?;
+            assert!(
+                (ratio - 2.0).abs() < 0.2,
+                "title text height ratio from zoom {small} to {large} is {ratio}"
+            );
+        }
+        Ok(())
+    }
 }
