@@ -2189,6 +2189,7 @@ modifier.click.continue_wire = finish wire at {what}
 modifier.click.continue_route = finish route at {what}
 modifier.click.move_segment = move this segment
 modifier.click.move_part = move {what}
+modifier.click.move_wire_end = move the wire end to a pin
 modifier.click.box_select = box select
 modifier.click.rename_label = rename net {what}
 modifier.click.delete_connection = delete connection

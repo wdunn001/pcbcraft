@@ -507,6 +507,14 @@ impl App {
             (ClickAction::MoveSegment, Hit::WireSegment(id, _) | Hit::TrackSegment(id)) => {
                 self.select(Some(*id));
             }
+            (ClickAction::MoveWireEnd, Hit::Node(id, index)) => {
+                self.select(Some(*id));
+                if let Some(w) = self.sheet_view().drawn_wires.iter().find(|w| w.id == *id) {
+                    if w.points.len() > *index {
+                        press.origin = w.points[*index];
+                    }
+                }
+            }
             (ClickAction::MovePart, Hit::Via(id)) => {
                 self.select(Some(*id));
                 press.origin = self
@@ -657,6 +665,11 @@ impl App {
                     self.run("track.move", json!({"id": id, "delta": delta}));
                 }
             }
+            (ClickAction::MoveWireEnd, Hit::Node(wire, index)) => {
+                if let Some(p) = pos {
+                    self.finish_wire_end_drag(*wire, *index, p);
+                }
+            }
             (ClickAction::StartRoute, Hit::TrackEnd(id, end)) => {
                 if delta.x != 0.0 || delta.y != 0.0 {
                     let mode = if self.edit.live.contains(ModAction::ShoveToggle) {
@@ -718,6 +731,13 @@ impl App {
                         t.end = press.origin.offset(d);
                     } else {
                         t.start = press.origin.offset(d);
+                    }
+                }
+            }
+            (ClickAction::MoveWireEnd, Hit::Node(id, index)) => {
+                if let Some(w) = visible.drawn_wires.iter_mut().find(|w| w.id == *id) {
+                    if w.points.len() > *index {
+                        w.points[*index] = press.origin.offset(d);
                     }
                 }
             }
