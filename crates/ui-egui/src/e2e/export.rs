@@ -275,6 +275,64 @@ fn a_newcomer_exports_from_a_common_item_with_the_dialog_preconfigured() -> Resu
 }
 
 #[test]
+fn a_newcomer_exports_the_placement_file_with_a_bottom_part() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Pcb);
+    app.select(Some(10));
+    app.refresh();
+    app.make_dir = dir.path().to_string_lossy().into_owned();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_properties_segment(&ctx, &mut app, "Side", 1, 2)?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    let side = app
+        .project
+        .footprint(10)
+        .map(|f| f.board_side())
+        .ok_or("the practice part should still be on the board")?;
+    assert_eq!(
+        side,
+        pcbcraft_doc::Layer::Back,
+        "the flipped part sits on the bottom"
+    );
+    authoring::tests::tap(&ctx, &mut app, "File")?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    authoring::tests::tap(&ctx, &mut app, "Pick and place")?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    let files: Vec<_> = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().contains("placement"))
+        .collect();
+    assert_eq!(files.len(), 1, "one placement file was written");
+    let text = std::fs::read_to_string(files[0].path()).map_err(|e| e.to_string())?;
+    assert!(
+        text.lines()
+            .nth(4)
+            .map(|h| h.contains("Side"))
+            .unwrap_or(false),
+        "the placement file has a Side column"
+    );
+    let flipped = app
+        .project
+        .footprint(10)
+        .and_then(|fp| app.project.component(fp.component))
+        .map(|c| c.reference.clone())
+        .ok_or("the flipped part should have a reference")?;
+    let has_bottom = text
+        .lines()
+        .any(|l| l.contains(&flipped) && l.contains(",B,"));
+    assert!(has_bottom, "the flipped part is listed as bottom");
+    let has_top = text.lines().any(|l| l.contains(",T,"));
+    assert!(has_top, "at least one other part is listed as top");
+    Ok(())
+}
+#[test]
 fn a_newcomer_repeats_a_recent_export_with_its_options() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());
