@@ -30,10 +30,10 @@ pub enum PassiveKind {
 /// Return the decade values for an E-series (1.0 to 9.x).
 pub fn decade(series: ESeries) -> &'static [f64] {
     match series {
-        ESeries::E6 => E6_VALUES,
-        ESeries::E12 => E12_VALUES,
-        ESeries::E24 => E24_VALUES,
-        ESeries::E96 => E96_VALUES,
+        ESeries::E6 => &E6_VALUES[..],
+        ESeries::E12 => &E12_VALUES[..],
+        ESeries::E24 => &E24_VALUES[..],
+        ESeries::E96 => &E96_VALUES[..],
     }
 }
 
@@ -52,9 +52,9 @@ pub fn values_between(series: ESeries, min: f64, max: f64) -> Result<Vec<f64>, S
     }
     let base = decade(series);
     let mut results = Vec::new();
-    let min_exp = (min.log10()).floor();
-    let max_exp = (max.log10()).ceil();
-    for exp in (min_exp..=max_exp).map(|e| e as i32) {
+    let min_exp = (min.log10()).floor() as i32;
+    let max_exp = (max.log10()).ceil() as i32;
+    for exp in min_exp..=max_exp {
         let scale = 10.0f64.powi(exp);
         for &v in base {
             let val = v * scale;
