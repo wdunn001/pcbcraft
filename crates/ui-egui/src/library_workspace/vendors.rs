@@ -293,7 +293,7 @@ impl App {
             });
         }
         // Show stale marks for old prices
-        let now = pcbcraft_clock::now_secs();
+        let now = pcbcraft_clock::unix_secs();
         for quote in &f.quotes {
             let age_secs = now.saturating_sub(quote.retrieved_at);
             if age_secs > 86_400 * 7 {

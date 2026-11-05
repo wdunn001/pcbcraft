@@ -1,8 +1,8 @@
 ---
 type: feature
-area: text
+area: ui
 issues: [730]
 user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Price by quantity and source status in the Library tab (child of #699).
+docs: n/a: one control on the Vendors page with its own tooltip
+summary: The Vendors page has an Order quantity choice of 1, 10, 100 or 1000 and shows each vendor's price at that quantity, with a stale mark on prices older than a week.
 ---
