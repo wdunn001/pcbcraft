@@ -1176,6 +1176,24 @@ pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value,
                 .map_err(|e| e.to_string())?;
             Ok(json!({"url": url}))
         }
+        "library.drop_in_check" => {
+            let keys: Vec<String> = args
+                .as_object()
+                .map_or(vec![], |m| m.keys().cloned().collect());
+            for key in keys {
+                if key != "incumbent" && key != "candidate" {
+                    return Err(format!("unexpected key: {key}"));
+                }
+            }
+            let incumbent: pcbcraft_library::DropInPart =
+                serde_json::from_value(args.get("incumbent").cloned().ok_or("missing incumbent")?)
+                    .map_err(|e| format!("incumbent: {e}"))?;
+            let candidate: pcbcraft_library::DropInPart =
+                serde_json::from_value(args.get("candidate").cloned().ok_or("missing candidate")?)
+                    .map_err(|e| format!("candidate: {e}"))?;
+            let report = pcbcraft_library::drop_in_check(&incumbent, &candidate)?;
+            Ok(json!({"drop_in": report.drop_in, "findings": report.findings}))
+        }
         name if name.starts_with("registry.") => crate::registry::read_tool(name, args),
         _ => Err("unknown library query".into()),
     }
@@ -1645,5 +1663,115 @@ mod tests {
         );
         assert_eq!(kinds[0], "fixture", "groups follow the fixed source order");
         Ok(())
+    }
+    #[test]
+    fn drop_in_tool_accepts_identical_parts() {
+        let part = json!({
+            "footprint": "lib/resistor-0603",
+            "package_key": "chip-0603",
+            "pads": ["1", "2"],
+            "pins": [{"number": "1", "electrical_type": "passive"}, {"number": "2", "electrical_type": "passive"}],
+            "category": "resistor",
+            "lifecycle": "active",
+            "value": 10000,
+            "value_unit": "ohm",
+            "tolerance_pct": [1, 1],
+            "rated_voltage_v": 50,
+            "temp_min_c": -55,
+            "temp_max_c": 155,
+            "power_w": 0.1,
+            "height_mm": 0.55
+        });
+        let config = &UserConfig::detached();
+        let result = read_tool(
+            config,
+            "library.drop_in_check",
+            &json!({"incumbent": part, "candidate": part}),
+        );
+        assert!(
+            result.is_ok(),
+            "identical parts should be drop-in: {:?}",
+            result.err()
+        );
+        let report = result.unwrap();
+        assert!(report["drop_in"].as_bool().unwrap(), "drop_in must be true");
+    }
+
+    #[test]
+    fn drop_in_tool_reports_a_taller_part_as_not_drop_in() {
+        let incumbent = json!({
+            "footprint": "lib/resistor-0603",
+            "package_key": "chip-0603",
+            "pads": ["1", "2"],
+            "pins": [{"number": "1", "electrical_type": "passive"}, {"number": "2", "electrical_type": "passive"}],
+            "category": "resistor",
+            "lifecycle": "active",
+            "value": 10000,
+            "value_unit": "ohm",
+            "tolerance_pct": [1, 1],
+            "rated_voltage_v": 50,
+            "temp_min_c": -55,
+            "temp_max_c": 155,
+            "power_w": 0.1,
+            "height_mm": 0.55
+        });
+        let candidate = json!({
+            "footprint": "lib/resistor-0603",
+            "package_key": "chip-0603",
+            "pads": ["1", "2"],
+            "pins": [{"number": "1", "electrical_type": "passive"}, {"number": "2", "electrical_type": "passive"}],
+            "category": "resistor",
+            "lifecycle": "active",
+            "value": 10000,
+            "value_unit": "ohm",
+            "tolerance_pct": [1, 1],
+            "rated_voltage_v": 50,
+            "temp_min_c": -55,
+            "temp_max_c": 155,
+            "power_w": 0.1,
+            "height_mm": 0.8
+        });
+        let config = &UserConfig::detached();
+        let result = read_tool(
+            config,
+            "library.drop_in_check",
+            &json!({"incumbent": incumbent, "candidate": candidate}),
+        );
+        assert!(
+            result.is_ok(),
+            "should produce a report: {:?}",
+            result.err()
+        );
+        let report = result.unwrap();
+        assert!(
+            !report["drop_in"].as_bool().unwrap(),
+            "taller candidate must fail"
+        );
+        let findings = report["findings"].as_array().unwrap();
+        let height_finding = findings
+            .iter()
+            .find(|f| f["code"].as_str().unwrap() == "height_mm");
+        assert!(height_finding.is_some(), "must have a height_mm finding");
+        assert!(
+            !height_finding.unwrap()["pass"].as_bool().unwrap(),
+            "height must fail"
+        );
+    }
+
+    #[test]
+    fn drop_in_tool_rejects_unknown_keys() {
+        let config = &UserConfig::detached();
+        let result = read_tool(
+            config,
+            "library.drop_in_check",
+            &json!({"incumbent": {}, "candidate": {}, "extra": 1}),
+        );
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| error.contains("unexpected key")),
+            "unknown keys must be rejected: {:?}",
+            result
+        );
     }
 }
