@@ -213,6 +213,7 @@ impl App {
             .filter(|id| self.id_allowed(*id))
             .filter(|id| !crate::layers_tree::is_locked(&self.project, &self.tree.locked, *id))
             .filter(|id| !self.sheet_row_hidden(*id))
+            .filter(|id| self.pcb_object_shown(*id))
             .filter(|id| {
                 self.tab != Tab::Schematic
                     || crate::page_scope::object_in_view(&self.project, self.schematic_page(), *id)
