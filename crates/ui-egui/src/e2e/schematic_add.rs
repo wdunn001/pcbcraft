@@ -248,11 +248,7 @@ fn a_newcomer_adds_text_to_the_sheet() -> Result<(), String> {
         .find(|g| g.shape == "text" && g.text == "Power stage")
         .ok_or_else(|| format!("no note on the sheet: {}", app.message))?;
     assert_eq!(note.layer, "schematic", "the note belongs to the schematic");
-    assert_eq!(
-        app.project.graphics.len(),
-        before + 1,
-        "one note was added"
-    );
+    assert_eq!(app.project.graphics.len(), before + 1, "one note was added");
     assert!(
         matches!(app.tool, Tool::Select),
         "the tool goes back to Select after the note is placed"
