@@ -43,6 +43,7 @@ mod layer_picker;
 mod layer_record_panel;
 mod layer_visibility;
 mod layers_tree;
+mod layout_totals;
 mod library;
 mod library_builtin;
 mod library_dock;
@@ -79,6 +80,7 @@ mod selection;
 mod setup_wizard;
 mod sheet_lit;
 mod sheet_rows;
+mod sheet_shape_tool;
 mod sheet_text_tool;
 mod showcase;
 mod sources;
@@ -563,6 +565,11 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Port => t!("schematic.port.tool_hint", common = common),
         Tool::Pad => t!("board.tool_hint.lmb_place_a_pad", common = common),
         Tool::SheetText => t!("board.tool_hint.lmb_place_sheet_text", common = common),
+        Tool::SheetShape(kind) => t!(
+            "board.tool_hint.lmb_place_sheet_shape",
+            name = kind.name(),
+            common = common
+        ),
     }
 }
 
@@ -1142,6 +1149,7 @@ enum Tool {
     Via,
     Port,
     Pad,
+    SheetShape(sheet_shape_tool::SheetShapeKind),
     SheetText,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -1305,6 +1313,7 @@ pub struct App {
     art_layer: Option<Id>,
     art_shape: DrawShape,
     art_start: Option<Point>,
+    sheet_shape_start: Option<Point>,
     art_points: Vec<Point>,
     art_text: String,
     hole_edit: Option<(Id, f64)>,
@@ -2089,6 +2098,7 @@ impl App {
             art_layer: None,
             art_shape: DrawShape::Line,
             art_start: None,
+            sheet_shape_start: None,
             art_points: Vec::new(),
             art_text: "MY BOARD".into(),
             hole_edit: None,
@@ -3944,6 +3954,14 @@ impl App {
                 .clicked()
             {
                 self.open_project_settings(project_settings::TAB_BOARD);
+                ui.close();
+            }
+            if ui
+                .button(t!("menu.file.close"))
+                .on_hover_text(t!("menu.file.close.tip"))
+                .clicked()
+            {
+                self.files_run(files_home::Command::Close);
                 ui.close();
             }
             ui.separator();
@@ -6924,21 +6942,6 @@ impl App {
         }
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
-        if self.tab == Tab::Files {
-            if !Self::narrow_window(ui.ctx()) {
-                let tokens = theme::tokens(ui.ctx());
-                egui::Panel::right("inspector")
-                    .default_size(340.0)
-                    .min_size(280.0)
-                    .frame(
-                        egui::Frame::NONE
-                            .fill(tokens.panel)
-                            .stroke(egui::Stroke::new(theme::BORDER, tokens.line)),
-                    )
-                    .show(ui, |ui| self.files_details(ui));
-            }
-            return;
-        }
         if Self::narrow_window(ui.ctx()) {
             let panel = egui::Panel::bottom("inspector-narrow")
                 .default_size(260.0)
@@ -7013,6 +7016,19 @@ impl App {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| self.library_properties(ui));
+            return;
+        }
+        if self.tab == Tab::Files {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    egui::Frame::NONE
+                        .inner_margin(theme::aside_margin())
+                        .show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.y = theme::ASIDE_ROW_GAP;
+                            self.files_properties(ui);
+                        });
+                });
             return;
         }
         egui::ScrollArea::vertical()
@@ -7372,6 +7388,16 @@ impl App {
                         if self.tab == Tab::Pcb {
                             let text = self.layer_status();
                             status_item(ui, None, &text, &t!("view.layer_status.tip"), false);
+                            if !Self::narrow_window(ui.ctx()) {
+                                let totals = self.layout_totals_text();
+                                status_item(
+                                    ui,
+                                    None,
+                                    &totals,
+                                    &t!("board.footer.unrouted.tip"),
+                                    false,
+                                );
+                            }
                         }
                         if let Some(reading) = self.measure_readout() {
                             status_item(
@@ -7758,7 +7784,7 @@ impl App {
             && self.edit.dialog.script.ready()
             // A staged dialog fades in; wait until it is fully drawn.
             && (self.edit.dialog.script.show.is_none() || self.frames >= 30)
-            && (self.tab != Tab::Files || self.files_home.settled(&self.files_listed()))
+            && (self.tab != Tab::Files || self.files_home.settled(&self.files_probe_paths()))
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
@@ -7931,30 +7957,6 @@ impl App {
     /// The tool bar row; the items and the overflow menu live in `toolbar.rs`.
     fn tool_strip(&mut self, ui: &mut egui::Ui) {
         self.toolbar_row(ui);
-    }
-    fn files_tab(&mut self, ui: &mut egui::Ui) {
-        Self::margined(ui, |ui| {
-            ui.heading(t!("library.files_tab.project_files"));
-            ui.label(t!(
-                "library.files_tab.design_file_trim",
-                trim = self.path.trim()
-            ));
-            ui.add_space(8.0);
-            if ui
-                .button(t!("library.files_tab.library_sources"))
-                .on_hover_text(t!("library.files_tab.library_sources.tip"))
-                .clicked()
-            {
-                self.change_tab(Tab::Libraries);
-            }
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new(t!("library.files_tab.builds"))
-                    .size(10.0)
-                    .color(self.muted()),
-            );
-            self.builds_tab(ui);
-        });
     }
     fn board3d_tab(&mut self, ui: &mut egui::Ui) {
         let design_dir = std::path::Path::new(&self.path)

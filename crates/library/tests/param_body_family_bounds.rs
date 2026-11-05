@@ -16,17 +16,16 @@ fn assert_bounds(body: &ParamBody, min: [f64; 3], max: [f64; 3]) -> Result<(), S
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+/// `dims` is (body length, body width, lead span) in millimetres.
 fn key(
     family: PackageFamily,
     pin_count: u32,
     pitch: f64,
-    body_l: f64,
-    body_w: f64,
-    span: f64,
+    dims: (f64, f64, f64),
     ep: f64,
     height: f64,
 ) -> PackageKey {
+    let (body_l, body_w, span) = dims;
     PackageKey {
         family,
         pin_count,
@@ -44,43 +43,50 @@ fn key(
 #[test]
 fn chip_bounding_box_golden() -> Result<(), String> {
     let body = ParamBody::from_key(
-        &key(PackageFamily::Chip, 2, 1.0, 1.6, 0.8, 1.6, 0.0, 0.55),
+        &key(PackageFamily::Chip, 2, 1.0, (1.6, 0.8, 1.6), 0.0, 0.55),
         "passive",
     );
+    // The end caps wrap the ends of the body inside its stated length, so the
+    // box is the body box: 1.6 long, 0.8 wide, 0.55 high.
     assert_bounds(&body, [-0.8, -0.4, 0.0], [0.8, 0.4, 0.55])
 }
 
 #[test]
 fn sot_bounding_box_golden() -> Result<(), String> {
     let body = ParamBody::from_key(
-        &key(PackageFamily::Sot, 5, 0.95, 2.9, 1.6, 2.9, 0.0, 1.1),
+        &key(PackageFamily::Sot, 5, 0.95, (2.9, 1.6, 2.9), 0.0, 1.1),
         "ic",
     );
-    assert_bounds(&body, [-1.45, -0.8, 0.0], [1.45, 0.8, 1.1])
+    // Leads run along y and their tips land at half the 2.9 lead span.
+    // The body is only 1.6 wide, so y is the lead span and not the body.
+    assert_bounds(&body, [-1.45, -1.45, 0.0], [1.45, 1.45, 1.1])
 }
 
 #[test]
 fn gull_wing_bounding_box_golden() -> Result<(), String> {
     let body = ParamBody::from_key(
-        &key(PackageFamily::GullWing, 8, 1.27, 4.9, 3.9, 4.9, 0.0, 1.1),
+        &key(PackageFamily::GullWing, 8, 1.27, (4.9, 3.9, 4.9), 0.0, 1.1),
         "ic",
     );
-    assert_bounds(&body, [-2.45, -1.95, 0.0], [2.45, 1.95, 1.1])
+    // Lead tips land at half the 4.9 lead span in y, past the 3.9 wide body.
+    assert_bounds(&body, [-2.45, -2.45, 0.0], [2.45, 2.45, 1.1])
 }
 
 #[test]
 fn qfn_bounding_box_golden() -> Result<(), String> {
     let body = ParamBody::from_key(
-        &key(PackageFamily::Qfn, 16, 0.65, 3.0, 3.0, 3.0, 1.7, 0.9),
+        &key(PackageFamily::Qfn, 16, 0.65, (3.0, 3.0, 3.0), 1.7, 0.9),
         "ic",
     );
+    // QFN leads end flush with the body edge, and the lead span equals the
+    // body, so the box is the 3.0 by 3.0 body at its stated height.
     assert_bounds(&body, [-1.5, -1.5, 0.0], [1.5, 1.5, 0.9])
 }
 
 #[test]
 fn bga_bounding_box_golden() -> Result<(), String> {
     let body = ParamBody::from_key(
-        &key(PackageFamily::Bga, 100, 0.8, 8.0, 8.0, 8.0, 0.0, 0.8),
+        &key(PackageFamily::Bga, 100, 0.8, (8.0, 8.0, 8.0), 0.0, 0.8),
         "ic",
     );
     assert_bounds(&body, [-4.0, -4.0, 0.0], [4.0, 4.0, 0.8])
@@ -89,10 +95,12 @@ fn bga_bounding_box_golden() -> Result<(), String> {
 #[test]
 fn dip_bounding_box_golden() -> Result<(), String> {
     let body = ParamBody::from_key(
-        &key(PackageFamily::Dip, 8, 2.54, 8.0, 6.0, 7.62, 0.0, 3.3),
+        &key(PackageFamily::Dip, 8, 2.54, (8.0, 6.0, 7.62), 0.0, 3.3),
         "ic",
     );
-    assert_bounds(&body, [-3.0, -4.0, 0.0], [3.0, 4.0, 3.3])
+    // The body is 6.0 wide in x. Leads reach out to half the 7.62 row
+    // spacing, so x is 3.81. The pin rows run along the 8.0 long body in y.
+    assert_bounds(&body, [-3.81, -4.0, 0.0], [3.81, 4.0, 3.3])
 }
 
 #[test]
@@ -102,9 +110,7 @@ fn pin_header_bounding_box_golden() -> Result<(), String> {
             PackageFamily::PinHeader,
             6,
             2.54,
-            15.24,
-            2.54,
-            15.24,
+            (15.24, 2.54, 15.24),
             0.0,
             2.54,
         ),
@@ -116,7 +122,7 @@ fn pin_header_bounding_box_golden() -> Result<(), String> {
 #[test]
 fn cylinder_bounding_box_golden() -> Result<(), String> {
     let body = ParamBody::from_key(
-        &key(PackageFamily::Cylinder, 2, 2.0, 5.0, 4.0, 2.0, 0.0, 5.0),
+        &key(PackageFamily::Cylinder, 2, 2.0, (5.0, 4.0, 2.0), 0.0, 5.0),
         "passive",
     );
     let mesh = body.mesh();
@@ -136,7 +142,7 @@ fn cylinder_bounding_box_golden() -> Result<(), String> {
 #[test]
 fn axial_bounding_box_golden() -> Result<(), String> {
     let body = ParamBody::from_key(
-        &key(PackageFamily::Axial, 2, 10.0, 6.0, 2.5, 10.0, 0.0, 1.0),
+        &key(PackageFamily::Axial, 2, 10.0, (6.0, 2.5, 10.0), 0.0, 1.0),
         "passive",
     );
     assert_bounds(&body, [-3.0, -1.25, 0.0], [3.0, 1.25, 1.0])
@@ -145,7 +151,7 @@ fn axial_bounding_box_golden() -> Result<(), String> {
 #[test]
 fn radial_bounding_box_golden() -> Result<(), String> {
     let body = ParamBody::from_key(
-        &key(PackageFamily::Radial, 2, 2.0, 5.0, 5.0, 2.0, 0.0, 1.0),
+        &key(PackageFamily::Radial, 2, 2.0, (5.0, 5.0, 2.0), 0.0, 1.0),
         "passive",
     );
     assert_bounds(&body, [-2.5, -2.5, 0.0], [2.5, 2.5, 1.0])

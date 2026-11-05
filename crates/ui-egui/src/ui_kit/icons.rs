@@ -83,6 +83,10 @@ pub const CHEVRON_UP: Icon =
 pub const CHEVRON_RIGHT: Icon =
     Icon(|p, r, c| line(p, r, c, &[(6.0, 4.0), (10.0, 8.0), (6.0, 12.0)]));
 
+/// A chevron pointing left.
+pub const CHEVRON_LEFT: Icon =
+    Icon(|p, r, c| line(p, r, c, &[(10.0, 4.0), (6.0, 8.0), (10.0, 12.0)]));
+
 /// A magnifier.
 pub const SEARCH: Icon = Icon(|p, r, c| {
     p.circle_stroke(
@@ -361,6 +365,73 @@ pub const REFRESH: Icon = Icon(|p, r, c| {
         ],
     );
     line(p, r, c, &[(12.5, 2.5), (12.0, 5.0), (9.5, 5.0)]);
+});
+
+/// A page with a folded corner, for a file.
+pub const FILE: Icon = Icon(|p, r, c| {
+    line(
+        p,
+        r,
+        c,
+        &[
+            (4.0, 2.0),
+            (9.5, 2.0),
+            (12.5, 5.0),
+            (12.5, 14.0),
+            (4.0, 14.0),
+            (4.0, 2.0),
+        ],
+    );
+    line(p, r, c, &[(9.5, 2.0), (9.5, 5.0), (12.5, 5.0)]);
+});
+
+/// A page with a plus, for a new file.
+pub const FILE_PLUS: Icon = Icon(|p, r, c| {
+    (FILE.0)(p, r, c);
+    line(p, r, c, &[(8.5, 8.0), (8.5, 12.0)]);
+    line(p, r, c, &[(6.5, 10.0), (10.5, 10.0)]);
+});
+
+/// A folder.
+pub const FOLDER: Icon = Icon(|p, r, c| {
+    line(
+        p,
+        r,
+        c,
+        &[
+            (2.0, 4.0),
+            (6.0, 4.0),
+            (7.5, 5.8),
+            (14.0, 5.8),
+            (14.0, 12.5),
+            (2.0, 12.5),
+            (2.0, 4.0),
+        ],
+    );
+});
+
+/// A disk, for save.
+pub const SAVE: Icon = Icon(|p, r, c| {
+    line(
+        p,
+        r,
+        c,
+        &[
+            (3.0, 2.5),
+            (11.5, 2.5),
+            (13.5, 4.5),
+            (13.5, 13.5),
+            (3.0, 13.5),
+            (3.0, 2.5),
+        ],
+    );
+    line(p, r, c, &[(5.5, 2.5), (5.5, 6.0), (10.5, 6.0), (10.5, 2.5)]);
+    line(
+        p,
+        r,
+        c,
+        &[(5.5, 13.5), (5.5, 9.5), (10.5, 9.5), (10.5, 13.5)],
+    );
 });
 
 /// The icon rectangle centred in `outer`.

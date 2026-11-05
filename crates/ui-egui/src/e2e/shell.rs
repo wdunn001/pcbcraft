@@ -167,7 +167,6 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "Files")?;
-    authoring::tests::tap(&ctx, &mut app, "Project settings…")?;
     assert!(
         paints_text(&ctx, &mut app, "Project files")?,
         "build outputs moved under Files: {}",
@@ -273,7 +272,6 @@ fn library_strings_are_all_catalog_keys() -> Result<(), String> {
         ("authoring.rs", "add_graphic"),
         ("lib.rs", "browser"),
         ("lib.rs", "library"),
-        ("lib.rs", "files_tab"),
         ("library_quality.rs", "quality_badge"),
         ("library_quality.rs", "refresh_footprint_quality"),
     ] {
@@ -672,6 +670,77 @@ fn a_newcomer_sees_a_slim_bar_with_only_the_brand_and_the_menus() -> Result<(), 
     Ok(())
 }
 
+/// Walk the accesskit tree and check that no menu contains a text input.
+fn menu_has_no_text_inputs(menu_name: &str, output: &egui::FullOutput) -> Result<(), String> {
+    let Some(update) = &output.platform_output.accesskit_update else {
+        return Err("no accesskit update".to_owned());
+    };
+
+    // Build parent map: child -> parent
+    let mut parent: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+    for (id, node) in &update.nodes {
+        for child in node.children() {
+            parent.insert(child.0, id.0);
+        }
+    }
+
+    // Find menu nodes (the open menu popup)
+    let menu_ids: Vec<u64> = update
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.role() == egui::accesskit::Role::Menu)
+        .map(|(id, _)| id.0)
+        .collect();
+
+    if menu_ids.is_empty() {
+        // No open menu yet; nothing to check
+        return Ok(());
+    }
+
+    // Check each text input node
+    for (id, node) in &update.nodes {
+        if node.role() != egui::accesskit::Role::TextInput
+            && node.role() != egui::accesskit::Role::MultilineTextInput
+        {
+            continue;
+        }
+
+        // Walk up ancestors
+        let mut current = Some(id.0);
+        let name = node.label().unwrap_or_default().trim().to_owned();
+        let mut in_menu = false;
+        while let Some(node_id) = current {
+            if menu_ids.contains(&node_id) {
+                in_menu = true;
+                break;
+            }
+            current = parent.get(&node_id).copied();
+        }
+
+        if in_menu {
+            return Err(format!("menu {menu_name} contains a text input: {name}"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_finds_no_text_input_in_the_menus() -> Result<(), String> {
+    let (ctx, mut app) = practice_app();
+    for menu in ["File", "Edit", "Help"] {
+        authoring::tests::tap(&ctx, &mut app, menu)?;
+        let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        menu_has_no_text_inputs(menu, &out)?;
+        frame(
+            &ctx,
+            &mut app,
+            vec![key(egui::Key::Escape)],
+            egui::Modifiers::NONE,
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_cannot_undo_before_the_first_edit() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -725,7 +794,6 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
         "View > Rules opens the rules page"
     );
     authoring::tests::tap(&ctx, &mut app, "Files")?;
-    authoring::tests::tap(&ctx, &mut app, "Project settings…")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;
     assert!(
         matches!(app.tab, Tab::Libraries),

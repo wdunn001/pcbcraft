@@ -1,14 +1,15 @@
-//! Drag one end of a drawn wire onto a different pin to reconnect it.
+//! Drag one end of a drawn wire onto a different pin or wire to reconnect it.
 //!
 //! When the Select tool is used to drag a wire's end vertex and the drag is
 //! released near a pin, the wire end is moved onto that pin and the wire joins
-//! the pin's net. This calls the engine command `wire.reconnect_end`. If the
-//! release is not near a pin, nothing happens and the wire returns to its
-//! original position.
+//! the pin's net. When released over another wire, the wire end is moved onto
+//! that wire and a junction is created. This calls the engine command
+//! `wire.reconnect_end`. If the release is not near a pin or wire, nothing
+//! happens and the wire returns to its original position.
 //!
 //! # Rules
 //! - Only the first or last vertex of a wire is draggable this way.
-//! - The release must be within the pin pick radius.
+//! - The release must be within the pin pick radius or over a wire segment.
 //!
 //! # Dependencies
 //! - `crates/ui-egui/src/canvas/gestures.rs` calls it from press_end.
@@ -19,6 +20,7 @@
 //! - Call this on inner vertices; they keep today's MoveSegment behaviour.
 
 use super::*;
+use crate::canvas::gestures::Hit;
 use pcbcraft_doc::DrawnWire;
 
 /// True when `index` is the first or last vertex of the wire.
@@ -31,7 +33,7 @@ impl App {
     ///
     /// # Rules
     /// - Only called on the first or last vertex of a wire.
-    /// - Does nothing if no pin is under the release point.
+    /// - Does nothing if no pin or wire is under the release point.
     ///
     /// # Dependencies
     /// - `crates/ui-egui/src/canvas.rs` pick_pin for the release location.
@@ -50,6 +52,14 @@ impl App {
             self.run(
                 "wire.reconnect_end",
                 json!({"id": wire, "end": end, "pin": pin}),
+            );
+            return;
+        }
+        let hit = self.hit_at(at, self.schematic.zoom);
+        if let Hit::WireSegment(target_id, _) = hit {
+            self.run(
+                "wire.reconnect_end",
+                json!({"id": wire, "end": end, "onto": {"wire": target_id, "at": {"x": at.x, "y": at.y}}}),
             );
         }
     }
