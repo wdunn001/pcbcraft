@@ -129,10 +129,7 @@ impl Iterator for GcodeParser {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let line = match self.lines.next() {
-                Some(l) => l,
-                None => return None,
-            };
+            let line = self.lines.next()?;
 
             self.line_count += 1;
             if self.line_count > 1_000_000 {
@@ -148,22 +145,22 @@ impl Iterator for GcodeParser {
             // Parse modal words: G, T, M
             for word in &words {
                 let upper = word.to_uppercase();
-                if let Some(rest) = upper.strip_prefix('G') {
-                    if let Ok(n) = rest.parse::<u8>() {
-                        match n {
-                            0 | 1 | 2 | 3 => self.motion = Some(n),
-                            20 => self.metric = false,
-                            21 => self.metric = true,
-                            90 => self.absolute = true,
-                            91 => self.absolute = false,
-                            _ => {}
-                        }
+                if let Some(rest) = upper.strip_prefix('G')
+                    && let Ok(n) = rest.parse::<u8>()
+                {
+                    match n {
+                        0..=3 => self.motion = Some(n),
+                        20 => self.metric = false,
+                        21 => self.metric = true,
+                        90 => self.absolute = true,
+                        91 => self.absolute = false,
+                        _ => {}
                     }
                 }
-                if let Some(rest) = upper.strip_prefix('T') {
-                    if let Ok(n) = rest.parse::<u32>() {
-                        self.tool = n;
-                    }
+                if let Some(rest) = upper.strip_prefix('T')
+                    && let Ok(n) = rest.parse::<u32>()
+                {
+                    self.tool = n;
                 }
             }
 
@@ -201,13 +198,13 @@ impl Iterator for GcodeParser {
                         centre_offset[1] = if self.metric { v } else { v * 25.4 };
                     }
                 } else if let Some(rest) = upper.strip_prefix('R') {
-                    if let Ok(_) = rest.parse::<f64>() {
+                    if rest.parse::<f64>().is_ok() {
                         return Some(Err("R-word arcs are not supported".into()));
                     }
-                } else if let Some(rest) = upper.strip_prefix('F') {
-                    if let Ok(v) = rest.parse::<f64>() {
-                        self.feed = v;
-                    }
+                } else if let Some(rest) = upper.strip_prefix('F')
+                    && let Ok(v) = rest.parse::<f64>()
+                {
+                    self.feed = v;
                 }
             }
 
