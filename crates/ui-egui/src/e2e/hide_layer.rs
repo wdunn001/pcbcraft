@@ -48,41 +48,81 @@ fn a_newcomer_hides_the_top_layer_and_nothing_of_it_stays_on_the_board() -> Resu
         have.drawn > 0 && have.ratsnest > 0 && have.labels > 0,
         "{have:?}"
     );
-    assert_eq!(shown.tracks, have.tracks, "all tracks show by default");
+    assert_eq!(have, shown, "everything on Top is painted before hiding");
+    let bottom_before = painted(&app, Layer::Back);
     tap_id(&ctx, &mut app, "button:Hide Layer # \u{b7} Top")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let (_, shown) = app.layer_counts(Layer::Front);
     assert_eq!(
-        shown,
+        painted(&app, Layer::Front),
         LayerCount::default(),
-        "hiding the layer makes nothing show"
+        "nothing of Top is painted after the eye is pressed: {}",
+        app.message
+    );
+    assert_eq!(
+        painted(&app, Layer::Back),
+        bottom_before,
+        "Bottom is untouched"
+    );
+    assert!(bottom_before.tracks > 0, "Bottom still has its track");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_selects_a_layer_and_sees_its_elements_lit() -> Result<(), String> {
+    let (ctx, mut app) = layout_with_extras()?;
+    assert!(app.layer_is_lit(Layer::Front) && app.layer_is_lit(Layer::Back));
+    tap_id(&ctx, &mut app, "button:Layer # \u{b7} Top, shown, unlocked")?;
+    assert!(app.layer_is_lit(Layer::Front), "Top is lit");
+    assert!(!app.layer_is_lit(Layer::Back), "Bottom is dimmed");
+    assert!(app.lit_alpha(Layer::Front) > app.lit_alpha(Layer::Back));
+    assert!(
+        app.message.contains("tracks") && app.message.contains("pads"),
+        "the hint says what the row holds: {}",
+        app.message
+    );
+    tap_id(&ctx, &mut app, "button:Layer # \u{b7} Top, shown, unlocked")?;
+    assert!(
+        app.layer_is_lit(Layer::Back),
+        "a second click puts the lights back: {}",
+        app.message
     );
     Ok(())
 }
 
 #[test]
-fn a_newcomer_hides_the_bottom_layer_too() -> Result<(), String> {
+fn a_newcomer_hides_the_bottom_layer_with_a_part_on_it() -> Result<(), String> {
     let (ctx, mut app) = layout_with_extras()?;
-    let (have, shown) = app.layer_counts(Layer::Back);
-    assert!(have.tracks > 0 && have.pads > 0, "{have:?}");
-    assert_eq!(shown.tracks, have.tracks, "bottom tracks show by default");
+    let part = app.project.board.footprints.first().ok_or("a part")?.id;
+    app.run("footprint.flip", json!({"id": part}));
+    app.refresh();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let on_bottom = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .find(|f| f.id == part)
+        .ok_or("the part")?;
+    assert_eq!(on_bottom.board_side(), Layer::Back, "{}", app.message);
+    assert!(app.part_shown(on_bottom), "the part shows with Bottom on");
     tap_id(&ctx, &mut app, "button:Hide Layer # \u{b7} Bottom")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let (_, shown) = app.layer_counts(Layer::Back);
-    assert_eq!(shown, LayerCount::default(), "bottom layer is hidden");
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_hides_just_the_tracks() -> Result<(), String> {
-    let (ctx, mut app) = layout_with_extras()?;
-    let (have, _shown) = app.layer_counts(Layer::Front);
-    assert!(have.tracks > 0 && have.pads > 0, "{have:?}");
-    tap_id(&ctx, &mut app, "button:Tracks")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let (_, shown) = app.layer_counts(Layer::Front);
-    assert_eq!(shown.tracks, 0, "tracks are hidden");
-    assert_eq!(shown.pads, have.pads, "pads still show");
+    let on_bottom = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .find(|f| f.id == part)
+        .ok_or("the part")?;
+    assert!(
+        !app.part_shown(on_bottom)
+            && !app.part_pads_shown(on_bottom)
+            && !app.part_artwork_shown(on_bottom)
+            && !app.part_labels_shown(on_bottom),
+        "the part goes with Bottom as one thing"
+    );
+    let top = app.layer_counts(Layer::Front);
+    assert_eq!(top.0, top.1, "Top is untouched");
     Ok(())
 }
 
@@ -135,8 +175,12 @@ fn a_newcomer_hidden_layers_are_not_pickable() -> Result<(), String> {
     );
 
     // 4. Hide the tracks sub-layer
-    tap_id(&ctx, &mut app, "button:Tracks")?;
+    // The Tracks eye of the Top layer is stored as a hidden sub-layer; the tree stories press it.
+    let key = crate::layer_visibility::SubLayer::Tracks.storage_key(&app.layer_path(Layer::Front));
+    app.preferences.hidden_layers.push(key);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let (_, shown) = app.layer_counts(Layer::Front);
+    assert_eq!(shown.tracks, 0, "the Top tracks are hidden");
 
     // Verify the track is not pickable
     let picked = app.pick_object(pick_pos, 10.0);
