@@ -406,10 +406,10 @@ fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
         !paints_text(&ctx, &mut app, "Paramètres")?,
         "no French shows yet"
     );
-    // The person opens the Settings page and picks a language.
-    app.change_tab(Tab::Settings);
+    // The person opens Preferences, goes to Language and units and picks a language.
+    app.open_preferences(crate::preferences::TAB_LANGUAGE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    tap_id(&ctx, &mut app, "combobox:Language")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Français (test)")?;
     assert!(
@@ -464,10 +464,10 @@ fn a_newcomer_reads_the_app_in_spanish() -> Result<(), String> {
         !paints_text(&ctx, &mut app, "Archivo")?,
         "no Spanish shows yet"
     );
-    // The person opens the Settings page and picks Español from the list.
-    app.change_tab(Tab::Settings);
+    // The person opens the Preferences and picks Español from the list.
+    app.open_preferences(crate::preferences::TAB_LANGUAGE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    tap_id(&ctx, &mut app, "combobox:Language")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Español")?;
     assert_eq!(app.preferences.language, "es", "the choice is remembered");
@@ -517,10 +517,10 @@ fn a_newcomer_reads_the_app_in_german() -> Result<(), String> {
         !paints_text(&ctx, &mut app, "Datei")?,
         "no German shows yet"
     );
-    // The person opens the Settings page and picks Deutsch from the list.
-    app.change_tab(Tab::Settings);
+    // The person opens the Preferences and picks Deutsch from the list.
+    app.open_preferences(crate::preferences::TAB_LANGUAGE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    tap_id(&ctx, &mut app, "combobox:Language")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Deutsch")?;
     assert_eq!(app.preferences.language, "de", "the choice is remembered");
@@ -570,10 +570,10 @@ fn a_newcomer_reads_the_app_in_french() -> Result<(), String> {
         !paints_text(&ctx, &mut app, "Fichier")?,
         "no French shows yet"
     );
-    // The person opens the Settings page and picks Français from the list.
-    app.change_tab(Tab::Settings);
+    // The person opens the Preferences and picks Français from the list.
+    app.open_preferences(crate::preferences::TAB_LANGUAGE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    tap_id(&ctx, &mut app, "combobox:Language")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Français")?;
     assert_eq!(app.preferences.language, "fr", "the choice is remembered");
@@ -871,7 +871,7 @@ fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result
         vec![key(egui::Key::Enter)],
         egui::Modifiers::NONE,
     );
-    assert_eq!(app.tab, Tab::Settings, "Enter presses it: {}", app.message);
+    assert!(app.prefs_ui.open, "Enter presses it: {}", app.message);
     Ok(())
 }
 

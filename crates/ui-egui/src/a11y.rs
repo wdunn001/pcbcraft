@@ -12,15 +12,6 @@ pub(crate) const MIN_UI_SCALE: f32 = 0.75;
 pub(crate) const MAX_UI_SCALE: f32 = 2.0;
 /// Scale the app starts with.
 pub(crate) const DEFAULT_UI_SCALE: f32 = 1.0;
-/// Steps offered in Settings, as (label, scale).
-pub(crate) const UI_SCALE_STEPS: [(&str, f32); 5] = [
-    ("80%", 0.8),
-    ("100%", 1.0),
-    ("125%", 1.25),
-    ("150%", 1.5),
-    ("200%", 2.0),
-];
-
 /// Bring any stored or typed scale into the supported range; junk becomes
 /// the default.
 pub(crate) fn clamp_ui_scale(scale: f32) -> f32 {

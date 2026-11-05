@@ -134,6 +134,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.search","description":"Search a symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.list","description":"List parts as one common record across fixture, project, installed and listed distributor sources, filtered by category, package, value range, minimum voltage, temperature span, stock, lifecycle, source and RoHS. A listing with an empty number never matches a numeric filter. Results are grouped by source in each source's own order, not ranked across sources; read-only","inputSchema":object(json!({"filter":{"type":"object"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"object"},"listings":{"type":"array","maxItems":5000,"items":{"type":"object"}}}),&[])}),
         json!({"name":"parts.search","description":"Rank parts for a stated need using tags, keywords and optional vectors over project, installed and caller-supplied listings. Each hit includes score and match reasons; read-only","inputSchema":object(json!({"need":{"type":"string"},"tags":{"type":"array","items":{"type":"string"},"maxItems":32},"filter":{"type":"object"},"limit":{"type":"integer","minimum":1,"maximum":100},"listings":{"type":"array","maxItems":5000,"items":{"type":"object"}},"query_vector":{"type":"array","items":{"type":"number"},"maxItems":384},"vectors":{"type":"object","additionalProperties":{"type":"array","items":{"type":"number"},"maxItems":384}}}),&[])}),
+        json!({"name":"library.drop_in_check","description":"Check whether a candidate part can replace the part already on the board: footprint, pinout, ratings, lifecycle and height; read-only","inputSchema":object(json!({"incumbent":{"type":"object"},"candidate":{"type":"object"}}),&["incumbent","candidate"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
         json!({"name":"library.inspect_footprint","description":"Read footprint graphics/pads/drills; include_source preserves up to 512KiB of original nodes","inputSchema":object(json!({"path":{"type":"string"},"include_source":{"type":"boolean"}}),&["path"])}),
         json!({"name":"design.recents","description":"List the design files this computer opened or saved most recently, newest first, for one-click reopening","inputSchema":object(json!({}),&[])}),
@@ -206,6 +207,7 @@ fn tool_kind(name: &str) -> ToolKind {
         "library.starter_models.list",
         "library.search",
         "library.list",
+        "library.drop_in_check",
         "parts.search",
         "library.inspect_symbol",
         "library.inspect_footprint",
@@ -407,6 +409,7 @@ pub(crate) fn invoke_session(
         "library.compare",
         "library.sources",
         "library.add_folder",
+        "library.drop_in_check",
         "library.remove_folder",
         "library.samtec.manufacturer_page",
     ]
@@ -3512,6 +3515,46 @@ mod tests {
             let name = t["name"].as_str().ok_or("tool missing 'name' field")?;
             assert!(seen.insert(name), "duplicate tool name: {}", name);
         }
+        Ok(())
+    }
+    #[test]
+    fn mcp_lists_the_drop_in_check_tool() -> Result<(), String> {
+        let tools = tool_list();
+        let tools_arr = tools["tools"]
+            .as_array()
+            .ok_or("tool_list missing 'tools' array")?;
+        let drop_in = tools_arr
+            .iter()
+            .find(|t| t["name"].as_str() == Some("library.drop_in_check"))
+            .ok_or("library.drop_in_check not listed")?;
+        let required = drop_in["inputSchema"]["required"]
+            .as_array()
+            .ok_or("required is not an array")?;
+        let required_names: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
+        assert_eq!(required_names, vec!["incumbent", "candidate"]);
+        Ok(())
+    }
+
+    #[test]
+    fn drop_in_check_returns_true_for_identical_parts() -> Result<(), String> {
+        let session = shared(Session::default());
+        let part = json!({"footprint":"0805","pins":[{"number":"1","name":"A"},{"number":"2","name":"B"}],"rated_voltage_v":50.0,"height_mm":1.0,"lifecycle":"active"});
+        let result = call_tool(
+            &session,
+            "library.drop_in_check",
+            &json!({"incumbent": part, "candidate": part}),
+        );
+        assert_eq!(
+            result["isError"],
+            json!(false),
+            "call returned an error: {}",
+            result["content"][0]["text"]
+        );
+        let result_text = result["content"][0]["text"]
+            .as_str()
+            .ok_or("result is not text")?;
+        let parsed: Value = serde_json::from_str(result_text).map_err(|e| e.to_string())?;
+        assert_eq!(parsed["drop_in"], json!(true));
         Ok(())
     }
 }

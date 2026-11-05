@@ -67,6 +67,7 @@ mod parts_table_variant;
 mod placement_machine_ui;
 mod plot_viewer;
 mod pour_panel;
+mod preferences;
 mod project_settings;
 mod project_status;
 mod properties;
@@ -788,15 +789,6 @@ enum PadLabels {
     /// Nothing, for a clean copper picture.
     Off,
 }
-impl PadLabels {
-    fn name(&self) -> String {
-        match self {
-            Self::Number => t!("pad_labels.number"),
-            Self::Net => t!("pad_labels.net"),
-            Self::Off => t!("pad_labels.off"),
-        }
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CompareKind {
     Added,
@@ -899,6 +891,34 @@ struct Preferences {
     /// Set once any first-launch tour card has been shown or dismissed.
     #[serde(default)]
     tour_first_launch_done: bool,
+    /// Follow the computer's light or dark setting instead of `dark`.
+    #[serde(default)]
+    theme_system: bool,
+    /// Unit new projects start in: `mm`, `mil` or `inch`.
+    #[serde(default = "default_units")]
+    default_units: String,
+    /// Schematic snap grid for new projects, millimetres.
+    #[serde(default = "default_grid_mm")]
+    default_grid_mm: f32,
+    /// Layout snap grid for new projects, millimetres.
+    #[serde(default = "default_board_grid_mm")]
+    board_grid_mm: f32,
+    /// How numbers are grouped: 0 is 1,234.5, 1 is 1.234,5 and 2 is 1 234.5.
+    #[serde(default)]
+    number_format: u8,
+    /// Library sources switched off in Preferences, by name (`built_in`, `project`,
+    /// `installed`, `online`).
+    #[serde(default)]
+    library_sources_off: Vec<String>,
+}
+fn default_units() -> String {
+    "mm".into()
+}
+fn default_grid_mm() -> f32 {
+    1.27
+}
+fn default_board_grid_mm() -> f32 {
+    0.5
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -928,7 +948,7 @@ impl Default for Preferences {
         Self {
             dark: true,
             grid: true,
-            accent: [91, 224, 188],
+            accent: [227, 154, 91],
             pad_labels: PadLabels::Number,
             hidden_layers: Vec::new(),
             aside_split: default_aside_split(),
@@ -961,6 +981,12 @@ impl Default for Preferences {
             offer_tours: true,
             tour_progress: std::collections::BTreeMap::new(),
             tour_first_launch_done: false,
+            theme_system: false,
+            default_units: default_units(),
+            default_grid_mm: default_grid_mm(),
+            board_grid_mm: default_board_grid_mm(),
+            number_format: 0,
+            library_sources_off: Vec::new(),
         }
     }
 }
@@ -1338,6 +1364,8 @@ pub struct App {
     stack_edit: Option<(String, String, f64)>,
     /// The File > Project settings dialog.
     project_settings: project_settings::State,
+    /// The Edit > Preferences dialog.
+    prefs_ui: preferences::State,
     /// Board checks running away from the frame (see `board_check`).
     board_check: Option<board_check::Pending>,
     /// While set, a refresh that would run the board checks from scratch starts a worker.
@@ -1417,7 +1445,6 @@ pub struct App {
     command_open: bool,
     command_query: String,
     shortcuts_open: bool,
-    shortcuts_settings_open: bool,
     binding_capture: Option<keymap::KeyAction>,
     profile_name_draft: String,
     profile_import_text: String,
@@ -2006,7 +2033,7 @@ impl App {
             editor: authoring::initial_editor(tab, &project),
             ..Default::default()
         };
-        Self {
+        let mut app = Self {
             session,
             assistant: assistant::State::default(),
             project,
@@ -2119,6 +2146,7 @@ impl App {
             stack_thickness: 1.2,
             stack_edit: None,
             project_settings: Default::default(),
+            prefs_ui: Default::default(),
             board_check: None,
             defer_checks: false,
             repaint: None,
@@ -2222,7 +2250,6 @@ impl App {
             needs_zoom_selection: false,
             minimap: minimap::State::default(),
             tree_search_focus: false,
-            shortcuts_settings_open: false,
             compare_open: false,
             compare_baseline_path: String::new(),
             compare_report_open: false,
@@ -2244,7 +2271,9 @@ impl App {
             recovery_dir: recovery,
             sheet_text_position: None,
             sheet_text_input: String::new(),
-        }
+        };
+        app.apply_library_source_prefs();
+        app
     }
     fn tour_modal_open(&self) -> bool {
         self.about_open
@@ -3439,12 +3468,14 @@ impl App {
             return;
         }
         if let Some(capture) = self.binding_capture {
+            let cancelled =
+                ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+            if cancelled {
+                self.binding_capture = None;
+                self.keymap_notice = t!("prefs.keys.cancelled");
+                return;
+            }
             ctx.input(|i| {
-                if i.key_pressed(egui::Key::Escape) {
-                    self.binding_capture = None;
-                    self.keymap_notice = "Rebind cancelled.".into();
-                    return;
-                }
                 for event in &i.events {
                     let egui::Event::Key {
                         key,
@@ -3463,10 +3494,10 @@ impl App {
                     match map.set_binding(capture, chord) {
                         Ok(()) => {
                             *self.preferences.active_keymap_mut() = map;
-                            self.keymap_notice = format!(
-                                "{} is now {}",
-                                keymap::action_label(capture),
-                                keymap::format_chord(chord)
+                            self.keymap_notice = t!(
+                                "prefs.keys.now",
+                                action = keymap::action_label(capture),
+                                key = keymap::format_chord(chord)
                             );
                             self.binding_capture = None;
                         }
@@ -3477,7 +3508,7 @@ impl App {
             });
             return;
         }
-        if ctx.egui_wants_keyboard_input() {
+        if ctx.egui_wants_keyboard_input() || self.prefs_ui.open {
             return;
         }
         let map = self.preferences.active_keymap().clone();
@@ -3983,7 +4014,7 @@ impl App {
                 .on_hover_text(t!("menu.edit.preferences.tip"))
                 .clicked()
             {
-                self.change_tab(Tab::Settings);
+                self.open_preferences(preferences::TAB_APPEARANCE);
                 ui.close();
             }
             if ui
@@ -4098,37 +4129,6 @@ impl App {
     pub fn report_missing_font(&mut self, file: &str) {
         self.message = pcbcraft_text::lookup("font.the_font_file_for_this", &[("file", file)]);
     }
-    fn language_menu(&mut self, ui: &mut egui::Ui) {
-        let mut picked = None;
-        ui.menu_button(t!("menu.settings.language"), |ui| {
-            let current = self.preferences.language.clone();
-            if ui
-                .selectable_label(
-                    current == pcbcraft_text::SYSTEM,
-                    t!("menu.settings.language.system"),
-                )
-                .on_hover_text(t!("menu.settings.language.system.tip"))
-                .clicked()
-            {
-                picked = Some(pcbcraft_text::SYSTEM.to_string());
-            }
-            for language in pcbcraft_text::shipped_languages() {
-                if ui
-                    .selectable_label(current == language.tag, language.name)
-                    .on_hover_text(t!("menu.settings.language.pick.tip"))
-                    .clicked()
-                {
-                    picked = Some(language.tag);
-                }
-            }
-        })
-        .response
-        .on_hover_text(t!("menu.settings.language.tip"));
-        if let Some(tag) = picked {
-            self.set_language(ui.ctx(), &tag);
-            ui.ctx().request_repaint();
-        }
-    }
     /// The View menu: pages that are not tabs.
     fn view_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.view"), |ui| {
@@ -4139,6 +4139,11 @@ impl App {
                     t!("menu.view.checks.tip"),
                 ),
                 (Tab::Rules, t!("menu.view.rules"), t!("menu.view.rules.tip")),
+                (
+                    Tab::Settings,
+                    t!("menu.view.board_settings"),
+                    t!("menu.view.board_settings.tip"),
+                ),
             ] {
                 if ui.button(label).on_hover_text(tip).clicked() {
                     self.change_tab(tab);
@@ -4983,203 +4988,8 @@ impl App {
         }
     }
 
-    fn shortcuts_settings_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label(
-            egui::RichText::new(t!("settings.settings_tab.keyboard_shortcuts"))
-                .size(10.0)
-                .color(self.muted()),
-        );
-        if !self.shortcuts_settings_open {
-            if ui
-                .button(t!("settings.settings_tab.edit_shortcuts"))
-                .on_hover_text(t!("settings.settings_tab.edit_shortcuts.tip"))
-                .clicked()
-            {
-                self.shortcuts_settings_open = true;
-            }
-            return;
-        }
-        ui.label(
-            egui::RichText::new(
-                "Pick a profile, change any binding, and save or export it. Conflicts are blocked until you clear the other action.",
-            )
-            .small()
-            .color(self.muted()),
-        );
-        if !self.keymap_notice.is_empty() {
-            ui.label(
-                egui::RichText::new(&self.keymap_notice)
-                    .small()
-                    .color(self.accent()),
-            );
-        }
-        ui.horizontal(|ui| {
-            ui.label("Profile");
-            egui::ComboBox::from_id_salt("keymap-profile")
-                .selected_text(&self.preferences.active_keymap_profile)
-                .show_ui(ui, |ui| {
-                    for name in self.preferences.keymap_profiles.keys() {
-                        if ui
-                            .selectable_label(self.preferences.active_keymap_profile == *name, name)
-                            .on_hover_text("Switch to this saved shortcut set.")
-                            .clicked()
-                        {
-                            self.preferences.active_keymap_profile = name.clone();
-                        }
-                    }
-                });
-        });
-        ui.horizontal(|ui| {
-            ui.label("Save as");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.profile_name_draft)
-                    .hint_text("Profile name")
-                    .desired_width(160.0),
-            )
-            .on_hover_text("Name for a new profile copied from the current bindings.");
-            if ui
-                .button("Save profile")
-                .on_hover_text("Store the current bindings under the name you typed.")
-                .clicked()
-            {
-                let name = self.profile_name_draft.trim();
-                if name.is_empty() {
-                    self.keymap_notice = "Type a profile name first.".into();
-                } else if name == "Default" {
-                    self.keymap_notice = "Use Reset to default for the Default profile.".into();
-                } else {
-                    let map = self.preferences.active_keymap().clone();
-                    self.preferences
-                        .keymap_profiles
-                        .insert(name.to_string(), map);
-                    self.preferences.active_keymap_profile = name.to_string();
-                    self.keymap_notice = format!("Saved profile {name}.");
-                    self.profile_name_draft.clear();
-                }
-            }
-            if ui
-                .button("Delete profile")
-                .on_hover_text("Remove the active profile except Default.")
-                .clicked()
-            {
-                if self.preferences.active_keymap_profile == "Default" {
-                    self.keymap_notice = "The Default profile cannot be deleted.".into();
-                } else {
-                    let name = self.preferences.active_keymap_profile.clone();
-                    self.preferences.keymap_profiles.remove(&name);
-                    self.preferences.active_keymap_profile = "Default".into();
-                    self.keymap_notice = format!("Deleted profile {name}.");
-                }
-            }
-        });
-        ui.horizontal(|ui| {
-            if ui
-                .button("Reset to default")
-                .on_hover_text("Restore factory chords for the active profile.")
-                .clicked()
-            {
-                self.preferences.active_keymap_mut().reset_to_default();
-                self.keymap_notice = "Bindings reset to factory defaults.".into();
-            }
-            if ui
-                .button("Export profile…")
-                .on_hover_text(
-                    "Copy the active profile JSON into the import box for saving to a file.",
-                )
-                .clicked()
-            {
-                let file = keymap::KeymapProfileFile::from_keymap(
-                    self.preferences.active_keymap_profile.clone(),
-                    self.preferences.active_keymap(),
-                );
-                match serde_json::to_string_pretty(&file) {
-                    Ok(text) => {
-                        self.profile_import_text = text;
-                        self.keymap_notice = "Profile JSON copied to the import box.".into();
-                    }
-                    Err(e) => self.keymap_notice = e.to_string(),
-                }
-            }
-        });
-        ui.label("Import profile JSON");
-        ui.add(
-            egui::TextEdit::multiline(&mut self.profile_import_text)
-                .desired_rows(4)
-                .desired_width(f32::INFINITY),
-        )
-        .on_hover_text(
-            "Paste a profile file; invalid versions are rejected without changing stored prefs.",
-        );
-        if ui
-            .button("Import profile")
-            .on_hover_text("Load bindings from the JSON above into a named profile.")
-            .clicked()
-        {
-            match serde_json::from_str::<keymap::KeymapProfileFile>(&self.profile_import_text) {
-                Ok(file) => {
-                    let name = file.name.clone();
-                    match file.into_keymap() {
-                        Ok(map) => {
-                            self.preferences.keymap_profiles.insert(name.clone(), map);
-                            self.preferences.active_keymap_profile = name.clone();
-                            self.keymap_notice = format!("Imported profile {name}.");
-                        }
-                        Err(e) => self.keymap_notice = e,
-                    }
-                }
-                Err(e) => self.keymap_notice = e.to_string(),
-            }
-        }
-        egui::ScrollArea::vertical()
-            .max_height(280.0)
-            .show(ui, |ui| {
-                egui::Grid::new("shortcut-settings-grid")
-                    .num_columns(3)
-                    .spacing([12.0, 6.0])
-                    .striped(true)
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("Action").strong());
-                        ui.label(egui::RichText::new("Keys").strong());
-                        ui.label(egui::RichText::new("Change").strong());
-                        ui.end_row();
-                        for action in keymap::rebindable_actions() {
-                            let label = keymap::action_label(action);
-                            ui.label(label)
-                                .on_hover_text(keymap::action_tooltip(action));
-                            let chord = self
-                                .preferences
-                                .active_keymap()
-                                .chord_for(action)
-                                .map(keymap::format_chord)
-                                .unwrap_or_else(|| "Unassigned".into());
-                            ui.label(egui::RichText::new(chord).monospace());
-                            let waiting = self.binding_capture == Some(action);
-                            let change = ui
-                                .button(if waiting { "Press keys…" } else { "Change" })
-                                .on_hover_text("Click then press the new key chord. Esc cancels.");
-                            if change.clicked() {
-                                self.binding_capture = Some(action);
-                                self.keymap_notice =
-                                    format!("Press a new chord for {label}; Esc cancels.");
-                            }
-                            ui.end_row();
-                        }
-                    });
-            });
-        if ui
-            .button("Done")
-            .on_hover_text("Close the shortcut editor and return to the rest of Settings.")
-            .clicked()
-        {
-            self.shortcuts_settings_open = false;
-            self.binding_capture = None;
-        }
-    }
-
     /// Everything that used to crowd the right-hand aside: how the app looks
     fn settings_tab(&mut self, ui: &mut egui::Ui) {
-        self.shortcuts_settings_panel(ui);
-        ui.add_space(10.0);
         ui.heading(t!("settings.settings_tab.settings"));
         self.stackup_section(ui);
         if ui
@@ -5189,80 +4999,6 @@ impl App {
         {
             self.open_setup_wizard();
         }
-        ui.separator();
-        ui.label(t!("settings.settings_tab.how_the_app_looks_and"));
-        ui.add_space(10.0);
-        ui.label(
-            egui::RichText::new(t!("settings.settings_tab.appearance"))
-                .size(10.0)
-                .color(self.muted()),
-        );
-        ui.horizontal(|ui| {
-            ui.selectable_value(
-                &mut self.preferences.dark,
-                true,
-                t!("settings.settings_tab.dark"),
-            )
-            .on_hover_text(t!("settings.settings_tab.dark.tip"));
-            ui.selectable_value(
-                &mut self.preferences.dark,
-                false,
-                t!("settings.settings_tab.light"),
-            )
-            .on_hover_text(t!("settings.settings_tab.light.tip"));
-        });
-        ui.checkbox(
-            &mut self.preferences.grid,
-            t!("settings.settings_tab.show_grid"),
-        )
-        .on_hover_text(t!("settings.settings_tab.show_grid.tip"));
-        ui.label(t!("settings.settings_tab.interface_size"));
-        ui.horizontal_wrapped(|ui| {
-            for (label, scale) in a11y::UI_SCALE_STEPS {
-                let on = (self.preferences.ui_scale - scale).abs() < 0.01;
-                if ui
-                    .selectable_label(on, label)
-                    .on_hover_text(t!(
-                        "settings.settings_tab.make_text_and_controls_label.tip",
-                        label = label
-                    ))
-                    .clicked()
-                {
-                    self.preferences.ui_scale = scale;
-                }
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label(t!("settings.settings_tab.pad_labels"));
-            for labels in [PadLabels::Number, PadLabels::Net, PadLabels::Off] {
-                ui.selectable_value(&mut self.preferences.pad_labels, labels, labels.name())
-                    .on_hover_text(t!("settings.settings_tab.choose_what_is_drawn_at.tip"));
-            }
-        });
-        ui.label(t!("settings.settings_tab.accent_color"));
-        ui.color_edit_button_srgb(&mut self.preferences.accent)
-            .named(&t!("settings.settings_tab.accent_color"))
-            .on_hover_text(t!("settings.settings_tab.accent_color.tip"));
-        ui.checkbox(
-            &mut self.preferences.reduced_motion,
-            t!("settings.settings_tab.reduce_motion"),
-        )
-        .on_hover_text(t!("settings.settings_tab.reduce_motion.tip"));
-        ui.checkbox(
-            &mut self.preferences.offer_tours,
-            t!("settings.settings_tab.offer_tours"),
-        )
-        .on_hover_text(t!("settings.settings_tab.offer_tours.tip"));
-        self.language_menu(ui);
-        ui.label(
-            egui::RichText::new(t!(
-                "settings.settings_tab.appearance_is_saved_automatically"
-            ))
-            .small()
-            .color(self.muted()),
-        );
-        ui.add_space(8.0);
-        assistant::settings::section(self, ui);
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new(t!("settings.settings_tab.schematic_and_board"))
@@ -5285,7 +5021,6 @@ impl App {
                 .color(self.muted()),
         );
         route_drag::shove_checkbox(self, ui);
-        modifier_ui::keys_section(self, ui);
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new(t!("settings.settings_tab.board_geometry"))
@@ -7843,6 +7578,8 @@ impl App {
         self.array_window(ui.ctx());
         self.file_dialog_window(ui.ctx());
         self.project_settings_window(ui.ctx());
+        self.preferences_window(ui.ctx());
+        self.store_library_source_prefs();
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))
@@ -8262,8 +7999,13 @@ impl App {
         self.adopt_legacy_selection();
         self.tour_tick();
         icons::install(&ctx);
+        if self.preferences.theme_system
+            && let Some(system) = ctx.system_theme()
+        {
+            self.preferences.dark = system == egui::Theme::Dark;
+        }
         a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
-        self.assistant_frame(&ctx);
+        self.assistant_frame();
         if self.style(&ctx) {
             // The font set takes effect on the next pass; painting now would
             // ask for a family that is not bound yet.
