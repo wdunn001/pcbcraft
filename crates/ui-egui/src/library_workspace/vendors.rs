@@ -20,6 +20,7 @@ use super::*;
 use crate::ui_kit::button::ghost_button;
 use crate::ui_kit::card::card;
 use crate::ui_kit::chip::BadgeKind;
+use crate::ui_kit::segmented::{Segment, segmented};
 
 /// The break quantities the table shows as columns.
 const BREAKS: [u32; 4] = [1, 10, 100, 1000];
@@ -52,6 +53,33 @@ impl App {
                     });
                 });
         }
+        // Quantity selector for price breaks
+        ui.horizontal(|ui| {
+            ui.label(fonts::text(fonts::Role::Body, t!("libws.vendors.quantity")).color(t.text));
+            let labels: Vec<String> = BREAKS.iter().map(|q| q.to_string()).collect();
+            let tips: Vec<String> = BREAKS
+                .iter()
+                .map(|q| t!("libws.vendors.quantity.tip", count = q))
+                .collect();
+            let segments: Vec<Segment<'_>> = labels
+                .iter()
+                .zip(&tips)
+                .map(|(label, tip)| Segment {
+                    label,
+                    tip,
+                    count: Default::default(),
+                    disabled: Default::default(),
+                    icon: Default::default(),
+                })
+                .collect();
+            segmented(
+                ui,
+                "library-vendors-qty",
+                &mut self.libws.vendors_qty,
+                &segments,
+            );
+        });
+        let qty = BREAKS[self.libws.vendors_qty.min(BREAKS.len() - 1)];
         let rows = f.vendor_rows();
         card(
             ui,
@@ -79,7 +107,7 @@ impl App {
                     return;
                 }
                 egui::Grid::new("library-vendor-table")
-                    .num_columns(4 + BREAKS.len())
+                    .num_columns(5)
                     .spacing([16.0, 8.0])
                     .striped(true)
                     .show(ui, |ui| {
@@ -87,15 +115,11 @@ impl App {
                             t!("libws.vendors.supplier"),
                             t!("libws.vendors.sku"),
                             t!("libws.vendors.stock"),
+                            t!("libws.vendors.price_at", qty = qty),
+                            t!("libws.vendors.updated"),
                         ] {
                             ui.label(fonts::section_caption(head).color(t.muted));
                         }
-                        for q in BREAKS {
-                            ui.label(fonts::section_caption(q.to_string()).color(t.muted));
-                        }
-                        ui.label(
-                            fonts::section_caption(t!("libws.vendors.updated")).color(t.muted),
-                        );
                         ui.end_row();
                         for r in &rows {
                             ui.label(fonts::strong(&r.supplier).color(t.text));
@@ -107,19 +131,17 @@ impl App {
                                 )
                                 .color(t.text),
                             );
-                            for q in BREAKS {
-                                let at = r
-                                    .breaks
-                                    .iter()
-                                    .filter(|b| b.quantity <= q)
-                                    .max_by_key(|b| b.quantity)
-                                    .filter(|b| b.quantity == q || q == 1);
-                                let text = match at {
-                                    Some(b) => price_text(b.unit_price, &b.currency),
-                                    None => "\u{2013}".to_owned(),
-                                };
-                                ui.label(fonts::mono(text).color(t.text));
-                            }
+                            let at = r
+                                .breaks
+                                .iter()
+                                .filter(|b| b.quantity <= qty)
+                                .max_by_key(|b| b.quantity)
+                                .filter(|b| b.quantity == qty || qty == 1);
+                            let text = match at {
+                                Some(b) => price_text(b.unit_price, &b.currency),
+                                None => "\u{2013}".to_owned(),
+                            };
+                            ui.label(fonts::mono(text).color(t.text));
                             let when = r.as_of.map_or_else(|| t!("libws.vendors.never"), date_text);
                             ui.label(fonts::text(fonts::Role::Body, when).color(t.muted));
                             ui.end_row();
@@ -142,6 +164,9 @@ impl App {
             Some(&t!("libws.sources.caption")),
             |_| {},
             |ui| {
+                ui.label(fonts::strong(t!("libws.sources.supplier_connections")).color(t.text));
+                self.library_supplier_status(ui, f);
+                ui.add_space(8.0);
                 ui.label(fonts::strong(t!("libws.sources.suppliers")).color(t.text));
                 match f
                     .component
@@ -252,6 +277,38 @@ impl App {
         }
         if !self.library.error.is_empty() {
             ui.label(fonts::caption(&self.library.error).color(t.red));
+        }
+    }
+
+    /// The status of supplier connections: ready, needs key, paused or offline.
+    fn library_supplier_status(&mut self, ui: &mut egui::Ui, f: &PartFacts) {
+        let t = theme::tokens(ui.ctx());
+        if !self.supplier_connected() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    fonts::text(fonts::Role::Body, t!("libws.sources.no_connection"))
+                        .color(t.muted),
+                )
+                .on_hover_text(t!("libws.sources.no_connection.tip"));
+            });
+        }
+        // Show stale marks for old prices
+        let now = pcbcraft_clock::now_secs();
+        for quote in &f.quotes {
+            let age_secs = now.saturating_sub(quote.retrieved_at);
+            if age_secs > 86_400 * 7 {
+                // Stale: older than a week
+                let date = date_text(quote.retrieved_at);
+                ui.horizontal(|ui| {
+                    crate::ui_kit::chip::badge(
+                        ui,
+                        &t!("libws.vendors.stale"),
+                        BadgeKind::Warning,
+                        &t!("libws.vendors.stale.tip", date = date),
+                    );
+                    ui.label(fonts::text(fonts::Role::Body, date).color(t.muted));
+                });
+            }
         }
     }
 }
