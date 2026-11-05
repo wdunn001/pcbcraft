@@ -322,9 +322,7 @@ impl Pane {
             return None;
         }
         self.pending_extract = false;
-        let Some(doc) = self.doc.as_ref() else {
-            return None;
-        };
+        let doc = self.doc.as_ref()?;
         let mut layers = Vec::new();
         for page in 0..doc.page_count() {
             match doc.text_layer(page) {
