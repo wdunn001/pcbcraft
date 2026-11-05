@@ -46696,7 +46696,6 @@ mod tests {
             .iter_mut()
             .find(|f| f.component == c2)
             .ok_or_else(|| Error::Invalid("test fixture: f2 missing".into()))?;
-        let f2_id = f2.id;
         f2.position = f1_pos;
         // Lock the first footprint so it must not move.
         s.execute(

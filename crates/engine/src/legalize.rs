@@ -136,10 +136,10 @@ fn footprint_by_id_mut(p: &mut Project, id: Id) -> Option<&mut Footprint> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::Session;
-    use pcbcraft_doc::Footprint;
     use serde_json::json;
 
     fn id(v: &serde_json::Value) -> u64 {
