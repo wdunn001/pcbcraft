@@ -972,7 +972,7 @@ fn dot_colours(ctx: &egui::Context, app: &mut App) -> Vec<egui::Color32> {
         .shapes
         .iter()
         .filter_map(|s| match &s.shape {
-            egui::Shape::Circle(c) if c.radius >= 2.0 && c.center.x > LEFT_ASIDE + 20.0 => {
+            egui::Shape::Circle(c) if c.radius >= 2.0 && c.center.x > left_aside() + 20.0 => {
                 Some(c.fill)
             }
             _ => None,

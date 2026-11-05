@@ -45,6 +45,10 @@ impl FormWidth {
     }
 }
 
+/// Below this row width an aside row stacks its label over its control, so the
+/// control keeps the whole width instead of what the 104 point label column leaves.
+const STACK_BELOW: f32 = 260.0;
+
 /// Draw a form row: `label`, an optional `hint`, the control from `control`, and an
 /// optional `error` below it.
 ///
@@ -71,6 +75,9 @@ pub fn form_row<R>(
     let total = ui.available_width();
     let start = ui.cursor().min;
     let h = width.row_height();
+    if width == FormWidth::Aside && total < STACK_BELOW {
+        return stacked_row(ui, label, hint, error, control);
+    }
     let result = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
@@ -119,6 +126,57 @@ pub fn form_row<R>(
                 },
             )
             .inner
+        })
+        .inner;
+    let bottom = ui.min_rect().max.y;
+    ui.painter().hline(
+        start.x..=start.x + total,
+        bottom - 0.5,
+        Stroke::new(theme::BORDER, t.line.gamma_multiply(0.55)),
+    );
+    result
+}
+
+/// The narrow aside form of `form_row`: the label and hint on one line each, the
+/// control and its error under them at the full row width.
+fn stacked_row<R>(
+    ui: &mut Ui,
+    label: &str,
+    hint: Option<&str>,
+    error: Option<&str>,
+    control: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    let t = theme::tokens(ui.ctx());
+    let total = ui.available_width();
+    let start = ui.cursor().min;
+    let result = ui
+        .vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.add_space(4.0);
+            ui.add(egui::Label::new(fonts::text(fonts::Role::Body, label).color(t.text)).wrap());
+            if let Some(hint) = hint {
+                ui.add(egui::Label::new(fonts::caption(hint).color(t.muted)).wrap());
+            }
+            let r = ui
+                .allocate_ui_with_layout(
+                    Vec2::new(total, theme::CONTROL_HEIGHT),
+                    Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_min_size(Vec2::new(total, theme::CONTROL_HEIGHT));
+                        control(ui)
+                    },
+                )
+                .inner;
+            if let Some(error) = error {
+                ui.horizontal(|ui| {
+                    let (r, _) = ui.allocate_exact_size(Vec2::splat(ICON_SIZE), Sense::hover());
+                    (icons::ERROR.0)(ui.painter(), r, t.red);
+                    ui.add_space(4.0);
+                    ui.label(fonts::caption(error).color(t.red));
+                });
+            }
+            ui.add_space(4.0);
+            r
         })
         .inner;
     let bottom = ui.min_rect().max.y;
