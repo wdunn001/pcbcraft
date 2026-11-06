@@ -15,15 +15,43 @@ use pcbcraft_doc::Project;
 use serde_json::Value;
 
 /// The format version this build writes and reads.
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = pcbcraft_doc::FORMAT_VERSION;
 
 /// One step of the chain: the version it reads, and the rewrite that turns that
 /// version's JSON into the next one's.
 type Step = (u32, fn(Value) -> Result<Value, String>);
 
 /// Every released step, oldest first. Version 1 is the first format this
-/// project wrote, so the chain is empty until a change needs version 2.
-const STEPS: &[Step] = &[];
+/// project wrote. Version 2 makes the board outline always present: a board
+/// that was a plain width and height gets the rectangle outline of that size.
+const STEPS: &[Step] = &[(1, rectangle_outline_step)];
+
+/// Version 1 to 2: a board with no outline gets a rectangle outline built from
+/// its width and height, so the shape is the definition of the board.
+fn rectangle_outline_step(mut value: Value) -> Result<Value, String> {
+    let Some(board) = value.get_mut("board").and_then(Value::as_object_mut) else {
+        return Ok(value);
+    };
+    if board.get("outline").is_some_and(|o| !o.is_null()) {
+        return Ok(value);
+    }
+    let size = |key: &str| board.get(key).and_then(Value::as_f64).unwrap_or(0.0);
+    let (width, height) = (size("width"), size("height"));
+    if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
+        return Ok(value);
+    }
+    let corner = |x: f64, y: f64| serde_json::json!({"x": x, "y": y});
+    board.insert(
+        "outline".into(),
+        Value::Array(vec![
+            corner(0.0, 0.0),
+            corner(width, 0.0),
+            corner(width, height),
+            corner(0.0, height),
+        ]),
+    );
+    Ok(value)
+}
 
 /// Bring a design's JSON up to [`CURRENT_VERSION`].
 ///
@@ -126,6 +154,48 @@ mod tests {
         let seen = object.get("second").and_then(Value::as_bool) == Some(true);
         object.insert("third".into(), json!(seen));
         Ok(value)
+    }
+
+    #[test]
+    fn a_rectangle_only_old_file_loads_with_a_rectangle_outline() -> Result<(), String> {
+        let mut value = serde_json::to_value(Project::default()).map_err(|e| e.to_string())?;
+        let board = value
+            .get_mut("board")
+            .and_then(Value::as_object_mut)
+            .ok_or("a board")?;
+        board.remove("outline");
+        board.insert("width".into(), json!(50.0));
+        board.insert("height".into(), json!(30.0));
+        value["version"] = json!(1);
+        let text = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+        let project = read_project(&text)?;
+        let outline = project.board.outline.as_ref().ok_or("an outline")?;
+        assert_eq!(outline.len(), 4);
+        assert_eq!(project.board.extent_size(), (50.0, 30.0));
+        assert_eq!((project.board.width, project.board.height), (50.0, 30.0));
+        assert_eq!(project.version, CURRENT_VERSION);
+        Ok(())
+    }
+
+    #[test]
+    fn an_old_file_that_already_has_an_outline_keeps_it() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.outline = Some(vec![
+            pcbcraft_geom::Point::new(0.0, 0.0),
+            pcbcraft_geom::Point::new(20.0, 0.0),
+            pcbcraft_geom::Point::new(20.0, 10.0),
+            pcbcraft_geom::Point::new(10.0, 10.0),
+            pcbcraft_geom::Point::new(10.0, 30.0),
+            pcbcraft_geom::Point::new(0.0, 30.0),
+        ]);
+        project.board.refresh_extent();
+        let mut value = serde_json::to_value(&project).map_err(|e| e.to_string())?;
+        value["version"] = json!(1);
+        let text = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+        let loaded = read_project(&text)?;
+        assert_eq!(loaded.board.outline, project.board.outline);
+        assert_eq!((loaded.board.width, loaded.board.height), (20.0, 30.0));
+        Ok(())
     }
 
     #[test]
