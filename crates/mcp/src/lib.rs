@@ -146,6 +146,13 @@ pub fn tool_list() -> Value {
         json!({"name":"library.remove_folder","description":"Forget an added library folder; installed locations are never removed","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.compare","description":"Compare two symbols or two footprints (path_a, path_b) and report pin/pad differences, or line up several part listings (parts, with an optional quantity) in a table, without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint","parts"]},"name_a":{"type":"string"},"name_b":{"type":"string"},"parts":{"type":"array","items":{"type":"object"}},"quantity":{"type":"integer","minimum":1}}),&["kind"])}),
         json!({"name":"library.samtec.manufacturer_page","description":"Build the public Samtec product page URL for a part number so the user can download official CAD files in the browser","inputSchema":object(json!({"mpn":{"type":"string","minLength":1,"maxLength":64}}),&["mpn"])}),
+        json!({"name":"registry.catalogue","description":"Build the catalogue from a static registry folder on disk; returns every publication with id, title, version, kind and tags","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"registry.sources","description":"Read the public sources index from a registry folder; returns every source entry with kind, id, name and URL or path","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"registry.verify","description":"Verify a static registry folder: check the registry manifest hash against the catalogue and every publication file hash","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"registry.rebuild","description":"Rebuild the catalogue and browse page for a static registry folder; returns the item count","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"registry.publish","description":"Write a publication into a static registry folder; verifies file hashes and updates the catalogue","inputSchema":object(json!({"registry":{"type":"string"},"id":{"type":"string"},"title":{"type":"string"},"version":{"type":"string"},"kind":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"files":{"type":"object"}}),&["registry","id","title","version","files"])}),
+        json!({"name":"registry.install","description":"Install a publication from a static registry folder into a destination folder; verifies hashes before copying","inputSchema":object(json!({"registry":{"type":"string"},"id":{"type":"string"},"version":{"type":"string"},"dest":{"type":"string"}}),&["registry","id","version","dest"])}),
+        json!({"name":"registry.instance_items","description":"Read a fixture instance feed and merge its items with the local catalogue, marking remote items with their origin","inputSchema":object(json!({"path":{"type":"string"},"instance_feed":{"type":"string"}}),&["path","instance_feed"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[]),"outputSchema":inspect_output}),
         json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
@@ -219,6 +226,13 @@ fn tool_kind(name: &str) -> ToolKind {
         "design.recents",
         "design.list_open",
         "design.activate",
+        "registry.catalogue",
+        "registry.sources",
+        "registry.verify",
+        "registry.rebuild",
+        "registry.publish",
+        "registry.install",
+        "registry.instance_items",
     ];
     if READ_ONLY.contains(&name) {
         ToolKind::ReadOnly
@@ -419,6 +433,19 @@ pub(crate) fn invoke_session(
     .contains(&name)
     {
         return pcbcraft_engine::library::read_tool(session.config(), name, args).map(text_result);
+    }
+    if [
+        "registry.catalogue",
+        "registry.sources",
+        "registry.verify",
+        "registry.rebuild",
+        "registry.publish",
+        "registry.install",
+        "registry.instance_items",
+    ]
+    .contains(&name)
+    {
+        return pcbcraft_engine::registry::read_tool(name, args).map(text_result);
     }
     let mut s = session
         .lock()
