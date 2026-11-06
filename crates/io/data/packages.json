@@ -31,6 +31,11 @@
         "kind": "report",
         "format": "fab_readme",
         "name": "{project}-{layer}.{ext}"
+      },
+      {
+        "kind": "report",
+        "format": "revision_notes",
+        "name": "{project}-revision-notes-{rev}.txt"
       }
     ]
   },
@@ -82,6 +87,11 @@
         "kind": "report",
         "format": "fab_readme",
         "name": "{project}-{layer}.{ext}"
+      },
+      {
+        "kind": "report",
+        "format": "revision_notes",
+        "name": "{project}-revision-notes-{rev}.txt"
       }
     ]
   },
@@ -117,6 +127,11 @@
         "kind": "gerbers",
         "format": "gerber_job",
         "name": "{project}-{layer}.{ext}"
+      },
+      {
+        "kind": "report",
+        "format": "revision_notes",
+        "name": "{project}-revision-notes-{rev}.txt"
       }
     ]
   },
@@ -157,6 +172,11 @@
         "kind": "report",
         "format": "fab_readme",
         "name": "{project}-{layer}.{ext}"
+      },
+      {
+        "kind": "report",
+        "format": "revision_notes",
+        "name": "{project}-revision-notes-{rev}.txt"
       }
     ]
   },

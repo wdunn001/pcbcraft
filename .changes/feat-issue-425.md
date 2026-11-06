@@ -1,8 +1,8 @@
 ---
-type: feature
+type: test
 area: io
 issues: [425]
-user_visible: true
-docs: [crates/io/src/package.rs, crates/io/src/export_package.rs]
-summary: Fabrication packages now carry a revision notes file with project metadata and part changes since the last export.
+user_visible: false
+docs: n/a: written by the worker harness, the issue text records the behaviour
+summary: Revision notes and readme generator for packages.
 ---

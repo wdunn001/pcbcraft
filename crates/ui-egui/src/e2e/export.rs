@@ -963,3 +963,62 @@ fn a_newcomer_exports_the_board_to_solidcraft() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sees_revision_notes_in_the_complete_fab_package() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    // Export the complete fab package twice and compare the zip bytes.
+    file_export(&ctx, &mut app, "More…")?;
+    in_format_list(&ctx, &mut app, "Complete fab package")?;
+    authoring::tests::tap(&ctx, &mut app, "Complete fab package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    authoring::tests::tap(&ctx, &mut app, "Export package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let first = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.ends_with("-fab-complete-A.zip"))
+        .ok_or("no complete fab zip was written on the first export")?;
+    let first_zip = std::fs::read(dir.path().join(&first)).map_err(|e| e.to_string())?;
+    std::fs::remove_file(dir.path().join(&first)).map_err(|e| e.to_string())?;
+    // Second export, same design, should produce identical zip bytes.
+    file_export(&ctx, &mut app, "More…")?;
+    in_format_list(&ctx, &mut app, "Complete fab package")?;
+    authoring::tests::tap(&ctx, &mut app, "Complete fab package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    authoring::tests::tap(&ctx, &mut app, "Export package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let second = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.ends_with("-fab-complete-A.zip"))
+        .ok_or("no complete fab zip was written on the second export")?;
+    let second_zip = std::fs::read(dir.path().join(&second)).map_err(|e| e.to_string())?;
+    assert_eq!(
+        first_zip, second_zip,
+        "two exports of an unchanged design give identical zip bytes"
+    );
+    // The zip must contain a revision notes file.
+    let text = String::from_utf8_lossy(&first_zip);
+    assert!(
+        text.contains("-revision-notes-A.txt"),
+        "the complete fab package includes a revision notes file"
+    );
+    // The manifest lists the revision notes entry.
+    assert!(
+        text.contains("\"name\": \"LED_indicator-revision-notes-A.txt\""),
+        "the manifest names the revision notes file"
+    );
+    Ok(())
+}
