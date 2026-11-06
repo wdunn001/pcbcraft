@@ -4394,3 +4394,6 @@ libws.sources.status.offline = Offline
 libws.sources.status.offline.tip = This supplier connection is offline; cached prices are shown.
 libws.vendors.stale = Stale
 libws.vendors.stale.tip = This price was taken on {date} and may no longer be current.
+libws.orderable.label = Orderable part
+libws.orderable.tip = Pick an orderable part record from the project library to make this placed part orderable, or choose Generic to clear it
+libws.orderable.generic = Generic (no maker part)

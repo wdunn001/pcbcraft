@@ -529,3 +529,73 @@ fn a_newcomer_saves_a_part_to_the_project_library() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// Make a placed generic part orderable by picking an orderable part record.
+#[test]
+fn a_newcomer_makes_a_generic_part_orderable() -> Result<(), String> {
+    let (ctx, mut app) = library_open();
+
+    // Place a resistor and record its position.
+    let id = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.kind == "resistor")
+        .map(|c| c.id)
+        .ok_or("the sample board has a resistor")?;
+    let before_pos = app
+        .project
+        .component(id)
+        .map(|c| c.position)
+        .ok_or("component position")?;
+
+    // Attach a source to create an orderable part record.
+    app.tool_call(
+        "part.attach_source",
+        json!({
+            "id": id,
+            "manufacturer": "Example Components",
+            "mpn": "EX-R-10K",
+            "datasheet": "https://example.invalid/d.pdf",
+            "distributor": "Sample Shop",
+            "sku": "SS-1"
+        }),
+    );
+    app.refresh();
+
+    // Open the part in the Library tab.
+    tap_id(&ctx, &mut app, RESISTOR_CARD)?;
+    // Scroll to the Orderable part row.
+    scrolled_to(&ctx, &mut app, "Orderable part").expect("the Orderable part row is on the page");
+
+    // Click the Orderable part combo.
+    tap_id(&ctx, &mut app, "combobox:Generic (no maker part)")?;
+
+    // Pick the orderable part.
+    tap_id(&ctx, &mut app, "button:Example Components EX-R-10K")?;
+    app.refresh();
+
+    // Assert the MPN field is set.
+    let component = app.project.component(id).ok_or("component")?;
+    assert_eq!(
+        component.field("MPN"),
+        Some("EX-R-10K"),
+        "the MPN field is set to the orderable part's MPN"
+    );
+
+    // Assert the position is unchanged.
+    let after_pos = app.project.component(id).ok_or("component")?.position;
+    assert_eq!(before_pos, after_pos, "the component position is unchanged");
+
+    // Undo and assert the MPN is back to what it was.
+    app.tool_call("edit.undo", json!({}));
+    app.refresh();
+    let after_undo = app.project.component(id).ok_or("component")?;
+    assert_eq!(
+        after_undo.field("MPN"),
+        None,
+        "after undo the MPN field is cleared"
+    );
+
+    Ok(())
+}

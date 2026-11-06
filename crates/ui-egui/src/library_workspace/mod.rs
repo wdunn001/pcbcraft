@@ -42,6 +42,7 @@ pub(crate) mod facts;
 pub(crate) mod machines;
 mod machines_view;
 mod model;
+mod orderable;
 mod overview;
 mod vendors;
 
@@ -705,6 +706,10 @@ impl App {
                     self.dock_place_card(ui.ctx(), &card);
                 }
             });
+            // Orderable part row: pick an orderable part record for this placed part.
+            if let Some(c) = self.library_component(&card) {
+                orderable::library_orderable_row(self, ui, &card, c.id);
+            }
         });
         let pages = [
             (
