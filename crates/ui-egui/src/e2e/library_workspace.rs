@@ -170,12 +170,13 @@ fn a_newcomer_compares_prices_for_a_part() -> Result<(), String> {
         "and names the date of the cached prices: {}",
         painted(&ctx, &mut app)
     );
+    // The table shows the price at the chosen order quantity, one unit to begin with.
     for text in [
         "Distributor A",
         "Distributor B",
         "Distributor C",
         "A-311-330FRCT-ND",
-        "0.011 USD",
+        "0.028 USD",
     ] {
         assert!(
             paints_text(&ctx, &mut app, text)?,
@@ -183,6 +184,24 @@ fn a_newcomer_compares_prices_for_a_part() -> Result<(), String> {
             painted(&ctx, &mut app)
         );
     }
+    assert!(
+        paints_text(&ctx, &mut app, "Order quantity")?,
+        "the page offers an order quantity: {}",
+        painted(&ctx, &mut app)
+    );
+    // Choosing a larger quantity shows that price break, and the largest shows the lowest.
+    app.libws.vendors_qty = 2;
+    assert!(
+        paints_text(&ctx, &mut app, "0.011 USD")?,
+        "the vendor table shows the hundred piece price: {}",
+        painted(&ctx, &mut app)
+    );
+    app.libws.vendors_qty = 3;
+    assert!(
+        paints_text(&ctx, &mut app, "0.008 USD")?,
+        "the vendor table shows the thousand piece price: {}",
+        painted(&ctx, &mut app)
+    );
     tap_id(&ctx, &mut app, "button:Refresh prices")?;
     assert!(
         app.message.contains("no supplier connection"),
@@ -372,5 +391,55 @@ fn a_newcomer_checks_which_pad_each_symbol_pin_reaches() -> Result<(), String> {
             painted(&ctx, &mut app)
         );
     }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_saves_a_part_to_the_project_library() -> Result<(), String> {
+    let (_ctx, mut app) = library_open();
+    // A project part with a footprint, placed on the board with a manufacturer field.
+    let mut fp = authoring::new_footprint();
+    fp.name = "Test_FP".into();
+    app.tool_call("library.footprint.upsert", json!({"definition": fp}));
+    let mut sym = authoring::new_symbol();
+    sym.name = "Test Part".into();
+    sym.footprint = "Test_FP".into();
+    app.tool_call("library.symbol.upsert", json!({"definition": sym}));
+    app.tool_call(
+        "component.place_custom",
+        json!({"name": "Test Part", "position": {"x": 10.0, "y": 10.0}, "reference": "U1"}),
+    );
+    app.refresh();
+    let id = app
+        .project
+        .components
+        .last()
+        .ok_or("the part was placed")?
+        .id;
+    app.tool_call(
+        "footprint.assign_custom",
+        json!({"id": id, "name": "Test_FP"}),
+    );
+    app.tool_call(
+        "component.field",
+        json!({"id": id, "key": "Manufacturer", "value": "TestCo"}),
+    );
+    app.refresh();
+    let saved = app.tool_call("part.save", json!({"id": id, "target": "project"}));
+    assert!(saved, "part.save succeeded: {}", app.message);
+    app.refresh();
+    let part = app
+        .project
+        .library
+        .part_sidecars
+        .iter()
+        .find(|p| p.symbol == "Test Part")
+        .ok_or("the part was saved to the project library")?;
+    assert!(
+        part.fields
+            .iter()
+            .any(|f| f.key == "Manufacturer" && f.value == "TestCo"),
+        "the saved part keeps its manufacturer field"
+    );
     Ok(())
 }

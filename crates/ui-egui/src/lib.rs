@@ -1433,6 +1433,13 @@ pub struct App {
     outline_ui: outline_arcs::OutlineUi,
     drag_offset: Point,
     cursor: Option<Point>,
+    /// What the armed Add tool shows under the pointer this frame.
+    ghost: Option<canvas::ghost::PlacementGhost>,
+    /// The armed library part's outline paths: the library path, the part name
+    /// and the paths, rebuilt only when the armed part changes.
+    ghost_paths: Option<(String, String, Vec<Vec<Point>>)>,
+    /// Capture option: show the Add tool ghost without a pointer.
+    capture_ghost: bool,
     canvas_rect: Rect,
     canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
@@ -1949,8 +1956,28 @@ impl App {
         };
         self
     }
+    /// Arm an Add tool (`part`, `label`, `power`, `port`, `noconnect`, `pad`,
+    /// `via` or `hole`) and show its ghost mid-canvas, so a `--capture` image
+    /// shows what the tool will place.
+    pub fn with_capture_tool(mut self, name: Option<String>) -> Self {
+        let tool = match name.as_deref() {
+            Some("part") => Tool::Place("resistor".into()),
+            Some("label") => Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local),
+            Some("power") => Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power),
+            Some("port") => Tool::Port,
+            Some("noconnect") => Tool::NoConnect,
+            Some("pad") => Tool::Pad,
+            Some("via") => Tool::Via,
+            Some("hole") => Tool::Hole,
+            _ => return self,
+        };
+        self.tool = tool;
+        self.capture_ghost = true;
+        self
+    }
     /// Start with a drawing target (`silk`, `edge` or `copper`), `flipped` to
-    /// look from the bottom, or `hide-silk` or `hide-all` to hide layers, so a
+    /// look from the bottom, `hide-silk` or `hide-all` to hide layers, or `select-cutout`,
+    /// `select-hole` or `select-outline` to pick that board object, so a
     /// `--capture` image shows the Active tag on that layer.
     pub fn with_capture_target(mut self, name: Option<String>) -> Self {
         use draw_target::{Side, Target};
@@ -1959,6 +1986,23 @@ impl App {
             Some("edge") => Target::Edge,
             Some("flipped") => {
                 self.set_view_side(true);
+                return self;
+            }
+            // Select the first cut-out or mounting hole, or the outline row.
+            Some("select-cutout") => {
+                let id = self.project.board.cutouts.first().map(|c| c.id);
+                self.select(id);
+                return self;
+            }
+            Some("select-hole") => {
+                let id = self.project.board.holes.first().map(|h| h.id);
+                self.select(id);
+                return self;
+            }
+            Some("select-outline") => {
+                self.tree.expanded.insert("edge".into());
+                self.tree.selected_key = Some("edge/edge".into());
+                self.tree.reveal_row("edge/edge");
                 return self;
             }
             Some("hide-silk") => {
@@ -2238,6 +2282,9 @@ impl App {
             outline_ui: outline_arcs::OutlineUi::default(),
             drag_offset: Point::default(),
             cursor: None,
+            ghost: None,
+            ghost_paths: None,
+            capture_ghost: false,
             canvas_rect: Rect::NOTHING,
             canvas_menu: None,
             message: if cfg!(target_arch = "wasm32") {
@@ -2626,7 +2673,7 @@ impl App {
         success
     }
 
-    fn colours(&self) -> palette::ThemeColours {
+    pub(crate) fn colours(&self) -> palette::ThemeColours {
         palette::palette(self.preferences.dark, self.preferences.accent)
     }
     fn accent(&self) -> Color32 {
@@ -3373,12 +3420,7 @@ impl App {
             KeyAction::ZoomToSelection => {
                 self.needs_zoom_selection = true;
             }
-            KeyAction::DeleteSelection => {
-                if let Some(id) = self.selected {
-                    self.run("object.delete", json!({"id": id}));
-                    self.select(None);
-                }
-            }
+            KeyAction::DeleteSelection => self.delete_selection(),
             KeyAction::ReturnToSelect => {
                 self.cancel_schematic_gestures();
                 self.tool = Tool::Select;
@@ -7136,8 +7178,6 @@ impl App {
                     }
                     if let Some(page) = self.hovered_page_preview() {
                         self.page_properties(ui, page, true);
-                    } else if self.selected.is_none() && self.tree.selected_key.is_some() {
-                        self.tree_row_properties(ui);
                     } else if self.selected.is_none()
                         && self.project.board.outline.is_some()
                         && (self.outline_ui.segment.is_some()
@@ -7150,6 +7190,8 @@ impl App {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.outline_inspector(ui));
+                    } else if self.selected.is_none() && self.tree.selected_key.is_some() {
+                        self.tree_row_properties(ui);
                     } else if let Some(id) = self
                         .selected
                         .filter(|id| datums::is_datum(&self.project, *id))
@@ -7807,6 +7849,18 @@ impl App {
             self.select(Some(via));
         }
         if self.frames == 3
+            && let Some(old) = self.capture_select.as_deref().and_then(|s| match s {
+                "power-port" => Some(false),
+                "power-port-old" => Some(true),
+                _ => None,
+            })
+        {
+            // `--select power-port` drags the VBUS port away; `power-port-old` does it
+            // the way the label-only move did, so the two images can be compared.
+            self.capture_select = None;
+            self.capture_power_port(ctx, old);
+        }
+        if self.frames == 3
             && let Some(row) = self
                 .capture_select
                 .as_deref()
@@ -8046,6 +8100,9 @@ impl App {
         };
         if let Some(id) = board3d::show(&mut self.view3d, ui, &mut env) {
             self.select(Some(id));
+        }
+        if let Some(visible) = self.view3d.enclosure_visible_request.take() {
+            self.tool_call("board.enclosure.set_view", json!({ "visible": visible }));
         }
     }
 

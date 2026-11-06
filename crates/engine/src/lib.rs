@@ -42,11 +42,12 @@ mod part_save;
 mod pin_map;
 pub mod placement;
 mod plugins;
+mod power_port;
 pub mod profiles;
 pub mod publication;
 pub mod recents;
 pub mod recovery;
-mod registry;
+pub mod registry;
 mod route;
 mod route_auto;
 pub mod scope;
@@ -3067,6 +3068,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(outline::commands())
         .chain(bus_entry::commands())
         .chain(wire_reconnect::commands())
+        .chain(power_port::commands())
         .chain(tuning::commands())
         .chain(sim::commands())
         .chain(datasheet_annotations::commands())
@@ -3078,6 +3080,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(part_save::commands())
         .chain(publication::commands())
         .chain(teardrop::commands())
+        .chain(legalize::commands())
         .chain(route_auto::commands())
         .chain(pads::commands())
         .chain(calc::commands())
@@ -8941,7 +8944,7 @@ fn default_width() -> f64 {
 }
 /// Track width to use when a command leaves width out: the width of the net's
 /// class, or the standard width for unclassified nets.
-fn class_width(p: &Project, net: Id) -> f64 {
+pub(crate) fn class_width(p: &Project, net: Id) -> f64 {
     p.net_class(net)
         .map(|class| class.width)
         .unwrap_or_else(default_width)
@@ -10728,6 +10731,9 @@ fn run_command(
     if let Some(result) = calc::run(p, command, params) {
         return result;
     }
+    if let Some(result) = legalize::run(p, next, command, params) {
+        return result;
+    }
     if let Some(result) = teardrop::run(p, next, command, params) {
         return result;
     }
@@ -10747,6 +10753,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = bus_entry::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = power_port::run(p, command, params) {
         return result;
     }
     if let Some(result) = wire_reconnect::run(p, next, command, params) {
