@@ -133,6 +133,9 @@ pub struct OrderPrepared {
 /// Adapter trait for vendor integrations.
 ///
 /// One implementation per vendor, supporting one or more capabilities.
+///
+/// # Implementations
+/// - crates/library/src/vendor_integrations.rs (`JlcpcbUploadAdapter`)
 pub trait VendorAdapter {
     /// The vendor's display name.
     fn name(&self) -> &str;
@@ -184,6 +187,7 @@ impl Default for JlcpcbUploadAdapter {
     }
 }
 
+/// Contract: crates/library/src/vendor_integrations.rs
 impl VendorAdapter for JlcpcbUploadAdapter {
     fn name(&self) -> &str {
         "JLCPCB"
@@ -261,18 +265,19 @@ mod tests {
     }
 
     #[test]
-    fn jlcpcb_prepare_quote_succeeds_with_files() {
+    fn jlcpcb_prepare_quote_succeeds_with_files() -> Result<(), String> {
         let adapter = JlcpcbUploadAdapter::new();
         let files = vec![QuoteFile {
             name: "gerbers.zip".to_string(),
             size: 1024,
             sha256: "abc123".to_string(),
         }];
-        let result = adapter.prepare_quote(files.clone(), QuoteOptions::default());
-        assert!(result.is_ok());
-        let prepared = result.unwrap();
+        let prepared = adapter
+            .prepare_quote(files, QuoteOptions::default())
+            .map_err(|e| format!("a quote with files is prepared: {e:?}"))?;
         assert_eq!(prepared.vendor, "JLCPCB");
         assert_eq!(prepared.host, "jlcpcb.com");
         assert_eq!(prepared.files.len(), 1);
+        Ok(())
     }
 }
