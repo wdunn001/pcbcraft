@@ -35,16 +35,12 @@ fn ghost_marks(app: &App, output: &egui::FullOutput) -> usize {
                 }
             }
             egui::Shape::Circle(c) => {
-                if (c.stroke.color == tint || c.fill == tint)
-                    && canvas.contains(c.center)
-                {
+                if (c.stroke.color == tint || c.fill == tint) && canvas.contains(c.center) {
                     *n += 1;
                 }
             }
-            egui::Shape::Text(t) => {
-                if t.fallback_color == tint && canvas.contains(t.pos) {
-                    *n += 1;
-                }
+            egui::Shape::Text(t) if t.fallback_color == tint && canvas.contains(t.pos) => {
+                *n += 1;
             }
             _ => {}
         }
