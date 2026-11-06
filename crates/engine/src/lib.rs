@@ -47,7 +47,7 @@ pub mod profiles;
 pub mod publication;
 pub mod recents;
 pub mod recovery;
-mod registry;
+pub mod registry;
 mod route;
 mod route_auto;
 pub mod scope;
