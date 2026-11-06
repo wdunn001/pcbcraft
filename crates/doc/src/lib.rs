@@ -4327,6 +4327,58 @@ impl DecouplingRule {
         Ok(())
     }
 }
+/// One per-component placement rule: what a specific part should or must do.
+///
+/// Context: the decoupling rule is global; this carries overrides and placement
+/// intent for particular parts. User-authored rules are written via
+/// layout.rule_set; datasheet-derived rules arrive as advisory until the
+/// designer accepts them.
+///
+/// # Rules
+/// - decoupling overrides the project-wide decoupling rule for this part.
+/// - keep_near names parts this should be placed close to (advisory).
+/// - edge_placement means the part should sit at a board edge.
+/// - orientation is a preferred rotation in degrees (advisory).
+/// - source says where the rule came from; user rules may be edited.
+///
+/// # Dependencies
+/// - crates/engine/src/layout.rs writes these via layout.rule_set and rule_remove.
+/// - crates/engine/src/layout.rs reads them via layout.rules_for.
+///
+/// # Do not
+/// - Make source "system" or "builtin"; those sources do not exist in this design.
+/// - Apply a rule silently when a hard rule fails; report it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ComponentRule {
+    /// The component this rule applies to.
+    pub component: Id,
+    /// Per-part decoupling override; when None, the project-wide rule applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decoupling: Option<DecouplingRule>,
+    /// Parts this should be placed close to (advisory).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keep_near: Vec<Id>,
+    /// When true, the part should be placed at a board edge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge_placement: Option<bool>,
+    /// Preferred rotation in degrees (advisory).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<f64>,
+    /// Where the rule came from: default, standard, datasheet, user.
+    #[serde(default = "rule_source_default")]
+    pub source: String,
+}
+fn rule_source_default() -> String {
+    "default".to_string()
+}
+impl ComponentRule {
+    /// True when the rule is user-authored and may be edited.
+    pub fn is_user(&self) -> bool {
+        self.source == "user"
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(remote = "Self")]
 pub struct Project {
@@ -4466,6 +4518,10 @@ pub struct Project {
     /// Companion-part intent rules, from profiles or edited on the project.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub companion_rules: Vec<CompanionRule>,
+    /// Per-component placement rules: decoupling, keep-near, edge placement and
+    /// orientation intent for specific parts. User rules are written via layout.rule_set.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub component_rules: Vec<ComponentRule>,
     /// Links placed schematic components to generic and orderable library records.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub part_links: BTreeMap<Id, PlacedPartLink>,
@@ -4767,6 +4823,7 @@ impl Default for Project {
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
             companion_rules: vec![],
+            component_rules: vec![],
             part_links: BTreeMap::new(),
             wires: vec![],
             drawn_wires: vec![],

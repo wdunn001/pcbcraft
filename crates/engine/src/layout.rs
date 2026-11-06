@@ -36,16 +36,9 @@ const OVERLAP_EPS_MM: f64 = 1e-6;
 
 /// True for the layout read commands.
 pub(super) fn handles(command: &str) -> bool {
-    command == "layout.report"
+    command == "layout.report" || command == "layout.rules_for" || command == "layout.rule_set" || command == "layout.rule_remove"
 }
 
-pub(super) fn commands() -> Vec<CommandSpec> {
-    vec![CommandSpec {
-        id: "layout.report",
-        description: "Read-only layout report for a scope: part positions and boxes, nearest-neighbour gaps, alignment rows and columns, per-net half-perimeter, ratsnest length and unrouted connection count with totals, parts off the board and overlapping parts. Deterministic JSON; changes nothing",
-        input_schema: schema(json!({"scope": scope::schema()}), &["scope"]),
-    }]
-}
 
 /// Run a layout read command.
 pub(super) fn run(p: &Project, command: &str, params: &Value) -> Result<Value, Error> {
@@ -302,4 +295,41 @@ fn report(p: &Project, scope: &Scope) -> Result<Value, Error> {
         "off_board": off_board,
         "overlaps": overlapping,
     }))
+}
+pub(super) fn commands() -> Vec<CommandSpec> {
+    vec![
+        CommandSpec {
+            id: "layout.report",
+            description: "Read-only layout report for a scope: part positions and boxes, nearest-neighbour gaps, alignment rows and columns, per-net half-perimeter, ratsnest length and unrouted connection count with totals, parts off the board and overlapping parts. Deterministic JSON; changes nothing",
+            input_schema: schema(json!({"scope": scope::schema()}), &["scope"]),
+        },
+        CommandSpec {
+            id: "layout.rules_for",
+            description: "List the resolved placement rules for a scope: global rules and per-part overrides, each with its source. Locked parts are excluded. Read-only; changes nothing",
+            input_schema: schema(json!({"scope": scope::schema()}), &["scope"]),
+        },
+        CommandSpec {
+            id: "layout.rule_set",
+            description: "Write a user-authored per-component placement rule: decoupling override, keep-near list, edge placement, or preferred orientation. One rule per part; a second call replaces the previous rule for that part",
+            input_schema: schema(json!({"component":{"type":"integer","minimum":1},"decoupling":{"type":"object","properties":{"max_distance_mm":{"type":"number","minimum":0.1,"maximum":50},"suggested_value":{"type":"string","maxLength":32}}},"keep_near":{"type":"array","items":{"type":"integer","minimum":1},"maxItems":32},"edge_placement":{"type":"boolean"},"orientation":{"type":"number","minimum":-360,"maximum":360},"source":{"type":"string","enum":["default","standard","datasheet","user"]}}}, &["component"]),
+        },
+        CommandSpec {
+            id: "layout.rule_remove",
+            description: "Remove the user-authored placement rule for one component; global rules still apply",
+            input_schema: schema(json!({"component":{"type":"integer","minimum":1}}), &["component"]),
+        },
+    ]
+}
+
+/// Run a layout mutation command.
+pub(super) fn run_mut(
+    p: &mut Project,
+    command: &str,
+    params: &Value,
+) -> Option<Result<Value, Error>> {
+    match command {
+        "layout.rule_set" => Some(rule_set(p, params)),
+        "layout.rule_remove" => Some(rule_remove(p, params)),
+        _ => None,
+    }
 }
