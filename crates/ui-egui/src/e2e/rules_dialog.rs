@@ -80,11 +80,11 @@ fn a_newcomer_opens_rules_and_checks_from_the_edit_menu() -> Result<(), String> 
 }
 
 #[test]
-fn a_newcomer_turns_a_check_down_to_a_warning() -> Result<(), String> {
+fn a_newcomer_turns_a_signal_integrity_check_down_to_a_warning() -> Result<(), String> {
     let (ctx, mut app) = board();
     open_from_menu(&ctx, &mut app)?;
     tap_id(&ctx, &mut app, "tab:Rules")?;
-    tap_id(&ctx, &mut app, "combobox:Clearance")?;
+    tap_id(&ctx, &mut app, "combobox:Impedance target")?;
     for _ in 0..3 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
@@ -97,17 +97,17 @@ fn a_newcomer_turns_a_check_down_to_a_warning() -> Result<(), String> {
     assert_eq!(
         app.project
             .rule_severity
-            .get("clearance")
+            .get("impedance_target")
             .map(String::as_str),
         Some("warning"),
-        "Clearance now reports warnings: {}",
+        "Impedance target now reports warnings: {}",
         app.message
     );
-    tap_id(&ctx, &mut app, "checkbox:Clearance is on")?;
+    tap_id(&ctx, &mut app, "checkbox:Impedance target is on")?;
     assert_eq!(
         app.project
             .rule_severity
-            .get("clearance")
+            .get("impedance_target")
             .map(String::as_str),
         Some("off"),
         "unticking switches the check off: {}",

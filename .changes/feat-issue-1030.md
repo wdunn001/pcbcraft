@@ -4,5 +4,5 @@ area: layout
 issues: [1030]
 user_visible: false
 docs: n/a: a test note, nothing a guide describes
-summary: A story for the signal integrity severity control is held back because the control does not exist yet.
+summary: The acceptance story for signal integrity rule severities turns Impedance target down to a warning through the Rules dialog, then switches it off.
 ---
