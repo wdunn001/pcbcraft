@@ -157,10 +157,8 @@ impl App {
                     "Part sources are off. Only parts on this computer are listed.",
                 );
                 if ui
-                    .button("Turn on Open library")
-                    .on_hover_text(
-                        "Search the open symbol and footprint libraries. Parts you have opened before work offline. No account needed.",
-                    )
+                    .button(t!("library.dock.turn_on_open_library"))
+                    .on_hover_text(t!("library.dock.turn_on_open_library.tip"))
                     .clicked()
                 {
                     self.use_open_source(Box::new(CacheOnly), None);

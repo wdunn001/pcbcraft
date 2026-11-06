@@ -47,7 +47,11 @@ pub(super) fn item(ui: &mut egui::Ui, item: &Item, view: &View) -> Option<Presse
         Item::User { text } => {
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(egui::RichText::new("You").small().color(muted));
+                ui.label(
+                    egui::RichText::new(t!("assistant.you"))
+                        .small()
+                        .color(muted),
+                );
                 ui.add(egui::Label::new(text.as_str()).wrap());
             });
             None
