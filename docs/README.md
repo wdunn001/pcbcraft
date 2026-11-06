@@ -13,6 +13,7 @@
 | [mcp-conformance.md](mcp-conformance.md) | MCP spec conformance table and test list |
 | [ci.md](ci.md) | GitHub Actions jobs |
 | [adr-0001-simulation.md](adr-0001-simulation.md) | Decision record (Proposed): how circuit simulation will work |
+| [adr-0002-transient-simulation.md](adr-0002-transient-simulation.md) | Decision record (Proposed): transient and AC simulation scope |
 | [design-system.md](design-system.md) | UI design system: frame, tokens, components, menus, Layers tree, mockup issue table |
 | [page-layouts.md](page-layouts.md) | What each tab holds, region by region |
 | [accessibility.md](accessibility.md) | What the Accessibility check enforces and how to fix a failure |
