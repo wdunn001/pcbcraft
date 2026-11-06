@@ -544,17 +544,18 @@ fn a_newcomer_copies_a_part_to_the_personal_library() -> Result<(), String> {
     std::fs::create_dir_all(&personal).map_err(|e| e.to_string())?;
     let personal_str = personal.to_string_lossy().to_string();
 
-    let (_ctx, mut app) = library_open();
+    let (config, _config_folder) = private_config("personal")?;
+    let shared = session_with(&config);
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
     let added = app.tool_call(
         "library.add_folder",
         json!({"path": personal_str, "name": "My parts"}),
     );
     assert!(added, "the personal folder was added: {}", app.message);
-    let marked = app.tool_call(
-        "library.set_source_role",
-        json!({"path": personal_str, "role": "personal"}),
-    );
-    assert!(marked, "the folder was marked personal: {}", app.message);
+    // No tool marks a folder personal yet, so the story marks it through the engine.
+    pcbcraft_engine::library::set_source_role(&config, &personal_str, Some("personal"))?;
 
     // Create and place a project part.
     let mut fp = authoring::new_footprint();
