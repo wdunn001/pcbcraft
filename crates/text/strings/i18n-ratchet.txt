@@ -6,17 +6,17 @@
 # the number in the same change. Never raise one. Missing keys: #924. Literals and
 # concatenation: #925.
 literals | arrange.rs | 18
-literals | assistant/cards.rs | 1
+literals | assistant/cards.rs | 0
 literals | authoring.rs | 7
 literals | datums.rs | 26
 literals | file_dialogs.rs | 17
 literals | footprint_wizard.rs | 12
 literals | impedance_panel.rs | 18
 literals | reference_panel.rs | 23
-literals | sources.rs | 2
+literals | sources.rs | 0
 literals | via_span.rs | 13
 missing | de | 768
 missing | es | 1927
 missing | fr | 768
 unused | keys | 83
-concatenation | library_dock.rs | 1
+concatenation | library_dock.rs | 0

@@ -1645,6 +1645,7 @@ cmp.count.other = {count} parts
 # Assistant pane and its Settings section.
 assistant.tab = Assistant
 assistant.tab.tip = Ask a model to change the design. Every change waits for your answer.
+assistant.you = You
 assistant.new_chat = New chat
 assistant.new_chat.tip = Forget this conversation and start a fresh one.
 assistant.clear = Clear
@@ -1840,6 +1841,9 @@ library.dock.searching = Searching installed libraries...
 library.dock.more = Showing {shown} of {total} installed matches. Type more to narrow them.
 library.dock.type_for_installed = Type a name or pick a kind to search installed libraries.
 library.dock.online_off = Turn on the Open library source in the list first.
+library.dock.source_off = Part sources are off. Only parts on this computer are listed.
+library.dock.turn_on_open_library = Turn on Open library
+library.dock.turn_on_open_library.tip = Search the open symbol and footprint libraries. Parts you have opened before work offline. No account needed.
 library.dock.loading = Reading the part...
 library.dock.offline = Offline
 library.dock.offline.tip = Stop every online request. Parts already kept on this computer still work.
