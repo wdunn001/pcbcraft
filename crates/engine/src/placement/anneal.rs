@@ -36,7 +36,10 @@
 //!   state seen is restored, so cost never ends above its start.
 //!
 //! Dependencies: `crates/engine/src/placement/model.rs`, `rng.rs`, `mod.rs`.
-use super::{AnnealOutcome, Candidate, Model, Move, PlacementSettings, Rng, Verdict, not_built};
+use super::{
+    AnnealOutcome, Candidate, Decision, Model, Move, MovedCell, PlacementSettings, Rng, Stop,
+    Verdict, not_built,
+};
 
 /// XOR mask that separates the probe stream from the main stream.
 pub const PROBE_SALT: u64 = 0xA5A5_A5A5_A5A5_A5A5;

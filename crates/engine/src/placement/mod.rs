@@ -29,6 +29,7 @@ pub mod model;
 pub mod quadratic;
 pub mod rng;
 
+use anneal::anneal;
 pub use model::{Cell, Model, NetSpring, Pin, Rect, build_model};
 pub use rng::Rng;
 
@@ -579,7 +580,7 @@ pub fn run_polish(
     scope: &Scope,
     settings: &PlacementSettings,
 ) -> Result<AnnealOutcome, String> {
-    if scope.is_empty() {
+    if scope.layers.is_empty() && scope.nets.is_empty() && scope.components.is_empty() {
         return Err("scope is empty".into());
     }
 
@@ -592,13 +593,13 @@ pub fn run_polish(
     let outcome = anneal(&mut model, settings)?;
 
     let errors_before = pcbcraft_rules::drc(project);
-    let errors_before_set: std::collections::BTreeSet<(String, Vec<u64>)> = errors_before
+    let errors_before_set: std::collections::BTreeSet<(&str, Vec<u64>)> = errors_before
         .iter()
         .filter(|f| f.severity == "error")
         .map(|f| {
             let mut o = f.objects.clone();
             o.sort_unstable();
-            (f.code.clone(), o)
+            (f.code, o)
         })
         .collect();
 
@@ -618,13 +619,13 @@ pub fn run_polish(
     }
 
     let errors_after = pcbcraft_rules::drc(project);
-    let errors_after_set: std::collections::BTreeSet<(String, Vec<u64>)> = errors_after
+    let errors_after_set: std::collections::BTreeSet<(&str, Vec<u64>)> = errors_after
         .iter()
         .filter(|f| f.severity == "error")
         .map(|f| {
             let mut o = f.objects.clone();
             o.sort_unstable();
-            (f.code.clone(), o)
+            (f.code, o)
         })
         .collect();
 
