@@ -477,8 +477,10 @@ fn a_newcomer_manages_alternates_and_second_sources() -> Result<(), String> {
         .map(|s| s.alternates.iter().any(|a| a.symbol == "Low cost resistor"))
         .unwrap_or(false);
     assert!(has_alt, "the alternate was recorded");
+    Ok(())
+}
 
-
+#[test]
 fn a_newcomer_saves_a_part_to_the_project_library() -> Result<(), String> {
     let (_ctx, mut app) = library_open();
     // A project part with a footprint, placed on the board with a manufacturer field.
