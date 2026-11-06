@@ -29,7 +29,7 @@ fn open_tab(ctx: &egui::Context, app: &mut App, tab: &str) -> Result<(), String>
     for _ in 0..3 {
         frame(ctx, app, vec![], egui::Modifiers::NONE);
     }
-    if tab != "Board and stackup" {
+    if tab != "Board" {
         tap_id(ctx, app, &format!("tab:{tab}"))?;
     }
     Ok(())
@@ -69,10 +69,10 @@ fn undo(app: &mut App) -> Result<(), String> {
 #[test]
 fn a_newcomer_finds_project_settings_in_the_file_menu() -> Result<(), String> {
     let (ctx, mut app) = board();
-    open_tab(&ctx, &mut app, "Board and stackup")?;
+    open_tab(&ctx, &mut app, "Board")?;
     for words in [
         "Project settings",
-        "Board and stackup",
+        "Board",
         "Design rules",
         "Net classes",
         "Electrical rules",
@@ -88,27 +88,191 @@ fn a_newcomer_finds_project_settings_in_the_file_menu() -> Result<(), String> {
     Ok(())
 }
 
-#[test]
-fn a_newcomer_resizes_the_board_and_cancel_brings_it_back() -> Result<(), String> {
-    let (ctx, mut app) = board();
-    let before = app.project.board.width;
-    open_tab(&ctx, &mut app, "Board and stackup")?;
-    type_into(&ctx, &mut app, "spinbutton:Width", "77")?;
-    assert_eq!(
-        app.project.board.width, 77.0,
-        "the board follows the box: {}",
-        app.message
+/// Every control on screen, by its stable name.
+fn control_names(ctx: &egui::Context, app: &App) -> Vec<String> {
+    super::audit::controls(ctx, app)
+        .into_iter()
+        .filter_map(|c| c.id)
+        .collect()
+}
+
+/// An empty project on the Layout tab with an L shaped outline of six corners.
+fn l_board() -> Result<(egui::Context, App), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.change_tab(Tab::Pcb);
+    let ctx = egui::Context::default();
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    app.run(
+        "board.set_shape",
+        json!({"kind": "l_shape", "width": 50.0, "height": 30.0,
+            "notch_width": 20.0, "notch_height": 10.0}),
     );
-    press(&ctx, &mut app, "Cancel")?;
-    assert_eq!(app.project.board.width, before, "Cancel puts the size back");
+    if app.project.board.outline.as_ref().map(Vec::len) != Some(6) {
+        return Err(format!("the L shape was refused: {}", app.message));
+    }
+    Ok((ctx, app))
+}
+
+#[test]
+fn the_board_tab_has_no_width_height_or_board_size_control() -> Result<(), String> {
+    let (ctx, mut app) = board();
+    open_tab(&ctx, &mut app, "Board")?;
+    let names = control_names(&ctx, &app);
+    for old in ["Width", "Height", "Board size", "Corner size"] {
+        assert!(
+            !names.iter().any(|n| n.contains(&format!(":{old}"))),
+            "the Board tab still has a control named {old}: {names:?}"
+        );
+    }
+    for words in ["Board shape", "Shape of each layer", "Reaches", "Outline"] {
+        assert!(paints_text(&ctx, &mut app, words)?, "the tab shows {words}");
+    }
+    Ok(())
+}
+
+#[test]
+fn the_shape_card_counts_the_corners_of_an_l_shaped_board() -> Result<(), String> {
+    let (ctx, mut app) = l_board()?;
+    open_tab(&ctx, &mut app, "Board")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Free-form")?,
+        "an L shape is free-form"
+    );
+    assert!(
+        painted_text_at(&ctx, &mut app, "6")?.is_some(),
+        "the Corners row says 6"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "50.0 × 30.0 mm")?,
+        "Reaches is the box around the L"
+    );
+    Ok(())
+}
+
+#[test]
+fn reaches_is_read_only() -> Result<(), String> {
+    let (ctx, mut app) = board();
+    open_tab(&ctx, &mut app, "Board")?;
+    let names = control_names(&ctx, &app);
+    assert!(
+        !names
+            .iter()
+            .any(|n| n.starts_with("spinbutton:") && n.to_lowercase().contains("reach")),
+        "Reaches has no number box: {names:?}"
+    );
+    let rects = interactive_rects(&ctx, &mut app);
+    assert!(
+        !rects
+            .iter()
+            .any(|(n, _)| n.to_lowercase().contains("reach")),
+        "Reaches is not a control: {rects:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_starts_from_a_rectangle_and_one_undo_brings_the_shape_back() -> Result<(), String> {
+    let (ctx, mut app) = l_board()?;
+    let l_points = app.project.board.outline.clone();
+    open_tab(&ctx, &mut app, "Board")?;
+    press(&ctx, &mut app, "Start from a rectangle")?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        app.project_settings.rectangle_open(),
+        "the small window opened"
+    );
+    type_into(&ctx, &mut app, "spinbutton:Rectangle width", "77")?;
+    type_into(&ctx, &mut app, "spinbutton:Rectangle height", "44")?;
+    assert_eq!(
+        app.project.board.outline.as_ref().map(Vec::len),
+        Some(6),
+        "typing alone changes nothing"
+    );
+    let revision = app.revision;
+    press(&ctx, &mut app, "Replace the shape")?;
+    assert_eq!(app.project.board.width, 77.0, "width: {}", app.message);
+    assert_eq!(app.project.board.height, 44.0, "height: {}", app.message);
+    assert_eq!(
+        app.project.board.outline.as_ref().map(Vec::len),
+        Some(4),
+        "the shape has four corners"
+    );
+    assert_eq!(app.revision, revision + 1, "one command");
+    assert!(
+        paints_text(&ctx, &mut app, "Rectangle, 4 corners")?,
+        "the outline is named a rectangle"
+    );
+    undo(&mut app)?;
+    assert_eq!(
+        app.project.board.outline, l_points,
+        "one Undo puts the L shape back"
+    );
+    Ok(())
+}
+
+#[test]
+fn cancelling_the_rectangle_window_leaves_the_shape_alone() -> Result<(), String> {
+    let (ctx, mut app) = l_board()?;
+    let before = app.project.board.outline.clone();
+    open_tab(&ctx, &mut app, "Board")?;
+    press(&ctx, &mut app, "Start from a rectangle")?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    press(&ctx, &mut app, "Keep the shape")?;
+    assert!(
+        !app.project_settings.rectangle_open(),
+        "the small window closed"
+    );
+    assert!(app.project_settings.open, "Project settings stays open");
+    assert_eq!(app.project.board.outline, before, "the shape is unchanged");
+    Ok(())
+}
+
+#[test]
+fn edit_in_layout_goes_to_the_layout_tab() -> Result<(), String> {
+    let (ctx, mut app) = board();
+    app.change_tab(Tab::Schematic);
+    open_tab(&ctx, &mut app, "Board")?;
+    press(&ctx, &mut app, "Edit in Layout")?;
     assert!(!app.project_settings.open, "the dialog closed");
+    assert!(matches!(app.tab, Tab::Pcb), "Layout is showing");
+    Ok(())
+}
+
+#[test]
+fn replace_from_svg_or_dxf_opens_the_import_window_on_a_drawing() -> Result<(), String> {
+    let (ctx, mut app) = board();
+    open_tab(&ctx, &mut app, "Board")?;
+    press(&ctx, &mut app, "Replace from SVG or DXF")?;
+    assert!(app.edit.dialog.open, "the import window opened");
+    assert_eq!(app.edit.dialog.format, "svg_drawing");
+    Ok(())
+}
+
+#[test]
+fn the_layer_table_lists_copper_layers_that_follow_the_board() -> Result<(), String> {
+    let (ctx, mut app) = board();
+    open_tab(&ctx, &mut app, "Board")?;
+    for words in ["Top copper", "Bottom copper", "Follows the board"] {
+        assert!(
+            paints_text(&ctx, &mut app, words)?,
+            "the table shows {words}"
+        );
+    }
     Ok(())
 }
 
 #[test]
 fn a_newcomer_builds_a_four_layer_stackup() -> Result<(), String> {
     let (ctx, mut app) = board();
-    open_tab(&ctx, &mut app, "Board and stackup")?;
+    open_tab(&ctx, &mut app, "Board")?;
     pick(&ctx, &mut app, "Start from", "Four layers")?;
     let copper = |app: &App| {
         app.project

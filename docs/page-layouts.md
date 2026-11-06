@@ -45,7 +45,8 @@ A CAM and outputs workspace. Tool bar: Generate all (primary), Add output, Panel
 
 ## 3. Dialogs and menus
 
-- Project settings (File menu, and the button in Files Properties): tabs Board and stackup, Design rules, Net classes, Electrical rules, Machines, Title block, Builds.
+- Project settings (File menu, and the button in Files Properties): tabs Board, Design rules, Net classes, Electrical rules, Machines, Title block, Builds.
+- Project settings, Board tab: a Board shape card draws the outline with its cut-outs and mounting holes beside Outline (Free-form, or a plain name such as Rectangle, 4 corners), Corners, Cut-outs and a read only Reaches width by height, with the buttons Replace from SVG or DXF, Start from a rectangle and Edit in Layout. Start from a rectangle opens a small window with a width and a height; it is the only place those two numbers are typed. A Shape of each layer card lists the copper layers, each Follows the board or has its own shape; layer shapes may differ and overlap, and the other layers follow their copper layer. The Finish card and the Stackup card sit beside and below them.
 - Preferences (Edit menu): tabs Appearance, Language, Units, Keys, Assistant.
 - File menu with Import and Export submenus, the Edit menu and every right-click menu: design-system.md, section 8.
 
