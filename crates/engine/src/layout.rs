@@ -307,7 +307,7 @@ fn global_place(
         let mut forces: Vec<Point> = vec![Point::new(0.0, 0.0); parts.len()];
 
         // Spring forces: connected parts attract.
-        for conns in net_parts.values() {
+        for (net, conns) in net_parts.iter() {
             // Down-weight power/ground nets.
             let net_name = p.net_name(*net);
             let weight = if is_power_net(net_name) {
