@@ -1950,7 +1950,8 @@ impl App {
         self
     }
     /// Start with a drawing target (`silk`, `edge` or `copper`), `flipped` to
-    /// look from the bottom, or `hide-silk` or `hide-all` to hide layers, so a
+    /// look from the bottom, `hide-silk` or `hide-all` to hide layers, or `select-cutout`,
+    /// `select-hole` or `select-outline` to pick that board object, so a
     /// `--capture` image shows the Active tag on that layer.
     pub fn with_capture_target(mut self, name: Option<String>) -> Self {
         use draw_target::{Side, Target};
@@ -1959,6 +1960,23 @@ impl App {
             Some("edge") => Target::Edge,
             Some("flipped") => {
                 self.set_view_side(true);
+                return self;
+            }
+            // Select the first cut-out or mounting hole, or the outline row.
+            Some("select-cutout") => {
+                let id = self.project.board.cutouts.first().map(|c| c.id);
+                self.select(id);
+                return self;
+            }
+            Some("select-hole") => {
+                let id = self.project.board.holes.first().map(|h| h.id);
+                self.select(id);
+                return self;
+            }
+            Some("select-outline") => {
+                self.tree.expanded.insert("edge".into());
+                self.tree.selected_key = Some("edge/edge".into());
+                self.tree.reveal_row("edge/edge");
                 return self;
             }
             Some("hide-silk") => {
@@ -2626,7 +2644,7 @@ impl App {
         success
     }
 
-    fn colours(&self) -> palette::ThemeColours {
+    pub(crate) fn colours(&self) -> palette::ThemeColours {
         palette::palette(self.preferences.dark, self.preferences.accent)
     }
     fn accent(&self) -> Color32 {
@@ -3373,12 +3391,7 @@ impl App {
             KeyAction::ZoomToSelection => {
                 self.needs_zoom_selection = true;
             }
-            KeyAction::DeleteSelection => {
-                if let Some(id) = self.selected {
-                    self.run("object.delete", json!({"id": id}));
-                    self.select(None);
-                }
-            }
+            KeyAction::DeleteSelection => self.delete_selection(),
             KeyAction::ReturnToSelect => {
                 self.cancel_schematic_gestures();
                 self.tool = Tool::Select;
@@ -7136,8 +7149,6 @@ impl App {
                     }
                     if let Some(page) = self.hovered_page_preview() {
                         self.page_properties(ui, page, true);
-                    } else if self.selected.is_none() && self.tree.selected_key.is_some() {
-                        self.tree_row_properties(ui);
                     } else if self.selected.is_none()
                         && self.project.board.outline.is_some()
                         && (self.outline_ui.segment.is_some()
@@ -7150,6 +7161,8 @@ impl App {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.outline_inspector(ui));
+                    } else if self.selected.is_none() && self.tree.selected_key.is_some() {
+                        self.tree_row_properties(ui);
                     } else if let Some(id) = self
                         .selected
                         .filter(|id| datums::is_datum(&self.project, *id))

@@ -21,6 +21,7 @@ mod compare;
 mod connector_series;
 mod context_menus;
 mod copper_layers;
+mod cutout_holes;
 mod datasheet;
 mod drill_table;
 mod editing;
