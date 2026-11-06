@@ -42,6 +42,7 @@
     "getting-started.md": "The site has its own getting started guide under Guide, written for the browser app.",
     "kicad-libraries.md": "The wording names another design tool and needs fixing before the page is published.",
     "adr-0001-simulation.md": "A decision record for the simulation work. It is not mapped until the feature ships.",
+    "adr-0002-hitl-serial-usb.md": "A decision record for hardware in the loop transports. It is not mapped until the feature ships.",
     "assistant.md": "Describes assistant work that is still being designed.",
     "assistant-backends.md": "Wire format notes for assistant work that is still being designed.",
     "design/assistant-shared-core.md": "A design note for assistant work that is still being designed.",
