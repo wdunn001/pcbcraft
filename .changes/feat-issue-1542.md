@@ -1,5 +1,5 @@
 ---
-type: feat
+type: feature
 area: layout
 issues: [1542]
 user_visible: true
