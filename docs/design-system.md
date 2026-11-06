@@ -252,7 +252,7 @@ PCBCraft pins the shared UI library of the companion CAD app. Anything that libr
 
 **Panel tabs.** The left aside keeps Layers | Library tabs on Schematic and Layout: the Library panel finds and places parts. The Library tab in the tab nav is a separate full workspace (part browser, datasheet reader, vendor prices, source editing, symbol and footprint editors, compare view).
 
-**Files tab.** Its own workspace: a tool bar of New, Open, Save, Import, Export and Open sample project; the Library in the left aside; the project summary, Project files, Made files and Recent projects in the centre; project Properties on the right.
+**Files tab.** Its own workspace: a tool bar of New, Open, Save, Import, Export and Open sample project; the project files tree (Files and History tabs) in the left aside; the project header, the Parts, Nets, Board shape and Checks cards with their links, Shape of each layer, Next and Recent projects in the centre; project Properties on the right, where Properties shows the Shape (read only outline, corners and reach) and never a board width or height. The Board shape card draws the outline with the shared painter in `crates/ui-egui/src/shape_preview.rs`.
 
 **Mockup table.** Accepted mockups are attached to these issues on wdunn001/pcbcraft and are not committed. Open the issue to see the image.
 
