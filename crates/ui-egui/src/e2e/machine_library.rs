@@ -571,9 +571,8 @@ fn a_newcomer_adds_and_removes_a_reflow_profile() -> Result<(), String> {
             }
         }),
     );
-    // Reload the profiles list for the selected machine.
-    app.libws.machines.selected = Some("puhui-t-962a".to_string());
-    app.machine_lib_load_profiles("puhui-t-962a");
+    // Clear the profiles cache so the card reloads them.
+    app.libws.machines.profiles.clear();
     // Select the oven card and verify the profile is shown.
     authoring::tests::tap(&ctx, &mut app, "Puhui T-962A")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -597,8 +596,7 @@ fn a_newcomer_adds_and_removes_a_reflow_profile() -> Result<(), String> {
         "reflow.profile_remove",
         json!({"machine": "puhui-t-962a", "profile": "sac305-standard"}),
     );
-    app.libws.machines.selected = Some("puhui-t-962a".to_string());
-    app.machine_lib_load_profiles("puhui-t-962a");
+    app.libws.machines.profiles.clear();
     // Verify the profile is gone.
     authoring::tests::tap(&ctx, &mut app, "Puhui T-962A")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
