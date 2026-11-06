@@ -2130,11 +2130,17 @@ mod tests {
             }),
         )?;
         assert_eq!(install_result["installed"], "test-design");
-        assert_eq!(install_result["files"].as_array().unwrap().len(), 2);
+        let installed_files = install_result["files"]
+            .as_array()
+            .ok_or("the install result lists its files")?;
+        assert_eq!(installed_files.len(), 2);
 
         // Verify the installed files match the published content (hash verification)
-        let design_path =
-            install_result["path"].as_str().unwrap().to_string() + "/design.kicad_pcb";
+        let design_path = install_result["path"]
+            .as_str()
+            .ok_or("the install result names its folder")?
+            .to_string()
+            + "/design.kicad_pcb";
         let design_content = std::fs::read_to_string(&design_path).map_err(|e| e.to_string())?;
         assert_eq!(design_content, "(kicad_pcb (version 20250114))");
 
