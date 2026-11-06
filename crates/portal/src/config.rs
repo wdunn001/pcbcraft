@@ -14,6 +14,7 @@ pub struct PortalConfig {
     pub object_store: ObjectStoreConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<AuthConfig>,
+    /// Vendor quote handoff and marketplace switches; absent means both are off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vendor_integrations: Option<VendorIntegrationsConfig>,
 }
@@ -40,6 +41,14 @@ pub struct AuthConfig {
     pub oidc_issuer: Option<String>,
 }
 
+/// Per-instance switches for the optional vendor features.
+///
+/// # Rules
+/// - Both switches default to off.
+/// - An instance without this block shows no vendor control.
+///
+/// # Dependencies
+/// - crates/library/src/vendor_integrations.rs (the adapter types these switches gate)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VendorIntegrationsConfig {
