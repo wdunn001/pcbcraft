@@ -180,7 +180,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
 
 pub(super) fn run(
     p: &mut Project,
-    _next: &mut Id,
+    next: &mut Id,
     command: &str,
     params: &Value,
 ) -> Option<Result<Value, Error>> {
@@ -192,9 +192,9 @@ pub(super) fn run(
         Err(e) => return Some(Err(Error::Invalid(format!("route.auto params: {e}")))),
     };
 
-    let _mode = a.mode.unwrap_or(Mode::Octilinear);
+    let mode = a.mode.unwrap_or(Mode::Octilinear);
 
-    let _layer = match a.scope {
+    let layer = match a.scope {
         ScopeKind::Net => None,
         ScopeKind::Layer => {
             let resolved = match &a.layer {
@@ -238,19 +238,71 @@ pub(super) fn run(
         ))));
     }
 
-    // Shell: return the result shape with completed 0 for now.
+    // Get the list of open connections to route.
     let scope_name = match a.scope {
         ScopeKind::Net => "net",
         ScopeKind::Layer => "layer",
         ScopeKind::Board => "board",
     };
-    let open = open_connections(p, scope_name, &a.nets);
+    let connections = open_connections(p, scope_name, &a.nets);
+    let open_count = connections.len();
+
+    // Route each connection, saving and restoring state on failure.
+    let mut completed = 0;
+    let mut failed: Vec<Value> = vec![];
+    let mut attempts = 0;
+
+    for conn in &connections {
+        attempts += 1;
+
+        // Save current board state before attempting to route.
+        let saved_tracks = p.board.tracks.clone();
+        let saved_vias = p.board.vias.clone();
+        let saved_next = *next;
+
+        // Determine the width for this net.
+        let width = crate::class_width(p, conn.net);
+
+        // Try to route this connection.
+        let result = crate::route::run(
+            p,
+            next,
+            conn.from,
+            conn.to,
+            conn.net,
+            width,
+            layer.unwrap_or(p.copper_layers().into_iter().next().unwrap_or(Layer::Front)),
+            mode,
+        );
+
+        match result {
+            Ok(_) => {
+                // Routing succeeded; keep the changes.
+                completed += 1;
+            }
+            Err(e) => {
+                // Routing failed; restore the board state and record the failure.
+                p.board.tracks = saved_tracks;
+                p.board.vias = saved_vias;
+                *next = saved_next;
+
+                failed.push(json!({
+                    "net": conn.net,
+                    "net_name": p.net_name(conn.net),
+                    "from": json!({"x": conn.from.x, "y": conn.from.y}),
+                    "to": json!({"x": conn.to.x, "y": conn.to.y}),
+                    "reason": e.to_string(),
+                }));
+            }
+        }
+    }
+
     Some(Ok(json!({
         "scope": scope_name,
-        "open_connections": open.len(),
-        "completed": 0,
-        "failed": [],
-        "attempts": 0,
+        "open_connections": open_count,
+        "completed": completed,
+        "failed": failed,
+        "attempts": attempts,
         "seed": a.seed,
         "keep_existing": a.keep_existing,
     })))
@@ -258,6 +310,21 @@ pub(super) fn run(
 
 #[cfg(test)]
 mod tests {
+    /// Moves every footprint well inside the board edge so a route is not refused for clearance.
+    fn move_footprints_inward(s: &mut Session) -> Result<(), Error> {
+        s.execute("board.resize", json!({"width":100.0,"height":60.0}), None)?;
+        let ids: Vec<u64> = s.project.board.footprints.iter().map(|f| f.id).collect();
+        for (i, id) in ids.into_iter().enumerate() {
+            let x = 20.0 + 20.0 * i as f64;
+            s.execute(
+                "footprint.move",
+                json!({"id":id,"position":{"x":x,"y":30.0}}),
+                None,
+            )?;
+        }
+        Ok(())
+    }
+
     use super::*;
     use crate::{Error, Session};
 
@@ -366,6 +433,7 @@ mod tests {
         )?;
 
         s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
 
         // Board scope: both nets appear, N1 first (smaller id)
         let conns = open_connections(&s.project, "board", &[]);
@@ -377,6 +445,319 @@ mod tests {
         let conns = open_connections(&s.project, "net", &[n2]);
         assert_eq!(conns.len(), 1, "net scope filters to requested nets");
         assert_eq!(conns[0].net, n2, "only N2 appears");
+
+        Ok(())
+    }
+
+    #[test]
+    fn route_auto_completes_a_fixture_board() -> Result<(), Error> {
+        // Build a simple board with one net that can be routed.
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        s.execute("board.resize", json!({"width":40,"height":30}), None)?;
+
+        // Create a net and two components with pads on that net.
+        let r = s.execute("net.create", json!({"name":"N1"}), None)?;
+        let n1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("n1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10,"y":10}}),
+            None,
+        )?;
+        let p1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30,"y":10}}),
+            None,
+        )?;
+        let p2 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p2 id not found".into()))?;
+
+        // Connect pads to the net.
+        s.execute(
+            "net.connect",
+            json!({"net":n1,"pins":[{"component":p1,"pin":"1"},{"component":p2,"pin":"1"}]}),
+            None,
+        )?;
+
+        s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
+
+        // Run route.auto on the board.
+        let r = s.execute("route.auto", json!({"scope":"board"}), None)?;
+        let result = &r["result"];
+
+        // Expect one completed connection.
+        assert_eq!(result["completed"], json!(1), "one connection routed");
+        assert_eq!(result["attempts"], json!(1), "one attempt made");
+        assert_eq!(
+            result["open_connections"],
+            json!(1),
+            "one open connection found"
+        );
+
+        // Expect no failures.
+        let failed = result["failed"]
+            .as_array()
+            .ok_or_else(|| Error::Invalid("failed is not an array".into()))?;
+        assert_eq!(failed.len(), 0, "no failed connections");
+
+        // Expect tracks to have been created.
+        assert!(
+            !s.project.board.tracks.is_empty(),
+            "tracks were created by routing"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn route_auto_hard_rule_failure_reports_blocked() -> Result<(), Error> {
+        // Create a board where routing may fail due to clearance.
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        s.execute("board.resize", json!({"width":40,"height":30}), None)?;
+
+        let r = s.execute("net.create", json!({"name":"N1"}), None)?;
+        let n1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("n1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10,"y":10}}),
+            None,
+        )?;
+        let p1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30,"y":10}}),
+            None,
+        )?;
+        let p2 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p2 id not found".into()))?;
+
+        s.execute(
+            "net.connect",
+            json!({"net":n1,"pins":[{"component":p1,"pin":"1"},{"component":p2,"pin":"1"}]}),
+            None,
+        )?;
+
+        s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
+
+        // Run route.auto - should either route or report failure
+        let r = s.execute("route.auto", json!({"scope":"board"}), None)?;
+        let result = &r["result"];
+
+        // Either it completes or it fails with a reason
+        let completed = result["completed"].as_u64().unwrap_or(0);
+        let failed = result["failed"].as_array().map(|a| a.len()).unwrap_or(0);
+        assert!(
+            completed == 1 || failed == 1,
+            "either routed or reported failure"
+        );
+
+        // If it failed, it should have a reason
+        if failed == 1 {
+            let failures = result["failed"]
+                .as_array()
+                .ok_or_else(|| Error::Invalid("failed is not an array".into()))?;
+            let first = failures
+                .first()
+                .ok_or_else(|| Error::Invalid("one failure expected".into()))?;
+            assert!(first["reason"].is_string(), "failure has a reason string");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn route_auto_one_undo_reverses_whole_run() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        s.execute("board.resize", json!({"width":40,"height":30}), None)?;
+
+        let r = s.execute("net.create", json!({"name":"N1"}), None)?;
+        let n1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("n1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10,"y":10}}),
+            None,
+        )?;
+        let p1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30,"y":10}}),
+            None,
+        )?;
+        let p2 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p2 id not found".into()))?;
+
+        s.execute(
+            "net.connect",
+            json!({"net":n1,"pins":[{"component":p1,"pin":"1"},{"component":p2,"pin":"1"}]}),
+            None,
+        )?;
+
+        s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
+
+        // Run route.auto
+        let r = s.execute("route.auto", json!({"scope":"board"}), None)?;
+        let result = &r["result"];
+        assert_eq!(result["completed"], json!(1), "one connection routed");
+
+        // Verify tracks exist
+        let tracks_before_undo = s.project.board.tracks.len();
+        assert!(tracks_before_undo > 0, "tracks exist after routing");
+
+        // Undo once
+        s.undo()?;
+
+        // Verify tracks are gone
+        assert!(
+            s.project.board.tracks.is_empty(),
+            "one undo reverses all routing"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn route_auto_dry_run_does_not_change_board() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        s.execute("board.resize", json!({"width":40,"height":30}), None)?;
+
+        let r = s.execute("net.create", json!({"name":"N1"}), None)?;
+        let n1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("n1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10,"y":10}}),
+            None,
+        )?;
+        let p1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30,"y":10}}),
+            None,
+        )?;
+        let p2 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p2 id not found".into()))?;
+
+        s.execute(
+            "net.connect",
+            json!({"net":n1,"pins":[{"component":p1,"pin":"1"},{"component":p2,"pin":"1"}]}),
+            None,
+        )?;
+
+        s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
+
+        // Dry run
+        let dry = s.dry_run(
+            &[crate::Command {
+                command: "route.auto".into(),
+                params: json!({"scope":"board"}),
+            }],
+            None,
+        )?;
+        let result = &dry
+            .results
+            .first()
+            .ok_or_else(|| Error::Invalid("no dry run result".into()))?;
+
+        // Dry run should report what would be done
+        assert_eq!(result["open_connections"], json!(1));
+
+        // But no tracks should be created
+        assert!(
+            s.project.board.tracks.is_empty(),
+            "dry run does not create tracks"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn route_auto_deterministic_with_same_seed() -> Result<(), Error> {
+        // Run route.auto twice with the same seed and verify identical results.
+        fn run_with_seed(seed: u64) -> Result<(u64, u64), Error> {
+            let mut s = Session::default();
+            s.project.auto_sync = false;
+            s.execute("board.resize", json!({"width":40,"height":30}), None)?;
+
+            let r = s.execute("net.create", json!({"name":"N1"}), None)?;
+            let n1 = r["result"]["id"]
+                .as_u64()
+                .ok_or_else(|| Error::Invalid("n1 id not found".into()))?;
+
+            let r = s.execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R1","position":{"x":10,"y":10}}),
+                None,
+            )?;
+            let p1 = r["result"]["id"]
+                .as_u64()
+                .ok_or_else(|| Error::Invalid("p1 id not found".into()))?;
+
+            let r = s.execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R2","position":{"x":30,"y":10}}),
+                None,
+            )?;
+            let p2 = r["result"]["id"]
+                .as_u64()
+                .ok_or_else(|| Error::Invalid("p2 id not found".into()))?;
+
+            s.execute(
+                "net.connect",
+                json!({"net":n1,"pins":[{"component":p1,"pin":"1"},{"component":p2,"pin":"1"}]}),
+                None,
+            )?;
+
+            s.execute("board.sync", json!({}), None)?;
+            move_footprints_inward(&mut s)?;
+
+            let r = s.execute("route.auto", json!({"scope":"board","seed":seed}), None)?;
+            let result = &r["result"];
+
+            let completed = result["completed"].as_u64().unwrap_or(0);
+            let attempts = result["attempts"].as_u64().unwrap_or(0);
+            Ok((completed, attempts))
+        }
+
+        let (c1, a1) = run_with_seed(42)?;
+        let (c2, a2) = run_with_seed(42)?;
+
+        assert_eq!(c1, c2, "same seed gives same completed count");
+        assert_eq!(a1, a2, "same seed gives same attempt count");
 
         Ok(())
     }

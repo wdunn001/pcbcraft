@@ -478,5 +478,52 @@ fn a_newcomer_manages_alternates_and_second_sources() -> Result<(), String> {
         .unwrap_or(false);
     assert!(has_alt, "the alternate was recorded");
 
+
+fn a_newcomer_saves_a_part_to_the_project_library() -> Result<(), String> {
+    let (_ctx, mut app) = library_open();
+    // A project part with a footprint, placed on the board with a manufacturer field.
+    let mut fp = authoring::new_footprint();
+    fp.name = "Test_FP".into();
+    app.tool_call("library.footprint.upsert", json!({"definition": fp}));
+    let mut sym = authoring::new_symbol();
+    sym.name = "Test Part".into();
+    sym.footprint = "Test_FP".into();
+    app.tool_call("library.symbol.upsert", json!({"definition": sym}));
+    app.tool_call(
+        "component.place_custom",
+        json!({"name": "Test Part", "position": {"x": 10.0, "y": 10.0}, "reference": "U1"}),
+    );
+    app.refresh();
+    let id = app
+        .project
+        .components
+        .last()
+        .ok_or("the part was placed")?
+        .id;
+    app.tool_call(
+        "footprint.assign_custom",
+        json!({"id": id, "name": "Test_FP"}),
+    );
+    app.tool_call(
+        "component.field",
+        json!({"id": id, "key": "Manufacturer", "value": "TestCo"}),
+    );
+    app.refresh();
+    let saved = app.tool_call("part.save", json!({"id": id, "target": "project"}));
+    assert!(saved, "part.save succeeded: {}", app.message);
+    app.refresh();
+    let part = app
+        .project
+        .library
+        .part_sidecars
+        .iter()
+        .find(|p| p.symbol == "Test Part")
+        .ok_or("the part was saved to the project library")?;
+    assert!(
+        part.fields
+            .iter()
+            .any(|f| f.key == "Manufacturer" && f.value == "TestCo"),
+        "the saved part keeps its manufacturer field"
+    );
     Ok(())
 }

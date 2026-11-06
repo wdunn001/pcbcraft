@@ -148,11 +148,17 @@ pub(crate) fn about_window(ui: &mut egui::Ui, open: &mut bool, muted: egui::Colo
     }
     let mut close = false;
     egui::Window::new(pcbcraft_text::t!("about.title"))
-        .open(open)
+        .title_bar(false)
         .collapsible(false)
         .resizable(false)
         .show(ui, |ui| {
             ui.vertical_centered(|ui| {
+                ui.add_space(8.0);
+                ui.label(crate::fonts::text(
+                    crate::fonts::Role::Display,
+                    pcbcraft_text::t!("about.title"),
+                ));
+                ui.add_space(8.0);
                 ui.add_space(8.0);
                 mark(ui, 128.0);
                 ui.add_space(12.0);
