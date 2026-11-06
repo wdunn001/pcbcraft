@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseChange, summaryProblems, loadEntries, renderNotes, entryLinks } from '../src/lib/changelog-core.js';
+import { parseChange, summaryProblems, loadEntries, renderNotes, entryLinks, builtLine, prFromSubject, formatUtc } from '../src/lib/changelog-core.js';
 
 const make = (extra = {}) => {
   const f = { type: 'fix', area: 'layout', issues: '[12, 13]', user_visible: 'true', docs: '[docs/ci.md]', summary: 'Tracks now snap to the grid.', ...extra };
@@ -93,4 +93,40 @@ test('a_malformed_legacy_file_is_skipped_not_fatal', () => {
   } finally {
     console.warn = warn;
   }
+});
+
+test('a_changelog_entry_from_a_later_commit_sorts_first_even_on_the_same_day', () => {
+  const dir = repo();
+  writeFileSync(join(dir, '.changes/zzz-early.md'), make());
+  commit(dir, 'Early change (#10)', '2026-11-06T09:00:00Z');
+  writeFileSync(join(dir, '.changes/aaa-late.md'), make({ summary: 'A later change.' }));
+  commit(dir, 'Late change (#11)', '2026-11-06T19:40:05Z');
+  const entries = loadEntries(dir);
+  assert.deepEqual(entries.map((e) => e.pr), [11, 10]);
+  assert.equal(formatUtc(entries[0].time), '2026-11-06 19:40 UTC');
+});
+
+test('entries_with_the_same_second_sort_by_pull_request_number_descending', () => {
+  const dir = repo();
+  writeFileSync(join(dir, '.changes/a.md'), make());
+  writeFileSync(join(dir, '.changes/b.md'), make());
+  commit(dir, 'Both (#20)', '2026-11-06T09:00:00Z');
+  writeFileSync(join(dir, '.changes/c.md'), make());
+  commit(dir, 'Third (#30)', '2026-11-06T09:00:00Z');
+  assert.deepEqual(loadEntries(dir).map((e) => e.pr), [30, 20, 20]);
+});
+
+test('a_squash_subject_with_issue_numbers_yields_the_pull_request_number', () => {
+  assert.equal(prFromSubject('Model reflow profiles for reflow oven machines (#1646) (#1827)'), 1827);
+  assert.equal(prFromSubject('settings: signal integrity (child of #834) (#1828)'), 1828);
+  assert.equal(prFromSubject('Merge pull request #1829 from x/feat-issue-581'), 1829);
+  assert.equal(prFromSubject('No number here'), null);
+});
+
+test('the_page_says_when_it_was_built', () => {
+  const dir = repo();
+  writeFileSync(join(dir, '.changes/a.md'), make());
+  commit(dir, 'Add (#7)', '2026-11-06T09:00:00Z');
+  const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+  assert.equal(builtLine(dir, new Date('2026-11-06T20:05:33Z')), `Built 2026-11-06 20:05 UTC from commit ${sha}`);
 });
