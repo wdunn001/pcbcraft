@@ -43,8 +43,8 @@ impl Project {
     ///   net must stay in step with its pad.
     ///
     /// # Dependencies
-    /// - `schematic_label_page` and `schematic_drawn_wire_page` keep the
-    ///   search on the port's own page.
+    /// - crates/doc/src/lib.rs (the page lookups keep the search on the port's
+    ///   own page)
     ///
     /// # Do not
     /// - Call it for a port that is already at `to`.
