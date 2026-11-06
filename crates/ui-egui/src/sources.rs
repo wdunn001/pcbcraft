@@ -275,7 +275,12 @@ impl App {
         // The user cache folder is only for a window whose session has a settings folder;
         // a session without one (a test, an embedded host) keeps its answers in memory.
         let has_folder = self.user_config().folder().is_some();
-        let cache = match cache_dir.or_else(|| default_cache_dir().filter(|_| has_folder)) {
+        let cache = match cache_dir.or_else(has_folder.then(|| {
+            self.user_config()
+                .folder()
+                .map(|f| f.join("online"))
+                .to_owned()
+        })) {
             Some(dir) => CadCache::open(&dir),
             None => CadCache::in_memory(),
         };
