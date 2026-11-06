@@ -41,6 +41,7 @@ pub(crate) mod facts;
 pub(crate) mod machines;
 mod machines_view;
 mod model;
+mod need_search;
 mod overview;
 mod vendors;
 
