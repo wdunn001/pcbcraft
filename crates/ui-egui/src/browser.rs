@@ -1,9 +1,10 @@
 //! What the browser build cannot do, and how it says so.
 //!
-//! The wasm build keeps the design in memory only: there is no disk to open
-//! from or save to. Instead of failing inside the engine, those commands are
-//! stopped here and the status strip says they need the desktop app. Open and Save
-//! are not refused: they go through the project host (`webfs.rs`).
+//! The wasm build has no disk to open from or save to. The design lives in memory and a
+//! copy of it is written to page storage (`store_recovery` in `lib.rs`), which the web
+//! entry point reads back after a reload. Instead of failing inside the engine, the
+//! disk commands are stopped here and the status strip says they need the desktop app.
+//! Open and Save are not refused: they go through the project host (`webfs.rs`).
 //!
 //! Local rules: the wording lives in the text catalog (`web.*` keys in
 //! `../../text/strings/en.txt`). The flag is `App::browser`, true on wasm32
