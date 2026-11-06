@@ -42716,6 +42716,6 @@
       "note": "No sensors fitted; the input capacitor drops to a smaller package."
     }
   ],
-  "version": 1,
+  "version": 2,
   "wires": []
 }
