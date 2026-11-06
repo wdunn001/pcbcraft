@@ -172,7 +172,9 @@ impl App {
                 return Hit::Port(port);
             }
             for w in &sheet.drawn_wires {
-                if !crate::page_scope::in_view(&sheet, page, sheet.schematic_drawn_wire_page(w)) {
+                if !self.layer_shown("Wires")
+                    || !crate::page_scope::in_view(&sheet, page, sheet.schematic_drawn_wire_page(w))
+                {
                     continue;
                 }
                 if let Some(i) = w.points.iter().position(|p| near(p.distance(pos), 6.0)) {
@@ -180,7 +182,9 @@ impl App {
                 }
             }
             for w in &sheet.drawn_wires {
-                if !crate::page_scope::in_view(&sheet, page, sheet.schematic_drawn_wire_page(w)) {
+                if !self.layer_shown("Wires")
+                    || !crate::page_scope::in_view(&sheet, page, sheet.schematic_drawn_wire_page(w))
+                {
                     continue;
                 }
                 for (i, pair) in w.points.windows(2).enumerate() {
@@ -201,7 +205,7 @@ impl App {
                 .board
                 .tracks
                 .iter()
-                .filter(|t| self.id_allowed(t.id))
+                .filter(|t| self.id_allowed(t.id) && self.pcb_object_shown(t.id))
             {
                 if near(t.start.distance(pos), 6.0) {
                     return Hit::TrackEnd(t.id, false);

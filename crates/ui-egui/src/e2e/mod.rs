@@ -35,6 +35,7 @@ mod files_shape;
 mod findings_counts;
 mod footer;
 mod glyphs;
+mod hide_board;
 mod hide_layer;
 mod i18n;
 mod images;

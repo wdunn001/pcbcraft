@@ -59,6 +59,7 @@ impl App {
             .iter()
             .filter(|l| crate::page_scope::in_view(&sheet, page, sheet.schematic_label_page(l)))
             .filter(|l| l.kind != "bus")
+            .filter(|l| !self.sheet_row_hidden(l.id))
             .filter(|l| Self::label_distance(&sheet, l, pos) * f64::from(zoom) <= reach(l))
             .min_by(|a, b| {
                 Self::label_distance(&sheet, a, pos)

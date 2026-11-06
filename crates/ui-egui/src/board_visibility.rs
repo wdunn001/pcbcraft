@@ -62,6 +62,17 @@ impl App {
         crate::stack_view::mount_copper(self.project.copper_layer_count(), f.board_side())
     }
 
+    /// The Board edge row's eye is on: the board fill, its outline, the datums, the cut-outs
+    /// and the dimension lines are painted.
+    pub(crate) fn board_edge_shown(&self) -> bool {
+        self.layer_shown("Cutouts")
+    }
+
+    /// The Drills and vias row's eye is on: mounting holes, slots and vias are painted.
+    pub(crate) fn drills_shown(&self) -> bool {
+        self.layer_shown("Vias")
+    }
+
     /// A part is painted at all: its side is on. Everything of the part follows this.
     pub(crate) fn part_shown(&self, f: &Footprint) -> bool {
         self.layer_group_shown(self.mount_layer(f))

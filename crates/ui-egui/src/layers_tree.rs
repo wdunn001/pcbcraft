@@ -151,6 +151,10 @@ pub(crate) enum Action {
     },
     /// Hide exactly these canvas toggles of this tab's layers, show the rest.
     SetHidden(Vec<&'static str>),
+    /// Hide Others on the Layout tab: show this drawn layer (when there is one) and hide the rest.
+    ArtOnly(Option<Id>),
+    /// Hide Others on the Layout tab: hide every inner copper layer except this one.
+    InnerOnly(Option<String>),
     /// Set a machine layer's stored visibility.
     SetArtShown { layer: Id, on: bool },
     /// Focus (dim the rest) on this key, or clear with None.
@@ -1386,11 +1390,6 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
                 true,
             );
             nets.swatch = Some(c.canvas.wire);
-            nets.controls = Some(LayerControls {
-                key: String::new(),
-                visibility: Visibility::Canvas("Wires"),
-                focusable: false,
-            });
             out.push(nets);
         }
         [sec] if sec.starts_with("sec:sheet:") => {
@@ -2325,7 +2324,13 @@ fn header(
     ui.horizontal(|ui| {
         ui.add_space(PAD + 4.0);
         ui.spacing_mut().item_spacing.x = 8.0;
-        let width = ui.available_width() - 28.0 - PAD - 12.0;
+        // Only the Layout tab has a New layer button beside the filter box.
+        let add_width = if env.tab == TreeTab::Layout {
+            28.0
+        } else {
+            0.0
+        };
+        let width = ui.available_width() - add_width - PAD - 12.0;
         let field = ui.add(
             crate::targets::text_field(&mut view.query)
                 .hint_text(t!("tree.search"))
@@ -2346,28 +2351,30 @@ fn header(
             },
             colours.muted,
         );
-        let (cell, _) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::hover());
-        let id = ui.id().with("tree-add");
-        let resp = ui.interact(cell, id, Sense::click());
-        ui.painter().rect_stroke(
-            cell,
-            4.0,
-            Stroke::new(1.0, colours.muted.gamma_multiply(0.6)),
-            egui::StrokeKind::Inside,
-        );
-        if resp.hovered() {
-            ui.painter()
-                .rect_filled(cell.shrink(1.0), 4.0, colours.hover);
-        }
-        glyph(
-            ui.painter(),
-            Rect::from_center_size(cell.center(), Vec2::splat(14.0)),
-            Glyph::Plus,
-            colours.ink,
-        );
-        name_control(&resp, &t!("tree.add"), None);
-        if resp.on_hover_text(t!("tree.add.tip")).clicked() {
-            actions.push(Action::NewArtLayer);
+        if env.tab == TreeTab::Layout {
+            let (cell, _) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::hover());
+            let id = ui.id().with("tree-add");
+            let resp = ui.interact(cell, id, Sense::click());
+            ui.painter().rect_stroke(
+                cell,
+                4.0,
+                Stroke::new(1.0, colours.muted.gamma_multiply(0.6)),
+                egui::StrokeKind::Inside,
+            );
+            if resp.hovered() {
+                ui.painter()
+                    .rect_filled(cell.shrink(1.0), 4.0, colours.hover);
+            }
+            glyph(
+                ui.painter(),
+                Rect::from_center_size(cell.center(), Vec2::splat(14.0)),
+                Glyph::Plus,
+                colours.ink,
+            );
+            name_control(&resp, &t!("tree.add"), None);
+            if resp.on_hover_text(t!("tree.add.tip")).clicked() {
+                actions.push(Action::NewArtLayer);
+            }
         }
         if !view.query.is_empty() {
             let (x, y) = (r.right() - 22.0, r.top());
@@ -2385,59 +2392,71 @@ fn header(
     ui.horizontal_wrapped(|ui| {
         ui.add_space(PAD);
         ui.spacing_mut().item_spacing.x = 4.0;
-        if ghost_button(
-            ui,
-            colours,
-            Glyph::Eye,
-            &t!("tree.show_all"),
-            &t!("tree.show_all.tip"),
-        )
-        .clicked()
-        {
-            actions.push(Action::SetHidden(Vec::new()));
-        }
-        if ghost_button(
-            ui,
-            colours,
-            Glyph::EyeOff,
-            &t!("tree.hide_others"),
-            &t!("tree.hide_others.tip"),
-        )
-        .clicked()
-        {
-            let keep = view
-                .cursor
-                .as_deref()
-                .and_then(|k| {
-                    all.iter()
-                        .find(|r| r.key == k)
-                        .and_then(|_| layer_visibility_name(all, k))
-                })
-                .or(match env.tab {
-                    TreeTab::Layout => Some(match env.target {
-                        Target::Copper(l) if l != Layer::Front => "Bottom copper",
-                        _ => "Top copper",
-                    }),
-                    TreeTab::Schematic => Some("Wires"),
-                });
-            actions.push(Action::SetHidden(
-                layer_names(env.tab)
-                    .iter()
-                    .copied()
-                    .filter(|n| Some(*n) != keep)
-                    .collect(),
-            ));
-        }
-        if ghost_button(
-            ui,
-            colours,
-            Glyph::Plus,
-            &t!("tree.new_layer"),
-            &t!("tree.add_layer.tip"),
-        )
-        .clicked()
-        {
-            actions.push(Action::NewArtLayer);
+        // Show all, Hide others and New layer act on copper and sub-layers, which only the
+        // Layout tab has. The Schematic tab keeps just Show empty.
+        if env.tab == TreeTab::Layout {
+            if ghost_button(
+                ui,
+                colours,
+                Glyph::Eye,
+                &t!("tree.show_all"),
+                &t!("tree.show_all.tip"),
+            )
+            .clicked()
+            {
+                actions.push(Action::SetHidden(Vec::new()));
+            }
+            if ghost_button(
+                ui,
+                colours,
+                Glyph::EyeOff,
+                &t!("tree.hide_others"),
+                &t!("tree.hide_others.tip"),
+            )
+            .clicked()
+            {
+                let keep_art = view.cursor.as_deref().and_then(|k| layer_art(all, k));
+                let keep_inner = view.cursor.as_deref().and_then(|k| layer_inner(all, k));
+                let keep = view
+                    .cursor
+                    .as_deref()
+                    .and_then(|k| {
+                        all.iter()
+                            .find(|r| r.key == k)
+                            .and_then(|_| layer_visibility_name(all, k))
+                    })
+                    .filter(|_| keep_art.is_none() && keep_inner.is_none())
+                    .or(match env.tab {
+                        TreeTab::Layout if keep_art.is_some() || keep_inner.is_some() => None,
+                        TreeTab::Layout => Some(match env.target {
+                            Target::Copper(l) if l != Layer::Front => "Bottom copper",
+                            _ => "Top copper",
+                        }),
+                        TreeTab::Schematic => Some("Wires"),
+                    });
+                actions.push(Action::SetHidden(
+                    layer_names(env.tab)
+                        .iter()
+                        .copied()
+                        .filter(|n| Some(*n) != keep)
+                        .collect(),
+                ));
+                if env.tab == TreeTab::Layout {
+                    actions.push(Action::ArtOnly(keep_art));
+                    actions.push(Action::InnerOnly(keep_inner));
+                }
+            }
+            if ghost_button(
+                ui,
+                colours,
+                Glyph::Plus,
+                &t!("tree.new_layer"),
+                &t!("tree.add_layer.tip"),
+            )
+            .clicked()
+            {
+                actions.push(Action::NewArtLayer);
+            }
         }
         if env.tab == TreeTab::Schematic {
             let (label, tip) = if view.show_empty {
@@ -2454,6 +2473,38 @@ fn header(
     let (line, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
     ui.painter()
         .rect_filled(line, 0.0, colours.muted.gamma_multiply(0.22));
+}
+
+/// The inner copper layer group (`inner:n`) the row `key` sits on or under, if any.
+fn layer_inner(all: &[Row], key: &str) -> Option<String> {
+    let mut path = key;
+    loop {
+        if let Some(r) = all.iter().find(|r| r.key == path)
+            && let Some(ctl) = &r.controls
+        {
+            return match &ctl.visibility {
+                Visibility::LayerGroup(side) if side.starts_with("inner:") => Some(side.clone()),
+                _ => None,
+            };
+        }
+        path = path.rsplit_once('/')?.0;
+    }
+}
+
+/// The drawn layer the row `key` sits on or under, if any.
+fn layer_art(all: &[Row], key: &str) -> Option<Id> {
+    let mut path = key;
+    loop {
+        if let Some(r) = all.iter().find(|r| r.key == path)
+            && let Some(ctl) = &r.controls
+        {
+            return match ctl.visibility {
+                Visibility::Art(id) => Some(id),
+                _ => None,
+            };
+        }
+        path = path.rsplit_once('/')?.0;
+    }
 }
 
 /// The canvas toggle name of the layer row that `key` sits on or under.
@@ -4042,11 +4093,14 @@ impl crate::App {
                     );
                 }
                 Action::SetHidden(names) => {
+                    let show_all = names.is_empty();
                     let all = layer_names(tab);
                     let hidden = &mut self.preferences.hidden_layers;
                     if tab == TreeTab::Layout {
                         hidden.retain(|h| {
                             !h.starts_with("group:")
+                                && !h.starts_with("sub:")
+                                && !all.contains(&h.as_str())
                                 && layer_visibility::legacy_group_for_name(h).is_none()
                         });
                         for side in layer_visibility::layout_layer_groups() {
@@ -4073,7 +4127,7 @@ impl crate::App {
                         .iter()
                         .map(|l| (l.id, l.visible))
                         .collect();
-                    if tab == TreeTab::Layout || hidden.len() < all.len() {
+                    if tab == TreeTab::Layout && show_all {
                         for (id, shown) in ids {
                             if !shown {
                                 self.run(
@@ -4081,6 +4135,36 @@ impl crate::App {
                                     serde_json::json!({"layer": id, "on": true}),
                                 );
                             }
+                        }
+                    }
+                }
+                Action::InnerOnly(keep) => {
+                    let count = usize::from(self.project.copper_layer_count());
+                    for i in 1..count.saturating_sub(1) {
+                        let side = format!("inner:{i}");
+                        let on = keep.as_deref() == Some(side.as_str());
+                        layer_visibility::set_group_stored(
+                            &mut self.preferences.hidden_layers,
+                            &side,
+                            on,
+                        );
+                    }
+                }
+                Action::ArtOnly(keep) => {
+                    let ids: Vec<(Id, bool)> = self
+                        .project
+                        .board
+                        .user_layers
+                        .iter()
+                        .map(|l| (l.id, l.visible))
+                        .collect();
+                    for (id, shown) in ids {
+                        let want = Some(id) == keep;
+                        if shown != want {
+                            self.run(
+                                "board.layer_visible_set",
+                                serde_json::json!({"layer": id, "on": want}),
+                            );
                         }
                     }
                 }
