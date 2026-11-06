@@ -510,31 +510,25 @@ fn failure_reuses_last_snapshot_and_marks_stale() -> Result<(), String> {
 
 #[test]
 fn old_stale_snapshot_fails_the_run() -> Result<(), String> {
-    // Test that snapshot_age_days correctly identifies an old snapshot
-    // Use a date that is definitely more than 7 days ago
-    let old_date = "2026-10-15T23:00:00Z";
-    let age = snapshot_age_days(old_date);
-
-    // The age should be Some value >= 7 (since today is Oct 30, 2026)
+    // The age is worked out at a fixed time, so the test gives the same answer on any day.
+    let now = epoch_secs("2026-10-30T12:00:00Z").ok_or("the date command reads a timestamp")?;
+    let old = snapshot_age_days_at("2026-10-15T23:00:00Z", now).ok_or("a valid date has an age")?;
     assert!(
-        age.is_some(),
-        "snapshot_age_days should return Some for a valid date"
+        old >= 7,
+        "a snapshot from Oct 15 is at least 7 days old: {old}"
     );
+    let recent =
+        snapshot_age_days_at("2026-10-29T23:00:00Z", now).ok_or("a valid date has an age")?;
     assert!(
-        age.ok_or("missing value")? >= 7,
-        "snapshot from Oct 15 should be >= 7 days old"
+        recent < 7,
+        "a snapshot from the day before is under 7 days old: {recent}"
     );
-
-    // Test a recent date (should be < 7 days)
-    let recent_date = "2026-10-29T23:00:00Z";
-    let recent_age = snapshot_age_days(recent_date);
+    let future =
+        snapshot_age_days_at("2026-11-30T00:00:00Z", now).ok_or("a valid date has an age")?;
+    assert_eq!(future, 0, "a snapshot dated after now is 0 days old");
     assert!(
-        recent_age.is_some(),
-        "snapshot_age_days should return Some for a recent date"
-    );
-    assert!(
-        recent_age.ok_or("missing value")? < 7,
-        "snapshot from yesterday should be < 7 days old"
+        snapshot_age_days_at("not a date", now).is_none(),
+        "an unreadable date has no age"
     );
     Ok(())
 }
