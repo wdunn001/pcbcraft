@@ -116,6 +116,7 @@ impl App {
         );
         ui.add_space(8.0);
         self.stack_properties(ui, layer);
+        self.sublayer_shape_note(ui, layer);
     }
 
     /// Properties of an artifact: a record's file and state, or a drill artifact's

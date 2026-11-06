@@ -15,6 +15,7 @@
 //! # Do not
 //! - Keep state of the document here; read it from `App::project` each frame.
 pub(crate) mod artifact_kind;
+mod layer_shape;
 mod outline_table;
 mod shape;
 
@@ -486,7 +487,6 @@ impl App {
             &t!("tree.board_settings"),
             &t!("tree.board_settings.help"),
         );
-        let (w, h) = (self.project.board.width, self.project.board.height);
         let clearance = self.project.board.clearance;
         let copper = self
             .project
@@ -503,6 +503,7 @@ impl App {
             .iter()
             .map(|r| r.thickness)
             .sum();
+        self.shape_summary_section(ui, None);
         section(
             ui,
             "board-size",
@@ -516,34 +517,6 @@ impl App {
                     width: 110.0,
                     ..NumberSpec::default()
                 };
-                let (mut nw, mut nh) = (w, h);
-                let cw = form_row(ui, ROW, &t!("props.width"), None, None, |ui| {
-                    number_field(
-                        ui,
-                        "board-w",
-                        &mut nw,
-                        &spec,
-                        "Board width",
-                        &t!("settings.settings_tab.how_wide_the_board_is.tip"),
-                    )
-                    .changed()
-                });
-                let ch = form_row(ui, ROW, &t!("props.height"), None, None, |ui| {
-                    number_field(
-                        ui,
-                        "board-h",
-                        &mut nh,
-                        &spec,
-                        "Board height",
-                        &t!("settings.settings_tab.how_tall_the_board_is.tip"),
-                    )
-                    .changed()
-                });
-                if cw || ch {
-                    self.width = nw;
-                    self.height = nh;
-                    self.run("board.resize", json!({"width": nw, "height": nh}));
-                }
                 let mut nc = clearance;
                 let cc = form_row(
                     ui,

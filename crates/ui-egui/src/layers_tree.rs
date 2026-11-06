@@ -167,6 +167,10 @@ pub(crate) enum Action {
     StackRename { name: String, new_name: String },
     /// Remove an inner copper layer.
     StackRemove(String),
+    /// Give this copper layer (by key such as `F.Cu`) a shape of its own.
+    LayerOwnShape(String),
+    /// Send this copper layer back to following the board shape.
+    LayerFollowBoard(String),
     /// Centre the drawing on a part.
     ZoomTo(Id),
     /// Move a part to the other board side.
@@ -609,13 +613,9 @@ fn top_level(env: &Env) -> Vec<Row> {
     let board = &env.project.board;
     let total = copper_count(env).max(2);
     let mut out = Vec::new();
-    let mut root = row("", "root", RowKind::Layer, t!("tree.layer.board"));
+    let mut root = row("", "root", RowKind::Layer, t!("tree.layer.board_shape"));
     root.swatch = Some(c.warn);
-    root.sub = t!(
-        "tree.board_size",
-        w = size_text(board.width),
-        h = size_text(board.height)
-    );
+    root.sub = outline_description(board);
     out.push(root);
     for item in stack(env) {
         match item {
@@ -651,6 +651,9 @@ fn top_level(env: &Env) -> Vec<Row> {
                 r.expandable = true;
                 r.target = Layer::from_index(i as u8).ok().map(Target::Copper);
                 r.stack = Some(name);
+                if board.layer_shapes.contains_key(&board.copper_key(i as u8)) {
+                    r.sub = t!("tree.own_shape");
+                }
                 r.controls = Some(LayerControls {
                     key: ctl_key,
                     visibility: Visibility::LayerGroup(key.clone()),
@@ -1134,9 +1137,8 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             // The "Board edge" group means the board outline: the outline row first,
             // then the cut-outs. The outline is any closed shape, so the row says
             // which kind it is and shows the size of its bounding box.
-            let (label, size) = outline_description(board);
-            let mut edge = row(key, "edge", RowKind::Outline, label);
-            edge.sub = size;
+            let label = outline_description(board);
+            let edge = row(key, "edge", RowKind::Outline, label);
             out.push(edge);
             for cut in &board.cutouts {
                 let mut r = row(
@@ -2988,11 +2990,17 @@ fn paint_row(
     if !r.sub.is_empty() && !editing {
         let dx = label_left + label_w + 6.0;
         if dx < label_right {
-            p.text(
-                Pos2::new(dx, cy),
-                Align2::LEFT_CENTER,
-                &r.sub,
+            // A long description is cut with an ellipsis at the row's right edge.
+            let mut job = egui::text::LayoutJob::simple_singleline(
+                r.sub.clone(),
                 crate::fonts::Role::Mono.font(),
+                colours.muted.gamma_multiply(dim),
+            );
+            job.wrap = egui::text::TextWrapping::truncate_at_width(label_right - dx);
+            let galley = p.layout_job(job);
+            p.galley(
+                Pos2::new(dx, cy - galley.size().y / 2.0),
+                galley,
                 colours.muted.gamma_multiply(dim),
             );
         }
@@ -3069,6 +3077,10 @@ enum RowAct {
     MoveUp,
     MoveDown,
     RemoveLayer,
+    /// Give a copper layer a shape of its own.
+    OwnShape,
+    /// Send a copper layer back to the board shape.
+    FollowBoard,
     ExportBom,
     ExportBomSelection,
     ToggleBomExclude,
@@ -3169,6 +3181,34 @@ fn row_menu_entries(
             )
             .into(),
         );
+        if copper && let Some(Target::Copper(layer)) = r.target {
+            let own = env
+                .project
+                .board
+                .layer_shapes
+                .contains_key(&env.project.board.copper_key(layer.index()));
+            if own {
+                edit.push(
+                    row_item(
+                        RowAct::FollowBoard,
+                        t!("tree.menu.follow_board"),
+                        t!("tree.menu.follow_board.tip"),
+                        glyph::SELECT,
+                    )
+                    .into(),
+                );
+            } else {
+                edit.push(
+                    row_item(
+                        RowAct::OwnShape,
+                        t!("tree.menu.own_shape"),
+                        t!("tree.menu.own_shape.tip"),
+                        kit::PLUS,
+                    )
+                    .into(),
+                );
+            }
+        }
         if inner {
             let layers = &env.project.board.layer_records;
             let first = layers
@@ -3680,6 +3720,20 @@ fn run_row_act(
                 actions.push(Action::StackRemove(name.clone()));
             }
         }
+        RowAct::OwnShape | RowAct::FollowBoard => {
+            if let Some(target @ Target::Copper(layer)) = r.target {
+                let key = env.project.board.copper_key(layer.index());
+                // The layer becomes the active one so the outline handles edit its shape.
+                actions.push(Action::SetTarget(target));
+                view.selected_key = Some(r.key.clone());
+                actions.push(Action::SelectKey(r.key.clone()));
+                actions.push(if act == RowAct::OwnShape {
+                    Action::LayerOwnShape(key)
+                } else {
+                    Action::LayerFollowBoard(key)
+                });
+            }
+        }
     }
 }
 
@@ -4056,6 +4110,8 @@ impl crate::App {
                         serde_json::json!({"name": name, "new_name": new_name}),
                     );
                 }
+                Action::LayerOwnShape(key) => self.give_layer_own_shape(&key),
+                Action::LayerFollowBoard(key) => self.layer_follow_board(&key),
                 Action::StackRemove(name) => {
                     self.run(
                         "board.stackup_remove_layer",
@@ -4187,6 +4243,9 @@ impl crate::App {
             || last.starts_with("diel:")
         {
             self.stack_properties(ui, last);
+            self.layer_shape_properties(ui, last);
+        } else if last == "edge" {
+            self.shape_summary_section(ui, None);
         } else if let Some(id) = last.strip_prefix("art:") {
             let id = id.parse::<u64>().unwrap_or(0);
             if self.project.board.user_layers.iter().any(|l| l.id == id) {
@@ -4313,35 +4372,17 @@ pub(crate) fn layers_tab(ui: &mut Ui, app: &mut crate::App) {
     app.layers_tree_panel(ui);
 }
 
-/// A board size in millimetres to two decimals with trailing zeros dropped,
-/// so an imported 37.94230200896579 reads 37.94 and 60.0 reads 60.
-/// The outline row's words: the kind of shape and the size of its bounding box.
+/// The outline row's words: the kind of shape and its corner count.
 ///
-/// A board without a traced outline is the plain rectangle from its width and
-/// height. A traced outline is free-form, with its corner count; its size is
-/// the box around every segment, curved ones included.
-fn outline_description(board: &pcbcraft_doc::Board) -> (String, String) {
-    let Some(points) = board.outline.as_ref().filter(|p| p.len() >= 3) else {
-        let size = t!(
-            "tree.edge.size",
-            w = size_text(board.width),
-            h = size_text(board.height)
-        );
-        return (t!("tree.edge.rectangle"), size);
-    };
-    let closed = points.first() == points.last();
-    let corners = points.len() - usize::from(closed);
-    let (w, h) = pcbcraft_doc::outline_extent(points, &board.outline_arcs)
-        .map_or((board.width, board.height), |(lo, hi)| {
-            (hi.x - lo.x, hi.y - lo.y)
-        });
-    (
-        t!("tree.edge.free_form", n = corners),
-        t!("tree.edge.size", w = size_text(w), h = size_text(h)),
-    )
+/// A board without a traced outline is the plain four-corner rectangle. The
+/// size is never part of it; the reach of the board is read in Properties.
+fn outline_description(board: &pcbcraft_doc::Board) -> String {
+    let (points, arcs) = board.shape_of("");
+    crate::layer_shape_edit::shape_description(points, arcs)
 }
 
-fn size_text(v: f64) -> String {
+/// A size in millimetres to two decimals with trailing zeros dropped, so 60.0 reads 60.
+pub(crate) fn size_text(v: f64) -> String {
     let t = format!("{v:.2}");
     t.trim_end_matches('0').trim_end_matches('.').to_string()
 }

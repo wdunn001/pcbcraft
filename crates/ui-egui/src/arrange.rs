@@ -214,6 +214,7 @@ impl App {
     /// The array dialog window.
     pub(super) fn array_window(&mut self, ctx: &egui::Context) {
         self.round_corners_window(ctx);
+        self.rectangle_window(ctx);
         if !self.edit.arrange.open {
             return;
         }
