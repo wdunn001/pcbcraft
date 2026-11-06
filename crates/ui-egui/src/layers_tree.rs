@@ -3250,8 +3250,8 @@ fn row_menu_entries(
             .enabled_if(!locked, t!("tree.menu.select_all.locked"))
             .into(),
         );
-        match row {
-            "power" => edit.push(
+        if row == "power" {
+            edit.push(
                 row_item(
                     RowAct::AddPowerPort,
                     t!("tree.menu.add_power_port"),
@@ -3259,8 +3259,7 @@ fn row_menu_entries(
                     kit::PLUS,
                 )
                 .into(),
-            ),
-            _ => {}
+            );
         }
         destructive.push(
             row_item(
