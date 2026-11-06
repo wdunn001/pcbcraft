@@ -185,6 +185,15 @@ fn commit(
         for q in points.iter_mut().chain(arcs.iter_mut().flatten()) {
             *q = Point::new(q.x + dx, q.y + dy);
         }
+        for shape in p.board.layer_shapes.values_mut() {
+            for q in shape
+                .outline
+                .iter_mut()
+                .chain(shape.arcs.iter_mut().flatten())
+            {
+                *q = Point::new(q.x + dx, q.y + dy);
+            }
+        }
     }
     let (width, height) = (hi.x + dx, hi.y + dy);
     if !pcbcraft_geom::positive(width) || !pcbcraft_geom::positive(height) {
@@ -196,8 +205,8 @@ fn commit(
     let ring = flatten_outline(&points, &arcs, 0.01);
     p.board.outline = Some(points);
     p.board.outline_arcs = arcs;
-    p.board.width = width;
-    p.board.height = height;
+    p.board.refresh_extent();
+    let (width, height) = (p.board.width, p.board.height);
     Ok(json!({
         "arcs": arced,
         "width": width,

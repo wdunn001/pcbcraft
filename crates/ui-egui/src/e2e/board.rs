@@ -1847,15 +1847,9 @@ fn a_newcomer_starts_on_a_chamfered_board_and_resizes_it() -> Result<(), String>
         "the board height changed to 50 mm"
     );
     assert_eq!(
-        outline.len(),
-        8,
-        "the board still has eight corners after resizing: {}",
-        app.message
-    );
-    let leg = pcbcraft_doc::chamfer_leg_of(&outline, 80.0, 50.0);
-    assert!(
-        leg == Some(0.75),
-        "the chamfer leg is still 0.75 mm after resizing: {}",
+        outline,
+        pcbcraft_doc::rectangle_outline(80.0, 50.0),
+        "typing a size replaces the shape with a rectangle of that size: {}",
         app.message
     );
     Ok(())

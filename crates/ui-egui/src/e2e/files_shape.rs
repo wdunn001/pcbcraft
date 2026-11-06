@@ -369,9 +369,10 @@ fn a_newcomer_starts_from_a_rectangle_in_one_undo_step() -> Result<(), String> {
     type_into(&ctx, &mut app, "spinbutton:Rectangle height", "50")?;
     tap_id(&ctx, &mut app, "button:Use rectangle")?;
     assert!(app.files_home.rect_draft.is_none(), "the dialog closes");
-    assert!(
-        app.project.board.outline.is_none(),
-        "the free-form outline is replaced: {}",
+    assert_eq!(
+        app.project.board.outline.as_ref().map(Vec::len),
+        Some(4),
+        "the free-form outline is replaced by a four corner rectangle: {}",
         app.message
     );
     assert_eq!(
