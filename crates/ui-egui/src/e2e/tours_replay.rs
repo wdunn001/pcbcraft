@@ -158,7 +158,7 @@ fn paint_step(
     let layout = layout::step_layout(screen(profile), &step.target, anchor_rect, &step.placement);
     let title = lookup(&step.title, &[]);
     let body = lookup(&step.body, &[]);
-    replay_frame(ctx, app, profile.width, profile.height, |ui| {
+    let output = replay_frame(ctx, app, profile.width, profile.height, |ui| {
         let card = layout.card;
         ui.painter().rect_filled(card, 8.0, Color32::from_gray(32));
         if let Some(hole) = layout.hole {
@@ -195,11 +195,14 @@ fn paint_step(
             label("hole mismatch")
         );
     }
-    assert!(
-        paints_text(ctx, app, &title)?,
-        "{}",
-        label("card title must paint")
-    );
+    let title_painted = output.shapes.iter().any(|shape| {
+        if let egui::Shape::Text(text) = &shape.shape {
+            text.galley.text().contains(&title)
+        } else {
+            false
+        }
+    });
+    assert!(title_painted, "{}", label("card title must paint"));
     Ok(())
 }
 

@@ -4,7 +4,7 @@
 [[tour]]
 id = "window"
 version = 1
-workspace = "files"
+workspace = "layout"
 trigger = "first_launch"
 
 [[tour.steps]]
