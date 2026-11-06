@@ -5372,6 +5372,7 @@ mod tests {
             ..Default::default()
         });
         p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 40,
             name: "Card Outline".into(),
             kind,
@@ -5493,6 +5494,7 @@ mod tests {
                 g.rotation = 45.0;
             }
             p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+                side: Default::default(),
                 id: 40,
                 name: "Snap Line".into(),
                 kind: ArtKind::Perforation,
@@ -5565,6 +5567,7 @@ mod tests {
     fn mask_rect_over_an_exposed_pad_is_a_finding() -> Result<(), String> {
         let mut p = masked_pad(&["F.Cu", "F.Mask"]);
         p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 40,
             name: "Logo Mask".into(),
             kind: ArtKind::Mask,
@@ -5597,6 +5600,7 @@ mod tests {
     fn mask_over_a_pad_without_a_mask_opening_is_clean() {
         let mut p = masked_pad(&["F.Cu"]);
         p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 40,
             name: "Logo Mask".into(),
             kind: ArtKind::Mask,
@@ -5618,6 +5622,7 @@ mod tests {
     fn mask_line_has_no_area_and_is_ignored() {
         let mut p = masked_pad(&["F.Cu", "F.Mask"]);
         p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
             id: 40,
             name: "Logo Mask".into(),
             kind: ArtKind::Mask,

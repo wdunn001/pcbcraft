@@ -6678,6 +6678,10 @@ struct LayerAddParams {
     /// Dot diameter for a dotted layer, in millimetres.
     #[serde(default)]
     dot_size: Option<f64>,
+    /// `top` or `bottom`: the surface a silk layer sits on. Silkscreen exists
+    /// only on the Top and the Bottom layer.
+    #[serde(default)]
+    side: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20464,6 +20468,22 @@ fn run_command_part_17(
                 None => pcbcraft_doc::ArtKind::Other,
                 Some(k) => art_kind(k)?,
             };
+            let side = match a.side.as_deref() {
+                None | Some("top") => pcbcraft_doc::ArtSide::Top,
+                Some("bottom") if kind == pcbcraft_doc::ArtKind::Silk => {
+                    pcbcraft_doc::ArtSide::Bottom
+                }
+                Some("bottom") => {
+                    return Err(Error::Invalid(
+                        "only a silk layer sits on the bottom side".into(),
+                    ));
+                }
+                Some(_) => {
+                    return Err(Error::Invalid(
+                        "silkscreen sits on the top or the bottom side only".into(),
+                    ));
+                }
+            };
             if p.board.user_layers.iter().any(|l| l.name == a.name) {
                 return Err(Error::Invalid("a drawn layer with that name exists".into()));
             }
@@ -20484,6 +20504,7 @@ fn run_command_part_17(
             }
             let id = allocate(next)?;
             p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+                side,
                 id,
                 name: a.name,
                 kind,
@@ -23687,6 +23708,11 @@ fn run_command_part_23(
         "text.place" => {
             let a: TextPlaceParams = parse(params)?;
             let layer = command_layer(p, params, a.layer)?;
+            if layer != Layer::Front && layer != p.bottom_layer() {
+                return Err(Error::Invalid(
+                    "board text is silkscreen: it sits on the top or the bottom layer, never an inner layer".into(),
+                ));
+            }
             if a.text.is_empty() || a.text.len() > 128 {
                 return Err(Error::Invalid("text must be 1 to 128 bytes".into()));
             }
