@@ -5,10 +5,11 @@
 // Do not: hand-edit entries here; add or change a change file instead.
 import MarketingLayout from '../../layouts/MarketingLayout.astro';
 import { REPO_URL } from '../../lib/site';
-import { loadEntries, entryLinks } from '../../lib/changelog-core.js';
+import { loadEntries, entryLinks, builtLine, formatUtc } from '../../lib/changelog-core.js';
 
 const root = new URL('../../../../', import.meta.url).pathname;
 const entries = loadEntries(root);
+const built = builtLine(root);
 const KIND_LABELS: Record<string, string> = {
   feature: 'New',
   fix: 'Fix',
@@ -26,6 +27,7 @@ const KIND_LABELS: Record<string, string> = {
       <p class="eyebrow">Changelog</p>
       <h1>Changelog</h1>
       <p class="lede">Every change you can notice, newest first. The list is built from the change files in the repository each time the site is built.</p>
+      <p class="built">{built}</p>
       {entries.length === 0 ? (
         <p>No changes are listed yet. The <a href={`${REPO_URL}/releases`} rel="noopener">release page on GitHub</a> has the latest build.</p>
       ) : (
@@ -33,7 +35,7 @@ const KIND_LABELS: Record<string, string> = {
           {entries.map((e) => (
             <li class="entry" id={e.slug}>
               <p class="meta">
-                <time datetime={e.date}>{e.date || 'Undated'}</time>
+                <time datetime={e.time ? new Date(e.time * 1000).toISOString() : ''}>{e.time ? formatUtc(e.time) : 'Undated'}</time>
                 <span class="chip">{e.area}</span>
                 <span class="chip">{KIND_LABELS[e.kind] ?? e.kind}</span>
               </p>
@@ -55,6 +57,11 @@ const KIND_LABELS: Record<string, string> = {
 <style>
   .prose {
     max-width: 46rem;
+  }
+  .built {
+    color: var(--pc-muted);
+    font-family: var(--pc-font-mono);
+    font-size: 0.85rem;
   }
   .entries {
     list-style: none;

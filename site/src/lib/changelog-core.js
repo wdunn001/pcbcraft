@@ -1,8 +1,8 @@
 // Change file reader shared by the /changelog page, the release notes script and the gate.
 // Context: each pull request adds one `.changes/<slug>.md` file (format: .changes/README.md).
 // The format is line oriented, so this reader splits at the first colon and needs no YAML library.
-// Rules: only entries with `user_visible: true` are listed; newest first; the date and the pull
-// request come from the git history of the change file, never from the file text.
+// Rules: only entries with `user_visible: true` are listed; newest first by commit time in seconds;
+// the time and the pull request come from the git history of the change file, never from the file text.
 // Do not: read the network. A file that fails to parse is skipped with a warning.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -78,19 +78,41 @@ function git(root, args) {
   }
 }
 
+/** Pull request number from a commit subject: "Merge pull request #N", else the last "(#N)". */
+export function prFromSubject(subject) {
+  const merge = subject.match(/^Merge pull request #(\d+)/);
+  if (merge) return Number(merge[1]);
+  const all = [...subject.matchAll(/\(#(\d+)\)/g)];
+  if (all.length) return Number(all[all.length - 1][1]);
+  const any = subject.match(/#(\d+)/);
+  return any ? Number(any[1]) : null;
+}
+
+/** "2026-11-06 19:40 UTC" from a Unix time in seconds. */
+export function formatUtc(seconds) {
+  return `${new Date(seconds * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
 /**
- * Date, commit and pull request number of the commit that added a change file to main.
+ * Time, commit and pull request number of the commit that added a change file to main.
  * The merge commit is the first parent line, so its subject carries the pull request number.
+ * `time` is the commit time in Unix seconds, `date` the UTC day.
  */
 export function addedBy(root, slug) {
   const paths = [`.changes/${slug}.md`, `.changes/released/*/${slug}.md`];
-  const out = git(root, ['log', '--first-parent', '-m', '--diff-filter=A', '--format=%H%x09%cs%x09%s', '--', ...paths]);
+  const out = git(root, ['log', '--first-parent', '-m', '--diff-filter=A', '--format=%H%x09%ct%x09%s', '--', ...paths]);
   const rows = out.split('\n').filter(Boolean);
   const last = rows[rows.length - 1];
   if (!last) return null;
-  const [hash, date, subject = ''] = last.split('\t');
-  const m = subject.match(/#(\d+)/);
-  return { hash, date, pr: m ? Number(m[1]) : null };
+  const [hash, ct, subject = ''] = last.split('\t');
+  const time = Number(ct);
+  return { hash, time, date: new Date(time * 1000).toISOString().slice(0, 10), pr: prFromSubject(subject) };
+}
+
+/** The line at the top of the page: when it was built and from which commit. */
+export function builtLine(root, now = new Date()) {
+  const sha = git(root, ['rev-parse', '--short', 'HEAD']) || 'unknown';
+  return `Built ${formatUtc(Math.floor(now.getTime() / 1000))} from commit ${sha}`;
 }
 
 /** Every user visible entry, newest first. `since` (a commit) drops entries already in it. */
@@ -114,10 +136,10 @@ export function loadEntries(root, { since = '' } = {}) {
       }
       if (!set.userVisible) continue;
       const added = addedBy(root, slug);
-      entries.push({ ...set, date: added?.date ?? '', hash: added?.hash ?? '', pr: added?.pr ?? null });
+      entries.push({ ...set, time: added?.time ?? 0, date: added?.date ?? '', hash: added?.hash ?? '', pr: added?.pr ?? null });
     }
   }
-  entries.sort((a, b) => b.date.localeCompare(a.date) || a.slug.localeCompare(b.slug));
+  entries.sort((a, b) => b.time - a.time || (b.pr ?? 0) - (a.pr ?? 0) || a.slug.localeCompare(b.slug));
   if (!since) return entries;
   return entries.filter((e) => !e.hash || !isAncestor(root, e.hash, since));
 }
