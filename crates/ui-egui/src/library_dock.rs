@@ -354,6 +354,8 @@ fn ranked(query: &str, cards: Vec<Card>) -> Vec<Card> {
 /// What a card's menu or buttons asked for.
 #[derive(Clone, Debug)]
 enum CardAction {
+    /// Open the manufacturer's product page in the browser.
+    ManufacturerPage(String),
     Place(&'static str),
     Import,
     Favourite,
@@ -1875,6 +1877,24 @@ impl App {
                     .into(),
                 );
             }
+            if let Card::Online(p, _) = card
+                && p.manufacturer == "Samtec"
+                && !p.mpn.is_empty()
+            {
+                let url = match pcbcraft_library::samtec::manufacturer_page_url(&p.mpn) {
+                    Ok(u) => u,
+                    Err(_) => continue,
+                };
+                about.push(
+                    Item::new(
+                        CardAction::ManufacturerPage(url),
+                        t!("library.dock.manufacturer_page"),
+                        t!("library.dock.manufacturer_page.tip"),
+                    )
+                    .icon(glyph::DATASHEET)
+                    .into(),
+                );
+            }
             about.push(
                 Item::new(
                     CardAction::Source,
@@ -2013,6 +2033,9 @@ impl App {
             }
             CardAction::Datasheet(url) => {
                 self.open_datasheet(ctx, url);
+            }
+            CardAction::ManufacturerPage(url) => {
+                ctx.open_url(egui::OpenUrl::new_tab(url));
             }
             CardAction::OpenInLibrary => self.library_open_part(ctx, card),
             CardAction::Source => {
