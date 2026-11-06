@@ -3080,6 +3080,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(part_save::commands())
         .chain(publication::commands())
         .chain(teardrop::commands())
+        .chain(legalize::commands())
         .chain(route_auto::commands())
         .chain(pads::commands())
         .chain(calc::commands())
@@ -8943,7 +8944,7 @@ fn default_width() -> f64 {
 }
 /// Track width to use when a command leaves width out: the width of the net's
 /// class, or the standard width for unclassified nets.
-fn class_width(p: &Project, net: Id) -> f64 {
+pub(crate) fn class_width(p: &Project, net: Id) -> f64 {
     p.net_class(net)
         .map(|class| class.width)
         .unwrap_or_else(default_width)
@@ -10728,6 +10729,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = calc::run(p, command, params) {
+        return result;
+    }
+    if let Some(result) = legalize::run(p, next, command, params) {
         return result;
     }
     if let Some(result) = teardrop::run(p, next, command, params) {

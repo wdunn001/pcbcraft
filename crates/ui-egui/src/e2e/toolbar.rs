@@ -127,3 +127,34 @@ fn a_newcomer_arms_the_power_port_tool_on_the_schematic() -> Result<(), String> 
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sees_the_width_field_only_when_routing() -> Result<(), String> {
+    let (ctx, mut app) = layout_page();
+
+    // With Select active (default), there is no Width field on the toolbar.
+    assert!(
+        !paints_text(&ctx, &mut app, "Width")?,
+        "the Width field must not show with Select active"
+    );
+
+    // Switch to Route: the Width field appears beside Corners.
+    tap_strip(&ctx, &mut app, "icon:tool-route")?;
+    assert!(
+        matches!(app.tool, Tool::Route(_)),
+        "Route must be active for the Width field"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Width")?,
+        "the Width field must show with Route active"
+    );
+
+    // Switch to Select again: the Width field disappears.
+    tap_strip(&ctx, &mut app, "icon:tool-select")?;
+    assert!(
+        !paints_text(&ctx, &mut app, "Width")?,
+        "the Width field must not show with Select active again"
+    );
+
+    Ok(())
+}
