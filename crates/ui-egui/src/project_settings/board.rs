@@ -1,6 +1,6 @@
-//! Board and stackup tab: board size, finish and the layer table.
+//! Board tab: finish and the layer table (the shape cards live in `board_shape.rs`).
 //!
-//! Context: mockup `dialog-project-board`. Size, finish and the plated edge are board
+//! Context: mockup `dialog-project-board`. Finish and the plated edge are board
 //! facts; the stackup card edits the recorded layer rows (material, thickness, Dk, Df,
 //! copper weight) and the number of copper layers.
 //! Local rules: layer rows are written with `board.set_layer_record`, which wants name,
@@ -10,12 +10,12 @@
 //!
 //! # Dependencies
 //! - crates/doc/src/lib.rs (`LayerRecord`), crates/doc/src/material.rs (`MATERIALS`)
-//! - crates/engine/src/lib.rs (`board.resize`, `board.set_finish`, `board.set_stackup`,
+//! - crates/engine/src/lib.rs (`board.set_finish`, `board.set_stackup`,
 //!   `board.set_machining`, `board.set_layer_record`, `board.remove_layer_record`,
 //!   `board.stackup_add_pair`, `board.stackup_remove_layer`, `board.clear_layer_records`)
 //!
-//! Corners: the three corner styles run `board.set_shape` (rectangle, chamfered or rounded
-//! rectangle) with the corner size typed beside them; the style is read back from the outline.
+//! Corner treatment (None, Round, Chamfer on export) is not offered: the old corner styles
+//! only rebuilt a rectangle from a width and a height, which no free-form outline has.
 //!
 //! # Do not
 //! - Compute outline vertices here; the engine owns the geometry.
@@ -27,7 +27,6 @@ use crate::ui_kit::form_row::{FormWidth, form_row, toggle_row};
 use crate::ui_kit::icons;
 use crate::ui_kit::number_field::NumberSpec;
 use crate::ui_kit::rows::{table_head, table_row};
-use crate::ui_kit::segmented::{Segment, segmented};
 use crate::ui_kit::select::select;
 use crate::{App, STACK_ROLES, fonts, theme};
 use pcbcraft_doc::{LayerRecord, MATERIALS};
@@ -87,52 +86,6 @@ fn record_params(record: &LayerRecord, change: Value) -> Value {
     params
 }
 
-/// How the corners of the board outline are cut.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Corners {
-    /// Plain right angles.
-    Square,
-    /// Cut at 45 degrees.
-    Chamfer,
-    /// Rounded with arcs.
-    Rounded,
-}
-
-const CORNER_KINDS: [Corners; 3] = [Corners::Square, Corners::Chamfer, Corners::Rounded];
-
-impl Corners {
-    /// Catalog stem of the choice.
-    fn stem(self) -> &'static str {
-        match self {
-            Corners::Square => "square",
-            Corners::Chamfer => "chamfer",
-            Corners::Rounded => "rounded",
-        }
-    }
-
-    /// The outline of the board says which style it has.
-    fn of(board: &pcbcraft_doc::Board) -> Self {
-        if board.outline_arcs.iter().any(Option::is_some) {
-            return Corners::Rounded;
-        }
-        match &board.outline {
-            Some(points) if points.len() > 5 => Corners::Chamfer,
-            _ => Corners::Square,
-        }
-    }
-
-    /// The `board.set_shape` parameters for this style at the given size.
-    fn shape(self, width: f64, height: f64, size: f64) -> Value {
-        match self {
-            Corners::Square => json!({"kind": "rectangle", "width": width, "height": height}),
-            Corners::Chamfer => json!({"kind": "chamfered_rectangle", "width": width,
-                "height": height, "chamfer": size}),
-            Corners::Rounded => json!({"kind": "rounded_rectangle", "width": width,
-                "height": height, "radius": size}),
-        }
-    }
-}
-
 /// The swatch colour of a stackup row of this kind.
 fn layer_swatch(kind: &str, ctx: &egui::Context, first_copper: bool) -> egui::Color32 {
     let canvas = theme::CanvasColors::for_dark(ctx.global_style().visuals.dark_mode);
@@ -148,30 +101,33 @@ fn layer_swatch(kind: &str, ctx: &egui::Context, first_copper: bool) -> egui::Co
 }
 
 impl App {
-    /// The Board and stackup tab.
+    /// The Board tab.
     ///
     /// # Rules
-    /// - Width and height run `board.resize` on a square board and `board.set_shape` on
-    ///   one with cut or rounded corners. The corners stay.
-    /// - Board size and Finish stack in the left column and Stackup takes the right.
+    /// - Board shape and Shape of each layer stack in the left column and Finish takes the
+    ///   right; Stackup runs full width below.
+    /// - No control here types a width or a height of the board.
     ///
     /// # Dependencies
     /// - crates/ui-egui/src/ui_kit/card.rs
+    /// - crates/ui-egui/src/project_settings/board_shape.rs
     ///
     /// # Do not
-    /// - Keep a second copy of the size; read it from the project each frame.
+    /// - Keep a second copy of the shape; read it from the project each frame.
     pub(super) fn settings_board(&mut self, ui: &mut egui::Ui) {
         let gap = theme::SPACE[3];
         let total = ui.available_width();
         if total < 760.0 {
-            self.settings_board_size(ui);
+            self.settings_board_shape(ui);
+            ui.add_space(gap);
+            self.settings_layer_shapes(ui);
             ui.add_space(gap);
             self.settings_board_finish(ui);
             ui.add_space(gap);
             self.settings_stackup(ui);
             return;
         }
-        let left = (total - gap) * 0.46;
+        let left = (total - gap) * 0.6;
         let right = total - gap - left;
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = gap;
@@ -180,9 +136,9 @@ impl App {
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
                     ui.set_width(left);
-                    self.settings_board_size(ui);
+                    self.settings_board_shape(ui);
                     ui.add_space(gap);
-                    self.settings_board_finish(ui);
+                    self.settings_layer_shapes(ui);
                 },
             );
             ui.allocate_ui_with_layout(
@@ -190,126 +146,12 @@ impl App {
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
                     ui.set_width(right);
-                    self.settings_stackup(ui);
+                    self.settings_board_finish(ui);
                 },
             );
         });
-    }
-
-    fn settings_board_size(&mut self, ui: &mut egui::Ui) {
-        let (w, h) = (self.project.board.width, self.project.board.height);
-        let corners = Corners::of(&self.project.board);
-        let size = self.project_settings.corner_size;
-        card(
-            ui,
-            &t!("settings.project.board.size"),
-            None,
-            |_| {},
-            |ui| {
-                let spec = NumberSpec {
-                    min: 1.0,
-                    max: 2000.0,
-                    step: 0.5,
-                    places: 2,
-                    ..mm_spec(1.0, 2000.0)
-                };
-                let name = t!("settings.project.board.width");
-                let new_w = form_row(ui, FormWidth::Page, &name, None, None, |ui| {
-                    num(
-                        ui,
-                        "ps-board-w",
-                        w,
-                        &spec,
-                        &name,
-                        &t!("settings.project.board.width.tip"),
-                    )
-                });
-                let name = t!("settings.project.board.height");
-                let new_h = form_row(ui, FormWidth::Page, &name, None, None, |ui| {
-                    num(
-                        ui,
-                        "ps-board-h",
-                        h,
-                        &spec,
-                        &name,
-                        &t!("settings.project.board.height.tip"),
-                    )
-                });
-                if new_w.is_some() || new_h.is_some() {
-                    let (nw, nh) = (new_w.unwrap_or(w), new_h.unwrap_or(h));
-                    if corners == Corners::Square {
-                        self.settings_run("board.resize", json!({"width": nw, "height": nh}));
-                    } else {
-                        self.settings_run("board.set_shape", corners.shape(nw, nh, size));
-                    }
-                }
-                let labels: Vec<String> = CORNER_KINDS
-                    .iter()
-                    .map(|c| {
-                        pcbcraft_text::lookup(
-                            &format!("settings.project.corners.{}", c.stem()),
-                            &[],
-                        )
-                    })
-                    .collect();
-                let tips: Vec<String> = CORNER_KINDS
-                    .iter()
-                    .map(|c| {
-                        pcbcraft_text::lookup(
-                            &format!("settings.project.corners.{}.tip", c.stem()),
-                            &[],
-                        )
-                    })
-                    .collect();
-                let items: Vec<Segment<'_>> = labels
-                    .iter()
-                    .zip(&tips)
-                    .map(|(label, tip)| Segment::text(label, tip))
-                    .collect();
-                let mut at = CORNER_KINDS.iter().position(|c| *c == corners).unwrap_or(0);
-                let before = at;
-                form_row(
-                    ui,
-                    FormWidth::Page,
-                    &t!("settings.project.board.corners"),
-                    Some(&t!("settings.project.board.corners.hint")),
-                    None,
-                    |ui| {
-                        segmented(ui, "ps-corners", &mut at, &items);
-                    },
-                );
-                if at != before {
-                    self.settings_run("board.set_shape", CORNER_KINDS[at].shape(w, h, size));
-                }
-                let name = t!("settings.project.board.corner_size");
-                let spec = NumberSpec {
-                    min: 0.1,
-                    max: 100.0,
-                    step: 0.5,
-                    places: 2,
-                    ..mm_spec(0.1, 100.0)
-                };
-                let new_size = form_row(ui, FormWidth::Page, &name, None, None, |ui| {
-                    ui.add_enabled_ui(corners != Corners::Square, |ui| {
-                        num(
-                            ui,
-                            "ps-corner-size",
-                            size,
-                            &spec,
-                            &name,
-                            &t!("settings.project.board.corner_size.tip"),
-                        )
-                    })
-                    .inner
-                });
-                if let Some(v) = new_size {
-                    self.project_settings.corner_size = v;
-                    if corners != Corners::Square {
-                        self.settings_run("board.set_shape", corners.shape(w, h, v));
-                    }
-                }
-            },
-        );
+        ui.add_space(gap);
+        self.settings_stackup(ui);
     }
 
     fn settings_board_finish(&mut self, ui: &mut egui::Ui) {

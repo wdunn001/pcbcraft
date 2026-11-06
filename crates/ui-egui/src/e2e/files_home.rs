@@ -424,7 +424,7 @@ fn a_newcomer_opens_project_settings_from_the_files_page_and_visits_every_tab() 
         ("tab:Machines", "Machines in this project"),
         ("tab:Title block", "Printed on every sheet"),
         ("tab:Builds", "New build"),
-        ("tab:Board and stackup", "Board size"),
+        ("tab:Board", "Board shape"),
     ] {
         tap_id(&ctx, &mut app, tab)?;
         assert!(
@@ -433,15 +433,19 @@ fn a_newcomer_opens_project_settings_from_the_files_page_and_visits_every_tab() 
             app.message
         );
     }
-    type_into(&ctx, &mut app, "spinbutton:Width", "88")?;
+    tap_id(&ctx, &mut app, "tab:Design rules")?;
+    type_into(&ctx, &mut app, "spinbutton:Clearance", "0.45")?;
     assert_eq!(
-        app.project.board.width, 88.0,
+        app.project.board.clearance, 0.45,
         "an edit in the dialog is stored: {}",
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "Save")?;
     assert!(!app.project_settings.open, "Save closes the dialog");
-    assert_eq!(app.project.board.width, 88.0, "the edit stays after Save");
+    assert_eq!(
+        app.project.board.clearance, 0.45,
+        "the edit stays after Save"
+    );
     Ok(())
 }
 
