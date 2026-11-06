@@ -1508,8 +1508,15 @@ fn pdf_literal_escape(value: &str) -> String {
 /// Export the design as a one-page vector PDF document, in bytes.
 pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     p.validate()?;
-    if view != "pcb" && view != "schematic" && !assembly_drawing::view_is_assembly(view) {
+    if view != "pcb"
+        && view != "schematic"
+        && !assembly_drawing::view_is_assembly(view)
+        && view != "fab"
+    {
         return Err("view must be pcb, schematic, assembly-top, or assembly-bottom".into());
+    }
+    if view == "fab" {
+        return fab_drawing_pdf(p);
     }
     let content_bounds = if assembly_drawing::view_is_assembly(view) {
         assembly_drawing::page_bounds(p, view)
@@ -6207,6 +6214,9 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
     if assembly_drawing::view_is_assembly(view) {
         return assembly_drawing::drawing_svg(p, view);
+    }
+    if view == "fab" {
+        return fab_drawing_svg(p);
     }
     if view != "pcb" && view != "schematic" {
         return Err("view must be pcb, schematic, assembly-top, or assembly-bottom".into());

@@ -43,7 +43,7 @@ impl Default for ModelCache {
             #[cfg(not(target_arch = "wasm32"))]
             jobs: Arc::new(Mutex::new(None)),
             #[cfg(not(target_arch = "wasm32"))]
-            import_cache: ImportCache::default(),
+            import_cache: ImportCache::in_memory(),
         }
     }
 }
@@ -76,7 +76,7 @@ impl ModelCache {
     pub fn with_disk_dir(dir: Option<std::path::PathBuf>) -> Self {
         let import_cache = match dir {
             Some(root) => ImportCache::open(root),
-            None => ImportCache::default(),
+            None => ImportCache::in_memory(),
         };
         Self {
             shared: Arc::new(Shared::default()),
