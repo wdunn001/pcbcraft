@@ -133,9 +133,9 @@ pub(crate) struct State {
     /// Ids of the list rows drawn last frame; focus on one of them still lets the
     /// arrow keys and Enter work the list.
     rows: Vec<egui::Id>,
-    /// What the last Files action said when it failed.
     /// Loading a project: Some(step) means loading is in progress at this step.
     pub(crate) loading_step: Option<usize>,
+    /// What the last Files action said when it failed.
     pub(crate) error: String,
     /// The words typed in the project files tree filter.
     pub(crate) filter: String,
@@ -319,6 +319,7 @@ impl App {
             self.files_home.error = t!("files.open.nothing_typed");
             return false;
         }
+        self.path = path.clone();
         self.files_home.loading_step = Some(loading_view::STEP_READING);
         if self.tool_call("open", json!({"path": path})) {
             self.files_home.loading_step = None;
@@ -332,6 +333,8 @@ impl App {
             false
         }
     }
+
+    /// Close the project: a blank one takes its place.
     fn files_close_now(&mut self) {
         self.tool_call("new_design", json!({}));
         self.select(None);
@@ -513,8 +516,6 @@ impl App {
     ///
     /// # Do not
     /// - Draw the Library or Layers here.
-    /// - crates/ui-egui/src/files_home/home.rs (`files_home_page`)
-    /// - crates/ui-egui/src/loading_view.rs (`loading_view`)
     pub(crate) fn files_center(&mut self, ui: &mut egui::Ui) {
         ui.style_mut().interaction.selectable_labels = false;
         let ctx = ui.ctx().clone();
@@ -545,6 +546,8 @@ impl App {
                     });
             });
     }
+
+    /// A page behind a tool bar button: Open, Import, Export or Close.
     fn files_subpage(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         ui.set_max_width(ui.available_width().min(860.0));
