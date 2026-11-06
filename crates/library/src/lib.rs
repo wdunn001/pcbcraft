@@ -822,4 +822,6 @@ mod pin_graphical_tests {
 }
 pub mod passive_generator;
 pub mod passive_series;
+#[cfg(feature = "vendor-integrations")]
+pub mod vendor_integrations;
 pub use passive_generator::{GeneratedPassive, generate_passive};
