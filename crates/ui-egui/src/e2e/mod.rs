@@ -4,6 +4,7 @@
 pub(crate) mod support;
 
 mod a11y_gate;
+mod add_tool_preview;
 mod artifact_rows;
 mod artifacts;
 mod aside_widths;
@@ -68,6 +69,7 @@ mod schematic_labels;
 mod schematic_new_page;
 mod schematic_page_scope;
 mod schematic_pages;
+mod schematic_power_port_move;
 mod selection;
 mod settings;
 mod settings_freeze;
