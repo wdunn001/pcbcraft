@@ -530,8 +530,133 @@ pub fn evaluate(
 ///
 /// # Do not
 /// - Read the clock, or accept a move the gate refused.
-pub fn anneal(_model: &mut Model, _settings: &PlacementSettings) -> Result<AnnealOutcome, String> {
-    Err(not_built("slice-1122-d"))
+pub fn anneal(model: &mut Model, settings: &PlacementSettings) -> Result<AnnealOutcome, String> {
+    let movable: Vec<usize> = (0..model.cells.len())
+        .filter(|&i| !model.cells[i].fixed)
+        .collect();
+    if movable.is_empty() {
+        return Ok(AnnealOutcome {
+            cost_before: 0.0,
+            cost_after: 0.0,
+            hpwl_before: 0.0,
+            hpwl_after: 0.0,
+            start_temperature: 0.0,
+            moves_used: 0,
+            accepted: 0,
+            rejected_by_rule: 0,
+            rejected_by_cost: 0,
+            stop: Stop::NothingToMove,
+            trace: Vec::new(),
+            moved: Vec::new(),
+        });
+    }
+    if movable.len() > settings.max_polish_cells {
+        return Err(format!(
+            "{} movable parts exceeds max_polish_cells {}",
+            movable.len(),
+            settings.max_polish_cells
+        ));
+    }
+    let budget = settings.moves_for(movable.len());
+    let start_cost = cost(model, settings)?;
+    let start_hpwl = model.hpwl_of();
+    let start_model = model.clone();
+    let start_temp = start_temperature(model, &movable, settings)?;
+    let epoch = settings.epoch_len(budget);
+    let mut rng = Rng::new(settings.seed);
+    let mut t = start_temp;
+    let mut moves_used = 0;
+    let mut accepted = 0;
+    let mut rejected_by_rule = 0;
+    let mut rejected_by_cost = 0;
+    let mut best_cost = start_cost;
+    let mut best_hpwl = start_hpwl;
+    let mut best_model = model.clone();
+    let mut trace: Vec<Decision> = Vec::new();
+    let mut window_accepted = 0;
+    let mut stop = Stop::Budget;
+    while moves_used < budget {
+        let mv_opt = next_move(&mut rng, &movable, model, settings)?;
+        let mv = match mv_opt {
+            Some(m) => m,
+            None => break,
+        };
+        let cand = evaluate(model, settings, mv, cost(model, settings)?)?;
+        let decision = if cand.verdict != Verdict::Allowed {
+            rejected_by_rule += 1;
+            Decision::RejectedByRule
+        } else if cand.delta_cost <= 0.0 {
+            apply_move(model, &cand.mv)?;
+            accepted += 1;
+            window_accepted += 1;
+            let now = cost(model, settings)?;
+            if now < best_cost {
+                best_cost = now;
+                best_hpwl = model.hpwl_of();
+                best_model = model.clone();
+            }
+            Decision::Accepted
+        } else {
+            let r = rng.next_f64();
+            if r < (-cand.delta_cost / t).exp() {
+                apply_move(model, &cand.mv)?;
+                accepted += 1;
+                window_accepted += 1;
+                let now = cost(model, settings)?;
+                if now < best_cost {
+                    best_cost = now;
+                    best_hpwl = model.hpwl_of();
+                    best_model = model.clone();
+                }
+                Decision::Accepted
+            } else {
+                rejected_by_cost += 1;
+                Decision::RejectedByCost
+            }
+        };
+        if trace.len() < settings.trace_len {
+            trace.push(decision);
+        }
+        moves_used += 1;
+        if moves_used % epoch == 0 {
+            t *= settings.cooling;
+        }
+        if moves_used % settings.freeze_window == 0 && window_accepted < 1 {
+            stop = Stop::Frozen;
+            break;
+        }
+        if moves_used % settings.freeze_window == 0 {
+            window_accepted = 0;
+        }
+    }
+    *model = best_model;
+    let mut moved = Vec::new();
+    for i in 0..model.cells.len() {
+        let c = &best_model.cells[i];
+        let old = &start_model.cells[i];
+        if c.x != old.x || c.y != old.y || c.turns != old.turns {
+            moved.push(MovedCell {
+                id: c.id,
+                x: c.x,
+                y: c.y,
+                turns: c.turns,
+            });
+        }
+    }
+    Ok(AnnealOutcome {
+        cost_before: start_cost,
+        cost_after: best_cost,
+        hpwl_before: start_hpwl,
+        hpwl_after: best_hpwl,
+        start_temperature: start_temp,
+        moves_used,
+        accepted,
+        rejected_by_rule,
+        rejected_by_cost,
+        stop,
+        trace,
+        moved,
+    })
 }
 
 #[cfg(test)]
