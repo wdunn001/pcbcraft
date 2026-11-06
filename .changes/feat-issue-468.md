@@ -1,8 +1,8 @@
 ---
 type: test
-area: tests
+area: engine
 issues: [468]
 user_visible: false
-docs: n/a: internal test isolation, no user-facing change
-summary: Frame budget tests measure work done instead of wall-clock time.
+docs: n/a: written by the worker harness, the issue text records the behaviour
+summary: Test isolation: no shared state, no machine-speed dependence.
 ---
