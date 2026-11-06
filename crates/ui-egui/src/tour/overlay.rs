@@ -17,9 +17,6 @@
 //! - crates/ui-egui/src/tour/anchor.rs
 //! - crates/ui-egui/src/tour/layout.rs
 //! - crates/ui-egui/src/tour/state.rs
-//!
-//! # Implementations
-//! - None (used by tour playback and tests)
 
 use eframe::egui;
 use std::collections::HashMap;
