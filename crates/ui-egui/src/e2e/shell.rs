@@ -940,6 +940,82 @@ fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<
     Ok(())
 }
 
+#[test]
+fn a_newcomer_widens_the_right_dock_and_the_canvas_buttons_move_with_it() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.select(Some(app.project.components[0].id));
+
+    let width = 1440.0_f32;
+    let height = 940.0_f32;
+    let ctx = egui::Context::default();
+    let rule = crate::aside::aside_widths(width, false);
+
+    let settle = |ctx: &egui::Context, app: &mut App| {
+        for _ in 0..5 {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        Vec2::new(width, height),
+                    )),
+                    ..Default::default()
+                },
+                |ui| app.show(ui),
+            );
+            output.textures_delta.clear();
+        }
+    };
+    // A dock width the person dragged to is saved with the panel, as the drag does.
+    let drag_to = |ctx: &egui::Context, dock: f32| {
+        let saved = egui::containers::panel::PanelState {
+            outer_rect: Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(dock, height)),
+        };
+        ctx.data_mut(|d| d.insert_persisted(egui::Id::new("inspector"), saved));
+    };
+    let fit = |app: &App, what: &str| {
+        app.icon_rects
+            .get("canvas-fit")
+            .copied()
+            .ok_or(format!("canvas-fit was not drawn at {what} dock width"))
+    };
+
+    settle(&ctx, &mut app);
+    let fit_default = fit(&app, "default")?;
+
+    let wide = (rule.right_default + 60.0).min(rule.right_max);
+    drag_to(&ctx, wide);
+    settle(&ctx, &mut app);
+    let fit_wide = fit(&app, "widened")?;
+    assert!(
+        fit_wide.max.x <= fit_default.max.x - 30.0,
+        "canvas-fit moved left when the right dock widened: default {fit_default:?} vs wide {fit_wide:?}"
+    );
+    assert!(
+        fit_wide.max.x <= width - wide + 4.0,
+        "canvas-fit stays inside the canvas at the widened dock: right edge {} <= {}",
+        fit_wide.max.x,
+        width - wide
+    );
+
+    drag_to(&ctx, rule.right_min);
+    settle(&ctx, &mut app);
+    let fit_min = fit(&app, "minimum")?;
+    assert!(
+        fit_min.max.x <= width - rule.right_min + 4.0,
+        "canvas-fit stays inside the canvas at the minimum dock: right edge {} <= {}",
+        fit_min.max.x,
+        width - rule.right_min
+    );
+    assert!(
+        fit_min.max.x > fit_wide.max.x,
+        "canvas-fit moved back right when the dock narrowed: wide {fit_wide:?} vs min {fit_min:?}"
+    );
+    Ok(())
+}
+
 fn key(key: egui::Key) -> egui::Event {
     egui::Event::Key {
         key,
