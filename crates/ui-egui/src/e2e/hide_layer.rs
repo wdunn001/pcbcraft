@@ -125,3 +125,75 @@ fn a_newcomer_hides_the_bottom_layer_with_a_part_on_it() -> Result<(), String> {
     assert_eq!(top.0, top.1, "Top is untouched");
     Ok(())
 }
+
+/// Hide a layer, click where its track sits, and verify nothing is selected.
+/// Show the layer again and verify the track is selectable.
+/// Box select skips hidden objects.
+#[test]
+fn a_newcomer_hidden_layers_are_not_pickable() -> Result<(), String> {
+    let (ctx, mut app) = layout_with_extras()?;
+
+    // Find the top-layer track we just created (at y=30.0)
+    let track = app
+        .project
+        .board
+        .tracks
+        .iter()
+        .find(|t| t.start.y == 30.0 && t.end.y == 30.0)
+        .ok_or("track created")?
+        .id;
+
+    // Pick at the middle of the track
+    let pick_pos = Point::new(20.0, 30.0);
+
+    // 1. Verify the track is pickable when layer is shown
+    let picked = app.pick_object(pick_pos, 10.0);
+    assert_eq!(picked, Some(track), "track is pickable when layer is shown");
+
+    // 2. Hide the layer via the layers tree
+    tap_id(&ctx, &mut app, "button:Hide Layer # \u{b7} Top")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+    // Verify the layer is hidden
+    let (_, shown) = app.layer_counts(Layer::Front);
+    assert_eq!(shown, LayerCount::default(), "layer is hidden");
+
+    // Verify nothing is pickable when layer is hidden
+    let picked = app.pick_object(pick_pos, 10.0);
+    assert_eq!(picked, None, "nothing is pickable when layer is hidden");
+
+    // 3. Show the layer again
+    tap_id(&ctx, &mut app, "button:Show Layer # \u{b7} Top")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+    // Verify the track is pickable again
+    let picked = app.pick_object(pick_pos, 10.0);
+    assert_eq!(
+        picked,
+        Some(track),
+        "track is pickable again when layer is shown"
+    );
+
+    // 4. Hide the tracks sub-layer
+    // The Tracks eye of the Top layer is stored as a hidden sub-layer; the tree stories press it.
+    let key = crate::layer_visibility::SubLayer::Tracks.storage_key(&app.layer_path(Layer::Front));
+    app.preferences.hidden_layers.push(key);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let (_, shown) = app.layer_counts(Layer::Front);
+    assert_eq!(shown.tracks, 0, "the Top tracks are hidden");
+
+    // Verify the track is not pickable
+    let picked = app.pick_object(pick_pos, 10.0);
+    assert!(
+        picked != Some(track),
+        "hidden track sub-layer is not pickable"
+    );
+
+    // 5. Box select skips hidden objects
+    let lo = pick_pos.offset(Point::new(-1.0, -1.0));
+    let hi = pick_pos.offset(Point::new(1.0, 1.0));
+    let boxed = app.ids_in_rect(lo, hi);
+    assert!(!boxed.contains(&track), "box select skips hidden track");
+
+    Ok(())
+}

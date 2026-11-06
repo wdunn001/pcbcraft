@@ -1356,7 +1356,7 @@ impl App {
     ///
     /// # Dependencies
     /// - `crates/ui-egui/src/board_visibility.rs` decides what each eye paints.
-    fn pcb_object_shown(&self, id: Id) -> bool {
+    pub(super) fn pcb_object_shown(&self, id: Id) -> bool {
         use crate::layer_visibility::SubLayer;
         let board = &self.project.board;
         if let Some(t) = board.tracks.iter().find(|t| t.id == id) {
