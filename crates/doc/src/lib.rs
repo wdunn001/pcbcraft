@@ -5782,27 +5782,22 @@ impl Project {
             .find(|s| s.id == id)
             .map(|s| s.name.as_str())
     }
-    /// Make the title an older file stored for a page the name of that page, when the page
-    /// still has its default name (`Main` unset, or `Page 3`) and no other page uses the
-    /// title. The stored title is dropped either way: the page name is the one title.
+    /// Drop the title an older file stored for a page: the page name is the one title, and a
+    /// page keeps the name it shows. A title becomes the name only when the page had none
+    /// (an empty first page name), and only when no other page uses it.
     pub fn adopt_legacy_page_titles(&mut self) {
         let settings = std::mem::take(&mut self.page_settings);
         for mut s in settings {
             let title = std::mem::take(&mut s.legacy_title);
             let title = title.trim();
-            let taken = self.root_sheet_name.as_deref() == Some(title)
-                || self.sheets.iter().any(|x| x.name == title);
-            if !title.is_empty() && title.len() <= 128 && !taken {
-                if s.sheet == 0 {
-                    if self.root_sheet_name.as_deref().is_none_or(str::is_empty) {
-                        self.root_sheet_name = Some(title.to_owned());
-                    }
-                } else if let Some(sheet) = self.sheets.iter_mut().find(|x| x.id == s.sheet) {
-                    let digits = sheet.name.strip_prefix("Page ").unwrap_or("");
-                    if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
-                        sheet.name = title.to_owned();
-                    }
-                }
+            let taken = self.sheets.iter().any(|x| x.name == title);
+            if s.sheet == 0
+                && !title.is_empty()
+                && title.len() <= 128
+                && !taken
+                && self.root_sheet_name.as_deref() == Some("")
+            {
+                self.root_sheet_name = Some(title.to_owned());
             }
             self.page_settings.push(s);
         }

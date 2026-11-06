@@ -204,8 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn an_old_page_title_becomes_the_default_page_name_and_is_dropped_otherwise()
-    -> Result<(), String> {
+    fn an_old_page_title_never_renames_a_page_that_has_a_name() -> Result<(), String> {
         let mut value = minimal();
         let object = value.as_object_mut().ok_or("an object")?;
         object.insert(
@@ -224,14 +223,27 @@ mod tests {
             ]),
         );
         let project = read_project(&value.to_string())?;
-        assert_eq!(project.page_name(0), Some("Sensor node"));
-        assert_eq!(project.page_name(7), Some("Power stage"));
+        assert_eq!(
+            project.page_name(0),
+            None,
+            "the first page keeps its default name"
+        );
+        assert_eq!(project.page_name(7), Some("Page 2"));
         assert_eq!(project.page_name(8), Some("Compute"));
         let text = serde_json::to_string(&project).map_err(|e| e.to_string())?;
         assert!(
             !text.contains("Ignored title"),
             "the old title is not written back"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn the_showcase_keeps_its_three_page_names() -> Result<(), String> {
+        let project = read_project(include_str!("../../../examples/showcase.pcbcraft"))?;
+        assert_eq!(project.page_name(0), Some("Power"));
+        let names: Vec<&str> = project.sheets.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["Compute", "Sensors and indicators"]);
         Ok(())
     }
 }
