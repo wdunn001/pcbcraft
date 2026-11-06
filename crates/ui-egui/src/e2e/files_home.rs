@@ -470,7 +470,7 @@ fn a_newcomer_with_no_recent_projects_is_offered_to_open_one() -> Result<(), Str
 #[test]
 fn a_newcomer_sees_a_spinner_while_a_big_project_opens() -> Result<(), String> {
     let recents = IsolatedRecents::new()?;
-    let (ctx, mut app, files) = files_tab(&recents)?;
+    let (ctx, mut app, _files) = files_tab(&recents)?;
 
     // Simulate opening a project by setting the loading step
     app.files_home.loading_step = Some(0);

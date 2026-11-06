@@ -3,7 +3,7 @@
 //! Shown while a project is opening. The view takes the current step index and
 //! total step count, and displays the appropriate status line from the catalog.
 
-use egui::{Align, Layout};
+use egui::{Align, Layout, RichText};
 use pcbcraft_text::t;
 
 use crate::fonts::Role;
