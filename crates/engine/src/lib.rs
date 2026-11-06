@@ -34011,6 +34011,80 @@ mod tests {
     }
 
     #[test]
+    fn a_newcomer_records_where_a_part_is_made_and_who_says_it_is_rohs_compliant()
+    -> Result<(), Error> {
+        let mut s = Session::default();
+        let u1 = s.execute(
+            "component.add",
+            json!({"kind":"ic","position":{"x":10.0,"y":10.0},"reference":"U1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.set_compliance",
+            json!({
+                "id": u1,
+                "compliance": {
+                    "country_of_origin": {"code": "DE", "basis": "manufactured", "as_of": "2026-04-12"},
+                    "role": "flight_controller",
+                    "declarations": [{
+                        "regime": "rohs",
+                        "status": "declared_compliant",
+                        "detail": "per manufacturer datasheet rev B",
+                        "source": {"kind": "manufacturer", "label": "Example GmbH", "url": "https://example.com/rohs"},
+                        "as_of": "2026-04-12"
+                    }]
+                }
+            }),
+            None,
+        )?;
+        let c = s.project.component(u1).ok_or_else(missing)?;
+        assert_eq!(
+            c.compliance
+                .country_of_origin
+                .as_ref()
+                .map(|o| o.code.as_str()),
+            Some("DE")
+        );
+        assert_eq!(
+            c.compliance.role,
+            Some(pcbcraft_doc::PartRole::FlightController)
+        );
+        let decl = c.compliance.declaration_for("rohs").ok_or_else(missing)?;
+        assert_eq!(
+            decl.status,
+            pcbcraft_doc::DeclarationStatus::DeclaredCompliant
+        );
+        assert_eq!(
+            decl.source.kind,
+            pcbcraft_doc::DeclarationSourceKind::Manufacturer
+        );
+        assert_eq!(decl.as_of, "2026-04-12");
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let back: pcbcraft_doc::Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded = back.component(u1).ok_or_else(missing)?;
+        assert_eq!(
+            loaded
+                .compliance
+                .country_of_origin
+                .as_ref()
+                .map(|o| o.code.as_str()),
+            Some("DE")
+        );
+        assert_eq!(
+            loaded
+                .compliance
+                .declaration_for("rohs")
+                .ok_or_else(missing)?
+                .status,
+            pcbcraft_doc::DeclarationStatus::DeclaredCompliant
+        );
+        Ok(())
+    }
+
+    #[test]
     fn compliance_settings_mute_and_check_round_trip() -> Result<(), Error> {
         let mut s = Session::default();
         let r1 = s.execute(
