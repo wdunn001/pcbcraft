@@ -395,6 +395,92 @@ fn a_newcomer_checks_which_pad_each_symbol_pin_reaches() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_manages_alternates_and_second_sources() -> Result<(), String> {
+    let (ctx, mut app) = library_open();
+    // A built-in part explains that substitutes belong to the project library.
+    tap_id(&ctx, &mut app, RESISTOR_CARD)?;
+    tap_id(&ctx, &mut app, "tab:Alternates")?;
+    assert!(
+        paints_text(
+            &ctx,
+            &mut app,
+            "Copy the part into the project library first."
+        )?,
+        "a built-in part says substitutes need a project part: {}",
+        painted(&ctx, &mut app)
+    );
+    // A project part shows both sections.
+    let mut sym = authoring::new_symbol();
+    sym.name = "Test part".into();
+    app.tool_call("library.symbol.upsert", json!({"definition": sym.clone()}));
+    app.refresh();
+    app.library_open_part(&ctx, &library_dock::Card::Project(Box::new(sym)));
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    tap_id(&ctx, &mut app, "tab:Alternates")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Second sources")?,
+        "the Alternates page shows the Second sources section: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Alternates")?,
+        "the Alternates page shows the Alternates section: {}",
+        painted(&ctx, &mut app)
+    );
+
+    // Add a second source
+    type_into(&ctx, &mut app, "textinput:Manufacturer", "Acme Corp")?;
+    type_into(&ctx, &mut app, "textinput:Part number", "ACME-1206-330")?;
+    tap_id(&ctx, &mut app, "button:Add source")?;
+    app.refresh();
+
+    // Verify the second source was added
+    let has_source = app
+        .project
+        .library
+        .part_substitutes
+        .get("Test part")
+        .map(|s| {
+            s.second_sources
+                .iter()
+                .any(|src| src.manufacturer == "Acme Corp" && src.mpn == "ACME-1206-330")
+        })
+        .unwrap_or(false);
+    assert!(
+        has_source,
+        "the second source was recorded: {} / {:?}",
+        app.message,
+        app.project
+            .library
+            .part_substitutes
+            .keys()
+            .collect::<Vec<_>>()
+    );
+
+    // Add an alternate: it names another symbol of the project library.
+    let mut other = authoring::new_symbol();
+    other.name = "Low cost resistor".into();
+    app.tool_call("library.symbol.upsert", json!({"definition": other}));
+    app.refresh();
+    type_into(&ctx, &mut app, "textinput:Symbol name", "Low cost resistor")?;
+    tap_id(&ctx, &mut app, "button:Add alternate")?;
+    app.refresh();
+
+    // Verify the alternate was added
+    let has_alt = app
+        .project
+        .library
+        .part_substitutes
+        .get("Test part")
+        .map(|s| s.alternates.iter().any(|a| a.symbol == "Low cost resistor"))
+        .unwrap_or(false);
+    assert!(has_alt, "the alternate was recorded");
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_saves_a_part_to_the_project_library() -> Result<(), String> {
     let (_ctx, mut app) = library_open();
     // A project part with a footprint, placed on the board with a manufacturer field.

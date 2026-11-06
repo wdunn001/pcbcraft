@@ -47,7 +47,7 @@ pub mod profiles;
 pub mod publication;
 pub mod recents;
 pub mod recovery;
-mod registry;
+pub mod registry;
 mod route;
 mod route_auto;
 pub mod scope;
@@ -15712,7 +15712,6 @@ fn run_command_part_9(
             let mut settings = p.page_settings_of(a.sheet);
             let mut scratch = String::new();
             let held = match a.field.as_str() {
-                "title" => &mut settings.title,
                 "revision" => &mut settings.revision,
                 "date" => &mut settings.date,
                 "company" => &mut settings.company,
@@ -15767,7 +15766,7 @@ fn run_command_part_9(
             };
             if matches!(
                 a.field.as_str(),
-                "title" | "revision" | "date" | "company" | "drawn_by" | "line_color"
+                "revision" | "date" | "company" | "drawn_by" | "line_color"
             ) {
                 if *held == value {
                     return Err(Error::Invalid(
@@ -27976,7 +27975,6 @@ mod tests {
             .as_u64()
             .ok_or(Error::Invalid("page id".into()))?;
         for (field, value) in [
-            ("title", "Sensor board"),
             ("revision", "B"),
             ("company", "Quasarke"),
             ("drawn_by", "William"),
@@ -27992,16 +27990,17 @@ mod tests {
             )?;
         }
         let settings = s.project.page_settings_of(page);
-        assert_eq!(settings.title, "Sensor board");
+        assert_eq!(settings.revision, "B");
         assert_eq!(settings.size, "A3", "sizes are stored upper case");
         assert!(settings.title_hidden);
         assert_eq!(settings.line_width, 0.5);
         assert_eq!(settings.line_color, "#ff8800");
         assert!(
-            s.project.page_settings_of(0).title.is_empty(),
+            s.project.page_settings_of(0).revision.is_empty(),
             "another page keeps its own settings"
         );
         for bad in [
+            json!({"sheet":page,"field":"revision","value":"B"}),
             json!({"sheet":page,"field":"title","value":"Sensor board"}),
             json!({"sheet":page,"field":"size","value":"B9"}),
             json!({"sheet":page,"field":"line_width","value":"0"}),

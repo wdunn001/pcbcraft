@@ -332,49 +332,13 @@ impl App {
             t!("props.page.caption")
         };
         self.properties_header(ui, &name, &caption);
-        let draft_id = egui::Id::new(("page-name-draft", id));
         let mut remove = false;
-        let mut rename: Option<String> = None;
         section(
             ui,
             ("page", id),
             &t!("props.page.general"),
             &t!("props.page.general.tip"),
             |ui| {
-                form_row(
-                    ui,
-                    FormWidth::Aside,
-                    &t!("props.page.name"),
-                    None,
-                    None,
-                    |ui| {
-                        if preview {
-                            let muted = theme::tokens(ui.ctx()).text;
-                            ui.label(fonts::text(fonts::Role::Body, &name).color(muted));
-                            return;
-                        }
-                        let mut text: String = ui
-                            .data(|d| d.get_temp(draft_id))
-                            .unwrap_or_else(|| name.clone());
-                        let response = ui
-                            .add(
-                                crate::targets::text_field(&mut text)
-                                    .id(draft_id.with("field"))
-                                    .desired_width(f32::INFINITY),
-                            )
-                            .on_hover_text(t!("props.page.name.tip"));
-                        crate::a11y::Named::named(response.clone(), &t!("props.page.name"));
-                        if response.lost_focus() {
-                            ui.data_mut(|d| d.remove::<String>(draft_id));
-                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                return;
-                            }
-                            rename = Some(text);
-                        } else {
-                            ui.data_mut(|d| d.insert_temp(draft_id, text));
-                        }
-                    },
-                );
                 form_row(
                     ui,
                     FormWidth::Aside,
@@ -405,8 +369,14 @@ impl App {
                 }
             },
         );
-        if let Some(text) = rename {
-            self.rename_page(id, &text);
+        if !preview {
+            section(
+                ui,
+                ("page-title-block", id),
+                &t!("props.sheet.title.section"),
+                &t!("props.sheet.title.section.tip"),
+                |ui| self.title_block_fields(ui, id),
+            );
         }
         if remove {
             self.remove_page(id);

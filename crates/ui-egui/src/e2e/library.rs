@@ -1427,3 +1427,57 @@ fn a_newcomer_views_and_edits_a_3d_model_for_a_part_in_the_library() -> Result<(
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_publishes_a_part_and_installs_it_from_a_registry_folder() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    let ctx = egui::Context::default();
+    let none = egui::Modifiers::NONE;
+    frame(&ctx, &mut app, vec![], none);
+    let registry = std::env::temp_dir().join(format!("pcbcraft-registry-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&registry);
+    std::fs::create_dir_all(&registry).map_err(|e| e.to_string())?;
+    let registry_path = registry.to_string_lossy().to_string();
+    let files = serde_json::json!({
+        "MyPart.kicad_sym": base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            "(kicad_symbol_lib version 20240108)(symbol MyPart (in_bom yes)(on_board yes))"
+        )
+    });
+    let published = app.tool_call(
+        "registry.publish",
+        serde_json::json!({
+            "registry": registry_path.clone(),
+            "id": "my-part",
+            "title": "My Part",
+            "version": "1.0.0",
+            "kind": "part",
+            "tags": ["custom"],
+            "files": files
+        }),
+    );
+    assert!(published, "publishing to a local registry folder works");
+    let dest = std::env::temp_dir().join(format!("pcbcraft-install-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dest);
+    let installed = app.tool_call(
+        "registry.install",
+        serde_json::json!({
+            "registry": registry_path.clone(),
+            "id": "my-part",
+            "version": "1.0.0",
+            "dest": dest.to_string_lossy().to_string()
+        }),
+    );
+    assert!(installed, "installing from a local registry folder works");
+    let installed_file = dest.join("MyPart.kicad_sym");
+    assert!(
+        installed_file.is_file(),
+        "the installed file exists on disk"
+    );
+    let _ = std::fs::remove_dir_all(&registry);
+    let _ = std::fs::remove_dir_all(&dest);
+    Ok(())
+}

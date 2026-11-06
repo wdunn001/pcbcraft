@@ -207,8 +207,6 @@ pub(crate) enum Action {
     SelectSheetRow { page: Id, row: &'static str },
     /// Select every object of a fixed row of a page.
     SelectAllInRow { page: Id, row: &'static str },
-    /// Switch a page's title block on or off.
-    TitleShown { page: Id, on: bool },
     /// Place a power symbol on a page, tied to the first power net.
     AddPowerPort(Id),
 }
@@ -1269,17 +1267,21 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
     out
 }
 
-/// The fixed rows of page `id`: Symbols, Power symbols, Drawing and Title
-/// block, each with its count. Rows that hold nothing are left out unless the
+/// The label kinds a page lists under Net labels. Power symbols, buses and junctions have rows or
+/// marks of their own.
+const NET_LABEL_KINDS: [&str; 3] = ["label", "global", "hierarchical"];
+
+/// The fixed rows of page `id`: Symbols, Power symbols, Net labels, Buses and Drawing, each with
+/// its count. Rows that hold nothing are left out unless the
 /// tree shows empty ones.
 ///
 /// # Rules
-/// - The set is fixed: a page always has these four categories, so none can be
-///   removed. Title block counts 1 while the page shows it and 0 once switched off.
+/// - The set is fixed: a page always has these categories, so none can be
+///   removed. The title block is a section of the page Properties, not a row.
 /// - Keys are the row's own segment (`layer:symbols`); the caller adds the path.
 ///
 /// # Dependencies
-/// - `crates/doc/src/lib.rs` (`Project::page_settings_of`, `Project::schematic_label_page`).
+/// - `crates/doc/src/lib.rs` (`Project::schematic_label_page`).
 ///
 /// # Do not
 /// - Build a lock key from the segment; use [`page_row_name`].
@@ -1292,6 +1294,15 @@ fn sheet_rows(env: &Env, id: Id) -> Vec<Row> {
         .iter()
         .filter(|l| l.kind == "power" && project.schematic_label_page(l) == id)
         .count();
+    let page_labels = |kinds: &[&str]| {
+        project
+            .labels
+            .iter()
+            .filter(|l| kinds.contains(&l.kind.as_str()) && project.schematic_label_page(l) == id)
+            .count()
+    };
+    let net_labels = page_labels(&NET_LABEL_KINDS);
+    let buses = page_labels(&["bus"]);
     let drawing = if id == 0 {
         project
             .graphics
@@ -1301,18 +1312,24 @@ fn sheet_rows(env: &Env, id: Id) -> Vec<Row> {
     } else {
         0
     };
-    let title = usize::from(!project.page_settings_of(id).title_hidden);
-    let all: [(&'static str, String, Color32, usize, bool); 4] = [
+    let all: [(&'static str, String, Color32, usize, bool); 5] = [
         ("symbols", t!("tree.sch.symbols"), c.warn, symbols, true),
         (
             "power",
             t!("tree.sch.power_ports"),
             c.canvas.wire,
             power,
-            false,
+            true,
         ),
+        (
+            "labels",
+            t!("tree.sch.labels"),
+            c.canvas.wire,
+            net_labels,
+            true,
+        ),
+        ("buses", t!("tree.sch.buses"), c.canvas.wire, buses, true),
         ("drawing", t!("tree.sch.drawing"), c.link, drawing, false),
-        ("title", t!("tree.sch.title_block"), c.ink, title, false),
     ];
     all.into_iter()
         .filter(|(_, _, _, n, _)| *n > 0 || env.show_empty)
@@ -1391,19 +1408,25 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
                 out.push(component_row(key, comp));
             }
         }
-        [sec, "layer:power"] if sec.starts_with("sec:sheet:") => {
+        [
+            sec,
+            layer @ ("layer:power" | "layer:labels" | "layer:buses"),
+        ] if sec.starts_with("sec:sheet:") => {
             let id: Id = sec[10..].parse().unwrap_or(0);
-            for l in project
-                .labels
-                .iter()
-                .filter(|l| l.kind == "power" && project.schematic_label_page(l) == id)
-            {
-                let mut r = row(
-                    key,
-                    &format!("label:{}", l.id),
-                    RowKind::Label,
-                    project.net_name(l.net).to_owned(),
-                );
+            let kinds: &[&str] = match *layer {
+                "layer:power" => &["power"],
+                "layer:buses" => &["bus"],
+                _ => &NET_LABEL_KINDS,
+            };
+            for l in project.labels.iter().filter(|l| {
+                kinds.contains(&l.kind.as_str()) && project.schematic_label_page(l) == id
+            }) {
+                let text = if l.kind == "bus" {
+                    l.text.clone()
+                } else {
+                    project.net_name(l.net).to_owned()
+                };
+                let mut r = row(key, &format!("label:{}", l.id), RowKind::Label, text);
                 r.sub = format!("{:.1}, {:.1}", l.position.x, l.position.y);
                 r.select = Some(l.id);
                 out.push(r);
@@ -1752,15 +1775,19 @@ pub(crate) fn page_row_name(page: Id, row: &str) -> String {
 }
 
 /// The page and sheet row a schematic object belongs to: symbols, power
-/// ports (labels of kind power) and drawing graphics. None for anything else.
+/// power ports, net labels, buses and drawing graphics. None for anything else.
 pub(crate) fn sheet_row_of(project: &Project, id: Id) -> Option<(Id, &'static str)> {
     if let Some(c) = project.component(id) {
         return Some((c.sheet, "symbols"));
     }
-    if let Some(l) = project.labels.iter().find(|l| l.id == id)
-        && l.kind == "power"
-    {
-        return Some((project.schematic_label_page(l), "power"));
+    if let Some(l) = project.labels.iter().find(|l| l.id == id) {
+        let row = match l.kind.as_str() {
+            "power" => "power",
+            "bus" => "buses",
+            "label" | "global" | "hierarchical" => "labels",
+            _ => return None,
+        };
+        return Some((project.schematic_label_page(l), row));
     }
     project
         .graphics
@@ -3049,7 +3076,6 @@ enum RowAct {
     PageRemove,
     SelectAll,
     AddPowerPort,
-    TitleToggle,
     /// Remove on a fixed row of a page; the menu always shows it disabled.
     Remove,
 }
@@ -3216,23 +3242,21 @@ fn row_menu_entries(
             .enabled_if(named, why),
         );
     }
-    if let Some((page, row)) = r.sheet_row {
+    if let Some((_, row)) = r.sheet_row {
         // A fixed row of a page: Select all, the row's own action, and a
         // Remove that is always disabled (these are categories, not user layers).
-        if row != "title" {
-            object.push(
-                row_item(
-                    RowAct::SelectAll,
-                    t!("tree.menu.select_all"),
-                    t!("tree.menu.select_all.tip"),
-                    glyph::SELECT,
-                )
-                .enabled_if(!locked, t!("tree.menu.select_all.locked"))
-                .into(),
-            );
-        }
-        match row {
-            "power" => edit.push(
+        object.push(
+            row_item(
+                RowAct::SelectAll,
+                t!("tree.menu.select_all"),
+                t!("tree.menu.select_all.tip"),
+                glyph::SELECT,
+            )
+            .enabled_if(!locked, t!("tree.menu.select_all.locked"))
+            .into(),
+        );
+        if row == "power" {
+            edit.push(
                 row_item(
                     RowAct::AddPowerPort,
                     t!("tree.menu.add_power_port"),
@@ -3240,17 +3264,7 @@ fn row_menu_entries(
                     kit::PLUS,
                 )
                 .into(),
-            ),
-            "title" => {
-                let shown = !env.project.page_settings_of(page).title_hidden;
-                let (label, tip) = if shown {
-                    (t!("tree.menu.title_off"), t!("tree.menu.title_off.tip"))
-                } else {
-                    (t!("tree.menu.title_on"), t!("tree.menu.title_on.tip"))
-                };
-                edit.push(row_item(RowAct::TitleToggle, label, tip, glyph::PROPERTIES).into());
-            }
-            _ => {}
+            );
         }
         destructive.push(
             row_item(
@@ -3259,14 +3273,7 @@ fn row_menu_entries(
                 String::new(),
                 glyph::TRASH,
             )
-            .enabled_if(
-                false,
-                if row == "title" {
-                    t!("tree.menu.remove_fixed.title.tip")
-                } else {
-                    t!("tree.menu.remove_fixed.tip")
-                },
-            ),
+            .enabled_if(false, t!("tree.menu.remove_fixed.tip")),
         );
     }
     if let Some(ctl) = &r.controls {
@@ -3619,12 +3626,6 @@ fn run_row_act(
                 actions.push(Action::AddPowerPort(page));
             }
         }
-        RowAct::TitleToggle => {
-            if let Some((page, _)) = r.sheet_row {
-                let shown = !env.project.page_settings_of(page).title_hidden;
-                actions.push(Action::TitleShown { page, on: !shown });
-            }
-        }
         RowAct::Remove => {}
         RowAct::Properties => match (r.select, &r.stack) {
             (None, None) if r.sheet_row.is_some() => {
@@ -3715,8 +3716,9 @@ pub(crate) fn explain(tab: TreeTab, r: &Row) -> String {
     match (head, last) {
         (_, "layer:symbols") => t!("tree.explain.symbols"),
         (_, "layer:power") => t!("tree.explain.power"),
+        (_, "layer:labels") => t!("tree.explain.labels"),
+        (_, "layer:buses") => t!("tree.explain.buses"),
         (_, "layer:drawing") => t!("tree.explain.drawing"),
-        (_, "layer:title") => t!("tree.explain.title"),
         (_, "root") => t!("tree.explain.board"),
         ("side" | "inner", _) => t!("tree.explain.copper_layer"),
         ("diel", _) => t!("tree.explain.dielectric"),
@@ -4118,9 +4120,6 @@ impl crate::App {
                 }
                 Action::SelectSheetRow { page, row } => self.select_sheet_row(page, row),
                 Action::SelectAllInRow { page, row } => self.select_all_in_row(page, row),
-                Action::TitleShown { page, on } => {
-                    self.set_page_setting(page, "title_shown", if on { "true" } else { "false" });
-                }
                 Action::AddPowerPort(page) => self.add_power_port(page),
                 Action::NewArtLayer => {
                     let name = t!(
@@ -4627,15 +4626,15 @@ mod tests {
             .collect();
         assert_eq!(
             listed,
-            vec![t!("tree.sch.title_block")],
-            "a page with nothing on it lists only its title block"
+            Vec::<String>::new(),
+            "a page with nothing on it lists no rows"
         );
         env.show_empty = true;
         let shown: Vec<String> = children(&env, &page)
             .iter()
             .map(|r| r.label.clone())
             .collect();
-        assert_eq!(shown.len(), 4, "Show empty lists all four: {shown:?}");
+        assert_eq!(shown.len(), 5, "Show empty lists all five: {shown:?}");
     }
 
     #[test]
