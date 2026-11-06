@@ -542,5 +542,73 @@ impl App {
             },
         );
         viewer.show(ui, &t);
+        self.library_manufacturer_page(ui, f);
+    }
+}
+
+impl App {
+    /// Manufacturer page and import for user-downloaded Samtec files.
+    pub(super) fn library_manufacturer_page(&mut self, ui: &mut egui::Ui, f: &PartFacts) {
+        if f.manufacturer != "Samtec" || f.mpn.is_empty() {
+            return;
+        }
+        let t = theme::tokens(ui.ctx());
+        let url = match pcbcraft_library::samtec::manufacturer_page_url(&f.mpn) {
+            Ok(u) => u,
+            Err(_) => return,
+        };
+        card(
+            ui,
+            &t!("libws.manufacturer.title"),
+            None,
+            |_| {},
+            |ui| {
+                ui.label(fonts::mono(&url).color(t.text));
+                if secondary_button(
+                    ui,
+                    None,
+                    &t!("library.dock.manufacturer_page"),
+                    &t!("library.dock.manufacturer_page.tip"),
+                    Size::Normal,
+                    true,
+                )
+                .clicked()
+                {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                }
+                ui.separator();
+                ui.label(
+                    fonts::text(fonts::Role::Body, t!("libws.manufacturer.drop_tip"))
+                        .color(t.muted),
+                );
+                ui.horizontal(|ui| {
+                    ui.add(
+                        crate::targets::text_field(&mut self.libws.manufacturer_path)
+                            .hint_text(t!("libws.manufacturer.path_hint"))
+                            .desired_width(300.0),
+                    )
+                    .named(&t!("libws.manufacturer.path_hint"))
+                    .on_hover_text(t!("libws.manufacturer.path_tip"));
+                    let path = self.libws.manufacturer_path.trim().to_owned();
+                    if secondary_button(
+                        ui,
+                        None,
+                        &t!("libws.manufacturer.import"),
+                        &t!("libws.manufacturer.import.tip"),
+                        Size::Normal,
+                        !path.is_empty(),
+                    )
+                    .clicked()
+                    {
+                        let params = json!({
+                            "manufacturer": "samtec",
+                            "mpn": f.mpn,
+                            "path": path
+                        });
+                        self.run("library.import_manufacturer_file", params);
+                    }
+                });
+            },
+        );
     }
 }

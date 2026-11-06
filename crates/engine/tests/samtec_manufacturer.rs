@@ -82,3 +82,26 @@ fn import_manufacturer_step_attaches_model_path() -> Result<(), Box<dyn std::err
     );
     Ok(())
 }
+
+#[test]
+fn import_manufacturer_file_refuses_a_missing_file_in_plain_words()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("absent.kicad_mod");
+    let mut s = Session::default();
+    let err = s
+        .execute(
+            "library.import_manufacturer_file",
+            json!({
+                "manufacturer":"samtec",
+                "mpn":"TSW-103-07-G-S",
+                "path": path.to_str().ok_or("path is not text")?,
+            }),
+            None,
+        )
+        .err()
+        .ok_or("a missing file must be refused")?;
+    assert!(err.to_string().contains("no downloaded file was found"));
+    assert!(s.project.library.notices.is_empty());
+    Ok(())
+}
