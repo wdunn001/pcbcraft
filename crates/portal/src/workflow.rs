@@ -165,9 +165,35 @@ pub fn advance_takedown(
 /// # Do not
 /// - Mutate the queue or tier in place; return new values.
 pub struct ModerationOutcome {
+    /// The state of the upload after the decision.
     pub queue: UploadQueueState,
+    /// The publisher's trust tier after the decision.
     pub publisher_tier: TrustTier,
+    /// The row to write to the decision log.
     pub log: DecisionLogRow,
+}
+
+/// What a moderator supplies with a decision.
+///
+/// # Rules
+/// - `moderator_account_id` and `log_id` are 1..=64 bytes.
+/// - `note` is at most 2000 bytes and is required for a request for changes.
+/// - `now` is Unix seconds from the caller.
+///
+/// # Dependencies
+/// - crates/portal/src/schema.rs
+///
+/// # Do not
+/// - Read the clock here; the caller passes `now`.
+pub struct ModerationDecision<'a> {
+    /// The moderator's account id.
+    pub moderator_account_id: &'a str,
+    /// The moderator's note.
+    pub note: &'a str,
+    /// The decision time, in Unix seconds.
+    pub now: u64,
+    /// The id of the decision log row to write.
+    pub log_id: &'a str,
 }
 
 /// Apply a moderator's decision to an upload in the queue and return the
@@ -196,11 +222,14 @@ pub fn apply_moderation(
     current: UploadQueueState,
     tier: TrustTier,
     action: ModerationAction,
-    moderator_account_id: &str,
-    note: &str,
-    now: u64,
-    log_id: &str,
+    decision: ModerationDecision<'_>,
 ) -> Result<ModerationOutcome, PortalError> {
+    let ModerationDecision {
+        moderator_account_id,
+        note,
+        now,
+        log_id,
+    } = decision;
     if upload_id.is_empty() || upload_id.len() > 64 {
         return Err(PortalError::Invalid(
             "upload_id must be 1..=64 bytes".into(),
@@ -321,10 +350,12 @@ mod tests {
             UploadQueueState::PendingReview,
             TrustTier::New,
             ModerationAction::ApproveAndTrust,
-            "mod-1",
-            "looks good",
-            1000,
-            "log-1",
+            ModerationDecision {
+                moderator_account_id: "mod-1",
+                note: "looks good",
+                now: 1000,
+                log_id: "log-1",
+            },
         )?;
         assert_eq!(outcome.queue, UploadQueueState::Published);
         assert_eq!(outcome.publisher_tier, TrustTier::Standard);
@@ -348,10 +379,12 @@ mod tests {
             UploadQueueState::Published,
             TrustTier::New,
             ModerationAction::Approve,
-            "mod-1",
-            "again",
-            1000,
-            "log-1",
+            ModerationDecision {
+                moderator_account_id: "mod-1",
+                note: "again",
+                now: 1000,
+                log_id: "log-1",
+            },
         );
         assert!(result.is_err());
     }
@@ -363,10 +396,12 @@ mod tests {
             UploadQueueState::PendingReview,
             TrustTier::New,
             ModerationAction::RequestChanges,
-            "mod-1",
-            "",
-            1000,
-            "log-1",
+            ModerationDecision {
+                moderator_account_id: "mod-1",
+                note: "",
+                now: 1000,
+                log_id: "log-1",
+            },
         );
         assert!(result.is_err());
     }
@@ -378,10 +413,12 @@ mod tests {
             UploadQueueState::PendingReview,
             TrustTier::Trusted,
             ModerationAction::Reject,
-            "mod-1",
-            "not ready",
-            1000,
-            "log-1",
+            ModerationDecision {
+                moderator_account_id: "mod-1",
+                note: "not ready",
+                now: 1000,
+                log_id: "log-1",
+            },
         )?;
         assert_eq!(outcome.queue, UploadQueueState::Rejected);
         assert_eq!(outcome.publisher_tier, TrustTier::Trusted);
