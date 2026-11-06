@@ -3080,6 +3080,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(part_save::commands())
         .chain(publication::commands())
         .chain(teardrop::commands())
+        .chain(legalize::commands())
         .chain(route_auto::commands())
         .chain(pads::commands())
         .chain(calc::commands())
@@ -10728,6 +10729,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = calc::run(p, command, params) {
+        return result;
+    }
+    if let Some(result) = legalize::run(p, next, command, params) {
         return result;
     }
     if let Some(result) = teardrop::run(p, next, command, params) {
