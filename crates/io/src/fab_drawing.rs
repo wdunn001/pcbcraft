@@ -785,4 +785,49 @@ mod tests {
         assert!(text.contains("Revision block"), "revision block stays");
         Ok(())
     }
+    #[test]
+    fn fab_drawing_svg_contains_dimensions_and_drill_table() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.width = 100.0;
+        project.board.height = 50.0;
+        project.board.layer_records.push(LayerRecord {
+            name: "L1".into(),
+            kind: "copper".into(),
+            thickness: 0.035,
+            ..Default::default()
+        });
+        project.board.vias.push(Via {
+            id: 3,
+            net: 1,
+            position: Point::new(10.0, 10.0),
+            diameter: 0.8,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
+        });
+        project.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.validate()?;
+        let svg = fab_drawing_svg(&project)?;
+        assert!(
+            svg.contains("Width 100.000 mm"),
+            "SVG must contain board width"
+        );
+        assert!(
+            svg.contains("Height 50.000 mm"),
+            "SVG must contain board height"
+        );
+        assert!(
+            svg.contains("T1,0.300"),
+            "SVG must contain drill table row per tool"
+        );
+        Ok(())
+    }
 }
