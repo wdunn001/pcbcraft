@@ -1,8 +1,12 @@
 //! Legal transitions for reports and takedowns. Pure functions; the caller
 //! provides time as Unix seconds. No side effects.
 
+use crate::api::UploadQueueState;
 use crate::error::PortalError;
-use crate::schema::{ReportState, TakedownRow, TakedownState};
+use crate::schema::{
+    DecisionLogRow, DecisionSubject, ModerationAction, ReportState, TakedownRow, TakedownState,
+    TrustTier,
+};
 
 /// An event that moves a report between states.
 ///
@@ -147,6 +151,116 @@ pub fn advance_takedown(
     Ok(updated)
 }
 
+/// Outcome of applying a moderation decision to an upload in the queue.
+///
+/// # Rules
+/// - queue reflects the upload state after the decision.
+/// - publisher_tier reflects any tier change from approve-and-trust.
+/// - log is the decision row to write to the decision log.
+///
+/// # Dependencies
+/// - crates/portal/src/api.rs
+/// - crates/portal/src/schema.rs
+///
+/// # Do not
+/// - Mutate the queue or tier in place; return new values.
+pub struct ModerationOutcome {
+    pub queue: UploadQueueState,
+    pub publisher_tier: TrustTier,
+    pub log: DecisionLogRow,
+}
+
+/// Apply a moderator's decision to an upload in the queue and return the
+/// updated queue state, publisher tier and the decision log row.
+///
+/// # Rules
+/// - Only a PendingReview upload may be decided; otherwise Conflict.
+/// - Approve moves to Published and leaves the tier unchanged.
+/// - ApproveAndTrust moves to Published and raises New to Standard or
+///   Standard to Trusted (Trusted is a ceiling).
+/// - Reject moves to Rejected and leaves the tier unchanged.
+/// - RequestChanges leaves the upload in PendingReview and requires a note.
+/// - The note must be at most 2000 bytes.
+/// - upload_id, moderator_account_id and log_id must be 1..=64 bytes.
+/// - The log row always records the action, upload subject, note and now.
+///
+/// # Dependencies
+/// - crates/portal/src/api.rs
+/// - crates/portal/src/schema.rs
+/// - crates/portal/src/error.rs
+///
+/// # Do not
+/// - Read the clock; the caller passes now as Unix seconds.
+pub fn apply_moderation(
+    upload_id: &str,
+    current: UploadQueueState,
+    tier: TrustTier,
+    action: ModerationAction,
+    moderator_account_id: &str,
+    note: &str,
+    now: u64,
+    log_id: &str,
+) -> Result<ModerationOutcome, PortalError> {
+    if upload_id.is_empty() || upload_id.len() > 64 {
+        return Err(PortalError::Invalid(
+            "upload_id must be 1..=64 bytes".into(),
+        ));
+    }
+    if moderator_account_id.is_empty() || moderator_account_id.len() > 64 {
+        return Err(PortalError::Invalid(
+            "moderator_account_id must be 1..=64 bytes".into(),
+        ));
+    }
+    if log_id.is_empty() || log_id.len() > 64 {
+        return Err(PortalError::Invalid("log_id must be 1..=64 bytes".into()));
+    }
+    if note.len() > 2000 {
+        return Err(PortalError::Invalid(
+            "note must be at most 2000 bytes".into(),
+        ));
+    }
+    if current != UploadQueueState::PendingReview {
+        return Err(PortalError::Conflict(
+            "only a pending review upload may be decided".into(),
+        ));
+    }
+    let (new_queue, new_tier) = match action {
+        ModerationAction::Approve => (UploadQueueState::Published, tier),
+        ModerationAction::ApproveAndTrust => {
+            let promoted = match tier {
+                TrustTier::New => TrustTier::Standard,
+                TrustTier::Standard => TrustTier::Trusted,
+                TrustTier::Trusted => TrustTier::Trusted,
+            };
+            (UploadQueueState::Published, promoted)
+        }
+        ModerationAction::Reject => (UploadQueueState::Rejected, tier),
+        ModerationAction::RequestChanges => {
+            if note.is_empty() {
+                return Err(PortalError::Invalid(
+                    "request changes requires a note".into(),
+                ));
+            }
+            (UploadQueueState::PendingReview, tier)
+        }
+    };
+    let log = DecisionLogRow {
+        id: log_id.to_string(),
+        subject: DecisionSubject::Upload {
+            upload_id: upload_id.to_string(),
+        },
+        action,
+        moderator_account_id: moderator_account_id.to_string(),
+        note: note.to_string(),
+        created_at: now,
+    };
+    Ok(ModerationOutcome {
+        queue: new_queue,
+        publisher_tier: new_tier,
+        log,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +312,79 @@ mod tests {
     fn a_takedown_cannot_skip_removal() {
         let row = new_row("t2");
         assert!(advance_takedown(&row, TakedownEvent::CounterNotice, 1000, 864000).is_err());
+    }
+
+    #[test]
+    fn approve_and_trust_raises_the_tier_and_logs_it() -> Result<(), PortalError> {
+        let outcome = apply_moderation(
+            "upload-1",
+            UploadQueueState::PendingReview,
+            TrustTier::New,
+            ModerationAction::ApproveAndTrust,
+            "mod-1",
+            "looks good",
+            1000,
+            "log-1",
+        )?;
+        assert_eq!(outcome.queue, UploadQueueState::Published);
+        assert_eq!(outcome.publisher_tier, TrustTier::Standard);
+        assert_eq!(outcome.log.action, ModerationAction::ApproveAndTrust);
+        assert_eq!(outcome.log.created_at, 1000);
+        match &outcome.log.subject {
+            DecisionSubject::Upload { upload_id } => {
+                assert_eq!(upload_id, "upload-1");
+            }
+            _ => {
+                return Err(PortalError::Invalid("wrong subject".into()));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_published_upload_cannot_be_decided_again() {
+        let result = apply_moderation(
+            "upload-1",
+            UploadQueueState::Published,
+            TrustTier::New,
+            ModerationAction::Approve,
+            "mod-1",
+            "again",
+            1000,
+            "log-1",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn request_changes_needs_a_note() {
+        let result = apply_moderation(
+            "upload-1",
+            UploadQueueState::PendingReview,
+            TrustTier::New,
+            ModerationAction::RequestChanges,
+            "mod-1",
+            "",
+            1000,
+            "log-1",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn reject_keeps_the_tier() -> Result<(), PortalError> {
+        let outcome = apply_moderation(
+            "upload-1",
+            UploadQueueState::PendingReview,
+            TrustTier::Trusted,
+            ModerationAction::Reject,
+            "mod-1",
+            "not ready",
+            1000,
+            "log-1",
+        )?;
+        assert_eq!(outcome.queue, UploadQueueState::Rejected);
+        assert_eq!(outcome.publisher_tier, TrustTier::Trusted);
+        Ok(())
     }
 }
