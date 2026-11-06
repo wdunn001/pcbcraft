@@ -138,7 +138,7 @@ pub(crate) fn count_colour_only_status(out: &egui::FullOutput, _app: &mut App) -
         if matches!(
             node.role(),
             egui::accesskit::Role::Status | egui::accesskit::Role::Image
-        ) && node.label().is_none_or(|l| l.is_empty())
+        ) && node.label().unwrap_or_default().is_empty()
         {
             count += 1;
         }
@@ -168,9 +168,9 @@ fn check_focus_order(ctx: &egui::Context, app: &mut App, node_count: usize) -> u
         if let Some(prev) = last_rect {
             let center = resp.rect.center();
             let prev_center = prev.center();
-            let up = center.y < prev_center.y - 10.0;
-            let left = (center.y - prev_center.y).abs() < 10.0 && center.x < prev_center.x - 10.0;
-            if up || left {
+            if center.y < prev_center.y - 10.0
+                || ((center.y - prev_center.y).abs() < 10.0 && center.x < prev_center.x - 10.0)
+            {
                 violations += 1;
             }
         }
