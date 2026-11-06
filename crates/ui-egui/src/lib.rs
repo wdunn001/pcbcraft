@@ -7820,6 +7820,18 @@ impl App {
             self.select(Some(via));
         }
         if self.frames == 3
+            && let Some(old) = self.capture_select.as_deref().and_then(|s| match s {
+                "power-port" => Some(false),
+                "power-port-old" => Some(true),
+                _ => None,
+            })
+        {
+            // `--select power-port` drags the VBUS port away; `power-port-old` does it
+            // the way the label-only move did, so the two images can be compared.
+            self.capture_select = None;
+            self.capture_power_port(ctx, old);
+        }
+        if self.frames == 3
             && let Some(row) = self
                 .capture_select
                 .as_deref()

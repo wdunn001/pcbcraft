@@ -1485,27 +1485,33 @@ impl App {
             }
         }
     }
+    /// The pin nearest to `pos` within the pick reach, if any.
     pub(crate) fn pick_pin(&self, pos: Point, zoom: f32) -> Option<PinRef> {
         let page = self.schematic_page();
         let sheet = self.sheet_view();
+        let mut best: Option<(f64, PinRef)> = None;
         for c in sheet
             .components
             .iter()
             .filter(|c| crate::page_scope::in_view(&sheet, page, c.sheet))
         {
             for pin in &c.pins {
-                if c.pin_position(&pin.number)
-                    .is_some_and(|p| p.distance(pos) * (zoom as f64) < 12.0)
-                {
-                    return Some(PinRef {
-                        component: c.id,
-                        pin: pin.number.clone(),
-                        unit: None,
-                    });
+                let Some(d) = c.pin_position(&pin.number).map(|p| p.distance(pos)) else {
+                    continue;
+                };
+                if d * (zoom as f64) < 12.0 && best.as_ref().is_none_or(|(b, _)| d < *b) {
+                    best = Some((
+                        d,
+                        PinRef {
+                            component: c.id,
+                            pin: pin.number.clone(),
+                            unit: None,
+                        },
+                    ));
                 }
             }
         }
-        None
+        best.map(|(_, pin)| pin)
     }
     /// When both clicked pads sit on the same net of a declared differential
     /// pair, the pad each of those footprints has on the partner net, so one

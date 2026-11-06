@@ -68,6 +68,7 @@ mod schematic_labels;
 mod schematic_new_page;
 mod schematic_page_scope;
 mod schematic_pages;
+mod schematic_power_port_move;
 mod selection;
 mod settings;
 mod settings_freeze;

@@ -627,6 +627,7 @@ impl App {
                         p,
                         !live.contains(ModAction::DragNoSnap),
                     );
+                    let to = self.drop_on_pin(*id, to, zoom);
                     self.label_drag_end(*id, press.origin, to);
                 }
             }
@@ -749,8 +750,17 @@ impl App {
                 }
             }
             (ClickAction::MovePart, Hit::NetLabel(id)) => {
-                if let Some(l) = visible.labels.iter_mut().find(|l| l.id == *id) {
-                    l.position = Self::label_drop_point(press.origin, press.from, press.to, true);
+                let to = Self::label_drop_point(press.origin, press.from, press.to, true);
+                let to = self.drop_on_pin(*id, to, self.schematic.zoom);
+                let power = visible
+                    .labels
+                    .iter()
+                    .any(|l| l.id == *id && l.kind == "power");
+                if power {
+                    // A refused drop leaves the port where it stands in the preview.
+                    let _ = visible.move_power_port(*id, to);
+                } else if let Some(l) = visible.labels.iter_mut().find(|l| l.id == *id) {
+                    l.position = to;
                 }
             }
             _ => {}
