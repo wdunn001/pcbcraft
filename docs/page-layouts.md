@@ -34,6 +34,8 @@ Left aside Layers | Library. The Layers tree is the centrepiece:
 - Copper (Top and Bottom copper with pads, tracks, zones), Silkscreen, Mask and paste, Board (outline locked, mounting holes), Courtyards, User layers
 - Parts (each expands to pads) and Nets (colour, pad count; a net expands to its wires, tracks and vias)
 - every row: chevron, swatch or icon, name, count, lock, eye; hidden and empty rows dim; every row has a tooltip that explains what it is
+- a hidden row paints nothing and cannot be hovered, clicked, boxed, snapped to or routed from: the Board edge eye owns the board fill, outline, cut-outs, datums, dimension lines and outline handles; the Drills and vias eye owns mounting holes, slots and vias; a Top or Bottom eye owns its parts, pads, tracks and zones; each drawn layer has its own eye. Show all brings every eye back and Hide others keeps only the picked row. Picking a row's child in the tree still selects it so it can be found and shown again
+- on the Schematic tab the Layers aside has the filter box and the Show empty toggle only; Show all, Hide others and New layer belong to the Layout tab, and pages are added from the page strip above the canvas
 
 Selecting a row sets what the tools draw on. Hover previews a layer; a click pins it until you click again, press Esc or Reset. Page Up and Page Down step through sublayers. The full rules are in design-system.md, section 11.
 

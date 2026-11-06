@@ -184,7 +184,7 @@ impl App {
         camera: Camera,
     ) {
         // The handles are board geometry. The sheet shares this canvas, so they must not show there.
-        if self.tab != Tab::Pcb {
+        if self.tab != Tab::Pcb || !self.board_edge_shown() {
             return;
         }
         let (points, arcs) = self.editing_shape();
@@ -307,7 +307,7 @@ impl App {
     }
 
     pub(crate) fn try_pick_outline(&mut self, pos: Point, zoom: f32) -> bool {
-        if self.tab != Tab::Pcb || !matches!(self.tool, Tool::Select) {
+        if self.tab != Tab::Pcb || !matches!(self.tool, Tool::Select) || !self.board_edge_shown() {
             return false;
         }
         let (points, arcs) = self.editing_shape();

@@ -1334,6 +1334,24 @@ impl App {
         if let Some(v) = board.vias.iter().find(|v| v.id == id) {
             return self.via_shown(v);
         }
+        if board.cutouts.iter().any(|c| c.id == id) {
+            return self.board_edge_shown();
+        }
+        if board.holes.iter().any(|h| h.id == id) {
+            return self.drills_shown();
+        }
+        if let Some(t) = board.texts.iter().find(|t| t.id == id) {
+            return self.layer_part_shown(t.layer, SubLayer::Text)
+                && self.layer_part_shown(t.layer, SubLayer::Silk);
+        }
+        if let Some(g) = self
+            .project
+            .graphics
+            .iter()
+            .find(|g| g.id == id && g.layer == "board")
+        {
+            return self.graphic_shown(g);
+        }
         true
     }
     /// True when the sheet row an object belongs to is switched off with the eye,
@@ -1341,6 +1359,22 @@ impl App {
     pub(super) fn sheet_row_hidden(&self, id: Id) -> bool {
         crate::layers_tree::sheet_row_of(&self.project, id)
             .is_some_and(|(page, row)| !self.page_row_shown(page, row))
+            || self.sheet_toggle_hidden(id)
+    }
+    /// True when the Layers tree switched off the kind of drawing `id` is (Symbols, Net
+    /// labels, Graphics), so the schematic paints nothing there to pick.
+    fn sheet_toggle_hidden(&self, id: Id) -> bool {
+        if self.project.component(id).is_some() {
+            return !self.layer_shown("Symbols");
+        }
+        if let Some(l) = self.project.labels.iter().find(|l| l.id == id) {
+            return l.kind != "power" && !self.layer_shown("Net labels");
+        }
+        self.project
+            .graphics
+            .iter()
+            .any(|g| g.id == id && g.layer == "schematic")
+            && !self.layer_shown("Graphics")
     }
     fn pick_object_any(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {
@@ -1351,6 +1385,7 @@ impl App {
                 .iter()
                 .flat_map(|c| c.schematic_views())
                 .filter(|c| crate::page_scope::in_view(&sheet, page, c.sheet))
+                .filter(|c| !self.sheet_row_hidden(c.id))
                 .filter(|c| {
                     let local =
                         Point::new(pos.x - c.position.x, pos.y - c.position.y).rotate(c.rotation);
@@ -1378,26 +1413,33 @@ impl App {
                 })
                 .map(|c| c.id)
         } else {
-            if let Some(f) = self.project.board.footprints.iter().find(|f| {
-                let local =
-                    Point::new(pos.x - f.position.x, pos.y - f.position.y).rotate(f.rotation);
-                let points = f.drawing_points(&self.project);
-                let margin = 8.0 / zoom as f64;
-                let min = points
-                    .iter()
-                    .fold(Point::new(f64::INFINITY, f64::INFINITY), |m, p| {
-                        Point::new(m.x.min(p.x), m.y.min(p.y))
-                    });
-                let max = points
-                    .iter()
-                    .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |m, p| {
-                        Point::new(m.x.max(p.x), m.y.max(p.y))
-                    });
-                local.x >= min.x - margin
-                    && local.x <= max.x + margin
-                    && local.y >= min.y - margin
-                    && local.y <= max.y + margin
-            }) {
+            if let Some(f) = self
+                .project
+                .board
+                .footprints
+                .iter()
+                .filter(|f| self.part_shown(f))
+                .find(|f| {
+                    let local =
+                        Point::new(pos.x - f.position.x, pos.y - f.position.y).rotate(f.rotation);
+                    let points = f.drawing_points(&self.project);
+                    let margin = 8.0 / zoom as f64;
+                    let min = points
+                        .iter()
+                        .fold(Point::new(f64::INFINITY, f64::INFINITY), |m, p| {
+                            Point::new(m.x.min(p.x), m.y.min(p.y))
+                        });
+                    let max = points
+                        .iter()
+                        .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |m, p| {
+                            Point::new(m.x.max(p.x), m.y.max(p.y))
+                        });
+                    local.x >= min.x - margin
+                        && local.x <= max.x + margin
+                        && local.y >= min.y - margin
+                        && local.y <= max.y + margin
+                })
+            {
                 return Some(f.id);
             }
             if let Some(c) = self
@@ -1405,6 +1447,7 @@ impl App {
                 .board
                 .cutouts
                 .iter()
+                .filter(|_| self.board_edge_shown())
                 .find(|c| (c.center.distance(pos) - c.radius).abs() * (zoom as f64) < 10.0)
             {
                 return Some(c.id);
@@ -1415,6 +1458,7 @@ impl App {
                 .board
                 .holes
                 .iter()
+                .filter(|_| self.drills_shown())
                 .find(|h| (h.position.distance(pos) - h.diameter / 2.0) * (zoom as f64) < 10.0)
             {
                 return Some(h.id);
@@ -1424,6 +1468,9 @@ impl App {
                 .board
                 .zones
                 .iter()
+                .filter(|z| {
+                    self.layer_part_shown(z.layer, crate::layer_visibility::SubLayer::Zones)
+                })
                 .find(|z| polygon_contains(&z.outline, pos))
             {
                 return Some(z.id);
@@ -1432,6 +1479,9 @@ impl App {
                 .board
                 .tracks
                 .iter()
+                .filter(|t| {
+                    self.layer_part_shown(t.layer, crate::layer_visibility::SubLayer::Tracks)
+                })
                 .find(|t| point_segment(pos, t.start, t.end) * (zoom as f64) < 8.0)
                 .map(|t| t.id)
         }
@@ -1457,6 +1507,7 @@ impl App {
             .components
             .iter()
             .filter(|c| crate::page_scope::in_view(&sheet, page, c.sheet))
+            .filter(|c| !self.sheet_row_hidden(c.id))
         {
             for pin in &c.pins {
                 let Some(d) = c.pin_position(&pin.number).map(|p| p.distance(pos)) else {
@@ -1522,7 +1573,13 @@ impl App {
         Some((mate(from)?, mate(to)?))
     }
     pub(super) fn pick_pad(&self, pos: Point, zoom: f32) -> Option<(Id, String)> {
-        for f in &self.project.board.footprints {
+        for f in self
+            .project
+            .board
+            .footprints
+            .iter()
+            .filter(|f| self.part_pads_shown(f))
+        {
             for pad in &f.pads {
                 if f.pad_position(&pad.number).is_some_and(|p| {
                     p.distance(pos) * (zoom as f64)
@@ -1540,7 +1597,7 @@ impl App {
     fn pick_track(&self, pos: Point, zoom: f32) -> Option<Id> {
         let mut best: Option<(f64, Id)> = None;
         for track in &self.project.board.tracks {
-            if !self.id_allowed(track.id) {
+            if !self.id_allowed(track.id) || !self.pcb_object_shown(track.id) {
                 continue;
             }
             let mut reach = segment_distance(pos, track.start, track.end);
@@ -1560,7 +1617,7 @@ impl App {
             .board
             .vias
             .iter()
-            .filter(|v| self.id_allowed(v.id))
+            .filter(|v| self.id_allowed(v.id) && self.via_shown(v))
             .filter(|v| {
                 pos.distance(v.position) * (zoom as f64)
                     < (v.diameter as f32 * zoom / 2.0 + 6.0) as f64
@@ -2308,7 +2365,9 @@ impl App {
         let sub_on = |layer: pcbcraft_doc::Layer, sub: crate::layer_visibility::SubLayer| {
             self.board_sub_effective_on_layer(layer, sub)
         };
-        self.paint_board_body(painter, rect, camera, p);
+        if self.board_edge_shown() {
+            self.paint_board_body(painter, rect, camera, p);
+        }
         underlay::paint(painter, rect, camera, p, "pcb");
         for fid in p
             .board
@@ -2326,7 +2385,7 @@ impl App {
             painter.circle_filled(center, radius, color);
             painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
         }
-        for h in &p.board.holes {
+        for h in p.board.holes.iter().filter(|_| self.drills_shown()) {
             let radius = ((h.diameter / 2.0) as f32 * camera.zoom).max(1.5);
             if h.is_slot() {
                 // A slot is a capsule: a line of the drill width between its
@@ -2351,7 +2410,9 @@ impl App {
                 self.paint_keepout_ring(painter, center, radius);
             }
         }
-        self.paint_datums(painter, rect, camera, p);
+        if self.board_edge_shown() {
+            self.paint_datums(painter, rect, camera, p);
+        }
         for c in p
             .board
             .cutouts
@@ -2699,7 +2760,9 @@ impl App {
         }
         self.draw_user_layers(painter, rect, camera, p);
         self.paint_board_graphics(painter, rect, camera, p);
-        self.paint_board_dimensions(painter, rect, camera, p);
+        if self.board_edge_shown() {
+            self.paint_board_dimensions(painter, rect, camera, p);
+        }
         self.paint_axis_glyph(painter, rect, camera);
         self.paint_rulers(painter, rect, camera);
     }

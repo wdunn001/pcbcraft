@@ -1032,6 +1032,13 @@ impl Preferences {
             .entry(name)
             .or_insert_with(keymap::Keymap::default_bindings)
     }
+    /// Drop stored schematic toggles that no row of the Layers tree controls any more
+    /// (the Nets row used to carry the Wires eye), so an old saved entry cannot hide
+    /// anything without a visible control.
+    fn normalize_hidden_layers(&mut self) {
+        self.hidden_layers
+            .retain(|h| !matches!(h.as_str(), "Wires" | "Symbols" | "Net labels" | "Graphics"));
+    }
     fn normalize_keymaps(&mut self) {
         if self.keymap_profiles.is_empty() {
             self.keymap_profiles
@@ -2053,6 +2060,7 @@ impl App {
             .and_then(|s| eframe::get_value(s, "preferences"))
             .unwrap_or_default();
         preferences.normalize_keymaps();
+        preferences.normalize_hidden_layers();
         workspace::migrate_layouts(&mut preferences.layouts);
         if light {
             preferences.dark = false;
