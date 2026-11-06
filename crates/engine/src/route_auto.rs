@@ -15,6 +15,7 @@
 use super::*;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 
 use crate::route::Mode;
 use pcbcraft_rules::airwires;
@@ -117,6 +118,30 @@ fn default_keep_existing() -> bool {
 
 fn default_seed() -> u64 {
     0
+}
+
+/// Find the first new error code that appeared after routing.
+///
+/// # Rules
+/// - Compares two DRC error sets and returns the first code in `after` that is
+///   not in `before`, in sorted order for determinism.
+/// - Returns `None` if no new errors appeared.
+///
+/// # Dependencies
+/// - crates/engine/src/route/mod.rs (`errors`)
+///
+/// # Do not
+/// - Use for anything other than detecting new DRC errors from routing.
+fn first_new_error(
+    before: &BTreeSet<(&'static str, Vec<Id>)>,
+    after: &BTreeSet<(&'static str, Vec<Id>)>,
+) -> Option<&'static str> {
+    for (code, _) in after {
+        if !before.iter().any(|(b, _)| b == code) {
+            return Some(*code);
+        }
+    }
+    None
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq)]
@@ -238,6 +263,9 @@ pub(super) fn run(
         ))));
     }
 
+    // Check for new DRC errors after routing; if any, refuse the whole run.
+    let before = crate::route::errors(p);
+
     // Get the list of open connections to route.
     let scope_name = match a.scope {
         ScopeKind::Net => "net",
@@ -247,6 +275,20 @@ pub(super) fn run(
     let connections = open_connections(p, scope_name, &a.nets);
     let open_count = connections.len();
 
+    // Refuse if there is nothing to route after parsing the scope.
+    if connections.is_empty() {
+        return Some(Ok(json!({
+            "scope": scope_name,
+            "open_connections": 0,
+            "completed": 0,
+            "failed": [],
+            "attempts": 0,
+            "seed": a.seed,
+            "keep_existing": a.keep_existing,
+            "findings_before": before.len(),
+            "new_findings": 0,
+        })));
+    }
     // Route each connection, saving and restoring state on failure.
     let mut completed = 0;
     let mut failed: Vec<Value> = vec![];
@@ -297,6 +339,15 @@ pub(super) fn run(
         }
     }
 
+    // Check for new DRC errors after routing.
+    let after = crate::route::errors(p);
+    if let Some(code) = first_new_error(&before, &after) {
+        return Some(Err(Error::Invalid(format!(
+            "route.auto would break the {} check; nothing was changed",
+            code,
+        ))));
+    }
+
     Some(Ok(json!({
         "scope": scope_name,
         "open_connections": open_count,
@@ -305,6 +356,8 @@ pub(super) fn run(
         "attempts": attempts,
         "seed": a.seed,
         "keep_existing": a.keep_existing,
+        "findings_before": before.len(),
+        "new_findings": 0,
     })))
 }
 
@@ -760,5 +813,135 @@ mod tests {
         assert_eq!(a1, a2, "same seed gives same attempt count");
 
         Ok(())
+    }
+
+    #[test]
+    fn route_auto_result_is_clearance_clean() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        s.execute("board.resize", json!({"width":40,"height":30}), None)?;
+
+        let r = s.execute("net.create", json!({"name":"N1"}), None)?;
+        let n1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("n1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10,"y":10}}),
+            None,
+        )?;
+        let p1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30,"y":10}}),
+            None,
+        )?;
+        let p2 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p2 id not found".into()))?;
+
+        s.execute(
+            "net.connect",
+            json!({"net":n1,"pins":[{"component":p1,"pin":"1"},{"component":p2,"pin":"1"}]}),
+            None,
+        )?;
+
+        s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
+
+        let before = crate::route::errors(&s.project);
+
+        let r = s.execute("route.auto", json!({"scope":"board"}), None)?;
+        assert_eq!(r["result"]["completed"], json!(1), "one connection routed");
+
+        let after = crate::route::errors(&s.project);
+
+        assert!(
+            first_new_error(&before, &after).is_none(),
+            "routing must not introduce new DRC errors"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn route_auto_refuses_a_hard_rule_failure_and_changes_nothing() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        s.execute("board.resize", json!({"width":40,"height":30}), None)?;
+
+        let r = s.execute("net.create", json!({"name":"N1"}), None)?;
+        let n1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("n1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10,"y":10}}),
+            None,
+        )?;
+        let p1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30,"y":10}}),
+            None,
+        )?;
+        let p2 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p2 id not found".into()))?;
+
+        s.execute(
+            "net.connect",
+            json!({"net":n1,"pins":[{"component":p1,"pin":"1"},{"component":p2,"pin":"1"}]}),
+            None,
+        )?;
+
+        s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
+
+        let before =
+            serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+
+        let r = s.execute(
+            "route.auto",
+            json!({"scope":"layer","layer":"Nope.Cu"}),
+            None,
+        );
+        assert!(r.is_err(), "invalid layer must be refused");
+
+        let r = s.execute("route.auto", json!({"scope":"board","max_ripups":0}), None);
+        assert!(r.is_err(), "max_ripups 0 must be refused");
+
+        let after = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(before, after, "project must not change on refusal");
+
+        Ok(())
+    }
+
+    #[test]
+    fn first_new_error_detects_new_codes() {
+        let before: BTreeSet<(&'static str, Vec<u64>)> = BTreeSet::from([("clearance", vec![1])]);
+        let after_same: BTreeSet<(&'static str, Vec<u64>)> =
+            BTreeSet::from([("clearance", vec![1])]);
+        let after_new: BTreeSet<(&'static str, Vec<u64>)> =
+            BTreeSet::from([("clearance", vec![1]), ("short", vec![2])]);
+
+        assert_eq!(
+            first_new_error(&before, &after_same),
+            None,
+            "no new errors detected"
+        );
+        assert_eq!(
+            first_new_error(&before, &after_new),
+            Some("short"),
+            "new error code detected"
+        );
     }
 }
