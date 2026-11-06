@@ -466,3 +466,21 @@ fn a_newcomer_with_no_recent_projects_is_offered_to_open_one() -> Result<(), Str
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sees_a_spinner_while_a_big_project_opens() -> Result<(), String> {
+    let recents = IsolatedRecents::new()?;
+    let (ctx, mut app, files) = files_tab(&recents)?;
+
+    // Simulate opening a project by setting the loading step
+    app.files_home.loading_step = Some(0);
+
+    // The loading view should be shown
+    let has_loading = paints_text(&ctx, &mut app, "Opening project")?;
+    assert!(has_loading, "the loading view is shown while opening");
+
+    // Reset loading state
+    app.files_home.loading_step = None;
+
+    Ok(())
+}

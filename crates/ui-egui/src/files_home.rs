@@ -33,6 +33,7 @@
 //! - Touch the real recents file in a test; set `RECENTS_PATH_TEST` to a temp dir.
 
 mod home;
+mod loading_view;
 
 use super::*;
 use crate::ui_kit::button::{self, Size};
@@ -129,6 +130,8 @@ pub(crate) struct State {
     /// arrow keys and Enter work the list.
     rows: Vec<egui::Id>,
     /// What the last Files action said when it failed.
+    /// Loading a project: Some(step) means loading is in progress at this step.
+    loading_step: Option<usize>,
     pub(crate) error: String,
 }
 
@@ -293,19 +296,19 @@ impl App {
             self.files_home.error = t!("files.open.nothing_typed");
             return false;
         }
-        self.path = path.clone();
+        self.files_home.loading_step = Some(loading_view::STEP_READING);
         if self.tool_call("open", json!({"path": path})) {
+            self.files_home.loading_step = None;
             self.select(None);
             self.files_home.error.clear();
             self.change_tab(Tab::Schematic);
             true
         } else {
+            self.files_home.loading_step = None;
             self.files_home.error = self.message.clone();
             false
         }
     }
-
-    /// Close the project: a blank one takes its place.
     fn files_close_now(&mut self) {
         self.tool_call("new_design", json!({}));
         self.select(None);
@@ -487,6 +490,8 @@ impl App {
     ///
     /// # Do not
     /// - Draw the Library or Layers here.
+    /// - crates/ui-egui/src/files_home/home.rs (`files_home_page`)
+    /// - crates/ui-egui/src/loading_view.rs (`loading_view`)
     pub(crate) fn files_center(&mut self, ui: &mut egui::Ui) {
         ui.style_mut().interaction.selectable_labels = false;
         let ctx = ui.ctx().clone();
@@ -507,7 +512,9 @@ impl App {
                 egui::Frame::NONE
                     .inner_margin(egui::Margin::symmetric(side as i8, theme::SPACE[4] as i8))
                     .show(ui, |ui| {
-                        if self.files_home.page == Page::Home {
+                        if let Some(step) = self.files_home.loading_step {
+                            loading_view::loading_view(ui, step);
+                        } else if self.files_home.page == Page::Home {
                             self.files_home_page(ui);
                         } else {
                             self.files_subpage(ui);
@@ -515,8 +522,6 @@ impl App {
                     });
             });
     }
-
-    /// A page behind a tool bar button: Open, Import, Export or Close.
     fn files_subpage(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         ui.set_max_width(ui.available_width().min(860.0));
