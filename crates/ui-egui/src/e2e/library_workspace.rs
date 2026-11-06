@@ -529,3 +529,83 @@ fn a_newcomer_saves_a_part_to_the_project_library() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_copies_a_part_to_the_personal_library() -> Result<(), String> {
+    // Set up a personal library folder.
+    let personal = std::env::temp_dir().join(format!(
+        "pcbcraft-personal-{}-{}",
+        std::process::id(),
+        pcbcraft_clock::system_now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis()
+    ));
+    std::fs::create_dir_all(&personal).map_err(|e| e.to_string())?;
+    let personal_str = personal.to_string_lossy().to_string();
+
+    let (config, _config_folder) = private_config("personal")?;
+    let shared = session_with(&config);
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let added = app.tool_call(
+        "library.add_folder",
+        json!({"path": personal_str, "name": "My parts"}),
+    );
+    assert!(added, "the personal folder was added: {}", app.message);
+    // No tool marks a folder personal yet, so the story marks it through the engine.
+    pcbcraft_engine::library::set_source_role(&config, &personal_str, Some("personal"))?;
+
+    // Create and place a project part.
+    let mut fp = authoring::new_footprint();
+    fp.name = "PersonalTest_FP".into();
+    app.tool_call("library.footprint.upsert", json!({"definition": fp}));
+    let mut sym = authoring::new_symbol();
+    sym.name = "Personal Test".into();
+    sym.footprint = "PersonalTest_FP".into();
+    app.tool_call("library.symbol.upsert", json!({"definition": sym}));
+    app.tool_call(
+        "component.place_custom",
+        json!({"name": "Personal Test", "position": {"x": 10.0, "y": 10.0}, "reference": "U1"}),
+    );
+    app.refresh();
+    let id = app
+        .project
+        .components
+        .last()
+        .ok_or("the part was placed")?
+        .id;
+    app.tool_call(
+        "footprint.assign_custom",
+        json!({"id": id, "name": "PersonalTest_FP"}),
+    );
+    app.refresh();
+
+    // Copy the part to the personal library.
+    let saved = app.tool_call("part.save", json!({"id": id, "target": "personal"}));
+    assert!(saved, "part.save to personal succeeded: {}", app.message);
+
+    // Verify the files were written.
+    let symbol_path = personal.join("Personal Test.kicad_sym");
+    assert!(
+        symbol_path.exists(),
+        "the symbol file was written to the personal folder"
+    );
+    let sidecar_path = personal.join("Personal Test.pcbcraft-part.json");
+    assert!(
+        sidecar_path.exists(),
+        "the sidecar file was written to the personal folder"
+    );
+
+    // Verify the sidecar has a provenance notice.
+    let sidecar_text = std::fs::read_to_string(&sidecar_path).map_err(|e| e.to_string())?;
+    assert!(
+        sidecar_text.contains("Copied from project"),
+        "the sidecar has a provenance notice"
+    );
+
+    // Clean up.
+    let _ = std::fs::remove_dir_all(&personal);
+    Ok(())
+}
