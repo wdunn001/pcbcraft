@@ -977,7 +977,7 @@ pub(super) fn run(
                 } else {
                     (path.to_owned(), bytes)
                 };
-                let cache = pcbcraft_io::ImportCache::default();
+                let cache = pcbcraft_io::ImportCache::in_memory();
                 let loaded = cache
                     .load_or_convert(&load_path, &source)
                     .map_err(|e| Error::Invalid(e.0))?;

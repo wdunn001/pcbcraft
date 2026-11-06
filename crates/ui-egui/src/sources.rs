@@ -21,7 +21,7 @@
 //! - crates/library/src/web_transport.rs
 use super::*;
 use pcbcraft_library::cad::CadSource;
-use pcbcraft_library::cad_cache::{CacheStats, CadCache, default_cache_dir};
+use pcbcraft_library::cad_cache::{CacheStats, CadCache};
 use pcbcraft_library::open_library::{CardScope, FetchError, Fetcher, OpenLibrarySource};
 use pcbcraft_library::sources::{PartResult, PartSource};
 use pcbcraft_library::web_transport::WebTransport;
@@ -275,7 +275,14 @@ impl App {
         // The user cache folder is only for a window whose session has a settings folder;
         // a session without one (a test, an embedded host) keeps its answers in memory.
         let has_folder = self.user_config().folder().is_some();
-        let cache = match cache_dir.or_else(|| default_cache_dir().filter(|_| has_folder)) {
+        let from_settings = || {
+            if has_folder {
+                self.user_config().folder().map(|f| f.join("online"))
+            } else {
+                None
+            }
+        };
+        let cache = match cache_dir.or_else(from_settings) {
             Some(dir) => CadCache::open(&dir),
             None => CadCache::in_memory(),
         };

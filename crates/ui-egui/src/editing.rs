@@ -554,13 +554,25 @@ impl App {
             }
         };
         if self.tab == Tab::Pcb {
-            for h in &self.project.board.holes {
+            for h in self
+                .project
+                .board
+                .holes
+                .iter()
+                .filter(|_| self.drills_shown())
+            {
                 consider(h.position);
             }
-            for v in &self.project.board.vias {
+            for v in self.project.board.vias.iter().filter(|v| self.via_shown(v)) {
                 consider(v.position);
             }
-            for f in &self.project.board.footprints {
+            for f in self
+                .project
+                .board
+                .footprints
+                .iter()
+                .filter(|f| self.part_pads_shown(f))
+            {
                 for pad in &f.pads {
                     if let Some(at) = f.pad_position(&pad.number) {
                         consider(at);

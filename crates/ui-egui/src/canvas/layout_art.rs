@@ -27,7 +27,7 @@ use std::f32::consts::FRAC_PI_2;
 /// # Do not
 /// - Use these for window chrome; chrome uses `ThemeColours`.
 #[derive(Clone, Copy)]
-pub(super) struct BoardArt {
+pub(crate) struct BoardArt {
     pub bg: Color32,
     pub ruler: Color32,
     pub grid_minor: Color32,
@@ -120,7 +120,7 @@ pub(super) fn dashed_closed(painter: &egui::Painter, pts: &[Pos2], stroke: Strok
 
 impl App {
     /// The theme's board art colours.
-    pub(super) fn art(&self) -> BoardArt {
+    pub(crate) fn art(&self) -> BoardArt {
         BoardArt::new(self.colours().dark)
     }
 

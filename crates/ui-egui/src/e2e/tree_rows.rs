@@ -80,7 +80,6 @@ fn a_newcomer_hides_and_locks_each_schematic_layer_from_its_row() -> Result<(), 
             ("button:Hide Power symbols", "button:Show Power symbols"),
             ("button:Hide Net labels", "button:Show Net labels"),
             ("button:Hide Drawing", "button:Show Drawing"),
-            ("button:Hide Nets", "button:Show Nets"),
             ("button:Lock Symbols", "button:Unlock Symbols"),
             ("button:Lock Power symbols", "button:Unlock Power symbols"),
             ("button:Lock Drawing", "button:Unlock Drawing"),
@@ -92,14 +91,6 @@ fn a_newcomer_hides_and_locks_each_schematic_layer_from_its_row() -> Result<(), 
         "a locked row is remembered by the tree: {:?}",
         app.tree.locked
     );
-    tap_id(&ctx, &mut app, "button:Show all")?;
-    assert!(
-        app.preferences.hidden_layers.is_empty(),
-        "Show all brings every layer back: {:?}",
-        app.preferences.hidden_layers
-    );
-    tap_id(&ctx, &mut app, "button:Hide others")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     Ok(())
 }
 
@@ -259,5 +250,66 @@ fn a_newcomer_hides_and_locks_each_copper_layer_and_reopens_the_tracks_branch() 
             ("button:Expand Tracks", "button:Collapse Tracks"),
         ],
     )?;
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_no_layer_buttons_in_the_schematic_aside_but_still_has_them_in_layout()
+-> Result<(), String> {
+    let buttons = [
+        "button:Show all",
+        "button:Hide others",
+        "button:New layer",
+        "button:Add layer",
+    ];
+    let (ctx, mut app) = practice(Tab::Schematic);
+    for id in buttons {
+        assert!(
+            !on_screen(&ctx, &mut app, id),
+            "the schematic aside has no {id}"
+        );
+    }
+    let names: Vec<String> = interactive_rects(&ctx, &mut app)
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    assert!(
+        names
+            .iter()
+            .any(|n| n.ends_with("Filter layers and objects")),
+        "the filter box stays: {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n.ends_with("Add layer")),
+        "a schematic has pages, not layers, so no plus beside the filter"
+    );
+    assert!(
+        names.iter().any(|n| n.ends_with("Add page")),
+        "pages are added from the page strip above the canvas"
+    );
+    assert!(
+        on_screen(&ctx, &mut app, "button:Show empty"),
+        "Show empty stays: it lists page rows that hold nothing yet"
+    );
+    let (ctx, mut app) = practice(Tab::Pcb);
+    for id in &buttons[..3] {
+        assert!(on_screen(&ctx, &mut app, id), "Layout keeps {id}");
+    }
+    // Parts and Nets are lists of objects, not drawing layers: no eye on either tab.
+    for tab in [Tab::Schematic, Tab::Pcb] {
+        let (ctx, mut app) = practice(tab);
+        for row in ["Parts", "Nets"] {
+            assert!(
+                on_screen(&ctx, &mut app, &format!("button:{row}")),
+                "the {row} row is listed"
+            );
+            for verb in ["Hide", "Show", "Lock", "Unlock"] {
+                assert!(
+                    !on_screen(&ctx, &mut app, &format!("button:{verb} {row}")),
+                    "{row} has no {verb} control"
+                );
+            }
+        }
+    }
     Ok(())
 }
