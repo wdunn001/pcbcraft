@@ -1,6 +1,7 @@
 //! Floating datasheet window with search, selection, and highlights.
 
 use crate::a11y::{self, Named};
+use crate::datasheet::review_panel::{ReviewAction, ReviewRow};
 use crate::theme;
 use crate::ui_kit::button::{Size, secondary_button};
 use egui::{Color32, Context, Id, Pos2, Rect, Sense, TextureHandle, TextureOptions, Vec2};
@@ -30,6 +31,8 @@ pub(crate) struct Pane {
     page_response_id: Id,
     flash: Option<(usize, [f32; 4], f64)>,
     pub(crate) pending_extract: bool,
+    review_rows: Vec<ReviewRow>,
+    review_actions: Vec<ReviewAction>,
 }
 
 impl Default for Pane {
@@ -50,6 +53,8 @@ impl Default for Pane {
             page_response_id: Id::new("datasheet-page-unassigned"),
             flash: None,
             pending_extract: false,
+            review_rows: Vec::new(),
+            review_actions: Vec::new(),
         }
     }
 }
@@ -448,6 +453,10 @@ impl Pane {
             {
                 self.pending_extract = true;
             }
+            if !self.review_rows.is_empty() {
+                ui.separator();
+                show_review_panel(ui, &self.review_rows, &mut self.review_actions);
+            }
         });
     }
 
@@ -557,6 +566,16 @@ impl Pane {
         self.selection
             .map(|sel| selected_text(&self.layer, sel))
             .unwrap_or_default()
+    }
+
+    /// Set the review rows to display.
+    pub(crate) fn set_review_rows(&mut self, rows: Vec<ReviewRow>) {
+        self.review_rows = rows;
+    }
+
+    /// Take pending review actions.
+    pub(crate) fn take_review_actions(&mut self) -> Vec<ReviewAction> {
+        std::mem::take(&mut self.review_actions)
     }
 
     #[cfg(test)]

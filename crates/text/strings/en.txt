@@ -4318,3 +4318,12 @@ library.model_transform.open_in_cad_app = Open in the CAD app
 library.model_transform.open_in_cad_app.tip = Open the companion CAD project for this model in the desktop CAD app.
 library.model_transform.reimport = Reimport
 library.model_transform.reimport.tip = Reload the 3D model from the companion CAD project file; offset, scale and rotation stay as they are.
+
+# Datasheet review panel
+datasheet.review.title = Found values
+datasheet.review.page = p. {n}
+datasheet.review.page.tip = Jump to the source of this value on page {n}.
+datasheet.review.accept = Accept
+datasheet.review.accept.tip = Accept this extracted value as correct.
+datasheet.review.reject = Reject
+datasheet.review.reject.tip = Reject this extracted value as incorrect.

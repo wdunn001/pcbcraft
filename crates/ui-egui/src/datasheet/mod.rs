@@ -2,6 +2,9 @@
 
 mod extract_bridge;
 mod pane;
+mod review_panel;
+
+pub(crate) use review_panel::{ReviewAction, ReviewRow};
 
 pub(crate) use pane::Pane;
 
