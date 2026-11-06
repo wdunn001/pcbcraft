@@ -70,6 +70,8 @@ pub(crate) struct View3d {
     error: Option<String>,
     /// Whether the list of parts without a model file is open.
     pub(crate) notes_open: bool,
+    /// Set by the Enclosure toggle; the app runs `board.enclosure.set_view` with it.
+    pub(crate) enclosure_visible_request: Option<bool>,
     /// Where the viewport was painted last frame, so tests and picking agree.
     pub rect: Rect,
     /// The last rendered picture and what it was made from.
@@ -135,6 +137,7 @@ impl Default for View3d {
             notes: Default::default(),
             error: None,
             notes_open: false,
+            enclosure_visible_request: None,
             rect: Rect::NOTHING,
             frame: None,
             start_angle: None,
@@ -324,6 +327,16 @@ impl View3d {
             .find(|p| p.kind == PartKind::Body && p.component == Some(id))
             .and_then(|p| p.bounds())
     }
+    /// How many parts of the built mesh carry this family word.
+    #[cfg(test)]
+    pub(crate) fn part_count_in_family(&self, family: &str) -> usize {
+        self.mesh.as_ref().map_or(0, |(_, m)| {
+            m.parts
+                .iter()
+                .filter(|p| p.family.as_deref() == Some(family))
+                .count()
+        })
+    }
     /// The family word the parts list shows after the reference.
     #[cfg(test)]
     pub(crate) fn body_family(&self, id: Id) -> Option<String> {
@@ -359,6 +372,13 @@ impl View3d {
         let had_mesh = self.mesh.is_some();
         match board_mesh_with_dir(project, MeshLayers::default(), env.design_dir) {
             Ok(mut mesh) => {
+                if let Some(enc) = &project.board.enclosure
+                    && let Err(why) =
+                        pcbcraft_io::append_enclosure_parts(&mut mesh.parts, project, enc)
+                    && let Some(message) = env.message.as_deref_mut()
+                {
+                    *message = t!("board.board3d.enclosure_failed", e = why);
+                }
                 self.error = None;
                 self.model_gen = generation;
                 let models = self.models.clone();
@@ -584,6 +604,22 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &mut Env<'_>) -> O
             .request_repaint_after(std::time::Duration::from_millis(100));
     }
 
+    // The enclosure layer row shows only while the board carries an enclosure.
+    // The visibility is a project property, so the toggle asks the app to run
+    // the engine command instead of writing the project here.
+    if let Some(enc) = &env.project.board.enclosure {
+        ui.horizontal_wrapped(|ui| {
+            ui.add_space(12.0);
+            let mut visible = enc.visible;
+            if ui
+                .checkbox(&mut visible, t!("board.board3d.enclosure_layer"))
+                .on_hover_text(t!("board.board3d.enclosure_layer.tip"))
+                .changed()
+            {
+                view.enclosure_visible_request = Some(visible);
+            }
+        });
+    }
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
         ui.add_space(12.0);
