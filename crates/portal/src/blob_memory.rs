@@ -83,7 +83,7 @@ impl Default for MemoryBlobStore {
     }
 }
 
-fn validate_hash_format(hash: &str) -> Result<(), PortalError> {
+pub(crate) fn validate_hash_format(hash: &str) -> Result<(), PortalError> {
     if hash.len() != 64 {
         return Err(PortalError::Invalid(format!(
             "content hash must be 64 hex characters, got {}",

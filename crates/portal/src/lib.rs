@@ -16,6 +16,7 @@
 //! - Panic, unwrap or expect in library code paths.
 pub mod accounts;
 pub mod api;
+pub mod blob_local;
 pub mod blob_memory;
 pub mod config;
 pub mod error;
