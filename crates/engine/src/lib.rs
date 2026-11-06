@@ -2786,6 +2786,30 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "reflow.profile_add",
+            "Add a named reflow profile to a reflow oven machine",
+            schema(
+                json!({"machine":{"type":"string","minLength":1,"maxLength":64},"profile":{"type":"object"}}),
+                &["machine", "profile"],
+            ),
+        ),
+        (
+            "reflow.profile_remove",
+            "Remove a named reflow profile from a reflow oven machine",
+            schema(
+                json!({"machine":{"type":"string","minLength":1,"maxLength":64},"profile":{"type":"string","minLength":1,"maxLength":64}}),
+                &["machine", "profile"],
+            ),
+        ),
+        (
+            "reflow.profile_list",
+            "List the reflow profiles stored on a reflow oven machine",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id"],
+            ),
+        ),
+        (
             "compliance.lists",
             "List compliance list snapshots installed on this computer with retrieval dates and entry counts",
             schema(json!({}), &[]),
@@ -11099,6 +11123,9 @@ fn run_command(
         | "machine.list"
         | "machine.import"
         | "machine.export"
+        | "reflow.profile_add"
+        | "reflow.profile_remove"
+        | "reflow.profile_list"
         | "placement_yy1.export"
         | "placement_job.export"
         | "output_job.run"
@@ -21300,6 +21327,9 @@ fn run_command_part_19(
             pcbcraft_io::atomic_write(std::path::Path::new(&a.path), text.as_bytes())
                 .map_err(Error::Invalid)?;
             Ok(json!({"id": profile.id, "path": a.path, "bytes": text.len()}))
+        }
+        "reflow.profile_add" | "reflow.profile_remove" | "reflow.profile_list" => {
+            machines::run(config, p, command, params)
         }
         "placement_job.export" | "placement_yy1.export" => {
             let a: PlacementYy1Params = parse(params)?;

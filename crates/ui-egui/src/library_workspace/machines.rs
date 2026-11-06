@@ -186,6 +186,8 @@ pub(crate) struct MachineLib {
     loaded_at: Option<u64>,
     pub(crate) stale: bool,
     pub(crate) add: Option<AddForm>,
+    /// The loaded profiles for the selected reflow oven, keyed by machine id.
+    pub(crate) profiles: std::collections::HashMap<String, Vec<Value>>,
 }
 
 impl App {
@@ -214,6 +216,24 @@ impl App {
             .unwrap_or_default();
         self.libws.machines.loaded_at = Some(self.revision);
         self.libws.machines.stale = false;
+    }
+
+    /// Load the profiles of a reflow oven when its card is selected.
+    pub(crate) fn machine_lib_load_profiles(&mut self, id: &str) {
+        if self.libws.machines.profiles.contains_key(id) {
+            return;
+        }
+        let answer = self.session.lock().ok().and_then(|mut s| {
+            s.execute("reflow.profile_list", json!({"id": id}), None)
+                .ok()
+        });
+        let profiles = answer
+            .as_ref()
+            .and_then(|v| v.pointer("/result/profiles"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        self.libws.machines.profiles.insert(id.to_owned(), profiles);
     }
 
     /// Run one machine command from the view and read the list again afterwards.

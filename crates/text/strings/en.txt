@@ -4930,3 +4930,4 @@ libws.sources.props.read_again = Read again
 libws.sources.props.remove = Remove
 menu.view.library_sources = Library sources…
 menu.view.library_sources.tip = Open the Library tab on its Sources page to switch, add and remove the folders that feed the part list.
+libws.machines.props.profiles.tip = The reflow profiles stored on this oven

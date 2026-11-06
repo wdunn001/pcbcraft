@@ -397,6 +397,10 @@ impl App {
         };
         let t = theme::tokens(ui.ctx());
         let (id, source) = (card_text(&c, "id").to_owned(), card_text(&c, "source"));
+        let kind = card_text(&c, "kind").to_owned();
+        if kind == "reflow_oven" {
+            self.machine_lib_load_profiles(&id);
+        }
         let copy_state = card_text(&c, "copy_state").to_owned();
         let in_project = card_flag(&c, "in_project");
         let hidden = card_flag(&c, "hidden");
@@ -532,6 +536,35 @@ impl App {
                             });
                     },
                 );
+                let profiles = self.libws.machines.profiles.get(&id);
+                if let Some(profiles) = profiles {
+                    if !profiles.is_empty() {
+                        section(
+                            ui,
+                            "machine-profiles",
+                            &t!("libws.machines.props.profiles"),
+                            &t!("libws.machines.props.profiles.tip"),
+                            |ui| {
+                                egui::Frame::NONE
+                                    .inner_margin(egui::Margin::symmetric(theme::SPACE[2] as i8, 0))
+                                    .show(ui, |ui| {
+                                        for p in profiles {
+                                            let name = p.get("name").and_then(Value::as_str).unwrap_or("");
+                                            let stages = p.get("stages").and_then(Value::as_array).cloned().unwrap_or_default();
+                                            ui.label(fonts::strong(name).color(t.text));
+                                            for s in stages {
+                                                let sname = s.get("name").and_then(Value::as_str).unwrap_or("");
+                                                let temp = s.get("target_c").and_then(Value::as_f64).unwrap_or(0.0);
+                                                let time = s.get("time_s").and_then(Value::as_f64).unwrap_or(0.0);
+                                                ui.label(fonts::text(fonts::Role::Body, format!("  {} - {}°C for {}s", sname, temp, time)).color(t.muted));
+                                            }
+                                            ui.add_space(theme::SPACE[1]);
+                                        }
+                                    });
+                            },
+                        );
+                    }
+                }
                 ui.add_space(theme::SPACE[2]);
                 egui::Frame::NONE
                     .inner_margin(egui::Margin::symmetric(theme::SPACE[2] as i8, 0))

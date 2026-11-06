@@ -540,3 +540,73 @@ fn a_newcomer_adds_an_other_machine() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(folder);
     Ok(())
 }
+
+/// A newcomer adds a reflow profile to their oven, sees it in the machine card, and removes it.
+#[test]
+fn a_newcomer_adds_and_removes_a_reflow_profile() -> Result<(), String> {
+    let (ctx, mut app, folder) = library_app()?;
+    // Add the built-in reflow oven to the project.
+    tap_left(&ctx, &mut app, "Reflow oven")?;
+    authoring::tests::tap(&ctx, &mut app, "Add to this project")?;
+    assert!(
+        app.project
+            .machine_profiles
+            .iter()
+            .any(|m| m.id == "puhui-t-962a" && m.kind == "reflow_oven"),
+        "the oven joins the project: {}",
+        app.message
+    );
+    // Add a profile via the engine.
+    app.run(
+        "reflow.profile_add",
+        json!({
+            "machine": "puhui-t-962a",
+            "profile": {
+                "id": "sac305-standard",
+                "name": "Standard SAC305",
+                "stages": [
+                    {"name": "preheat", "target_c": 150.0, "time_s": 120.0},
+                    {"name": "reflow", "target_c": 245.0, "time_s": 45.0}
+                ]
+            }
+        }),
+    );
+    // Reload the profiles list for the selected machine.
+    app.libws.machines.selected = Some("puhui-t-962a".to_string());
+    app.machine_lib_load_profiles("puhui-t-962a");
+    // Select the oven card and verify the profile is shown.
+    authoring::tests::tap(&ctx, &mut app, "Puhui T-962A")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Standard SAC305")?,
+        "the profile name is shown: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "preheat - 150°C for 120s")?,
+        "the preheat stage is shown: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "reflow - 245°C for 45s")?,
+        "the reflow stage is shown: {}",
+        painted(&ctx, &mut app)
+    );
+    // Remove the profile.
+    app.run(
+        "reflow.profile_remove",
+        json!({"machine": "puhui-t-962a", "profile": "sac305-standard"}),
+    );
+    app.libws.machines.selected = Some("puhui-t-962a".to_string());
+    app.machine_lib_load_profiles("puhui-t-962a");
+    // Verify the profile is gone.
+    authoring::tests::tap(&ctx, &mut app, "Puhui T-962A")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        !paints_text(&ctx, &mut app, "Standard SAC305")?,
+        "the removed profile is no longer shown: {}",
+        painted(&ctx, &mut app)
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
