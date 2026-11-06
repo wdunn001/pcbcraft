@@ -141,10 +141,31 @@ fn a_newcomer_reads_the_design_and_the_project_library_in_the_aside_tree() -> Re
         "Made files",
         "History",
         "Project library",
+        "Attached files",
     ] {
         tap_id(&ctx, &mut app, &format!("button:{row}"))?;
         assert_eq!(app.tab, Tab::Files, "{row} only reads, it goes nowhere");
     }
+    tap_id(&ctx, &mut app, "button:Collapse Design")?;
+    let in_aside = |ctx: &egui::Context, app: &mut App| {
+        texts(ctx, app)
+            .into_iter()
+            .any(|(t, x)| t == "design.pcbcraft" && x > 40.0 && x < left)
+    };
+    assert!(
+        !in_aside(&ctx, &mut app),
+        "folding Design hides the design row"
+    );
+    tap_id(&ctx, &mut app, "button:Expand Design")?;
+    assert!(in_aside(&ctx, &mut app), "opening Design shows it again");
+    tap_id(&ctx, &mut app, "tab:History")?;
+    assert_eq!(app.region().left_tab, "history", "the History tab opens");
+    assert!(
+        paints_text(&ctx, &mut app, "Nothing saved yet")?,
+        "History says what is recorded"
+    );
+    tap_id(&ctx, &mut app, "tab:Files")?;
+    assert_eq!(app.region().left_tab, "files", "Files brings the tree back");
     tap_id(&ctx, &mut app, "button:design.pcbcraft")?;
     assert_eq!(app.tab, Tab::Schematic, "the design row opens the drawing");
     Ok(())
