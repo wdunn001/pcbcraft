@@ -2335,11 +2335,32 @@ impl App {
             compare_tint: std::collections::BTreeMap::new(),
             library,
             tour: {
-                #[allow(unused_mut)]
+                let tours = tour::data::embedded_for_shell();
                 let mut catalog = Vec::new();
+                for t in tours.tour {
+                    if let (Some(ws), Some(tr)) = (
+                        tour::state::WorkspaceId::parse(&t.workspace),
+                        tour::state::Trigger::parse(&t.trigger),
+                    ) {
+                        catalog.push(tour::state::TourMeta {
+                            id: t.id,
+                            version: t.version,
+                            trigger: tr,
+                            workspace: ws,
+                            step_count: t.steps.len(),
+                        });
+                    }
+                }
                 #[cfg(test)]
                 catalog.extend(tour::state::e2e_fixture_catalog());
-                tour::Controller::new(catalog)
+                let controller = tour::Controller::new(catalog);
+                #[cfg(test)]
+                let controller = {
+                    let mut quiet = controller;
+                    quiet.set_unprompted_offers(false);
+                    quiet
+                };
+                controller
             },
             #[cfg(test)]
             icon_rects: BTreeMap::new(),
@@ -7421,8 +7442,8 @@ impl App {
                                     if ui_kit::button::secondary_button(
                                         ui,
                                         None,
-                                        &t!("board.inspector.delete_del"),
-                                        &command_tip("object.delete"),
+                                        &t!("board.inspector.delete"),
+                                        &t!("board.inspector.delete.tip"),
                                         ui_kit::button::Size::Normal,
                                         true,
                                     )
@@ -7872,6 +7893,31 @@ impl App {
             self.select_sheet_row(0, &row);
         }
         if self.frames == 3
+            && let Some(rest) = self
+                .capture_select
+                .as_deref()
+                .and_then(|s| s.strip_prefix("page:"))
+                .map(str::to_owned)
+        {
+            // `--select page:Compute` shows that page (a name or an id) and selects its row in
+            // the Layers tree; `page:Compute/symbols` selects its Symbols row instead.
+            self.capture_select = None;
+            let (page, row) = rest.split_once('/').unwrap_or((rest.as_str(), ""));
+            let id = (0..=self.project.sheets.iter().map(|s| s.id).max().unwrap_or(0)).find(|id| {
+                (*id == 0 || self.project.sheets.iter().any(|s| s.id == *id))
+                    && (self.page_name(*id) == page || id.to_string() == page)
+            });
+            if let Some(id) = id {
+                self.show_page(id);
+                if row.is_empty() {
+                    self.select(None);
+                    self.tree.selected_key = Some(Self::page_row_key(id));
+                } else {
+                    self.select_sheet_row(id, row);
+                }
+            }
+        }
+        if self.frames == 3
             && let Some(reference) = self.capture_select.take()
             && let Some(component) = self
                 .project
@@ -8207,13 +8253,31 @@ impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
         self.assistant_save();
-        #[cfg(target_arch = "wasm32")]
-        if let Ok(session) = self.session.lock()
-            && let Ok(text) = serde_json::to_string(&session.project)
-            && text.len() <= pcbcraft_io_limit()
+        if self.browser
+            && let Ok(session) = self.session.lock()
         {
-            storage.set_string("recovery", text);
+            store_recovery(storage, &session.project);
         }
+    }
+}
+
+/// Write the open project into the browser's page storage under the key `recovery`.
+///
+/// The browser keeps no files, so this copy is how a reload brings the work back: the
+/// web entry point reads the same key before it builds the first session. A project over
+/// the size limit is not stored and the earlier copy stays.
+///
+/// # Rules
+/// - Called from `App::save` for the browser build only; the desktop build uses the
+///   recovery folder instead.
+///
+/// # Dependencies
+/// - apps/pcbcraft-web/src/main.rs (`opening_session` reads the key back)
+pub(crate) fn store_recovery(storage: &mut dyn eframe::Storage, project: &pcbcraft_doc::Project) {
+    if let Ok(text) = serde_json::to_string(project)
+        && text.len() <= pcbcraft_io_limit()
+    {
+        storage.set_string("recovery", text);
     }
 }
 
@@ -8261,7 +8325,6 @@ fn recovery_slots(
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 fn pcbcraft_io_limit() -> usize {
     8 * 1024 * 1024
 }

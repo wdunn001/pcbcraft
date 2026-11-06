@@ -281,11 +281,11 @@ fn a_newcomer_renames_and_removes_a_page_in_properties() -> Result<(), String> {
         paints_text(&ctx, &mut app, "Schematic page")?,
         "the selected page shows its card in Properties"
     );
-    type_into(&ctx, &mut app, "textinput:Name", "Power")?;
+    type_into(&ctx, &mut app, "textinput:Title", "Power")?;
     assert_eq!(
         page_names(&app),
         ["Power"],
-        "the Name field renames: {}",
+        "the Title field renames: {}",
         app.message
     );
     assert!(paints_text(&ctx, &mut app, "Power")?, "the tab follows");
@@ -679,16 +679,17 @@ fn a_newcomer_renames_page_one_and_every_place_shows_the_same_name() -> Result<(
     authoring::tests::tap(&ctx, &mut app, "+")?;
     authoring::tests::tap(&ctx, &mut app, "Main")?;
     assert_eq!(app.schematic_page(), 0, "page 1 is showing");
-    type_into(&ctx, &mut app, "textinput:Name", "Amp")?;
+    type_into(&ctx, &mut app, "textinput:Title", "Amp")?;
     assert_eq!(
         app.project.root_sheet_name.as_deref(),
         Some("Amp"),
-        "the Name field renames page 1: {}",
+        "the Title field renames page 1: {}",
         app.message
     );
     assert!(
-        canvas_labels(&app).iter().any(|t| t == "1 of 2 Amp"),
-        "the title block shows the number and the page name: {:?}",
+        canvas_labels(&app).iter().any(|t| t == "1 of 2")
+            && canvas_labels(&app).iter().any(|t| t == "Amp"),
+        "the title block shows the number and the page name as its title: {:?}",
         canvas_labels(&app)
     );
     assert!(

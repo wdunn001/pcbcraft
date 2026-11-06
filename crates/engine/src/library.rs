@@ -118,6 +118,31 @@ pub fn symbol(path: &Path, name: &str) -> Result<SymbolDefinition, String> {
         .cloned()
         .ok_or_else(|| format!("symbol {name} not found in {}", path.display()))
 }
+/// Fill a drop-in part's pads, pins and pin to pad map from a symbol file and a footprint file.
+///
+/// `geometry` is `{"symbol_path","symbol","footprint_path"}`; when it is absent the part is
+/// returned as given.
+///
+/// # Dependencies
+/// - crates/library/src/drop_in_check.rs `DropInPart::with_geometry`
+fn with_geometry_files(
+    part: pcbcraft_library::DropInPart,
+    geometry: Option<&Value>,
+) -> Result<pcbcraft_library::DropInPart, String> {
+    let Some(geometry) = geometry else {
+        return Ok(part);
+    };
+    let text = |key: &str| -> Result<&str, String> {
+        geometry
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| format!("geometry needs {key}"))
+    };
+    let symbol = symbol(Path::new(text("symbol_path")?), text("symbol")?)?;
+    let footprint = footprint(Path::new(text("footprint_path")?))?;
+    Ok(part.with_geometry(&symbol, &footprint))
+}
 pub fn footprint(path: &Path) -> Result<FootprintDefinition, String> {
     if path.extension().and_then(|s| s.to_str()) != Some("kicad_mod") {
         return Err("select a .kicad_mod footprint file".into());
@@ -1181,7 +1206,10 @@ pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value,
                 .as_object()
                 .map_or(vec![], |m| m.keys().cloned().collect());
             for key in keys {
-                if key != "incumbent" && key != "candidate" {
+                if !matches!(
+                    key.as_str(),
+                    "incumbent" | "candidate" | "incumbent_geometry" | "candidate_geometry"
+                ) {
                     return Err(format!("unexpected key: {key}"));
                 }
             }
@@ -1191,6 +1219,8 @@ pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value,
             let candidate: pcbcraft_library::DropInPart =
                 serde_json::from_value(args.get("candidate").cloned().ok_or("missing candidate")?)
                     .map_err(|e| format!("candidate: {e}"))?;
+            let incumbent = with_geometry_files(incumbent, args.get("incumbent_geometry"))?;
+            let candidate = with_geometry_files(candidate, args.get("candidate_geometry"))?;
             let report = pcbcraft_library::drop_in_check(&incumbent, &candidate)?;
             Ok(json!({"drop_in": report.drop_in, "findings": report.findings}))
         }
@@ -1770,6 +1800,63 @@ mod tests {
         Ok(())
     }
 
+    /// A folder holding the resistor symbol and the 0805 footprint copied from the fixtures.
+    fn resistor_files() -> Result<(TestDirectory, String, String), String> {
+        let dir = TestDirectory::new()?;
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../library/tests/fixtures");
+        let sym = dir.0.join("Device.kicad_sym");
+        let fp = dir.0.join("R_0805_2012Metric.kicad_mod");
+        std::fs::copy(fixtures.join("device.kicad_sym"), &sym).map_err(|e| e.to_string())?;
+        std::fs::copy(fixtures.join("R_0805_2012Metric.kicad_mod"), &fp)
+            .map_err(|e| e.to_string())?;
+        Ok((dir, sym.display().to_string(), fp.display().to_string()))
+    }
+    #[test]
+    fn drop_in_tool_fills_pins_and_pads_from_library_files() -> Result<(), String> {
+        let (_dir, sym, fp) = resistor_files()?;
+        let part = json!({"lifecycle": "active"});
+        let geometry = json!({"symbol_path": sym, "symbol": "R", "footprint_path": fp});
+        let report = read_tool(
+            &UserConfig::detached(),
+            "library.drop_in_check",
+            &json!({
+                "incumbent": part, "candidate": part,
+                "incumbent_geometry": geometry, "candidate_geometry": geometry
+            }),
+        )?;
+        let findings = report["findings"].as_array().ok_or("findings missing")?;
+        for code in ["pinout", "pads", "pin_to_pad"] {
+            let found = findings
+                .iter()
+                .find(|f| f["code"] == code)
+                .ok_or(format!("no {code} finding: {findings:?}"))?;
+            assert_eq!(found["pass"], true, "{code}: {found}");
+        }
+        Ok(())
+    }
+    #[test]
+    fn drop_in_tool_refuses_geometry_that_names_no_symbol() -> Result<(), String> {
+        let (_dir, sym, fp) = resistor_files()?;
+        let part = json!({"lifecycle": "active"});
+        let geometry = json!({"symbol_path": sym, "symbol": "Nope", "footprint_path": fp});
+        let err = read_tool(
+            &UserConfig::detached(),
+            "library.drop_in_check",
+            &json!({"incumbent": part, "candidate": part, "candidate_geometry": geometry}),
+        )
+        .err()
+        .ok_or("an unknown symbol must be refused")?;
+        assert!(err.contains("symbol Nope not found"), "{err}");
+        let err = read_tool(
+            &UserConfig::detached(),
+            "library.drop_in_check",
+            &json!({"incumbent": part, "candidate": part, "candidate_geometry": {"symbol": "R"}}),
+        )
+        .err()
+        .ok_or("incomplete geometry must be refused")?;
+        assert!(err.contains("geometry needs symbol_path"), "{err}");
+        Ok(())
+    }
     #[test]
     fn drop_in_tool_rejects_unknown_keys() {
         let config = &UserConfig::detached();

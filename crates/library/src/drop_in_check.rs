@@ -1,5 +1,7 @@
 //! Read-only drop-in replacement check: footprint, pinout, ratings and lifecycle.
 use crate::listing::{Category, Lifecycle, PartListing, Unit};
+use crate::pin_pad_map::auto_fill;
+use crate::{FootprintDefinition, SymbolDefinition};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -209,6 +211,81 @@ impl DropInPart {
             temp_max_c: listing.temp_max_c,
             power_w: listing.power_w,
             height_mm: None,
+        }
+    }
+
+    /// Attach footprint geometry from a symbol and footprint definition.
+    ///
+    /// Copies footprint name, collects pad numbers, builds one DropInPin
+    /// per unique symbol pin, and maps pins to pads using auto_fill.
+    /// Returns the part unchanged when a list would exceed the cap.
+    ///
+    /// # Rules
+    /// - Pads are sorted, unique, and non-empty pad numbers only.
+    /// - Pins are deduplicated by number; first occurrence wins.
+    /// - pin_to_pad is populated from auto_fill for every pin that has at least one pad.
+    ///   A pin with no matching pad has no entry, so the check reports the pinout as unmapped.
+    ///
+    /// # Dependencies
+    /// - crates/library/src/pin_pad_map.rs `auto_fill`
+    /// - crates/library/src/lib.rs `SymbolDefinition`, `FootprintDefinition`
+    ///
+    /// # Do not
+    /// - Truncate lists when a cap is exceeded; return unchanged instead.
+    pub fn with_geometry(
+        self,
+        symbol: &SymbolDefinition,
+        footprint: &FootprintDefinition,
+    ) -> DropInPart {
+        // Collect unique non-empty pad numbers, sorted.
+        let mut pads: Vec<String> = footprint
+            .pads
+            .iter()
+            .map(|p| p.number.trim().to_owned())
+            .filter(|n| !n.is_empty())
+            .collect();
+        pads.sort();
+        pads.dedup();
+        if pads.len() > MAX_PADS {
+            return self;
+        }
+
+        // Collect unique pins by number, first occurrence wins.
+        let mut seen = std::collections::BTreeSet::new();
+        let mut pins: Vec<DropInPin> = Vec::new();
+        for pin in &symbol.pins {
+            if seen.insert(pin.number.as_str()) {
+                pins.push(DropInPin {
+                    number: pin.number.clone(),
+                    name: pin.name.clone(),
+                    electrical_type: pin.electrical_type.clone(),
+                });
+            }
+        }
+        if pins.len() > MAX_PINS {
+            return self;
+        }
+
+        // Build pin_to_pad from auto_fill.
+        let map = auto_fill(symbol, footprint);
+        let mut pin_to_pad = std::collections::BTreeMap::new();
+        for pin in &pins {
+            if let Some(pads_for_pin) = map.pads_for_pin(&pin.number)
+                && !pads_for_pin.is_empty()
+            {
+                pin_to_pad.insert(pin.number.clone(), pads_for_pin.to_vec());
+            }
+        }
+        if pin_to_pad.len() > MAX_PIN_TO_PAD {
+            return self;
+        }
+
+        DropInPart {
+            footprint: footprint.name.clone(),
+            pads,
+            pins,
+            pin_to_pad,
+            ..self
         }
     }
 }

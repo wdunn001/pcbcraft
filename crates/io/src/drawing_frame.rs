@@ -114,7 +114,7 @@ fn meta_or_settings(p: &Project, sheet: Id, key: &str) -> String {
     }
     let settings = p.page_settings_of(sheet);
     match key {
-        "title" => settings.title,
+        "title" => p.page_name(sheet).unwrap_or_default().to_owned(),
         "revision" => settings.revision,
         "date" => settings.date,
         "company" => settings.company,
