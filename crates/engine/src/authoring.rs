@@ -1621,6 +1621,12 @@ pub(super) fn run(
                 return Err(Error::Invalid("path must be 1 to 1024 bytes".into()));
             }
             let path = std::path::Path::new(&a.path);
+            if !path.is_file() {
+                return Err(Error::Invalid(format!(
+                    "no downloaded file was found at {}",
+                    a.path
+                )));
+            }
             let kind = pcbcraft_library::samtec::file_kind(path)
                 .map_err(|e| Error::Invalid(e.to_string()))?;
             let provenance = pcbcraft_library::samtec::user_download_provenance(&a.mpn, kind, path)
