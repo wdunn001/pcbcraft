@@ -65,7 +65,8 @@ fn a_newcomer_annotates_a_datasheet() -> Result<(), String> {
     assert_eq!(exported.documents.len(), 1);
 
     // They can import them on a different machine.
-    let _guard2 = with_store(dir.join("store2.json"));
+    // The lock from the first call is still held, so only the store path changes here.
+    set_store_path_for_test(Some(dir.join("store2.json")));
     let imported = import_file(&exported, ImportMode::ReplaceAll)?;
     assert_eq!(imported, 1);
     let entries = list_entries(hash)?;
