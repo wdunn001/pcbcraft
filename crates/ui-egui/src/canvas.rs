@@ -336,6 +336,19 @@ enum CanvasIcon {
     ZoomOut,
 }
 impl App {
+    /// False when the selected schematic part is not on the canvas right now (its page is not
+    /// in view or its Symbols row is hidden), so the move and rotate buttons never float over
+    /// an empty spot. Every other selection counts as drawn.
+    fn selected_part_is_drawn(&self, id: Id) -> bool {
+        if self.tab != Tab::Schematic {
+            return true;
+        }
+        let Some(c) = self.project.component(id) else {
+            return true;
+        };
+        crate::page_scope::in_view(&self.project, self.schematic_page(), c.sheet)
+            && !self.sheet_row_hidden(id)
+    }
     /// One square icon button over the canvas. Its rectangle is published for
     /// the tests under `id`.
     fn canvas_icon(
@@ -1125,6 +1138,7 @@ impl App {
         self.minimap_show(ui.ctx(), rect, card.response.rect);
         if matches!(self.tab, Tab::Schematic | Tab::Pcb)
             && let Some(id) = self.selected
+            && self.selected_part_is_drawn(id)
         {
             let world = self
                 .project
