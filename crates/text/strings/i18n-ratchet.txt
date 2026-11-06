@@ -1,4 +1,4 @@
-# Localization counts, from `cargo xtask i18n --write`.
+# Localization counts, from the i18n check.
 # Format: kind | scope | count
 # kind: missing (keys a locale lacks), literals (user-visible string literals outside the
 # catalog, per file), concatenation (joined translated fragments, per file), unused (keys
@@ -9,14 +9,13 @@ literals | arrange.rs | 18
 literals | assistant/cards.rs | 1
 literals | authoring.rs | 7
 literals | datums.rs | 26
-literals | file_dialogs.rs | 17
+literals | file_dialogs.rs | 19
 literals | footprint_wizard.rs | 12
 literals | impedance_panel.rs | 18
 literals | reference_panel.rs | 23
+literals | setup_wizard.rs | 18
 literals | sources.rs | 2
 literals | via_span.rs | 13
-missing | de | 768
-missing | es | 1927
-missing | fr | 768
-unused | keys | 83
+literals | wire_canvas.rs | 16
+unused | keys | 107
 concatenation | library_dock.rs | 1
