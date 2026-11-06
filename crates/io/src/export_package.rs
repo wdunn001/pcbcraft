@@ -621,7 +621,7 @@ pub fn build_package(
         )
     });
     let gerbers = if needs_gerbers {
-        crate::gerber_files(p)?
+        crate::gerber_files_at(p, crate::package::PACKAGE_CREATION_DATE)?
     } else {
         BTreeMap::new()
     };
