@@ -21,9 +21,13 @@ use crate::schema::{ReportState, TakedownRow, TakedownState};
 /// - Add new events without documenting their transitions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReportEvent {
+    /// Someone has looked at the report and will decide.
     Triage,
+    /// The report was acted on and is finished.
     Resolve,
+    /// The report was reviewed and needs no action.
     Dismiss,
+    /// A finished report needs another look.
     Reopen,
 }
 
@@ -74,9 +78,13 @@ pub fn advance_report(state: ReportState, event: ReportEvent) -> Result<ReportSt
 /// - Add new events without documenting their transitions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TakedownEvent {
+    /// The material is taken down.
     RemoveMaterial,
+    /// The owner of the material disputes the takedown.
     CounterNotice,
+    /// The material is put back.
     Restore,
+    /// The takedown is finished.
     Close,
 }
 
