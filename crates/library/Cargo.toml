@@ -9,6 +9,7 @@ license.workspace = true
 default = []
 distributor-network = ["dep:ureq", "dep:keyring"]
 datasheet-sidecar = []
+vendor-integrations = []
 
 [dependencies]
 pcbcraft-clock.workspace = true
