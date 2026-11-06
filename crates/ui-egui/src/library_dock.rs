@@ -1880,11 +1880,8 @@ impl App {
             if let Card::Online(p, _) = card
                 && p.manufacturer == "Samtec"
                 && !p.mpn.is_empty()
+                && let Ok(url) = pcbcraft_library::samtec::manufacturer_page_url(&p.mpn)
             {
-                let url = match pcbcraft_library::samtec::manufacturer_page_url(&p.mpn) {
-                    Ok(u) => u,
-                    Err(_) => continue,
-                };
                 about.push(
                     Item::new(
                         CardAction::ManufacturerPage(url),

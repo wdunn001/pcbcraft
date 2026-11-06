@@ -33,7 +33,7 @@ fn a_newcomer_downloads_the_manufacturer_files_and_drops_them_onto_the_part() ->
     waits_until(&ctx, &mut app, |app| app.online_settled());
 
     // Find a Samtec part card and open its menu.
-    let controls = audit::controls(&ctx, &app);
+    let controls = super::audit::controls(&ctx, &app);
     let samtec_card = controls.iter().find(|c| {
         c.id.as_deref()
             .is_some_and(|id| id.contains("Samtec") || id.contains("TMM"))

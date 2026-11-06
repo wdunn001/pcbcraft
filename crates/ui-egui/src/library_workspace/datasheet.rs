@@ -530,7 +530,6 @@ impl App {
                 }
             },
         );
-        self.library_manufacturer_page(ui, f);
         card(
             ui,
             &t!("libws.ds.details"),
@@ -543,6 +542,7 @@ impl App {
             },
         );
         viewer.show(ui, &t);
+        self.library_manufacturer_page(ui, f);
     }
 }
 
@@ -583,8 +583,7 @@ impl App {
                 );
                 let mut path = String::new();
                 ui.horizontal(|ui| {
-                    ui.text_edit_singleline(&mut path)
-                        .desired_width(300.0)
+                    ui.add(egui::TextEdit::singleline(&mut path).desired_width(300.0))
                         .on_hover_text(t!("libws.manufacturer.path_tip"));
                     if secondary_button(
                         ui,
