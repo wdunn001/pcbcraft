@@ -170,12 +170,13 @@ fn a_newcomer_compares_prices_for_a_part() -> Result<(), String> {
         "and names the date of the cached prices: {}",
         painted(&ctx, &mut app)
     );
+    // The table shows the price at the chosen order quantity, one unit to begin with.
     for text in [
         "Distributor A",
         "Distributor B",
         "Distributor C",
         "A-311-330FRCT-ND",
-        "0.011 USD",
+        "0.028 USD",
     ] {
         assert!(
             paints_text(&ctx, &mut app, text)?,
@@ -183,6 +184,24 @@ fn a_newcomer_compares_prices_for_a_part() -> Result<(), String> {
             painted(&ctx, &mut app)
         );
     }
+    assert!(
+        paints_text(&ctx, &mut app, "Order quantity")?,
+        "the page offers an order quantity: {}",
+        painted(&ctx, &mut app)
+    );
+    // Choosing a larger quantity shows that price break, and the largest shows the lowest.
+    app.libws.vendors_qty = 2;
+    assert!(
+        paints_text(&ctx, &mut app, "0.011 USD")?,
+        "the vendor table shows the hundred piece price: {}",
+        painted(&ctx, &mut app)
+    );
+    app.libws.vendors_qty = 3;
+    assert!(
+        paints_text(&ctx, &mut app, "0.008 USD")?,
+        "the vendor table shows the thousand piece price: {}",
+        painted(&ctx, &mut app)
+    );
     tap_id(&ctx, &mut app, "button:Refresh prices")?;
     assert!(
         app.message.contains("no supplier connection"),
