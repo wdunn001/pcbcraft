@@ -1252,13 +1252,19 @@ pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value,
                     return Err(format!("unexpected key: {key}"));
                 }
             }
-            let incumbent = drop_in_part_arg(
-                args.get("incumbent").ok_or("missing incumbent")?,
-                "incumbent",
+            let incumbent = with_geometry_files(
+                drop_in_part_arg(
+                    args.get("incumbent").ok_or("missing incumbent")?,
+                    "incumbent",
+                )?,
+                args.get("incumbent_geometry"),
             )?;
-            let candidate = drop_in_part_arg(
-                args.get("candidate").ok_or("missing candidate")?,
-                "candidate",
+            let candidate = with_geometry_files(
+                drop_in_part_arg(
+                    args.get("candidate").ok_or("missing candidate")?,
+                    "candidate",
+                )?,
+                args.get("candidate_geometry"),
             )?;
             let report = pcbcraft_library::drop_in_check(&incumbent, &candidate)?;
             Ok(json!({"drop_in": report.drop_in, "findings": report.findings}))
@@ -1933,7 +1939,12 @@ mod tests {
             "temp_min_c": -55.0,
             "temp_max_c": 155.0,
             "power_w": 0.1,
-            "lifecycle": "active"
+            "lifecycle": "active",
+            "lifecycle_raw": "Active",
+            "price_breaks": [],
+            "stock": null, "stock_at": null, "min_order_qty": null, "order_multiple": null,
+            "packaging": null, "rohs": null, "datasheet_url": null,
+            "symbol": null, "footprint": null, "model3d": null
         });
         let args = json!({
             "incumbent": {"listing": listing},
@@ -1969,7 +1980,12 @@ mod tests {
             "temp_min_c": -55.0,
             "temp_max_c": 155.0,
             "power_w": 0.1,
-            "lifecycle": "active"
+            "lifecycle": "active",
+            "lifecycle_raw": "Active",
+            "price_breaks": [],
+            "stock": null, "stock_at": null, "min_order_qty": null, "order_multiple": null,
+            "packaging": null, "rohs": null, "datasheet_url": null,
+            "symbol": null, "footprint": null, "model3d": null
         });
         let (_dir, sym, _fp) = resistor_files()?;
         let symbol = symbol(Path::new(&sym), "R")?;
@@ -1983,10 +1999,10 @@ mod tests {
             .iter()
             .find(|f| f["code"] == "footprint")
             .ok_or("no footprint finding")?;
-        assert_eq!(
-            footprint["pass"], false,
-            "footprint must fail without footprint"
-        );
+        // Half the geometry leaves the pads unknown, so the footprint comparison falls back
+        // to the package keys, which are the same here.
+        assert_eq!(footprint["pass"], true, "same package key passes");
+        assert_eq!(footprint["message"], "Package keys match");
         Ok(())
     }
 }
