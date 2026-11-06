@@ -8944,7 +8944,7 @@ fn default_width() -> f64 {
 }
 /// Track width to use when a command leaves width out: the width of the net's
 /// class, or the standard width for unclassified nets.
-fn class_width(p: &Project, net: Id) -> f64 {
+pub(crate) fn class_width(p: &Project, net: Id) -> f64 {
     p.net_class(net)
         .map(|class| class.width)
         .unwrap_or_else(default_width)
