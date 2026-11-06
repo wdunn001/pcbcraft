@@ -42,6 +42,7 @@ mod keymap;
 mod label_edit;
 mod layer_picker;
 mod layer_record_panel;
+mod layer_shape_edit;
 mod layer_visibility;
 mod layers_tree;
 mod layout_totals;
@@ -7204,7 +7205,7 @@ impl App {
                     if let Some(page) = self.hovered_page_preview() {
                         self.page_properties(ui, page, true);
                     } else if self.selected.is_none()
-                        && self.project.board.outline.is_some()
+                        && self.editing_shape().0.len() >= 3
                         && (self.outline_ui.segment.is_some()
                             || self
                                 .tree
@@ -7505,6 +7506,14 @@ impl App {
                     }
                     if !self.edit.hint.is_empty() {
                         status_item(ui, None, &self.edit.hint, &t!("modifier.status.tip"), false);
+                    } else if !self.shape_status().is_empty() {
+                        status_item(
+                            ui,
+                            None,
+                            &self.shape_status(),
+                            &t!("shape.status.tip"),
+                            false,
+                        );
                     } else if !matches!(self.tool, Tool::Select) {
                         status_item(
                             ui,

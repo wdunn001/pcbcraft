@@ -1830,13 +1830,10 @@ fn a_newcomer_starts_on_a_chamfered_board_and_resizes_it() -> Result<(), String>
         "the board row opens board settings: {}",
         app.message
     );
-    assert!(
-        scrolled_to(&ctx, &mut app, "Width")?,
-        "board settings shows the size fields: {}",
-        app.message
-    );
-    type_into(&ctx, &mut app, "spinbutton:Board width", "80")?;
-    type_into(&ctx, &mut app, "spinbutton:Board height", "50")?;
+    tap_id(&ctx, &mut app, "button:Start from a rectangle")?;
+    type_into(&ctx, &mut app, "spinbutton:Rectangle width", "80")?;
+    type_into(&ctx, &mut app, "spinbutton:Rectangle height", "50")?;
+    tap_id(&ctx, &mut app, "button:Make rectangle")?;
     let outline = app.project.board.outline.clone().unwrap_or_default();
     assert_eq!(
         app.project.board.width, 80.0,

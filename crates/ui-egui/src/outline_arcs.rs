@@ -3,7 +3,7 @@
 //! engine commands.
 
 use super::*;
-use pcbcraft_doc::{Project, segment_arc};
+use pcbcraft_doc::segment_arc;
 use pcbcraft_geom::Point;
 
 /// What on the outline the pointer is over.
@@ -28,6 +28,12 @@ pub(crate) struct OutlineUi {
     pub(crate) radius: f64,
     pub(crate) convex: bool,
     loaded: Option<usize>,
+    /// The "Start from a rectangle" window is open.
+    pub(crate) rect_open: bool,
+    /// Width typed in that window, in millimetres.
+    pub(crate) rect_w: f64,
+    /// Height typed in that window, in millimetres.
+    pub(crate) rect_h: f64,
     drag: Option<OutlineDrag>,
     drag_preview: Option<Point>,
 }
@@ -38,7 +44,7 @@ impl OutlineUi {
         self.loaded = None;
     }
 
-    pub(crate) fn pick(&mut self, hit: OutlineHit, project: &Project) {
+    pub(crate) fn pick(&mut self, hit: OutlineHit, points: &[Point], arcs: &[Option<Point>]) {
         self.segment = Some(match hit {
             OutlineHit::Vertex(i) | OutlineHit::ArcMid(i) | OutlineHit::Segment(i) => i,
         });
@@ -47,8 +53,7 @@ impl OutlineUi {
             self.radius = 5.0;
             self.convex = true;
             if let Some(seg) = self.segment
-                && let Some(points) = project.board.outline.as_ref()
-                && let Some(arc) = segment_arc(points, &project.board.outline_arcs, seg)
+                && let Some(arc) = segment_arc(points, arcs, seg)
             {
                 self.radius = arc.radius;
             }
@@ -59,21 +64,14 @@ impl OutlineUi {
         self.drag.is_some()
     }
 
-    fn sync_radius_from_project(&mut self, project: &Project) {
+    fn sync_radius_from_shape(&mut self, points: &[Point], arcs: &[Option<Point>]) {
         let Some(seg) = self.segment else {
             return;
         };
-        let Some(points) = project.board.outline.as_ref() else {
-            return;
-        };
-        if let Some(arc) = segment_arc(points, &project.board.outline_arcs, seg) {
+        if let Some(arc) = segment_arc(points, arcs, seg) {
             self.radius = arc.radius;
         }
     }
-}
-
-fn outline_points(project: &Project) -> Option<&[Point]> {
-    project.board.outline.as_deref().filter(|p| p.len() >= 3)
 }
 
 fn near(zoom: f32, dist: f64, px: f64) -> bool {
@@ -121,9 +119,15 @@ fn arc_mid_display(points: &[Point], arcs: &[Option<Point>], i: usize) -> Point 
 }
 
 /// Closest outline feature under `pos`, if any.
-pub(crate) fn pick_at(project: &Project, pos: Point, zoom: f32) -> Option<OutlineHit> {
-    let points = outline_points(project)?;
-    let arcs = &project.board.outline_arcs;
+pub(crate) fn pick_at(
+    points: &[Point],
+    arcs: &[Option<Point>],
+    pos: Point,
+    zoom: f32,
+) -> Option<OutlineHit> {
+    if points.len() < 3 {
+        return None;
+    }
     let n = points.len();
     let mut best: Option<(f64, OutlineHit)> = None;
     #[allow(clippy::needless_range_loop)]
@@ -183,13 +187,11 @@ impl App {
         if self.tab != Tab::Pcb {
             return;
         }
-        let Some(points) = outline_points(&self.project) else {
-            return;
-        };
-        if !matches!(self.tool, Tool::Select) {
+        let (points, arcs) = self.editing_shape();
+        if points.len() < 3 || !matches!(self.tool, Tool::Select) {
             return;
         }
-        let arcs = &self.project.board.outline_arcs;
+        let (points, arcs) = (points.as_slice(), arcs.as_slice());
         let n = points.len();
         let accent = self.accent();
         let stroke = Stroke::new(1.5, accent);
@@ -261,6 +263,7 @@ impl App {
         &mut self,
         response: &egui::Response,
         cursor: Option<Point>,
+        press: Option<Point>,
         zoom: f32,
     ) {
         if !matches!(self.tool, Tool::Select) || self.tab != Tab::Pcb {
@@ -271,12 +274,15 @@ impl App {
         let Some(pos) = cursor else {
             return;
         };
+        let (points, arcs) = self.editing_shape();
+        // The drag starts a few pixels after the press; the corner is where the press landed.
+        let grabbed = press.unwrap_or(pos);
         if response.drag_started_by(egui::PointerButton::Primary)
-            && let Some(hit) = pick_at(&self.project, pos, zoom)
+            && let Some(hit) = pick_at(&points, &arcs, grabbed, zoom)
         {
             self.edit.press = None;
             self.select(None);
-            self.outline_ui.pick(hit, &self.project);
+            self.outline_ui.pick(hit, &points, &arcs);
             self.outline_ui.drag = Some(match hit {
                 OutlineHit::Vertex(i) => OutlineDrag::Vertex(i),
                 OutlineHit::ArcMid(i) | OutlineHit::Segment(i) => OutlineDrag::ArcMid(i),
@@ -292,20 +298,11 @@ impl App {
             };
             let at = crate::canvas::snap(self.outline_ui.drag_preview.take().unwrap_or(pos));
             match drag {
-                OutlineDrag::Vertex(i) => {
-                    self.run(
-                        "board.outline_set_vertex",
-                        json!({"index": i, "at": {"x": at.x, "y": at.y}}),
-                    );
-                }
-                OutlineDrag::ArcMid(i) => {
-                    self.run(
-                        "board.outline_set_arc",
-                        json!({"segment": i, "mid": {"x": at.x, "y": at.y}}),
-                    );
-                }
+                OutlineDrag::Vertex(i) => self.shape_move_corner(i, at),
+                OutlineDrag::ArcMid(i) => self.shape_bend_edge(i, at),
             }
-            self.outline_ui.sync_radius_from_project(&self.project);
+            let (points, arcs) = self.editing_shape();
+            self.outline_ui.sync_radius_from_shape(&points, &arcs);
         }
     }
 
@@ -313,34 +310,28 @@ impl App {
         if self.tab != Tab::Pcb || !matches!(self.tool, Tool::Select) {
             return false;
         }
-        let Some(hit) = pick_at(&self.project, pos, zoom) else {
+        let (points, arcs) = self.editing_shape();
+        let Some(hit) = pick_at(&points, &arcs, pos, zoom) else {
             return false;
         };
         self.select(None);
-        self.outline_ui.pick(hit, &self.project);
+        self.outline_ui.pick(hit, &points, &arcs);
         true
     }
 
     pub(crate) fn outline_inspector(&mut self, ui: &mut egui::Ui) {
+        let own = self.active_own_shape();
+        self.shape_summary_section(ui, own);
         let Some(seg) = self.outline_ui.segment else {
-            if outline_points(&self.project).is_some() {
-                ui.label(
-                    crate::fonts::caption(t!("board.outline.select_hint")).color(self.muted()),
-                );
-            }
+            ui.label(crate::fonts::caption(t!("board.outline.select_hint")).color(self.muted()));
             return;
         };
-        let Some(points) = self.project.board.outline.clone() else {
-            return;
-        };
+        let (points, arcs) = self.editing_shape();
         let n = points.len();
-        let curved = self
-            .project
-            .board
-            .outline_arcs
-            .get(seg)
-            .and_then(|m| *m)
-            .is_some();
+        if seg >= n {
+            return;
+        }
+        let curved = arcs.get(seg).and_then(|m| *m).is_some();
         ui_kit::section::section(
             ui,
             "board-edge",
@@ -383,20 +374,9 @@ impl App {
                     .on_hover_text(t!("board.outline.apply_radius.tip"))
                     .clicked()
                 {
-                    let side = if self.outline_ui.convex {
-                        "convex"
-                    } else {
-                        "concave"
-                    };
-                    self.run(
-                        "board.outline_set_arc",
-                        json!({
-                            "segment": seg,
-                            "radius": self.outline_ui.radius,
-                            "side": side,
-                        }),
-                    );
-                    self.outline_ui.sync_radius_from_project(&self.project);
+                    self.shape_round_edge(seg, self.outline_ui.radius, self.outline_ui.convex);
+                    let (points, arcs) = self.editing_shape();
+                    self.outline_ui.sync_radius_from_shape(&points, &arcs);
                 }
                 if ui
                     .add_enabled(curved, egui::Button::new(t!("board.outline.straighten")))
@@ -407,7 +387,25 @@ impl App {
                     })
                     .clicked()
                 {
-                    self.run("board.outline_straighten", json!({"segment": seg}));
+                    self.shape_straighten_edge(seg);
+                }
+                if ui
+                    .add_enabled(
+                        n < crate::layer_shape_edit::MAX_CORNERS,
+                        egui::Button::new(t!("shape.corner.add")),
+                    )
+                    .on_hover_text(t!("shape.corner.add.tip"))
+                    .clicked()
+                {
+                    self.shape_add_corner(seg);
+                }
+                if ui
+                    .add_enabled(n > 3, egui::Button::new(t!("shape.corner.remove")))
+                    .on_hover_text(t!("shape.corner.remove.tip"))
+                    .clicked()
+                {
+                    self.shape_remove_corner(seg);
+                    self.outline_ui.clear_pick();
                 }
             },
         );
@@ -432,7 +430,8 @@ mod tests {
                 {"x":0.0,"y":30.0}
             ]}),
         );
-        let hit = pick_at(&app.project, Point::new(40.0, 0.0), 15.0).ok_or_else(|| {
+        let (points, arcs) = app.editing_shape();
+        let hit = pick_at(&points, &arcs, Point::new(40.0, 0.0), 15.0).ok_or_else(|| {
             format!(
                 "corner vertex: {} {:?}",
                 app.message, app.project.board.outline
