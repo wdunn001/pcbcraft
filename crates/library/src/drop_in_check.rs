@@ -223,7 +223,8 @@ impl DropInPart {
     /// # Rules
     /// - Pads are sorted, unique, and non-empty pad numbers only.
     /// - Pins are deduplicated by number; first occurrence wins.
-    /// - pin_to_pad is populated from auto_fill for every pin with pads.
+    /// - pin_to_pad is populated from auto_fill for every pin that has at least one pad.
+    ///   A pin with no matching pad has no entry, so the check reports the pinout as unmapped.
     ///
     /// # Dependencies
     /// - crates/library/src/pin_pad_map.rs `auto_fill`
@@ -269,7 +270,9 @@ impl DropInPart {
         let map = auto_fill(symbol, footprint);
         let mut pin_to_pad = std::collections::BTreeMap::new();
         for pin in &pins {
-            if let Some(pads_for_pin) = map.pads_for_pin(&pin.number) {
+            if let Some(pads_for_pin) = map.pads_for_pin(&pin.number)
+                && !pads_for_pin.is_empty()
+            {
                 pin_to_pad.insert(pin.number.clone(), pads_for_pin.to_vec());
             }
         }
