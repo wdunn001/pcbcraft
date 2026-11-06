@@ -1269,6 +1269,90 @@ pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value,
             let report = pcbcraft_library::drop_in_check(&incumbent, &candidate)?;
             Ok(json!({"drop_in": report.drop_in, "findings": report.findings}))
         }
+        "library.publish" => {
+            let id = text("id")?;
+            let title = text("title")?;
+            let version = text("version")?;
+            let kind = text("kind")?;
+            let tags = args
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(String::from)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let files = args
+                .get("files")
+                .and_then(|v| v.as_array())
+                .ok_or("files array is required")?
+                .iter()
+                .map(|f| {
+                    let path = f
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .ok_or("file path is required")?;
+                    let content = f
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .ok_or("file content is required")?;
+                    Ok((path.to_string(), content.as_bytes().to_vec()))
+                })
+                .collect::<Result<BTreeMap<String, Vec<u8>>, String>>()?;
+            let registry_root = config
+                .file("library-registry")
+                .map_err(|e| format!("cannot determine library registry path: {e}"))?;
+            let input = pcbcraft_library::static_registry::PublishInput {
+                id: id.to_string(),
+                title: title.to_string(),
+                version: version.to_string(),
+                kind: kind.to_string(),
+                tags,
+                files,
+            };
+            let dest = pcbcraft_library::static_registry::publish_to_folder(&registry_root, input)?;
+            Ok(json!({
+                "published": id,
+                "version": version,
+                "path": dest.to_string_lossy().to_string()
+            }))
+        }
+        "library.install" => {
+            let id = text("id")?;
+            let version = text("version")?;
+            let registry_root = config
+                .file("library-registry")
+                .map_err(|e| format!("cannot determine library registry path: {e}"))?;
+            let dest = config
+                .file("installed-publications")
+                .map_err(|e| format!("cannot determine install path: {e}"))?
+                .join(id)
+                .join(version);
+            let written = pcbcraft_library::static_registry::install_publication(
+                &registry_root,
+                id,
+                version,
+                &dest,
+            )?;
+            Ok(json!({
+                "installed": id,
+                "version": version,
+                "files": written,
+                "path": dest.to_string_lossy().to_string()
+            }))
+        }
+        "library.list_publications" => {
+            let registry_root = config
+                .file("library-registry")
+                .map_err(|e| format!("cannot determine library registry path: {e}"))?;
+            let items = pcbcraft_library::static_registry::build_catalogue(&registry_root)?.items;
+            Ok(json!({
+                "publications": items,
+                "count": items.len()
+            }))
+        }
         name if name.starts_with("registry.") => crate::registry::read_tool(name, args),
         _ => Err("unknown library query".into()),
     }
@@ -2003,6 +2087,63 @@ mod tests {
         // to the package keys, which are the same here.
         assert_eq!(footprint["pass"], true, "same package key passes");
         assert_eq!(footprint["message"], "Package keys match");
+        Ok(())
+    }
+    #[test]
+    fn publish_install_round_trip_verifies_hashes_and_strips_privacy() -> Result<(), String> {
+        let root = TestDirectory::new()?;
+        let config = UserConfig::in_folder(root.0.join("config"));
+        let registry = root.0.join("library-registry");
+        std::fs::create_dir_all(&registry).map_err(|e| e.to_string())?;
+
+        // Publish a design bundle with some content
+        let publish_result = read_tool(
+            &config,
+            "library.publish",
+            &json!({
+                "id": "test-design",
+                "title": "Test Design",
+                "version": "1.0.0",
+                "kind": "design",
+                "tags": ["test"],
+                "files": [
+                    {"path": "design.kicad_pcb", "content": "(kicad_pcb (version 20250114))"},
+                    {"path": "README.md", "content": "A test design"}
+                ]
+            }),
+        )?;
+        assert_eq!(publish_result["published"], "test-design");
+        assert_eq!(publish_result["version"], "1.0.0");
+
+        // List publications to confirm it appears
+        let list_result = read_tool(&config, "library.list_publications", &json!({}))?;
+        assert_eq!(list_result["count"], 1);
+        assert_eq!(list_result["publications"][0]["id"], "test-design");
+
+        // Install the published design
+        let install_result = read_tool(
+            &config,
+            "library.install",
+            &json!({
+                "id": "test-design",
+                "version": "1.0.0"
+            }),
+        )?;
+        assert_eq!(install_result["installed"], "test-design");
+        let installed_files = install_result["files"]
+            .as_array()
+            .ok_or("the install result lists its files")?;
+        assert_eq!(installed_files.len(), 2);
+
+        // Verify the installed files match the published content (hash verification)
+        let design_path = install_result["path"]
+            .as_str()
+            .ok_or("the install result names its folder")?
+            .to_string()
+            + "/design.kicad_pcb";
+        let design_content = std::fs::read_to_string(&design_path).map_err(|e| e.to_string())?;
+        assert_eq!(design_content, "(kicad_pcb (version 20250114))");
+
         Ok(())
     }
 }
