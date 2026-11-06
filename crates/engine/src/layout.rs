@@ -386,17 +386,17 @@ fn place_suggest(p: &Project, params: &Value) -> Result<Value, Error> {
     let sat_component = p
         .component(a.satellite)
         .ok_or_else(|| Error::Invalid(format!("no component with id {}", a.satellite)))?;
-    let sat_fp = p
+    if !p
         .board
         .footprints
         .iter()
-        .find(|f| f.component == a.satellite)
-        .ok_or_else(|| {
-            Error::Invalid(format!(
-                "component {} is not placed on the board",
-                sat_component.reference
-            ))
-        })?;
+        .any(|f| f.component == a.satellite)
+    {
+        return Err(Error::Invalid(format!(
+            "component {} is not placed on the board",
+            sat_component.reference
+        )));
+    }
 
     // For decoupling, find the anchor IC and its power pin.
     if rule == "decoupling" {
@@ -447,7 +447,7 @@ fn place_suggest(p: &Project, params: &Value) -> Result<Value, Error> {
         let max_dist = p.decoupling.max_distance_mm;
         let mut candidates = vec![];
         // Try 8 directions around the pin.
-        let angles = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0];
+        let angles = [0.0_f64, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0];
         for angle in angles {
             let rad = angle.to_radians();
             let dx = max_dist * rad.cos();
@@ -467,6 +467,7 @@ fn place_suggest(p: &Project, params: &Value) -> Result<Value, Error> {
             let sb = b["score"].as_f64().unwrap_or(1.0);
             sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
         });
+        candidates.truncate(MAX_CANDIDATES);
 
         Ok(json!({
             "satellite": {"id": a.satellite, "reference": sat_component.reference},
@@ -510,15 +511,14 @@ fn place_apply(
     let a: Params = super::parse(params)?;
 
     // Check revision if provided.
-    if let Some(rev) = a.revision {
-        if let Some(expected) = expected_revision {
-            if rev != expected {
-                return Err(Error::Stale {
-                    expected: rev,
-                    current: expected,
-                });
-            }
-        }
+    if let Some(rev) = a.revision
+        && let Some(expected) = expected_revision
+        && rev != expected
+    {
+        return Err(Error::Stale {
+            expected: rev,
+            current: expected,
+        });
     }
 
     // Parse position.
@@ -537,9 +537,11 @@ fn place_apply(
     }
 
     // Find and move the footprint.
-    let component = p
+    let reference = p
         .component(a.component)
-        .ok_or_else(|| Error::Invalid(format!("no component with id {}", a.component)))?;
+        .ok_or_else(|| Error::Invalid(format!("no component with id {}", a.component)))?
+        .reference
+        .clone();
     let fp = p
         .board
         .footprints
@@ -548,20 +550,20 @@ fn place_apply(
         .ok_or_else(|| {
             Error::Invalid(format!(
                 "component {} is not placed on the board",
-                component.reference
+                reference
             ))
         })?;
     if fp.locked == Some(true) {
         return Err(Error::Invalid(format!(
             "footprint of {} is locked against placement changes",
-            component.reference
+            reference
         )));
     }
     fp.position = Point::new(x, y);
 
     Ok(json!({
         "component": a.component,
-        "reference": component.reference,
+        "reference": reference,
         "position": {"x": r(x), "y": r(y)},
     }))
 }
