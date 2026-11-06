@@ -1277,7 +1277,12 @@ pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value,
             let tags = args
                 .get("tags")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(String::from)
+                        .collect::<Vec<_>>()
+                })
                 .unwrap_or_default();
             let files = args
                 .get("files")
