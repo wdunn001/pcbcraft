@@ -536,7 +536,7 @@ fn a_newcomer_copies_a_part_to_the_personal_library() -> Result<(), String> {
     let personal = std::env::temp_dir().join(format!(
         "pcbcraft-personal-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
+        pcbcraft_clock::system_now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| e.to_string())?
             .as_millis()
@@ -545,14 +545,16 @@ fn a_newcomer_copies_a_part_to_the_personal_library() -> Result<(), String> {
     let personal_str = personal.to_string_lossy().to_string();
 
     let (_ctx, mut app) = library_open();
-    app.tool_call(
+    let added = app.tool_call(
         "library.add_folder",
         json!({"path": personal_str, "name": "My parts"}),
     );
-    app.tool_call(
+    assert!(added, "the personal folder was added: {}", app.message);
+    let marked = app.tool_call(
         "library.set_source_role",
         json!({"path": personal_str, "role": "personal"}),
     );
+    assert!(marked, "the folder was marked personal: {}", app.message);
 
     // Create and place a project part.
     let mut fp = authoring::new_footprint();
