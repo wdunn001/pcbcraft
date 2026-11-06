@@ -30,6 +30,7 @@ mod drill_table;
 mod editing;
 mod export;
 mod files_home;
+mod files_shape;
 mod findings_counts;
 mod footer;
 mod glyphs;

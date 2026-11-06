@@ -1025,6 +1025,45 @@ fn starter_models_list() -> Result<Value, String> {
     }))
 }
 
+/// Parse a drop-in argument as either a DropInPart or a listing object.
+///
+/// Accepts the older direct DropInPart shape or the newer listing shape that
+/// wraps a PartListing with optional symbol and footprint definitions. When
+/// symbol and footprint are present the geometry is attached so the pin and
+/// pad lists are populated.
+///
+/// # Rules
+/// - Detects the listing shape by the presence of the `listing` key.
+/// - Missing symbol or footprint is allowed; geometry stays unknown.
+/// - Errors name the argument key.
+///
+/// # Dependencies
+/// - crates/library/src/drop_in_check.rs DropInPart
+/// - crates/library/src/listing.rs PartListing
+///
+/// # Do not
+/// - Infer geometry from listing text; only accept explicit definitions.
+fn drop_in_part_arg(v: &Value, key: &str) -> Result<pcbcraft_library::DropInPart, String> {
+    if v.get("listing").is_some() {
+        let listing: pcbcraft_library::listing::PartListing = serde_json::from_value(
+            v.get("listing")
+                .cloned()
+                .ok_or_else(|| format!("{key}.listing is missing"))?,
+        )
+        .map_err(|e| format!("{key}.listing: {e}"))?;
+        let part = pcbcraft_library::DropInPart::from_listing(&listing);
+        if let (Some(sym), Some(fp)) = (v.get("symbol"), v.get("footprint")) {
+            let symbol: pcbcraft_library::SymbolDefinition =
+                serde_json::from_value(sym.clone()).map_err(|e| format!("{key}.symbol: {e}"))?;
+            let footprint: pcbcraft_library::FootprintDefinition =
+                serde_json::from_value(fp.clone()).map_err(|e| format!("{key}.footprint: {e}"))?;
+            return Ok(part.with_geometry(&symbol, &footprint));
+        }
+        return Ok(part);
+    }
+    serde_json::from_value(v.clone()).map_err(|e| format!("{key}: {e}"))
+}
+
 pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value, String> {
     let text = |key: &str| {
         args.get(key)
@@ -1213,14 +1252,20 @@ pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value,
                     return Err(format!("unexpected key: {key}"));
                 }
             }
-            let incumbent: pcbcraft_library::DropInPart =
-                serde_json::from_value(args.get("incumbent").cloned().ok_or("missing incumbent")?)
-                    .map_err(|e| format!("incumbent: {e}"))?;
-            let candidate: pcbcraft_library::DropInPart =
-                serde_json::from_value(args.get("candidate").cloned().ok_or("missing candidate")?)
-                    .map_err(|e| format!("candidate: {e}"))?;
-            let incumbent = with_geometry_files(incumbent, args.get("incumbent_geometry"))?;
-            let candidate = with_geometry_files(candidate, args.get("candidate_geometry"))?;
+            let incumbent = with_geometry_files(
+                drop_in_part_arg(
+                    args.get("incumbent").ok_or("missing incumbent")?,
+                    "incumbent",
+                )?,
+                args.get("incumbent_geometry"),
+            )?;
+            let candidate = with_geometry_files(
+                drop_in_part_arg(
+                    args.get("candidate").ok_or("missing candidate")?,
+                    "candidate",
+                )?,
+                args.get("candidate_geometry"),
+            )?;
             let report = pcbcraft_library::drop_in_check(&incumbent, &candidate)?;
             Ok(json!({"drop_in": report.drop_in, "findings": report.findings}))
         }
@@ -1872,5 +1917,92 @@ mod tests {
             "unknown keys must be rejected: {:?}",
             result
         );
+    }
+
+    #[test]
+    fn drop_in_tool_takes_listings_as_parts() -> Result<(), String> {
+        let listing = json!({
+            "source": "installed",
+            "source_id": "Lib",
+            "source_ref": "R1",
+            "manufacturer": "Acme",
+            "mpn": "10K-0603",
+            "description": "10k Ohm resistor",
+            "category": "resistor",
+            "source_category": "resistors",
+            "package_key": "chip-0603",
+            "package_text": "0603",
+            "value": 10000.0,
+            "value_unit": "ohm",
+            "tolerance_pct": [1.0, 1.0],
+            "rated_voltage_v": 50.0,
+            "temp_min_c": -55.0,
+            "temp_max_c": 155.0,
+            "power_w": 0.1,
+            "lifecycle": "active",
+            "lifecycle_raw": "Active",
+            "price_breaks": [],
+            "stock": null, "stock_at": null, "min_order_qty": null, "order_multiple": null,
+            "packaging": null, "rohs": null, "datasheet_url": null,
+            "symbol": null, "footprint": null, "model3d": null
+        });
+        let args = json!({
+            "incumbent": {"listing": listing},
+            "candidate": {"listing": listing}
+        });
+        let report = read_tool(&UserConfig::detached(), "library.drop_in_check", &args)?;
+        let findings = report["findings"].as_array().ok_or("findings missing")?;
+        let height = findings
+            .iter()
+            .find(|f| f["code"] == "height_mm")
+            .ok_or("no height_mm finding")?;
+        assert_eq!(height["pass"], true, "height_mm must pass when unknown");
+        Ok(())
+    }
+
+    #[test]
+    fn drop_in_tool_with_only_half_the_geometry_still_runs() -> Result<(), String> {
+        let listing = json!({
+            "source": "installed",
+            "source_id": "Lib",
+            "source_ref": "R1",
+            "manufacturer": "Acme",
+            "mpn": "10K-0603",
+            "description": "10k Ohm resistor",
+            "category": "resistor",
+            "source_category": "resistors",
+            "package_key": "chip-0603",
+            "package_text": "0603",
+            "value": 10000.0,
+            "value_unit": "ohm",
+            "tolerance_pct": [1.0, 1.0],
+            "rated_voltage_v": 50.0,
+            "temp_min_c": -55.0,
+            "temp_max_c": 155.0,
+            "power_w": 0.1,
+            "lifecycle": "active",
+            "lifecycle_raw": "Active",
+            "price_breaks": [],
+            "stock": null, "stock_at": null, "min_order_qty": null, "order_multiple": null,
+            "packaging": null, "rohs": null, "datasheet_url": null,
+            "symbol": null, "footprint": null, "model3d": null
+        });
+        let (_dir, sym, _fp) = resistor_files()?;
+        let symbol = symbol(Path::new(&sym), "R")?;
+        let args = json!({
+            "incumbent": {"listing": listing},
+            "candidate": {"listing": listing, "symbol": symbol}
+        });
+        let report = read_tool(&UserConfig::detached(), "library.drop_in_check", &args)?;
+        let findings = report["findings"].as_array().ok_or("findings missing")?;
+        let footprint = findings
+            .iter()
+            .find(|f| f["code"] == "footprint")
+            .ok_or("no footprint finding")?;
+        // Half the geometry leaves the pads unknown, so the footprint comparison falls back
+        // to the package keys, which are the same here.
+        assert_eq!(footprint["pass"], true, "same package key passes");
+        assert_eq!(footprint["message"], "Package keys match");
+        Ok(())
     }
 }
