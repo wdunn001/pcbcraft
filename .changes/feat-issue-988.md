@@ -1,8 +1,8 @@
-## feat(portal): report and takedown state machines
-
-Pure transition functions for the moderation queue.
-
-- `advance_report(state, event)`: Open->Triaged->Resolved/Dismissed->Open (reopen).
-- `advance_takedown(row, event, now, wait)`: Notice->Removed->CounterNotice->Restored (after wait) -> Closed.
-- Time is passed by the caller as Unix seconds; no clock dependency.
-- Tests cover legal walks and illegal transitions.
+---
+type: feature
+area: portal
+issues: [988]
+user_visible: false
+docs: n/a: internal state machine functions for the portal moderation queue, no user-facing page changes
+summary: Add report and takedown state transition functions for the portal moderation queue, with tests for legal and illegal moves.
+---
