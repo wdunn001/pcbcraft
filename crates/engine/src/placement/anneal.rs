@@ -38,7 +38,7 @@
 //! Dependencies: `crates/engine/src/placement/model.rs`, `rng.rs`, `mod.rs`.
 use super::{
     AnnealOutcome, Candidate, Decision, Model, Move, MovedCell, PlacementSettings, Rng, Stop,
-    Verdict, not_built,
+    Verdict,
 };
 
 /// XOR mask that separates the probe stream from the main stream.
