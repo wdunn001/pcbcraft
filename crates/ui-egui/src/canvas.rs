@@ -1314,7 +1314,7 @@ impl App {
     ///
     /// # Dependencies
     /// - `crates/ui-egui/src/board_visibility.rs` decides what each eye paints.
-    fn pcb_object_shown(&self, id: Id) -> bool {
+    pub(super) fn pcb_object_shown(&self, id: Id) -> bool {
         use crate::layer_visibility::SubLayer;
         let board = &self.project.board;
         if let Some(t) = board.tracks.iter().find(|t| t.id == id) {
@@ -1404,6 +1404,16 @@ impl App {
             {
                 return Some(c.id);
             }
+            // A mounting hole is picked inside its drill, ahead of any pour over it.
+            if let Some(h) = self
+                .project
+                .board
+                .holes
+                .iter()
+                .find(|h| (h.position.distance(pos) - h.diameter / 2.0) * (zoom as f64) < 10.0)
+            {
+                return Some(h.id);
+            }
             if let Some(z) = self
                 .project
                 .board
@@ -1433,27 +1443,33 @@ impl App {
             }
         }
     }
+    /// The pin nearest to `pos` within the pick reach, if any.
     pub(crate) fn pick_pin(&self, pos: Point, zoom: f32) -> Option<PinRef> {
         let page = self.schematic_page();
         let sheet = self.sheet_view();
+        let mut best: Option<(f64, PinRef)> = None;
         for c in sheet
             .components
             .iter()
             .filter(|c| crate::page_scope::in_view(&sheet, page, c.sheet))
         {
             for pin in &c.pins {
-                if c.pin_position(&pin.number)
-                    .is_some_and(|p| p.distance(pos) * (zoom as f64) < 12.0)
-                {
-                    return Some(PinRef {
-                        component: c.id,
-                        pin: pin.number.clone(),
-                        unit: None,
-                    });
+                let Some(d) = c.pin_position(&pin.number).map(|p| p.distance(pos)) else {
+                    continue;
+                };
+                if d * (zoom as f64) < 12.0 && best.as_ref().is_none_or(|(b, _)| d < *b) {
+                    best = Some((
+                        d,
+                        PinRef {
+                            component: c.id,
+                            pin: pin.number.clone(),
+                            unit: None,
+                        },
+                    ));
                 }
             }
         }
-        None
+        best.map(|(_, pin)| pin)
     }
     /// When both clicked pads sit on the same net of a declared differential
     /// pair, the pad each of those footprints has on the partner net, so one

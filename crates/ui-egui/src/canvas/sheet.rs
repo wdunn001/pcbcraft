@@ -80,7 +80,7 @@ impl SheetColours {
 /// How a net is drawn when it is a supply: a rail hangs from a bar above, a
 /// ground hangs from a stack of bars below.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum PowerKind {
+pub(crate) enum PowerKind {
     Rail,
     Ground,
 }
@@ -97,7 +97,7 @@ pub(super) enum PowerKind {
 ///
 /// # Do not
 /// - Treat an unnamed or `unassigned` net as power.
-pub(super) fn power_kind(name: &str) -> Option<PowerKind> {
+pub(crate) fn power_kind(name: &str) -> Option<PowerKind> {
     let n = name.trim().to_ascii_uppercase();
     let n = n.trim_start_matches('+');
     if n.is_empty() || n == "UNASSIGNED" {
