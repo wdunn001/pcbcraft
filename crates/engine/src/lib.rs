@@ -42,6 +42,7 @@ mod part_save;
 mod pin_map;
 pub mod placement;
 mod plugins;
+mod power_port;
 pub mod profiles;
 pub mod publication;
 pub mod recents;
@@ -3067,6 +3068,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(outline::commands())
         .chain(bus_entry::commands())
         .chain(wire_reconnect::commands())
+        .chain(power_port::commands())
         .chain(tuning::commands())
         .chain(sim::commands())
         .chain(datasheet_annotations::commands())
@@ -10747,6 +10749,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = bus_entry::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = power_port::run(p, command, params) {
         return result;
     }
     if let Some(result) = wire_reconnect::run(p, next, command, params) {
