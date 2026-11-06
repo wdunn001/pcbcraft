@@ -71,19 +71,18 @@ fn a_newcomer_opens_files_and_sees_the_project_summary() -> Result<(), String> {
         "PROJECT",
         "PARTS",
         "NETS",
-        "BOARD",
+        "BOARD SHAPE",
         "CHECKS",
-        "Project files",
-        "Made files",
-        "No fabrication files yet",
+        "Shape of each layer",
+        "Next",
         "Recent projects",
         "alpha",
         "beta",
         "beta.pcbcraft",
-        "Design",
+        "DESIGN",
     ] {
         assert!(
-            paints_text(&ctx, &mut app, words)?,
+            paints_text_tall(&ctx, &mut app, words)?,
             "the Files page shows {words}"
         );
     }
@@ -93,7 +92,7 @@ fn a_newcomer_opens_files_and_sees_the_project_summary() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_finds_the_tool_bar_and_the_library_on_the_files_tab() -> Result<(), String> {
+fn a_newcomer_finds_the_tool_bar_and_the_project_files_on_the_files_tab() -> Result<(), String> {
     let recents = IsolatedRecents::new()?;
     let (ctx, mut app, _) = files_tab(&recents)?;
     for command in [
@@ -114,13 +113,13 @@ fn a_newcomer_finds_the_tool_bar_and_the_library_on_the_files_tab() -> Result<()
     };
     assert_eq!(
         aside_tabs(&app),
-        ["layers", "library"],
-        "the Files left aside has Layers and Library, as the mockup draws"
+        ["files", "history"],
+        "the Files left aside has Files and History, as the mockup draws"
     );
     assert_eq!(
         app.region().left_tab,
-        "library",
-        "the Library is the tab showing"
+        "files",
+        "the project files tree is the tab showing"
     );
     assert!(
         paints_text(&ctx, &mut app, "Properties")?,
@@ -130,22 +129,40 @@ fn a_newcomer_finds_the_tool_bar_and_the_library_on_the_files_tab() -> Result<()
 }
 
 #[test]
-fn a_newcomer_reads_the_project_file_table_and_opens_the_design() -> Result<(), String> {
+fn a_newcomer_reads_the_project_files_tree_and_opens_the_design() -> Result<(), String> {
     let recents = IsolatedRecents::new()?;
     let (ctx, mut app, _) = files_tab(&recents)?;
-    for words in ["NAME", "KIND", "SIZE", "MODIFIED", "KB"] {
+    for words in [
+        "DESIGN",
+        "PROJECT LIBRARY",
+        "ATTACHED FILES",
+        "MADE FILES",
+        "Nothing made yet",
+    ] {
         assert!(
-            paints_text(&ctx, &mut app, words)?,
-            "the file table shows {words}"
+            paints_text(&ctx, &mut app, &words.to_lowercase())?
+                || paints_text(&ctx, &mut app, words)?
+                || paints_text(&ctx, &mut app, &capitalised(words))?,
+            "the files tree shows {words}"
         );
     }
-    authoring::tests::tap(&ctx, &mut app, "beta.pcbcraft")?;
+    tap_id(&ctx, &mut app, "button:beta.pcbcraft")?;
     assert_eq!(
         app.tab,
         Tab::Schematic,
         "clicking the design file opens the drawing"
     );
     Ok(())
+}
+
+/// "PROJECT LIBRARY" as "Project library".
+fn capitalised(words: &str) -> String {
+    let lower = words.to_lowercase();
+    let mut chars = lower.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
+        .unwrap_or_default()
 }
 
 #[test]
@@ -254,6 +271,12 @@ fn a_newcomer_walks_every_button_of_the_files_page() -> Result<(), String> {
         ("button:Open", files_home::Page::Open, true),
         ("button:Open folder", files_home::Page::Open, false),
         ("button:Add file", files_home::Page::Import, false),
+        ("button:Show folder", files_home::Page::Open, false),
+        (
+            "button:Replace from SVG or DXF",
+            files_home::Page::Import,
+            false,
+        ),
         ("button:Export", files_home::Page::Export, true),
     ] {
         if in_tool_bar {
@@ -269,11 +292,8 @@ fn a_newcomer_walks_every_button_of_the_files_page() -> Result<(), String> {
             "Back returns to the project"
         );
     }
-    tap_id(&ctx, &mut app, "button:Library sources")?;
-    assert_eq!(app.tab, Tab::Libraries, "Library sources opens its page");
-    app.change_tab(Tab::Files);
-    tap_id(&ctx, &mut app, "button:Go to Manufacture")?;
-    assert_eq!(app.tab, Tab::PlotFiles, "Go to Manufacture opens that tab");
+    tap_id(&ctx, &mut app, "button:Open Manufacture")?;
+    assert_eq!(app.tab, Tab::PlotFiles, "Open Manufacture opens that tab");
     app.change_tab(Tab::Files);
     tap_strip(&ctx, &mut app, "button:Open sample project")?;
     assert!(
@@ -322,16 +342,11 @@ fn a_newcomer_edits_the_project_properties_on_the_files_tab() -> Result<(), Stri
         "the author is stored: {}",
         app.message
     );
-    type_into(&ctx, &mut app, "spinbutton:Board width", "77")?;
+    type_into(&ctx, &mut app, "textinput:Project notes", "Rev B")?;
     assert_eq!(
-        app.project.board.width, 77.0,
-        "the width is stored: {}",
-        app.message
-    );
-    type_into(&ctx, &mut app, "spinbutton:Board height", "55")?;
-    assert_eq!(
-        app.project.board.height, 55.0,
-        "the height is stored: {}",
+        app.project.meta.get("notes").map(String::as_str),
+        Some("Rev B"),
+        "the notes are stored: {}",
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "mil")?;
@@ -340,12 +355,12 @@ fn a_newcomer_edits_the_project_properties_on_the_files_tab() -> Result<(), Stri
         "the units are stored: {}",
         app.message
     );
-    for section in ["button:General", "button:Board"] {
+    for section in ["button:General", "button:Shape", "button:Layers"] {
         tap_id(&ctx, &mut app, section)?;
         tap_id(&ctx, &mut app, section)?;
     }
     assert!(
-        paints_text(&ctx, &mut app, "Layers")?,
+        paints_text(&ctx, &mut app, "Copper layers")?,
         "a section folds and opens again: {}",
         app.message
     );
@@ -368,10 +383,10 @@ fn a_newcomer_opens_the_design_file_of_a_project_that_has_no_file_yet() -> Resul
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
-    for words in ["design.pcbcraft", "Not saved yet"] {
+    for words in ["design.pcbcraft", "Unsaved changes"] {
         assert!(
             paints_text(&ctx, &mut app, words)?,
-            "the table shows {words}"
+            "the tree shows {words}"
         );
     }
     tap_id(&ctx, &mut app, "button:design.pcbcraft")?;
@@ -380,28 +395,6 @@ fn a_newcomer_opens_the_design_file_of_a_project_that_has_no_file_yet() -> Resul
         Tab::Schematic,
         "the design file opens the drawing: {}",
         app.message
-    );
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_picks_a_part_from_the_library_beside_the_project_summary() -> Result<(), String> {
-    let recents = IsolatedRecents::new()?;
-    let (ctx, mut app, _) = files_tab(&recents)?;
-    tap_id(
-        &ctx,
-        &mut app,
-        "button:Protection diode, Built in \u{b7} MIT OR Apache-#.#",
-    )?;
-    assert_eq!(
-        app.tab,
-        Tab::Schematic,
-        "a part picked on the Files tab takes you to the drawing: {}",
-        app.message
-    );
-    assert!(
-        matches!(app.tool, Tool::Place(_)),
-        "and the part is ready to place"
     );
     Ok(())
 }
@@ -424,7 +417,7 @@ fn a_newcomer_opens_project_settings_from_the_files_page_and_visits_every_tab() 
         ("tab:Machines", "Machines in this project"),
         ("tab:Title block", "Printed on every sheet"),
         ("tab:Builds", "New build"),
-        ("tab:Board and stackup", "Board size"),
+        ("tab:Board", "Board shape"),
     ] {
         tap_id(&ctx, &mut app, tab)?;
         assert!(
@@ -433,15 +426,19 @@ fn a_newcomer_opens_project_settings_from_the_files_page_and_visits_every_tab() 
             app.message
         );
     }
-    type_into(&ctx, &mut app, "spinbutton:Width", "88")?;
+    tap_id(&ctx, &mut app, "tab:Design rules")?;
+    type_into(&ctx, &mut app, "spinbutton:Clearance", "0.45")?;
     assert_eq!(
-        app.project.board.width, 88.0,
+        app.project.board.clearance, 0.45,
         "an edit in the dialog is stored: {}",
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "Save")?;
     assert!(!app.project_settings.open, "Save closes the dialog");
-    assert_eq!(app.project.board.width, 88.0, "the edit stays after Save");
+    assert_eq!(
+        app.project.board.clearance, 0.45,
+        "the edit stays after Save"
+    );
     Ok(())
 }
 

@@ -168,7 +168,7 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
     );
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     assert!(
-        paints_text(&ctx, &mut app, "Project files")?,
+        paints_text_tall(&ctx, &mut app, "Recent projects")?,
         "build outputs moved under Files: {}",
         app.message
     );
@@ -794,10 +794,9 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
         "View > Rules opens the rules page"
     );
     authoring::tests::tap(&ctx, &mut app, "Files")?;
-    authoring::tests::tap(&ctx, &mut app, "Library sources")?;
     assert!(
-        matches!(app.tab, Tab::Libraries),
-        "Library sources stays reachable"
+        !paints_text(&ctx, &mut app, "Library sources")?,
+        "the Files page has no Library sources control"
     );
     Ok(())
 }

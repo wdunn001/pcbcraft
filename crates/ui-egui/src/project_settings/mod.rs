@@ -2,7 +2,7 @@
 //! the design, split into tabs by concern.
 //!
 //! Context: issue #775 (fork #617) and the approved mockups `dialog-project-board` and
-//! `dialog-project-rules` in the design folder. The tabs are Board and stackup, Design
+//! `dialog-project-rules` in the design folder. The tabs are Board, Design
 //! rules, Net classes, Electrical rules, Machines, Title block and Builds. The preset picker and
 //! per-limit origin words of the held Rules tab PR (#37) live in `rules.rs`; the pin
 //! matrix grid of the held PR (#38) lives in `electrical.rs`.
@@ -23,6 +23,7 @@
 //! - Hold rule data here; the project is the only copy.
 //! - Close on a click outside the dialog (see `ui_kit/dialog.rs`).
 mod board;
+mod board_shape;
 mod class_si;
 mod classes;
 mod electrical;
@@ -50,7 +51,7 @@ const TABS: [&str; 7] = [
     "builds",
 ];
 
-/// Tab index of Board and stackup.
+/// Tab index of Board.
 pub(crate) const TAB_BOARD: usize = 0;
 /// Tab index of Design rules.
 pub(crate) const TAB_RULES: usize = 1;
@@ -80,8 +81,12 @@ pub(crate) struct State {
     error: Option<String>,
     /// The stackup row picked in the table, by name; its details show under the table.
     layer_selected: Option<String>,
-    /// Corner size in millimetres typed beside the Corners choice.
-    corner_size: f64,
+    /// Whether the Start from a rectangle window is showing.
+    rect_open: bool,
+    /// Width typed in the rectangle window, in millimetres.
+    rect_width: f64,
+    /// Height typed in the rectangle window, in millimetres.
+    rect_height: f64,
     /// Draft for a new custom rule: name, measure index, limit, loud.
     rule_name: String,
     rule_measure: usize,
@@ -100,9 +105,16 @@ impl State {
         self.machine_edit.is_some()
     }
 
+    /// Whether the Start from a rectangle window is showing (stories read it).
+    #[cfg(test)]
+    pub(crate) fn rectangle_open(&self) -> bool {
+        self.rect_open
+    }
+
     fn blank() -> Self {
         Self {
-            corner_size: 3.0,
+            rect_width: 50.0,
+            rect_height: 50.0,
             rule_limit: 0.15,
             ..Self::default()
         }
@@ -344,12 +356,14 @@ impl App {
             cancel: Some((&cancel.0, &cancel.1)),
             primary: (&save.0, &save.1),
         };
+        self.settings_rectangle_keys(ctx);
         let mut tab = self.project_settings.tab;
         let shown = tab;
         let outcome = dialog::show(ctx, &spec, &mut tab, |ui| {
             self.settings_body(ui, shown);
         });
         self.project_settings.tab = tab;
+        self.settings_rectangle_window(ctx);
         match outcome {
             Outcome::Open => {}
             Outcome::Primary => {

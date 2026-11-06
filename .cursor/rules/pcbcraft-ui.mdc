@@ -8,7 +8,7 @@ alwaysApply: false
 
 The design lives in `docs/design-system.md` (tokens, components, menus, Layers tree) and `docs/page-layouts.md` (each tab). Read the part you touch; do not copy it here or into code.
 
-- Navigation is tabs at the top of a region. Never add a left rail, a tab for an action, or a settings tab.
+- Navigation is tabs at the top of a region. Never add a left rail, a tab for an action, or a settings tab. The six main tabs are Files, Schematic, Layout, Analyze, Manufacture and Library.
 - Each tab fills its regions through the `Workspace` trait in `crates/ui-egui/src/workspace.rs`. Plug in with a region tab id; never edit the shell.
 - Build with the widgets in `crates/ui-egui/src/ui_kit/`. Right-click menus only through `ui_kit/menu.rs`. A choice between a few settings is `ui_kit/segmented.rs`.
 - Colours, sizes and radii come from `crates/ui-egui/src/theme.rs`, never literals.

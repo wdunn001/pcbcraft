@@ -4,12 +4,12 @@ What each work area holds, region by region. The tokens, components and rules ar
 
 Frame (1920 by 1240 reference): menu bar 32, tab nav 40, tool bar 40, body, status bar 24 (the open project's name at the left with a small copper dot when it has unsaved changes, then the last plain sentence; no command names). Body = left aside 320, centre, right aside 340. The bottom sheet sits under the centre only (232 open, 36 collapsed). There is no left rail.
 
-Each tab owns its regions through the `Workspace` trait in `crates/ui-egui/src/workspace.rs`: its tool bar, left aside tabs, centre, bottom sheet tabs and default layout. The user's layout is remembered per tab and View > Reset layout restores the defaults. The Workspace contract today lists Files, Schematic, Layout and Manufacture; the Library tab joins it as its own workspace.
+Each tab owns its regions through the `Workspace` trait in `crates/ui-egui/src/workspace.rs`: its tool bar, left aside tabs, centre, bottom sheet tabs and default layout. The user's layout is remembered per tab and View > Reset layout restores the defaults. The Workspace contract today lists Files, Schematic, Layout, Analyze and Manufacture; the Library tab joins it as its own workspace.
 
 ## 1. Shell
 
 - Menu bar: brand mark and name, then File, Edit, View, Help. Nothing else (no project title, no Save and Undo buttons, no version; those are menu items and Help, About).
-- Tab nav: Files, Schematic, Layout, Manufacture, Library. These are work areas only; settings and one-off dialogs are not places you work in. The active tab has a 2 px copper bar.
+- Tab nav: Files, Schematic, Layout, Analyze, Manufacture, Library. These are work areas only; settings and one-off dialogs are not places you work in. The active tab has a 2 px copper bar.
 - Tool bar: one row, changes per tab (listed per page). No layer drop-down and no selection-filter chips on any tab; the layer is picked in the Layers tree and picking is limited by locking rows. Buttons centre their icon and label.
 - Status bar: document state left; error and warning counts (a click opens the bottom sheet on Findings), cursor X Y, units and zoom right. Nothing else.
 - Bottom sheet: Findings (Run checks, severity filter, rows), Output (progress and results of the last run), Console (developer detail lives here), Parts (one row per part with reference, value, footprint, maker and part number; header buttons sort, a filter box per column narrows the rows, and a cell edit is one undo step; the boxes at the left pick rows, Shift picks a range, and Fill writes one typed value into a chosen column of every picked row as one undo step; Export saves the grid as a spreadsheet file with the visible columns, order and filter; Group identical merges parts the bill of materials prints as one line and adds a Quantity column). Collapsed it is a 36 px tab strip with a count.
@@ -18,7 +18,7 @@ Each tab owns its regions through the `Workspace` trait in `crates/ui-egui/src/w
 ## 2. Pages
 
 ### Files
-Its own workspace, drawn as the `files` mockup. Tool bar: New, Open, Save | Import, Export | Open sample project (icons only in a narrow window). Left aside: Layers | Library, with the Library showing so a part can be looked at before a board exists. Centre: the project name in display size with Save and Open folder, four stat cards (Parts, Nets, Board, Checks), the Project files table, Made files (an empty state that points to Manufacture) and Recent projects, each with an Open button. Open, Import and Export open as pages under a Back to project button. Right aside: project Properties (name, units, author, board width, height, layers) and a Project settings button.
+Its own workspace, drawn as the `files` mockup. Tool bar: New, Open, Save | Import, Export | Open sample project (icons only in a narrow window). Left aside: the project files tree with Files and History tabs. The Files tab has a filter box, Add file and Show folder, then the sections Design (the design file, marked Unsaved changes while it has changes), Project library (Symbols, Footprints, 3D models), Attached files (Datasheets, Notes, Images), Made files and History, each with a count. A section with no data source yet says so in one row (Nothing made yet). The Layout layers tree is never shown here. Centre: the project name in display size with Save and Open folder, four cards (Parts, Nets, Board shape, Checks) that each end in a link to the tab where the card belongs (Open in Schematic, Edit shape in Layout, Open Findings), a Shape of each layer row with one small drawing per copper layer (Follows the board or Own shape), Next (fix errors, make files, save a copy to share) and Recent projects. The Board shape card draws the cut path with its cut-outs and mounting holes and prints the corner, cut-out and mounting hole counts and the read only reach (`Reaches W x H mm`). Open, Import and Export open as pages under a Back to project button. Right aside: project Properties with General (name, units, author, notes), Shape (outline kind, corners, the read only reach with the hint that you change the shape and not the box, Edit shape in Layout, Replace from SVG or DXF, Start from a rectangle), Layers (copper layer count, Stackup and finish) and a Project settings button. The board is a free-form 2D cut path. A rectangle is only a template: Start from a rectangle asks for a width and a height in a small dialog and is the only place the two numbers appear. There is no Width or Height field on the page and no Library sources button; library sources belong to the Library tab.
 
 ### Library
 A full workspace for parts. Part browser with search and the Symbols | Footprints | Both segmented filter; part pages that open as tabs; a datasheet reader per component; vendor prices and supplier sources with editing; create and edit parts with symbol and footprint editors and 3D models; a Compare view that diffs the specs of two to five parts. A link that used to open settings opens the part in this tab instead.
@@ -40,19 +40,28 @@ Selecting a row sets what the tools draw on. Hover previews a layer; a click pin
 Centre: board with chamfered corners, Y up with rulers and axis gizmo, dimensions, ratsnest, selection handles. The Layout view card at the top right holds 2D | 3D, Top | Bottom, rotate left, rotate right and reset. On 3D the canvas shows the board and parts with a soft shadow, the tool bar offers Orbit, Pick part, Measure and Export 3D model, and the Layers tree eyes drive visibility. Right aside: Properties. Board settings (the board row of the Layers tree) holds Board size, a Shape section (preset buttons for rectangle, rounded rectangle, circle, ellipse, polygon, L shape and chamfered rectangle, the sizes of the picked preset, and the live area and size of the outline), then the stackup. Bottom sheet open on Findings.
 Draw shape: the right aside opens with a Drawing on chip (layer, purpose, one sentence on what a figure there becomes). The status bar names the shape, the layer and its purpose before the first click, and while a line, box or circle is pending the canvas shows its length and angle, width and height, or radius beside the pointer.
 
+### Analyze
+A full canvas scope view for signal analysis. Tool bar: Run simulation, Stop, Reset, Auto scale | Probe add, Probe remove, Probe clear. Left aside: Signals (a list of probe points with name, layer and status). Centre: the scope display with 10 divisions, 4 channels and 4 decode lanes. Right aside: Properties of the selected signal (name, position, channel assignment, trigger level). Bottom sheet: collapsed. Design principle: one scope widget, two hosts (the Analyze tab and a compact strip in the Simulation tab of the bottom sheet), no duplicated state; the host passes a ScopeId.
+
 ### Manufacture
 A CAM and outputs workspace. Tool bar: Generate all (primary), Add output, Panelize | Machine picker, Run, Export | Preview toggle | stale count. Left aside Outputs | Machines. The outputs tree is grouped by kind: Fabrication (Gerber with a row per layer, Drill, Drill map, netlist), Assembly (parts list, placement, assembly drawing), CAM jobs (isolation milling, drilling, outline, laser, stencil, print, pick and place). Each row: name, machine, badge (Current, Stale, Not made), eye. Centre: preview of the selected output with the Show in preview checklist and the estimate card. Right aside: Properties of the output (name, machine, file name, side, tool table, feeds, depths, passes; Generate, Export, Run on machine). Bottom sheet: Output log and Findings.
 
 ## 3. Dialogs and menus
 
-- Project settings (File menu, and the button in Files Properties): tabs Board and stackup, Design rules, Net classes, Electrical rules, Machines, Title block, Builds.
+- Project settings (File menu, and the button in Files Properties): tabs Board, Design rules, Net classes, Electrical rules, Machines, Title block, Builds.
+- Project settings, Board tab: a Board shape card draws the outline with its cut-outs and mounting holes beside Outline (Free-form, or a plain name such as Rectangle, 4 corners), Corners, Cut-outs and a read only Reaches width by height, with the buttons Replace from SVG or DXF, Start from a rectangle and Edit in Layout. Start from a rectangle opens a small window with a width and a height; it is the only place those two numbers are typed. A Shape of each layer card lists the copper layers, each Follows the board or has its own shape; layer shapes may differ and overlap, and the other layers follow their copper layer. The Finish card and the Stackup card sit beside and below them.
 - Preferences (Edit menu): tabs Appearance, Language, Units, Keys, Assistant.
 - File menu with Import and Export submenus, the Edit menu and every right-click menu: design-system.md, section 8.
 
 ## 4. Region relevance
 
+| Region | Files | Schematic | Layout (2D and 3D) | Analyze | Manufacture | Library |
+| --- | --- | --- | --- | --- | --- | --- |
+| Left aside | Layers or Library | Layers or Library | Layers or Library | Signals | Outputs or Machines | Part browser |
+| Right aside | Project properties | Part properties | Part properties | Signal properties | Output properties | Part properties |
+| Bottom sheet | collapsed | collapsed | Findings open | collapsed | Output log | collapsed |
 | Region | Files | Schematic | Layout (2D and 3D) | Manufacture | Library |
 | --- | --- | --- | --- | --- | --- |
-| Left aside | Layers or Library | Layers or Library | Layers or Library | Outputs or Machines | Part browser |
+| Left aside | Project files tree or History | Layers or Library | Layers or Library | Outputs or Machines | Part browser |
 | Right aside | Project properties | Part properties | Part properties | Output properties | Part properties |
 | Bottom sheet | collapsed | collapsed | Findings open | Output log | collapsed |
