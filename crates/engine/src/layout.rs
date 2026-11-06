@@ -290,7 +290,7 @@ fn global_place(
 
     // Compute total wirelength before placement.
     let mut hpwl_before = 0.0;
-    for (_net, points) in net_parts.iter() {
+    for points in net_parts.values() {
         if points.len() >= 2 {
             let pts: Vec<Point> = points.iter().map(|(_, p)| *p).collect();
             hpwl_before += wirelength::hpwl(&pts);
@@ -307,7 +307,7 @@ fn global_place(
         let mut forces: Vec<Point> = vec![Point::new(0.0, 0.0); parts.len()];
 
         // Spring forces: connected parts attract.
-        for (net, conns) in net_parts.iter() {
+        for conns in net_parts.values() {
             // Down-weight power/ground nets.
             let net_name = p.net_name(*net);
             let weight = if is_power_net(net_name) {
@@ -396,21 +396,21 @@ fn global_place(
 
     // Apply final positions to the project.
     for part in &parts {
-        if part.in_scope && !part.locked {
-            if let Some(fp) = p
+        if part.in_scope
+            && !part.locked
+            && let Some(fp) = p
                 .board
                 .footprints
                 .iter_mut()
                 .find(|f| f.id == part.footprint)
-            {
-                fp.position = part.centre;
-            }
+        {
+            fp.position = part.centre;
         }
     }
 
     // Compute wirelength after placement.
     let mut hpwl_after = 0.0;
-    for (net, conns) in net_parts.iter() {
+    for conns in net_parts.values() {
         if conns.len() >= 2 {
             let pts: Vec<Point> = conns.iter().map(|(_, p)| *p).collect();
             hpwl_after += wirelength::hpwl(&pts);
@@ -431,7 +431,7 @@ fn global_place(
 
     // Compute final wirelength after legalization.
     let mut hpwl_final = 0.0;
-    for (net, conns) in net_parts.iter() {
+    for conns in net_parts.values() {
         if conns.len() >= 2 {
             let pts: Vec<Point> = conns.iter().map(|(_, p)| *p).collect();
             hpwl_final += wirelength::hpwl(&pts);
