@@ -2130,7 +2130,7 @@ mod tests {
             }),
         )?;
         assert_eq!(install_result["installed"], "test-design");
-        assert_eq!(install_result["files"].len(), 2);
+        assert_eq!(install_result["files"].as_array().unwrap().len(), 2);
 
         // Verify the installed files match the published content (hash verification)
         let design_path =
