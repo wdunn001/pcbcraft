@@ -163,15 +163,16 @@ mod tests {
     }
 
     #[test]
-    fn a_report_walks_open_triaged_resolved() {
+    fn a_report_walks_open_triaged_resolved() -> Result<(), PortalError> {
         assert_eq!(
-            advance_report(ReportState::Open, ReportEvent::Triage).unwrap(),
+            advance_report(ReportState::Open, ReportEvent::Triage)?,
             ReportState::Triaged
         );
         assert_eq!(
-            advance_report(ReportState::Triaged, ReportEvent::Resolve).unwrap(),
+            advance_report(ReportState::Triaged, ReportEvent::Resolve)?,
             ReportState::Resolved
         );
+        Ok(())
     }
 
     #[test]
@@ -180,17 +181,17 @@ mod tests {
     }
 
     #[test]
-    fn a_counter_notice_restores_after_the_wait() {
-        let row =
-            advance_takedown(&new_row("t1"), TakedownEvent::RemoveMaterial, 1000, 864000).unwrap();
-        let row = advance_takedown(&row, TakedownEvent::CounterNotice, 1000, 864000).unwrap();
+    fn a_counter_notice_restores_after_the_wait() -> Result<(), PortalError> {
+        let row = advance_takedown(&new_row("t1"), TakedownEvent::RemoveMaterial, 1000, 864000)?;
+        let row = advance_takedown(&row, TakedownEvent::CounterNotice, 1000, 864000)?;
         assert_eq!(row.state, TakedownState::CounterNoticePending);
         assert_eq!(row.counter_notice_at, Some(1000));
-        let row = advance_takedown(&row, TakedownEvent::Restore, 865000, 864000).unwrap();
+        let row = advance_takedown(&row, TakedownEvent::Restore, 865000, 864000)?;
         assert_eq!(row.state, TakedownState::Restored);
         assert_eq!(row.restored_at, Some(865000));
         let too_soon = advance_takedown(&row, TakedownEvent::Restore, 864999, 864000);
         assert!(too_soon.is_err());
+        Ok(())
     }
 
     #[test]
