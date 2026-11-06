@@ -805,7 +805,7 @@ fn screenshots(args: &[String]) -> Result<(), String> {
 
 /// Portable crates that must build for wasm32 (short names; the package is
 /// `pcbcraft-<name>`).
-const PORTABLE_CRATES: [&str; 15] = [
+const PORTABLE_CRATES: [&str; 16] = [
     "geom",
     "doc",
     "calc",
@@ -821,6 +821,7 @@ const PORTABLE_CRATES: [&str; 15] = [
     "plugin",
     "portal",
     "publication",
+    "providers",
 ];
 
 /// Reads the revision of the shared `craft-libs` git dependency from a workspace manifest.
