@@ -391,9 +391,12 @@ impl App {
     pub(crate) fn files_edit_shape(&mut self) {
         self.change_tab(Tab::Pcb);
         self.tree.expanded.insert("edge".to_owned());
-        if self.project.board.outline.is_some() {
-            self.outline_ui
-                .pick(outline_arcs::OutlineHit::Segment(0), &self.project);
+        if let Some(points) = self.project.board.outline.as_deref() {
+            self.outline_ui.pick(
+                outline_arcs::OutlineHit::Segment(0),
+                points,
+                &self.project.board.outline_arcs,
+            );
         }
     }
 
