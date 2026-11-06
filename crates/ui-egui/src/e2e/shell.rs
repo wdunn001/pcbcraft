@@ -1645,3 +1645,83 @@ fn a_newcomer_sees_that_exporting_needs_the_desktop_app() -> Result<(), String> 
     }
     Ok(())
 }
+
+/// For every painted text shape, return (the text, the x position of its left
+/// edge). The caller uses this to assert that no text runs up against a panel
+/// edge (issue #123).
+fn painted_text_left_edges(ctx: &egui::Context, app: &mut App) -> Vec<(String, f32)> {
+    for _ in 0..3 {
+        let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+        let mut edges = Vec::new();
+        for shape in &output.shapes {
+            if let egui::Shape::Text(text) = &shape.shape {
+                edges.push((text.galley.text().to_string(), text.pos.x));
+            }
+        }
+        if !edges.is_empty() {
+            return edges;
+        }
+    }
+    Vec::new()
+}
+
+#[test]
+fn a_newcomer_reads_every_dock_with_a_margin() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+
+    // The left dock starts at 0 and the dock panel ends at 320 px (the width
+    // `left_aside()` returns at 1440 points).
+    let dock_edge = 320.0;
+
+    // Check the Layout tab first.
+    app.change_tab(Tab::Pcb);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    {
+        let edges = painted_text_left_edges(&ctx, &mut app);
+        // Inside the left dock: x < dock_edge and below the tab row (y > 150).
+        let in_dock: Vec<_> = edges.iter().filter(|(_, x)| *x < dock_edge).collect();
+        // The dock chrome itself (the tab row) sits above y = 150, so ignore it.
+        // Every other text inside the dock must start at least 12 px from the
+        // left edge.
+        for (text, x) in &in_dock {
+            assert!(
+                *x >= 12.0,
+                "text \"{text}\" starts at x={x} inside the left dock; it must be >= 12"
+            );
+        }
+    }
+
+    // Check the Schematic tab.
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    {
+        let edges = painted_text_left_edges(&ctx, &mut app);
+        let in_dock: Vec<_> = edges.iter().filter(|(_, x)| *x < dock_edge).collect();
+        for (text, x) in &in_dock {
+            assert!(
+                *x >= 12.0,
+                "text \"{text}\" starts at x={x} inside the left dock on the Schematic tab"
+            );
+        }
+    }
+
+    // Check the Library tab.
+    app.change_tab(Tab::Library);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    {
+        let edges = painted_text_left_edges(&ctx, &mut app);
+        let in_dock: Vec<_> = edges.iter().filter(|(_, x)| *x < dock_edge).collect();
+        for (text, x) in &in_dock {
+            assert!(
+                *x >= 12.0,
+                "text \"{text}\" starts at x={x} inside the Library dock"
+            );
+        }
+    }
+
+    Ok(())
+}
