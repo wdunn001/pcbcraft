@@ -309,3 +309,50 @@ fn esc_mid_tour_stores_progress_and_resume_returns_to_the_same_step() -> Result<
     assert_eq!(app.tour_playback().map(|p| p.step), Some(step));
     Ok(())
 }
+
+#[test]
+fn every_tour_step_target_is_registered_and_visible() -> Result<(), String> {
+    let doc = data::embedded()?;
+    for tour in &doc.tour {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        open_workspace(&mut app, &tour.workspace)?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        for (i, step) in tour.steps.iter().enumerate() {
+            let target = &step.target;
+            if target == "none" {
+                continue;
+            }
+            let rect = anchor::lookup(&ctx, target).ok_or_else(|| {
+                format!(
+                    "tour `{}` step {} (`{}`): target anchor `{}` was not registered this frame",
+                    tour.id, i, step.id, target
+                )
+            })?;
+            if rect.width() <= 0.0 || rect.height() <= 0.0 {
+                return Err(format!(
+                    "tour `{}` step {} (`{}`): target `{}` has an empty rect",
+                    tour.id, i, step.id, target
+                ));
+            }
+            let title = lookup(&step.title, &[]);
+            if title == step.title {
+                return Err(format!(
+                    "tour `{}` step `{}`: title key `{}` does not resolve",
+                    tour.id, step.id, step.title
+                ));
+            }
+            let body = lookup(&step.body, &[]);
+            if body == step.body {
+                return Err(format!(
+                    "tour `{}` step `{}`: body key `{}` does not resolve",
+                    tour.id, step.id, step.body
+                ));
+            }
+        }
+    }
+    Ok(())
+}
