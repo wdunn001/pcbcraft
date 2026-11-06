@@ -41,7 +41,11 @@ Centre: board with chamfered corners, Y up with rulers and axis gizmo, dimension
 Draw shape: the right aside opens with a Drawing on chip (layer, purpose, one sentence on what a figure there becomes). The status bar names the shape, the layer and its purpose before the first click, and while a line, box or circle is pending the canvas shows its length and angle, width and height, or radius beside the pointer.
 
 ### Analyze
-A full canvas scope view for signal analysis. Tool bar: Run simulation, Stop, Reset, Auto scale | Probe add, Probe remove, Probe clear. Left aside: Signals (a list of probe points with name, layer and status). Centre: the scope display with 10 divisions, 4 channels and 4 decode lanes. Right aside: Properties of the selected signal (name, position, channel assignment, trigger level). Bottom sheet: collapsed. Design principle: one scope widget, two hosts (the Analyze tab and a compact strip in the Simulation tab of the bottom sheet), no duplicated state; the host passes a ScopeId.
+A sixth work area, approved in issue #1421, between Layout and Manufacture. It holds checks, signal and power analysis, instruments and rules. Tool bar: one row that follows the showing page (Run selected and Stop, then Export CSV; the Scope page has Run, Stop, Single | Probe, Cursors, FFT | Export CSV, Export image). Left aside, titled Analyses: a filter box with an add button, Run all and Mute all, then the groups Checks (Design rules, Electrical checks, Placement), Signal integrity (Impedance targets, Return path, Crosstalk, Reflections and levels, Eye diagram), Power integrity (Rails, PDN impedance, Load step), Protocols (UART, SPI, I2C, CAN), Instruments (Scope, Firmware, Hardware link, IDE link, RF, Antenna) and Rules (Rule sets, Net classes). Each row has a status dot, its name and, only where the design backs one, a count. The picked row has the copper bar. Centre: the page of the picked row as cards. Right aside: Properties of the page, in captioned sections of label and value rows.
+
+The ten pages are Scope, Checks, Net classes, PDN impedance, Reflections and levels, RF, Antenna, Firmware, Hardware link and IDE link. Placement, Impedance targets, Return path, Crosstalk, Eye diagram and Rails have no page yet and open one plain page that says so; Rule sets opens a page with a button to the Rules page; the four protocol rows and Scope open the Scope page; Load step opens the PDN page.
+
+Only two pages read real data. Checks lists the findings of the design's own checks, the same list as the Findings tab, with Show and Mute on each row and a card that reads the fix hint of the shown finding. Net classes lists the design's net classes and opens Project settings on its Net classes tab to change them. Every other page draws its cards and Properties sections as the mockups lay them out, with a plain empty state in each card that says what is missing and, where a tab will produce the data, a button that opens it. Properties rows on those pages read Not set. A button with nothing behind it is disabled and its tooltip says why. No waveform, curve, number or status is drawn that the design did not produce.
 
 ### Manufacture
 A CAM and outputs workspace. Tool bar: Generate all (primary), Add output, Panelize | Machine picker, Run, Export | Preview toggle | stale count. Left aside Outputs | Machines. The outputs tree is grouped by kind: Fabrication (Gerber with a row per layer, Drill, Drill map, netlist), Assembly (parts list, placement, assembly drawing), CAM jobs (isolation milling, drilling, outline, laser, stencil, print, pick and place). Each row: name, machine, badge (Current, Stale, Not made), eye. Centre: preview of the selected output with the Show in preview checklist and the estimate card. Right aside: Properties of the output (name, machine, file name, side, tool table, feeds, depths, passes; Generate, Export, Run on machine). Bottom sheet: Output log and Findings.
@@ -57,11 +61,6 @@ A CAM and outputs workspace. Tool bar: Generate all (primary), Add output, Panel
 
 | Region | Files | Schematic | Layout (2D and 3D) | Analyze | Manufacture | Library |
 | --- | --- | --- | --- | --- | --- | --- |
-| Left aside | Layers or Library | Layers or Library | Layers or Library | Signals | Outputs or Machines | Part browser |
-| Right aside | Project properties | Part properties | Part properties | Signal properties | Output properties | Part properties |
+| Left aside | Project files tree or History | Layers or Library | Layers or Library | Analyses | Outputs or Machines | Part browser |
+| Right aside | Project properties | Part properties | Part properties | Page properties | Output properties | Part properties |
 | Bottom sheet | collapsed | collapsed | Findings open | collapsed | Output log | collapsed |
-| Region | Files | Schematic | Layout (2D and 3D) | Manufacture | Library |
-| --- | --- | --- | --- | --- | --- |
-| Left aside | Project files tree or History | Layers or Library | Layers or Library | Outputs or Machines | Part browser |
-| Right aside | Project properties | Part properties | Part properties | Output properties | Part properties |
-| Bottom sheet | collapsed | collapsed | Findings open | Output log | collapsed |

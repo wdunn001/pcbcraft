@@ -278,6 +278,26 @@ fn shows_tooltip_on_tall_screen(ctx: &egui::Context, app: &mut App, control: &Co
     })
 }
 
+/// The Analyze entry a walk page name stands for, so each of the ten pages is listed.
+fn analyze_entry(name: &str) -> Option<analyze::Entry> {
+    use analyze::Entry;
+    Some(match name {
+        "analyze-scope" => Entry::Scope,
+        "analyze-checks" => Entry::ElectricalChecks,
+        "analyze-net-classes" => Entry::NetClasses,
+        "analyze-pdn" => Entry::PdnImpedance,
+        "analyze-reflections" => Entry::Reflections,
+        "analyze-rf" => Entry::Rf,
+        "analyze-antenna" => Entry::Antenna,
+        "analyze-firmware" => Entry::Firmware,
+        "analyze-hitl" => Entry::HardwareLink,
+        "analyze-ide-link" => Entry::IdeLink,
+        "analyze-pending" => Entry::Rails,
+        "analyze-rules" => Entry::RuleSets,
+        _ => return None,
+    })
+}
+
 /// Paint each page, record its controls and check each for a tooltip.
 fn walk(path: &Path) {
     let ctx = egui::Context::default();
@@ -294,6 +314,18 @@ fn walk(path: &Path) {
         ("rules", None, Some(Tab::Rules)),
         ("checks", None, Some(Tab::Checks)),
         ("settings", None, Some(Tab::Settings)),
+        ("analyze-scope", None, Some(Tab::Analyze)),
+        ("analyze-checks", None, Some(Tab::Analyze)),
+        ("analyze-net-classes", None, Some(Tab::Analyze)),
+        ("analyze-pdn", None, Some(Tab::Analyze)),
+        ("analyze-reflections", None, Some(Tab::Analyze)),
+        ("analyze-rf", None, Some(Tab::Analyze)),
+        ("analyze-antenna", None, Some(Tab::Analyze)),
+        ("analyze-firmware", None, Some(Tab::Analyze)),
+        ("analyze-hitl", None, Some(Tab::Analyze)),
+        ("analyze-ide-link", None, Some(Tab::Analyze)),
+        ("analyze-pending", None, Some(Tab::Analyze)),
+        ("analyze-rules", None, Some(Tab::Analyze)),
         ("library-sources", Some("libraries"), None),
         ("library-collections", Some("project-library"), None),
         ("library-editor", Some("symbol-editor"), None),
@@ -309,6 +341,17 @@ fn walk(path: &Path) {
         let mut app = sample_app(arg);
         if let Some(tab) = tab {
             app.tab = tab;
+        }
+        if let Some(entry) = analyze_entry(name) {
+            app.analyze.entry = entry;
+            if entry == analyze::Entry::NetClasses {
+                app.tool_call(
+                    "netclass.add",
+                    json!({"name": "High speed", "clearance": 0.15, "width": 0.15}),
+                );
+                // The status bar item is unnamed while the message is empty.
+                app.message = t!("status.done.sample_design");
+            }
         }
         // A Preferences page is the dialog over the Layout tab; only what the dialog draws counts.
         let dialog = name.starts_with("preferences-") && app.capture_preferences(name);
