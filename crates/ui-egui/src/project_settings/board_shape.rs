@@ -189,9 +189,9 @@ fn fill_path(painter: &egui::Painter, ring: &[egui::Pos2], color: Color32) {
             }
         }
         xs.sort_by(f32::total_cmp);
-        for pair in xs.chunks_exact(2) {
+        for i in (0..xs.len().saturating_sub(1)).step_by(2) {
             painter.rect_filled(
-                Rect::from_min_max(pos2(pair[0], y - 0.5), pos2(pair[1], y + 0.5)),
+                Rect::from_min_max(pos2(xs[i], y - 0.5), pos2(xs[i + 1], y + 0.5)),
                 0.0,
                 color,
             );
