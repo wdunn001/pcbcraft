@@ -1171,3 +1171,29 @@ mod tests {
         Ok(())
     }
 }
+
+/// Paint one supply symbol by its style name (`ground`, `bar`, `arrow` or
+/// `negative`; anything else paints the bar).
+///
+/// # Rules
+/// - Draws exactly what a placed power symbol of that style draws, so a ghost
+///   of it and the real one cannot differ.
+///
+/// # Do not
+/// - Pick the style from the net here; the caller already knows it.
+pub(crate) fn power_symbol(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: Camera,
+    style: &str,
+    at: Point,
+    name: &str,
+    sc: &SheetColours,
+) {
+    match style {
+        "ground" => ground_symbol(painter, rect, camera, at, name, sc),
+        "arrow" => arrow_symbol(painter, rect, camera, at, name, sc),
+        "negative" => negative_symbol(painter, rect, camera, at, name, sc),
+        _ => rail_symbol(painter, rect, camera, at, name, sc),
+    }
+}

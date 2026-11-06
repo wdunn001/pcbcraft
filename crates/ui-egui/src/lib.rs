@@ -1433,6 +1433,13 @@ pub struct App {
     outline_ui: outline_arcs::OutlineUi,
     drag_offset: Point,
     cursor: Option<Point>,
+    /// What the armed Add tool shows under the pointer this frame.
+    ghost: Option<canvas::ghost::PlacementGhost>,
+    /// The armed library part's outline paths: the library path, the part name
+    /// and the paths, rebuilt only when the armed part changes.
+    ghost_paths: Option<(String, String, Vec<Vec<Point>>)>,
+    /// Capture option: show the Add tool ghost without a pointer.
+    capture_ghost: bool,
     canvas_rect: Rect,
     canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
@@ -1949,6 +1956,25 @@ impl App {
         };
         self
     }
+    /// Arm an Add tool (`part`, `label`, `power`, `port`, `noconnect`, `pad`,
+    /// `via` or `hole`) and show its ghost mid-canvas, so a `--capture` image
+    /// shows what the tool will place.
+    pub fn with_capture_tool(mut self, name: Option<String>) -> Self {
+        let tool = match name.as_deref() {
+            Some("part") => Tool::Place("resistor".into()),
+            Some("label") => Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local),
+            Some("power") => Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power),
+            Some("port") => Tool::Port,
+            Some("noconnect") => Tool::NoConnect,
+            Some("pad") => Tool::Pad,
+            Some("via") => Tool::Via,
+            Some("hole") => Tool::Hole,
+            _ => return self,
+        };
+        self.tool = tool;
+        self.capture_ghost = true;
+        self
+    }
     /// Start with a drawing target (`silk`, `edge` or `copper`), `flipped` to
     /// look from the bottom, or `hide-silk` or `hide-all` to hide layers, so a
     /// `--capture` image shows the Active tag on that layer.
@@ -2238,6 +2264,9 @@ impl App {
             outline_ui: outline_arcs::OutlineUi::default(),
             drag_offset: Point::default(),
             cursor: None,
+            ghost: None,
+            ghost_paths: None,
+            capture_ghost: false,
             canvas_rect: Rect::NOTHING,
             canvas_menu: None,
             message: if cfg!(target_arch = "wasm32") {

@@ -4318,3 +4318,6 @@ library.model_transform.open_in_cad_app = Open in the CAD app
 library.model_transform.open_in_cad_app.tip = Open the companion CAD project for this model in the desktop CAD app.
 library.model_transform.reimport = Reimport
 library.model_transform.reimport.tip = Reload the 3D model from the companion CAD project file; offset, scale and rotation stay as they are.
+placement.ghost.label = NET
+placement.ghost.port = PORT
+placement.ghost.text = Text
