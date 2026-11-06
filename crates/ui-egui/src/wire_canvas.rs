@@ -196,6 +196,35 @@ impl App {
         }
     }
 
+    /// End the wire being drawn on a power or ground port: the wire joins the
+    /// port's net and the start pin joins it too.
+    fn finish_wire_to_port(&mut self, start: PinRef, port: &Label) {
+        let mut points = self.wire_route.clone();
+        if points.is_empty()
+            && let Some(at) = self.sheet_view().pin_position(&start)
+        {
+            points.push(at);
+        }
+        if points.last().copied() != Some(port.position) {
+            points.push(port.position);
+        }
+        let Some(page) = self.project.component(start.component).map(|c| c.sheet) else {
+            return;
+        };
+        if self.project.schematic_label_page(port) != page {
+            self.message = t!("schematic.wire.other_page");
+            self.clear_wire_draft();
+            return;
+        }
+        let points = self.points_to_page(page, &points);
+        let params = json!({
+            "points": points,
+            "pins": [{"component": start.component, "pin": start.pin}],
+            "net": port.net
+        });
+        let _ = self.try_wire_place(params);
+    }
+
     fn finish_wire_tee(&mut self, wire_id: Id, at: Point) {
         let Tool::Wire(Some(_start)) = self.tool.clone() else {
             return;
@@ -250,6 +279,12 @@ impl App {
                 self.wire_route = vec![at];
                 self.tool = Tool::Wire(Some(pin));
             }
+            return;
+        }
+        if let Some(start_pin) = start.clone()
+            && let Some(port) = self.label_under(pos, zoom).filter(|l| l.kind == "power")
+        {
+            self.finish_wire_to_port(start_pin, &port);
             return;
         }
         if let Some((wire, at)) = self.pick_wire_tee(pos, zoom) {

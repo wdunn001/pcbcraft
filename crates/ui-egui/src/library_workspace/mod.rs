@@ -105,6 +105,8 @@ pub(crate) struct State {
     pub(crate) compare_highlight: bool,
     /// Compare page: index into `compare::QUANTITIES`.
     pub(crate) compare_qty: usize,
+    /// Vendors page: index into `vendors::BREAKS` for the order quantity.
+    pub(crate) vendors_qty: usize,
     /// A read of a definition for the editor, running on a worker.
     pub(crate) draft_read: Option<edit::DraftRead>,
     /// True once the default place has been looked at for a recorded answer file.
@@ -131,6 +133,7 @@ impl Default for State {
             compare_only_diff: false,
             compare_highlight: true,
             compare_qty: 1,
+            vendors_qty: 1,
             draft_read: None,
             quotes_checked: false,
             machines: machines::MachineLib::default(),
