@@ -310,6 +310,21 @@ pub(super) fn run(
 
 #[cfg(test)]
 mod tests {
+    /// Moves every footprint well inside the board edge so a route is not refused for clearance.
+    fn move_footprints_inward(s: &mut Session) -> Result<(), Error> {
+        s.execute("board.resize", json!({"width":100.0,"height":60.0}), None)?;
+        let ids: Vec<u64> = s.project.board.footprints.iter().map(|f| f.id).collect();
+        for (i, id) in ids.into_iter().enumerate() {
+            let x = 20.0 + 20.0 * i as f64;
+            s.execute(
+                "footprint.move",
+                json!({"id":id,"position":{"x":x,"y":30.0}}),
+                None,
+            )?;
+        }
+        Ok(())
+    }
+
     use super::*;
     use crate::{Error, Session};
 
@@ -418,6 +433,7 @@ mod tests {
         )?;
 
         s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
 
         // Board scope: both nets appear, N1 first (smaller id)
         let conns = open_connections(&s.project, "board", &[]);
@@ -472,6 +488,7 @@ mod tests {
         )?;
 
         s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
 
         // Run route.auto on the board.
         let r = s.execute("route.auto", json!({"scope":"board"}), None)?;
@@ -494,7 +511,7 @@ mod tests {
 
         // Expect tracks to have been created.
         assert!(
-            s.project.board.tracks.len() > 0,
+            !s.project.board.tracks.is_empty(),
             "tracks were created by routing"
         );
 
@@ -538,6 +555,7 @@ mod tests {
         )?;
 
         s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
 
         // Run route.auto - should either route or report failure
         let r = s.execute("route.auto", json!({"scope":"board"}), None)?;
@@ -553,8 +571,12 @@ mod tests {
 
         // If it failed, it should have a reason
         if failed == 1 {
-            let failures = result["failed"].as_array().unwrap();
-            let first = &failures[0];
+            let failures = result["failed"]
+                .as_array()
+                .ok_or_else(|| Error::Invalid("failed is not an array".into()))?;
+            let first = failures
+                .first()
+                .ok_or_else(|| Error::Invalid("one failure expected".into()))?;
             assert!(first["reason"].is_string(), "failure has a reason string");
         }
 
@@ -597,6 +619,7 @@ mod tests {
         )?;
 
         s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
 
         // Run route.auto
         let r = s.execute("route.auto", json!({"scope":"board"}), None)?;
@@ -608,7 +631,7 @@ mod tests {
         assert!(tracks_before_undo > 0, "tracks exist after routing");
 
         // Undo once
-        s.execute("history.undo", json!({}), None)?;
+        s.undo()?;
 
         // Verify tracks are gone
         assert!(
@@ -655,10 +678,20 @@ mod tests {
         )?;
 
         s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
 
         // Dry run
-        let r = s.execute("route.auto", json!({"scope":"board"}), Some(true))?;
-        let result = &r["result"];
+        let dry = s.dry_run(
+            &[crate::Command {
+                command: "route.auto".into(),
+                params: json!({"scope":"board"}),
+            }],
+            None,
+        )?;
+        let result = &dry
+            .results
+            .first()
+            .ok_or_else(|| Error::Invalid("no dry run result".into()))?;
 
         // Dry run should report what would be done
         assert_eq!(result["open_connections"], json!(1));
@@ -710,6 +743,7 @@ mod tests {
             )?;
 
             s.execute("board.sync", json!({}), None)?;
+            move_footprints_inward(&mut s)?;
 
             let r = s.execute("route.auto", json!({"scope":"board","seed":seed}), None)?;
             let result = &r["result"];
