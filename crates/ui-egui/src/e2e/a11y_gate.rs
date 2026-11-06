@@ -134,12 +134,10 @@ pub(crate) fn count_colour_only_status(out: &egui::FullOutput, _app: &mut App) -
         return 0;
     };
     let mut count = 0;
-    for node in update.nodes.values() {
+    for (_, node) in update.nodes.iter() {
         if matches!(
             node.role(),
-            egui::accesskit::Role::Status
-                | egui::accesskit::Role::Image
-                | egui::accesskit::Role::Indicator
+            egui::accesskit::Role::Status | egui::accesskit::Role::Image
         ) && node.label().map_or(true, |l| l.is_empty())
         {
             count += 1;
@@ -183,7 +181,7 @@ fn check_focus_order(ctx: &egui::Context, app: &mut App, node_count: usize) -> u
     violations
 }
 
-fn practice() -> (egui::Context, App) {
+pub(crate) fn practice() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
